@@ -1,5 +1,34 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
+
+/// ShowControlBar can request DEFAULT before the host `ControlBar` tick
+/// (C++ ControlBarCallback.cpp:489). Applied on the live instance.
+static PENDING_CONTROL_BAR_STAGE: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(0xFF);
+
+fn control_bar_stage_to_u8(stage: ControlBarStage) -> u8 {
+    match stage {
+        ControlBarStage::Default => 0,
+        ControlBarStage::Low => 1,
+        ControlBarStage::Hidden => 2,
+    }
+}
+
+fn control_bar_stage_from_u8(value: u8) -> Option<ControlBarStage> {
+    match value {
+        0 => Some(ControlBarStage::Default),
+        1 => Some(ControlBarStage::Low),
+        2 => Some(ControlBarStage::Hidden),
+        _ => None,
+    }
+}
+
+fn take_pending_control_bar_stage() -> Option<ControlBarStage> {
+    control_bar_stage_from_u8(
+        PENDING_CONTROL_BAR_STAGE.swap(0xFF, std::sync::atomic::Ordering::SeqCst),
+    )
+}
+
 impl ControlBar {
     // ---------------------------------------------------------------------------
     // Science purchase system
@@ -125,7 +154,22 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
+        PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
         self.control_bar_stage = stage;
+    }
+
+    /// C++ `ShowControlBar` (ControlBarCallback.cpp:489) when ControlBarParent is live.
+    pub fn request_switch_control_bar_stage(stage: ControlBarStage) {
+        PENDING_CONTROL_BAR_STAGE.store(
+            control_bar_stage_to_u8(stage),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+    }
+
+    pub fn apply_pending_control_bar_stage(&mut self) {
+        if let Some(stage) = take_pending_control_bar_stage() {
+            self.control_bar_stage = stage;
+        }
     }
 
     pub fn toggle_control_bar_stage(&mut self) {
@@ -145,7 +189,42 @@ impl ControlBar {
     // C++ ControlBar.cpp:2726-2824
     // ---------------------------------------------------------------------------
 
+    fn local_player_side_name() -> String {
+        logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|player| player.read().ok().map(|guard| guard.get_side().clone()))
+            .filter(|side| !side.is_empty())
+            .unwrap_or_else(|| "Observer".to_string())
+    }
+
+    /// Apply the existing scheme manager for `player_side` (C++ ControlBarScheme.cpp:1139).
+    fn apply_control_bar_scheme_for_side(&self, player_side: &str) {
+        let side = if player_side.is_empty() {
+            "Observer"
+        } else {
+            player_side
+        };
+        if let Some(manager) = &self.scheme_manager {
+            let _ = manager.load_scheme(side);
+        }
+        if let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() {
+            let _ = manager.write().set_active_scheme(side.to_string());
+        }
+    }
+
+    pub fn set_control_bar_scheme_by_player_side(&mut self, player_side: &str) {
+        self.apply_control_bar_scheme_for_side(player_side);
+        self.apply_scheme_context_and_default_stage();
+    }
+
     pub fn set_control_bar_scheme_by_player(&mut self) {
+        self.apply_control_bar_scheme_for_side(&Self::local_player_side_name());
+        self.apply_scheme_context_and_default_stage();
+    }
+
+    fn apply_scheme_context_and_default_stage(&mut self) {
         let is_observer = logic_player_list()
             .read()
             .ok()
@@ -162,6 +241,7 @@ impl ControlBar {
         }
 
         self.switch_control_bar_stage(ControlBarStage::Default);
+        self.mark_ui_dirty();
     }
 
     // ---------------------------------------------------------------------------
@@ -501,6 +581,7 @@ impl ControlBar {
         }
         self.mark_ui_dirty();
         self.update(Duration::from_millis(33))?;
+        self.apply_pending_control_bar_stage();
         Ok(())
     }
 

@@ -609,6 +609,22 @@ impl CnCGameEngine {
                     let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(
                         true,
                     );
+                    // C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer(local)
+                    // then ShowControlBar switches DEFAULT (ControlBarCallback.cpp:489).
+                    if crate::gameplay_layout::control_bar_parent_is_live() {
+                        let side = self
+                            .ui_local_player_team_name()
+                            .filter(|name| !name.is_empty())
+                            .unwrap_or_else(|| "Observer".to_string());
+                        game_client::helpers::TheControlBar::set_control_bar_scheme_by_player(
+                            &side,
+                        );
+                        self.control_bar
+                            .set_control_bar_scheme_by_player_side(&side);
+                        self.control_bar.switch_control_bar_stage(
+                            game_client::gui::control_bar::ControlBarStage::Default,
+                        );
+                    }
 
                 }
             }

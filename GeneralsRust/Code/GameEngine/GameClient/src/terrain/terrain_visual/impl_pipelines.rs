@@ -396,11 +396,38 @@ impl TerrainVisualImpl {
             ));
         };
 
+        // Same texture+sampler pattern as the terrain/skybox fragment layouts.
+        // C++ RoadType::applyTexture binds slot 0 with REPEAT addressing.
+        let texture_layout = Arc::new(device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Road Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            },
+        ));
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Road Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref()],
+            bind_group_layouts: &[camera_layout.as_ref(), texture_layout.as_ref()],
             push_constant_ranges: &[],
         });
+        self.road_texture_bind_group_layout = Some(texture_layout);
 
         self.road_pipeline = Some(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

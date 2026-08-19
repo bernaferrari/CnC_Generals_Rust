@@ -6,7 +6,8 @@
 use crate::display::view::{with_tactical_view, Point3};
 use crate::gui::control_bar::{
     host_control_bar_bridge_enabled, publish_host_minimap_interaction,
-    publish_host_select_next_idle_worker, HostMinimapInteractionRequest, HostMinimapMouseButton,
+    publish_host_select_next_idle_worker, ControlBar, ControlBarStage,
+    HostMinimapInteractionRequest, HostMinimapMouseButton,
 };
 use crate::gui::{
     hide_quit_menu, toggle_diplomacy, toggle_quit_menu, with_window_manager,
@@ -14,6 +15,7 @@ use crate::gui::{
     WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
+
 use crate::input::{with_mouse, MouseButton};
 use crate::language_filter::get_language_filter;
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -100,6 +102,18 @@ fn is_alternate_mouse_enabled() -> bool {
         .map(|data| data.read().use_alternate_mouse)
         .unwrap_or(false)
 }
+
+/// Local player's side for ControlBar scheme (C++ Player::getSide).
+fn local_control_bar_player_side() -> String {
+    ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_local_player().cloned())
+        .and_then(|player| player.read().ok().map(|guard| guard.get_side().clone()))
+        .filter(|side| !side.is_empty())
+        .unwrap_or_else(|| "Observer".to_string())
+}
+
 
 fn selection_is_empty() -> bool {
     selection_count() == 0
@@ -429,12 +443,26 @@ impl ControlBarCallbacks {
     /// Show the control bar
     pub fn show_control_bar(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
         if self.state.visible {
+            // C++ ShowControlBar still switches DEFAULT when ControlBarParent is live.
+            self.apply_show_control_bar_scheme_and_default_stage();
             return Ok(());
         }
         self.state.visible = true;
         TheControlBar::show_special_power_shortcut();
         self.apply_visibility_change(immediate, true)?;
         Ok(())
+    }
+
+    /// C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer + ControlBarCallback.cpp:489 DEFAULT.
+    fn apply_show_control_bar_scheme_and_default_stage(&self) {
+        let parent_id = NameKeyGenerator::name_to_key("ControlBar.wnd:ControlBarParent") as i32;
+        let parent_live = with_window_manager(|manager| manager.get_window_by_id(parent_id).is_some());
+        if !parent_live {
+            return;
+        }
+        let side = local_control_bar_player_side();
+        TheControlBar::set_control_bar_scheme_by_player(&side);
+        ControlBar::request_switch_control_bar_stage(ControlBarStage::Default);
     }
 
     /// Check if control bar is visible
@@ -452,8 +480,10 @@ impl ControlBarCallbacks {
         let (screen_w, screen_h) = with_window_manager_ref(|manager| manager.screen_size());
         self.animate_manager.set_screen_size(screen_w, screen_h);
 
+        let mut parent_live = false;
         with_window_manager(|manager| {
             if let Some(handle) = manager.get_window_by_id(control_bar_id) {
+                parent_live = true;
                 if immediate {
                     let _ = handle.borrow_mut().hide(!show);
                 } else {
@@ -482,6 +512,11 @@ impl ControlBarCallbacks {
             view.set_height(target_height);
         });
         if show {
+            if parent_live {
+                // C++ ShowControlBar: scheme is applied at InGame start; stage DEFAULT
+                // when ControlBarParent exists (ControlBarCallback.cpp:489).
+                self.apply_show_control_bar_scheme_and_default_stage();
+            }
             TheControlBar::animate_special_power_shortcut(true);
         } else {
             TheControlBar::animate_special_power_shortcut(false);

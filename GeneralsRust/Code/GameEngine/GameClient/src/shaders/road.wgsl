@@ -1,7 +1,7 @@
-// Startup-safe road shader.
-// The active road runtime currently renders through RoadSystem, not this fallback pipeline.
-// Keep this shader aligned with the live camera-only bind surface so terrain startup does not
-// fail on an unused pipeline that still expects a richer texture/material setup.
+// Road overlay shader (W3DRoadBuffer.cpp RoadType::applyTexture + GRADIENT_MODULATE).
+// Live terrain path records these draws through `record_road_draws`.
+// Bind group 0 = camera. Bind group 1 = road albedo + repeat sampler.
+
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -28,6 +28,11 @@ struct VertexOutput {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
+@group(1) @binding(0)
+var road_texture: texture_2d<f32>;
+@group(1) @binding(1)
+var road_sampler: sampler;
+
 @vertex
 fn vs_main(vertex: RoadVertex) -> VertexOutput {
     var out: VertexOutput;
@@ -40,7 +45,10 @@ fn vs_main(vertex: RoadVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // C++ overlay VB already stores W3DRoadBuffer do_road_dynamic_light in diffuse.
+    // C++ SC_ALPHA_DETAIL GRADIENT_MODULATE: vertex lighting * texture.
+    // Overlay VB already stores W3DRoadBuffer do_road_dynamic_light in color;
+    // road_width remains the edge/coverage alpha (0..1).
+    let tex = textureSample(road_texture, road_sampler, in.tex_coords);
     let alpha = clamp(in.road_width, 0.0, 1.0);
-    return vec4<f32>(in.color, alpha);
+    return vec4<f32>(in.color * tex.rgb, alpha);
 }

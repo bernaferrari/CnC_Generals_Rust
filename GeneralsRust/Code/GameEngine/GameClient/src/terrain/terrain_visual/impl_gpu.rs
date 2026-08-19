@@ -22,6 +22,7 @@ impl TerrainVisualImpl {
 
         // Create road render pipeline
         self.create_road_pipeline(device.as_ref())?;
+        self.ensure_road_texture_bind_group(device.as_ref());
         self.create_tree_pipeline(device.as_ref())?;
 
         self.sync_global_water_plane(device.as_ref())?;
@@ -371,6 +372,16 @@ impl TerrainVisualImpl {
     }
 
     fn update_road_meshes(&mut self) -> TerrainResult<()> {
+        // Retry Roads.ini / Art/Terrain/Road lookup when overlays rebuild
+        // (map load) or the bind group was never created. Do not rebuild
+        // GPU road meshes unless overlay_gpu_meshes_dirty.
+        let retry_road_texture =
+            self.road_texture_bind_group.is_none() || self.overlay_gpu_meshes_dirty;
+        if retry_road_texture {
+            if let Some(device) = self.device.clone() {
+                self.ensure_road_texture_bind_group(device.as_ref());
+            }
+        }
         if !self.overlay_gpu_meshes_dirty {
             return Ok(());
         }
@@ -692,9 +703,10 @@ impl TerrainVisualImpl {
 
 
     fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(road_pipeline), Some(camera_bg)) = (
+        let (Some(road_pipeline), Some(camera_bg), Some(road_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
+            self.road_texture_bind_group.as_ref(),
         ) else {
             return;
         };
@@ -705,7 +717,7 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(road_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
-
+        pass.set_bind_group(1, road_bg, &[]);
         for mesh in self
             .road_meshes
             .iter()
@@ -717,6 +729,187 @@ impl TerrainVisualImpl {
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
         }
     }
+
+    fn ensure_road_texture_bind_group(&mut self, device: &wgpu::Device) {
+        if self.road_texture_bind_group.is_some() && !self.road_texture_is_fallback {
+            return;
+        }
+        let Some(layout) = self.road_texture_bind_group_layout.clone() else {
+            return;
+        };
+        let Some(queue) = self.queue.clone() else {
+            return;
+        };
+
+        let (texture, used_fallback, source_name) =
+            match self.load_first_available_road_texture(device) {
+                Some((texture, name)) => (texture, false, name),
+                None => (
+                    Self::create_fallback_road_texture(device, queue.as_ref()),
+                    true,
+                    "fallback-gravel-2x2".to_string(),
+                ),
+            };
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if self.road_sampler.is_none() {
+            self.road_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Road Texture Sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        let Some(sampler) = self.road_sampler.as_ref() else {
+            return;
+        };
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Road Texture Bind Group"),
+            layout: layout.as_ref(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+
+        if used_fallback {
+            warn!("Road texture missing; using repeatable 2x2 gravel fallback");
+        } else {
+            info!("Road texture bind group ready using {}", source_name);
+        }
+        self.road_texture = Some(texture);
+        self.road_texture_bind_group = Some(bind_group);
+        self.road_texture_is_fallback = used_fallback;
+    }
+
+    fn load_first_available_road_texture(
+        &self,
+        device: &wgpu::Device,
+    ) -> Option<(wgpu::Texture, String)> {
+        for name in self.road_texture_name_candidates() {
+            for path in Self::road_texture_path_candidates(&name) {
+                if TerrainTextures::is_available_terrain_texture_path(&path)
+                    || TerrainTextures::can_resolve_texture_path(&path)
+                {
+                    if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                        return Some((texture, path));
+                    }
+                }
+                if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                    return Some((texture, path));
+                }
+            }
+        }
+        None
+    }
+
+    fn road_texture_name_candidates(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut push_name = |name: &str| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            if !names
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+            {
+                names.push(trimmed.to_string());
+            }
+        };
+
+        if let Some(roads) = game_engine::common::ini::try_get_terrain_roads() {
+            for road in roads.iter_roads() {
+                push_name(road.texture.as_str());
+            }
+        }
+
+        // Retail Roads.ini Texture names (W3DRoadBuffer.cpp loadRoads firstRoad).
+        for name in [
+            "TRTwoLane.tga",
+            "TRDirtRoad.tga",
+            "TRGravelRoad.tga",
+            "TRCobbRoad.tga",
+            "TRFourLane.tga",
+            "TRDirtPath.tga",
+            "TRSidewalk.tga",
+        ] {
+            push_name(name);
+        }
+        names
+    }
+
+    fn road_texture_path_candidates(name: &str) -> Vec<String> {
+        let basename = Path::new(name)
+            .file_name()
+            .and_then(|file| file.to_str())
+            .unwrap_or(name);
+        let mut paths = vec![
+            format!("{TERRAIN_TGA_DIR_PATH}Road/{basename}"),
+            format!("ART/Terrain/Road/{basename}"),
+            format!("{TERRAIN_TGA_DIR_PATH}{basename}"),
+            format!("ART/Terrain/{basename}"),
+            format!("{TGA_DIR_PATH}{basename}"),
+            format!("art/textures/{basename}"),
+            basename.to_string(),
+        ];
+        if name != basename {
+            paths.insert(0, name.replace('\\', "/"));
+        }
+        paths
+    }
+
+    fn create_fallback_road_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        // Repeatable 2x2 gravel last resort after Art/Terrain/Road + Roads.ini probe.
+        const PIXELS: [u8; 16] = [
+            110, 100, 86, 255, 138, 128, 112, 255, 138, 128, 112, 255, 110, 100, 86, 255,
+        ];
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Road Fallback Gravel 2x2"),
+            size: wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &PIXELS,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(8),
+                rows_per_image: Some(2),
+            },
+            wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
 
     fn record_tree_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(tree_pipeline), Some(camera_bg)) = (
@@ -755,8 +948,12 @@ impl TerrainVisualImpl {
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
     pub fn update_tree_meshes(&mut self) {
+        // C++ WaterRenderObjClass::render recenters `new_skybox` on the camera
+        // each frame (W3DWater.cpp:1702-1707). Rebind the N/E/S/W/T face here
+        // because this is the live per-frame `&mut` hook from `render`/`update`.
+        self.rebind_skybox_background_for_camera();
+
         // C++ `loadTreesInVertexAndIndexBuffers` returns when nothing changed.
-        // Re-creating wgpu buffers every TerrainVisual::update is a 200ms+ stall.
         if !self.tree_meshes.is_empty()
             && !self.tree_buffer.need_to_update_texture()
             && !self.tree_buffer.anything_changed()

@@ -73,6 +73,13 @@ pub struct TerrainVisualImpl {
     terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
+    /// Bind group 1: road albedo + repeat sampler (C++ RoadType::applyTexture).
+    road_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    road_texture: Option<Texture>,
+    road_sampler: Option<Sampler>,
+    road_texture_bind_group: Option<BindGroup>,
+    /// True when the bound albedo is the 2x2 gravel fallback, not a Roads.ini texture.
+    road_texture_is_fallback: bool,
     tree_pipeline: Option<wgpu::RenderPipeline>,
 
     /// Terrain textures

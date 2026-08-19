@@ -312,9 +312,9 @@ impl ForwardPass {
 
         let has_bound_texture = self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?;
         if !has_bound_texture && pass.shader.get_texturing() != TexturingType::Disable {
-            // C++ parity fallback: if no texture resource resolved, don't keep a texture-enabled
-            // shader state that would sample black and hide otherwise valid geometry.
-            pass.shader.set_texturing_enable(false);
+            // C++ Get_Texture miss binds MissingTexture (magenta), never disables texturing.
+            // W3DAssetManager.cpp:127-225; dx8wrapper.cpp:2875-2889.
+            pass.set_texture(0, self.ensure_fallback_texture()?);
         }
         Self::assign_vertex_colors_for_pass(&mut pass, mesh, pass_index);
         Self::assign_mapper_for_pass(&mut pass, mesh, pass_index);
@@ -515,6 +515,8 @@ impl ForwardPass {
         if let Some(name) = material_stage_texture(material, 0) {
             if let Some(texture) = self.ensure_texture(name)? {
                 pass.set_texture(0, texture);
+            } else {
+                pass.set_texture(0, self.ensure_fallback_texture()?);
             }
         }
         Ok(())
@@ -540,13 +542,21 @@ impl ForwardPass {
         }
 
         if let Ok(texture) = self.create_texture_from_cached_assets(texture_name) {
-            self.texture_cache
-                .insert(texture_name.to_lowercase(), texture.clone());
+            self.texture_cache.insert(cache_key, texture.clone());
             return Ok(Some(texture));
         }
 
-        self.queue_texture_stream(texture_name);
-        Ok(Some(self.ensure_fallback_texture()?))
+        // First visible use: C++ Get_Texture loads synchronously (W3DAssetManager.cpp:127-225).
+        let _ = self.prime_texture_raw_blocking(texture_name);
+        if let Ok(texture) = self.create_texture_from_cached_assets(texture_name) {
+            self.texture_cache.insert(cache_key, texture.clone());
+            return Ok(Some(texture));
+        }
+
+        // True miss: MissingTexture surface (dx8wrapper.cpp:2875-2889), keep texturing on.
+        let fallback = self.ensure_fallback_texture()?;
+        self.texture_cache.insert(cache_key, fallback.clone());
+        Ok(Some(fallback))
     }
 
     pub(super) fn create_texture_from_cached_assets(

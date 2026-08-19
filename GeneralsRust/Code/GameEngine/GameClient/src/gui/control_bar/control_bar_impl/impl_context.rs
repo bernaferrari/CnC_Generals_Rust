@@ -33,6 +33,23 @@ impl ControlBar {
             self.update_portrait_for_object(obj_id);
         }
 
+        // C++ ControlBar.cpp:2177-2188 CB_CONTEXT_COMMAND: show CommandWindow,
+        // hide UnderConstruction / OCLTimer / Observer list / Beacon.
+        if new_state == ControlBarState::Command {
+            with_window_manager(|manager| {
+                let set_hidden = |name: &str, hidden: bool| {
+                    if let Some(win) = manager.find_window_by_name(name) {
+                        let _ = win.borrow_mut().hide(hidden);
+                    }
+                };
+                set_hidden("ControlBar.wnd:CommandWindow", false);
+                set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
+                set_hidden("ControlBar.wnd:OCLTimerWindow", true);
+                set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
+                set_hidden("ControlBar.wnd:BeaconWindow", true);
+            });
+        }
+
         self.rebuild_command_buttons(&mut context)?;
 
         if new_state == ControlBarState::Command {

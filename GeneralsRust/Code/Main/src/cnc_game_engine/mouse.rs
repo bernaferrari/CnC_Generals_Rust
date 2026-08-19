@@ -972,6 +972,7 @@ impl CnCGameEngine {
         self.update_camera_tracking_drawable();
 
         let mut movement = Vec3::ZERO;
+        let mut scroll_amount = 0.0f32;
         if self.camera_slave_mode.is_none() {
             let logic_frames_per_second =
                 game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
@@ -1096,6 +1097,7 @@ impl CnCGameEngine {
             }
 
             movement = self.camera_scroll_world_delta(screen_scroll);
+            scroll_amount = screen_scroll.length();
         }
 
         let mut camera_changed = false;
@@ -1213,6 +1215,10 @@ impl CnCGameEngine {
         // disagree until the player happens to pan.
         camera_changed |= self.camera_transform_needs_rebuild();
 
+        // C++ W3DView.cpp:1308-1339 — after pan/scroll, ease orbit height
+        // toward terrain + height-above-ground at CameraAdjustSpeed (0.3 INI).
+        camera_changed |= self.ease_camera_height_above_ground(scroll_amount);
+
         if camera_changed {
             self.apply_camera_orbit_transform();
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -1246,6 +1252,83 @@ impl CnCGameEngine {
 
         // C++ uses y- for UP and y+ for DOWN, so negate Y when mapping to forward motion.
         (right * screen_scroll.x) + (forward * -screen_scroll.y)
+    }
+
+    /// C++ `W3DView::update` height follow (W3DView.cpp:1308-1339).
+    /// Sample presentation height under the look-at, then ease the orbit so
+    /// camera Y approaches terrain + the current height-above-ground.
+    fn ease_camera_height_above_ground(&mut self, scroll_amount: f32) -> bool {
+        // C++: `!TheGameLogic->isGamePaused()` and `m_okToAdjustHeight`.
+        if !matches!(self.current_state, GameState::InGame) {
+            return false;
+        }
+        // Do not fight scripted zoom/pitch/yaw eases (C++ `didScriptedMovement`).
+        if self.camera_zoom_target.is_some()
+            || self.camera_pitch_target.is_some()
+            || self.camera_yaw_target.is_some()
+        {
+            return false;
+        }
+
+        let terrain = self.sample_presentation_height_under(self.camera_target);
+        let (adjust_speed, min_height, max_height, enforce_max, scroll_cutoff) = {
+            let global_data = game_engine::common::global_data::read();
+            (
+                global_data.camera_adjust_speed,
+                global_data.min_camera_height,
+                global_data.max_camera_height,
+                global_data.enforce_max_camera_height,
+                global_data.scroll_amount_cutoff,
+            )
+        };
+        if !adjust_speed.is_finite() || adjust_speed <= 0.0 {
+            return false;
+        }
+
+        let height_above_ground = self.camera_orbit_offset().y;
+        let current_height_above_ground =
+            self.camera_target.y + height_above_ground - terrain;
+        let too_low = min_height.is_finite() && current_height_above_ground < min_height;
+        let too_high =
+            enforce_max && max_height.is_finite() && current_height_above_ground > max_height;
+        // C++: while scrolling, only adjust if slow or too close/far.
+        if scroll_amount >= scroll_cutoff && !too_low && !too_high {
+            return false;
+        }
+
+        let mut changed = false;
+
+        // Ease look-at onto sampled terrain so orbit Y = terrain + HAG.
+        let y_adj = (terrain - self.camera_target.y) * adjust_speed;
+        if y_adj.abs() >= 0.0001 {
+            self.camera_target.y += y_adj;
+            changed = true;
+        }
+
+        // Honor GameData min/max camera height via zoom (C++ desiredZoom).
+        let mut desired_hag = height_above_ground;
+        if min_height.is_finite() && desired_hag < min_height {
+            desired_hag = min_height;
+        }
+        if enforce_max && max_height.is_finite() && desired_hag > max_height {
+            desired_hag = max_height;
+        }
+        if (desired_hag - height_above_ground).abs() >= 0.0001 {
+            let pitch = self
+                .camera_pitch_radians
+                .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+            let basis = self.camera_orbit_distance.max(1.0) * pitch.sin();
+            if basis > f32::EPSILON {
+                let desired_zoom = desired_hag / basis;
+                let zoom_adj = (desired_zoom - self.camera_zoom) * adjust_speed;
+                if zoom_adj.abs() >= 0.0001 {
+                    self.camera_zoom = (self.camera_zoom + zoom_adj).clamp(0.1, 5.0);
+                    changed = true;
+                }
+            }
+        }
+
+        changed
     }
 
     /// C++ InGameUI context cursor residual mapped onto winit CursorIcon.

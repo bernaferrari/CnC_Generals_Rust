@@ -672,6 +672,118 @@ impl TerrainVisualImpl {
         self.last_skybox_face_bind.as_deref()
     }
 
+    /// C++ `new_skybox` has five faces (N/E/S/W/T). The live wgpu path is a
+    /// fullscreen triangle, so pick the face the camera is looking at.
+    ///
+    /// Yaw sectors match `View` / `W3DView` Z-up: angle 0 looks +Y (north).
+    /// Top (`T`, index 4) only when the look vector points upward — a high
+    /// RTS pitch looks *down* at the map and must keep the side faces.
+    pub fn skybox_face_from_yaw_pitch(yaw: f32, look_pitch: f32) -> usize {
+        const TOP_LOOK_PITCH: f32 = 0.55;
+        if look_pitch > TOP_LOOK_PITCH {
+            return 4;
+        }
+        let two_pi = 2.0 * PI;
+        let yaw = yaw.rem_euclid(two_pi);
+        let sector = ((yaw + PI * 0.25) / (PI * 0.5)).floor() as i32;
+        match sector.rem_euclid(4) {
+            0 => 0,
+            1 => 1,
+            2 => 2,
+            _ => 3,
+        }
+    }
+
+    /// Pick N/E/S/W/T from a wgpu/glam view matrix (Y-up or Z-up).
+    pub fn skybox_face_from_view_matrix(view: &Mat4) -> usize {
+        let inv = view.inverse();
+        let forward = inv.transform_vector3(-Vec3::Z);
+        let world_up = inv.transform_vector3(Vec3::Y);
+        let up = if world_up.length_squared() < 1.0e-8 {
+            Vec3::Z
+        } else {
+            world_up.normalize()
+        };
+        let fwd = if forward.length_squared() < 1.0e-8 {
+            if up.z.abs() >= up.y.abs() {
+                Vec3::Y
+            } else {
+                Vec3::Z
+            }
+        } else {
+            forward.normalize()
+        };
+        let look_pitch = fwd.dot(up).clamp(-1.0, 1.0).asin();
+        let north = if up.z.abs() >= up.y.abs() {
+            Vec3::Y
+        } else {
+            Vec3::Z
+        };
+        let east = up.cross(north);
+        let horiz = fwd - up * fwd.dot(up);
+        let yaw = if horiz.length_squared() < 1.0e-8 {
+            0.0
+        } else {
+            let h = horiz.normalize();
+            h.dot(east).atan2(h.dot(north))
+        };
+        Self::skybox_face_from_yaw_pitch(yaw, look_pitch)
+    }
+
+    /// Rebind the visible skybox face from the live camera. Called every
+    /// `TerrainVisual::render` / `update` (via `update_tree_meshes`).
+    pub fn rebind_skybox_background_for_camera(&mut self) {
+        let _ = self.refresh_skybox_background_binding_if_ready();
+    }
+
+    fn skybox_camera_yaw_and_look_pitch() -> (f32, f32) {
+        crate::display::view::with_tactical_view_ref(|view| {
+            let eye = view.get_3d_camera_position();
+            let target = view.position();
+            let forward = Vec3::new(target.x - eye.x, target.y - eye.y, target.z - eye.z);
+            let len = forward.length();
+            let look_pitch = if len > 1.0e-5 { (forward.z / len).asin() } else { 0.0 };
+            (view.angle(), look_pitch)
+        })
+    }
+
+    fn is_loaded_skybox_face(&self, index: usize) -> bool {
+        let Some(name) = self
+            .current_skybox_texture_names
+            .get(index)
+            .and_then(|name| name.as_deref())
+        else {
+            return false;
+        };
+        if name.eq_ignore_ascii_case("fog-fallback") {
+            return false;
+        }
+        if self.skybox_textures.get(index).is_none_or(Option::is_none) {
+            return false;
+        }
+        // Fog 1x1 is stuffed into slot 0 only when no face loaded.
+        if index == 0 && self.last_skybox_face_bind.as_deref() == Some("fog-fallback") {
+            return false;
+        }
+        true
+    }
+
+    fn resolve_skybox_face_index(&self, preferred: usize) -> Option<usize> {
+        if self.is_loaded_skybox_face(preferred) {
+            return Some(preferred);
+        }
+        if preferred == 4 {
+            let (yaw, _) = Self::skybox_camera_yaw_and_look_pitch();
+            let side = Self::skybox_face_from_yaw_pitch(yaw, 0.0);
+            if self.is_loaded_skybox_face(side) {
+                return Some(side);
+            }
+        }
+        [0usize, 1, 2, 3, 4]
+            .into_iter()
+            .find(|&idx| self.is_loaded_skybox_face(idx))
+    }
+
     pub fn has_skybox_background_bind_group(&self) -> bool {
         self.skybox_background_bind_group.is_some()
     }
@@ -762,24 +874,41 @@ impl TerrainVisualImpl {
             }));
         }
 
-        let selected_index = [0usize, 4usize, 1usize, 2usize, 3usize]
-            .into_iter()
-            .find(|idx| self.skybox_textures[*idx].is_some());
-
-        let selected_index = match selected_index {
+        let (yaw, look_pitch) = Self::skybox_camera_yaw_and_look_pitch();
+        let preferred = Self::skybox_face_from_yaw_pitch(yaw, look_pitch);
+        let mut used_fog = false;
+        let selected_index = match self.resolve_skybox_face_index(preferred) {
             Some(index) => index,
             None => {
                 // Live path is a fullscreen triangle (no `new_skybox` W3D mesh).
-                // Bind fog color so the quad still draws after apply (not peach).
+                // Bind fog only when no N/E/S/W/T face loaded (not peach).
                 if !self.ensure_skybox_fog_fallback_texture(device) {
                     self.skybox_background_view = None;
                     self.skybox_background_bind_group = None;
                     self.last_skybox_face_bind = None;
                     return Ok(());
                 }
+                used_fog = true;
                 0
             }
         };
+
+        if self.last_skybox_face_bind.as_deref() == Some("fog-fallback") && selected_index != 0 {
+            self.skybox_textures[0] = None;
+        }
+
+        let face_name = if used_fog {
+            "fog-fallback".to_string()
+        } else {
+            self.current_skybox_texture_names[selected_index]
+                .clone()
+                .unwrap_or_else(|| format!("face-{selected_index}"))
+        };
+        if self.skybox_background_bind_group.is_some()
+            && self.last_skybox_face_bind.as_deref() == Some(face_name.as_str())
+        {
+            return Ok(());
+        }
 
         let view = self.skybox_textures[selected_index]
             .as_ref()
@@ -805,13 +934,6 @@ impl TerrainVisualImpl {
             ],
         });
 
-        let face_name = self.current_skybox_texture_names[selected_index]
-            .clone()
-            .unwrap_or_else(|| {
-                self.last_skybox_face_bind
-                    .clone()
-                    .unwrap_or_else(|| format!("face-{selected_index}"))
-            });
         info!("Skybox background bind group ready using {}", face_name);
         self.last_skybox_face_bind = Some(face_name);
         self.skybox_background_view = Some(view);
@@ -820,6 +942,9 @@ impl TerrainVisualImpl {
     }
 
     fn ensure_skybox_fog_fallback_texture(&mut self, device: &wgpu::Device) -> bool {
+        if (0..5).any(|i| self.is_loaded_skybox_face(i)) {
+            return false;
+        }
         let Some(queue) = self.queue.as_ref() else {
             return false;
         };
