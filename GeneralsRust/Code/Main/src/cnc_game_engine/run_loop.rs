@@ -640,6 +640,34 @@ pub async fn run_cnc_game(
                     }
                 }
             }
+            #[cfg(target_os = "macos")]
+            Event::DeviceEvent {
+                event: DeviceEvent::Button { button, state },
+                ..
+            } if !runtime_headless_mode => {
+                // Inactive NSApp never gets WindowEvent::MouseInput. winit still
+                // emits DeviceEvent::Button from NSApplication.sendEvent for HID
+                // that reaches this process (including CGEventPostToPid).
+                log::info!("DeviceEvent::Button button={button} state={state:?}");
+                if let Some((x, y)) = macos_cursor_client_if_in_window(current_window) {
+                    engine.apply_cursor_position(x, y);
+                    log::info!("DeviceEvent in-window client=({x:.0},{y:.0})");
+                    #[cfg(feature = "game_client")]
+                    if let Some(name) =
+                        game_client::gui::os_wnd_widget_under_cursor_name(x as i32, y as i32)
+                    {
+                        log::info!("DeviceEvent under={name}");
+                    }
+                    if let Some(btn) = device_button_to_mouse(button) {
+                        let pressed = matches!(state, ElementState::Pressed);
+                        engine.handle_mouse_button_input(
+                            btn,
+                            pressed,
+                            super::input::MouseInputOrigin::Physical,
+                        );
+                    }
+                }
+            }
             Event::AboutToWait => {
                 let now = Instant::now();
                 if now >= next_redraw_at {
