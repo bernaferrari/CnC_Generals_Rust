@@ -499,17 +499,21 @@ impl ControlBar {
         let existing_button = control_bar.find_command_button(&name).cloned();
 
         let button = if let Some(existing_button) = existing_button {
-            if ini.get_load_type() != INILoadType::CreateOverrides {
+            if ini.get_load_type() == INILoadType::CreateOverrides {
+                control_bar.new_command_button_override(&existing_button)
+            } else {
+                // C++ ControlBar.cpp:50-66: DEBUG_CRASH then merge into the
+                // existing button via initFromINI. Release continues the file.
                 eprintln!(
                     "Duplicate commandbutton {} found at line {} in '{}'",
                     name,
                     ini.get_line_num(),
                     ini.get_filename()
                 );
-                return Err(INIError::InvalidData);
+                control_bar
+                    .find_non_const_command_button(&name)
+                    .expect("duplicate command button must remain registered")
             }
-
-            control_bar.new_command_button_override(&existing_button)
         } else {
             let button = control_bar.new_command_button(name.to_string());
             if ini.get_load_type() == INILoadType::CreateOverrides {
@@ -517,6 +521,7 @@ impl ControlBar {
             }
             button
         };
+
 
         // Parse the button fields
         ini.init_from_ini_with_fields(button, CommandButton::get_field_parse())?;
@@ -757,8 +762,9 @@ fn parse_command_field_unit_specific_sound(
 ) -> INIResult<()> {
     let tokens: Vec<&str> = values.iter().copied().filter(|v| *v != "=").collect();
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    button.unit_specific_sound = AudioEventRTS::from_sound_file((*token).to_string());
+    button.unit_specific_sound = AudioEventRTS::from_event_name((*token).to_string());
     Ok(())
+
 }
 
 fn parse_command_field_science(
@@ -795,64 +801,24 @@ fn parse_command_field_options(
     button: &mut CommandButton,
     values: &[&str],
 ) -> INIResult<()> {
-    let filtered: Vec<&str> = values
+    let filtered: Vec<String> = values
         .iter()
         .copied()
         .filter(|token| *token != "=")
-        .collect();
-
-    if filtered.is_empty() {
-        button.options_bits = 0;
-        button.options = CommandButtonOptions::default();
-        return Ok(());
-    }
-
-    let mut bits = 0u32;
-    let mut saw_direct = false;
-
-    for raw in filtered {
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let mut name = trimmed;
-        let mut set = true;
-
-        if let Some(rest) = trimmed.strip_prefix('+') {
-            name = rest;
-        } else if let Some(rest) = trimmed.strip_prefix('-') {
-            name = rest;
-            set = false;
-        } else if !saw_direct {
-            bits = 0;
-            saw_direct = true;
-        }
-
-        let mut normalized = name.trim_matches('"');
-        if normalized.eq_ignore_ascii_case("unused-reserved") {
-            normalized = "NEED_TARGET_PRISONER";
-        }
-
-        if normalized.eq_ignore_ascii_case("---DO-NOT-USE---") {
-            continue;
-        }
-
-        if let Some(index) = COMMAND_OPTION_NAMES
-            .iter()
-            .position(|candidate| candidate.eq_ignore_ascii_case(normalized))
-        {
-            let mask = 1u32 << index;
-            if set {
-                bits |= mask;
+        .map(|token| {
+            if token.eq_ignore_ascii_case("unused-reserved") {
+                "NEED_TARGET_PRISONER".to_string()
             } else {
-                bits &= !mask;
+                token.to_string()
             }
-        } else {
-            return Err(INIError::InvalidData);
-        }
-    }
-
+        })
+        .collect();
+    let tokens: Vec<&str> = filtered.iter().map(String::as_str).collect();
+    let bits = if tokens.is_empty() {
+        0
+    } else {
+        INI::parse_bit_string_32(&tokens, COMMAND_OPTION_NAMES)?
+    };
     button.options_bits = bits;
     button.options = CommandButtonOptions::from_bits(bits);
     Ok(())

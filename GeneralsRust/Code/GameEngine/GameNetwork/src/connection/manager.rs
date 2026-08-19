@@ -11,7 +11,8 @@ use crate::connection::state::{ConnectionStateMachine, DetailedConnectionState, 
 use crate::connection::{Connection, ConnectionConfig};
 use crate::error::{NetworkError, NetworkResult};
 use crate::file_transfer::TransferDirection;
-use crate::transport::{Transport, TransportProtocol};
+use crate::transport_unified::UnifiedTransport as Transport;
+use crate::transport::TransportProtocol;
 
 use crate::time::NetworkInstant;
 #[cfg(feature = "performance")]

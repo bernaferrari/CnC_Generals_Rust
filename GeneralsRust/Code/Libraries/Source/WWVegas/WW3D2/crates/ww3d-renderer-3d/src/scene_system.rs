@@ -29,6 +29,15 @@ pub enum PolyRenderType {
     Fill,
 }
 
+/// C++ `SceneClass::ExtraPassPolyRenderType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExtraPassPolyRenderType {
+    #[default]
+    Disable,
+    Line,
+    ClearLine,
+}
+
 /// Scene manager class - equivalent to C++ SceneClass
 #[derive(Debug)]
 pub struct SceneManagerClass {
@@ -53,6 +62,8 @@ pub struct SceneManagerClass {
     depth_cue_end: f32,
     /// Polygon render mode
     polygon_mode: PolyRenderType,
+    /// Extra wireframe pass (C++ EXTRA_PASS_LINE / CLEAR_LINE).
+    extra_pass: ExtraPassPolyRenderType,
     /// Scene ID
     scene_id: SceneId,
     /// Objects requesting per-frame updates
@@ -61,6 +72,8 @@ pub struct SceneManagerClass {
     light_list: Vec<usize>,
     /// Objects queued for release processing
     release_list: Vec<usize>,
+    /// C++ `Visibility_Checked`.
+    visibility_checked: bool,
 }
 
 impl SceneManagerClass {
@@ -79,11 +92,13 @@ impl SceneManagerClass {
             depth_cue_start: 50.0,
             depth_cue_end: 500.0,
             polygon_mode: PolyRenderType::Fill,
+            extra_pass: ExtraPassPolyRenderType::Disable,
             scene_id: SceneId::default(),
             light_environment: LightEnvironmentClass::new(),
             update_list: Vec::new(),
             light_list: Vec::new(),
             release_list: Vec::new(),
+            visibility_checked: false,
         }
     }
 
@@ -125,32 +140,109 @@ impl SceneManagerClass {
         self.render_objects.get_mut(&id)
     }
 
-    /// Render all objects in the scene
-    pub fn render(&self, rinfo: &RenderInfoClass) -> RendererResult<()> {
+    /// C++ `SceneClass::Render` + `SimpleSceneClass::Customized_Render`.
+    pub fn render(&mut self, rinfo: &mut RenderInfoClass) -> RendererResult<()> {
+        self.apply_environment_to_render_info(rinfo);
+
+        if self.extra_pass == ExtraPassPolyRenderType::Disable {
+            self.customized_render(rinfo)?;
+        } else {
+            rinfo.z_bias = 0;
+            self.customized_render(rinfo)?;
+            match self.extra_pass {
+                ExtraPassPolyRenderType::Line => {
+                    let saved = self.polygon_mode;
+                    self.polygon_mode = PolyRenderType::Line;
+                    rinfo.z_bias = 7;
+                    self.customized_render(rinfo)?;
+                    self.polygon_mode = saved;
+                    rinfo.z_bias = 0;
+                }
+                ExtraPassPolyRenderType::ClearLine => {
+                    let saved = self.polygon_mode;
+                    self.polygon_mode = PolyRenderType::Line;
+                    rinfo.z_bias = 7;
+                    self.customized_render(rinfo)?;
+                    self.polygon_mode = saved;
+                    rinfo.z_bias = 0;
+                }
+                ExtraPassPolyRenderType::Disable => {}
+            }
+        }
+
+        self.post_render_processing();
+        Ok(())
+    }
+
+    fn customized_render(&mut self, rinfo: &mut RenderInfoClass) -> RendererResult<()> {
+        if !self.visibility_checked {
+            self.visibility_check(&rinfo.camera);
+        }
+        self.visibility_checked = false;
+
+        let pending = self.update_list.clone();
+        for object_id in pending {
+            if let Some(object) = self.render_objects.get_mut(&object_id) {
+                object.on_frame_update(0.0)?;
+            }
+        }
+
+        self.light_environment
+            .rebuild(glam::Vec3::ZERO, self.ambient_light);
+        self.light_environment
+            .pre_render_update(rinfo.camera.transform_matrix());
+        rinfo.set_lighting_environment(self.light_environment.clone());
+
         let mode = self.polygon_mode;
-        for object_id in &self.render_order {
-            let object = match self.render_objects.get(object_id) {
+        let order = self.render_order.clone();
+        for object_id in order {
+            let object = match self.render_objects.get(&object_id) {
                 Some(obj) => obj,
                 None => continue,
             };
-
             if !object.is_really_visible() {
                 continue;
             }
-
             if !object.pre_render(rinfo)? {
                 continue;
             }
-
             match mode {
                 PolyRenderType::Fill | PolyRenderType::Line | PolyRenderType::Point => {
                     object.render(rinfo)?;
                 }
             }
-
             object.post_render(rinfo)?;
         }
         Ok(())
+    }
+
+    /// C++ `SimpleSceneClass::Visibility_Check`.
+    pub fn visibility_check(&mut self, camera: &crate::rendering::camera_system::CameraClass) {
+        let order = self.render_order.clone();
+        for object_id in order {
+            let Some(object) = self.render_objects.get_mut(&object_id) else {
+                continue;
+            };
+            if object.is_force_visible() {
+                object.set_visible(true);
+            } else {
+                let sphere = object.get_bounding_sphere();
+                object.set_visible(!camera.cull_sphere(sphere.center, sphere.radius));
+            }
+            if object.is_really_visible() {
+                object.prepare_lod(camera);
+            }
+        }
+        self.visibility_checked = true;
+    }
+
+    /// C++ `SimpleSceneClass::Post_Render_Processing` — unlink and release.
+    pub fn post_render_processing(&mut self) {
+        let pending = self.release_list.clone();
+        for id in pending {
+            self.remove_render_object(id);
+        }
+        self.release_list.clear();
     }
 
     /// Special render all objects
@@ -304,6 +396,14 @@ impl SceneManagerClass {
         self.polygon_mode
     }
 
+    pub fn set_extra_pass(&mut self, extra_pass: ExtraPassPolyRenderType) {
+        self.extra_pass = extra_pass;
+    }
+
+    pub fn extra_pass(&self) -> ExtraPassPolyRenderType {
+        self.extra_pass
+    }
+
     /// Assign a scene identifier so higher-level systems can distinguish scene types
     pub fn set_scene_id(&mut self, scene_id: SceneId) {
         self.scene_id = scene_id;
@@ -421,7 +521,7 @@ impl SimpleSceneClass {
     }
 
     /// Render the scene
-    pub fn render(&self, rinfo: &RenderInfoClass) -> RendererResult<()> {
+    pub fn render(&mut self, rinfo: &mut RenderInfoClass) -> RendererResult<()> {
         self.base_scene.render(rinfo)
     }
 

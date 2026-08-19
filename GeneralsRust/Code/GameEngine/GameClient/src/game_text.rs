@@ -15,18 +15,50 @@ const CSF_STRING_WITH_WAVE: u32 = u32::from_le_bytes(*b"WRTS");
 #[derive(Debug, Default)]
 pub struct GameText {
     map_strings: HashMap<String, String>,
+    csf_strings: HashMap<String, String>,
+    no_string_list: HashMap<String, String>,
 }
 
 impl GameText {
     pub fn fetch(key: &str) -> String {
+        Self::fetch_with_exists(key).0
+    }
+
+    /// C++ `GameTextManager::fetch(label, exists)` — missing labels become
+    /// `MISSING: 'key'` and are cached on the no-string list.
+    pub fn fetch_with_exists(key: &str) -> (String, bool) {
         let key = key.trim();
         if key.is_empty() {
-            return String::new();
+            return (String::new(), false);
         }
-        if let Some(text) = Self::lookup_map_string(key) {
-            return text;
+        if let Some(text) = Self::lookup_string(key) {
+            return (text, true);
         }
-        Language::get_localized_string(key)
+        let missing = format!("MISSING: '{key}'");
+        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+        guard
+            .no_string_list
+            .entry(key.to_string())
+            .or_insert_with(|| missing.clone());
+        drop(guard);
+        (missing, false)
+    }
+
+    /// C++ `GameTextManager::getStringsWithLabelPrefix`.
+    pub fn get_strings_with_label_prefix(prefix: &str) -> Vec<String> {
+        let Ok(guard) = get_game_text().read() else {
+            return Vec::new();
+        };
+        let mut labels: Vec<String> = guard
+            .map_strings
+            .keys()
+            .chain(guard.csf_strings.keys())
+            .filter(|label| label.starts_with(prefix))
+            .cloned()
+            .collect();
+        labels.sort();
+        labels.dedup();
+        labels
     }
 
     pub fn init_map_string_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -45,6 +77,11 @@ impl GameText {
         let entries = parse_csf_strings(&bytes)
             .ok_or_else(|| format!("failed to parse CSF string table at {}", path.display()))?;
         Language::clear_localized_strings();
+        {
+            let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
+            guard.csf_strings = entries.clone();
+            guard.no_string_list.clear();
+        }
         for (label, value) in &entries {
             Language::register_localized_string(label.clone(), value.clone());
         }
@@ -54,6 +91,33 @@ impl GameText {
     pub fn reset() {
         let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
+        guard.no_string_list.clear();
+    }
+
+    fn lookup_string(key: &str) -> Option<String> {
+        let lookup = key.strip_prefix("LOC:").unwrap_or(key);
+        if let Ok(guard) = get_game_text().read() {
+            if let Some(text) = guard
+                .map_strings
+                .get(key)
+                .or_else(|| guard.map_strings.get(lookup))
+            {
+                return Some(text.clone());
+            }
+            if let Some(text) = guard
+                .csf_strings
+                .get(key)
+                .or_else(|| guard.csf_strings.get(lookup))
+            {
+                return Some(text.clone());
+            }
+        }
+        let localized = Language::get_localized_string(key);
+        if localized != lookup && localized != key {
+            Some(localized)
+        } else {
+            None
+        }
     }
 
     fn lookup_map_string(key: &str) -> Option<String> {
@@ -261,5 +325,14 @@ mod csf_tests {
             entries.get("GUI:SinglePlayer").map(String::as_str),
             Some("SOLO PLAY")
         );
+    }
+
+    #[test]
+    fn missing_labels_use_cpp_missing_prefix() {
+        GameText::reset();
+        let (text, exists) = GameText::fetch_with_exists("DefinitelyNotARealLabel");
+        assert!(!exists);
+        assert_eq!(text, "MISSING: 'DefinitelyNotARealLabel'");
+        assert!(GameText::get_strings_with_label_prefix("Definitely").is_empty());
     }
 }

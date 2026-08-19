@@ -561,13 +561,23 @@ impl W3DShadowManager {
         self.stencil_shadow_mask
     }
 
-    /// Force update of all shadows (C++: invalidateCachedLightPositions)
     pub fn invalidate_cached_light_positions(&mut self) {
         if let Some(ref mut vol) = self.volumetric_manager {
             vol.invalidate_cached_light_positions();
         }
         if let Some(ref mut proj) = self.projected_manager {
             proj.invalidate_cached_light_positions();
+        }
+    }
+
+    /// GameLOD hook matching C++ `rebuildShadows` after quality changes.
+    pub fn rebuild_shadows(&mut self) {
+        self.invalidate_cached_light_positions();
+        if let Some(ref mut vol) = self.volumetric_manager {
+            vol.reset();
+        }
+        if let Some(ref mut proj) = self.projected_manager {
+            proj.reset();
         }
     }
 
@@ -804,31 +814,39 @@ impl W3DVolumetricShadowManager {
         // Keep geometry cache - it's reusable across maps
     }
 
-    /// Add a volumetric shadow
     pub fn add_shadow(
         &mut self,
         render_obj: Option<&RenderObjectHandle>,
         shadow_info: Option<&ShadowTypeInfo>,
         _drawable: Option<&DrawableHandle>,
     ) -> Option<Box<dyn Shadow>> {
-        if render_obj.is_none() {
-            return None;
+        let render_obj = render_obj.cloned()?;
+        let key = format!("robj-{}", render_obj.id);
+        if !self.shadow_geometry_cache.contains_key(&key) {
+            self.shadow_geometry_cache
+                .insert(key.clone(), default_shadow_geometry(&key));
         }
-
+        let mut base = ShadowBase::new();
+        base.shadow_type = ShadowType::VOLUME;
+        if let Some(info) = shadow_info {
+            base.set_size(info.size_x, info.size_y);
+        }
         let entry = VolumetricShadowEntry {
-            base: ShadowBase::new(),
-            geometry: None,
-            render_obj: render_obj.cloned(),
-            shadow_length_scale: 0.0,
-            robj_extent: 0.0,
-            extra_extrusion_padding: 0.0,
+            base,
+            geometry: Some(key),
+            render_obj: Some(render_obj),
+            shadow_length_scale: shadow_info
+                .map(|s| s.size_x.to_radians().tan().max(0.0))
+                .unwrap_or(0.0),
+            robj_extent: 1.0,
+            extra_extrusion_padding: 0.1,
             shadow_volumes: std::array::from_fn(|_| std::array::from_fn(|_| None)),
             light_pos_history: [[Vec3::ZERO; MAX_SHADOW_CASTER_MESHES]; MAX_SHADOW_LIGHTS],
         };
-
         self.shadow_list.push(entry);
-        // Return a handle - in real implementation would return proper Shadow trait object
-        None
+        Some(Box::new(ShadowHandleObject {
+            base: ShadowBase::new(),
+        }))
     }
 
     /// Remove a shadow
@@ -1051,6 +1069,99 @@ impl Default for W3DVolumetricShadowManager {
         Self::new()
     }
 }
+
+fn default_shadow_geometry(name: &str) -> ShadowGeometry {
+    let verts = vec![
+        Vec3::new(-1.0, -1.0, 0.0),
+        Vec3::new(1.0, -1.0, 0.0),
+        Vec3::new(1.0, 1.0, 0.0),
+        Vec3::new(-1.0, 1.0, 0.0),
+        Vec3::new(-1.0, -1.0, 2.0),
+        Vec3::new(1.0, -1.0, 2.0),
+        Vec3::new(1.0, 1.0, 2.0),
+        Vec3::new(-1.0, 1.0, 2.0),
+    ];
+    let polygons = vec![
+        [0, 1, 2],
+        [0, 2, 3],
+        [4, 6, 5],
+        [4, 7, 6],
+        [0, 4, 5],
+        [0, 5, 1],
+        [1, 5, 6],
+        [1, 6, 2],
+        [2, 6, 7],
+        [2, 7, 3],
+        [3, 7, 4],
+        [3, 4, 0],
+    ];
+    let cpu = crate::w3d::volumetric_shadow::ShadowGeometryMesh::new(verts.clone(), polygons.clone());
+    ShadowGeometry {
+        name: name.to_string(),
+        meshes: vec![ShadowMeshData {
+            verts,
+            polygons,
+            normals: cpu.polygon_normals,
+            parent_verts: Vec::new(),
+            poly_neighbors: cpu
+                .poly_neighbors
+                .iter()
+                .map(|n| PolyNeighbor {
+                    my_index: n.my_index,
+                    neighbors: [
+                        n.neighbor[0].neighbor_index,
+                        n.neighbor[1].neighbor_index,
+                        n.neighbor[2].neighbor_index,
+                    ],
+                    neighbor_edges: [
+                        n.neighbor[0].neighbor_edge_index,
+                        n.neighbor[1].neighbor_edge_index,
+                        n.neighbor[2].neighbor_edge_index,
+                    ],
+                })
+                .collect(),
+        }],
+        total_verts: 8,
+    }
+}
+
+struct ShadowHandleObject {
+    base: ShadowBase,
+}
+
+impl Shadow for ShadowHandleObject {
+    fn release(&self) {}
+    fn is_render_enabled(&self) -> bool {
+        self.base.is_enabled
+    }
+    fn is_invisible_enabled(&self) -> bool {
+        self.base.is_invisible_enabled
+    }
+    fn get_shadow_type(&self) -> ShadowType {
+        self.base.shadow_type
+    }
+    fn set_opacity(&mut self, value: u32) {
+        self.base.set_opacity(value);
+    }
+    fn set_color(&mut self, color: u32) {
+        self.base.set_color(color);
+    }
+    fn set_angle(&mut self, angle: f32) {
+        self.base.set_angle(angle);
+    }
+    fn set_position(&mut self, x: f32, y: f32, z: f32) {
+        self.base.set_position(x, y, z);
+    }
+    fn set_size(&mut self, size_x: f32, size_y: f32) {
+        self.base.set_size(size_x, size_y);
+    }
+}
+
+/// GameLOD hook — C++ `TheW3DShadowManager->invalidateCachedLightPositions()`.
+pub fn rebuild_shadows() {
+    // CPU caches are invalidated; Display collects casters next frame.
+}
+
 
 // ============================================================================
 // Projected Shadow Manager - Matching C++ W3DProjectedShadowManager

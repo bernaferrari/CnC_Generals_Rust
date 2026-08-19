@@ -85,7 +85,7 @@ impl TerrainVisualImpl {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -129,7 +129,7 @@ impl TerrainVisualImpl {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -202,7 +202,7 @@ impl TerrainVisualImpl {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -317,7 +317,7 @@ impl TerrainVisualImpl {
     fn create_water_pipeline(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Water Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/water.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/water.wgsl").into()),
         });
 
         let Some(camera_layout) = self.terrain_camera_bind_group_layout.as_ref() else {
@@ -327,11 +327,38 @@ impl TerrainVisualImpl {
             ));
         };
 
+        // Group 0 = terrain camera (view_proj). Group 1 = one albedo + sampler.
+        // Do not declare group-0 bindings 1-7; those are never created.
+        let texture_layout = Arc::new(device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Water Texture Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            },
+        ));
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Water Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref()],
+            bind_group_layouts: &[camera_layout.as_ref(), texture_layout.as_ref()],
             push_constant_ranges: &[],
         });
+        self.water_texture_bind_group_layout = Some(texture_layout);
 
         self.water_pipeline = Some(device.create_render_pipeline(
             &wgpu::RenderPipelineDescriptor {
@@ -453,7 +480,7 @@ impl TerrainVisualImpl {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
@@ -491,11 +518,37 @@ impl TerrainVisualImpl {
             ));
         };
 
+        // Dedicated atlas layout. Do not reuse road/terrain bind groups.
+        let atlas_layout = Arc::new(device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                label: Some("Tree Atlas Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            },
+        ));
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Tree Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref()],
+            bind_group_layouts: &[camera_layout.as_ref(), atlas_layout.as_ref()],
             push_constant_ranges: &[],
         });
+        self.tree_atlas_bind_group_layout = Some(atlas_layout);
 
         self.tree_pipeline = Some(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

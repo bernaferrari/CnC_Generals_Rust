@@ -134,6 +134,47 @@ pub fn w3d_companion_animation_archive_path_variants(identity: &str) -> Option<V
     Some(paths)
 }
 
+/// C++ `WW3DAssetManager::Get_HTree` load-on-demand filenames.
+///
+/// On a miss it loads `{HierarchyName}.w3d`, then `..\{HierarchyName}.w3d`.
+/// Extra `art/w3d` casings are storage locations for extracted trees, not a
+/// new asset identity. Do not remap the HLOD name through model aliases.
+pub(super) fn w3d_companion_hierarchy_archive_path_variants(hierarchy_name: &str) -> Vec<String> {
+    let name = hierarchy_name.trim();
+    if name.is_empty() {
+        return Vec::new();
+    }
+    let mut stems = Vec::new();
+    for stem in [
+        name.to_string(),
+        name.to_ascii_lowercase(),
+        name.to_ascii_uppercase(),
+    ] {
+        if !stems.iter().any(|existing: &String| existing == &stem) {
+            stems.push(stem);
+        }
+    }
+
+    let mut paths = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push = |path: String| {
+        if seen.insert(path.clone()) {
+            paths.push(path);
+        }
+    };
+    for stem in stems {
+        // C++ Get_HTree order first, then extracted-tree storage spellings.
+        push(format!("{stem}.w3d"));
+        push(format!("../{stem}.w3d"));
+        push(format!("art/w3d/{stem}.w3d"));
+        push(format!("Art/W3D/{stem}.w3d"));
+        push(format!("Art/W3D/{stem}.W3D"));
+        push(format!("art/w3d/{stem}.W3D"));
+    }
+    paths
+}
+
+
 impl W3DLoader {
     /// Create new W3D loader
     pub fn new() -> Self {
@@ -161,7 +202,10 @@ impl W3DLoader {
                 Ok(model_data) => {
                     debug!("Found W3D file at path: {}", path_variant);
                     debug!("Loaded W3D file data: {} bytes", model_data.len());
-                    return self.parse_w3d_data(&model_data, base_name.to_string());
+                    let mut model = self.parse_w3d_data(&model_data, base_name.to_string())?;
+                    self.attach_missing_named_hlod_hierarchies(archive_system, &mut model)
+                        .await;
+                    return Ok(model);
                 }
                 Err(e) => {
                     debug!("Failed to find W3D at {}: {}", path_variant, e);
@@ -216,6 +260,125 @@ impl W3DLoader {
             last_error.unwrap_or_else(|| anyhow!("file not found"))
         ))
     }
+
+    /// Parse `{HierarchyName}.w3d` bytes and retain only that named HTree.
+    /// Returns true when the HLOD can now resolve `source_hierarchy_for_hlod`.
+    pub(super) fn import_named_hlod_hierarchy_from_bytes(
+        &self,
+        model: &mut W3DModel,
+        hierarchy_name: &str,
+        data: &[u8],
+    ) -> bool {
+        match self.parse_w3d_animation_data(data, hierarchy_name.to_string()) {
+            Ok(companion) => {
+                model.import_named_hierarchy_from(&companion, hierarchy_name);
+                model.hlods.iter().any(|hlod| {
+                    hlod.hierarchy_name.eq_ignore_ascii_case(hierarchy_name)
+                        && model.source_hierarchy_for_hlod(hlod).is_some()
+                })
+            }
+            Err(error) => {
+                debug!(
+                    "HLOD companion HTree '{}' did not parse: {}",
+                    hierarchy_name, error
+                );
+                false
+            }
+        }
+    }
+
+    /// C++ `Get_HTree` load-on-demand: when an HLOD names a tree that is not
+    /// in this file, open `{HierarchyName}.w3d` through the existing archive
+    /// path set and retain only that named HTree. Missing companions stay
+    /// fail-closed (`Init_Default`); they must not abort geometry load.
+    async fn attach_missing_named_hlod_hierarchies(
+        &self,
+        archive_system: &mut ArchiveFileSystem,
+        model: &mut W3DModel,
+    ) {
+        let missing = model.missing_named_hlod_hierarchy_names();
+        for hierarchy_name in missing {
+            let current_stem = w3d_model_basename(&model.name);
+            if current_stem.eq_ignore_ascii_case(hierarchy_name.trim()) {
+                continue;
+            }
+            let mut attached = false;
+            for candidate in w3d_companion_hierarchy_archive_path_variants(&hierarchy_name) {
+                match archive_system.open_file(&candidate).await {
+                    Ok(data) => {
+                        if self.import_named_hlod_hierarchy_from_bytes(
+                            model,
+                            &hierarchy_name,
+                            &data,
+                        ) {
+                            attached = true;
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        debug!(
+                            "HLOD companion HTree '{}' not at '{}': {}",
+                            hierarchy_name, candidate, error
+                        );
+                    }
+                }
+            }
+            if !attached {
+                debug!(
+                    "HLOD named HTree '{}' was not found for '{}'; using C++ Init_Default",
+                    hierarchy_name, model.name
+                );
+            }
+        }
+    }
+
+    /// Filesystem analog of C++ `Get_HTree` load-on-demand for residual
+    /// `load_model_from_path`. Looks next to the geometry file, then the
+    /// parent directory, then extracted `art/w3d` spellings.
+    fn attach_missing_named_hlod_hierarchies_from_dir(
+        &self,
+        model: &mut W3DModel,
+        dir: &std::path::Path,
+    ) {
+        let missing = model.missing_named_hlod_hierarchy_names();
+        for hierarchy_name in missing {
+            let current_stem = w3d_model_basename(&model.name);
+            if current_stem.eq_ignore_ascii_case(hierarchy_name.trim()) {
+                continue;
+            }
+            let mut attached = false;
+            for candidate in w3d_companion_hierarchy_archive_path_variants(&hierarchy_name) {
+                let path = dir.join(&candidate);
+                match std::fs::read(&path) {
+                    Ok(data) => {
+                        if self.import_named_hlod_hierarchy_from_bytes(
+                            model,
+                            &hierarchy_name,
+                            &data,
+                        ) {
+                            attached = true;
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        debug!(
+                            "HLOD companion HTree '{}' not at '{}': {}",
+                            hierarchy_name,
+                            path.display(),
+                            error
+                        );
+                    }
+                }
+            }
+            if !attached {
+                debug!(
+                    "HLOD named HTree '{}' was not found beside '{}'; using C++ Init_Default",
+                    hierarchy_name, model.name
+                );
+            }
+        }
+    }
+
 
     /// Parse W3D binary data using the legacy chunk parser path for strict C++ parity.
     pub(super) fn parse_w3d_data(&self, data: &[u8], model_name: String) -> Result<W3DModel> {
@@ -278,7 +441,11 @@ impl W3DLoader {
         let data = std::fs::read(path)
             .map_err(|e| anyhow!("failed to read W3D '{}': {e}", path.display()))?;
         let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("model");
-        self.load_model_from_bytes(&data, name)
+        let mut model = self.load_model_from_bytes(&data, name)?;
+        if let Some(dir) = path.parent() {
+            self.attach_missing_named_hlod_hierarchies_from_dir(&mut model, dir);
+        }
+        Ok(model)
     }
 
     // Non-parity companion/heuristic model-family merge path removed.
@@ -1979,5 +2146,110 @@ impl W3DLoader {
     /// as rigid HLOD/palette paths so parent-child order cannot diverge.
     pub(super) fn mat4_from_tr_quat(pivot: &W3dPivot) -> [f32; 16] {
         mat4_from_pivot(pivot)
+    }
+}
+
+#[cfg(test)]
+mod companion_htree_tests {
+    use super::super::w3d_format::{
+        W3dHlod, W3dHlodLod, W3dHlodSubObject, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HIERARCHY_HEADER,
+        W3D_CHUNK_PIVOTS, W3D_CURRENT_HTREE_VERSION, W3D_NAME_LEN,
+    };
+    use super::super::W3DModel;
+    use super::*;
+    fn chunk(chunk_type: u32, payload: Vec<u8>, container: bool) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + payload.len());
+        out.extend_from_slice(&chunk_type.to_le_bytes());
+        let raw_size = (payload.len() as u32) | if container { 0x8000_0000 } else { 0 };
+        out.extend_from_slice(&raw_size.to_le_bytes());
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    fn fixed_name(name: &str, len: usize) -> Vec<u8> {
+        let mut out = vec![0; len];
+        let bytes = name.as_bytes();
+        let copy_len = bytes.len().min(len);
+        out[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        out
+    }
+
+    fn pivot(name: &str, parent: u32, translation: [f32; 3]) -> Vec<u8> {
+        let mut out = fixed_name(name, W3D_NAME_LEN);
+        out.extend_from_slice(&parent.to_le_bytes());
+        for value in translation {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out.extend_from_slice(&[0u8; 12]);
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&0.0f32.to_le_bytes());
+        out.extend_from_slice(&1.0f32.to_le_bytes());
+        out
+    }
+
+    fn companion_hierarchy_bytes(name: &str) -> Vec<u8> {
+        let mut hierarchy_header = Vec::with_capacity(36);
+        hierarchy_header.extend_from_slice(&W3D_CURRENT_HTREE_VERSION.to_le_bytes());
+        hierarchy_header.extend_from_slice(&fixed_name(name, W3D_NAME_LEN));
+        hierarchy_header.extend_from_slice(&2u32.to_le_bytes());
+        hierarchy_header.extend_from_slice(&[0u8; 12]);
+        let mut pivots = pivot("ROOT", u32::MAX, [0.0, 0.0, 0.0]);
+        pivots.extend_from_slice(&pivot("BONE", 0, [4.0, 5.0, 6.0]));
+        chunk(
+            W3D_CHUNK_HIERARCHY,
+            [
+                chunk(W3D_CHUNK_HIERARCHY_HEADER, hierarchy_header, false),
+                chunk(W3D_CHUNK_PIVOTS, pivots, false),
+            ]
+            .concat(),
+            true,
+        )
+    }
+
+    #[test]
+    fn get_htree_companion_paths_follow_cxx_load_on_demand_order() {
+        // C++ `WW3DAssetManager::Get_HTree` (`assetmgr.cpp:964-971`) loads
+        // `{name}.w3d` then `..\{name}.w3d`.
+        let paths = w3d_companion_hierarchy_archive_path_variants("CompTree");
+        assert_eq!(paths[0], "CompTree.w3d");
+        assert_eq!(paths[1], "../CompTree.w3d");
+        assert!(paths.iter().any(|path| path == "Art/W3D/CompTree.W3D"));
+    }
+
+    #[test]
+    fn import_named_hlod_hierarchy_from_bytes_is_case_insensitive() {
+        let mut model = W3DModel::new("geometry".to_string());
+        model.hlods.push(W3dHlod {
+            version: 0x0001_0000,
+            name: "HLODROOT".to_string(),
+            hierarchy_name: "COMPTREE".to_string(),
+            lods: vec![W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![W3dHlodSubObject {
+                    name: "HLODROOT.RIGID".to_string(),
+                    bone_index: 1,
+                }],
+            }],
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        });
+        assert_eq!(
+            model.missing_named_hlod_hierarchy_names(),
+            vec!["COMPTREE".to_string()]
+        );
+
+        let loader = W3DLoader::new();
+        assert!(loader.import_named_hlod_hierarchy_from_bytes(
+            &mut model,
+            "COMPTREE",
+            &companion_hierarchy_bytes("comptree"),
+        ));
+        assert!(model.missing_named_hlod_hierarchy_names().is_empty());
+        assert!(model
+            .source_hierarchy_for_hlod(&model.hlods[0])
+            .is_some_and(|hierarchy| hierarchy.name.eq_ignore_ascii_case("comptree")));
     }
 }

@@ -27,7 +27,7 @@ use super::roads::{
 use super::scorch_mesh::bake_terrain_scorch_gpu_mesh;
 use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
-    TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TileData,
+    TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TextureWeights, TileData,
     MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES,
 };
 use super::tree_buffer::{
@@ -38,8 +38,9 @@ use super::w3d_overlay_mesh::{
     bake_bridge_span, bake_straight_road_segment, bake_water_tiles_world,
     default_sectional_bridge_model, fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices,
     fill_water_gpu_upload_vertices, OverlayGpuVertex, WaterGpuVertex, BRIDGE_FLOAT_AMT,
-    DEFAULT_ROAD_SCALE,
+    DEFAULT_ROAD_SCALE, ROAD_FLOAT_AMOUNT,
 };
+
 use super::{
     calculate_terrain_lod, ExtraBlendDrawMesh, HeightMap, RoadSystem, TerrainConfig, TerrainError,
     TerrainLOD, TerrainModification, TerrainResult, TerrainStats,
@@ -71,6 +72,7 @@ include!("impl_lighting.rs");
 include!("impl_gpu.rs");
 include!("impl_pipelines.rs");
 include!("impl_world.rs");
+include!("overlay_gpu.rs");
 include!("traits.rs");
 include!("tests.rs");
 include!("api.rs");
@@ -86,6 +88,7 @@ pub const TERRAIN_VISUAL_SRC: &str = concat!(
     include_str!("impl_gpu.rs"),
     include_str!("impl_pipelines.rs"),
     include_str!("impl_world.rs"),
+    include_str!("overlay_gpu.rs"),
     include_str!("traits.rs"),
     include_str!("api.rs"),
 );

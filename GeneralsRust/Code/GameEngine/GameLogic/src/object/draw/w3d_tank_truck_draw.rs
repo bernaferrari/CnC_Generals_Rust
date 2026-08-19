@@ -1,7 +1,8 @@
 use super::draw_module::*;
+use super::w3d_model_draw::peek_hlod_live_child_states;
 use super::w3d_truck_draw::*;
 use crate::common::*;
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
@@ -218,6 +219,7 @@ pub struct W3DTankTruckDraw {
     data: W3DTankTruckDrawModuleData,
     base: W3DTruckDraw,
     tread_uv_offsets: Vec<Real>,
+    tread_mesh_names: Vec<String>,
     last_direction: Coord3D,
     tread_debris_left: Option<u32>,
     tread_debris_right: Option<u32>,
@@ -232,6 +234,7 @@ impl W3DTankTruckDraw {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
             tread_uv_offsets: Vec::new(),
+            tread_mesh_names: Vec::new(),
             last_direction: Coord3D::new(1.0, 0.0, 0.0),
             tread_debris_left: None,
             tread_debris_right: None,
@@ -269,10 +272,46 @@ impl W3DTankTruckDraw {
     }
 
     fn update_tread_objects(&mut self) {
-        self.tread_uv_offsets.clear();
-        // C++ only caches real RenderObj sub-objects named TREADS* whose materials
-        // use LinearOffsetTextureMapper. Until the WGPU/W3D bridge exposes those
-        // sub-objects, keep this empty instead of inventing visual treads.
+        if self.data.tread_animation_rate == 0.0 {
+            self.tread_uv_offsets.clear();
+            self.tread_mesh_names.clear();
+            return;
+        }
+        let Some(owner_id) = self.base.owner_id() else {
+            self.tread_uv_offsets.clear();
+            self.tread_mesh_names.clear();
+            return;
+        };
+        let Some(children) = peek_hlod_live_child_states(owner_id) else {
+            return;
+        };
+        if children.is_empty() {
+            return;
+        }
+        let any_linear_offset = children.iter().any(|child| child.uv_animations_disabled);
+        let previous_names = std::mem::take(&mut self.tread_mesh_names);
+        let previous_uvs = std::mem::take(&mut self.tread_uv_offsets);
+        for child in children {
+            if self.tread_uv_offsets.len() >= 4 {
+                break;
+            }
+            let Some((_, leaf)) = child.name.rsplit_once('.') else {
+                continue;
+            };
+            if leaf.len() < 6 || !leaf[..6].eq_ignore_ascii_case("TREADS") {
+                continue;
+            }
+            if any_linear_offset && !child.uv_animations_disabled {
+                continue;
+            }
+            let uv = previous_names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(leaf))
+                .and_then(|index| previous_uvs.get(index).copied())
+                .unwrap_or(0.0);
+            self.tread_mesh_names.push(leaf.to_string());
+            self.tread_uv_offsets.push(uv);
+        }
     }
 
     fn update_tread_animation(
@@ -312,9 +351,28 @@ impl W3DTankTruckDraw {
     }
 
     fn publish_tread_uv_overrides(&self) {
-        // C++ only mutates material overrides on real discovered TREADS* sub-objects.
-        // The render bridge does not expose those sub-objects yet, so there is nothing
-        // to publish without fabricating tread state.
+        let Some(owner_id) = self.base.owner_id() else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let overrides: Vec<MeshUvOverrideState> = self
+            .tread_mesh_names
+            .iter()
+            .zip(self.tread_uv_offsets.iter())
+            .map(|(name, uv)| MeshUvOverrideState {
+                mesh_name_prefix: name.clone(),
+                u_offset: *uv,
+                v_offset: 0.0,
+            })
+            .collect();
+        if overrides.is_empty() {
+            return;
+        }
+        let _ = client.with_active_object_model_draw(owner_id, |state| {
+            state.mesh_uv_overrides = overrides;
+        });
     }
 
     fn create_tread_emitters(&mut self) {
@@ -378,6 +436,7 @@ impl Module for W3DTankTruckDraw {
 impl DrawModule for W3DTankTruckDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
+        self.update_tread_objects();
 
         let mut direction = Coord3D::new(transform_mtx.x_axis.x, transform_mtx.x_axis.y, 0.0);
         let mut is_motive = false;

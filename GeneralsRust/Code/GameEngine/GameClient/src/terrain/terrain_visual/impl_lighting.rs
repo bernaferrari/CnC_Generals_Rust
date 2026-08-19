@@ -91,7 +91,7 @@ impl TerrainVisualImpl {
         (self.fog_start, self.fog_end)
     }
 
-    fn terrain_static_diffuse_from_normal(
+    pub(crate) fn terrain_static_diffuse_from_normal(
         normal: Vec3,
         light_pos: Vec3,
         sun_color: [f32; 3],

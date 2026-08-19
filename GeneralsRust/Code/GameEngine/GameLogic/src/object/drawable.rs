@@ -17,7 +17,7 @@ use crate::object::body::body_module::BodyDamageType;
 use crate::object::draw::draw_module::{
     DebrisDrawInterface, DrawModule, ObjectDrawInterface, RGBColor, ShadowType,
 };
-use crate::object::draw::{TerrainDecalType, W3DDebrisDraw, W3DDebrisDrawModuleData};
+use crate::object::draw::{object_should_animate, TerrainDecalType, W3DDebrisDraw, W3DDebrisDrawModuleData};
 use crate::player::ThePlayerList;
 use game_engine::bit_flags::create_model_condition_flags;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
@@ -294,6 +294,32 @@ impl LegacyTintEnvelope {
         let _ = xfer.xfer_unsigned_int(&mut self.sustain_counter);
         let _ = xfer.xfer_bool(&mut self.affect);
         let _ = xfer.xfer_byte(&mut self.env_state);
+    }
+
+    fn play(
+        &mut self,
+        color: Coord3D,
+        attack_frames: u32,
+        decay_frames: u32,
+        sustain_at_peak: bool,
+    ) {
+        self.peak_color = color;
+        self.current_color = color;
+        self.affect = true;
+        self.sustain_counter = if sustain_at_peak { 1 } else { 0 };
+        self.env_state = if attack_frames > 0 { 1 } else { 2 };
+        let attack = attack_frames.max(1) as f32;
+        let decay = decay_frames.max(1) as f32;
+        self.attack_rate = Coord3D::new(color.x / attack, color.y / attack, color.z / attack);
+        self.decay_rate = Coord3D::new(color.x / decay, color.y / decay, color.z / decay);
+    }
+
+    fn rest(&mut self) {
+        self.affect = false;
+        self.sustain_counter = 0;
+        self.env_state = 0;
+        self.current_color = Coord3D::new(0.0, 0.0, 0.0);
+        self.peak_color = Coord3D::new(0.0, 0.0, 0.0);
     }
 }
 
@@ -1632,6 +1658,78 @@ impl Drawable {
         self.color_tint = Color::white();
     }
 
+    /// C++ `Drawable::setColorTintEnvelope` — copy the full envelope curve.
+    pub fn copy_color_tint_envelope_from(&mut self, other: &Drawable) {
+        self.color_tint_envelope = other.color_tint_envelope.clone();
+        self.color_tint = other.color_tint;
+        self.tint_status = other.tint_status;
+    }
+
+    /// C++ `Drawable::getShouldAnimate(considerPower)`.
+    pub fn get_should_animate(&self, consider_power: bool) -> bool {
+        let Some(object) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return true;
+        };
+        let Ok(obj) = object.read() else {
+            return true;
+        };
+        object_should_animate(&obj, consider_power)
+    }
+
+    /// C++ Drawable::setInstanceScale — pulse drawables grow via this, not identity snap.
+    pub fn set_instance_scale(&mut self, scale: Real) {
+        self.instance_scale = scale;
+    }
+
+    pub fn get_instance_scale(&self) -> Real {
+        self.instance_scale
+    }
+
+    /// C++ Drawable::colorTint — lock a saturated tint on the pulse drawable.
+    pub fn color_tint(&mut self, color: Option<Color>) {
+        const TINT_COLOR_LOCKED: u32 = 0x00000004;
+        if let Some(color) = color {
+            self.color_flash(Some(color), 0, 0, true);
+            self.set_drawable_status(TINT_COLOR_LOCKED);
+            self.color_tint = color;
+        } else {
+            if self.color_tint_envelope.is_none() {
+                self.color_tint_envelope = Some(LegacyTintEnvelope::default());
+            }
+            if let Some(envelope) = self.color_tint_envelope.as_mut() {
+                envelope.rest();
+            }
+            self.clear_drawable_status(TINT_COLOR_LOCKED);
+            self.color_tint = Color::white();
+        }
+    }
+
+    /// C++ Drawable::colorFlash(color, decayFrames, attackFrames, sustainAtPeak).
+    pub fn color_flash(
+        &mut self,
+        color: Option<Color>,
+        decay_frames: u32,
+        attack_frames: u32,
+        sustain_at_peak: bool,
+    ) {
+        const TINT_COLOR_LOCKED: u32 = 0x00000004;
+        if self.color_tint_envelope.is_none() {
+            self.color_tint_envelope = Some(LegacyTintEnvelope::default());
+        }
+        let rgb = color.unwrap_or(Color::white());
+        let peak = Coord3D::new(
+            rgb.r as f32 / 255.0,
+            rgb.g as f32 / 255.0,
+            rgb.b as f32 / 255.0,
+        );
+        if let Some(envelope) = self.color_tint_envelope.as_mut() {
+            envelope.play(peak, attack_frames, decay_frames, sustain_at_peak);
+        }
+        self.flash_color = rgb;
+        self.flash_count = if decay_frames == 0 { 0 } else { decay_frames as i32 };
+        self.clear_drawable_status(TINT_COLOR_LOCKED);
+    }
+
     pub fn set_time_of_day(&mut self, time_of_day: TimeOfDay) {
         match time_of_day {
             TimeOfDay::Night => self.set_model_condition_state(ModelConditionFlags::NIGHT),
@@ -1739,7 +1837,7 @@ impl Drawable {
                         })
                         .unwrap_or_default();
                     if module_identifier.is_empty() {
-                        panic!(
+                        log::warn!(
                             "Drawable::xfer_drawable_modules unresolved module identifier for tag '{}' on drawable {}",
                             entry.tag(),
                             self.drawable_id
@@ -1786,10 +1884,13 @@ impl Drawable {
                             }
                         });
                     } else if data_size > 0 {
-                        panic!(
-                            "Drawable::xfer_drawable_modules skipping missing module '{}' on drawable {}",
-                            module_identifier, self.drawable_id
+                        // C++ Drawable.cpp:4854-4867 — missing module is a DEBUG_CRASH then skip.
+                        log::warn!(
+                            "Drawable::xfer_drawable_modules - Module '{}' was indicated in file, but not found on Drawable {}",
+                            module_identifier,
+                            self.drawable_id
                         );
+                        let _ = xfer.skip(data_size);
                     }
                     let _ = xfer.end_block();
                 }
@@ -1877,7 +1978,7 @@ impl Drawable {
                 if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
                     self.decal_opacity_fade_rate = 0.0;
                     self.decal_opacity = 0.0;
-                    self.terrain_decal = TerrainDecalType::None;
+                    self.set_terrain_decal(TerrainDecalType::None);
                 } else if self.decal_opacity_fade_rate > 0.0 && self.decal_opacity >= 1.0 {
                     self.decal_opacity = 1.0;
                     self.decal_opacity_fade_rate = 0.0;
@@ -2577,12 +2678,17 @@ impl Drawable {
     }
 
     pub fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
+        if self.terrain_decal == decal_type {
+            return;
+        }
         self.terrain_decal = decal_type;
-        for entry in &self.modules {
-            if (entry.mask().0 & ModuleInterfaceType::DRAW.0) == 0 {
-                continue;
-            }
-            entry.with_module(|module| set_decal_on_draw_module(module, decal_type));
+        // C++ Drawable::setTerrainDecal: only the first draw module gets a decal.
+        if let Some(first) = self
+            .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
+            .first()
+            .cloned()
+        {
+            first.with_module(|module| set_decal_on_draw_module(module, decal_type));
         }
     }
 
@@ -3992,6 +4098,11 @@ impl crate::drawable::Drawable for Drawable {
         let mut transform_mtx = transform.copied().unwrap_or(self.transform);
         if let Some(instance_mtx) = self.instance_matrix {
             transform_mtx = transform_mtx * instance_mtx;
+        }
+        if (self.instance_scale - 1.0).abs() > f32::EPSILON {
+            // C++ Drawable draw: instance scale is applied after the instance matrix.
+            transform_mtx = transform_mtx
+                * Matrix3D::from_scale(glam::Vec3::splat(self.instance_scale));
         }
         // C++ Drawable.cpp:2649 — applyPhysicsXform after instance, before modules.
         // Calc lives in GameClient (crate cycle). Nested Overlord rider draws

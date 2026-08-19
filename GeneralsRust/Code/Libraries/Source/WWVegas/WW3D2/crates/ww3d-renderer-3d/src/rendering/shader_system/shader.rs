@@ -505,25 +505,23 @@ impl ShaderApplyResources {
         );
     }
 
-    /// Apply these resources to a render pass
     pub fn apply_to_render_pass<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &*self.camera_bind_group, &[]);
         render_pass.set_bind_group(1, &*self.model_bind_group, &[]);
-        render_pass.set_bind_group(2, &*self.uv_transform_bind_group, &[]);
-
-        // Set bone bind group for skinned meshes (now at group 3)
+        // skinned.wgsl @group(2) is BoneUniform (4096) + UV. Non-skinned @group(2) is UV only.
         if let Some(ref bone_bind_group) = self.bone_bind_group {
-            render_pass.set_bind_group(3, &**bone_bind_group, &[]);
+            render_pass.set_bind_group(2, &**bone_bind_group, &[]);
+        } else {
+            render_pass.set_bind_group(2, &*self.uv_transform_bind_group, &[]);
         }
-
-        // Set texture bind group if present
-        let mut bind_group_index = if self.bone_bind_group.is_some() { 4 } else { 3 };
+        let mut bind_group_index = 3;
         for texture_bind_group in &self.texture_bind_groups {
             render_pass.set_bind_group(bind_group_index, &**texture_bind_group, &[]);
             bind_group_index += 1;
         }
     }
+
 }
 
 impl ShaderClass {
@@ -808,8 +806,35 @@ impl ShaderClass {
             }],
         }));
 
-        // Create UV transform bind group
-        let uv_transform_bind_group =
+        let use_skinned_layout = matches!(vertex_layout, VertexLayoutKind::Skinned)
+            || matches!(self.determine_shader_type(), ShaderType::Skinned);
+
+        // Non-skinned: group 2 is UV only. Skinned: group 2 is bones (4096) + UV.
+        // Never bind the 64-byte UV buffer as the skinned group-2 layout.
+        let uv_transform_bind_group = if use_skinned_layout {
+            let uv_only_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Skinned UV-only Layout (unused at draw)"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+            Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("UV Transform Bind Group"),
+                layout: &uv_only_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uv_transform_buffer.as_entire_binding(),
+                }],
+            }))
+        } else {
             Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("UV Transform Bind Group"),
                 layout: &pipeline.get_bind_group_layout(2),
@@ -817,66 +842,50 @@ impl ShaderClass {
                     binding: 0,
                     resource: uv_transform_buffer.as_entire_binding(),
                 }],
-            }));
+            }))
+        };
 
-        // Create bone buffer and bind group for skinned meshes
-        let use_skinned_layout = matches!(vertex_layout, VertexLayoutKind::Skinned)
-            || matches!(self.determine_shader_type(), ShaderType::Skinned);
+        let pad_bone_matrices = |src: &[Mat4]| -> Vec<Mat4> {
+            let mut bones = vec![Mat4::IDENTITY; 64];
+            let n = src.len().min(64);
+            bones[..n].copy_from_slice(&src[..n]);
+            bones
+        };
 
         let (bone_buffer, bone_bind_group) = if use_skinned_layout {
-            if let Some(matrices) = bone_matrices {
-                let buffer = Arc::new(device.create_buffer_init(
-                    &wgpu::util::BufferInitDescriptor {
-                        label: Some("Bone Uniform Buffer"),
-                        contents: bytemuck::cast_slice(matrices),
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    },
-                ));
-
-                let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Bone Bind Group"),
-                    layout: &pipeline.get_bind_group_layout(3),
-                    entries: &[wgpu::BindGroupEntry {
+            let identity_matrices = pad_bone_matrices(bone_matrices.unwrap_or(&[]));
+            let buffer = Arc::new(device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Bone Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&identity_matrices),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                },
+            ));
+            let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Bone+UV Bind Group"),
+                layout: &pipeline.get_bind_group_layout(2),
+                entries: &[
+                    wgpu::BindGroupEntry {
                         binding: 0,
                         resource: buffer.as_entire_binding(),
-                    }],
-                }));
-
-                (Some(buffer), Some(bind_group))
-            } else {
-                // Create default identity bone matrices if none provided
-                let identity_matrices = vec![Mat4::IDENTITY; 64];
-                let buffer = Arc::new(device.create_buffer_init(
-                    &wgpu::util::BufferInitDescriptor {
-                        label: Some("Default Bone Uniform Buffer"),
-                        contents: bytemuck::cast_slice(&identity_matrices),
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     },
-                ));
-
-                let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Default Bone Bind Group"),
-                    layout: &pipeline.get_bind_group_layout(3),
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.as_entire_binding(),
-                    }],
-                }));
-
-                (Some(buffer), Some(bind_group))
-            }
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: uv_transform_buffer.as_entire_binding(),
+                    },
+                ],
+            }));
+            (Some(buffer), Some(bind_group))
         } else {
             (None, None)
         };
 
         let mut texture_bind_groups = Vec::new();
         if let (Some(tex_view), Some(tex_sampler)) = (texture, sampler) {
-            // Texture bind group is at group 3 if no bones, group 4 if bones present
-            // (Groups 0=camera, 1=model, 2=uv_transform, 3=bones or textures)
-            let bind_group_index = if bone_bind_group.is_some() { 4 } else { 3 };
+            // skinned.wgsl and opaque.wgsl both start textures at @group(3).
             let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Texture Bind Group"),
-                layout: &pipeline.get_bind_group_layout(bind_group_index),
+                layout: &pipeline.get_bind_group_layout(3),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -890,6 +899,7 @@ impl ShaderClass {
             }));
             texture_bind_groups.push(bind_group);
         }
+
 
         ShaderApplyResources {
             pipeline,
@@ -988,26 +998,39 @@ impl ShaderClass {
 
         let mut bind_group_layouts = vec![&camera_bind_group_layout, &model_bind_group_layout];
 
-        // Add bone uniform layout for skinned meshes
+        // skinned.wgsl @group(2): bones + uv_transform
         let bone_bind_group_layout = if use_skinned_layout {
             Some(
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("Bone Bind Group Layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    label: Some("Bone+UV Bind Group Layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 }),
             )
         } else {
             None
         };
+
 
         if let Some(ref bone_layout) = bone_bind_group_layout {
             bind_group_layouts.push(bone_layout);

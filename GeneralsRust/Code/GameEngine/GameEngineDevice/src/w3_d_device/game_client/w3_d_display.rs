@@ -22,6 +22,12 @@ pub fn do_the_dynamic_light_wgpu(
     do_the_dynamic_light_from_scene(vertex_xyz, vertex_normal, vertex_diffuse)
 }
 
+/// C++ RTS2DScene `W3DStatusCircle::Render` after the 3D scene.
+pub fn draw_status_circle_overlay() -> Option<crate::w3_d_device::game_client::w3_d_status_circle::CameraFadeOverlay>
+{
+    crate::w3_d_device::game_client::w3_d_status_circle::render_camera_fade()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

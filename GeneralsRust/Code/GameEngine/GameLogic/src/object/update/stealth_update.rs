@@ -18,7 +18,7 @@
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::damage::DamageType;
-use crate::helpers::game_client_random_value_real;
+use crate::helpers::{game_client_random_value_real, TheAudio, TheGameLogic};
 use crate::modules::StealthControllerExt;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::{Drawable, StealthLookType};
@@ -54,6 +54,22 @@ pub const STEALTH_NOT_WHILE_RIDERS_ATTACKING: u32 = 0x00000100;
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
+}
+
+fn play_update_stealth_sound(object_id: ObjectID, stealth_on: bool) {
+    let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        if stealth_on {
+            obj.get_template().get_sound_stealth_on()
+        } else {
+            obj.get_template().get_sound_stealth_off()
+        }
+    }) else {
+        return;
+    };
+    event.set_object_id(object_id);
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
 }
 
 /// Stealth update module data - matches C++ StealthUpdateModuleData (lines 53-82)
@@ -605,12 +621,11 @@ impl StealthUpdateController {
 
                     // Order idle unit to attack (C++ lines 902-909)
                     // Wake up AI to attempt targeting the revealed stealth unit
-                    if let Some(ai) = enemy_guard.get_ai() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            // C++ calls wakeUpAndAttemptToTarget (StealthUpdate.cpp:834)
-                            // This is handled by the AI module's wake-up logic
-                            drop(ai_guard); // AI will handle targeting on next update
-                        }
+                    if enemy_guard.get_ai().is_some() {
+                        TheGameLogic::set_wake_frame(
+                            enemy_guard.get_id(),
+                            crate::modules::UPDATE_SLEEP_NONE,
+                        );
                     }
                 }
             }
@@ -931,15 +946,27 @@ impl StealthUpdateController {
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::STEALTHED)
                     {
-                        // Play stealth ON sound (lines 729-731)
-                        // Audio handled by audio system via STEALTHED status bit change
+                        // C++ StealthUpdate.cpp:729-731
+                        play_update_stealth_sound(self.object_id, true);
                         guard.set_status(ObjectStatusMaskType::STEALTHED, true);
                     }
                 })
                 .ok_or_else(|| "Lock failed".to_string())?;
         } else {
-            // Break stealth (lines 738-752)
-            self.stealth_allowed_frame = current_frame + self.data.stealth_delay;
+            // Break stealth (lines 738-752) using the stealth owner's delay.
+            let stealth_delay = if stealth_owner_id == self.object_id {
+                self.data.stealth_delay
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(stealth_owner_id, |owner| {
+                        owner.get_stealth().and_then(|handle| {
+                            handle.lock().ok().map(|guard| guard.get_stealth_delay())
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(self.data.stealth_delay)
+            };
+            self.stealth_allowed_frame = current_frame.saturating_add(stealth_delay);
 
             OBJECT_REGISTRY
                 .with_object_mut(self.object_id, |guard| {
@@ -947,8 +974,8 @@ impl StealthUpdateController {
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::STEALTHED)
                     {
-                        // Play stealth OFF sound (lines 744-746)
-                        // Audio handled by audio system via STEALTHED status bit change
+                        // C++ StealthUpdate.cpp:744-746 plays SoundStealthOn
+                        play_update_stealth_sound(self.object_id, true);
                         guard.set_status(ObjectStatusMaskType::STEALTHED, false);
                     }
 
@@ -983,8 +1010,8 @@ impl StealthUpdateController {
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::DETECTED)
                     {
-                        // Play stealth OFF sound (lines 761-763)
-                        // Audio handled by audio system via DETECTED status bit change
+                        // C++ StealthUpdate.cpp:761-763
+                        play_update_stealth_sound(self.object_id, false);
                         guard.set_status(ObjectStatusMaskType::DETECTED, true);
                         true
                     } else {
@@ -1003,8 +1030,10 @@ impl StealthUpdateController {
                         .get_status_bits()
                         .contains(ObjectStatusMaskType::DETECTED)
                     {
-                        // Play stealth ON sound if locally controlled (lines 776-779)
-                        // Audio handled by audio system based on controlling player check
+                        // C++ StealthUpdate.cpp:776-779 — only if locally controlled
+                        if guard.is_locally_controlled() {
+                            play_update_stealth_sound(self.object_id, true);
+                        }
                         guard.set_status(ObjectStatusMaskType::DETECTED, false);
                         true
                     } else {

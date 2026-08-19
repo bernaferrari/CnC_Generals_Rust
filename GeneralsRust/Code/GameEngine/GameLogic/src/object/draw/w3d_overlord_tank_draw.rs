@@ -9,18 +9,10 @@
 use super::draw_module::*;
 use super::w3d_tank_draw::*;
 use crate::common::*;
-use crate::drawable::Drawable;
-use crate::object::drawable::{DrawableArcExt, TintStatus};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-
-/// Wave 442: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 #[derive(Debug, Clone)]
 pub struct W3DOverlordTankDrawModuleData {
@@ -146,53 +138,11 @@ impl Module for W3DOverlordTankDraw {
 }
 
 impl DrawModule for W3DOverlordTankDraw {
+
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        // Draw base tank
         self.base.do_draw_module(transform_mtx);
-
-        // Wave 442: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        let Some(owner_id) = self.owner_id else {
-            return;
-        };
-
-        let Some(((owner_tint, owner_tint_status), rider_id)) =
-            crate::object::registry::OBJECT_REGISTRY
-                .with_object(owner_id, |owner_guard| {
-                    let owner_drawable = owner_guard.get_drawable();
-                    let tint = owner_drawable
-                        .as_ref()
-                        .and_then(|drawable| drawable.read().ok())
-                        .map(|guard| (guard.get_tint_color(), guard.get_tint_status()))
-                        .unwrap_or((Color::white(), TintStatus::NONE));
-                    let rider_id = owner_guard.get_contain().and_then(|contain| {
-                        contain.lock().ok().and_then(|cg| cg.friend_get_rider())
-                    })?;
-                    Some((tint, rider_id))
-                })
-                .flatten()
-        else {
-            return;
-        };
-
-        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
-            .flatten()
-        else {
-            return;
-        };
-
-        {
-            let Ok(mut drawable_guard) = drawable.write() else {
-                return;
-            };
-            drawable_guard.set_color_tint(owner_tint);
-            drawable_guard.set_tint_status_exact(owner_tint_status);
-            drawable_guard.notify_drawable_dependency_cleared();
-            drawable_guard.draw(None);
+        if let Some(owner_id) = self.owner_id {
+            super::overlord_rider::draw_overlord_rider(owner_id);
         }
     }
 
@@ -210,31 +160,8 @@ impl DrawModule for W3DOverlordTankDraw {
 
     fn set_hidden(&mut self, hidden: bool) {
         self.base.set_hidden(hidden);
-
-        // Wave 442: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        let Some(owner_id) = self.owner_id else {
-            return;
-        };
-
-        let Some(rider_id) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(owner_id, |owner_guard| {
-                owner_guard
-                    .get_contain()
-                    .and_then(|contain| contain.lock().ok().and_then(|cg| cg.friend_get_rider()))
-            })
-            .flatten()
-        else {
-            return;
-        };
-        if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
-            .flatten()
-        {
-            drawable.set_drawable_hidden(hidden);
+        if let Some(owner_id) = self.owner_id {
+            super::overlord_rider::set_overlord_rider_hidden(owner_id, hidden);
         }
     }
 

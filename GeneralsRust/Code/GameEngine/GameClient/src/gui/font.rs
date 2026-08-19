@@ -26,6 +26,49 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use thiserror::Error;
 
+fn load_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
+    for path in candidate_font_paths(&desc.name) {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(font) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()) {
+                return Some(font);
+            }
+        }
+    }
+    None
+}
+
+fn candidate_font_paths(name: &str) -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+    let file_stem = name.replace(' ', "");
+    let names = [
+        format!("{}.ttf", name),
+        format!("{}.otf", name),
+        format!("{}.ttf", file_stem),
+        format!("{}.TTF", name),
+        format!("{} Bold.ttf", name),
+    ];
+    let dirs = [
+        std::path::PathBuf::from("Data/English/Fonts"),
+        std::path::PathBuf::from("Data/Fonts"),
+        std::path::PathBuf::from("/System/Library/Fonts/Supplemental"),
+        std::path::PathBuf::from("/Library/Fonts"),
+        std::path::PathBuf::from("/System/Library/Fonts"),
+        std::path::PathBuf::from("C:/Windows/Fonts"),
+        std::path::PathBuf::from("/usr/share/fonts/truetype"),
+        std::path::PathBuf::from("/usr/share/fonts"),
+    ];
+    for dir in dirs {
+        for file in &names {
+            paths.push(dir.join(file));
+        }
+        paths.push(dir.join("Arial.ttf"));
+        paths.push(dir.join("arial.ttf"));
+        paths.push(dir.join("LiberationSans-Regular.ttf"));
+        paths.push(dir.join("DejaVuSans.ttf"));
+    }
+    paths
+}
+
 /// Font management errors
 #[derive(Error, Debug)]
 pub enum FontError {
@@ -121,23 +164,43 @@ pub trait FontData: Send + Sync {
     fn supports_char(&self, ch: char) -> bool;
 }
 
-/// Default font data implementation for testing and fallback
-#[derive(Debug)]
+/// Font data backed by fontdue glyph advances (C++ GetTextExtentPoint32).
 pub struct DefaultFontData {
     metrics: FontMetrics,
     desc: FontDesc,
+    font: Option<fontdue::Font>,
 }
 
 impl DefaultFontData {
     pub fn new(desc: FontDesc) -> Self {
+        let font = load_fontdue_font(&desc);
         let mut metrics = FontMetrics::default();
         metrics.height = desc.size;
-        metrics.ascent = (desc.size as f32 * 0.8) as i32;
-        metrics.descent = -(desc.size as f32 * 0.2) as i32;
-        metrics.average_width = (desc.size as f32 * 0.6) as i32;
-        metrics.max_width = desc.size;
+        if let Some(loaded) = font.as_ref() {
+            if let Some(line) = loaded.horizontal_line_metrics(desc.size as f32) {
+                metrics.ascent = line.ascent.round() as i32;
+                metrics.descent = line.descent.round() as i32;
+                metrics.line_gap = line.line_gap.round() as i32;
+            }
+            let (metrics_x, _) = loaded.metrics('x', desc.size as f32);
+            metrics.average_width = metrics_x.advance_width.round().max(1.0) as i32;
+            let (metrics_m, _) = loaded.metrics('M', desc.size as f32);
+            metrics.max_width = metrics_m
+                .advance_width
+                .round()
+                .max(metrics.average_width as f32) as i32;
+        } else {
+            metrics.ascent = (desc.size as f32 * 0.8) as i32;
+            metrics.descent = -(desc.size as f32 * 0.2) as i32;
+            metrics.average_width = (desc.size as f32 * 0.6) as i32;
+            metrics.max_width = desc.size;
+        }
 
-        Self { metrics, desc }
+        Self {
+            metrics,
+            desc,
+            font,
+        }
     }
 }
 
@@ -147,7 +210,15 @@ impl FontData for DefaultFontData {
     }
 
     fn measure_text(&self, text: &str) -> i32 {
-        text.len() as i32 * self.metrics.average_width
+        if let Some(font) = self.font.as_ref() {
+            let px = self.desc.size as f32;
+            let width = text
+                .chars()
+                .map(|ch| font.metrics(ch, px).0.advance_width)
+                .sum::<f32>();
+            return width.round().max(0.0) as i32;
+        }
+        text.chars().count() as i32 * self.metrics.average_width.max(1)
     }
 
     fn get_line_height(&self) -> i32 {
@@ -155,6 +226,9 @@ impl FontData for DefaultFontData {
     }
 
     fn supports_char(&self, ch: char) -> bool {
+        if let Some(font) = self.font.as_ref() {
+            return font.lookup_glyph_index(ch) != 0;
+        }
         ch.is_ascii() || ch.is_ascii_graphic() || ch.is_whitespace()
     }
 }
@@ -172,10 +246,8 @@ pub struct GameFont {
 impl GameFont {
     /// Create a new GameFont with the specified description
     pub fn new(desc: FontDesc) -> Result<Self, FontError> {
-        // For now, use default font data - in a real implementation,
-        // this would load platform-specific font data
         let font_data = Box::new(DefaultFontData::new(desc.clone()));
-        let height = font_data.get_metrics().height;
+        let height = desc.size;
 
         Ok(Self {
             desc,

@@ -495,6 +495,20 @@ impl RebuildHoleBehavior {
 
         let _ = TheGameLogic::destroy_object_by_id(self.get_object_id());
     }
+
+    /// Matches C++ `~RebuildHoleBehavior`: destroy the generated worker when
+    /// the hole is destroyed (not killed) so it cannot leak as UNSELECTABLE.
+    fn on_delete(&mut self) {
+        if self.worker_id == INVALID_ID {
+            return;
+        }
+        if let Some(worker) = TheGameLogic::find_object_by_id(self.worker_id) {
+            if let Ok(worker_guard) = worker.read() {
+                let _ = TheGameLogic::destroy_object(&*worker_guard);
+            }
+            self.worker_id = INVALID_ID;
+        }
+    }
 }
 
 impl UpdateModuleInterface for RebuildHoleBehavior {
@@ -797,7 +811,9 @@ impl Module for RebuildHoleBehaviorModule {
 
     fn on_object_created(&mut self) {}
 
-    fn on_delete(&mut self) {}
+    fn on_delete(&mut self) {
+        self.behavior.on_delete();
+    }
 }
 
 #[cfg(test)]

@@ -440,18 +440,17 @@ impl ControlBarCallbacks {
         Ok(())
     }
 
-    /// Show the control bar
     pub fn show_control_bar(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        if self.state.visible {
-            // C++ ShowControlBar still switches DEFAULT when ControlBarParent is live.
-            self.apply_show_control_bar_scheme_and_default_stage();
-            return Ok(());
+        // C++ ShowControlBar always switchControlBarStage(DEFAULT) + winHide(FALSE)
+        // even when already shown. Do not early-return on state.visible.
+        if !self.state.visible {
+            self.state.visible = true;
+            TheControlBar::show_special_power_shortcut();
         }
-        self.state.visible = true;
-        TheControlBar::show_special_power_shortcut();
         self.apply_visibility_change(immediate, true)?;
         Ok(())
     }
+
 
     /// C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer + ControlBarCallback.cpp:489 DEFAULT.
     fn apply_show_control_bar_scheme_and_default_stage(&self) {
@@ -770,17 +769,14 @@ impl ControlBarObserverCallbacks {
     /// Handle control bar observer system messages
     pub fn system(
         &mut self,
-        _window: &GameWindow,
+        window: &GameWindow,
         msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        match msg {
-            WindowMessage::None | WindowMessage::Create | WindowMessage::Destroy => {
-                WindowMsgHandled::Handled
-            }
-            _ => WindowMsgHandled::Ignored,
-        }
+        crate::gui::control_bar::control_bar_observer::control_bar_observer_system(
+            window, msg, data1, data2,
+        )
     }
 }
 

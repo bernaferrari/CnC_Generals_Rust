@@ -343,6 +343,24 @@ impl TheRadar {
     }
 }
 
+/// C++ `TheTacticalView` camera constraint hook used by SWITCH_BORDER.
+pub struct TheTacticalView;
+
+static FORCE_CAMERA_CONSTRAINT_RECALC: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+impl TheTacticalView {
+    pub fn set_force_camera_constraint_recalc(hook: fn()) {
+        let _ = FORCE_CAMERA_CONSTRAINT_RECALC.set(hook);
+    }
+
+    pub fn force_camera_constraint_recalc() {
+        if let Some(hook) = FORCE_CAMERA_CONSTRAINT_RECALC.get() {
+            hook();
+        }
+    }
+}
+
+
 /// Terrain visual effects bridge (matching C++ TheTerrainVisual).
 pub struct TheTerrainVisual;
 
@@ -350,6 +368,12 @@ static TERRAIN_VISUAL_RAW_HEIGHT: std::sync::LazyLock<Mutex<Option<fn(i32, i32, 
     std::sync::LazyLock::new(|| Mutex::new(None));
 static TERRAIN_VISUAL_LIGHTING_CHANGED: std::sync::LazyLock<Mutex<Option<fn()>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
+static TERRAIN_VISUAL_ADD_PROP: std::sync::LazyLock<
+    Mutex<Option<fn(u32, [f32; 3], f32, f32, &str)>>,
+> = std::sync::LazyLock::new(|| Mutex::new(None));
+static TERRAIN_VISUAL_PENDING_PROPS: std::sync::LazyLock<
+    Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
+> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Register the live GameClient `W3DTerrainVisual::setRawMapHeight` hook.
 pub fn register_terrain_visual_raw_height_hook(hook: Option<fn(i32, i32, i32)>) {
@@ -361,6 +385,15 @@ pub fn register_terrain_visual_raw_height_hook(hook: Option<fn(i32, i32, i32)>) 
 /// Register the live GameClient `staticLightingChanged` hook.
 pub fn register_terrain_visual_lighting_changed_hook(hook: Option<fn()>) {
     if let Ok(mut slot) = TERRAIN_VISUAL_LIGHTING_CHANGED.lock() {
+        *slot = hook;
+    }
+}
+
+/// Register the live GameClient `TheTerrainRenderObject->addProp` hook.
+pub fn register_terrain_visual_add_prop_hook(
+    hook: Option<fn(u32, [f32; 3], f32, f32, &str)>,
+) {
+    if let Ok(mut slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
         *slot = hook;
     }
 }
@@ -387,6 +420,41 @@ impl TheTerrainVisual {
                 hook();
             }
         }
+    }
+
+    /// C++ `TheTerrainRenderObject->addProp(drawID, pos, orientation, scale, modelName)`.
+    pub fn add_prop(
+        &self,
+        drawable_id: u32,
+        position: Coord3D,
+        angle: Real,
+        scale: Real,
+        model_name: &str,
+    ) {
+        if model_name.is_empty() {
+            return;
+        }
+        let location = [position.x, position.y, position.z];
+        let mut forwarded = false;
+        if let Ok(slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
+            if let Some(hook) = *slot {
+                hook(drawable_id, location, angle, scale, model_name);
+                forwarded = true;
+            }
+        }
+        if !forwarded {
+            if let Ok(mut pending) = TERRAIN_VISUAL_PENDING_PROPS.lock() {
+                pending.push((drawable_id, location, angle, scale, model_name.to_string()));
+            }
+        }
+    }
+
+    /// Drain props queued before the GameClient terrain hook was registered.
+    pub fn take_pending_props(&self) -> Vec<(u32, [f32; 3], f32, f32, String)> {
+        TERRAIN_VISUAL_PENDING_PROPS
+            .lock()
+            .map(|mut pending| pending.drain(..).collect())
+            .unwrap_or_default()
     }
 
     pub fn add_water_velocity(&self, _x: Real, _y: Real, _velocity: Real, _preferred_height: Real) {

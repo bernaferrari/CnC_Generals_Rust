@@ -15,6 +15,7 @@ pub struct AcademyStats {
     pub(super) cleared_garrisoned_buildings: Int,
     pub(super) salvage_collected: Int,
     pub(super) special_powers_used: Int,
+    pub(super) vehicles_sniped: Int,
     /// Total money earned (for scoreboard / academy stats).
     pub(super) total_income: Int,
 }
@@ -33,6 +34,7 @@ impl AcademyStats {
             cleared_garrisoned_buildings: 0,
             salvage_collected: 0,
             special_powers_used: 0,
+            vehicles_sniped: 0,
             total_income: 0,
         }
     }
@@ -105,6 +107,15 @@ impl AcademyStats {
     /// Record clearing a garrisoned building (matches C++ AcademyStats::recordClearedGarrisonedBuilding).
     pub fn record_cleared_garrisoned_building(&mut self) {
         self.cleared_garrisoned_buildings += 1;
+    }
+
+    /// Record a vehicle snipe (C++ AcademyStats::recordVehicleSniped).
+    pub fn record_vehicle_sniped(&mut self) {
+        self.vehicles_sniped = self.vehicles_sniped.saturating_add(1);
+    }
+
+    pub fn get_vehicles_sniped(&self) -> Int {
+        self.vehicles_sniped
     }
 
     /// Record collecting a salvage crate (matches C++ AcademyStats::recordSalvageCollected).

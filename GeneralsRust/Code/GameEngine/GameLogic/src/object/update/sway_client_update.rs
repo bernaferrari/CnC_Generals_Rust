@@ -102,9 +102,10 @@ impl SwayClientUpdateModule {
     }
 
     fn update_sway(&mut self, info: &BreezeInfo) {
+        // C++ SwayClientUpdate.cpp:60-68 — randomness==0 still zeros cur_value
+        // but continues to recompute angle-limit/delta/lean and stores version.
         if info.randomness == 0.0 {
             self.cur_value = 0.0;
-            return;
         }
 
         let delta = info.randomness * 0.5;

@@ -30,6 +30,72 @@ pub(super) const FRAME_INTERVAL: Duration =
     Duration::from_micros(1_000_000 / DEFAULT_MAX_FPS as u64);
 /// Headless logic residual: ~30 Hz fixed step without waiting on GPU present.
 pub(super) const HEADLESS_LOGIC_INTERVAL: Duration = Duration::from_nanos(33_333_333);
+/// C++ `TheW3DFrameLengthInMsec` / `W3D_FRAME_LENGTH_MS`.
+pub(super) const W3D_FRAME_LENGTH_MS: u32 = 33;
+/// C++ `W3DDisplay::draw` `minTime = 30` present cap (busy-wait `< minTime-1`).
+pub(super) const W3D_DRAW_MIN_TIME_MS: u32 = 30;
+
+fn ww3d_sync_ms() -> &'static std::sync::atomic::AtomicU32 {
+    static SYNC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    &SYNC
+}
+
+fn last_ww3d_client_frame() -> &'static std::sync::atomic::AtomicU32 {
+    static LAST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
+    &LAST
+}
+
+fn time_multiplier_counter() -> &'static std::sync::atomic::AtomicI32 {
+    static COUNTER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+    &COUNTER
+}
+
+struct AverageFpsTracker {
+    history: [f64; 30],
+    offset: usize,
+    samples: usize,
+    average: f32,
+    last: Option<Instant>,
+}
+
+impl AverageFpsTracker {
+    const fn new() -> Self {
+        Self {
+            history: [0.0; 30],
+            offset: 0,
+            samples: 0,
+            average: 30.0,
+            last: None,
+        }
+    }
+
+    fn note_frame(&mut self) -> f32 {
+        const MAX_FRAME_TIME_CUTOFF: f64 = 0.5;
+        let now = Instant::now();
+        let elapsed = match self.last {
+            Some(prev) => now.saturating_duration_since(prev).as_secs_f64(),
+            None => 1.0 / 30.0,
+        };
+        self.last = Some(now);
+        if elapsed > 0.0 && elapsed <= MAX_FRAME_TIME_CUTOFF {
+            self.history[self.offset] = 1.0 / elapsed;
+            self.offset = (self.offset + 1) % 30;
+            self.samples = (self.samples + 1).min(30);
+        }
+        if self.samples > 0 {
+            let sum: f64 = self.history.iter().take(self.samples).sum();
+            self.average = (sum / self.samples as f64) as f32;
+        }
+        self.average
+    }
+}
+
+fn average_fps_tracker() -> std::sync::MutexGuard<'static, AverageFpsTracker> {
+    static TRACKER: std::sync::LazyLock<std::sync::Mutex<AverageFpsTracker>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(AverageFpsTracker::new()));
+    TRACKER.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 
 
 /// Run the actual C&C game
@@ -116,9 +182,7 @@ pub async fn run_cnc_game(
                 let timing = match ww3d_engine::update() {
                     Ok(_) => match ww3d_engine::timing() {
                         Ok(timing) => {
-                            let sync_ms = (timing.total_seconds() * 1000.0)
-                                .clamp(0.0, u32::MAX as f32)
-                                as u32;
+                            let sync_ms = engine.advance_ww3d_visual_sync();
                             WW3D::sync(sync_ms);
                             Some(timing)
                         }
@@ -139,6 +203,12 @@ pub async fn run_cnc_game(
             };
 
             let update_started = Instant::now();
+            // C++ GameEngine::update (GameEngine.cpp:735-752):
+            // VERIFY_CRC → Radar → TheAudio->UPDATE() → TheGameClient->UPDATE()
+            // → propagateMessages → … → TheGameLogic->UPDATE().
+            // Audio drains last frame's queued events before this frame's
+            // client/logic work.
+            engine.host_update_the_audio();
             if let Some(timing) = frame_timing {
                 #[cfg(feature = "integration-diagnostics")]
                 if let Some(bridge) = integration_bridge.as_mut() {
@@ -154,10 +224,6 @@ pub async fn run_cnc_game(
             } else {
                 engine.update_with_frame_clock();
             }
-            // C++ GameEngine::update TheAudio->UPDATE() (GameEngine.cpp:736).
-            // Common THE_AUDIO is the live Miles analog (rodio hook); leftover
-            // host AudioManagerSubsystem does not drain AR_Play.
-            engine.host_update_the_audio();
 
             let update_elapsed = update_started.elapsed();
             static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -167,6 +233,7 @@ pub async fn run_cnc_game(
             }
 
             let render_started = Instant::now();
+            let render_frame = render_frame && engine.should_present_w3d_frame();
             if render_frame {
                 if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
                     info!("drive_frame #{} calling render()", dfn);
@@ -632,7 +699,10 @@ pub async fn run_cnc_game(
                                         &mut runtime_host_bridge,
                                         true,
                                     );
-                                    next_redraw_at = Instant::now() + FRAME_INTERVAL;
+                                    next_redraw_at = Instant::now()
+                                        + engine
+                                            .live_present_interval()
+                                            .unwrap_or(Duration::ZERO);
                                 }
                             }
                         }
@@ -743,10 +813,19 @@ pub async fn run_cnc_game(
                         // request_redraw alone froze status.txt after first Menu.
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                         current_window.request_redraw();
-                        next_redraw_at = Instant::now() + FRAME_INTERVAL;
+                        next_redraw_at = Instant::now()
+                            + engine.live_present_interval().unwrap_or(Duration::ZERO);
                     }
                 }
-                elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+                if engine.live_present_interval().is_none()
+                    && !runtime_headless_mode
+                    && !cmd_args.wants_smoke_test()
+                    && !runtime_window_minimized
+                {
+                    elwt.set_control_flow(ControlFlow::Poll);
+                } else {
+                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+                }
             }
             Event::LoopExiting => {
                 #[cfg(feature = "integration-diagnostics")]
@@ -791,6 +870,87 @@ pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
             let compact: String = n.chars().filter(|c| !c.is_whitespace()).collect();
             format!("America{compact}")
         }
+    }
+}
+
+impl CnCGameEngine {
+    /// C++ W3DDisplay.cpp:1730-1781 freeze-aware virtual clock.
+    pub(super) fn advance_ww3d_visual_sync(&self) -> u32 {
+        let frame = self.host_match_logic_frame.unwrap_or(0);
+        let last = last_ww3d_client_frame().swap(frame, std::sync::atomic::Ordering::SeqCst);
+        let same_client_frame = last == frame;
+        let freeze = self.presentation_or_boot_time_frozen()
+            || self.game_paused
+            || matches!(self.current_state, GameState::Paused)
+            || same_client_frame;
+        if !freeze {
+            ww3d_sync_ms().fetch_add(W3D_FRAME_LENGTH_MS, std::sync::atomic::Ordering::SeqCst);
+        }
+        ww3d_sync_ms().load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// C++ `TheScriptEngine->isTimeFast()` analog: visual speed at/above logic Hz.
+    pub(super) fn script_time_fast(&self) -> bool {
+        self.presentation_or_boot_visual_speed() >= 30.0
+    }
+
+    /// C++ W3DDisplay.cpp:1741-1795 + 1852-1855 render-throttle contract.
+    pub(super) fn should_present_w3d_frame(&self) -> bool {
+        let freeze = self.presentation_or_boot_time_frozen()
+            || self.game_paused
+            || matches!(self.current_state, GameState::Paused);
+        if !freeze && self.script_time_fast() {
+            return false;
+        }
+        let multiplier = self.presentation_or_boot_visual_speed().max(1.0) as i32;
+        if multiplier > 1 {
+            let prev = time_multiplier_counter().fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            if prev - 1 > 1 {
+                return false;
+            }
+            time_multiplier_counter().store(multiplier, std::sync::atomic::Ordering::SeqCst);
+        }
+        let tivo = game_engine::common::global_data::read_safe()
+            .map(|data| data.tivo_fast_mode)
+            .unwrap_or(false);
+        if tivo && self.presentation_or_boot_in_replay_game() && !freeze {
+            let frame = self.host_match_logic_frame.unwrap_or(0);
+            if frame % 30 != 1 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// C++ execute limiter + W3DDisplay 30ms draw limiter.
+    /// `None` = unlocked (m_useFpsLimit false) or time-fast / TiVO replay.
+    pub(super) fn live_present_interval(&self) -> Option<Duration> {
+        let global = game_engine::common::global_data::read_safe().ok()?;
+        if !global.writable.use_fps_limit {
+            return None;
+        }
+        let visual_speed = self.presentation_or_boot_visual_speed();
+        if visual_speed > 1.0 || self.script_time_fast() {
+            return None;
+        }
+        if global.tivo_fast_mode && self.presentation_or_boot_in_replay_game() {
+            return None;
+        }
+        let max_fps = if global.writable.frames_per_second_limit > 0 {
+            global.writable.frames_per_second_limit as u32
+        } else {
+            DEFAULT_MAX_FPS
+        };
+        let exec_ms = (1000.0 / max_fps as f32 - 1.0).max(0.0);
+        let draw_ms = (W3D_DRAW_MIN_TIME_MS as f32 - 1.0).max(0.0);
+        let ms = exec_ms.max(draw_ms);
+        Some(Duration::from_millis(ms.round() as u64))
+    }
+
+    /// C++ `W3DDisplay::updateAverageFPS` + `findDynamicLODLevel` / force VERY_HIGH.
+    pub(super) fn apply_live_draw_dynamic_lod(&self) {
+        let average = average_fps_tracker().note_frame();
+        game_engine::common::game_engine::GameEngine::apply_draw_dynamic_lod(average);
     }
 }
 

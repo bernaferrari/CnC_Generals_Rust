@@ -214,6 +214,7 @@ pub struct DrawableManager {
 impl DrawableManager {
     /// Create a new drawable manager
     pub fn new() -> Self {
+        crate::drawable::ensure_logic_draw_hooks();
         Self {
             drawables: HashMap::new(),
             next_drawable_id: DrawableId(1), // Start from 1, 0 is INVALID_DRAWABLE_ID

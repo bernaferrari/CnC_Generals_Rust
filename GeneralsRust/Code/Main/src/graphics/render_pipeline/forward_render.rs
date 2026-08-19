@@ -43,6 +43,13 @@ impl ForwardPass {
                     item.animation_frame,
                     &item.capture_bone_controls,
                 ),
+            RenderItemBonePaletteSource::HierarchyBindPose => w3d_model
+                .animation_palette_for_binding_and_capture_controls(
+                    item.animation_binding.as_ref(),
+                    item.animation_frame,
+                    &item.capture_bone_controls,
+                )
+                .or_else(|| sample_resolved_hierarchy_bind_pose_palette(w3d_model)),
             RenderItemBonePaletteSource::HmodelBindPose {
                 source_model_cache_key,
                 hmodel_index,
@@ -73,6 +80,16 @@ impl ForwardPass {
                     item.animation_frame,
                     &item.capture_bone_controls,
                 )
+            }
+            RenderItemBonePaletteSource::HierarchyBindPose => {
+                let w3d_model = resolve_model(&item.model_name)?;
+                w3d_model
+                    .animation_palette_for_binding_and_capture_controls(
+                        item.animation_binding.as_ref(),
+                        item.animation_frame,
+                        &item.capture_bone_controls,
+                    )
+                    .or_else(|| sample_resolved_hierarchy_bind_pose_palette(w3d_model))
             }
             RenderItemBonePaletteSource::HmodelBindPose {
                 source_model_cache_key,
@@ -569,16 +586,23 @@ impl ForwardPass {
         // Scope to ensure mutex lock is released before end_frame
         {
             let renderer_handle = self.renderer.renderer_handle();
-
-            // Attempt to lock renderer - handle both poisoned and unavailable cases
             let mut renderer = match renderer_handle.try_lock() {
                 Ok(guard) => guard,
                 Err(std::sync::TryLockError::Poisoned(_)) => {
+                    // C++ winRepaint still runs after a 3D fault. End the
+                    // WW3D frame so pending_frame is not leaked and the UI
+                    // overlay still flushes.
+                    self.renderer.enqueue_post_frame_callback(|frame| {
+                        crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+                    });
+                    let _ = self.renderer.end_frame();
                     return Err(anyhow::anyhow!("WW3D renderer handle poisoned - another thread panicked while holding the lock"));
                 }
                 Err(std::sync::TryLockError::WouldBlock) => {
-                    warn!("WW3D renderer handle already locked - skipping frame");
-                    // Still need to end_frame to maintain state
+                    warn!("WW3D renderer handle already locked - skipping mesh queue");
+                    self.renderer.enqueue_post_frame_callback(|frame| {
+                        crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+                    });
                     self.renderer.end_frame().map_err(|e| {
                         anyhow::anyhow!(
                             "WW3D renderer end_frame failed after lock contention: {e:?}"
@@ -587,6 +611,7 @@ impl ForwardPass {
                     return Ok(());
                 }
             };
+
 
             // Update camera state - must happen before queueing meshes
             self.camera.set_view_matrix(*view_matrix);
@@ -664,11 +689,20 @@ impl ForwardPass {
             queue_error_total = error_count;
         } // Mutex lock released here
 
-        // C++ parity: after 3D scene, flush the 2D UI overlay (Shell menus,
-        // WindowManager windows) on top of the rendered scene. This is the
-        // post-scene 2D pass where gadget draw callbacks render.
+        // C++ W3DInGameUI::draw always winRepaints. If render_frame fails,
+        // post-frame callbacks are dropped. Enqueue UI as last pre-scene so
+        // the overlay still presents over terrain, and again as post-frame
+        self.renderer.enqueue_pre_scene_callback(|frame| {
+            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
+                log::warn!("pre-scene flush_ui_to_frame failed: {err}");
+            }
+            Ok(())
+        });
         self.renderer.enqueue_post_frame_callback(|frame| {
-            crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+            if let Err(err) = crate::graphics::ui_render_pass::flush_ui_to_frame(frame) {
+                log::warn!("post-frame flush_ui_to_frame failed: {err}");
+            }
+            Ok(())
         });
 
         // End frame - submit queued work to GPU (runs post-frame callbacks first)
@@ -953,14 +987,19 @@ impl ForwardPass {
         if matches!(
             &item.bone_palette_source,
             RenderItemBonePaletteSource::HmodelBindPose { .. }
+                | RenderItemBonePaletteSource::HierarchyBindPose
         ) {
             let Some(palette) = palette.as_deref() else {
-                // An explicit HMODEL skin owner is not optional. Rendering it
+                // An explicit skin owner is not optional. Rendering it
                 // without the exact source HTree would silently substitute a
-                // parent, whole-file, or renderer fallback palette.
+                // parent, whole-file, or renderer identity-pad palette.
                 return Ok(None);
             };
-            if !Self::hmodel_skin_mesh_matches_palette(mesh_model.as_ref(), palette) {
+            if matches!(
+                &item.bone_palette_source,
+                RenderItemBonePaletteSource::HmodelBindPose { .. }
+            ) && !Self::hmodel_skin_mesh_matches_palette(mesh_model.as_ref(), palette)
+            {
                 return Ok(None);
             }
         }
@@ -1077,6 +1116,111 @@ impl ForwardPass {
         Ok(Some(mesh_model))
     }
 }
+
+/// C++ `HTreeClass::Base_Update` for the HLOD-named HTree, converted to the
+/// same render basis `W3DModel` uses for rigid children and HAnim palettes.
+///
+/// `animation_palette_for_binding_and_capture_controls` deliberately returns
+/// `None` for a bind-pose Draw state so rigid items do not upload clip zero.
+/// SKIN items stamp [`RenderItemBonePaletteSource::HierarchyBindPose`] and
+/// fall through here instead of the renderer's identity 64-mat pad.
+fn sample_resolved_hierarchy_bind_pose_palette(
+    w3d_model: &crate::assets::W3DModel,
+) -> Option<Vec<Mat4>> {
+    if w3d_model.hlod_parse_failed {
+        return None;
+    }
+    let hierarchy = match w3d_model.hlods.len() {
+        0 => w3d_model.hierarchy.as_ref()?,
+        1 => {
+            let hlod = w3d_model.hlods.first()?;
+            if hlod.has_invalid_trailing_records || hlod.hierarchy_name.is_empty() {
+                return None;
+            }
+            w3d_model
+                .hierarchies
+                .iter()
+                .find(|hierarchy| {
+                    hierarchy
+                        .name
+                        .eq_ignore_ascii_case(hlod.hierarchy_name.as_str())
+                })
+                .or_else(|| {
+                    w3d_model.hierarchy.as_ref().filter(|hierarchy| {
+                        hierarchy
+                            .name
+                            .eq_ignore_ascii_case(hlod.hierarchy_name.as_str())
+                    })
+                })?
+        }
+        _ => return None,
+    };
+    if hierarchy.pivots.is_empty() || hierarchy.pivots[0].parent_idx != u32::MAX {
+        return None;
+    }
+
+    let locals: Vec<Mat4> = hierarchy
+        .pivots
+        .iter()
+        .map(pivot_local_transform)
+        .collect();
+    let mut globals = vec![Mat4::IDENTITY; hierarchy.pivots.len()];
+    for (pivot_index, pivot) in hierarchy.pivots.iter().enumerate().skip(1) {
+        let parent_index = usize::try_from(pivot.parent_idx).ok()?;
+        if parent_index >= pivot_index {
+            return None;
+        }
+        globals[pivot_index] = globals[parent_index] * locals[pivot_index];
+    }
+    Some(
+        globals
+            .into_iter()
+            .map(w3d_source_transform_to_render_basis)
+            .collect(),
+    )
+}
+
+fn pivot_local_transform(pivot: &crate::assets::W3dPivot) -> Mat4 {
+    let x = pivot.rotation[0];
+    let y = pivot.rotation[1];
+    let z = pivot.rotation[2];
+    let w = pivot.rotation[3];
+    let xx = x * x;
+    let yy = y * y;
+    let zz = z * z;
+    let xy = x * y;
+    let xz = x * z;
+    let yz = y * z;
+    let wx = w * x;
+    let wy = w * y;
+    let wz = w * z;
+    Mat4::from_cols_array(&[
+        1.0 - 2.0 * (yy + zz),
+        2.0 * (xy + wz),
+        2.0 * (xz - wy),
+        0.0,
+        2.0 * (xy - wz),
+        1.0 - 2.0 * (xx + zz),
+        2.0 * (yz + wx),
+        0.0,
+        2.0 * (xz + wy),
+        2.0 * (yz - wx),
+        1.0 - 2.0 * (xx + yy),
+        0.0,
+        pivot.translation[0],
+        pivot.translation[1],
+        pivot.translation[2],
+        1.0,
+    ])
+}
+
+fn w3d_source_transform_to_render_basis(transform: Mat4) -> Mat4 {
+    let axis = Mat4::from_cols_array(&[
+        1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]);
+    axis * transform * axis
+}
+
 
 #[cfg(test)]
 mod tests {

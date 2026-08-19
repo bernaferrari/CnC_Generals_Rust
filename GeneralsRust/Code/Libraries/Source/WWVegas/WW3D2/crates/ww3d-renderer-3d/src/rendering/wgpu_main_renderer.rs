@@ -603,9 +603,12 @@ impl WgpuMainRenderer {
         })?;
         let callbacks = std::mem::take(&mut *callbacks);
         for callback in callbacks {
-            callback(frame)?;
+            if let Err(err) = callback(frame) {
+                log::error!("post-frame callback failed: {err:?}");
+            }
         }
         Ok(())
+
     }
 
     /// Resize the underlying surface/headless target.
@@ -788,7 +791,7 @@ impl WgpuCoreBridge {
             stats,
             ready,
             sorting_enabled: Arc::new(AtomicBool::new(true)),
-            static_sort_enabled: Arc::new(AtomicBool::new(false)),
+            static_sort_enabled: Arc::new(AtomicBool::new(true)),
             decals_enabled: Arc::new(AtomicBool::new(true)),
             _renderer: renderer,
         }

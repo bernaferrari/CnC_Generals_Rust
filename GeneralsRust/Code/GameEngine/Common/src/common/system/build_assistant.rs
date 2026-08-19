@@ -14,9 +14,12 @@
 //! Rust conversion: 2025
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::global_data;
+use crate::common::system::kind_of::KindOfMask;
 use once_cell::sync::OnceCell;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
+
 
 /// Construction completion constant
 pub const CONSTRUCTION_COMPLETE: i32 = -1;
@@ -58,7 +61,89 @@ pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
         let _ = (x, y);
         0.0
     }
+
+    fn find_sell_object(&self, id: ObjectID) -> Option<SellObjectSnapshot> {
+        let _ = id;
+        None
+    }
+    fn set_construction_percent(&self, id: ObjectID, percent: f32) {
+        let _ = (id, percent);
+    }
+    fn set_sold_model_condition(&self, id: ObjectID) {
+        let _ = id;
+    }
+    fn deposit_refund(&self, player_index: u32, amount: u32) {
+        let _ = (player_index, amount);
+    }
+    fn cancel_and_refund_production(&self, id: ObjectID) {
+        let _ = id;
+    }
+    fn destroy_object(&self, id: ObjectID) {
+        let _ = id;
+    }
+    fn special_power_construction_matches(&self, builder_id: ObjectID, template_name: &str) -> bool {
+        let _ = (builder_id, template_name);
+        false
+    }
+    fn builder_is_script_disabled(&self, id: ObjectID) -> bool {
+        let _ = id;
+        false
+    }
+    fn builder_is_unpowered(&self, id: ObjectID) -> bool {
+        let _ = id;
+        false
+    }
+
+    fn can_build_more_of_type(&self, player_id: Option<u32>, template_name: &str) -> bool {
+        let _ = (player_id, template_name);
+        true
+    }
+    fn can_queue_create_unit(&self, builder_id: ObjectID, template_name: &str) -> CanMakeType {
+        let _ = (builder_id, template_name);
+        CanMakeType::Ok
+    }
+    fn calc_cost_to_build(&self, player_id: Option<u32>, template_name: &str) -> u32 {
+        let _ = (player_id, template_name);
+        0
+    }
+    fn player_money(&self, player_id: Option<u32>) -> u32 {
+        let _ = player_id;
+        u32::MAX
+    }
+    fn object_kind_of(&self, id: ObjectID) -> u128 {
+        let _ = id;
+        0
+    }
+    fn object_is_dead(&self, id: ObjectID) -> bool {
+        let _ = id;
+        false
+    }
+    fn objects_in_footprint(&self, pos: &Coord3D, template_name: &str, angle: f32) -> Vec<ObjectID> {
+        let _ = (pos, template_name, angle);
+        Vec::new()
+    }
+    fn remove_trees_and_props(&self, pos: &Coord3D, template_name: &str, angle: f32) {
+        let _ = (pos, template_name, angle);
+    }
+    fn move_object_aside(&self, id: ObjectID, from: &Coord3D, radius: f32) -> bool {
+        let _ = (id, from, radius);
+        true
+    }
+    fn object_relationship_enemy(&self, id: ObjectID, player_id: Option<u32>) -> bool {
+        let _ = (id, player_id);
+        false
+    }
 }
+
+/// Live object data used while selling.
+#[derive(Debug, Clone)]
+pub struct SellObjectSnapshot {
+    pub construction_percent: f32,
+    pub refund_value: u32,
+    pub cost_to_build: u32,
+    pub player_index: u32,
+}
+
 
 fn backend_cell() -> &'static Mutex<Option<Arc<dyn BuildAssistantBackend>>> {
     static BACKEND: OnceCell<Mutex<Option<Arc<dyn BuildAssistantBackend>>>> = OnceCell::new();
@@ -240,6 +325,8 @@ pub struct ThingTemplate {
     pub name: AsciiString,
     pub geometry_info: GeometryInfo,
     pub line_build: bool,
+    pub cost_to_build: u32,
+    pub refund_value: u32,
 }
 
 impl ThingTemplate {
@@ -248,6 +335,8 @@ impl ThingTemplate {
             name: AsciiString::from(name),
             geometry_info: GeometryInfo::new(GeometryType::Box, 10.0, 10.0, 20.0),
             line_build: false,
+            cost_to_build: 0,
+            refund_value: 0,
         }
     }
 
@@ -284,6 +373,19 @@ pub struct Object {
     /// C++ `Object::getCommandSetString()` when the host supplied one.
     pub command_set: Option<String>,
 }
+
+impl Object {
+    pub fn new(id: ObjectID) -> Self {
+        Self {
+            id,
+            position: Coord3D::default(),
+            orientation: 0.0,
+            command_set: None,
+        }
+    }
+}
+
+
 
 /// C++ isPossibleToMakeUnit: CommandSet must contain a Construct* button for `want`.
 fn command_set_allows_construct(command_set: &str, want: &str) -> bool {
@@ -342,28 +444,56 @@ impl BuildAssistant {
 
     /// Update the build assistant - processes selling objects
     pub fn update(&mut self, current_frame: u32) {
+        let backend = get_build_assistant_backend();
         let mut items_to_remove = Vec::new();
+        let sell_pct = global_data::read_safe()
+            .map(|data| data.sell_percentage)
+            .unwrap_or(1.0);
 
         for (index, sell_info) in self.sell_list.iter_mut().enumerate() {
-            // Mock object lookup - in real implementation this would find the object
-            // For now we'll just simulate the selling process
+            let Some(backend) = backend.as_ref() else {
+                if current_frame.saturating_sub(sell_info.sell_frame)
+                    >= TOTAL_FRAMES_TO_SELL_OBJECT as u32
+                {
+                    items_to_remove.push(index);
+                }
+                continue;
+            };
 
-            if current_frame - sell_info.sell_frame >= FRAMES_TO_ALLOW_SCAFFOLD as u32 {
-                // Simulate construction percent decreasing
-                // In real implementation, this would modify the actual object
+            let Some(mut snap) = backend.find_sell_object(sell_info.id) else {
+                items_to_remove.push(index);
+                continue;
+            };
+
+            if current_frame.saturating_sub(sell_info.sell_frame) >= FRAMES_TO_ALLOW_SCAFFOLD as u32
+            {
+                let previous = snap.construction_percent;
+                let next = previous - (100.0 / TOTAL_FRAMES_TO_SELL_OBJECT);
+                backend.set_construction_percent(sell_info.id, next);
+                snap.construction_percent = next;
+                if previous > 0.0 && next <= 0.0 {
+                    backend.set_sold_model_condition(sell_info.id);
+                }
             }
 
-            // Check if sell process is complete
-            if current_frame - sell_info.sell_frame >= TOTAL_FRAMES_TO_SELL_OBJECT as u32 {
+            if snap.construction_percent <= -50.0 {
+                let refund = if snap.refund_value != 0 {
+                    snap.refund_value
+                } else {
+                    (snap.cost_to_build as f32 * sell_pct) as u32
+                };
+                backend.deposit_refund(snap.player_index, refund);
+                backend.cancel_and_refund_production(sell_info.id);
+                backend.destroy_object(sell_info.id);
                 items_to_remove.push(index);
             }
         }
 
-        // Remove completed sell items
         for &index in items_to_remove.iter().rev() {
             self.sell_list.remove(index);
         }
     }
+
 
     /// Build an object immediately at the specified location
     pub fn build_object_now(
@@ -389,6 +519,7 @@ impl BuildAssistant {
                     orientation: angle,
                     command_set: None,
                 });
+
             }
             return None;
         }
@@ -591,36 +722,156 @@ impl BuildAssistant {
 
     /// Check if a unit can be made (including money check)
     pub fn can_make_unit(&self, builder: &Object, what_to_build: &ThingTemplate) -> CanMakeType {
+        if builder.id == INVALID_ID || what_to_build.get_name().is_empty() {
+            return CanMakeType::NoPrereq;
+        }
+
+        if let Some(backend) = get_build_assistant_backend() {
+            if backend.builder_is_script_disabled(builder.id)
+                || backend.builder_is_unpowered(builder.id)
+            {
+                return CanMakeType::FactoryIsDisabled;
+            }
+            if backend.special_power_construction_matches(
+                builder.id,
+                what_to_build.get_name().as_str(),
+            ) {
+                return CanMakeType::Ok;
+            }
+            if !backend.can_build_more_of_type(None, what_to_build.get_name().as_str()) {
+                return CanMakeType::MaxedOutForPlayer;
+            }
+        }
+
         if !self.is_possible_to_make_unit(builder, what_to_build) {
             return CanMakeType::NoPrereq;
         }
+
+        if let Some(backend) = get_build_assistant_backend() {
+            let queued =
+                backend.can_queue_create_unit(builder.id, what_to_build.get_name().as_str());
+            if queued != CanMakeType::Ok {
+                return queued;
+            }
+            let cost = backend.calc_cost_to_build(None, what_to_build.get_name().as_str());
+            if cost > 0 && cost > backend.player_money(None) {
+                return CanMakeType::NoMoney;
+            }
+        }
+
 
         CanMakeType::Ok
     }
 
     /// Start the selling process for an object
     pub fn sell_object(&mut self, object: &Object, current_frame: u32) {
-        // Check if object is already being sold
         for sell_info in &self.sell_list {
             if sell_info.id == object.id {
-                return; // Already being sold
+                return;
             }
         }
-
-        // Add to sell list
-        let sell_info = ObjectSellInfo {
+        self.sell_list.push_front(ObjectSellInfo {
             id: object.id,
             sell_frame: current_frame,
-        };
-
-        self.sell_list.push_front(sell_info);
+        });
     }
 
     /// Check if an object is removable for construction
-    pub fn is_removable_for_construction(&self, _object: &Object) -> bool {
-        // Mock implementation - would check object types (shrubbery, debris, etc.)
+    pub fn is_removable_for_construction(&self, object: &Object) -> bool {
+        if object.id == INVALID_ID {
+            return false;
+        }
+        let kind = get_build_assistant_backend()
+            .map(|backend| KindOfMask::from_bits_truncate(backend.object_kind_of(object.id)))
+            .unwrap_or_else(KindOfMask::empty);
+        if kind.contains(KindOfMask::INERT) {
+            return false;
+        }
+        if kind.contains(KindOfMask::SHRUBBERY) || kind.contains(KindOfMask::CLEARED_BY_BUILD) {
+            return true;
+        }
+        if let Some(backend) = get_build_assistant_backend() {
+            if backend.object_is_dead(object.id) {
+                return true;
+            }
+        }
         false
     }
+
+    /// C++ BuildAssistant::clearRemovableForConstruction
+    pub fn clear_removable_for_construction(
+        &self,
+        what_to_build: &ThingTemplate,
+        pos: &Coord3D,
+        angle: f32,
+    ) {
+        let Some(backend) = get_build_assistant_backend() else {
+            return;
+        };
+        for id in backend.objects_in_footprint(pos, what_to_build.get_name().as_str(), angle) {
+            let kind = KindOfMask::from_bits_truncate(backend.object_kind_of(id));
+            if kind.contains(KindOfMask::ALWAYS_SELECTABLE) {
+                continue;
+            }
+            let probe = Object {
+                id,
+                position: *pos,
+                orientation: angle,
+                command_set: None,
+            };
+            if self.is_removable_for_construction(&probe) {
+                backend.destroy_object(id);
+            }
+        }
+        backend.remove_trees_and_props(pos, what_to_build.get_name().as_str(), angle);
+    }
+
+    /// C++ BuildAssistant::moveObjectsForConstruction
+    pub fn move_objects_for_construction(
+        &self,
+        what_to_build: &ThingTemplate,
+        pos: &Coord3D,
+        angle: f32,
+        player: Option<&Player>,
+    ) -> bool {
+        let Some(backend) = get_build_assistant_backend() else {
+            return true;
+        };
+        let geom = what_to_build.get_template_geometry_info();
+        let mut radius = (geom.major_radius * geom.major_radius
+            + geom.minor_radius * geom.minor_radius)
+            .sqrt();
+        radius *= 1.4;
+        let player_id = player.map(|p| p.player_index);
+        let mut any_unmovables = false;
+        for id in backend.objects_in_footprint(pos, what_to_build.get_name().as_str(), angle) {
+            let kind = KindOfMask::from_bits_truncate(backend.object_kind_of(id));
+            if kind.contains(KindOfMask::MINE) || kind.contains(KindOfMask::INERT) {
+                continue;
+            }
+            let probe = Object {
+                id,
+                position: *pos,
+                orientation: angle,
+                command_set: None,
+            };
+            if kind.contains(KindOfMask::ALWAYS_SELECTABLE)
+                || self.is_removable_for_construction(&probe)
+            {
+                continue;
+            }
+            if backend.object_relationship_enemy(id, player_id) {
+                any_unmovables = true;
+                continue;
+            }
+            if !backend.move_object_aside(id, pos, radius) {
+                any_unmovables = true;
+            }
+        }
+        !any_unmovables
+    }
+
+
 
     /// Get the build positions array
     pub fn get_build_locations(&self) -> &[Coord3D] {
@@ -677,12 +928,8 @@ mod tests {
     #[test]
     fn test_sell_object() {
         let mut assistant = BuildAssistant::new();
-        let object = Object {
-            id: 123,
-            position: Coord3D::new(0.0, 0.0, 0.0),
-            orientation: 0.0,
-            command_set: None,
-        };
+        let object = Object::new(123);
+
 
         assistant.sell_object(&object, 100);
         assert_eq!(assistant.sell_list.len(), 1);

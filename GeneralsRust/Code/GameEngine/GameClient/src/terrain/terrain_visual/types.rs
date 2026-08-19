@@ -265,6 +265,43 @@ impl ExtraBlendGpuUpload {
     }
 }
 
+/// Map water polygon/river area consumed by the live water pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainWaterArea {
+    pub points: Vec<[f32; 3]>,
+    pub is_river: bool,
+    pub river_start: i32,
+}
+
+/// C++ `W3DSmudge` 5-vertex heat-haze request.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TerrainSmudge {
+    pub position: [f32; 3],
+    pub offset: [f32; 2],
+    pub size: f32,
+    pub opacity: f32,
+}
+
+/// GPU overlay state owned by `TerrainVisualImpl` (shore, bibs, tracks, snow…).
+#[derive(Debug, Default)]
+pub struct OverlayGpuState {
+    pub shoreline_tiles: Vec<crate::terrain::ShoreLineTile>,
+    pub water_areas: Vec<TerrainWaterArea>,
+    pub smudges: Vec<TerrainSmudge>,
+    pub shroud_cells: Vec<u8>,
+    pub shroud_width: i32,
+    pub shroud_height: i32,
+    pub shroud_cell_size: f32,
+    pub shroud_origin: [f32; 2],
+    pub river_v_origin: f32,
+    pub bump_frame: i32,
+    pub water_grid_dirty: bool,
+    pub overlays_dirty: bool,
+    pub cloud_map: crate::terrain::textures::CloudMapTexture,
+    pub last_sway_version: i32,
+}
+
+
 /// Terrain LOD levels matching C++ implementation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TerrainVisualLOD {

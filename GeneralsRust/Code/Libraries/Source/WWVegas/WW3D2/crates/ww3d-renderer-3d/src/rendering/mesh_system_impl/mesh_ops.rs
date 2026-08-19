@@ -474,39 +474,35 @@ impl MeshClass {
         Ok(())
     }
 
-    /// Perform frustum culling check
+    /// Perform frustum culling check — C++ Overlap_Test(frustum, bbox), skins exempt.
     pub fn should_render_with_frustum_culling(&self, render_info: &RenderInfoClass) -> bool {
-        // Skip frustum culling for skin meshes as they may deform outside their bounding box
         if let Some(model) = &self.model {
             if model.get_flag(MeshGeometryClass::SKIN) {
                 return true;
             }
         }
 
-        // Test world-space bounding sphere against the camera frustum.
         let frustum = render_info.camera.get_frustum();
-        let sphere = self.get_bounding_sphere();
-        if !frustum.intersects_sphere(&sphere.center, sphere.radius) {
-            return false;
+        let local = self.get_bounding_box();
+        let min = local.get_min();
+        let max = local.get_max();
+        let mut world_min = Vec3::splat(f32::INFINITY);
+        let mut world_max = Vec3::splat(f32::NEG_INFINITY);
+        for x in 0..2 {
+            for y in 0..2 {
+                for z in 0..2 {
+                    let corner = Vec3::new(
+                        if x == 0 { min.x } else { max.x },
+                        if y == 0 { min.y } else { max.y },
+                        if z == 0 { min.z } else { max.z },
+                    );
+                    let world = self.transform.transform_point3(corner);
+                    world_min = world_min.min(world);
+                    world_max = world_max.max(world);
+                }
+            }
         }
-
-        // Transform to view space and check against near/far planes
-        let view_matrix = render_info.camera.get_cached_view_matrix();
-        let view_center = view_matrix.transform_point3(sphere.center);
-
-        // Simple near/far plane culling.
-        // The active camera/view path uses a right-handed view matrix, so visible objects in
-        // front of the camera have negative view-space Z. Convert to positive forward depth
-        // before comparing against near/far distances.
-        let near_plane = render_info.camera.get_near_plane();
-        let far_plane = render_info.camera.get_far_plane();
-        let forward_depth = -view_center.z;
-
-        if forward_depth + sphere.radius < near_plane || forward_depth - sphere.radius > far_plane {
-            return false;
-        }
-
-        true
+        frustum.intersects_aabb(&world_min, &world_max)
     }
 
     /// Perform LOD (Level of Detail) selection check

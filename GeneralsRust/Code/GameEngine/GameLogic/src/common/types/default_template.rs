@@ -272,10 +272,23 @@ impl DefaultThingTemplate {
     }
 
     pub fn find_armor_template_set(&self, flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
-        self.armor_template_sets
-            .iter()
-            .find(|set| set.types() == flags)
-            .or_else(|| self.armor_template_sets.first())
+        // C++ SparseMatchFinder.h:99-143 — most matching yes-bits, then fewest extras.
+        let mut best: Option<&ArmorTemplateSet> = None;
+        let mut best_yes_match = 0usize;
+        let mut best_yes_extraneous = usize::MAX;
+        for set in &self.armor_template_sets {
+            let yes_flags = set.types();
+            let yes_match = flags.count_intersection(yes_flags);
+            let yes_extraneous = flags.count_inverse_intersection(yes_flags);
+            if yes_match > best_yes_match
+                || (yes_match >= best_yes_match && yes_extraneous < best_yes_extraneous)
+            {
+                best = Some(set);
+                best_yes_match = yes_match;
+                best_yes_extraneous = yes_extraneous;
+            }
+        }
+        best
     }
 
     /// Apply parsed INI key=value properties to this template.

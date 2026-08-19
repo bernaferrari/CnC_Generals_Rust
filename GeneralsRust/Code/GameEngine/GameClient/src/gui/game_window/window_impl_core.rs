@@ -355,6 +355,17 @@ impl GameWindow {
         y: i32,
         ignore_enabled: bool,
     ) -> Rc<RefCell<GameWindow>> {
+        Self::point_in_child_ex(window, x, y, ignore_enabled, false)
+    }
+
+    /// C++ `GameWindow::winPointInChild(..., playDisabledSound)`.
+    pub fn point_in_child_ex(
+        window: &Rc<RefCell<GameWindow>>,
+        x: i32,
+        y: i32,
+        ignore_enabled: bool,
+        play_disabled_sound: bool,
+    ) -> Rc<RefCell<GameWindow>> {
         let children = window.borrow().children().to_vec();
         for child in children {
             let child_borrow = child.borrow();
@@ -364,8 +375,22 @@ impl GameWindow {
                 ignore_enabled || child_borrow.get_status().contains(WindowStatus::ENABLED);
             drop(child_borrow);
 
-            if contains_point && !hidden && enabled {
-                return Self::point_in_child(&child, x, y, ignore_enabled);
+            if contains_point && !hidden {
+                if enabled {
+                    return Self::point_in_child_ex(
+                        &child,
+                        x,
+                        y,
+                        ignore_enabled,
+                        play_disabled_sound,
+                    );
+                } else if play_disabled_sound {
+                    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+                        let event =
+                            gamelogic::common::audio::AudioEventRts::new("GUIClickDisabled");
+                        audio.add_audio_event(&event);
+                    }
+                }
             }
         }
 
@@ -1354,8 +1379,19 @@ impl GameWindow {
 
     pub(crate) fn sync_listbox_content_top_inset(&mut self) {
         let inset = self.listbox_content_top_inset();
+        let one_line = self.status.contains(WindowStatus::ONE_LINE);
+        let (font_height, average_width) = self
+            .inst_data
+            .font
+            .as_ref()
+            .map(|font| {
+                let metrics = font.get_metrics();
+                (font.height.max(1) as u32, metrics.average_width.max(1) as u32)
+            })
+            .unwrap_or((18, 8));
         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
             listbox.set_content_top_inset(inset);
+            listbox.set_wrap_metrics(one_line, font_height, average_width);
         }
     }
 
@@ -1395,12 +1431,63 @@ impl GameWindow {
             return;
         }
         let _ = list_box.borrow_mut().hide(true);
+        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+            combo.close();
+        }
         if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
             let base_height = edit_box.borrow().get_size().1;
             let (width, _) = self.get_size();
             let _ = self.set_size(width, base_height);
         }
+
     }
+
+    pub(crate) fn play_gui_click() {
+        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+            let event = gamelogic::common::audio::AudioEventRts::new("GUIClick");
+            audio.add_audio_event(&event);
+        }
+    }
+
+    pub(crate) fn claim_combobox_lone_window(&mut self) {
+        let window_id = self.id;
+        queue_window_manager_op(move |manager| {
+            if let Some(window) = manager.get_window_by_id(window_id) {
+                manager.set_lone_window(Some(&window));
+            }
+        });
+    }
+
+    pub(crate) fn toggle_combobox_dropdown(&mut self) {
+        let Some(links) = self.combobox_links else {
+            return;
+        };
+        let Some(list_box) = self.find_child_by_id(links.list_box) else {
+            return;
+        };
+        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+            combo.set_dont_hide_next(false);
+        }
+        self.claim_combobox_lone_window();
+        let is_hidden = list_box.borrow().is_hidden();
+        if is_hidden {
+            self.sync_combobox_listbox(&list_box);
+            self.resize_combobox_listbox(&list_box);
+            let list_height = list_box.borrow().get_size().1;
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                let base_height = edit_box.borrow().get_size().1;
+                let (width, _) = self.get_size();
+                let _ = self.set_size(width, base_height + list_height);
+            }
+            let _ = list_box.borrow_mut().hide(false);
+            if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+                combo.open();
+            }
+        } else {
+            self.hide_combobox_list();
+        }
+    }
+
 
     pub(crate) fn set_combobox_editable(&mut self, editable: bool) {
         if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {

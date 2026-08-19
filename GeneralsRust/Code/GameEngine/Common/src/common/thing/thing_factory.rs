@@ -184,7 +184,15 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                 continue;
             }
 
+            if first_token.eq_ignore_ascii_case("RemoveModule") {
+                let rest = line[first_token.len()..].trim();
+                insert_object_property(&mut properties, "RemoveModule", rest);
+                continue;
+            }
+
             if object_field_starts_subblock(first_token) {
+                let rest = line[first_token.len()..].trim();
+                insert_object_property(&mut properties, first_token, rest);
                 block_key_prefix = object_prefixed_subblock_key(
                     first_token,
                     &mut weapon_set_counter,
@@ -194,7 +202,6 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                 block_depth = 1;
                 module_body_lines.clear();
             }
-            continue;
         }
 
         // Inside a sub-block
@@ -279,13 +286,47 @@ fn object_module_assignment_starts_subblock(field: &str) -> bool {
 fn object_field_is_repeatable_property(field: &str) -> bool {
     matches!(
         field.to_ascii_lowercase().as_str(),
-        "behavior" | "body" | "draw" | "clientupdate"
+        "behavior"
+            | "body"
+            | "draw"
+            | "clientupdate"
+            | "addmodule"
+            | "replacemodule"
+            | "inheritablemodule"
+            | "overrideablebylikekind"
+            | "removemodule"
+    )
+}
+
+fn canonical_object_field(field: &str) -> String {
+    match field.to_ascii_lowercase().as_str() {
+        "behavior" => "Behavior".to_string(),
+        "body" => "Body".to_string(),
+        "draw" => "Draw".to_string(),
+        "clientupdate" => "ClientUpdate".to_string(),
+        "addmodule" => "AddModule".to_string(),
+        "replacemodule" => "ReplaceModule".to_string(),
+        "inheritablemodule" => "InheritableModule".to_string(),
+        "overrideablebylikekind" => "OverrideableByLikeKind".to_string(),
+        "removemodule" => "RemoveModule".to_string(),
+        _ => field.to_string(),
+    }
+}
+
+fn is_module_override_field(field: &str) -> bool {
+    matches!(
+        field.to_ascii_lowercase().as_str(),
+        "addmodule" | "replacemodule" | "inheritablemodule" | "overrideablebylikekind"
     )
 }
 
 fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, value: &str) {
     if object_field_is_repeatable_property(key) {
-        insert_repeated_property(properties, key.to_string(), value.to_string());
+        insert_repeated_property(
+            properties,
+            canonical_object_field(key),
+            value.to_string(),
+        );
     } else {
         properties.insert(key.to_string(), value.to_string());
     }
@@ -312,7 +353,10 @@ fn object_prefixed_subblock_key(
     } else if block_name.eq_ignore_ascii_case("Prerequisites") {
         Some("Prerequisites".to_string())
     } else if object_field_is_repeatable_property(block_name) {
-        Some(current_repeatable_key(properties, block_name))
+        Some(current_repeatable_key(
+            properties,
+            &canonical_object_field(block_name),
+        ))
     } else {
         None
     }
@@ -332,11 +376,17 @@ fn current_repeatable_key(properties: &HashMap<String, String>, field: &str) -> 
 }
 
 fn is_object_module_prefix(prefix: &str) -> bool {
-    let head = prefix.split(['#', '.']).next().unwrap_or(prefix);
+    let last = prefix
+        .split('#')
+        .next()
+        .unwrap_or(prefix)
+        .rsplit('.')
+        .next()
+        .unwrap_or(prefix);
     matches!(
-        head.to_ascii_lowercase().as_str(),
+        last.to_ascii_lowercase().as_str(),
         "behavior" | "body" | "draw" | "clientupdate"
-    )
+    ) || is_module_override_field(prefix.split(['#', '.']).next().unwrap_or(prefix))
 }
 
 fn append_module_body_line(body_lines: &mut Vec<String>, line: &str) {
@@ -636,7 +686,8 @@ impl ThingFactory {
                 tmpl.copy_from(&reskin_template);
                 tmpl.set_copied_from_default();
                 tmpl.set_reskinned_from(reskin_template);
-                tmpl.parse_object_fields_from_ini(&properties)?;
+                tmpl.parse_reskin_fields_from_ini(&properties)?;
+
                 self.template_hash_map
                     .insert(AsciiString::from(name), thing_template.clone());
             } else {
@@ -808,9 +859,9 @@ impl SubsystemInterface for ThingFactory {
     }
 
     fn post_process_load(&mut self) -> SubsystemResult<()> {
-        // Go through all thing templates and resolve names
-        for _template in self.template_hash_map.values() {
-            // template.resolve_names();
+        // C++ ThingFactory.cpp: iterate every template and resolveNames().
+        for template in self.template_hash_map.values_mut() {
+            Arc::make_mut(template).resolve_names();
         }
 
         Ok(())
@@ -1052,7 +1103,8 @@ impl ThingFactory {
                         }
                         {
                             let tmpl_ref = Arc::make_mut(&mut tmpl);
-                            if let Err(err) = tmpl_ref.parse_object_fields_from_ini(&properties) {
+                            if let Err(err) = tmpl_ref.parse_reskin_fields_from_ini(&properties) {
+
                                 warn!("Skipping object reskin '{}': {}", name, err);
                                 index = end_idx;
                                 continue;
@@ -1164,7 +1216,16 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
                 continue;
             }
 
+            if first_token.eq_ignore_ascii_case("RemoveModule") {
+                let rest = line[first_token.len()..].trim();
+                insert_object_property(&mut properties, "RemoveModule", rest);
+                index += 1;
+                continue;
+            }
+
             if object_field_starts_subblock(first_token) {
+                let rest = line[first_token.len()..].trim();
+                insert_object_property(&mut properties, first_token, rest);
                 block_key_prefix = object_prefixed_subblock_key(
                     first_token,
                     &mut weapon_set_counter,
@@ -1953,7 +2014,7 @@ mod tests {
 
         let mut reskin_ini = INI::new();
         reskin_ini
-            .with_inline_source("BuildTime = 5.0\nEnd\n", |ini| {
+            .with_inline_source("FenceWidth = 5.0\nEnd\n", |ini| {
                 factory
                     .parse_object_definition(ini, "ChildTank", "ParentTank")
                     .map_err(|_| INIError::InvalidData)
@@ -1964,7 +2025,9 @@ mod tests {
         let child = factory.find_template("ChildTank", false).expect("child");
         assert_eq!(child.get_build_cost(), parent.get_build_cost());
         assert_eq!(child.get_build_cost(), 800);
-        assert_eq!(child.get_build_time(), 5.0);
+        assert_eq!(child.get_build_time(), 10.0);
+        assert_eq!(child.get_fence_width(), 5.0);
+
         assert_eq!(
             child
                 .get_reskinned_from()

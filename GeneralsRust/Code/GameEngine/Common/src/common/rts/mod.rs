@@ -72,7 +72,10 @@ pub use handles::{
 pub use mission_stats::MissionStats;
 pub use money::Money;
 pub use multiplayer_rankings::{ELOCalculator, GameMode, PlayerRanking, PlayerTier, RankingSystem};
-pub use player::Player;
+pub use player::{
+    get_player_object_world, set_player_object_world, Player, PlayerObjectSnapshot,
+    PlayerObjectWorld,
+};
 pub use player_list::{PlayerList, MAX_PLAYER_COUNT};
 pub use player_template::{PlayerTemplate, PlayerTemplateStore};
 pub use post_game_stats::{GameResult, PlayerPostGameStats, PlayerSide, PostGameStatistics};
@@ -86,8 +89,9 @@ pub use science::{
 pub use score_keeper::ScoreKeeper;
 pub use special_power::{SpecialPowerStore, SpecialPowerTemplate, SpecialPowerType};
 pub use team::{
-    PlayerRef, Relationship, SidesListReader, Team, TeamFactory, TeamID, TeamInfoReader,
-    TeamMember, TeamPrototype, TeamPrototypeFlags, TeamRelationMap, TEAM_ID_INVALID,
+    get_team_factory, set_team_command_sink, set_team_factory, PlayerRef, Relationship,
+    SidesListReader, Team, TeamCommandSink, TeamFactory, TeamID, TeamInfoReader, TeamMember,
+    TeamPrototype, TeamPrototypeFlags, TeamRelationMap, TEAM_ID_INVALID,
     TEAM_PROTOTYPE_ID_INVALID,
 };
 pub use tunnel_tracker::{TunnelDestroyResult, TunnelTracker, INVALID_ID};

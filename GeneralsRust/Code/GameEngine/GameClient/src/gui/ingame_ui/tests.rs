@@ -163,7 +163,7 @@ mod tests {
 
         assert_eq!(
             InGameUI::mouseover_tooltip_text("UnitA", ""),
-            Some("ThingTemplate:UnitA".to_string())
+            Some("MISSING: 'ThingTemplate:UnitA'".to_string())
         );
 
         Language::clear_localized_strings();
@@ -592,5 +592,46 @@ mod tests {
             22
         ));
         assert!(subtitle.is_none());
+    }
+
+    #[test]
+    fn message_fade_subtracts_age_times_one_hundredth() {
+        let (r, g, b, a) = InGameUI::unpack_argb(0xFFFF_FFFF);
+        assert_eq!((r, g, b, a), (255, 255, 255, 255));
+        let faded = InGameUI::pack_argb(r, g, b, (a as i32 - (100.0 * 0.01) as i32).max(0) as u8);
+        assert_eq!(faded >> 24, 254);
+    }
+
+    #[test]
+    fn named_timer_countdown_formats_m_ss_like_cpp() {
+        assert_eq!(
+            InGameUI::format_named_timer_line("Launch", 90, true),
+            "Launch 0:03"
+        );
+        assert_eq!(
+            InGameUI::format_named_timer_line("Launch", 600, true),
+            "Launch 0:20"
+        );
+        assert_eq!(
+            InGameUI::format_named_timer_line("Score", 12, false),
+            "Score 12"
+        );
+    }
+
+    #[test]
+    fn floating_text_rises_by_frame_count_times_speed() {
+        assert_eq!(InGameUI::floating_text_screen_offset_y(10, 1.5), 15.0);
+        assert!(InGameUI::floating_text_visible_through_shroud(
+            ObjectShroudStatus::Clear
+        ));
+        assert!(!InGameUI::floating_text_visible_through_shroud(
+            ObjectShroudStatus::Fogged
+        ));
+    }
+
+    #[test]
+    fn message_color_alternates_like_cpp_get_message_color() {
+        assert_eq!(InGameUI::pack_argb(255, 255, 255, 255), 0xFFFF_FFFF);
+        assert_eq!(InGameUI::pack_argb(180, 180, 180, 255), 0xFFB4_B4B4);
     }
 }

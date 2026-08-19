@@ -12,6 +12,9 @@ use glam::Vec2;
 use crate::message_stream::game_message::IRegion2D;
 use crate::system::SubsystemInterface;
 
+use crate::draw_group_info::get_draw_group_info;
+use crate::game_text::GameText;
+
 use super::font::{get_font_library, FontDesc, GameFont};
 use super::game_window::GameFont as LegacyGameFont;
 use super::ui_globals::with_ui_renderer_mut;
@@ -459,6 +462,18 @@ pub struct DisplayStringManager {
     default_font: Option<Arc<GameFont>>,
 }
 
+fn apply_draw_group_style(handle: &DisplayStringHandle, text: String) {
+    let mut display = handle.borrow_mut();
+    display.set_text(text);
+    let info = get_draw_group_info()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);
+    if let Ok(font) = get_font_library().get_font(&desc) {
+        display.set_font(font);
+    }
+}
+
 impl DisplayStringManager {
     pub fn new() -> Self {
         Self {
@@ -490,22 +505,24 @@ impl DisplayStringManager {
     pub fn get_group_numeral_string(&mut self, numeral: i32) -> Option<DisplayStringHandle> {
         let idx = numeral.clamp(0, 9) as usize;
         if let Some(existing) = self.group_numerals[idx].as_ref() {
+            apply_draw_group_style(existing, GameText::fetch(&format!("NUMBER:{idx}")));
             return Some(existing.clone());
         }
 
         let handle = self.new_display_string();
-        handle.borrow_mut().set_text(idx.to_string());
+        apply_draw_group_style(&handle, GameText::fetch(&format!("NUMBER:{idx}")));
         self.group_numerals[idx] = Some(handle.clone());
         Some(handle)
     }
 
     pub fn get_formation_letter_string(&mut self) -> Option<DisplayStringHandle> {
         if let Some(existing) = self.formation_letter.as_ref() {
+            apply_draw_group_style(existing, GameText::fetch("LABEL:FORMATION"));
             return Some(existing.clone());
         }
 
         let handle = self.new_display_string();
-        handle.borrow_mut().set_text("F");
+        apply_draw_group_style(&handle, GameText::fetch("LABEL:FORMATION"));
         self.formation_letter = Some(handle.clone());
         Some(handle)
     }

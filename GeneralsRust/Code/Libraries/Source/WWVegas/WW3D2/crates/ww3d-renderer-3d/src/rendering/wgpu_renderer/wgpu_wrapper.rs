@@ -59,12 +59,25 @@ pub enum TransformState {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RenderState {
     ZEnable = 7,
+    FillMode = 8,
     ZWriteEnable = 14,
     SrcBlend = 19,
     DestBlend = 20,
     CullMode = 22,
+    ZFunc = 23,
     FogEnable = 28,
     FogColor = 34,
+    FogStart = 36,
+    FogEnd = 37,
+    FogDensity = 38,
+    ZBias = 47,
+    StencilEnable = 52,
+    StencilFail = 53,
+    StencilZFail = 54,
+    StencilPass = 55,
+    StencilFunc = 56,
+    StencilRef = 57,
+    Ambient = 139,
     ColorWriteEnable = 168,
 }
 
@@ -135,10 +148,16 @@ pub struct WgpuWrapper {
     fog_color: Vec3,
     fog_start: f32,
     fog_end: f32,
+    fog_density: f32,
     ambient_color: Vec3,
     z_bias: i32,
     z_near: f32,
     z_far: f32,
+    fill_mode: u32,
+    z_func: u32,
+    src_blend: u32,
+    dest_blend: u32,
+    stencil_enable: bool,
 
     is_initted: bool,
     is_device_lost: bool,
@@ -194,10 +213,16 @@ impl WgpuWrapper {
             fog_color: Vec3::ZERO,
             fog_start: 0.0,
             fog_end: 1.0,
+            fog_density: 1.0,
             ambient_color: Vec3::ZERO,
             z_bias: 0,
             z_near: 0.0,
             z_far: 1.0,
+            fill_mode: 3, // D3DFILL_SOLID
+            z_func: 4,    // D3DCMP_LESSEQUAL
+            src_blend: 2, // D3DBLEND_ONE
+            dest_blend: 1, // D3DBLEND_ZERO
+            stencil_enable: false,
             is_initted: false,
             is_device_lost: false,
             enable_triangle_draw: true,
@@ -579,7 +604,7 @@ impl WgpuWrapper {
                     .remove(ChangedStates::VIEW_IDENTITY);
             }
             TransformState::Projection => {
-                self.render_state.projection_matrix = *matrix;
+                self.render_state.projection_matrix = self.projection_with_z_bias(*matrix);
             }
             _ => {}
         }
@@ -658,8 +683,7 @@ impl WgpuWrapper {
         if self.render_state_changed.is_empty() {
             return;
         }
-
-        // Real implementation would translate state changes into GPU commands.
+        self.apply_dx8_derived_state();
         self.render_state_changed = ChangedStates::empty();
     }
 
@@ -1048,6 +1072,7 @@ impl WgpuWrapper {
     pub fn set_z_planes(&mut self, near: f32, far: f32) {
         self.z_near = near;
         self.z_far = far;
+        self.apply_dx8_derived_state();
     }
 
     /// Get the near and far z-planes.
@@ -1055,14 +1080,97 @@ impl WgpuWrapper {
         (self.z_near, self.z_far)
     }
 
-    /// Set the z-bias value for depth testing.
+    /// Set the z-bias value for depth testing. C++ clamps 0..15.
     pub fn set_z_bias(&mut self, bias: i32) {
+        let bias = bias.clamp(0, 15);
+        if self.z_bias == bias {
+            return;
+        }
         self.z_bias = bias;
+        self.apply_dx8_derived_state();
     }
 
-    /// Get the z-bias value.
+    /// Get the z-bias value
     pub fn z_bias(&self) -> i32 {
         self.z_bias
+    }
+
+    /// C++ `Set_Projection_Transform_With_Z_Bias`.
+    pub fn set_projection_transform_with_z_bias(&mut self, matrix: Mat4, znear: f32, zfar: f32) {
+        self.z_near = znear;
+        self.z_far = zfar;
+        self.transforms[TransformState::Projection as usize] = matrix;
+        self.render_state.projection_matrix = self.projection_with_z_bias(matrix);
+    }
+
+    /// Bake C++ software ZBias into a projection matrix:
+    /// `tmp[2][2] -= (ZBias/16) * (1/(ZFar-ZNear)) * tmp[3][2]` on the
+    /// un-transposed (glam/column-major) equivalent of the D3D matrix.
+    pub fn projection_with_z_bias(&self, matrix: Mat4) -> Mat4 {
+        if self.z_bias == 0 || self.z_near == self.z_far {
+            return matrix;
+        }
+        let tmp_zbias =
+            (self.z_bias as f32) * (1.0 / 16.0) * (1.0 / (self.z_far - self.z_near));
+        let mut tmp = matrix;
+        let mut z_axis = tmp.z_axis;
+        z_axis.z -= tmp_zbias * tmp.w_axis.z;
+        tmp.z_axis = z_axis;
+        tmp
+    }
+
+    /// Hardware-style depth bias consumed by wgpu pipeline construction.
+    pub fn depth_bias_state(&self) -> wgpu::DepthBiasState {
+        wgpu::DepthBiasState {
+            constant: self.z_bias,
+            slope_scale: 0.0,
+            clamp: 0.0,
+        }
+    }
+
+    fn apply_dx8_derived_state(&mut self) {
+        let stored = self.transforms[TransformState::Projection as usize];
+        self.render_state.projection_matrix = self.projection_with_z_bias(stored);
+    }
+
+    /// C++ `DX8Wrapper::Set_DX8_Render_State` — fog/ambient/zbias actually
+    /// mutate wrapper state consumed by subsequent draws.
+    pub fn set_dx8_render_state(&mut self, state: u32, value: u32) {
+        match state {
+            28 => self.fog_enable = value != 0,
+            34 => {
+                let c = Self::convert_color_u32(value);
+                self.fog_color = Vec3::new(c.x, c.y, c.z);
+            }
+            36 => self.fog_start = f32::from_bits(value),
+            37 => self.fog_end = f32::from_bits(value),
+            38 => self.fog_density = f32::from_bits(value),
+            47 => self.set_z_bias(value as i32),
+            8 => self.fill_mode = value,
+            23 => self.z_func = value,
+            19 => self.src_blend = value,
+            20 => self.dest_blend = value,
+            52 => self.stencil_enable = value != 0,
+            139 => {
+                let c = Self::convert_color_u32(value);
+                self.ambient_color = Vec3::new(c.x, c.y, c.z);
+            }
+            _ => {}
+        }
+        self.render_state_changes += 1;
+        self.apply_dx8_derived_state();
+    }
+
+    pub fn fog_density(&self) -> f32 {
+        self.fog_density
+    }
+
+    pub fn fill_mode(&self) -> u32 {
+        self.fill_mode
+    }
+
+    pub fn z_func(&self) -> u32 {
+        self.z_func
     }
 
     /// Set fog parameters.

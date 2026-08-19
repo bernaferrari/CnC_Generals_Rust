@@ -35,6 +35,7 @@ pub struct AssetTextureLoader {
     archive_reader: Option<Arc<dyn ArchiveFileReader>>,
     texture_cache: HashMap<String, Arc<TextureBaseClass>>,
     search_paths: Vec<String>,
+    missing_texture: Option<Arc<TextureBaseClass>>,
 }
 
 impl AssetTextureLoader {
@@ -66,6 +67,7 @@ impl AssetTextureLoader {
                 "Data/Art/".to_string(),
                 "".to_string(),
             ],
+            missing_texture: None,
         })
     }
 
@@ -125,13 +127,19 @@ impl AssetTextureLoader {
 
         // Keep runtime resilient for genuinely missing textures after all search attempts.
         warn!(
-            "Texture '{}' not found in archives or filesystem search paths; using fallback checker texture",
+            "Texture '{}' not found in archives or filesystem search paths; using w3d_missing_texture.tga",
             filename
         );
+        if let Some(shared) = &self.missing_texture {
+            self.texture_cache
+                .insert(filename.to_string(), Arc::clone(shared));
+            return Ok(Arc::clone(shared));
+        }
         let fallback = self
             .base_loader
             .create_missing_texture(filename, PoolType::Managed)?;
         let texture_arc = Arc::new(fallback);
+        self.missing_texture = Some(Arc::clone(&texture_arc));
         self.texture_cache
             .insert(filename.to_string(), texture_arc.clone());
         Ok(texture_arc)

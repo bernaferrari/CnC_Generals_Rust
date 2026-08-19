@@ -759,6 +759,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.do_threat_affect(center, radius, threat_value, player_mask.bits());
+        drop(shroud);
+        Self::affect_partition_value_cells(center, radius, threat_value, player_mask, true, true);
     }
 
     /// Mirrors C++ ThePartitionManager->undoThreatAffect().
@@ -773,6 +775,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.undo_threat_affect(center, radius, threat_value, player_mask.bits());
+        drop(shroud);
+        Self::affect_partition_value_cells(center, radius, threat_value, player_mask, true, false);
     }
 
     /// Mirrors C++ ThePartitionManager->doValueAffect().
@@ -787,6 +791,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.do_value_affect(center, radius, value, player_mask.bits());
+        drop(shroud);
+        Self::affect_partition_value_cells(center, radius, value, player_mask, false, true);
     }
 
     /// Mirrors C++ ThePartitionManager->undoValueAffect().
@@ -801,6 +807,69 @@ impl ThePartitionManager {
             return;
         };
         shroud.undo_value_affect(center, radius, value, player_mask.bits());
+        drop(shroud);
+        Self::affect_partition_value_cells(center, radius, value, player_mask, false, false);
+    }
+
+    /// C++ has one store: doValueAffect / doThreatAffect write the same
+    /// PartitionCell cash/threat arrays that getMostValuableLocation and
+    /// getNearestGroupWithValue read.
+    fn affect_partition_value_cells(
+        center: &Coord3D,
+        radius: Real,
+        value: u32,
+        player_mask: PlayerMaskType,
+        is_threat: bool,
+        add: bool,
+    ) {
+        let Ok(mut pm) = crate::object::collide::partition_manager::PARTITION_MANAGER.write() else {
+            return;
+        };
+        let bits = player_mask.bits();
+        for player_idx in 0..16 {
+            if (bits & (1u32 << player_idx)) == 0 {
+                continue;
+            }
+            if add {
+                if is_threat {
+                    pm.do_threat_affect(center.x, center.y, radius, player_idx, value);
+                } else {
+                    pm.do_value_affect(center.x, center.y, radius, player_idx, value);
+                }
+            } else if is_threat {
+                pm.remove_threat_affect(center.x, center.y, radius, player_idx, value);
+            } else {
+                pm.remove_value_affect(center.x, center.y, radius, player_idx, value);
+            }
+        }
+    }
+
+    /// C++ `ThePartitionManager->getNearestGroupWithValue`.
+    pub fn get_nearest_group_with_value(
+        &self,
+        player_index: i32,
+        allowed_player_mask: u32,
+        val_type: crate::object::collide::partition_manager::ValueOrThreat,
+        source_pos: &Coord3D,
+        value_required: i32,
+        greater_than: bool,
+    ) -> Option<Coord3D> {
+        let collide_pos =
+            crate::object::collide::Coord3D::new(source_pos.x, source_pos.y, source_pos.z);
+        crate::object::collide::partition_manager::PARTITION_MANAGER
+            .read()
+            .ok()
+            .and_then(|pm| {
+                pm.get_nearest_group_with_value(
+                    player_index,
+                    allowed_player_mask,
+                    val_type,
+                    &collide_pos,
+                    value_required,
+                    greater_than,
+                )
+            })
+            .map(|p| Coord3D::new(p.x, p.y, p.z))
     }
 }
 

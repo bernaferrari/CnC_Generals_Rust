@@ -461,13 +461,14 @@ impl Default for ParticleSystemInfo {
 impl ParticleSystemInfo {
     /// Tint all colors by the given color
     pub fn tint_all_colors(&mut self, tint_color: [f32; 3]) {
-        for color_key in &mut self.color_keys {
+        // C++ ParticleSys.cpp:744-750 — "This tints all but the first colorKey!!!"
+        for color_key in self.color_keys.iter_mut().skip(1) {
             color_key.color[0] *= tint_color[0];
             color_key.color[1] *= tint_color[1];
             color_key.color[2] *= tint_color[2];
         }
     }
-}
+    }
 
 /// Particle system template (matches C++ ParticleSystemTemplate)
 #[derive(Debug, Clone)]
@@ -820,6 +821,12 @@ impl ParticleSystemManager {
 
         if let Some(system) = self.active_systems.get_mut(&system_id) {
             system.attach_to_object(object_id);
+            if let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) {
+                if let Ok(guard) = object.read() {
+                    let pos = *guard.get_position();
+                    system.set_position(nalgebra::Point3::new(pos.x, pos.y, pos.z));
+                }
+            }
         }
 
         Ok(system_id)
@@ -902,7 +909,7 @@ impl ParticleSystemManager {
                 crate::effects::particle_system::FrameEmitPhase::Emitted => {}
             }
 
-            let (infos, priority, ground_aligned) = {
+            let (infos, priority, ground_aligned, emit_above_ground, attached_name) = {
                 let Some(system) = self.active_systems.get_mut(&id) else {
                     continue;
                 };
@@ -910,9 +917,19 @@ impl ParticleSystemManager {
                     system.take_pending_emissions(),
                     system.priority(),
                     system.template().info().is_ground_aligned,
+                    system.is_emit_above_ground_only(),
+                    system.attached_system_name().to_string(),
                 )
             };
             for info in infos {
+                if emit_above_ground {
+                    let ground = gamelogic::helpers::TheTerrainLogic::get()
+                        .map(|terrain| terrain.get_ground_height(info.position.x, info.position.y, None))
+                        .unwrap_or(0.0);
+                    if info.position.z < ground {
+                        continue;
+                    }
+                }
                 let system_count = self
                     .active_systems
                     .get(&id)
@@ -926,25 +943,70 @@ impl ParticleSystemManager {
                 ) {
                     continue;
                 }
-                if let Some(system) = self.active_systems.get_mut(&id) {
-                    let particle = crate::effects::particle_system::Particle::new(
-                        &info,
-                        system.personality_counter(),
-                        current_frame,
-                    );
-                    system.push_particle(particle);
-                    self.particle_count += 1;
-                    if priority == ParticlePriorityType::AreaEffect && ground_aligned {
-                        self.field_particle_count += 1;
+                let personality = self
+                    .active_systems
+                    .get(&id)
+                    .map(|s| s.personality_counter())
+                    .unwrap_or(0);
+                let mut particle = crate::effects::particle_system::Particle::new(
+                    &info,
+                    personality,
+                    current_frame,
+                );
+                if !attached_name.is_empty() {
+                    if let Some(tmpl) = self.find_template(&attached_name) {
+                        if let Ok(att_id) = self.create_particle_system(&tmpl, true) {
+                            particle.controlled_system = Some(att_id);
+                            if let Some(att) = self.active_systems.get_mut(&att_id) {
+                                att.set_control_particle_position(particle.position);
+                                att.set_position(particle.position);
+                            }
+                        }
                     }
+                }
+                if let Some(system) = self.active_systems.get_mut(&id) {
+                    system.push_particle(particle);
                     if system.slave_system_id().is_some() {
                         system.record_slave_emission();
                     }
+                }
+                self.particle_count += 1;
+                if priority == ParticlePriorityType::AreaEffect && ground_aligned {
+                    self.field_particle_count += 1;
                 }
             }
 
             if let Some(system) = self.active_systems.get_mut(&id) {
                 system.finish_frame_integrate(current_frame);
+                let dead = system.take_dead_controlled_systems();
+                for dead_id in dead {
+                    self.destroy_particle_system(dead_id);
+                }
+            }
+        }
+
+        // Reposition systems controlled by a live particle (C++ ParticleSys.cpp:1948-1959).
+        let control_pairs: Vec<(ParticleSystemId, nalgebra::Point3<f32>)> = self
+            .active_system_ids_in_order()
+            .into_iter()
+            .flat_map(|sys_id| {
+                self.active_systems
+                    .get(&sys_id)
+                    .into_iter()
+                    .flat_map(|system| {
+                        system.particles().iter().filter_map(|particle| {
+                            particle
+                                .controlled_system
+                                .map(|att_id| (att_id, particle.position))
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for (att_id, pos) in control_pairs {
+            if let Some(att) = self.active_systems.get_mut(&att_id) {
+                att.set_control_particle_position(pos);
+                att.set_position(pos);
             }
         }
 
@@ -1198,6 +1260,41 @@ impl ParticleSystemManager {
             .iter()
             .filter_map(|id| self.active_systems.get(id).map(|system| system.as_ref()))
     }
+    pub fn all_particle_systems_mut(&mut self) -> impl Iterator<Item = &mut ParticleSystem> {
+        let systems = &mut self.active_systems;
+        self.active_system_order.iter().filter_map(|id| {
+            systems.get_mut(id).map(|system| system.as_mut())
+        })
+    }
+
+    /// C++ `doParticles` visible-box cull (AABB expanded by particle size).
+    pub fn cull_particles_to_visible_box(
+        &mut self,
+        center: [f32; 3],
+        extent: [f32; 3],
+        max_per_system: usize,
+    ) {
+        for system in self.all_particle_systems_mut() {
+            let mut kept = 0usize;
+            for particle in system.particles_mut() {
+                if particle.lifetime_left == 0 {
+                    particle.is_culled = true;
+                    continue;
+                }
+                let size = particle.size;
+                let outside = (particle.position.x - center[0]).abs() > extent[0] + size
+                    || (particle.position.y - center[1]).abs() > extent[1] + size
+                    || (particle.position.z - center[2]).abs() > extent[2] + size;
+                if outside || kept >= max_per_system {
+                    particle.is_culled = true;
+                } else {
+                    particle.is_culled = false;
+                    kept += 1;
+                }
+            }
+        }
+    }
+
 
     /// Get statistics
     pub fn particle_count(&self) -> usize {

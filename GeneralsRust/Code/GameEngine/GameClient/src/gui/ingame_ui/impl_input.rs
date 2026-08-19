@@ -1210,9 +1210,19 @@ impl InGameUI {
 
                 if let Some(pending) = TheInGameUI::get_pending_command() {
                     self.set_mouse_cursor(Self::pending_gui_command_cursor(&pending, hint_type));
-                    let rc_type = &pending.radius_cursor_type;
-                    if !rc_type.is_empty() && !rc_type.eq_ignore_ascii_case("NONE") {
-                        TheInGameUI::set_radius_cursor_active_with_type(rc_type);
+                    if let Some(cursor_type) =
+                        RadiusCursorType::from_name(&pending.radius_cursor_type)
+                    {
+                        if cursor_type != RadiusCursorType::None {
+                            TheInGameUI::set_radius_cursor_active_with_type(
+                                &pending.radius_cursor_type,
+                            );
+                            self.set_radius_cursor(
+                                cursor_type,
+                                Coord3D::new(0.0, 0.0, 0.0),
+                                1.0,
+                            );
+                        }
                     }
                 } else {
                     self.set_mouse_cursor(self.mouse_mode_cursor);
@@ -1226,9 +1236,8 @@ impl InGameUI {
     /// Handles mouse-over drawable/location hints. Updates the moused-over
     /// drawable ID and sets the cursor to SELECTING for selectable+controlled
     /// drawables, or ARROW otherwise.
-    ///
-    /// Simplified from C++: player-name suffixes and special object cases are
-    /// deferred until the rest of the tooltip path is ported.
+    /// C++ `InGameUI::createMouseoverHint` — player-name suffix, disguise,
+    /// warehouse value, prop suppression, and garrison color.
 
     /// Wave 968: host mouseover cursor/tooltip residual without OBJECT_REGISTRY.
     fn create_mouseover_hint_from_presentation(
@@ -1344,10 +1353,35 @@ impl InGameUI {
                     } else {
                         tip_entry.template_name.clone()
                     };
-                if !tip_name.is_empty() {
-                    with_mouse(|m| {
-                        m.set_cursor_tooltip(tip_name, Some(-1), None, None);
-                    });
+                if let Some(mut tooltip) =
+                    Self::mouseover_tooltip_for_templates(&tip_name, &tip_entry.template_name)
+                {
+                    if let Some(player) = player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.find_player_by_name(&tip_entry.team_name))
+                    {
+                        if let Ok(player_guard) = player.read() {
+                            tooltip = Self::mouseover_tooltip_with_player_suffix(
+                                &tooltip,
+                                &player_guard,
+                                Self::mouseover_tooltip_is_multiplayer(),
+                            );
+                            let color = [
+                                player_guard.get_player_color().r,
+                                player_guard.get_player_color().g,
+                                player_guard.get_player_color().b,
+                                player_guard.get_player_color().a,
+                            ];
+                            with_mouse(|m| {
+                                m.set_cursor_tooltip(tooltip, Some(-1), Some(color), None);
+                            });
+                        }
+                    } else {
+                        with_mouse(|m| {
+                            m.set_cursor_tooltip(tooltip, Some(-1), None, None);
+                        });
+                    }
                 }
             } else {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
@@ -1388,7 +1422,9 @@ impl InGameUI {
             } else {
                 self.set_mouse_cursor(MouseCursor::Arrow);
             }
-        } else if self.mouse_mode == MouseMode::GuiCommand {
+        } else if self.mouse_mode != MouseMode::Default
+            && self.mouse_mode != MouseMode::BuildPlace
+        {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
     }
@@ -1435,10 +1471,14 @@ impl InGameUI {
                         );
                         if visible {
                             let template_name = Self::mouseover_tooltip_template_for_object(&guard);
+                            let real_template = guard.get_template_name().to_string();
                             if let Some(player) = Self::mouseover_tooltip_player_for_object(&guard)
                             {
                                 if let Some(mut display_name) =
-                                    Self::mouseover_tooltip_for_template(&template_name)
+                                    Self::mouseover_tooltip_for_templates(
+                                        &template_name,
+                                        &real_template,
+                                    )
                                 {
                                     if let Some(boxes) =
                                         Self::supply_warehouse_boxes_for_object(&guard)
@@ -1512,9 +1552,9 @@ impl InGameUI {
             } else {
                 self.set_mouse_cursor(MouseCursor::Arrow);
             }
-        } else if self.mouse_mode == MouseMode::GuiCommand {
-            // C++: InGameUI.cpp:2490-2493
-            // Restore the saved command cursor
+        } else if self.mouse_mode != MouseMode::Default
+            && self.mouse_mode != MouseMode::BuildPlace
+        {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
     }

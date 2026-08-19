@@ -85,6 +85,16 @@ fn scan_guard_inner_target(
         .unwrap_or(100.0);
     let mut center = *pos;
     if let Some(area) = area {
+        let scan_rate = get_guard_enemy_scan_rate();
+        let changed = TheGameLogic::get_frame_objects_changed_trigger_areas();
+        // C++ AIGuard.cpp:207-215 — skip unless objects changed trigger areas recently.
+        // `changed == 0` means the GameLogic stamp is unset; do not early-out.
+        if changed != 0 {
+            let check_frame = changed.saturating_add(scan_rate);
+            if TheGameLogic::get_frame() > check_frame {
+                return None;
+            }
+        }
         vision_range = area.get_radius();
         center = area.get_center_point();
     }

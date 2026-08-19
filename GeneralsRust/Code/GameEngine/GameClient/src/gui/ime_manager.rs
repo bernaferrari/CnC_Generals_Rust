@@ -2,9 +2,36 @@
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use super::game_window::GameWindow;
+use super::game_window::{GameWindow, WindowMessage, WindowStatus};
+use super::window_manager::with_window_manager;
+
+/// C++ `WM_IME_*` / `WM_CHAR` codes serviced by `IMEManager::serviceIMEMessage`.
+pub const WM_CHAR: u32 = 0x0102;
+pub const WM_IME_STARTCOMPOSITION: u32 = 0x010D;
+pub const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
+pub const WM_IME_COMPOSITION: u32 = 0x010F;
+pub const WM_IME_SETCONTEXT: u32 = 0x0281;
+pub const WM_IME_NOTIFY: u32 = 0x0282;
+pub const WM_IME_CHAR: u32 = 0x0286;
+pub const IMN_CHANGECANDIDATE: usize = 0x0003;
+pub const IMN_CLOSECANDIDATE: usize = 0x0004;
+pub const IMN_OPENCANDIDATE: usize = 0x0005;
+
+type ImeOsAssociateHook = fn(associate: bool);
+static IME_OS_ASSOCIATE: OnceLock<ImeOsAssociateHook> = OnceLock::new();
+
+/// Install the platform ImmAssociateContext / IME-enable hook.
+pub fn set_ime_os_associate_hook(hook: ImeOsAssociateHook) {
+    let _ = IME_OS_ASSOCIATE.set(hook);
+}
+
+fn associate_os_ime(associate: bool) {
+    if let Some(hook) = IME_OS_ASSOCIATE.get() {
+        hook(associate);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ImeMessage {
@@ -29,6 +56,7 @@ pub enum ImeMessage {
 pub struct ImeManager {
     window: Option<Weak<RefCell<GameWindow>>>,
     enabled: bool,
+    disabled: i32,
     composing: bool,
     composition_string: String,
     result_string: String,
@@ -38,6 +66,7 @@ pub struct ImeManager {
     page_size: usize,
     selected_index: usize,
     candidates: Vec<String>,
+    candidate_window: Option<Weak<RefCell<GameWindow>>>,
 }
 
 impl Default for ImeManager {
@@ -51,6 +80,7 @@ impl ImeManager {
         Self {
             window: None,
             enabled: true,
+            disabled: 0,
             composing: false,
             composition_string: String::new(),
             result_string: String::new(),
@@ -60,11 +90,13 @@ impl ImeManager {
             page_size: 0,
             selected_index: 0,
             candidates: Vec::new(),
+            candidate_window: None,
         }
     }
 
     pub fn init(&mut self) {
         self.reset();
+        self.ensure_candidate_window();
     }
 
     pub fn reset(&mut self) {
@@ -78,25 +110,50 @@ impl ImeManager {
         self.page_start = 0;
         self.page_size = 0;
         self.selected_index = 0;
+        self.close_candidate_list();
     }
 
     pub fn update(&mut self) {}
 
+    /// C++ `IMEManager::attach`: associate the IMM context when enabled.
     pub fn attach(&mut self, window: Rc<RefCell<GameWindow>>) {
+        if self.is_attached_to(&window) {
+            return;
+        }
+        self.detach();
+        if self.disabled <= 0 {
+            associate_os_ime(true);
+        }
         self.window = Some(Rc::downgrade(&window));
+    }
+
+    pub fn attach_optional(&mut self, window: Option<Rc<RefCell<GameWindow>>>) {
+        match window {
+            Some(window) => self.attach(window),
+            None => self.detach(),
+        }
     }
 
     pub fn detach(&mut self) {
         self.window = None;
     }
 
+    /// C++ `IMEManager::enable`: decrement disable count and ImmAssociateContext.
     pub fn enable(&mut self) {
-        self.enabled = true;
+        self.disabled -= 1;
+        if self.disabled <= 0 {
+            self.disabled = 0;
+            self.enabled = true;
+            associate_os_ime(true);
+        }
     }
 
+    /// C++ `IMEManager::disable`: increment disable count and drop the IMM context.
     pub fn disable(&mut self) {
+        self.disabled += 1;
         self.enabled = false;
         self.composing = false;
+        associate_os_ime(false);
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -108,6 +165,14 @@ impl ImeManager {
             .as_ref()
             .and_then(|weak| weak.upgrade())
             .map(|w| Rc::ptr_eq(&w, window))
+            .unwrap_or(false)
+    }
+
+    pub fn is_attached_to_id(&self, window_id: i32) -> bool {
+        self.window
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .map(|w| w.borrow().get_id() == window_id)
             .unwrap_or(false)
     }
 
@@ -155,6 +220,98 @@ impl ImeManager {
         &self.result_string
     }
 
+    fn dispatch_ime_chars(&self, text: &str) {
+        let Some(window) = self.get_window() else {
+            return;
+        };
+        for ch in text.chars() {
+            if (ch as u32) > 32 || ch == '\r' || ch == '\n' {
+                let _ = window.borrow_mut().send_input_message(
+                    WindowMessage::ImeChar,
+                    ch as u32 as crate::gui::game_window::WindowMsgData,
+                    0,
+                );
+            }
+        }
+    }
+
+    pub fn dispatch_ime_char(&self, ch: char) {
+        if (ch as u32) > 32 || ch == '\r' || ch == '\n' {
+            if let Some(window) = self.get_window() {
+                let _ = window.borrow_mut().send_input_message(
+                    WindowMessage::ImeChar,
+                    ch as u32 as crate::gui::game_window::WindowMsgData,
+                    0,
+                );
+            }
+        }
+    }
+
+    fn ensure_candidate_window(&mut self) {
+        if self
+            .candidate_window
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .is_some()
+        {
+            return;
+        }
+        with_window_manager(|manager| {
+            if let Ok(info) = manager.create_windows_from_script("IMECandidateWindow.wnd") {
+                if let Some(window) = info.windows.first() {
+                    let _ = window.borrow_mut().set_status(WindowStatus::ABOVE);
+                    let _ = window.borrow_mut().hide(true);
+                    self.candidate_window = Some(Rc::downgrade(window));
+                }
+            }
+        });
+    }
+
+    /// C++ `IMEManager::openCandidateList`.
+    pub fn open_candidate_list(&mut self) {
+        self.ensure_candidate_window();
+        let Some(window) = self
+            .candidate_window
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+        else {
+            return;
+        };
+        let _ = window.borrow_mut().hide(false);
+        let _ = window.borrow_mut().set_status(WindowStatus::ABOVE);
+        with_window_manager(|manager| {
+            let _ = manager.set_modal(window.clone());
+        });
+        let (cx, cy) = with_window_manager(|manager| {
+            let (width, _) = manager.screen_size();
+            let (cwidth, _) = window.borrow().get_size();
+            ((width - cwidth).max(0), 0)
+        });
+        let _ = window.borrow_mut().set_position(cx, cy);
+    }
+
+    /// C++ `IMEManager::closeCandidateList`.
+    pub fn close_candidate_list(&mut self) {
+        if let Some(window) = self
+            .candidate_window
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+        {
+            let _ = window.borrow_mut().hide(true);
+            with_window_manager(|manager| {
+                let _ = manager.unset_modal(&window);
+            });
+        }
+        self.candidates.clear();
+        self.candidate_count_reset();
+    }
+
+    fn candidate_count_reset(&mut self) {
+        self.page_start = 0;
+        self.page_size = 0;
+        self.selected_index = 0;
+    }
+
     pub fn service_ime_message(&mut self, message: ImeMessage) -> bool {
         if !self.enabled {
             return false;
@@ -173,10 +330,24 @@ impl ImeManager {
                 self.composition_string = text;
                 self.composition_cursor_pos = cursor_pos;
                 self.composing = true;
+                if let Some(window) = self.get_window() {
+                    if let Some(entry) = window.borrow_mut().text_entry_mut() {
+                        entry.set_ime_composition(
+                            self.composition_string.clone(),
+                            self.composition_cursor_pos,
+                        );
+                    }
+                }
             }
             ImeMessage::ResultString(text) => {
-                self.result_string = text;
+                self.result_string = text.clone();
                 self.composing = false;
+                if let Some(window) = self.get_window() {
+                    if let Some(entry) = window.borrow_mut().text_entry_mut() {
+                        entry.set_ime_composition(String::new(), 0);
+                    }
+                }
+                self.dispatch_ime_chars(&text);
             }
             ImeMessage::CandidateList {
                 candidates,
@@ -190,12 +361,10 @@ impl ImeManager {
                 self.page_start = page_start;
                 self.page_size = page_size;
                 self.index_base = index_base;
+                self.open_candidate_list();
             }
             ImeMessage::ClearCandidateList => {
-                self.candidates.clear();
-                self.page_start = 0;
-                self.page_size = 0;
-                self.selected_index = 0;
+                self.close_candidate_list();
             }
         }
 
@@ -209,6 +378,57 @@ thread_local! {
 
 pub fn get_ime_manager() -> Arc<Mutex<ImeManager>> {
     THE_IME_MANAGER.with(|manager| manager.clone())
+}
+
+/// C++ GadgetTextEntrySystem GWM_INPUT_FOCUS attach / detach.
+pub fn attach_or_detach_for_focus(window: Rc<RefCell<GameWindow>>, focused: bool) {
+    if let Ok(mut manager) = get_ime_manager().lock() {
+        if focused {
+            manager.attach(window);
+        } else if manager.is_attached_to(&window) {
+            manager.attach_optional(None);
+        }
+    }
+}
+
+/// C++ GadgetTextEntryInput swallows keys while IME is composing on this window.
+pub fn ime_should_swallow_input_for_window(window_id: i32) -> bool {
+    get_ime_manager()
+        .lock()
+        .map(|manager| manager.is_composing() && manager.is_attached_to_id(window_id))
+        .unwrap_or(false)
+}
+
+/// C++ `IMEManager::serviceIMEMessage` for Win32 `WM_IME_*` / `WM_CHAR`.
+pub fn service_os_ime_message(message: u32, wparam: usize, _lparam: isize) -> bool {
+    let manager = get_ime_manager();
+    let Ok(mut guard) = manager.lock() else {
+        return false;
+    };
+    match message {
+        WM_IME_STARTCOMPOSITION => guard.service_ime_message(ImeMessage::StartComposition),
+        WM_IME_ENDCOMPOSITION => guard.service_ime_message(ImeMessage::EndComposition),
+        WM_IME_CHAR | WM_CHAR => {
+            if let Some(ch) = char::from_u32((wparam as u32) & 0xffff) {
+                guard.dispatch_ime_char(ch);
+                true
+            } else {
+                false
+            }
+        }
+        WM_IME_NOTIFY => match wparam {
+            IMN_OPENCANDIDATE | IMN_CHANGECANDIDATE => {
+                guard.open_candidate_list();
+                true
+            }
+            IMN_CLOSECANDIDATE => {
+                guard.close_candidate_list();
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Residual: last IME action requested by residual peels.

@@ -4,6 +4,7 @@
 //! Ported from GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp
 
 use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex};
 
 // Re-export Relationship from game_common for convenience
 pub use crate::common::system::game_common::{Relationship, VeterancyLevel};
@@ -656,10 +657,14 @@ pub trait TeamMember {
         false
     }
 
-    /// Get vision range for enemy detection
     fn get_vision_range(&self) -> f32 {
-        // Default implementation
         0.0
+    }
+
+    /// Issue a team-move command to this member.
+    /// C++ Team::moveTeamTo is supposed to give a team move, not individual orders.
+    fn issue_move_to(&mut self, destination: Coord3D) {
+        let _ = destination;
     }
 }
 
@@ -761,7 +766,6 @@ pub struct Team {
     cur_units: i32,
     /// Current waypoint ID (0 if none)
     current_waypoint_id: u32,
-    /// Should check/execute generic scripts
     should_attempt_generic_script: [bool; MAX_GENERIC_SCRIPTS],
     /// If false, recruitability is team proto value. If true, use is_recruitable
     is_recruitability_set: bool,
@@ -771,6 +775,10 @@ pub struct Team {
     common_attack_target: u32,
     /// List for post processing during xfer load
     xfer_member_id_list: Vec<u32>,
+    /// C++ Team::m_proto->getControllingPlayer()
+    controlling_player: Option<i32>,
+    /// Prototype this instance was created from
+    prototype_id: TeamPrototypeID,
 }
 
 impl Team {
@@ -798,6 +806,8 @@ impl Team {
             is_recruitable: false,
             common_attack_target: 0, // INVALID_ID
             xfer_member_id_list: Vec::new(),
+            controlling_player: None,
+            prototype_id: TEAM_PROTOTYPE_ID_INVALID,
         }
     }
 
@@ -827,6 +837,8 @@ impl Team {
             is_recruitable: false,
             common_attack_target: 0,
             xfer_member_id_list: Vec::new(),
+            controlling_player: None,
+            prototype_id: TEAM_PROTOTYPE_ID_INVALID,
         }
     }
 
@@ -1174,22 +1186,60 @@ impl Team {
     }
 
     /// Get the controlling player index.
-    /// In full implementation, this would return m_proto->getControllingPlayer().
-    /// For now, returns None since we don't have a prototype reference.
     ///
-    /// Corresponds to C++ Team::getControllingPlayer()
+    /// Corresponds to C++ Team::getControllingPlayer() → m_proto->getControllingPlayer()
     pub fn get_controlling_player(&self) -> Option<i32> {
-        // In full implementation, this would return the player from the prototype
+        if self.controlling_player.is_some() {
+            return self.controlling_player;
+        }
+        if self.prototype_id != TEAM_PROTOTYPE_ID_INVALID {
+            if let Ok(factory) = get_team_factory().lock() {
+                if let Some(proto) = factory.find_team_prototype_by_id(self.prototype_id) {
+                    return proto.get_controlling_player().map(|idx| idx as i32);
+                }
+            }
+        }
+        if let Ok(factory) = get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(&self.name) {
+                return proto.get_controlling_player().map(|idx| idx as i32);
+            }
+        }
         None
     }
 
+    /// Set the controlling player index without touching the factory.
+    pub fn set_controlling_player_index(&mut self, player_index: i32) {
+        self.controlling_player = Some(player_index);
+    }
+
+    /// Bind this instance to a prototype (used when the factory creates teams).
+    pub fn set_prototype_id(&mut self, prototype_id: TeamPrototypeID) {
+        self.prototype_id = prototype_id;
+    }
+
+    pub fn get_prototype_id(&self) -> TeamPrototypeID {
+        self.prototype_id
+    }
+
     /// Set the controlling player.
-    /// In full implementation, this would call m_proto->setControllingPlayer().
     ///
     /// Corresponds to C++ Team::setControllingPlayer()
-    pub fn set_controlling_player(&mut self, _player_index: i32) {
-        // In full implementation, this would set the player via prototype
-        // and notify all members to redo their looking status
+    pub fn set_controlling_player(&mut self, player_index: i32) {
+        self.controlling_player = Some(player_index);
+        if let Ok(mut factory) = get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype_mut(&self.name) {
+                proto.set_controlling_player(Some(player_index as usize));
+            } else if self.prototype_id != TEAM_PROTOTYPE_ID_INVALID {
+                if let Some(proto) = factory.find_team_prototype_by_id_mut(self.prototype_id) {
+                    proto.set_controlling_player(Some(player_index as usize));
+                }
+            }
+        }
+        if let Some(sink) = get_team_command_sink() {
+            for &member_id in &self.members {
+                sink.handle_partition_cell_maintenance(member_id);
+            }
+        }
     }
 
     /// Set the attack priority name for this team.
@@ -1332,6 +1382,12 @@ impl Team {
         count
     }
 
+    /// Clear the per-frame entered/exited trigger flag.
+    /// C++ Team::updateState starts with `m_enteredOrExited = false`.
+    pub fn update_state_flags(&mut self) {
+        self.entered_or_exited = false;
+    }
+
     /// Update the team state - called each frame
     ///
     /// Clears m_enteredOrExited, checks & clears m_created.
@@ -1345,8 +1401,7 @@ impl Team {
         F: Fn(u32) -> Option<M>,
         G: FnMut(&str, &Team) -> bool,
     {
-        // Clear entered/exited flag
-        self.entered_or_exited = false;
+        self.update_state_flags();
 
         if !self.active {
             return;
@@ -2123,24 +2178,37 @@ impl Team {
     }
 
     /// Move team to destination.
-    /// Note: In full implementation, this would give a "team move" command, not individual move orders.
     ///
-    /// Corresponds to C++ Team::moveTeamTo()
+    /// Corresponds to C++ Team::moveTeamTo(). C++ skips dead/destroyed members
+    /// and is supposed to issue a team-move command.
     pub fn move_team_to<M: TeamMember>(
         &mut self,
         get_member: impl Fn(u32) -> Option<M>,
-        _destination: Coord3D,
+        destination: Coord3D,
     ) {
-        // In full implementation, this would send move commands to all units
+        let sink = get_team_command_sink();
         for &member_id in &self.members {
-            if let Some(member) = get_member(member_id) {
+            if let Some(mut member) = get_member(member_id) {
                 if member.is_effectively_dead() || member.is_destroyed() {
                     continue;
                 }
-                // Would send move command to member here
+                member.issue_move_to(destination);
+            }
+            if let Some(sink) = sink.as_ref() {
+                sink.move_object_to(member_id, destination);
             }
         }
     }
+
+    /// Move every living member using the registered command sink.
+    pub fn move_team_to_destination(&mut self, destination: Coord3D) {
+        if let Some(sink) = get_team_command_sink() {
+            for &member_id in &self.members {
+                sink.move_object_to(member_id, destination);
+            }
+        }
+    }
+
 }
 
 impl Snapshotable for Team {
@@ -2510,11 +2578,12 @@ impl TeamPrototype {
     ///
     /// Corresponds to C++ TeamPrototype::updateState()
     pub fn update_state(&mut self) {
-        // Update each team instance
         for team in &mut self.team_instances {
-            // In full implementation, this would call team.update_state()
-            // and handle removing empty non-singleton teams
-            let _ = team;
+            team.update_state_flags();
+        }
+        if !self.get_is_singleton() {
+            self.team_instances
+                .retain(|team| team.is_active() || !team.is_empty());
         }
     }
 
@@ -2684,10 +2753,9 @@ impl TeamPrototype {
     /// Move all team instances to a destination.
     ///
     /// Corresponds to C++ TeamPrototype::moveTeamTo()
-    pub fn move_team_to(&mut self, _destination: Coord3D) {
-        // In full implementation, would send move commands to all units
+    pub fn move_team_to(&mut self, destination: Coord3D) {
         for team in &mut self.team_instances {
-            let _ = team;
+            team.move_team_to_destination(destination);
         }
     }
 
@@ -2791,6 +2859,52 @@ impl Snapshotable for TeamPrototype {
         // Post-process team template
         self.team_template.load_post_process()?;
         Ok(())
+    }
+}
+
+// =============================================================================
+// Team command sink + global TeamFactory (C++ TheTeamFactory)
+// =============================================================================
+
+/// GameLogic-facing hook so Common teams can issue member orders.
+pub trait TeamCommandSink: Send + Sync {
+    fn move_object_to(&self, object_id: u32, destination: Coord3D);
+    fn handle_partition_cell_maintenance(&self, object_id: u32) {
+        let _ = object_id;
+    }
+}
+
+static TEAM_COMMAND_SINK: LazyLock<Mutex<Option<Arc<dyn TeamCommandSink>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+
+pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
+    if let Ok(mut guard) = TEAM_COMMAND_SINK.lock() {
+        *guard = Some(sink);
+    }
+}
+
+pub fn clear_team_command_sink() {
+    if let Ok(mut guard) = TEAM_COMMAND_SINK.lock() {
+        *guard = None;
+    }
+}
+
+pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
+    TEAM_COMMAND_SINK.lock().ok().and_then(|g| g.clone())
+}
+
+static THE_TEAM_FACTORY: LazyLock<Arc<Mutex<TeamFactory>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(TeamFactory::new())));
+
+/// C++ `TheTeamFactory` singleton.
+pub fn get_team_factory() -> Arc<Mutex<TeamFactory>> {
+    Arc::clone(&THE_TEAM_FACTORY)
+}
+
+pub fn set_team_factory(factory: TeamFactory) {
+    if let Ok(mut guard) = get_team_factory().lock() {
+        *guard = factory;
     }
 }
 
@@ -2951,6 +3065,13 @@ impl TeamFactory {
         self.prototypes.get(&name_key)
     }
 
+
+    /// Find an existing team instance by name without creating one.
+    pub fn find_existing_team(&self, name: &str) -> Option<&Team> {
+        self.find_team_prototype(name)
+            .and_then(|proto| proto.get_first_team_instance())
+    }
+
     /// Find a mutable team prototype by name
     pub fn find_team_prototype_mut(&mut self, name: &str) -> Option<&mut TeamPrototype> {
         let name_key = self.name_to_key(name);
@@ -3024,13 +3145,20 @@ impl TeamFactory {
         // Increment team ID
         self.unique_team_id = self.unique_team_id.wrapping_add(1);
         let new_team_id = self.unique_team_id;
+        let proto_id = prototype.get_id();
+        let owner = prototype.get_controlling_player();
 
-        // Create new team
-        let new_team = Team::with_id(name.to_string(), new_team_id);
+        // Create new team bound to this prototype / owner
+        let mut new_team = Team::with_id(name.to_string(), new_team_id);
+        new_team.set_prototype_id(proto_id);
+        if let Some(owner) = owner {
+            new_team.set_controlling_player_index(owner as i32);
+        }
 
         // Add to prototype's instance list
         let prototype = self.prototypes.get_mut(&name_key)?;
         prototype.add_team_instance(new_team);
+
 
         // Return the newly created team
         prototype.get_first_team_instance_mut()

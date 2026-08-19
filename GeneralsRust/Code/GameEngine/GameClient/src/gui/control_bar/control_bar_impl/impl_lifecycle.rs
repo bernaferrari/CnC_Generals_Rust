@@ -1,5 +1,11 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
+static PRESENTATION_POWER_PRODUCED: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+static PRESENTATION_POWER_CONSUMED: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+
+
 impl ControlBar {
     pub fn new() -> Self {
         Self {
@@ -94,9 +100,14 @@ impl ControlBar {
 
     /// Main update loop. Mirrors C++ ControlBar::update().
     pub fn update(&mut self, delta_time: Duration) -> Result<(), Box<dyn std::error::Error>> {
+        // ShowControlBar queues DEFAULT (ControlBarCallback.cpp:489) before this
+        // live instance ticks. Apply it so CommandWindow HIDDEN is cleared InGame.
+        self.apply_pending_control_bar_stage();
         self.apply_live_hook_events();
         crate::gui::w3d_gadget_draw::ensure_scheme_draw_registered();
         crate::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+        super::control_bar_observer::init_observer_controls();
+        super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
 
         if self.is_animating {
             let elapsed = self.animation_start_time.elapsed();
@@ -231,14 +242,17 @@ impl ControlBar {
     /// C++ InGameUI::update money/power window residual (InGameUI.cpp:1776-1815).
     ///
     /// Formats `GUI:ControlBarMoneyDisplay` onto `ControlBar.wnd:MoneyDisplay`
-    /// from ThePlayerList (observer look-at or local). Power fill is drawn by
-    /// w3d_power_draw.
+    /// from ThePlayerList (observer look-at or local). PowerWindow stays visible
+    /// whenever money does (C++ 1808-1809) and receives produced/consumed text
+    /// from crate Energy, or the host presentation freeze when ThePlayerList
+    /// has no local player.
     ///
     /// Live host: crate `ThePlayerList` is often empty even in a real offline
     /// match. C++ only hides when `moneyPlayer` is NULL (InGameUI.cpp:1811-1814),
     /// which does not happen in skirmish. Do not `hide(true)` both windows just
     /// because the crate list has no local player — fall back to last-applied
-    /// presentation money already on this ControlBar (`last_displayed_money`).
+    /// presentation money (`last_displayed_money`) and stamped presentation
+    /// power (`stamp_presentation_power` / `apply_presentation_power`).
     pub fn update_money_and_power_windows(&mut self) {
         let money_player = if self.observer_mode {
             self.get_observer_look_at_player_index()
@@ -260,12 +274,12 @@ impl ControlBar {
             .and_then(|player| player.read().ok())
             .map(|player| player.get_money().count_money() as i32);
 
-        // Presentation freeze / last apply stands in for the missing crate local
-        // player (`last_displayed_money`, stamped by apply_presentation_money
-        // or a prior crate-player write). Portrait/command-set/radar residuals
-        // on this ControlBar are the live-match signal; we still show even when
-        // they are cold so an empty crate list never hides both windows.
-
+        let crate_power = money_player.as_ref().and_then(|player| {
+            player.read().ok().map(|guard| {
+                let energy = guard.get_energy();
+                (energy.production(), energy.consumption())
+            })
+        });
 
         with_window_manager(|manager| {
             let money_win = manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
@@ -283,6 +297,17 @@ impl ControlBar {
                 let _ = win.borrow_mut().hide(false);
             }
             if let Some(win) = power_win.as_ref() {
+                let presentation = Self::presentation_power();
+                let (produced, consumed) = match crate_power {
+                    Some((produced, consumed))
+                        if produced != 0 || consumed != 0 || presentation == (0, 0) =>
+                    {
+                        (produced, consumed)
+                    }
+                    _ => presentation,
+                };
+                let text = Self::format_control_bar_power_display(produced, consumed);
+                let _ = win.borrow_mut().set_text(&text);
                 let _ = win.borrow_mut().hide(false);
             }
         });
@@ -297,6 +322,27 @@ impl ControlBar {
         self.last_displayed_money = supplies.max(0);
     }
 
+    /// Stamp host presentation-freeze energy onto ControlBar PowerWindow.
+    ///
+    /// Called from `PresentationFrame` freeze and `apply_presentation_power`
+    /// so PowerWindow is not forced 0 when crate Energy is missing.
+    pub fn stamp_presentation_power(produced: i32, consumed: i32) {
+        PRESENTATION_POWER_PRODUCED.store(produced.max(0), std::sync::atomic::Ordering::Relaxed);
+        PRESENTATION_POWER_CONSUMED.store(consumed.max(0), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Instance stamp matching `apply_presentation_money`.
+    pub fn apply_presentation_power(&mut self, produced: i32, consumed: i32) {
+        Self::stamp_presentation_power(produced, consumed);
+    }
+
+    fn presentation_power() -> (i32, i32) {
+        (
+            PRESENTATION_POWER_PRODUCED.load(std::sync::atomic::Ordering::Relaxed),
+            PRESENTATION_POWER_CONSUMED.load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
     /// Host-testable money format residual (C++ `GUI:ControlBarMoneyDisplay` %d).
     pub fn format_control_bar_money_display(money: i32) -> String {
         let template = GameText::fetch("GUI:ControlBarMoneyDisplay");
@@ -307,6 +353,14 @@ impl ControlBar {
         } else {
             format!("{template} {money}")
         }
+    }
+
+    /// Host-testable PowerWindow text (produced / consumed).
+    ///
+    /// C++ PowerWindow is a W3D fill, not a static-text gadget. Live crate
+    /// Energy is often 0, so the window shows the host freeze numbers.
+    pub fn format_control_bar_power_display(produced: i32, consumed: i32) -> String {
+        format!("{produced} / {consumed}")
     }
 
 
@@ -373,6 +427,10 @@ impl ControlBar {
             self.build_queue_data.clear();
             self.displayed_queue_count = 0;
             self.portrait_state = PortraitDisplayState::default();
+            // InGame DEFAULT keeps CommandWindow visible (authored HIDDEN).
+            if self.control_bar_stage == ControlBarStage::Default {
+                reveal_ingame_command_window();
+            }
             let mut guard = self
                 .context
                 .write()
@@ -551,6 +609,14 @@ impl ControlBar {
             } else {
                 context.current_state = ControlBarState::None;
             }
+            if matches!(
+                context.current_state,
+                ControlBarState::Command
+                    | ControlBarState::MultiSelect
+                    | ControlBarState::StructureInventory
+            ) {
+                reveal_ingame_command_window();
+            }
             if context.current_state != ControlBarState::None {
                 self.rebuild_command_buttons(&mut context)?;
             }
@@ -629,6 +695,15 @@ impl ControlBar {
         self.build_queue_data.clear();
         self.displayed_queue_count = 0;
         self.update_portrait_for_object(obj_id);
+
+        if matches!(
+            context.current_state,
+            ControlBarState::Command
+                | ControlBarState::MultiSelect
+                | ControlBarState::StructureInventory
+        ) {
+            reveal_ingame_command_window();
+        }
 
         self.rebuild_command_buttons(&mut context)?;
 

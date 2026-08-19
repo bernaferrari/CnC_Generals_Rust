@@ -122,6 +122,28 @@ fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
     drawn
 }
 
+fn draw_named_image(name: &str, rect: UIRect, alpha: u8) -> bool {
+    let mut drawn = false;
+    let _ = with_ui_renderer_mut(|renderer| {
+        let collection = get_mapped_image_collection();
+        let mut collection = collection.write();
+        if let Some(mapped) = collection.find_image_by_name_mut(name) {
+            if mapped.get_gpu_texture().is_none() {
+                let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
+            }
+            if let Some(gpu) = mapped.get_gpu_texture() {
+                let color = rgba_from_components(255, 255, 255, alpha);
+                let uv = mapped.get_uv();
+                let texture = Arc::new(gpu.view().clone());
+                let tex_rect = UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height());
+                renderer.draw_textured_rect(rect, texture, color, Some(tex_rect), 0.0);
+                drawn = true;
+            }
+        }
+    });
+    drawn
+}
+
 fn play_sound(event_name: &str) {
     if let Some(audio) = TheAudio::get() {
         let event = AudioEventRts::new(event_name);
@@ -1999,8 +2021,19 @@ impl Transition for ControlBarArrowTransition {
     }
 
     fn update(&mut self, frame: i32) {
-        self.draw_state = frame;
-        self.is_finished = true;
+        self.draw_state = -1;
+        if frame < 0 || frame > self.frame_length {
+            return;
+        }
+        match frame {
+            0 | 22 => {
+                // C++ START/END: used during init reset and to finish the slide.
+                self.is_finished = true;
+            }
+            _ => {
+                self.draw_state = frame;
+            }
+        }
     }
 
     fn reverse(&mut self) {
@@ -2012,31 +2045,33 @@ impl Transition for ControlBarArrowTransition {
         if self.draw_state < 0 {
             return;
         }
-        if self.draw_state < 16 {
-            let y_pos = self.pos.y + self.increment_pos.y * self.draw_state;
-            let rect = UIRect::new(
-                self.pos.x as f32,
-                y_pos as f32,
-                self.size.x as f32,
-                self.size.y as f32,
-            );
-            with_ui_renderer_mut(|renderer| {
-                renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 255), 0.0);
-            });
+        let (y_pos, alpha) = if self.draw_state < 16 {
+            (
+                self.pos.y + self.increment_pos.y * self.draw_state,
+                255u8,
+            )
         } else {
             let mut alpha = (1.0 - (self.fade_percent * (self.draw_state - 16) as f32)) * 255.0;
             if alpha > 255.0 {
                 alpha = 255.0;
             }
-            let y_pos = self.pos.y + self.increment_pos.y * (16 - 1);
-            let rect = UIRect::new(
-                self.pos.x as f32,
-                y_pos as f32,
-                self.size.x as f32,
-                self.size.y as f32,
-            );
+            if alpha < 0.0 {
+                alpha = 0.0;
+            }
+            (
+                self.pos.y + self.increment_pos.y * (16 - 1),
+                alpha as u8,
+            )
+        };
+        let rect = UIRect::new(
+            self.pos.x as f32,
+            y_pos as f32,
+            self.size.x as f32,
+            self.size.y as f32,
+        );
+        if !draw_named_image("GenArrow", rect, alpha) {
             with_ui_renderer_mut(|renderer| {
-                renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha as u8), 0.0);
+                renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha), 0.0);
             });
         }
     }

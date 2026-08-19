@@ -14,10 +14,14 @@
 //! - Radar events for discovered stealth
 
 use crate::common::*;
-use crate::helpers::TheParticleSystemManager;
+use crate::common::audio::AudioEventRts;
+use crate::helpers::{TheAudio, TheEva, TheGameText, TheInGameUI, TheParticleSystemManager};
+use crate::helpers::EvaEvent;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::player::{player_list, PLAYER_INDEX_INVALID};
+use crate::stealth_update::StealthUpdateHandle;
+use game_engine::common::system::radar::{get_radar_system, Coord3D as RadarCoord3D, RadarEventType};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -61,6 +65,115 @@ fn passes_kindof_filters(
     }
 
     true
+}
+
+fn eva_event_from_name(name: &str) -> Option<EvaEvent> {
+    match name {
+        "EnemyBlackLotusDetected" => Some(EvaEvent::EnemyBlackLotusDetected),
+        "EnemyJarmenKellDetected" => Some(EvaEvent::EnemyJarmenKellDetected),
+        "EnemyColonelBurtonDetected" => Some(EvaEvent::EnemyColonelBurtonDetected),
+        "OwnBlackLotusDetected" => Some(EvaEvent::OwnBlackLotusDetected),
+        "OwnJarmenKellDetected" => Some(EvaEvent::OwnJarmenKellDetected),
+        "OwnColonelBurtonDetected" => Some(EvaEvent::OwnColonelBurtonDetected),
+        _ => None,
+    }
+}
+
+fn play_misc_stealth_sound(discovered: bool, player_index: i32) {
+    let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
+        return;
+    };
+    let Ok(misc) = misc.read() else {
+        return;
+    };
+    let name = if discovered {
+        misc.stealth_discovered_sound.sound_file.as_str()
+    } else {
+        misc.stealth_neutralized_sound.sound_file.as_str()
+    };
+    if name.is_empty() {
+        return;
+    }
+    if let Some(audio) = TheAudio::get() {
+        let mut event = AudioEventRts::new(name);
+        event.set_player_index(player_index as u32);
+        audio.add_audio_event(&event);
+    }
+}
+
+fn emit_first_detection_feedback(
+    detector: &Object,
+    target: &Object,
+    stealth: &StealthUpdateHandle,
+) {
+    let relationship = detector.relationship_to(target);
+    if relationship == Relationship::Allies {
+        return;
+    }
+    let local_index = player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(PLAYER_INDEX_INVALID);
+    let pos = *target.get_position();
+    let radar_loc = RadarCoord3D::new(pos.x, pos.y, pos.z);
+    let is_mine = target.is_kind_of(KindOf::Mine)
+        || target.is_kind_of(KindOf::BoobyTrap)
+        || target.is_kind_of(KindOf::Demotrap);
+
+    let detector_local = detector
+        .get_controlling_player_id()
+        .map(|id| id as i32 == local_index)
+        .unwrap_or(false);
+    if detector_local {
+        let do_feedback = get_radar_system()
+            .write()
+            .map(|mut radar| radar.try_stealth_discovered_event(&radar_loc))
+            .unwrap_or(false);
+        if do_feedback {
+            if let Some(player_id) = detector.get_controlling_player_id() {
+                play_misc_stealth_sound(true, player_id);
+            }
+            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthDiscovered"));
+            if let Ok(stealth_guard) = stealth.lock() {
+                if let Some(name) = stealth_guard.enemy_detection_eva_event() {
+                    if let Some(event) = eva_event_from_name(name) {
+                        let _ = TheEva::set_should_play(event);
+                    }
+                }
+            }
+        }
+    }
+
+    let target_local = target
+        .get_controlling_player_id()
+        .map(|id| id as i32 == local_index)
+        .unwrap_or(false);
+    if target_local {
+        let do_feedback = if let Ok(mut radar) = get_radar_system().write() {
+            if is_mine {
+                radar.try_stealth_neutralized_event(&radar_loc)
+            } else {
+                radar.create_event(&radar_loc, RadarEventType::StealthNeutralized, 4.0);
+                true
+            }
+        } else {
+            false
+        };
+        if do_feedback {
+            if let Some(player_id) = target.get_controlling_player_id() {
+                play_misc_stealth_sound(false, player_id);
+            }
+            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthNeutralized"));
+            if let Ok(stealth_guard) = stealth.lock() {
+                if let Some(name) = stealth_guard.own_detection_eva_event() {
+                    if let Some(event) = eva_event_from_name(name) {
+                        let _ = TheEva::set_should_play(event);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Stealth detector module data - matches C++ StealthDetectorUpdateModuleData (lines 18-53)
@@ -376,14 +489,8 @@ impl StealthDetectorController {
             let has_stealth = obj_guard.get_stealth_module().is_some();
 
             if has_stealth {
-                // Respect containment rules for targets
-                let target_contained = obj_guard.get_container_id().is_some();
-                if target_contained
-                    && !(self.data.can_detect_while_transported
-                        || self.data.can_detect_while_garrisoned)
-                {
-                    continue;
-                }
+                // C++ applies CanDetectWhileGarrisoned/Contained only to the DETECTOR
+                // (lines 139-162), never to a stealthed target's own container.
 
                 // Apply KindOf filters (line 168)
                 if !passes_kindof_filters(
@@ -413,49 +520,21 @@ impl StealthDetectorController {
                     .contains(ObjectStatusMaskType::DETECTED);
 
                 if !was_detected {
-                    // Newly detected - do UI feedback (lines 202-239)
-                    // Check if local player is the detector owner (C++ line 202)
-                    let is_local_detector = OBJECT_REGISTRY
-                        .with_object(self.object_id, |self_guard| {
-                            let local_index = player_list()
-                                .read()
-                                .ok()
-                                .map(|list| list.get_local_player_index())
-                                .unwrap_or(PLAYER_INDEX_INVALID);
-                            self_guard
-                                .get_controlling_player_id()
-                                .map(|id| id as i32 == local_index)
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false);
-
-                    if is_local_detector {
-                        // Create radar event (lines 211)
-                        // Radar events are managed by the radar system
-                        // RADAR_EVENT_STEALTH_DISCOVERED would be triggered here
-                        trace!(
-                            "Detector {} discovered stealthed unit {} at distance {}",
-                            self.object_id,
-                            target_id,
-                            distance
-                        );
-
-                        // Play discovery sound and message (lines 224-231)
-                        // Audio events handled by audio system based on detection status changes
-                        // UI messages handled by UI system monitoring detection events
-
-                        // Trigger EVA event if configured (lines 233-238)
-                        // EVA events are managed by the EVA system based on module data
-                        // enemy_detection_eva_event would be checked and triggered
+                    if let Some(stealth_module) = obj_guard.get_stealth_module() {
+                        let _ = OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
+                            emit_first_detection_feedback(
+                                self_guard,
+                                &obj_guard,
+                                &stealth_module,
+                            );
+                        });
                     }
-
-                    // Feedback for the detected unit's player (lines 244-277)
-                    // Check if local player is target owner (C++ line 244)
-                    // RADAR_EVENT_STEALTH_NEUTRALIZED would be created for target player
-                    // Audio: stealthNeutralizedSound
-                    // UI: "MESSAGE:StealthNeutralized"
-                    // EVA: own_detection_eva_event
-                    // All handled by respective systems monitoring detection status
+                    trace!(
+                        "Detector {} discovered stealthed unit {} at distance {}",
+                        self.object_id,
+                        target_id,
+                        distance
+                    );
                 }
 
                 // Mark target as detected (line 282)

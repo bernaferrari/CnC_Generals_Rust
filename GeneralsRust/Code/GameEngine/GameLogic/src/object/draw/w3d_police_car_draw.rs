@@ -1,7 +1,10 @@
 use super::draw_module::*;
 use super::w3d_truck_draw::*;
 use crate::common::*;
-use crate::helpers::{game_client_random_value_real, TheGameClient};
+use crate::helpers::{
+    create_scene_point_light, fade_scene_point_light, game_client_random_value_real,
+    update_scene_point_light, TheGameClient, TheGameLogic,
+};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
@@ -61,6 +64,7 @@ pub struct W3DPoliceCarDraw {
     data: W3DPoliceCarDrawModuleData,
     base: W3DTruckDraw,
     cur_frame: Real,
+    light_id: Option<u64>,
 }
 impl W3DPoliceCarDraw {
     pub fn new(data: W3DPoliceCarDrawModuleData) -> Self {
@@ -68,6 +72,7 @@ impl W3DPoliceCarDraw {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
             cur_frame: game_client_random_value_real(0.0, 10.0),
+            light_id: None,
         }
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
@@ -89,6 +94,9 @@ impl Module for W3DPoliceCarDraw {
         self.base.preload_assets(time_of_day);
     }
     fn on_delete(&mut self) {
+        if let Some(id) = self.light_id.take() {
+            fade_scene_point_light(id, 5);
+        }
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
@@ -106,6 +114,28 @@ impl DrawModule for W3DPoliceCarDraw {
         self.cur_frame += 0.25;
         if self.cur_frame > 14.0 {
             self.cur_frame = 0.0;
+        }
+        let (red, green, blue) = police_light_color(self.cur_frame);
+        if self.light_id.is_none() {
+            self.light_id = Some(create_scene_point_light());
+        }
+        if let Some(light_id) = self.light_id {
+            let mut pos = Coord3D::origin();
+            if let Some(owner_id) = self.base.owner_id() {
+                if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
+                    if let Ok(owner_guard) = owner.read() {
+                        pos = *owner_guard.get_position();
+                    }
+                }
+            }
+            update_scene_point_light(
+                light_id,
+                [pos.x, pos.y, pos.z + 8.0],
+                [red * 0.5, green * 0.5, blue * 0.5],
+                [red, green, blue],
+                3.0,
+                20.0,
+            );
         }
         self.base.do_draw_module(transform_mtx);
         if let Some(owner_id) = self.base.owner_id() {
@@ -170,6 +200,31 @@ impl Snapshotable for W3DPoliceCarDraw {
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
     }
+}
+
+fn police_light_color(cur_frame: Real) -> (Real, Real, Real) {
+    let mut red = 0.0;
+    let mut green = 0.0;
+    let mut blue = 0.0;
+    if cur_frame < 3.0 {
+        red = 1.0;
+        green = 0.5;
+    } else if cur_frame < 6.0 {
+        red = 1.0;
+    } else if cur_frame < 7.0 {
+        red = 1.0;
+        green = 0.5;
+    } else if cur_frame < 9.0 {
+        red = 0.5 + (9.0 - cur_frame) / 4.0;
+        blue = (cur_frame - 5.0) / 6.0;
+    } else if cur_frame < 12.0 {
+        blue = 1.0;
+    } else if cur_frame <= 14.0 {
+        green = (cur_frame - 11.0) / 3.0;
+        blue = (14.0 - cur_frame) / 2.0;
+        red = (cur_frame - 11.0) / 3.0;
+    }
+    (red, green, blue)
 }
 
 #[cfg(test)]

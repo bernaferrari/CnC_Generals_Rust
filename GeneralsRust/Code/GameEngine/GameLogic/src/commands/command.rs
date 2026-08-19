@@ -378,6 +378,8 @@ pub enum CommandType {
     SnipeVehicle = 1099,
     DoSpecialPowerOverrideDestination = 1100,
     DoSalvage = 1101,
+    PickUpPrisoner = 1102,
+    ReturnToPrison = 1103,
 
     // UI and game state
     ClearInGamePopupMessage = 1110,

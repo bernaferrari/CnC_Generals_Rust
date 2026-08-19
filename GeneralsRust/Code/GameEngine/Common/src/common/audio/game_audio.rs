@@ -17,7 +17,7 @@ use crate::common::audio::{
     },
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
-    game_sounds::create_sound_manager,
+    game_sounds::{create_sound_manager, PlayNowAudioQueries},
 };
 use crate::common::game_common::MSEC_PER_LOGICFRAME_REAL;
 use crate::common::system::file::FileAccess;
@@ -30,6 +30,7 @@ use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
+use std::time::Instant;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use ww3d_animation::{initialize_animated_sound_mgr, set_sound_library, SoundLibraryBridge};
 use ww3d_core::errors::{W3DError, W3DResult};
@@ -52,6 +53,13 @@ pub trait SoundPlaybackHook: Send + Sync {
     fn set_event_volume(&self, _event: &AudioEventRts) {}
     /// C++ `AIL_set_*_volume` used by `processFadingList` / `adjustPlayingVolume`.
     fn set_sink_volume(&self, _handle: AudioHandle, _volume: Real) {}
+    /// C++ `INFINITE_LOOP_COUNT - AIL_stream_loop_count` for currently playing music.
+    fn music_loop_count(&self, _handle: AudioHandle) -> Int {
+        0
+    }
+    fn is_sink_paused(&self, _handle: AudioHandle) -> bool {
+        false
+    }
 }
 
 static SOUND_PLAYBACK_HOOK: OnceLock<Arc<dyn SoundPlaybackHook>> = OnceLock::new();
@@ -87,6 +95,34 @@ pub trait AudioViewResolver: Send + Sync {
     fn get_tactical_view_angle(&self) -> Real;
     fn get_3d_camera_position(&self) -> Coord3D;
     fn get_ground_height(&self, x: Real, y: Real) -> Real;
+    /// C++ `MilesAudioManager::isOnScreen` via `TheTacticalView->worldToScreen`.
+    fn is_world_position_on_screen(&self, pos: &Coord3D) -> bool {
+        let cam = self.get_3d_camera_position();
+        let ground = self.get_tactical_view_position();
+        let mut look_x = ground.x - cam.x;
+        let mut look_y = ground.y - cam.y;
+        let mut look_z = ground.z - cam.z;
+        let look_len = (look_x * look_x + look_y * look_y + look_z * look_z).sqrt();
+        if look_len < 0.001 {
+            let angle = self.get_tactical_view_angle();
+            look_x = -angle.sin();
+            look_y = angle.cos();
+            look_z = 0.0;
+        } else {
+            look_x /= look_len;
+            look_y /= look_len;
+            look_z /= look_len;
+        }
+        let to_x = pos.x - cam.x;
+        let to_y = pos.y - cam.y;
+        let to_z = pos.z - cam.z;
+        let to_len = (to_x * to_x + to_y * to_y + to_z * to_z).sqrt();
+        if to_len < 0.001 {
+            return true;
+        }
+        let dot = (to_x * look_x + to_y * look_y + to_z * look_z) / to_len;
+        dot > 0.64
+    }
 }
 
 static AUDIO_VIEW_RESOLVER: OnceLock<Arc<dyn AudioViewResolver>> = OnceLock::new();
@@ -341,6 +377,14 @@ pub trait MusicManager: Send + Sync {
 pub trait SoundManager: Send + Sync {
     fn add_audio_event(&mut self, event: AudioEventRts) -> Result<(), String>;
     fn can_play_now(&self, event: &AudioEventRts) -> bool;
+    fn can_play_now_checked(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+    ) -> bool {
+        let _ = (event, queries);
+        false
+    }
     fn post_process_load(&mut self) {}
     fn update(&mut self) {}
     fn reset(&mut self) {}
@@ -555,6 +599,7 @@ impl AudioManager {
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.reset();
         }
+        self.remove_level_specific_audio_event_infos();
     }
 
     pub fn update(&mut self) {
@@ -688,6 +733,8 @@ impl AudioManager {
         let handle = self.allocate_new_handle();
         audio_event.set_playing_handle(handle);
         audio_event.generate_filename();
+        // C++ GameAudio.cpp:424 writes the chosen index back onto the caller's event.
+        event_to_add.set_playing_audio_index(audio_event.get_playing_audio_index());
         audio_event.generate_play_info();
 
         // Check volume adjustments
@@ -713,8 +760,9 @@ impl AudioManager {
             if self.does_violate_limit(&mut audio_event) {
                 return AHSV_NO_SOUND;
             }
+            let queries = self.play_now_queries(&audio_event, false);
             if let Some(sound_mgr) = &self.sound_manager {
-                if !sound_mgr.can_play_now(&audio_event) {
+                if !sound_mgr.can_play_now_checked(&mut audio_event, &queries) {
                     return AHSV_NO_SOUND;
                 }
             }
@@ -1277,11 +1325,17 @@ impl AudioManager {
                 }
             }
 
-            if self.audio_requests[i].requires_check_for_sample()
-                && !self.check_for_sample(&self.audio_requests[i])
-            {
-                self.audio_requests.remove(i);
-                continue;
+            if self.audio_requests[i].requires_check_for_sample() {
+                let mut probe = self.audio_requests[i].get_pending_event().cloned();
+                if let Some(probe) = &mut probe {
+                    if !self.check_event_can_play_now(probe) {
+                        self.audio_requests.remove(i);
+                        continue;
+                    }
+                    if let Some(pending) = self.audio_requests[i].get_pending_event_mut() {
+                        pending.set_handle_to_kill(probe.get_handle_to_kill());
+                    }
+                }
             }
 
             let request = self.audio_requests.remove(i);
@@ -1313,7 +1367,7 @@ impl AudioManager {
         request.set_requires_check_for_sample(true);
     }
 
-    /// C++ `MilesAudioManager::checkForSample` (2502-2519).
+    /// C++ `MilesAudioManager::checkForSample` (2502-2519) + `canPlayNow` limit check.
     fn check_for_sample(&self, request: &AudioRequest) -> bool {
         if !request.use_pending_event {
             return true;
@@ -1321,15 +1375,36 @@ impl AudioManager {
         let Some(event) = request.get_pending_event() else {
             return true;
         };
+        let mut probe = event.clone();
+        self.check_event_can_play_now(&mut probe)
+    }
+
+    fn check_event_can_play_now(&self, event: &mut AudioEventRts) -> bool {
         let Some(info) = event.get_audio_event_info() else {
             return true;
         };
         if info.sound_type != AudioType::SoundEffect {
             return true;
         }
+        let violates_limit = self.does_violate_limit(event);
+        let queries = self.play_now_queries(event, violates_limit);
         self.sound_manager
             .as_ref()
-            .is_none_or(|sound_mgr| sound_mgr.can_play_now(event))
+            .is_none_or(|sound_mgr| sound_mgr.can_play_now_checked(event, &queries))
+    }
+
+    fn play_now_queries(
+        &self,
+        event: &AudioEventRts,
+        violates_limit: bool,
+    ) -> PlayNowAudioQueries {
+        let object_id = event.get_object_id();
+        PlayNowAudioQueries {
+            object_playing_voice: object_id != 0 && self.is_object_playing_voice(object_id),
+            playing_lower_priority: self.is_playing_lower_priority(event),
+            playing_already: self.is_playing_already(event),
+            violates_limit,
+        }
     }
 
     /// C++ `MilesAudioManager::processRequest` (2916-2935).
@@ -1387,6 +1462,7 @@ impl AudioManager {
             priority: AudioPriority::Normal,
             min_distance: 0.0,
             max_distance: 100.0,
+            ..Default::default()
         });
 
         self.all_audio_event_info
@@ -1401,6 +1477,12 @@ impl AudioManager {
     pub fn register_audio_event_info(&mut self, info: AudioEventInfo) {
         self.all_audio_event_info
             .insert(info.audio_name.clone(), Arc::new(info));
+    }
+
+    /// C++ `AudioManager::removeLevelSpecificAudioEventInfos` (GameAudio.cpp:854-871).
+    pub fn remove_level_specific_audio_event_infos(&mut self) {
+        self.all_audio_event_info
+            .retain(|_, info| !info.is_level_specific());
     }
 
     pub fn get_audio_settings(&self) -> &AudioSettings {
@@ -1436,8 +1518,26 @@ impl AudioManager {
         }
     }
 
+    fn notify_sample_completion_if_effect(&mut self, event: &AudioEventRts) {
+        if !event
+            .get_audio_event_info()
+            .is_some_and(|info| info.sound_type == AudioType::SoundEffect)
+        {
+            return;
+        }
+        if let Some(sound_mgr) = &mut self.sound_manager {
+            if event.is_positional_audio() {
+                sound_mgr.notify_of_3d_sample_completion();
+            } else {
+                sound_mgr.notify_of_2d_sample_completion();
+            }
+        }
+    }
+
     fn stop_playing_handle(&mut self, handle: AudioHandle) {
-        self.active_audio_events.remove(&handle);
+        if let Some(event) = self.active_audio_events.remove(&handle) {
+            self.notify_sample_completion_if_effect(&event);
+        }
         let _ = with_sound_playback_hook(|hook| hook.stop(handle));
     }
 
@@ -1520,8 +1620,8 @@ impl AudioManager {
             }
         }
 
-        let event_volume = event.get_volume();
-        event.set_volume(event_volume * self.get_volume(AudioAffect::Speech));
+        // C++ applies event.getVolume() * speech slider once on the raw HAUDIO.
+        // RodioPlaybackHook::play already multiplies via miles_get_effective_volume.
         let handle = self.allocate_new_handle();
         event.set_playing_handle(handle);
 
@@ -1642,6 +1742,50 @@ impl AudioManager {
                 sound_mgr.update();
             }
         }
+    }
+
+    /// C++ `MilesAudioManager::stopAudio` (MilesAudioManager.cpp:471-524).
+    /// Music/speech streams are paused so `resumeAudio` can restore them.
+    pub fn stop_audio(&mut self, which: AudioAffect) {
+        let handles: Vec<AudioHandle> = self
+            .active_audio_events
+            .values()
+            .filter(|event| event_matches_audio_affect(event, which))
+            .map(|event| event.get_playing_handle())
+            .collect();
+        let _ = with_sound_playback_hook(|hook| {
+            for handle in handles {
+                hook.pause(handle);
+            }
+        });
+    }
+
+    /// C++ `MilesAudioManager::isMusicPlaying` (MilesAudioManager.cpp:1355-1366).
+    pub fn is_music_playing(&self) -> Bool {
+        self.active_audio_events.values().any(|event| {
+            event
+                .get_audio_event_info()
+                .is_some_and(|info| info.sound_type == AudioType::Music)
+                && with_sound_playback_hook(|hook| {
+                    let handle = event.get_playing_handle();
+                    hook.is_playing(handle) && !hook.is_sink_paused(handle)
+                })
+                .unwrap_or(true)
+        })
+    }
+
+    /// C++ `MilesAudioManager::hasMusicTrackCompleted` (MilesAudioManager.cpp:1370-1385).
+    pub fn has_music_track_completed(&self, track_name: &str, number_of_times: Int) -> Bool {
+        self.active_audio_events.values().any(|event| {
+            event.get_event_name() == track_name
+                && event
+                    .get_audio_event_info()
+                    .is_some_and(|info| info.sound_type == AudioType::Music)
+                && with_sound_playback_hook(|hook| {
+                    hook.music_loop_count(event.get_playing_handle()) >= number_of_times
+                })
+                .unwrap_or(false)
+        })
     }
 
     pub fn translate_speaker_type_to_unsigned_int(&self, speaker_type: &str) -> UnsignedInt {
@@ -2051,11 +2195,13 @@ impl AudioManager {
 
             if event.is_positional_audio() {
                 if event.get_current_position().is_none() || event.is_dead() {
+                    self.notify_sample_completion_if_effect(&event);
                     to_stop.push(handle);
                     continue;
                 }
 
                 if event.is_dead() {
+                    self.notify_sample_completion_if_effect(&event);
                     to_stop.push(handle);
                     continue;
                 }
@@ -2072,6 +2218,7 @@ impl AudioManager {
                     (info.type_field & ST_GLOBAL) != 0 || info.priority == AudioPriority::Critical
                 });
                 if vol_for_consideration < self.audio_settings.min_volume && !play_anyways {
+                    self.notify_sample_completion_if_effect(&event);
                     to_stop.push(handle);
                     continue;
                 }
@@ -2081,9 +2228,17 @@ impl AudioManager {
 
             if !with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(true) {
                 if self.notify_of_audio_completion(&mut event) {
-                    self.active_audio_events.insert(handle, event);
+                    let still_playing = with_sound_playback_hook(|hook| hook.is_playing(handle))
+                        .unwrap_or(false);
+                    if still_playing {
+                        self.active_audio_events.insert(handle, event);
+                        continue;
+                    }
+                    // Delayed loop queued a new request; this sample has ended.
+                    self.notify_sample_completion_if_effect(&event);
                     continue;
                 }
+                self.notify_sample_completion_if_effect(&event);
                 continue;
             }
 
@@ -2323,6 +2478,9 @@ struct RodioSinkState {
     position: Option<Coord3D>,
     min_distance: Real,
     max_distance: Real,
+    is_music: bool,
+    started_at: Instant,
+    duration_ms: Option<Real>,
 }
 
 impl RodioPlaybackHook {
@@ -2449,6 +2607,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
                 event.get_filename()
             )
         })?;
+        let duration_ms = AudioManager::duration_ms_from_audio_data(audio_data.as_ref());
         let cursor = Cursor::new(CachedAudioBytes(audio_data));
         let source = Decoder::new(cursor)
             .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
@@ -2467,7 +2626,21 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         let sliders = get_global_audio_manager()
             .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
             .unwrap_or_default();
-        let volume = miles_get_effective_volume(event, &listener, &sliders);
+        let mut volume = miles_get_effective_volume(event, &listener, &sliders);
+        if event.is_positional_audio() {
+            if let Some(info) = event.get_audio_event_info() {
+                if info.low_pass_freq > 0.0 {
+                    let on_screen = AUDIO_VIEW_RESOLVER
+                        .get()
+                        .map(|resolver| resolver.is_world_position_on_screen(event.get_position()))
+                        .unwrap_or(true);
+                    if !on_screen {
+                        // C++ AIL_set_3D_sample_occlusion(sample, 1.0 - m_lowPassFreq)
+                        volume *= info.low_pass_freq.clamp(0.0, 1.0);
+                    }
+                }
+            }
+        }
         let pitch = event.get_effective_pitch();
         // C++ MilesAudioManager::playStream (MilesAudioManager.cpp:2762-2764)
         // AIL_set_stream_loop_count(stream, INFINITE_LOOP_COUNT) for AT_Music.
@@ -2493,6 +2666,9 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             position,
             min_distance,
             max_distance,
+            is_music,
+            started_at: Instant::now(),
+            duration_ms,
         };
         self.refresh_sink_volume(&state);
         self.sinks.lock().unwrap().insert(handle, state);
@@ -2575,6 +2751,29 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         if let Ok(sink) = state.sink.lock() {
             sink.set_volume(state.base_volume);
         }
+    }
+
+    fn music_loop_count(&self, handle: AudioHandle) -> Int {
+        let sinks = self.sinks.lock().unwrap();
+        let Some(state) = sinks.get(&handle) else {
+            return 0;
+        };
+        if !state.is_music {
+            return 0;
+        }
+        let Some(duration) = state.duration_ms.filter(|ms| *ms > 0.0) else {
+            return 0;
+        };
+        let elapsed_ms = state.started_at.elapsed().as_secs_f32() * 1000.0;
+        (elapsed_ms / duration) as Int
+    }
+
+    fn is_sink_paused(&self, handle: AudioHandle) -> bool {
+        let sinks = self.sinks.lock().unwrap();
+        sinks
+            .get(&handle)
+            .and_then(|state| state.sink.lock().ok().map(|sink| sink.is_paused()))
+            .unwrap_or(false)
     }
 }
 
@@ -2742,11 +2941,13 @@ pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
     THE_AUDIO.get().cloned()
 }
 
-/// C++ `AudioManager::init` (GameAudio.cpp:186-199) loads Music / SoundEffects /
-/// Speech / Voice (Default then override) into `m_allAudioEventInfo`.
-/// Missing info makes `addAudioEvent` return `AHSV_Error`.
+/// C++ `AudioManager::init` (GameAudio.cpp:186-202) loads AudioSettings.ini,
+/// then Music / SoundEffects / Speech / Voice (Default then override), then
+/// MiscAudio.ini. AudioSettings drive sample counts, volumes, zoom, and cache
+/// size; MiscAudio names UI clicks, radar, sabotage, and other global cues.
 pub fn load_audio_event_inis() {
-    const AUDIO_EVENT_INI_FILES: &[&str] = &[
+    const AUDIO_INI_FILES: &[&str] = &[
+        "Data/INI/AudioSettings.ini",
         "Data/INI/Default/Music.ini",
         "Data/INI/Music.ini",
         "Data/INI/Default/SoundEffects.ini",
@@ -2755,10 +2956,11 @@ pub fn load_audio_event_inis() {
         "Data/INI/Speech.ini",
         "Data/INI/Default/Voice.ini",
         "Data/INI/Voice.ini",
+        "Data/INI/MiscAudio.ini",
     ];
 
     let mut ini = crate::common::ini::INI::new();
-    for virtual_path in AUDIO_EVENT_INI_FILES {
+    for virtual_path in AUDIO_INI_FILES {
         let Some(path) =
             crate::common::system::install_layout::resolve_data_ini_file(virtual_path)
         else {
@@ -2767,6 +2969,94 @@ pub fn load_audio_event_inis() {
         if let Err(err) = ini.load(&path, crate::common::ini::INILoadType::Overwrite) {
             eprintln!("Failed to load audio INI '{}': {err}", path.display());
         }
+    }
+
+    apply_loaded_audio_settings_to_manager();
+}
+
+/// Copy parsed AudioSettings.ini / MiscAudio.ini into the live AudioManager.
+fn apply_loaded_audio_settings_to_manager() {
+    let Some(manager) = get_global_audio_manager() else {
+        return;
+    };
+    let Ok(mut guard) = manager.lock() else {
+        return;
+    };
+
+    if let Some(parsed) = crate::common::ini::ini_audio_settings::get_audio_settings() {
+        let src = parsed.read();
+        guard.audio_settings.audio_root = src.audio_root.clone();
+        guard.audio_settings.sounds_folder = src.sounds_folder.clone();
+        guard.audio_settings.music_folder = src.music_folder.clone();
+        guard.audio_settings.streaming_folder = src.streaming_folder.clone();
+        guard.audio_settings.sounds_extension = src.sounds_extension.clone();
+        guard.audio_settings.use_digital = src.use_digital;
+        guard.audio_settings.use_midi = src.use_midi;
+        guard.audio_settings.output_rate = src.output_rate;
+        guard.audio_settings.output_bits = src.output_bits;
+        guard.audio_settings.output_channels = src.output_channels;
+        guard.audio_settings.sample_count_2d = src.sample_count_2d;
+        guard.audio_settings.sample_count_3d = src.sample_count_3d;
+        guard.audio_settings.stream_count = src.stream_count;
+        guard.audio_settings.min_volume = src.min_volume;
+        guard.audio_settings.global_min_range = src.global_min_range;
+        guard.audio_settings.global_max_range = src.global_max_range;
+        guard.audio_settings.drawable_ambient_frames = src.drawable_ambient_frames;
+        guard.audio_settings.fade_audio_frames = src.fade_audio_frames;
+        guard.audio_settings.max_cache_size = src.max_cache_size;
+        guard.audio_settings.relative_2d_volume = src.relative_2d_volume;
+        guard.audio_settings.default_sound_volume = src.default_sound_volume;
+        guard.audio_settings.default_3d_sound_volume = src.default_3d_sound_volume;
+        guard.audio_settings.default_speech_volume = src.default_speech_volume;
+        guard.audio_settings.default_music_volume = src.default_music_volume;
+        guard.audio_settings.preferred_sound_volume = src.preferred_sound_volume;
+        guard.audio_settings.preferred_3d_sound_volume = src.preferred_3d_sound_volume;
+        guard.audio_settings.preferred_speech_volume = src.preferred_speech_volume;
+        guard.audio_settings.preferred_music_volume = src.preferred_music_volume;
+        guard.audio_settings.microphone_desired_height_above_terrain =
+            src.microphone_desired_height_above_terrain;
+        guard.audio_settings.microphone_max_percentage_between_ground_and_camera =
+            src.microphone_max_percentage_between_ground_and_camera;
+        guard.audio_settings.zoom_min_distance = src.zoom_min_distance;
+        guard.audio_settings.zoom_max_distance = src.zoom_max_distance;
+        guard.audio_settings.zoom_sound_volume_percentage_amount =
+            src.zoom_sound_volume_percentage_amount;
+        guard.init();
+    }
+
+    if let Some(parsed) = crate::common::ini::ini_misc_audio::get_misc_audio() {
+        let src = parsed.read();
+        guard.misc_audio.ui_sounds.clear();
+        let insert = |map: &mut std::collections::HashMap<String, AudioEventRts>,
+                      name: &str,
+                      event: &crate::common::ini::ini_misc_audio::AudioEventRTS| {
+            if !event.sound_file.is_empty() {
+                map.insert(
+                    name.to_string(),
+                    AudioEventRts::with_event_name(&event.sound_file),
+                );
+            }
+        };
+        insert(
+            &mut guard.misc_audio.ui_sounds,
+            "RadarNotifyUnitUnderAttackSound",
+            &src.radar_unit_under_attack_sound,
+        );
+        insert(
+            &mut guard.misc_audio.ui_sounds,
+            "RadarNotifyHarvesterUnderAttackSound",
+            &src.radar_harvester_under_attack_sound,
+        );
+        insert(
+            &mut guard.misc_audio.ui_sounds,
+            "RadarNotifyStructureUnderAttackSound",
+            &src.radar_structure_under_attack_sound,
+        );
+        insert(
+            &mut guard.misc_audio.ui_sounds,
+            "RadarNotifyInfiltrationSound",
+            &src.radar_infiltration_sound,
+        );
     }
 }
 
@@ -2833,6 +3123,7 @@ mod tests {
             priority: AudioPriority::Normal,
             min_distance: 25.0,
             max_distance: 1000.0,
+            ..Default::default()
         };
 
         let mut event = AudioEventRts::new();
@@ -2875,6 +3166,7 @@ mod tests {
             priority: AudioPriority::Normal,
             min_distance: 25.0,
             max_distance: 1000.0,
+            ..Default::default()
         }));
         music.set_volume(0.8);
         music.set_volume_shift(1.0);
@@ -2908,6 +3200,7 @@ mod tests {
             priority: AudioPriority::Normal,
             min_distance: 25.0,
             max_distance: 1000.0,
+            ..Default::default()
         }
     }
 
@@ -3042,7 +3335,7 @@ mod tests {
         let briefing = event_with(test_info("MissionBrief", AudioType::Streaming, 0, 0), 0.8);
         manager.friend_force_play_audio_event_rts(&briefing);
         assert_eq!(manager.force_played_count(), 1);
-        assert!((manager.force_played_volume().unwrap() - 0.4).abs() < 1e-5);
+        assert!((manager.force_played_volume().unwrap() - 0.8).abs() < 1e-5);
 
         manager.reset();
         assert_eq!(manager.force_played_count(), 0);

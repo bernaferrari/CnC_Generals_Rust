@@ -14,6 +14,9 @@ pub mod scene;
 pub mod shadow_system;
 pub mod texture_manager;
 pub mod volumetric_shadow;
+pub mod buffer_manager;
+#[cfg(feature = "w3d")]
+pub mod shadow_overlay;
 #[cfg(feature = "w3d-c-abi")]
 #[path = "w3d_c_api/mod.rs"]
 pub mod w3d_c_api;

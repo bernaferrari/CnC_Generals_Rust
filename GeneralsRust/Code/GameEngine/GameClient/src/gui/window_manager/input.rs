@@ -106,6 +106,8 @@ impl WindowManager {
             if let Some(grab_window) = self.get_grab_window() {
                 match msg {
                     WindowMessage::LeftUp => {
+                        // C++ winProcessMouseEvent: m_grabWindow->winPointInChild(x, y, FALSE, TRUE)
+                        let _ = GameWindow::point_in_child_ex(&grab_window, x, y, false, true);
                         let should_send_release = {
                             let mut window = grab_window.borrow_mut();
                             window.clear_status(WindowStatus::ACTIVE);
@@ -359,17 +361,21 @@ impl WindowManager {
             return;
         }
 
-        let tooltip = self.find_tooltip_window_at_point(x, y).and_then(|window| {
-            let window = window.borrow();
-            let tooltip = window.get_tooltip();
-            if tooltip.is_empty() {
-                None
-            } else {
-                Some((tooltip.to_string(), window.get_tooltip_delay()))
-            }
-        });
-
-        if let Some((tooltip, delay)) = tooltip {
+        let Some(window_rc) = self.find_tooltip_window_at_point(x, y) else {
+            return;
+        };
+        let packed = ((y as u32) << 16) | ((x as u32) & 0xffff);
+        let window = window_rc.borrow();
+        if let Some(callback) = window.get_tooltip_callback() {
+            // C++ toolTipWindow->m_tooltip(window, &instData, packedMouseCoords)
+            callback(&window, window.instance_data(), packed);
+            return;
+        }
+        let tooltip = window.get_tooltip();
+        if !tooltip.is_empty() {
+            let delay = window.get_tooltip_delay();
+            let tooltip = tooltip.to_string();
+            drop(window);
             with_mouse(|mouse| mouse.set_cursor_tooltip(tooltip, Some(delay), None, None));
         }
     }
@@ -401,7 +407,11 @@ impl WindowManager {
 
                 if matches && !hidden && contains_point {
                     let child = self.find_child_at_point_or_self(window, x, y, true);
-                    if !child.borrow().get_tooltip().is_empty() || enabled {
+                    let child_borrow = child.borrow();
+                    let has_tooltip = !child_borrow.get_tooltip().is_empty()
+                        || child_borrow.get_tooltip_callback().is_some();
+                    drop(child_borrow);
+                    if has_tooltip || enabled {
                         return Some(child);
                     }
                 }

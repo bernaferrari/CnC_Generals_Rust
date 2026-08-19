@@ -1364,6 +1364,42 @@ fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
 }
 
 #[test]
+fn checkbox_right_up_notifies_without_right_click_status_like_cpp() {
+    let owner_seen = Rc::new(RefCell::new(Vec::new()));
+    let owner = Rc::new(RefCell::new(GameWindow::new()));
+    {
+        let owner_seen = owner_seen.clone();
+        owner
+            .borrow_mut()
+            .set_system_callback(move |_, msg, data1, data2| {
+                owner_seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+    }
+
+    let mut window = GameWindow::new();
+    window.set_id(22);
+    window.set_owner(Some(&owner));
+    window.enable(true).unwrap();
+    window.set_widget(WindowWidget::CheckBox(CheckBox::new(22, 0, 0, 16)));
+    window.check_box_mut().unwrap().set_checked(true);
+    window.sync_state_from_widget();
+
+    assert!(
+        !window.get_status().contains(WindowStatus::RIGHT_CLICK),
+        "C++ GadgetCheckBox does not require WIN_STATUS_RIGHT_CLICK"
+    );
+    assert_eq!(
+        window.send_input_message(WindowMessage::RightUp, 111, 0),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(
+        owner_seen.borrow().as_slice(),
+        &[(WindowMessage::GadgetRightClick, 22, 111)]
+    );
+}
+
+#[test]
 fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -2615,3 +2651,228 @@ fn default_draw_image_branch_source_does_not_call_draw_rect() {
         );
     }
 }
+
+#[test]
+fn combo_left_up_toggles_child_list_like_cpp() {
+    let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
+    combo.enable(true).unwrap();
+    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
+    });
+    assert!(list_box.borrow().is_hidden());
+
+    assert_eq!(
+        combo.send_input_message(WindowMessage::LeftUp, 0, 0),
+        WindowMsgHandled::Handled
+    );
+    assert!(!list_box.borrow().is_hidden());
+    assert!(combo.get_size().1 > 20);
+
+    assert_eq!(
+        combo.send_input_message(WindowMessage::LeftUp, 0, 0),
+        WindowMsgHandled::Handled
+    );
+    assert!(list_box.borrow().is_hidden());
+    assert_eq!(combo.get_size(), (120, 20));
+}
+
+#[test]
+fn combo_drop_down_button_toggles_via_shared_open_path() {
+    let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
+    combo.enable(true).unwrap();
+    let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+        combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
+    });
+
+    assert_eq!(
+        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0),
+        WindowMsgHandled::Handled
+    );
+    assert!(!list_box.borrow().is_hidden());
+
+    assert_eq!(
+        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0),
+        WindowMsgHandled::Handled
+    );
+    assert!(list_box.borrow().is_hidden());
+}
+
+#[test]
+fn combo_input_focus_forwards_to_edit_child_like_cpp() {
+    let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
+    combo.enable(true).unwrap();
+    edit_box.borrow_mut().enable(true).unwrap();
+
+    let token = push_payload(WindowMsgPayload::Bool(false));
+    assert_eq!(
+        combo.send_system_message(WindowMessage::InputFocus, 1, token),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+    assert!(edit_box
+        .borrow()
+        .instance_data()
+        .state
+        .contains(WindowState::HILITED));
+}
+
+#[test]
+fn slider_left_drag_updates_value_and_sends_track() {
+    let owner_seen = Rc::new(RefCell::new(Vec::new()));
+    let owner = Rc::new(RefCell::new(GameWindow::new()));
+    {
+        let owner_seen = owner_seen.clone();
+        owner
+            .borrow_mut()
+            .set_system_callback(move |_, msg, data1, data2| {
+                owner_seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+    }
+
+    let mut slider = GameWindow::new();
+    slider.set_id(8);
+    slider.enable(true).unwrap();
+    slider.set_size(100, 16).unwrap();
+    slider.set_owner(Some(&owner));
+    slider.set_widget(WindowWidget::HorizontalSlider(
+        HorizontalSlider::new(8, 0, 0, 100, 16)
+            .with_range(0, 10)
+            .with_value(5),
+    ));
+
+    let thumb = Rc::new(RefCell::new(GameWindow::new()));
+    thumb.borrow_mut().set_id(9);
+    thumb.borrow_mut().set_size(13, 16).unwrap();
+    thumb.borrow_mut().set_position(40, 10).unwrap();
+    slider.add_child(thumb);
+    slider.set_slider_thumb(9);
+
+    let packed = 200usize;
+    assert_eq!(
+        slider.send_system_message(WindowMessage::User(GGM_LEFT_DRAG), 9, packed),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(slider.horizontal_slider_mut().unwrap().value(), 10);
+    assert_eq!(
+        owner_seen.borrow().as_slice(),
+        &[(WindowMessage::User(GSM_SLIDER_TRACK), 8, 10)]
+    );
+}
+
+#[test]
+fn slider_keyboard_sends_gsm_slider_track_like_cpp() {
+    let owner_seen = Rc::new(RefCell::new(Vec::new()));
+    let owner = Rc::new(RefCell::new(GameWindow::new()));
+    {
+        let owner_seen = owner_seen.clone();
+        owner
+            .borrow_mut()
+            .set_system_callback(move |_, msg, data1, data2| {
+                owner_seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+    }
+
+    let mut slider = GameWindow::new();
+    slider.set_id(8);
+    slider.enable(true).unwrap();
+    slider.set_owner(Some(&owner));
+    slider.set_widget(WindowWidget::HorizontalSlider(
+        HorizontalSlider::new(8, 0, 0, 100, 16)
+            .with_range(0, 10)
+            .with_value(5)
+            .with_step_size(1),
+    ));
+    slider.horizontal_slider_mut().unwrap().set_focus(true);
+
+    assert_eq!(
+        slider.send_input_message(WindowMessage::Char, 0x27, KEY_STATE_DOWN),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(slider.horizontal_slider_mut().unwrap().value(), 3);
+    assert_eq!(
+        owner_seen.borrow().as_slice(),
+        &[(WindowMessage::User(GSM_SLIDER_TRACK), 8, 3)]
+    );
+}
+
+#[test]
+fn listbox_right_click_sends_right_click_struct_payload() {
+    let owner_seen = Rc::new(RefCell::new(Vec::new()));
+    let owner = Rc::new(RefCell::new(GameWindow::new()));
+    {
+        let owner_seen = owner_seen.clone();
+        owner
+            .borrow_mut()
+            .set_system_callback(move |_, msg, data1, data2| {
+                owner_seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+    }
+
+    let mut window = GameWindow::new();
+    window.set_id(3);
+    window.enable(true).unwrap();
+    window.set_owner(Some(&owner));
+    window.set_position(10, 20).unwrap();
+    window.set_size(120, 40).unwrap();
+    let mut listbox = ListBox::new(3, 0, 0, 120, 40);
+    listbox.add_item("Alpha");
+    listbox.add_item("Bravo");
+    window.set_widget(WindowWidget::ListBox(listbox));
+    window.set_cursor_position(5, 8).unwrap();
+
+    assert_eq!(
+        window.send_input_message(WindowMessage::RightUp, 0, 0),
+        WindowMsgHandled::Handled
+    );
+    let seen = owner_seen.borrow();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].0, WindowMessage::User(GLM_RIGHT_CLICKED));
+    assert_eq!(seen[0].1, 3);
+    match payload(seen[0].2) {
+        Some(WindowMsgPayload::RightClick(rc)) => {
+            assert_eq!(rc.mouse_x, 15);
+            assert_eq!(rc.mouse_y, 28);
+        }
+        other => panic!("expected RightClick payload, got {other:?}"),
+    }
+}
+
+#[test]
+fn tab_pane_forwards_selected_to_tab_control_parent_like_cpp() {
+    let root_seen = Rc::new(RefCell::new(Vec::new()));
+    let root = Rc::new(RefCell::new(GameWindow::new()));
+    {
+        let root_seen = root_seen.clone();
+        root.borrow_mut()
+            .set_system_callback(move |_, msg, data1, data2| {
+                root_seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+    }
+
+    let tab = Rc::new(RefCell::new(GameWindow::new()));
+    tab.borrow_mut()
+        .set_widget(WindowWidget::TabControl(TabControl::new(7, 0, 0, 100, 80)));
+    tab.borrow_mut().set_parent(Some(&root));
+    root.borrow_mut().add_child(tab.clone());
+
+    let pane = Rc::new(RefCell::new(GameWindow::new()));
+    pane.borrow_mut().set_widget(WindowWidget::TabPane);
+    pane.borrow_mut().instance_data_mut().style |= GWS_TAB_PANE;
+    pane.borrow_mut().set_parent(Some(&tab));
+    tab.borrow_mut().add_child(pane.clone());
+
+    assert_eq!(
+        pane.borrow_mut()
+            .send_system_message(WindowMessage::GadgetSelected, 21, 0),
+        WindowMsgHandled::Handled
+    );
+    assert_eq!(
+        root_seen.borrow().as_slice(),
+        &[(WindowMessage::GadgetSelected, 21, 0)]
+    );
+}
+

@@ -435,16 +435,18 @@ pub enum WeaponBonusConditionType {
     DroneSpotForStrike,
 }
 
-/// Armor set type (matching C++ ArmorSetType)
+/// Armor set type (matching C++ ArmorSet.h:19-30 ArmorSetType)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ArmorSetType {
-    Default,
-    Veteran,
-    Elite,
-    Hero,
-    Player,
-    CrateUpgradeOne,
-    CrateUpgradeTwo,
+    Veteran = 0,
+    Elite = 1,
+    Hero = 2,
+    PlayerUpgrade = 3,
+    WeakVersusBaseDefenses = 4,
+    SecondLife = 5,
+    CrateUpgradeOne = 6,
+    CrateUpgradeTwo = 7,
 }
 
 /// Weapon status (matching C++ WeaponStatus)

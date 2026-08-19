@@ -19,6 +19,9 @@ use game_client::gui::ui_renderer::UIRenderer;
 static UI_FLUSH_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
 static UI_FLUSH_ZERO_CMD_LOGGED: AtomicU32 = AtomicU32::new(0);
 static UI_FLUSH_POISON_RECOVERY_COUNT: AtomicU32 = AtomicU32::new(0);
+static CONTROL_BAR_RETRY_COUNT: AtomicU32 = AtomicU32::new(0);
+static CONTROL_BAR_LAST_RETRY_FLUSH: AtomicU32 = AtomicU32::new(0);
+
 
 /// Acquire the UI lock without permanently bricking presentation after a
 /// caught callback panic.  The caller must reset/discard any open UI frame
@@ -100,8 +103,75 @@ impl<T: UiFrameLifecycle> Drop for UiFrameCleanup<T> {
     }
 }
 
+/// C++ `W3DInGameUI::draw` always `winRepaint()`s the live ControlBar tree.
+/// `HideControlBar` at boot (and `show_control_bar` early-return when
+/// `ControlBarState.visible` is already true) can leave `ControlBarParent`
+/// HIDDEN after InGame enter. Unhide it on every non-shell frame.
+fn unhide_control_bar_parent_while_ingame(
+    wm: &mut game_client::gui::window_manager::WindowManager,
+) {
+    // ForwardPass only flushes this overlay for the live 3D frame.
+    // Do not gate on Shell.is_shell_active — leftover MainMenu can
+    // keep that flag true and leave ControlBarParent HIDDEN.
+    let Some(parent) = wm.find_window_by_name(crate::gameplay_layout::CONTROL_BAR_PARENT_NAME)
+    else {
+        return;
+    };
+    if parent.borrow().is_hidden() {
+        let _ = parent.borrow_mut().hide(false);
+    }
+}
+
+
+/// C++ `winRepaint` always has the ControlBar tree (`InGameUI::createControlBar`
+/// + `ShowControlBar`). The Rust InGame enter load can miss; retry on the live
+/// `TheWindowManager` with backoff so a later flush can emit draw commands.
+fn retry_missing_control_bar_parent_while_ingame() {
+    if game_client::gui::get_shell().is_shell_active() {
+        return;
+    }
+    if crate::gameplay_layout::control_bar_parent_is_live() {
+        CONTROL_BAR_RETRY_COUNT.store(0, Ordering::Relaxed);
+        return;
+    }
+    let call = UI_FLUSH_CALL_COUNT.load(Ordering::Relaxed);
+    let retries = CONTROL_BAR_RETRY_COUNT.load(Ordering::Relaxed);
+    let last = CONTROL_BAR_LAST_RETRY_FLUSH.load(Ordering::Relaxed);
+    // First miss retries immediately; then 30, 60, 120, 240, 480 frames.
+    let interval = if retries == 0 {
+        0
+    } else {
+        30u32.saturating_mul(1u32 << retries.min(4))
+    };
+    if retries > 0 && call.saturating_sub(last) < interval {
+        return;
+    }
+    CONTROL_BAR_LAST_RETRY_FLUSH.store(call, Ordering::Relaxed);
+    let loaded = crate::gameplay_layout::materialise_live_control_bar();
+    if loaded {
+        CONTROL_BAR_RETRY_COUNT.store(0, Ordering::Relaxed);
+        info!(
+            "flush_ui_to_frame: ControlBarParent missing after InGame enter; retry load succeeded (flush #{call})"
+        );
+    } else {
+        let n = CONTROL_BAR_RETRY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        if n <= 8 {
+            error!(
+                "flush_ui_to_frame: ControlBarParent missing on live WindowManager (retry #{n}, flush #{call}); searched {:?}",
+                crate::gameplay_layout::CONTROL_BAR_CANDIDATES
+            );
+        }
+    }
+}
+
+
+
 pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
     let call = UI_FLUSH_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+    if call < 8 {
+        warn!("flush_ui_to_frame #{call} entered");
+    }
+
 
     let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
         Some(arc) => arc,
@@ -125,10 +195,29 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     {
         let (mut renderer, _) = write_or_recover_ui_lock(&renderer_arc, "before WND draw");
         renderer.begin_overlay_frame();
+        let (sw, sh) = renderer.screen_size();
+        if sw > 0 && sh > 0 {
+            game_client::gui::window_manager::with_window_manager(|wm| {
+                wm.set_screen_size(sw as i32, sh as i32);
+            });
+        }
     }
+    retry_missing_control_bar_parent_while_ingame();
+    // C++ W3DCommandBarBackgroundDraw is on BackgroundMarker. Rust only
+    // assigns that callback from ControlBar::update; if update never ticks,
+    // draw_all has SEE_THRU markers and queues nothing. Assign here.
+    #[cfg(feature = "game_client")]
+    {
+        game_client::gui::w3d_gadget_draw::ensure_control_bar_wnd_draw_callbacks();
+        let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
+    }
+
+
+
     let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
 
     let root_count = game_client::gui::window_manager::with_window_manager(|wm| {
+        unhide_control_bar_parent_while_ingame(wm);
         let roots = wm.root_window_count();
         wm.draw_all();
         roots

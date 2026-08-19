@@ -329,24 +329,15 @@ async fn main() {
 
     let (is_windowed, is_fullscreen) = resolve_window_mode(&cmd_args);
     let (width, height) = resolve_startup_resolution(&cmd_args);
-    let mut window_attributes = Window::default_attributes()
-        .with_title("Command & Conquer Generals - Rust Edition")
-        .with_inner_size(LogicalSize::new(width as f64, height as f64))
-        .with_resizable(true)
-        .with_maximized(false)
-        .with_decorations(true) // Ensure window has title bar
-        .with_visible(true);
-
-    // Handle fullscreen/windowed mode (matches ApplicationIsWindowed flag)
-    if is_fullscreen {
-        window_attributes = window_attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
-    } else {
-        window_attributes = window_attributes.with_position(PhysicalPosition::new(100, 100));
-    }
-
-    if is_windowed {
-        window_attributes = window_attributes.with_fullscreen(None);
-    }
+    let startup_position =
+        generals_main::win_main::centered_startup_position(&event_loop, width, height);
+    let window_attributes = generals_main::win_main::startup_window_attributes(
+        width,
+        height,
+        is_windowed,
+        is_fullscreen,
+        startup_position,
+    );
 
     // =========================================================================
     // PHASE 11: GAME MAIN LOOP (matches GameMain call, WinMain.cpp:1043)

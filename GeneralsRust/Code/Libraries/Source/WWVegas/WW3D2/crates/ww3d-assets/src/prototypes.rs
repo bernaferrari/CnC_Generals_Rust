@@ -341,6 +341,13 @@ impl fmt::Debug for HlodModelInstance {
     }
 }
 
+/// C++ `NO_MAX_SCREEN_SIZE` is `WWMATH_FLOAT_MAX`, not a tiny/negative sentinel.
+/// A level is visible when `screen_size <= max`, or when max is the no-limit sentinel.
+fn hlod_threshold_visible(max_screen_size: f32, screen_size: f32) -> bool {
+    max_screen_size >= f32::MAX * 0.5 || screen_size <= max_screen_size
+}
+
+
 /// Collection of models forming a single LOD level.
 #[derive(Clone)]
 pub struct HlodLodLevel {
@@ -377,7 +384,7 @@ impl HlodLodLevel {
     }
 
     pub fn is_visible(&self, screen_size: f32) -> bool {
-        self.max_screen_size <= 1e-4 || screen_size <= self.max_screen_size
+        hlod_threshold_visible(self.max_screen_size, screen_size)
     }
 }
 
@@ -426,7 +433,7 @@ impl HlodAggregateGroup {
     }
 
     pub fn is_visible(&self, screen_size: f32) -> bool {
-        self.max_screen_size <= 1e-4 || screen_size <= self.max_screen_size
+        hlod_threshold_visible(self.max_screen_size, screen_size)
     }
 }
 
@@ -533,15 +540,17 @@ impl HlodInstance {
             return;
         }
 
-        let mut selected = self.lods.len().saturating_sub(1);
-        for (idx, level) in self.lods.iter().enumerate() {
-            let max = level.max_screen_size;
-            if max <= 1e-4 || screen_size <= max {
-                selected = idx;
-                break;
-            }
+        // C++ HLodClass::Calculate_Cost_Value_Arrays:
+        // for (lod=0; lod<LodCount && Lod[lod].MaxScreenSize < screen_area; lod++)
+        // Tiny/negative MaxScreenSize is skipped; FLT_MAX is the no-limit sentinel.
+        let mut lod = 0;
+        while lod < self.lods.len() && self.lods[lod].max_screen_size < screen_size {
+            lod += 1;
         }
-        self.current_lod = selected;
+        if lod >= self.lods.len() {
+            lod = self.lods.len() - 1;
+        }
+        self.current_lod = lod;
     }
 
     pub fn set_lod_level(&mut self, index: usize) {
@@ -662,9 +671,8 @@ impl RenderObj for HlodInstance {
 }
 
 impl Prototype for LodModelPrototype {
-    fn create_instance(&self, _assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
-        // LOD models act as blueprints for higher level systems; runtime renderer consumes them.
-        None
+    fn create_instance(&self, assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
+        Some(Box::new(DistLodInstance::new(self, assets)))
     }
 
     fn name(&self) -> &str {
@@ -675,6 +683,7 @@ impl Prototype for LodModelPrototype {
         self
     }
 }
+
 
 impl Prototype for CollectionPrototype {
     fn create_instance(&self, assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
@@ -1663,9 +1672,10 @@ impl RenderObj for CompositeInstance {
 }
 
 /// Box primitive prototype
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BoxPrototype {
     pub name: String,
+    pub attributes: u32,
     pub color: W3dRGBAStruct,
     pub center: W3dVectorStruct,
     pub extent: W3dVectorStruct,
@@ -1687,7 +1697,11 @@ impl Prototype for BoxPrototype {
     }
 
     fn class_id(&self) -> Option<RenderObjClassId> {
-        Some(RenderObjClassId::AaBox)
+        if self.attributes & 0x0000_0001 != 0 {
+            Some(RenderObjClassId::ObBox)
+        } else {
+            Some(RenderObjClassId::AaBox)
+        }
     }
 }
 
@@ -1811,3 +1825,204 @@ impl RenderObj for PrimitiveInstance {
         })
     }
 }
+
+/// Runtime DistLOD instance. C++ `DistLODClass` constructs one child per LOD entry.
+pub struct DistLodInstance {
+    name: String,
+    transform: Mat4,
+    current: usize,
+    models: Vec<Option<Box<dyn RenderObj>>>,
+    ranges: Vec<LodEntry>,
+}
+
+impl std::fmt::Debug for DistLodInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DistLodInstance")
+            .field("name", &self.name)
+            .field("lod_count", &self.models.len())
+            .finish()
+    }
+}
+
+impl DistLodInstance {
+    fn new(prototype: &LodModelPrototype, assets: &AssetManager) -> Self {
+        let models = prototype
+            .lods
+            .iter()
+            .map(|lod| assets.create_instance(&lod.render_obj_name))
+            .collect();
+        Self {
+            name: prototype.name.clone(),
+            transform: Mat4::IDENTITY,
+            current: 0,
+            models,
+            ranges: prototype.lods.clone(),
+        }
+    }
+}
+
+impl RenderObj for DistLodInstance {
+    fn render(&self) {
+        if let Some(Some(model)) = self.models.get(self.current) {
+            model.render();
+        }
+    }
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+    fn set_transform(&mut self, transform: Mat4) {
+        self.transform = transform;
+        for model in self.models.iter_mut().flatten() {
+            model.set_transform(transform);
+        }
+    }
+    fn get_transform(&self) -> &Mat4 {
+        &self.transform
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn RenderObj> {
+        Box::new(Self {
+            name: self.name.clone(),
+            transform: self.transform,
+            current: self.current,
+            models: self
+                .models
+                .iter()
+                .map(|m| m.as_ref().map(|obj| obj.clone_box()))
+                .collect(),
+            ranges: self.ranges.clone(),
+        })
+    }
+}
+
+/// Particle emitter definition loaded from `W3D_CHUNK_EMITTER`.
+#[derive(Debug, Clone)]
+pub struct ParticleEmitterPrototype {
+    pub name: String,
+    pub version: u32,
+    pub texture_filename: String,
+    pub start_size: f32,
+    pub end_size: f32,
+    pub lifetime: f32,
+    pub emission_rate: f32,
+    pub burst_size: u32,
+}
+
+impl Prototype for ParticleEmitterPrototype {
+    fn create_instance(&self, _assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
+        Some(Box::new(ParticleEmitterInstance {
+            name: self.name.clone(),
+            transform: Mat4::IDENTITY,
+            texture_filename: self.texture_filename.clone(),
+            start_size: self.start_size,
+            end_size: self.end_size,
+            lifetime: self.lifetime,
+            emission_rate: self.emission_rate,
+            burst_size: self.burst_size,
+        }))
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn class_id(&self) -> Option<RenderObjClassId> {
+        Some(RenderObjClassId::ParticleEmitter)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParticleEmitterInstance {
+    name: String,
+    transform: Mat4,
+    pub texture_filename: String,
+    pub start_size: f32,
+    pub end_size: f32,
+    pub lifetime: f32,
+    pub emission_rate: f32,
+    pub burst_size: u32,
+}
+
+impl RenderObj for ParticleEmitterInstance {
+    fn render(&self) {}
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+    fn set_transform(&mut self, transform: Mat4) {
+        self.transform = transform;
+    }
+    fn get_transform(&self) -> &Mat4 {
+        &self.transform
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn RenderObj> {
+        Box::new(self.clone())
+    }
+}
+
+/// Dazzle / lens-flare prototype from `W3D_CHUNK_DAZZLE`.
+#[derive(Debug, Clone)]
+pub struct DazzlePrototype {
+    pub name: String,
+    pub type_name: String,
+}
+
+impl Prototype for DazzlePrototype {
+    fn create_instance(&self, _assets: &AssetManager) -> Option<Box<dyn RenderObj>> {
+        Some(Box::new(DazzleInstance {
+            name: self.name.clone(),
+            type_name: self.type_name.clone(),
+            transform: Mat4::IDENTITY,
+        }))
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn class_id(&self) -> Option<RenderObjClassId> {
+        Some(RenderObjClassId::Dazzle)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DazzleInstance {
+    name: String,
+    pub type_name: String,
+    transform: Mat4,
+}
+
+impl RenderObj for DazzleInstance {
+    fn render(&self) {}
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+    fn set_transform(&mut self, transform: Mat4) {
+        self.transform = transform;
+    }
+    fn get_transform(&self) -> &Mat4 {
+        &self.transform
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn clone_box(&self) -> Box<dyn RenderObj> {
+        Box::new(self.clone())
+    }
+}
+

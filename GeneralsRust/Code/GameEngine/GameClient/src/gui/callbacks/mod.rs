@@ -23,6 +23,7 @@ pub mod in_game_popup_message;
 pub mod ingame_callbacks;
 pub mod keyboard_options_menu;
 pub mod lan_game_options_menu;
+pub mod lan_lobby_menu;
 pub mod lan_map_select_menu;
 pub mod menu_callbacks;
 pub mod message_box;

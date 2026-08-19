@@ -222,38 +222,36 @@ impl Xfer for XferSave {
         snapshot.xfer(self)
     }
 
-    /// Save ASCII string
     fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> Result<(), XferStatus> {
-        // Sanity check length
-        if ascii_string_data.len() > MAX_XFER_STRING_LENGTH {
+        // C++ AsciiString is an 8-bit payload. Emit one byte per codepoint so
+        // locale-encoded names loaded via Latin-1 round-trip.
+        let bytes: Vec<u8> = ascii_string_data
+            .chars()
+            .map(|c| u8::try_from(c as u32).unwrap_or(b'?'))
+            .collect();
+        if bytes.len() > MAX_XFER_STRING_LENGTH {
             eprintln!("XferSave cannot save this ASCII string because it's too long");
             return Err(XferStatus::StringError);
         }
 
-        // Save length of string to follow
-        let len = ascii_string_data.len() as u8;
-        self.xfer_unsigned_byte(&mut len.clone())?;
+        let mut len = bytes.len() as u8;
+        self.xfer_unsigned_byte(&mut len)?;
 
-        // Save string data
         if len > 0 {
-            let bytes = ascii_string_data.as_bytes();
-            // SAFETY: bytes is a valid slice
             unsafe { self.xfer_user(bytes.as_ptr() as *mut u8, bytes.len())? };
         }
 
         Ok(())
     }
 
-    /// Save Unicode string
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> Result<(), XferStatus> {
-        // Sanity check length
-        if unicode_string_data.len() > MAX_XFER_STRING_LENGTH {
+        // C++ XferSave.cpp:280-300 — reject when WideChar count > 255, not UTF-8 bytes.
+        let utf16: Vec<u16> = unicode_string_data.encode_utf16().collect();
+        if utf16.len() > MAX_XFER_STRING_LENGTH {
             eprintln!("XferSave cannot save this unicode string because it's too long");
             return Err(XferStatus::StringError);
         }
 
-        // Convert to UTF-16 (wide char)
-        let utf16: Vec<u16> = unicode_string_data.encode_utf16().collect();
 
         // Save length of string to follow
         let len = utf16.len() as u8;

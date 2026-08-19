@@ -52,10 +52,11 @@ impl CnCGameEngine {
                 warn!("WW3D resize failed: {err:?}");
             }
 
-            // Update projection matrix
-            self.projection_matrix = Mat4::perspective_rh(
+            // C++ W3DView 50° is horizontal; convert to vertical for glam.
+            let aspect = new_size.width as f32 / new_size.height as f32;
+            self.projection_matrix = perspective_rh_from_horizontal_fov(
                 DEFAULT_VIEW_FOV_RADIANS,
-                new_size.width as f32 / new_size.height as f32,
+                aspect,
                 DEFAULT_VIEW_NEAR_CLIP,
                 DEFAULT_VIEW_FAR_CLIP,
             );
@@ -1399,8 +1400,13 @@ impl CnCGameEngine {
                 game_client::gui::with_window_manager(|manager| {
                     manager.set_screen_size(logical_w as i32, logical_h as i32);
                 });
+                self.queue_live_letterbox_and_cinematic_overlays(
+                    logical_w as f32,
+                    logical_h as f32,
+                );
             }
         }
+        self.apply_live_draw_dynamic_lod();
         static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
             std::sync::atomic::AtomicU32::new(0);
         let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1723,8 +1729,67 @@ impl CnCGameEngine {
                 self.current_state
             );
         }
+        #[cfg(feature = "game_client")]
+        self.game_client.decrement_cinematic_overlay_frame();
         Ok(())
     }
+
+    /// C++ W3DDisplay.cpp:1899-1928 — letterbox bars then cinematic caption.
+    #[cfg(feature = "game_client")]
+    fn queue_live_letterbox_and_cinematic_overlays(&mut self, width: f32, height: f32) {
+        use game_client::gui::ui_renderer::{
+            TextAlignment, TextLayout, UIRect, VerticalAlignment,
+        };
+        let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+            let fade = self.game_client.letterbox_overlay_fade();
+            if fade > 0.0 {
+                // Retail (non-SLIDE_LETTERBOX): constant 16:9 bar height, alpha fades.
+                let bar_height = ((height - (9.0 / 16.0) * width) * 0.5).max(0.0);
+                if bar_height > 0.5 {
+                    let color = [0.0, 0.0, 0.0, fade];
+                    renderer.draw_rect(UIRect::new(0.0, 0.0, width, bar_height), color, 10_000.0);
+                    renderer.draw_rect(
+                        UIRect::new(0.0, height - bar_height, width, bar_height),
+                        color,
+                        10_000.0,
+                    );
+                }
+            }
+            if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
+                let font_size = Self::cinematic_font_size(font);
+                let y = height * 0.9;
+                let layout = TextLayout {
+                    text: text.to_string(),
+                    font_size,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    bounds: UIRect::new(10.0, y, wrap_width, font_size * 3.0),
+                    alignment: TextAlignment::Center,
+                    vertical_alignment: VerticalAlignment::Top,
+                    word_wrap: true,
+                    single_line: false,
+                };
+                let _ = renderer.draw_text(&layout, 10_100.0);
+            }
+        });
+    }
+
+    #[cfg(not(feature = "game_client"))]
+    fn queue_live_letterbox_and_cinematic_overlays(&mut self, _width: f32, _height: f32) {}
+
+fn cinematic_font_size(font: Option<&str>) -> f32 {
+    // C++ uses the script-selected GameFont. Map common names to a large caption size.
+    match font.map(|f| f.to_ascii_lowercase()).as_deref() {
+        Some(name) if name.contains("12") => 20.0,
+        Some(name) if name.contains("14") => 24.0,
+        Some(name) if name.contains("16") => 28.0,
+        Some(name) if name.contains("18") => 32.0,
+        Some(name) if name.contains("20") => 36.0,
+        Some(name) if name.contains("24") => 42.0,
+        _ => 28.0,
+    }
+}
+
+
 
     pub(super) fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
         // Prefer presentation world_env when installed (camera-relative minimap viewport).
@@ -2109,6 +2174,8 @@ impl CnCGameEngine {
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
         // Dual GameHUD residual: engine HUD + interactive UIManager HUD.
+        // Resources/minimap/selection re-sync every render; events apply once
+        // per LogicFrame inside apply_events_to_game_hud (same freeze is reused).
         pres.apply_to_game_hud(&mut self.game_hud);
         pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
     }

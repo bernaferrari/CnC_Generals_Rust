@@ -27,6 +27,21 @@ pub enum HostOptionsRequest {
     DrawRmbScrollAnchor { enabled: bool },
 }
 
+type DisplaySetGammaFn = fn(f32, f32, f32, bool);
+static DISPLAY_SET_GAMMA: OnceLock<DisplaySetGammaFn> = OnceLock::new();
+
+/// Register C++ `TheDisplay->setGamma` implementation (W3DDisplay / Close03).
+pub fn set_display_gamma_hook(hook: DisplaySetGammaFn) {
+    let _ = DISPLAY_SET_GAMMA.set(hook);
+}
+
+/// C++ `TheDisplay->setGamma(gamma, 0.0f, 1.0f, FALSE)`.
+pub fn apply_display_gamma(gamma: f32, bright: f32, contrast: f32, calibrate: bool) {
+    if let Some(hook) = DISPLAY_SET_GAMMA.get() {
+        hook(gamma, bright, contrast, calibrate);
+    }
+}
+
 #[derive(Default)]
 struct HostOptionsBridge {
     enabled: bool,

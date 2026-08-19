@@ -1,62 +1,259 @@
-//! WthreeDBufferManager Module
+//! W3DBufferManager — partial VB/IB slot pool.
 //!
-//! Corresponds to C++ file: GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DBufferManager.cpp
-//!
-//! This module provides resource management.
+//! C++: GameEngineDevice/Source/W3DDevice/GameClient/Shadow/W3DBufferManager.cpp
 
-use std::{
-    collections::HashMap,
-    ffi::{c_void, CStr, CString},
-    ptr,
-};
+use std::sync::{LazyLock, Mutex};
 
-/// WthreeDBufferManager for managing resources
+pub const MAX_FVF: usize = 18;
+pub const MAX_VB_SIZES: usize = 128;
+pub const MIN_SLOT_SIZE: i32 = 32;
+pub const MIN_SLOT_SIZE_SHIFT: i32 = 5;
+pub const MAX_VERTEX_BUFFERS_CREATED: usize = 32;
+pub const DEFAULT_VERTEX_BUFFER_SIZE: i32 = 8192;
+pub const MAX_NUMBER_SLOTS: usize = 4096;
+pub const MAX_IB_SIZES: usize = 128;
+pub const MAX_INDEX_BUFFERS_CREATED: usize = 32;
+pub const DEFAULT_INDEX_BUFFER_SIZE: i32 = 32768;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum VbmFvfType {
+    Xyz = 0,
+    Xyzd = 1,
+    Xyzuv = 2,
+    Xyzduv = 3,
+    Xyzuv2 = 4,
+    Xyzduv2 = 5,
+    Xyzn = 6,
+    Xyznd = 7,
+    Xyznuv = 8,
+    Xyznduv = 9,
+    Xyznuv2 = 10,
+    Xyznduv2 = 11,
+    Xyzrhw = 12,
+    Xyzrhwd = 13,
+    Xyzrhwuv = 14,
+    Xyzrhwduv = 15,
+    Xyzrhwuv2 = 16,
+    Xyzrhwduv2 = 17,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct W3DVertexBufferSlot {
+    pub size: i32,
+    pub start: i32,
+    pub buffer_index: usize,
+    pub fvf: VbmFvfType,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct W3DIndexBufferSlot {
+    pub size: i32,
+    pub start: i32,
+    pub buffer_index: usize,
+}
+
+#[derive(Debug)]
+struct VertexBuffer {
+    start_free_index: i32,
+    size: i32,
+    render_tasks: Vec<usize>,
+}
+
+#[derive(Debug)]
+struct IndexBuffer {
+    start_free_index: i32,
+    size: i32,
+}
+
+/// C++ `W3DBufferManager`.
 pub struct WthreeDBufferManager {
-    /// Internal state
     initialized: bool,
-    /// Managed resources
-    resources: HashMap<String, *mut c_void>,
+    vb_free: [[Vec<W3DVertexBufferSlot>; MAX_VB_SIZES]; MAX_FVF],
+    vertex_buffers: [Vec<VertexBuffer>; MAX_FVF],
+    ib_free: [Vec<W3DIndexBufferSlot>; MAX_IB_SIZES],
+    index_buffers: Vec<IndexBuffer>,
+    slots_allocated: usize,
+    index_slots_allocated: usize,
 }
 
 impl WthreeDBufferManager {
-    /// Create a new WthreeDBufferManager
     pub fn new() -> Self {
         Self {
             initialized: false,
-            resources: HashMap::new(),
+            vb_free: std::array::from_fn(|_| std::array::from_fn(|_| Vec::new())),
+            vertex_buffers: std::array::from_fn(|_| Vec::new()),
+            ib_free: std::array::from_fn(|_| Vec::new()),
+            index_buffers: Vec::new(),
+            slots_allocated: 0,
+            index_slots_allocated: 0,
         }
     }
 
-    /// Initialize the manager
     pub fn initialize(&mut self) -> Result<(), WthreeDBufferManagerError> {
-        if self.initialized {
-            return Ok(());
-        }
-        // PARITY_NOTE: C++ W3DBufferManager.cpp:33 W3DBufferManager::W3DBufferManager
-        // Initializes slot/buffer counters to 0 and NULLs out all VB/IB arrays.
-        // The actual DX8 vertex/index buffer creation is deferred to allocateSlotStorage()
-        // when a slot is requested. No device resources are created at init time.
         self.initialized = true;
         Ok(())
     }
 
-    /// Shutdown the manager
     pub fn shutdown(&mut self) {
-        if !self.initialized {
-            return;
-        }
-        // PARITY_NOTE: C++ W3DBufferManager.cpp:51 ~W3DBufferManager
-        // Calls freeAllSlots() then freeAllBuffers().
-        // freeAllSlots: unlinks all W3DVertexBufferSlot/W3DIndexBufferSlot from their VB/IB lists
-        // freeAllBuffers: iterates all VB/IB linked lists, releases DX8VertexBufferClass/DX8IndexBufferClass
-        // via REF_PTR_RELEASE, asserts all slots are freed first.
-        self.resources.clear();
+        self.free_all_buffers();
         self.initialized = false;
     }
 
-    /// Check if initialized
     pub fn is_initialized(&self) -> bool {
         self.initialized
+    }
+
+    pub fn get_slot(&mut self, fvf: VbmFvfType, mut size: i32) -> Option<W3DVertexBufferSlot> {
+        if size <= 0 {
+            return None;
+        }
+        size = (size + (MIN_SLOT_SIZE - 1)) & !(MIN_SLOT_SIZE - 1);
+        let size_index = ((size >> MIN_SLOT_SIZE_SHIFT) - 1) as usize;
+        if size_index >= MAX_VB_SIZES {
+            return None;
+        }
+        if let Some(slot) = self.vb_free[fvf as usize][size_index].pop() {
+            return Some(slot);
+        }
+        self.allocate_vertex_storage(fvf, size)
+    }
+
+    pub fn release_slot(&mut self, slot: W3DVertexBufferSlot) {
+        let size_index = ((slot.size >> MIN_SLOT_SIZE_SHIFT) - 1) as usize;
+        if size_index < MAX_VB_SIZES {
+            self.vb_free[slot.fvf as usize][size_index].push(slot);
+        }
+    }
+
+    fn allocate_vertex_storage(
+        &mut self,
+        fvf: VbmFvfType,
+        size: i32,
+    ) -> Option<W3DVertexBufferSlot> {
+        if self.slots_allocated >= MAX_NUMBER_SLOTS {
+            return None;
+        }
+        let list = &mut self.vertex_buffers[fvf as usize];
+        for (buffer_index, vb) in list.iter_mut().enumerate() {
+            if vb.size - vb.start_free_index >= size {
+                let slot = W3DVertexBufferSlot {
+                    size,
+                    start: vb.start_free_index,
+                    buffer_index,
+                    fvf,
+                };
+                vb.start_free_index += size;
+                self.slots_allocated += 1;
+                return Some(slot);
+            }
+        }
+        if list.len() >= MAX_VERTEX_BUFFERS_CREATED {
+            return None;
+        }
+        let vb_size = DEFAULT_VERTEX_BUFFER_SIZE.max(size);
+        list.push(VertexBuffer {
+            start_free_index: size,
+            size: vb_size,
+            render_tasks: Vec::new(),
+        });
+        self.slots_allocated += 1;
+        Some(W3DVertexBufferSlot {
+            size,
+            start: 0,
+            buffer_index: list.len() - 1,
+            fvf,
+        })
+    }
+
+    pub fn get_index_slot(&mut self, mut size: i32) -> Option<W3DIndexBufferSlot> {
+        if size <= 0 {
+            return None;
+        }
+        size = (size + (MIN_SLOT_SIZE - 1)) & !(MIN_SLOT_SIZE - 1);
+        let size_index = ((size >> MIN_SLOT_SIZE_SHIFT) - 1) as usize;
+        if size_index >= MAX_IB_SIZES {
+            return None;
+        }
+        if let Some(slot) = self.ib_free[size_index].pop() {
+            return Some(slot);
+        }
+        if self.index_slots_allocated >= MAX_NUMBER_SLOTS {
+            return None;
+        }
+        for (buffer_index, ib) in self.index_buffers.iter_mut().enumerate() {
+            if ib.size - ib.start_free_index >= size {
+                let slot = W3DIndexBufferSlot {
+                    size,
+                    start: ib.start_free_index,
+                    buffer_index,
+                };
+                ib.start_free_index += size;
+                self.index_slots_allocated += 1;
+                return Some(slot);
+            }
+        }
+        if self.index_buffers.len() >= MAX_INDEX_BUFFERS_CREATED {
+            return None;
+        }
+        let ib_size = DEFAULT_INDEX_BUFFER_SIZE.max(size);
+        self.index_buffers.push(IndexBuffer {
+            start_free_index: size,
+            size: ib_size,
+        });
+        self.index_slots_allocated += 1;
+        Some(W3DIndexBufferSlot {
+            size,
+            start: 0,
+            buffer_index: self.index_buffers.len() - 1,
+        })
+    }
+
+    pub fn release_index_slot(&mut self, slot: W3DIndexBufferSlot) {
+        let size_index = ((slot.size >> MIN_SLOT_SIZE_SHIFT) - 1) as usize;
+        if size_index < MAX_IB_SIZES {
+            self.ib_free[size_index].push(slot);
+        }
+    }
+
+    pub fn free_all_slots(&mut self) {
+        for list in &mut self.vb_free {
+            for size in list {
+                size.clear();
+            }
+        }
+        for list in &mut self.ib_free {
+            list.clear();
+        }
+        self.slots_allocated = 0;
+        self.index_slots_allocated = 0;
+        for list in &mut self.vertex_buffers {
+            for vb in list {
+                vb.start_free_index = 0;
+                vb.render_tasks.clear();
+            }
+        }
+        for ib in &mut self.index_buffers {
+            ib.start_free_index = 0;
+        }
+    }
+
+    pub fn free_all_buffers(&mut self) {
+        self.free_all_slots();
+        for list in &mut self.vertex_buffers {
+            list.clear();
+        }
+        self.index_buffers.clear();
+    }
+
+    pub fn release_resources(&mut self) {}
+
+    pub fn re_acquire_resources(&mut self) -> bool {
+        true
+    }
+
+    pub fn vertex_buffer_count(&self, fvf: VbmFvfType) -> usize {
+        self.vertex_buffers[fvf as usize].len()
     }
 }
 
@@ -72,40 +269,52 @@ impl Drop for WthreeDBufferManager {
     }
 }
 
-/// Error types for WthreeDBufferManager
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WthreeDBufferManagerError {
-    /// Not initialized
     NotInitialized,
-    /// Resource not found
+    OutOfSlots,
     ResourceNotFound,
-    /// Unknown error
     Unknown,
 }
 
 impl std::fmt::Display for WthreeDBufferManagerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WthreeDBufferManagerError::NotInitialized => write!(f, "Manager not initialized"),
-            WthreeDBufferManagerError::ResourceNotFound => write!(f, "Resource not found"),
-            WthreeDBufferManagerError::Unknown => write!(f, "Unknown manager error"),
+            Self::NotInitialized => write!(f, "buffer manager not initialized"),
+            Self::OutOfSlots => write!(f, "out of buffer slots"),
+            Self::ResourceNotFound => write!(f, "resource not found"),
+            Self::Unknown => write!(f, "unknown manager error"),
         }
     }
 }
-
 impl std::error::Error for WthreeDBufferManagerError {}
+
+static THE_W3D_BUFFER_MANAGER: LazyLock<Mutex<WthreeDBufferManager>> =
+    LazyLock::new(|| Mutex::new(WthreeDBufferManager::new()));
+
+pub fn the_w3d_buffer_manager() -> &'static Mutex<WthreeDBufferManager> {
+    &THE_W3D_BUFFER_MANAGER
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_wthree_d_buffer_manager_basic() {
+    fn test_asset_manager_creation() {
         let mgr = WthreeDBufferManager::new();
         assert!(!mgr.is_initialized());
+    }
+
+    #[test]
+    fn recycles_same_size_slots() {
+        let mut mgr = WthreeDBufferManager::new();
         mgr.initialize().unwrap();
-        assert!(mgr.is_initialized());
-        mgr.shutdown();
-        assert!(!mgr.is_initialized());
+        let a = mgr.get_slot(VbmFvfType::Xyz, 10).unwrap();
+        assert_eq!(a.size, 32);
+        mgr.release_slot(a);
+        let b = mgr.get_slot(VbmFvfType::Xyz, 10).unwrap();
+        assert_eq!(b.start, 0);
+        assert_eq!(mgr.vertex_buffer_count(VbmFvfType::Xyz), 1);
     }
 }

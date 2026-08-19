@@ -10,6 +10,7 @@ use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
     WindowMessage, WindowMsgData, WindowMsgHandled,
 };
+use crate::w3d_web_browser::W3DWebBrowser;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_webpage_url::IniWebpageUrl;
@@ -30,6 +31,7 @@ struct WolLadderState {
 
 thread_local! {
     static WOL_LADDER_STATE: Rc<RefCell<WolLadderState>> = Rc::new(RefCell::new(WolLadderState::default()));
+    static THE_LADDER_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
 }
 static WEBPAGES_LOADED: OnceLock<Mutex<bool>> = OnceLock::new();
 
@@ -97,8 +99,13 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
         with_window_manager(|manager| manager.get_window_by_id(window_ladder_id as i32));
 
     if ensure_webpages_loaded() {
-        let tag = AsciiString::from("MessageBoard");
-        let _ = IniWebpageUrl::open_webpage_url_external(&tag);
+        if let Some(window) = window_ladder.as_ref() {
+            THE_LADDER_BROWSER.with(|browser| {
+                let _ = browser
+                    .borrow_mut()
+                    .create_browser_window("MessageBoard", &window.borrow());
+            });
+        }
     }
 
     layout.hide(false);
@@ -121,8 +128,15 @@ pub fn wol_ladder_screen_shutdown(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
 ) {
-    // TODO: C++ calls TheWebBrowser->closeBrowserWindow() here to close any
-    // open browser window from the ladder/message board page.
+    {
+        let state_slot = wol_ladder_state();
+        let state = state_slot.borrow();
+        if let Some(window) = state.window_ladder.as_ref() {
+            THE_LADDER_BROWSER.with(|browser| {
+                browser.borrow_mut().close_browser_window(&window.borrow());
+            });
+        }
+    }
     layout.hide(true);
     let _ = get_shell().shutdown_complete(None, false);
 }

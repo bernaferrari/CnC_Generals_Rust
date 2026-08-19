@@ -89,6 +89,11 @@ mod context;
 pub use context::*;
 mod command_translator;
 pub use command_translator::*;
+mod voice;
+pub(crate) use voice::play_voice_for_command;
+pub(in crate::message_stream::translators) use voice::{
+    pick_and_play_unit_voice_response, VoicePlayInfo,
+};
 mod command_translate;
 pub use command_translate::*;
 mod gui_command;

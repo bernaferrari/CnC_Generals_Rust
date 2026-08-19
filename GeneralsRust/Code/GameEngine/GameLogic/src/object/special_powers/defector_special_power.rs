@@ -81,6 +81,7 @@ pub struct DefectorSpecialPower {
     module_name_key: NameKeyType,
     data: Arc<DefectorSpecialPowerModuleData>,
     owner_object_id: ObjectID,
+    base_module: crate::object::special_power_module::SpecialPowerModule,
 }
 
 impl DefectorSpecialPower {
@@ -91,8 +92,9 @@ impl DefectorSpecialPower {
     ) -> Self {
         Self {
             module_name_key,
-            data,
             owner_object_id,
+            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            data,
         }
     }
 
@@ -159,7 +161,38 @@ impl DefectorSpecialPower {
         // C++: "only allowed at objects" - returns immediately
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module.do_special_power(command_options);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module
+            .do_special_power_at_object(object_id, command_options);
+        let _ = DefectorSpecialPower::do_special_power_at_object(self, object_id);
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &crate::common::Coord3D,
+        _angle: f32,
+        _command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        let _ = DefectorSpecialPower::do_special_power_at_location(self, location);
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
+
 
 impl Module for DefectorSpecialPower {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -183,6 +216,24 @@ impl Module for DefectorSpecialPower {
     }
 }
 
+impl BehaviorModuleInterface for DefectorSpecialPower {
+    fn get_module_name(&self) -> &'static str {
+        "DefectorSpecialPower"
+    }
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+}
+super::interface::impl_special_power_subclass!(DefectorSpecialPower);
+
+
 impl Snapshotable for DefectorSpecialPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -205,11 +256,6 @@ impl Snapshotable for DefectorSpecialPower {
     }
 }
 
-impl BehaviorModuleInterface for DefectorSpecialPower {
-    fn get_module_name(&self) -> &'static str {
-        "DefectorSpecialPower"
-    }
-}
 
 // INI field parsers
 

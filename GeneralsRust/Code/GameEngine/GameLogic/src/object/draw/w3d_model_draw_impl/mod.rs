@@ -32,6 +32,10 @@ use crate::helpers::{
     MeshUvOverrideState, ModelDrawState, ModelDrawWeaponBoneBindings, SubObjectVisibilityState,
     TheGameClient, TheGameLogic, TheParticleSystemManager,
 };
+use crate::object::draw::client_visual::{
+    object_should_animate, preload_draw_asset, terrain_decal_client, terrain_decal_texture_name,
+    terrain_track_client, TerrainDecalDesc,
+};
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;

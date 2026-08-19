@@ -431,9 +431,33 @@ impl ControlBar {
                 .and_then(|win| win.borrow().get_user_data::<String>().cloned())
         });
         if let Some(command_name) = command_name {
-            if !command_name.is_empty() {
-                let _ = self.process_command(&command_name, CommandSourceType::FromUser);
+            if command_name.is_empty() {
+                return;
             }
+            if command_name.eq_ignore_ascii_case("Command_StructureExit") {
+                let slot = with_window_manager(|wm| {
+                    for i in 0..14 {
+                        let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                        if let Some(win) = wm.find_window_by_name(&name) {
+                            if win.borrow().get_id() as u32 == control_id {
+                                return Some(i);
+                            }
+                        }
+                    }
+                    None
+                });
+                if let Some(slot) = slot {
+                    let occupant = self
+                        .context
+                        .read()
+                        .ok()
+                        .and_then(|ctx| ctx.contain_data.get(slot).copied().flatten());
+                    if occupant.is_none() {
+                        return;
+                    }
+                }
+            }
+            let _ = self.process_command(&command_name, CommandSourceType::FromUser);
         }
     }
 

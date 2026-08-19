@@ -1,5 +1,6 @@
 use super::draw_module::*;
 use crate::common::*;
+use crate::helpers::{TheGameLogic, TheTerrainVisual};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -185,6 +186,24 @@ impl W3DPropDraw {
         self.owner_id = Some(owner_id);
     }
 
+    fn current_drawable_pose(&self) -> Option<(Coord3D, Real, Real)> {
+        let owner_id = self.owner_id?;
+        let owner = TheGameLogic::find_object_by_id(owner_id)?;
+        let owner_guard = owner.read().ok()?;
+        let position = *owner_guard.get_position();
+        let orientation = owner_guard.get_orientation();
+        let scale = owner_guard
+            .get_drawable()
+            .and_then(|drawable| {
+                drawable
+                    .read()
+                    .ok()
+                    .map(|guard| guard.get_world_scale().x)
+            })
+            .unwrap_or(1.0);
+        Some((position, orientation, scale))
+    }
+
     pub fn react_to_current_transform(
         &mut self,
         position: Coord3D,
@@ -213,6 +232,15 @@ impl W3DPropDraw {
             scale,
             model_name: self.data.model_name.clone(),
         });
+        if let Some(visual) = TheTerrainVisual::get() {
+            visual.add_prop(
+                drawable_id,
+                position,
+                orientation,
+                scale,
+                self.data.model_name.as_str(),
+            );
+        }
     }
 
     pub fn take_pending_prop_add(&mut self) -> Option<TerrainPropAddRequest> {
@@ -258,10 +286,13 @@ impl DrawModule for W3DPropDraw {
     fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix3D,
-        old_pos: &Coord3D,
+        _old_pos: &Coord3D,
         _old_angle: Real,
     ) {
-        self.react_to_current_transform(*old_pos, _old_angle, 1.0);
+        let (position, orientation, scale) = self
+            .current_drawable_pose()
+            .unwrap_or((*_old_pos, *_old_angle, 1.0));
+        self.react_to_current_transform(position, orientation, scale);
     }
     fn react_to_geometry_change(&mut self) {}
 }

@@ -8,7 +8,7 @@ use crate::formation::{
     FormationCommand, FormationGroup, FormationManager, FormationSettings, FormationType,
 };
 use crate::helpers::TheGameLogic;
-use crate::modules::{AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt};
+use crate::modules::{AIAttitudeType, AIUpdateInterfaceExt, ContainModuleInterfaceExt};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::get_special_power_store;
 use crate::object::*;
@@ -18,6 +18,15 @@ use crate::polygon_trigger::PolygonTrigger;
 use crate::special_power::*;
 use crate::team::Team;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::ai::THE_AI;
+use crate::action_manager::TheActionManager;
+use crate::common::science::SCIENCE_INVALID;
+use crate::object::special_power_module::SpecialPowerCommandOptions;
+use crate::object::special_power_types::SpecialPowerType;
+use crate::terrain::get_terrain_logic;
+use crate::common::xfer::{Xfer, XferExt};
+use crate::common::Snapshot;
+use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::upgrade::UpgradeTemplate;
 use crate::waypoint::*;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
@@ -528,21 +537,25 @@ impl AIGroup {
             return;
         }
 
-        // C++ AIGroup::groupMoveToPosition — centroid/formation, click-to-gather,
-        // held/immobile filters, near-to-far sort, computeIndividualDestination.
-        // friend_moveInfantry/Vehicle column paths remain residual (optional fast path).
-
+        // C++ AIGroup::groupMoveToPosition — centroid/formation, column paths,
+        // click-to-gather, held/immobile filters, near-to-far sort.
         let mut goal = *pos;
         let (min, max, mut center, mut is_formation) = match self.get_min_max_and_center() {
             Some(v) => v,
-            None => {
-                // Empty / no AI members — nothing to move.
-                return;
-            }
+            None => return,
         };
 
         if add_waypoint {
             is_formation = false;
+        }
+
+        let mut did_infantry = false;
+        let mut did_vehicles = false;
+        if !add_waypoint && !is_formation {
+            if let Some(path) = self.friend_compute_ground_path(&goal, cmd_source) {
+                did_infantry = self.friend_move_infantry_to_pos(&goal, cmd_source, &path);
+                did_vehicles = self.friend_move_vehicle_to_pos(&goal, cmd_source, &path);
+            }
         }
 
         // Click-to-gather: player click inside scaled group rect → tighten.
@@ -554,7 +567,6 @@ impl AIGroup {
             if gather_factor > 0.0 {
                 let mut smin = min;
                 let mut smax = max;
-                // ScaleRect2D about center by gather_factor (C++ ScaleRect2D).
                 let cx = (smin.x + smax.x) * 0.5;
                 let cy = (smin.y + smax.y) * 0.5;
                 let hx = (smax.x - smin.x) * 0.5 * gather_factor;
@@ -569,7 +581,6 @@ impl AIGroup {
             }
         }
 
-        // Aircraft / helipad residuals affect formation + tighten (C++).
         let mut extra_margin = 0.0_f32;
         const STD_AIRCRAFT_EXTRA_MARGIN: f32 = 20.0;
         const STD_WAYPOINT_CLAMP_MARGIN: f32 = 10.0;
@@ -591,15 +602,12 @@ impl AIGroup {
                 }
             });
         }
-
-        // clampWaypointPosition residual: keep goal on map with margin (best-effort).
         let _margin = STD_WAYPOINT_CLAMP_MARGIN + extra_margin;
-        let _ = _margin; // full map clamp needs TerrainLogic extents; dest Z handled below.
+        let _ = _margin;
 
         if tighten_group {
             is_formation = false;
             if !add_waypoint {
-                // C++ intentionally uses (max.x-min.x) for both dx and dy.
                 let cell = PATHFIND_CELL_SIZE_F;
                 let dx = ((max.x - min.x) / cell) as i32;
                 let dy = ((max.x - min.x) / cell) as i32;
@@ -611,7 +619,12 @@ impl AIGroup {
             }
         }
 
-        // Collect movable members with distance key (near goal first).
+        if is_formation {
+            let path = self.friend_compute_ground_path(&goal, cmd_source);
+            self.friend_move_formation_to_pos(&goal, cmd_source, path.as_deref());
+            return;
+        }
+
         let mut movers: Vec<(ObjectID, f32)> = Vec::new();
         for &member_id in &self.member_list {
             let Some(key) = OBJECT_REGISTRY
@@ -624,6 +637,20 @@ impl AIGroup {
                     }
                     if obj.get_ai_update_interface().is_none() {
                         return None;
+                    }
+                    if did_infantry && obj.is_kind_of(KindOf::Infantry) {
+                        return None;
+                    }
+                    if did_vehicles && obj.is_kind_of(KindOf::Vehicle) {
+                        if let Some(ai) = obj.get_ai_update_interface() {
+                            if let Ok(ai_guard) = ai.lock() {
+                                if ai_guard.is_doing_ground_movement()
+                                    && !obj.is_kind_of(KindOf::CliffJumper)
+                                {
+                                    return None;
+                                }
+                            }
+                        }
                     }
                     let unit_pos = obj.get_position();
                     let dx = unit_pos.x - goal.x;
@@ -641,7 +668,6 @@ impl AIGroup {
         let mut first_unit = true;
         let mut goal_pos = goal;
         for (member_id, _) in movers {
-            // Clear formation membership on free move (C++ setFormationID(NO_FORMATION_ID)).
             let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
                 obj.set_formation_id(FormationID::NONE);
             });
@@ -749,6 +775,370 @@ impl AIGroup {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
                     ai.ai_move_to_and_evacuate(pos, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupMoveToAndEvacuateAndExit`.
+    pub fn group_move_to_and_evacuate_and_exit(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_move_to_and_evacuate_and_exit(pos, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupHunt`.
+    pub fn group_hunt(&self, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_hunt(cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupEnter`.
+    pub fn group_enter(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_enter(obj_id, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupDock`.
+    pub fn group_dock(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_dock(obj_id, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupExit`.
+    pub fn group_exit(&self, object_to_exit: ObjectID, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::Exit, cmd_source);
+        params.obj = Some(object_to_exit);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupEvacuate` — airborne aircraft move-to-ground then unload.
+    pub fn group_evacuate(&self, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    if obj_ref.is_kind_of(KindOf::Aircraft) && obj_ref.is_airborne_target() {
+                        let mut pos = *obj_ref.get_position();
+                        if let Ok(terrain) = get_terrain_logic().read() {
+                            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+                        }
+                        ai.ai_move_to_and_evacuate(&pos, cmd_source);
+                    } else {
+                        let params = AiCommandParams::new(AiCommandType::Evacuate, cmd_source);
+                        let _ = ai.execute_command(&params);
+                    }
+                } else if obj_ref.is_kind_of(KindOf::Structure) {
+                    if let Some(contain) = obj_ref.get_contain() {
+                        let _ = contain.order_all_passengers_to_exit(cmd_source, false);
+                    }
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupScatter` — spread members away from centroid.
+    pub fn group_scatter(&self, cmd_source: CommandSourceType) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        let Some((_, _, center, _)) = self.get_min_max_and_center() else {
+            return;
+        };
+        let mut movers: Vec<(ObjectID, f32)> = Vec::new();
+        for &member_id in &self.member_list {
+            let Some(key) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held)
+                        || obj.is_kind_of(KindOf::Immobile)
+                        || obj.get_ai_update_interface().is_none()
+                    {
+                        return None;
+                    }
+                    let p = obj.get_position();
+                    let dx = p.x - center.x;
+                    let dy = p.y - center.y;
+                    Some(dx * dx + dy * dy)
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            movers.push((member_id, key));
+        }
+        movers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut scatter_center = center;
+        for (member_id, _) in movers {
+            scatter_center.x -= 0.01;
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return;
+                };
+                let unit_pos = *obj.get_position();
+                let mut dx = unit_pos.x - scatter_center.x;
+                let mut dy = unit_pos.y - scatter_center.y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > 0.0001 {
+                    dx /= len;
+                    dy /= len;
+                } else {
+                    dx = 1.0;
+                    dy = 0.0;
+                }
+                let radius = obj.get_geometry_info().get_bounding_circle_radius();
+                let dest = Coord3D::new(
+                    unit_pos.x + dx * 4.0 * radius,
+                    unit_pos.y + dy * 4.0 * radius,
+                    unit_pos.z,
+                );
+                ai.ai_move_to_position(&dest, false, cmd_source);
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupRepair`.
+    pub fn group_repair(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::Repair, cmd_source);
+        params.obj = Some(obj_id);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupResumeConstruction`.
+    pub fn group_resume_construction(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::ResumeConstruction, cmd_source);
+        params.obj = Some(obj_id);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupGetHealed`.
+    pub fn group_get_healed(&self, heal_depot: ObjectID, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::GetHealed, cmd_source);
+        params.obj = Some(heal_depot);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupGetRepaired`.
+    pub fn group_get_repaired(&self, repair_depot: ObjectID, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::GetRepaired, cmd_source);
+        params.obj = Some(repair_depot);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupGuardArea`.
+    pub fn group_guard_area(
+        &self,
+        area: &PolygonTrigger,
+        guard_mode: GuardMode,
+        cmd_source: CommandSourceType,
+    ) {
+        let mut params = AiCommandParams::new(AiCommandType::GuardArea, cmd_source);
+        params.polygon = Some(area.get_id());
+        params.int_value = guard_mode.as_i32();
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupAttackArea`.
+    pub fn group_attack_area(&self, area: &PolygonTrigger, cmd_source: CommandSourceType) {
+        let mut params = AiCommandParams::new(AiCommandType::AttackArea, cmd_source);
+        params.polygon = Some(area.get_id());
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupHackInternet`.
+    pub fn group_hack_internet(&self, cmd_source: CommandSourceType) {
+        let params = AiCommandParams::new(AiCommandType::HackInternet, cmd_source);
+        self.fan_ai_command(&params);
+    }
+
+    /// C++ `AIGroup::groupDoSpecialPower`.
+    pub fn group_do_special_power(&self, special_power_id: u32, command_options: u32) {
+        self.do_special_power_common(special_power_id, command_options, None, None, 0.0);
+    }
+
+    /// C++ `AIGroup::groupDoSpecialPowerAtLocation`.
+    pub fn group_do_special_power_at_location(
+        &self,
+        special_power_id: u32,
+        location: &Coord3D,
+        angle: f32,
+        _object_in_way: Option<ObjectID>,
+        command_options: u32,
+    ) {
+        self.do_special_power_common(
+            special_power_id,
+            command_options,
+            Some(*location),
+            None,
+            angle,
+        );
+    }
+
+    /// C++ `AIGroup::groupDoSpecialPowerAtObject`.
+    pub fn group_do_special_power_at_object(
+        &self,
+        special_power_id: u32,
+        target_id: ObjectID,
+        command_options: u32,
+    ) {
+        self.do_special_power_common(special_power_id, command_options, None, Some(target_id), 0.0);
+    }
+
+    /// C++ `AIGroup::groupOverrideSpecialPowerDestination`.
+    pub fn group_override_special_power_destination(
+        &self,
+        sp_type: SpecialPowerType,
+        loc: &Coord3D,
+        _cmd_source: CommandSourceType,
+    ) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(module) =
+                    obj_ref.find_special_power_with_overridable_destination_active(sp_type)
+                {
+                    if let Ok(mut guard) = module.lock() {
+                        if let Some(sp) = guard.get_special_power_update_interface() {
+                            sp.set_special_power_overridable_destination(loc);
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    fn do_special_power_common(
+        &self,
+        special_power_id: u32,
+        command_options: u32,
+        location: Option<Coord3D>,
+        target: Option<ObjectID>,
+        _angle: f32,
+    ) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        let Some(store) = get_special_power_store() else {
+            return;
+        };
+        let Some(template) = store.find_special_power_template_by_id(special_power_id) else {
+            return;
+        };
+        let template_name = template.get_name().to_string();
+        let required_science = template.get_required_science();
+        let options = SpecialPowerCommandOptions::from_bits_truncate(command_options);
+        let member_ids: Vec<ObjectID> = self.member_list.clone();
+        for member_id in member_ids {
+            let allowed = OBJECT_REGISTRY
+                .with_object(member_id, |obj_ref| {
+                    if required_science != SCIENCE_INVALID {
+                        let has_science = obj_ref
+                            .get_controlling_player()
+                            .and_then(|player| {
+                                player.read().ok().map(|p| p.has_science(required_science))
+                            })
+                            .unwrap_or(false);
+                        if !has_science {
+                            return false;
+                        }
+                    }
+                    if obj_ref.get_special_power_module(template.get_id()).is_none() {
+                        return false;
+                    }
+                    match (location, target) {
+                        (Some(loc), _) => TheActionManager::can_do_special_power_at_location(
+                            obj_ref,
+                            &loc,
+                            CommandSourceType::FromPlayer,
+                            template,
+                            None,
+                            command_options,
+                            true,
+                        ),
+                        (None, Some(tid)) => OBJECT_REGISTRY
+                            .with_object(tid, |target_obj| {
+                                TheActionManager::can_do_special_power_at_object(
+                                    obj_ref,
+                                    target_obj,
+                                    CommandSourceType::FromPlayer,
+                                    template,
+                                    command_options,
+                                    true,
+                                )
+                            })
+                            .unwrap_or(false),
+                        (None, None) => TheActionManager::can_do_special_power(
+                            obj_ref,
+                            template,
+                            CommandSourceType::FromPlayer,
+                            command_options,
+                            true,
+                        ),
+                    }
+                })
+                .unwrap_or(false);
+            if !allowed {
+                continue;
+            }
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                match (location, target) {
+                    (Some(loc), _) => {
+                        obj_ref.do_special_power_at_location(&template_name, &loc, options, false)
+                    }
+                    (None, Some(tid)) => {
+                        obj_ref.do_special_power_at_object(&template_name, tid, options, false)
+                    }
+                    (None, None) => obj_ref.do_special_power(&template_name, options, false),
+                }
+            });
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                obj_ref.friend_set_undetected_defector(false);
+            });
+        }
+    }
+
+    fn fan_ai_command(&self, params: &AiCommandParams) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    let _ = ai.execute_command(params);
                 }
             });
         }
@@ -1580,6 +1970,451 @@ impl AIGroup {
     /// Set formation manager (for integration with global formation system)
     pub fn set_formation_manager(&mut self, manager: Arc<Mutex<FormationManager>>) {
         self.formation_manager = Some(manager);
+    }
+
+    /// C++ `AIGroup::friend_computeGroundPath`.
+    fn friend_compute_ground_path(
+        &self,
+        pos: &Coord3D,
+        _cmd_source: CommandSourceType,
+    ) -> Option<Vec<Coord3D>> {
+        let Some((min, max, mut center, _)) = self.get_min_max_and_center() else {
+            return None;
+        };
+        let (min_dist, require_dist, _min_inf, _min_veh) = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|d| {
+                    (
+                        d.min_distance_for_group,
+                        d.distance_requires_group,
+                        d.min_infantry_for_group,
+                        d.min_vehicles_for_group,
+                    )
+                })
+            })
+            .unwrap_or((100.0, 400.0, 3, 4));
+
+        let mut dist_sqr = 4.0 * require_dist * require_dist;
+        let mut num_infantry = 0i32;
+        let mut num_vehicles = 0i32;
+        let mut center_id = None;
+        let mut dist_sqr_center = dist_sqr * 10.0;
+
+        for &member_id in &self.member_list {
+            let Some((kind_inf, kind_veh, kind_air, unit_pos)) =
+                OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held) || obj.get_ai_update_interface().is_none()
+                    {
+                        return None;
+                    }
+                    Some((
+                        obj.is_kind_of(KindOf::Infantry),
+                        obj.is_kind_of(KindOf::Vehicle),
+                        obj.is_kind_of(KindOf::Aircraft),
+                        *obj.get_position(),
+                    ))
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if kind_inf {
+                num_infantry += 1;
+            } else if kind_veh {
+                if kind_air {
+                    continue;
+                }
+                num_vehicles += 1;
+            } else {
+                continue;
+            }
+            let dx = unit_pos.x - pos.x;
+            let dy = unit_pos.y - pos.y;
+            let to_goal = dx * dx + dy * dy;
+            if to_goal < dist_sqr {
+                dist_sqr = to_goal;
+            }
+            let cx = unit_pos.x - center.x;
+            let cy = unit_pos.y - center.y;
+            let to_center = cx * cx + cy * cy;
+            if center_id.is_none() || to_center < dist_sqr_center {
+                center_id = Some(member_id);
+                dist_sqr_center = to_center;
+            }
+        }
+        let center_id = center_id?;
+        if let Some(p) = OBJECT_REGISTRY.with_object(center_id, |obj| *obj.get_position()) {
+            center = p;
+        }
+
+        let span_x = max.x - min.x;
+        let span_y = max.y - min.y;
+        if span_x * span_x + span_y * span_y > require_dist * require_dist {
+            dist_sqr = span_x * span_x + span_y * span_y;
+        }
+        if dist_sqr < min_dist * min_dist {
+            return None;
+        }
+        let mut close_enough = dist_sqr > require_dist * require_dist || num_infantry > 6 || num_vehicles > 4;
+        if !close_enough {
+            let mut passable = true;
+            for &member_id in &self.member_list {
+                let ok = OBJECT_REGISTRY
+                    .with_object(member_id, |obj| {
+                        if !obj.is_kind_of(KindOf::Infantry) {
+                            return true;
+                        }
+                        let Some(ai) = obj.get_ai_update_interface() else {
+                            return true;
+                        };
+                        let Ok(ai_guard) = ai.lock() else {
+                            return true;
+                        };
+                        let Some(set) = ai_guard.get_locomotor_set_clone() else {
+                            return true;
+                        };
+                        THE_AI
+                            .read()
+                            .ok()
+                            .and_then(|ai| ai.pathfinder())
+                            .and_then(|pf| pf.read().ok().map(|p| {
+                                p.is_line_passable_for_surfaces(
+                                    obj.get_position(),
+                                    &center,
+                                    set.get_valid_surfaces(),
+                                    None,
+                                )
+                            }))
+                            .unwrap_or(true)
+                    })
+                    .unwrap_or(true);
+                if !ok {
+                    passable = false;
+                    break;
+                }
+            }
+            if passable {
+                close_enough = true;
+            }
+        }
+        if !close_enough {
+            return None;
+        }
+
+        const PATH_DIAMETER_IN_CELLS: i32 = 6;
+        THE_AI.read().ok().and_then(|ai| {
+            ai.pathfinder().and_then(|pf| {
+                pf.read()
+                    .ok()
+                    .and_then(|p| p.find_group_ground_path(&center, pos, PATH_DIAMETER_IN_CELLS))
+            })
+        })
+    }
+
+    /// C++ `AIGroup::friend_moveInfantryToPos` — 3-column infantry packing.
+    fn friend_move_infantry_to_pos(
+        &self,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+        path: &[Coord3D],
+    ) -> bool {
+        self.friend_move_column_to_pos(pos, cmd_source, path, true)
+    }
+
+    /// C++ `AIGroup::friend_moveVehicleToPos` — 2-column vehicle packing.
+    fn friend_move_vehicle_to_pos(
+        &self,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+        path: &[Coord3D],
+    ) -> bool {
+        self.friend_move_column_to_pos(pos, cmd_source, path, false)
+    }
+
+    fn friend_move_column_to_pos(
+        &self,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+        path: &[Coord3D],
+        infantry: bool,
+    ) -> bool {
+        if path.len() < 2 {
+            return false;
+        }
+        let Some(center) = self.get_center() else {
+            return false;
+        };
+        let min_count = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data().read().ok().map(|d| {
+                    if infantry {
+                        d.min_infantry_for_group
+                    } else {
+                        d.min_vehicles_for_group
+                    }
+                })
+            })
+            .unwrap_or(if infantry { 3 } else { 4 });
+
+        const PATH_DIAMETER_IN_CELLS: f32 = 6.0;
+        let far_enough_sqr =
+            (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F) * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
+        let start_point = path[0];
+        let end_point = *path.last().unwrap();
+        let Some(start_node) = path.iter().find(|n| {
+            let dx = n.x - start_point.x;
+            let dy = n.y - start_point.y;
+            dx * dx + dy * dy > far_enough_sqr
+        }) else {
+            return false;
+        };
+        let Some(end_node) = path.iter().rev().find(|n| {
+            let dx = n.x - end_point.x;
+            let dy = n.y - end_point.y;
+            dx * dx + dy * dy > far_enough_sqr
+        }) else {
+            return false;
+        };
+
+        let mut start_vector = Coord2D::new(start_node.x - start_point.x, start_node.y - start_point.y);
+        normalize_coord2(&mut start_vector);
+        let mut end_vector = Coord2D::new(end_point.x - end_node.x, end_point.y - end_node.y);
+        normalize_coord2(&mut end_vector);
+        let mut start_normal = Coord2D::new(-start_vector.y, start_vector.x);
+        normalize_coord2(&mut start_normal);
+        let mut end_normal = Coord2D::new(-end_vector.y, end_vector.x);
+        normalize_coord2(&mut end_normal);
+
+        let mut units: Vec<(ObjectID, f32, Coord3D)> = Vec::new();
+        let mut use_end = false;
+        for &member_id in &self.member_list {
+            let Some((unit_pos, ok)) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held)
+                        || obj.get_ai_update_interface().is_none()
+                    {
+                        return None;
+                    }
+                    if infantry {
+                        if !obj.is_kind_of(KindOf::Infantry) {
+                            return None;
+                        }
+                        if obj.is_kind_of(KindOf::MobNexus) {
+                            return Some((*obj.get_position(), false));
+                        }
+                    } else {
+                        if !obj.is_kind_of(KindOf::Vehicle) {
+                            return None;
+                        }
+                        if let Some(ai) = obj.get_ai_update_interface() {
+                            if let Ok(ai_guard) = ai.lock() {
+                                if !ai_guard.is_doing_ground_movement() {
+                                    return None;
+                                }
+                            }
+                        }
+                    }
+                    Some((*obj.get_position(), true))
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if !ok {
+                return false;
+            }
+            let dx = unit_pos.x - center.x;
+            let dy = unit_pos.y - center.y;
+            let key = dx * start_normal.x + dy * start_normal.y;
+            let to_end = {
+                let ex = unit_pos.x - end_point.x;
+                let ey = unit_pos.y - end_point.y;
+                ex * ex + ey * ey
+            };
+            let to_start = {
+                let sx = unit_pos.x - start_point.x;
+                let sy = unit_pos.y - start_point.y;
+                sx * sx + sy * sy
+            };
+            if to_start > to_end {
+                use_end = true;
+            }
+            units.push((member_id, key, unit_pos));
+        }
+        if (units.len() as i32) < min_count {
+            return false;
+        }
+        if use_end {
+            start_vector = end_vector;
+            start_normal = end_normal;
+            for unit in &mut units {
+                let dx = unit.2.x - center.x;
+                let dy = unit.2.y - center.y;
+                unit.1 = dx * start_normal.x + dy * start_normal.y;
+            }
+        }
+        units.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let num_columns = if infantry { 3 } else { 2 };
+        let half = num_columns / 2;
+        let units_to_path = units.len() as i32;
+        for (i, (member_id, _, _)) in units.iter().enumerate() {
+            let divisor = ((units_to_path + 1) / num_columns).max(1);
+            let mut column_delta = half - (i as i32 / divisor);
+            if column_delta < -half {
+                column_delta = -half;
+            }
+            let mut dests: Vec<Coord3D> = Vec::new();
+            let mut prev = OBJECT_REGISTRY
+                .with_object(*member_id, |obj| *obj.get_position())
+                .unwrap_or(center);
+            for window in path.windows(2) {
+                let mut dest = window[0];
+                let next = window[1];
+                let mut corner = Coord2D::new(next.x - dest.x, next.y - dest.y);
+                let mut corner_n = Coord2D::new(-corner.y, corner.x);
+                normalize_coord2(&mut corner);
+                normalize_coord2(&mut corner_n);
+                let offset = PATHFIND_CELL_SIZE_F * 2.1 / half.max(1) as f32;
+                dest.x += offset * column_delta as f32 * corner_n.x;
+                dest.y += offset * column_delta as f32 * corner_n.y;
+                let cur = Coord2D::new(dest.x - prev.x, dest.y - prev.y);
+                if corner.x * cur.x + corner.y * cur.y > 0.0 {
+                    dests.push(dest);
+                    prev = dest;
+                }
+            }
+            let mut dest = *pos;
+            let offset = PATHFIND_CELL_SIZE_F * 2.2;
+            dest.x += offset * column_delta as f32 * end_normal.x;
+            dest.y += offset * column_delta as f32 * end_normal.y;
+            dests.push(dest);
+            let _ = OBJECT_REGISTRY.with_object(*member_id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface() {
+                    ai.ai_follow_path(&dests, None, cmd_source);
+                }
+            });
+        }
+        true
+    }
+
+    /// C++ `AIGroup::friend_moveFormationToPos`.
+    fn friend_move_formation_to_pos(
+        &self,
+        pos: &Coord3D,
+        cmd_source: CommandSourceType,
+        path: Option<&[Coord3D]>,
+    ) {
+        let Some(center) = self.get_center() else {
+            return;
+        };
+        const PATH_DIAMETER_IN_CELLS: f32 = 6.0;
+        let far_enough_sqr =
+            (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F) * (PATH_DIAMETER_IN_CELLS * PATHFIND_CELL_SIZE_F);
+        let (start_node, end_point) = if let Some(path) = path.filter(|p| p.len() >= 2) {
+            let start_point = path[0];
+            let end_point = *path.last().unwrap();
+            let start = path.iter().find(|n| {
+                let dx = n.x - start_point.x;
+                let dy = n.y - start_point.y;
+                dx * dx + dy * dy > far_enough_sqr
+            });
+            (start.copied(), end_point)
+        } else {
+            (None, *pos)
+        };
+
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                if obj.is_disabled_by_type(DisabledType::Held) {
+                    return;
+                }
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return;
+                };
+                let offset = obj.get_formation_offset();
+                if let Some(start) = start_node {
+                    let mut dests: Vec<Coord3D> = Vec::new();
+                    if let Some(path) = path {
+                        let mut started = false;
+                        for node in path {
+                            if !started {
+                                if (node.x - start.x).abs() < 0.01 && (node.y - start.y).abs() < 0.01 {
+                                    started = true;
+                                } else {
+                                    continue;
+                                }
+                            }
+                            dests.push(Coord3D::new(node.x + offset.x, node.y + offset.y, node.z));
+                        }
+                    }
+                    dests.push(Coord3D::new(
+                        end_point.x + offset.x,
+                        end_point.y + offset.y,
+                        end_point.z,
+                    ));
+                    ai.ai_follow_path(&dests, None, cmd_source);
+                } else {
+                    let dest = Coord3D::new(end_point.x + offset.x, end_point.y + offset.y, end_point.z);
+                    ai.ai_move_to_position(&dest, false, cmd_source);
+                }
+                let _ = center;
+            });
+        }
+    }
+
+    /// C++ `AIGroup::crc`.
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        for &id in &self.member_list {
+            let mut member_id = id;
+            let _ = xfer.xfer_object_id(&mut member_id);
+        }
+        let mut size = self.member_list_size as u32;
+        let _ = xfer.xfer_unsigned_int(&mut size);
+        let mut leader = crate::common::INVALID_ID;
+        let _ = xfer.xfer_object_id(&mut leader);
+        let mut speed = self.speed;
+        let _ = xfer.xfer_real(&mut speed);
+        let mut dirty = self.dirty;
+        let _ = xfer.xfer_bool(&mut dirty);
+        let mut id = self.id;
+        let _ = xfer.xfer_unsigned_int(&mut id);
+    }
+
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+    }
+
+    pub fn load_post_process(&mut self) {}
+}
+
+fn normalize_coord2(v: &mut Coord2D) {
+    let len = (v.x * v.x + v.y * v.y).sqrt();
+    if len > 0.0001 {
+        v.x /= len;
+        v.y /= len;
+    } else {
+        v.x = 1.0;
+        v.y = 0.0;
+    }
+}
+
+impl Snapshot for AIGroup {
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        AIGroup::crc(self, xfer);
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        AIGroup::xfer(self, xfer);
+    }
+
+    fn load_post_process(&mut self) {
+        AIGroup::load_post_process(self);
     }
 }
 

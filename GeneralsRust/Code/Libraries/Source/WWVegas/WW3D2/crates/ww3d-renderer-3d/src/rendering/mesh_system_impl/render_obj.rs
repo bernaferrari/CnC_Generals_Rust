@@ -44,15 +44,34 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
 
     fn render(
         &self,
-        _rinfo: &crate::render_object_system::RenderInfoClass,
+        rinfo: &crate::render_object_system::RenderInfoClass,
     ) -> crate::core::error::Result<()> {
-        if self.is_hidden || self.is_disabled_by_debugger {
+        if !self.is_not_hidden_at_all() || self.is_disabled_by_debugger {
             return Ok(());
         }
 
-        // Render using the WGPU MeshRenderManager path
-        // Note: actual draw occurs from a higher-level renderer orchestrating render passes
+        // C++ MeshClass::Render: skins skip frustum, others Overlap_Test(bbox).
+        if !self.should_render_with_frustum_culling(rinfo) {
+            return Ok(());
+        }
 
+        let mut render_base_passes = !rinfo
+            .current_override_flags()
+            .contains(crate::render_object_system::RenderInfoOverrideFlags::ADDITIONAL_PASSES_ONLY);
+        if rinfo
+            .current_override_flags()
+            .contains(crate::render_object_system::RenderInfoOverrideFlags::SHADOW_RENDERING)
+            && self.is_alpha()
+        {
+            render_base_passes = true;
+        }
+
+        // Static-sort deferral matches C++ SORT_LEVEL_NONE check.
+        if ww3d_core::WW3D::are_static_sort_lists_enabled() && self.sort_level != SORT_LEVEL_NONE {
+            return Ok(());
+        }
+
+        let _ = render_base_passes;
         Ok(())
     }
 

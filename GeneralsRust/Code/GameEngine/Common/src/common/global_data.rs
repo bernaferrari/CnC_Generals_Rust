@@ -724,6 +724,7 @@ impl GlobalData {
     pub fn apply_command_line(&mut self, writable: &WritableGlobalData, debug: &DebugSettings) {
         self.writable = writable.clone();
         self.debug = *debug;
+        self.play_stats = writable.play_stats;
     }
 
     /// Get user data directory path

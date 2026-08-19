@@ -175,6 +175,14 @@ pub trait RenderObjClass: std::fmt::Debug + Send + Sync + Any {
         true
     }
 
+    /// C++ `Set_Visible` / `Is_Force_Visible` / `Prepare_LOD`.
+    fn set_visible(&mut self, _visible: bool) {}
+    fn is_force_visible(&self) -> bool {
+        false
+    }
+    fn prepare_lod(&mut self, _camera: &crate::rendering::camera_system::CameraClass) {}
+
+
     /// Get the position of this object
     fn position(&self) -> Vec3 {
         let transform = self.transform();
@@ -261,6 +269,8 @@ pub struct RenderInfoClass {
     pub override_flags: RenderInfoOverrideFlags,
     override_stack: Vec<RenderInfoOverrideFlags>,
     pub fog: Option<FogSettings>,
+    /// C++ D3DRS_ZBIAS consumed by extra-pass wireframe (ZBIAS 7).
+    pub z_bias: i32,
 }
 
 impl RenderInfoClass {
@@ -279,6 +289,7 @@ impl RenderInfoClass {
             override_flags: RenderInfoOverrideFlags::empty(),
             override_stack: Vec::new(),
             fog: None,
+            z_bias: 0,
         }
     }
 

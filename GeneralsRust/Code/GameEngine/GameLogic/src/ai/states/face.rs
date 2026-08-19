@@ -72,15 +72,22 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// Face object state
+///
+/// C++ `AIFaceState` with `m_obj == true`. `onEnter` only caches whether the
+/// current locomotor can turn in place (`minSpeed == 0`). `update` drives
+/// `setLocomotorGoalOrientation` / `setLocomotorGoalPositionExplicit` until
+/// the relative heading is within ~2° (`0.035` rad).
 #[derive(Debug)]
 pub struct AIFaceObjectState {
     pub(crate) base: State,
+    can_turn_in_place: bool,
 }
 
 impl AIFaceObjectState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "AIFaceObject"),
+            can_turn_in_place: false,
         }
     }
 }
@@ -121,27 +128,31 @@ impl ClassicState for AIFaceObjectState {
         let owner_guard = owner
             .read()
             .map_err(|_| "face object owner lock poisoned".to_string())?;
-        let goal_id = self
+        let goal_id = self.base.get_machine_goal_object_id();
+        if goal_id.is_none() {
+            return Ok(StateReturnType::Failure);
+        }
+        self.can_turn_in_place = locomotor_can_turn_in_place(&owner_guard);
+        Ok(StateReturnType::Continue)
+    }
+
+    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+        let owner = self
             .base
-            .get_machine_goal_object_id()
-            .ok_or_else(|| "face object missing goal".to_string())?;
+            .get_machine_owner()
+            .ok_or_else(|| "face object missing owner".to_string())?;
+        let Some(goal_id) = self.base.get_machine_goal_object_id() else {
+            return Ok(StateReturnType::Failure);
+        };
         let Some(goal_pos) = crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |guard| *guard.get_position())
         else {
             return Ok(StateReturnType::Failure);
         };
-        let dx = goal_pos.x - owner_guard.get_position().x;
-        let dy = goal_pos.y - owner_guard.get_position().y;
-        let angle = dy.atan2(dx);
-        drop(owner_guard);
-        if let Ok(mut owner_write) = owner.write() {
-            let _ = owner_write.set_orientation(angle);
-        }
-        Ok(StateReturnType::Success)
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Success)
+        face_towards(&owner, goal_pos, self.can_turn_in_place)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -150,15 +161,19 @@ impl ClassicState for AIFaceObjectState {
 }
 
 /// Face position state
+///
+/// C++ `AIFaceState` with `m_obj == false`. Same timed turn as face-object.
 #[derive(Debug)]
 pub struct AIFacePositionState {
     pub(crate) base: State,
+    can_turn_in_place: bool,
 }
 
 impl AIFacePositionState {
     pub fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "AIFacePosition"),
+            can_turn_in_place: false,
         }
     }
 }
@@ -187,6 +202,9 @@ impl ClassicState for AIFacePositionState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
         let owner = self
             .base
             .get_machine_owner()
@@ -194,25 +212,90 @@ impl ClassicState for AIFacePositionState {
         let owner_guard = owner
             .read()
             .map_err(|_| "face position owner lock poisoned".to_string())?;
-        let goal = self
-            .base
-            .get_machine_goal_position()
-            .ok_or_else(|| "face position missing goal position".to_string())?;
-        let dx = goal.x - owner_guard.get_position().x;
-        let dy = goal.y - owner_guard.get_position().y;
-        let angle = dy.atan2(dx);
-        drop(owner_guard);
-        if let Ok(mut owner_write) = owner.write() {
-            let _ = owner_write.set_orientation(angle);
+        if self.base.get_machine_goal_position().is_none() {
+            return Ok(StateReturnType::Failure);
         }
-        Ok(StateReturnType::Success)
+        self.can_turn_in_place = locomotor_can_turn_in_place(&owner_guard);
+        Ok(StateReturnType::Continue)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Success)
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "face position missing owner".to_string())?;
+        let Some(goal) = self.base.get_machine_goal_position() else {
+            return Ok(StateReturnType::Failure);
+        };
+        face_towards(&owner, goal, self.can_turn_in_place)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
     }
+}
+
+/// C++ `ThePartitionManager->getRelativeAngle2D` used by `AIFaceState::update`.
+fn relative_angle_2d(owner_pos: &Coord3D, owner_orientation: f32, target_pos: &Coord3D) -> f32 {
+    let angle_to_target = (target_pos.y - owner_pos.y).atan2(target_pos.x - owner_pos.x);
+    let mut rel = angle_to_target - owner_orientation;
+    const PI: f32 = std::f32::consts::PI;
+    const TAU: f32 = std::f32::consts::TAU;
+    while rel > PI {
+        rel -= TAU;
+    }
+    while rel < -PI {
+        rel += TAU;
+    }
+    rel
+}
+
+fn locomotor_can_turn_in_place(owner: &Object) -> bool {
+    let Some(ai) = owner.get_ai_update_interface() else {
+        return false;
+    };
+    let Ok(ai_guard) = ai.lock() else {
+        return false;
+    };
+    let Some(locomotor) = ai_guard.get_cur_locomotor() else {
+        return false;
+    };
+    locomotor
+        .lock()
+        .map(|loco| loco.template.min_speed == 0.0)
+        .unwrap_or(false)
+}
+
+/// C++ `AIFaceState::update` — keep turning until within ~2°.
+fn face_towards(
+    owner: &Arc<RwLock<Object>>,
+    target_pos: Coord3D,
+    can_turn_in_place: bool,
+) -> Result<StateReturnType, String> {
+    const REL_THRESH: f32 = 0.035;
+    let Ok(owner_guard) = owner.read() else {
+        return Ok(StateReturnType::Failure);
+    };
+    let owner_pos = *owner_guard.get_position();
+    let owner_orientation = owner_guard.get_orientation();
+    let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
+    if rel_angle.abs() < REL_THRESH {
+        return Ok(StateReturnType::Success);
+    }
+    let Some(ai) = owner_guard.get_ai_update_interface() else {
+        return Ok(StateReturnType::Failure);
+    };
+    drop(owner_guard);
+    let Ok(mut ai_guard) = ai.lock() else {
+        return Ok(StateReturnType::Failure);
+    };
+    if can_turn_in_place {
+        ai_guard.set_locomotor_goal_orientation(owner_orientation + rel_angle);
+    } else {
+        ai_guard.set_locomotor_goal_position_explicit(target_pos);
+    }
+    Ok(StateReturnType::Continue)
 }

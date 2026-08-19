@@ -13,8 +13,15 @@ use crate::gui::{
     with_window_manager, write_input_focus_response, CustomMatchPreferencesStore, GameWindow,
     WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GCM_SELECTED,
 };
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::version::get_version;
+use game_network::gamespy::config::GameSpyConfig;
+use game_network::gamespy::ladder_defs::get_ladder_list;
 use game_network::gamespy::peer_defs::get_gamespy_info;
+use game_network::gamespy::peer_thread::{
+    get_peer_message_queue, init_peer_message_queue, PeerRequest, PeerRequestType,
+};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -35,6 +42,7 @@ struct PopupHostState {
     text_entry_game_name: Option<Rc<RefCell<GameWindow>>>,
     text_entry_game_description: Option<Rc<RefCell<GameWindow>>>,
     text_entry_game_password: Option<Rc<RefCell<GameWindow>>>,
+    combo_box_ladder_name: Option<Rc<RefCell<GameWindow>>>,
     check_box_allow_observers: Option<Rc<RefCell<GameWindow>>>,
     check_box_limit_armies: Option<Rc<RefCell<GameWindow>>>,
     check_box_use_stats: Option<Rc<RefCell<GameWindow>>>,
@@ -183,9 +191,9 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
         state.text_entry_game_description = parent
             .borrow()
             .find_child_by_id(state.text_entry_game_description_id);
-        state.text_entry_game_password = parent
+        state.combo_box_ladder_name = parent
             .borrow()
-            .find_child_by_id(state.text_entry_game_password_id);
+            .find_child_by_id(state.combo_box_ladder_name_id);
         state.check_box_allow_observers = parent
             .borrow()
             .find_child_by_id(state.check_box_allow_observers_id);
@@ -335,18 +343,66 @@ pub fn popup_host_game_system(
                 prefs.prefs_mut().set_factions_limited(limit_armies);
                 prefs.write();
 
-                queue_host_request(GameSpyHostRequest {
-                    game_name,
-                    game_description: description,
-                    game_password: password,
+                let (exe_crc, ini_crc) = get_global_data()
+                    .map(|data| {
+                        let g = data.read();
+                        (g.exe_crc, g.ini_crc)
+                    })
+                    .unwrap_or((0, 0));
+                let game_version = get_version().get_version_number();
+                let restrict_game_list = GameSpyConfig::new_sync().restrict_games_to_lobby();
+                let host_ping_str = get_gamespy_info()
+                    .and_then(|info| info.lock().ok().map(|g| g.get_ping_string().to_string()))
+                    .unwrap_or_default();
+                let ladder_id = state
+                    .combo_box_ladder_name
+                    .as_ref()
+                    .and_then(|w| selected_combo_data(&w.borrow()))
+                    .unwrap_or(-1);
+                let (ladder_ip, ladder_port) = get_ladder_list()
+                    .and_then(|list| {
+                        list.read().ok().and_then(|l| {
+                            l.find_ladder_by_index(ladder_id).map(|info| {
+                                (info.address.to_string(), info.port)
+                            })
+                        })
+                    })
+                    .unwrap_or_default();
+                let request = GameSpyHostRequest {
+                    game_name: game_name.clone(),
+                    game_description: description.clone(),
+                    game_password: password.clone(),
                     allow_observers,
                     use_stats,
                     limit_armies,
-                    // TODO: C++ host request includes additional fields not yet in
-                    // GameSpyHostRequest: exeCRC, iniCRC, gameVersion, restrictGameList,
-                    // ladderIP, ladderPort, hostPingStr. Add these fields to the struct
-                    // when the corresponding data sources are available.
-                });
+                    exe_crc,
+                    ini_crc,
+                    game_version,
+                    restrict_game_list,
+                    ladder_ip: ladder_ip.clone(),
+                    ladder_port,
+                    host_ping_str: host_ping_str.clone(),
+                };
+                queue_host_request(request);
+
+                let mut req = PeerRequest::default();
+                req.request_type = PeerRequestType::CreateStagingRoom;
+                req.text = game_name;
+                req.password = password;
+                req.options = description;
+                req.allow_observers = allow_observers;
+                req.use_stats = use_stats;
+                req.exe_crc = exe_crc;
+                req.ini_crc = ini_crc;
+                req.game_version = game_version;
+                req.restrict_game_list = restrict_game_list;
+                req.ladder_ip = ladder_ip;
+                req.lad_port = ladder_port;
+                req.host_ping_str = host_ping_str;
+                let queue = get_peer_message_queue().unwrap_or_else(init_peer_message_queue);
+                if let Ok(mut queue) = queue.lock() {
+                    queue.add_request(req);
+                }
                 // Clear modal before closing
                 if let Some(parent) = state.parent.as_ref() {
                     with_window_manager(|manager| {

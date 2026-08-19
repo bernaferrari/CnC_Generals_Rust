@@ -935,11 +935,13 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MUSIC") {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         if let Ok(mut audio) = manager.lock() {
-            if audio.is_on(AudioAffect::Music) {
+            if audio.is_music_playing() {
+                audio.stop_audio(AudioAffect::Music);
                 audio.set_on(false, AudioAffect::Music);
                 TheInGameUI::message("Stopping Music");
             } else {
                 audio.set_on(true, AudioAffect::Music);
+                audio.resume_audio(AudioAffect::Music);
                 TheInGameUI::message("Resuming Music");
             }
         }

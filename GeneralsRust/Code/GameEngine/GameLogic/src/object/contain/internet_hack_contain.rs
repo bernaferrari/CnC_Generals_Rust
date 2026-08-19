@@ -233,6 +233,10 @@ impl ContainModuleInterface for InternetHackContain {
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
+
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
 }
 
 impl ContainerInterface for InternetHackContain {

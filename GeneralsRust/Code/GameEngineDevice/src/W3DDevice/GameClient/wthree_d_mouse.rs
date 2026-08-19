@@ -16,6 +16,17 @@ pub enum MouseCursor {
     ScrollSouth,
     ScrollEast,
     ScrollWest,
+    AttackObject,
+    AttackMoveTo,
+    ForceAttackObject,
+    BuildPlacement,
+    InvalidBuildPlacement,
+    Repair,
+    GetHealed,
+    EnterFriendly,
+    SetRallyPoint,
+    CaptureBuilding,
+    Waypoint,
     Invalid,
 }
 
@@ -24,6 +35,7 @@ pub enum CursorRedrawMode {
     Polygon,
     Dx8,
     W3d,
+    Windows,
 }
 
 #[derive(Debug, Clone)]
@@ -56,13 +68,15 @@ pub struct CameraScroll {
     pub delta: Vec2,
 }
 
-#[derive(Debug, Clone)]
 pub struct MouseDrawState {
     pub cursor: MouseCursor,
     pub redraw_mode: CursorRedrawMode,
     pub screen_position: Vec2,
     pub hot_spot: Vec2,
     pub texture_frame: Option<String>,
+    pub image_name: Option<String>,
+    pub w3d_model_name: Option<String>,
+    pub w3d_anim_name: Option<String>,
     pub world_position: Option<Vec3>,
     pub camera_scroll: CameraScroll,
 }
@@ -132,6 +146,72 @@ impl Default for W3DMouse {
                 ..Default::default()
             },
         );
+        fn named(
+            frames: &[&str],
+            image: &str,
+            model: Option<&str>,
+            anim: Option<&str>,
+        ) -> CursorAssetSet {
+            CursorAssetSet {
+                texture_frames: frames.iter().map(|s| (*s).to_string()).collect(),
+                image_name: Some(image.to_string()),
+                w3d_model_name: model.map(|s| s.to_string()),
+                w3d_anim_name: anim.map(|s| s.to_string()),
+                frames_per_second: 12.0,
+                hot_spot: Vec2::new(2.0, 2.0),
+                looped: true,
+            }
+        }
+        asset_sets.insert(
+            MouseCursor::AttackObject,
+            named(&["AttackObject.tga"], "AttackObject", Some("AttackObj"), Some("AttackObj")),
+        );
+        asset_sets.insert(
+            MouseCursor::AttackMoveTo,
+            named(&["AttackMoveTo.tga"], "AttackMoveTo", Some("AttackMove"), Some("AttackMove")),
+        );
+        asset_sets.insert(
+            MouseCursor::ForceAttackObject,
+            named(
+                &["ForceAttackObject.tga"],
+                "ForceAttackObject",
+                Some("ForceAttack"),
+                Some("ForceAttack"),
+            ),
+        );
+        asset_sets.insert(
+            MouseCursor::BuildPlacement,
+            named(
+                &["BuildPlacement.tga"],
+                "BuildPlacement",
+                Some("BuildPlace"),
+                Some("BuildPlace"),
+            ),
+        );
+        asset_sets.insert(
+            MouseCursor::Repair,
+            named(&["Repair.tga"], "Repair", Some("Repair"), Some("Repair")),
+        );
+        asset_sets.insert(
+            MouseCursor::GetHealed,
+            named(&["GetHealed.tga"], "GetHealed", Some("GetHealed"), Some("GetHealed")),
+        );
+        asset_sets.insert(
+            MouseCursor::EnterFriendly,
+            named(&["EnterFriendly.tga"], "EnterFriendly", Some("Enter"), Some("Enter")),
+        );
+        asset_sets.insert(
+            MouseCursor::SetRallyPoint,
+            named(&["SetRallyPoint.tga"], "SetRallyPoint", Some("Rally"), Some("Rally")),
+        );
+        asset_sets.insert(
+            MouseCursor::CaptureBuilding,
+            named(&["CaptureBuilding.tga"], "CaptureBuilding", Some("Capture"), Some("Capture")),
+        );
+        asset_sets.insert(
+            MouseCursor::Waypoint,
+            named(&["Waypoint.tga"], "Waypoint", Some("Waypoint"), Some("Waypoint")),
+        );
 
         Self {
             current_cursor: MouseCursor::Arrow,
@@ -194,6 +274,26 @@ impl W3DMouse {
         self.set_cursor(cursor);
     }
 
+    pub fn init_w3d_assets(&mut self) {
+        self.redraw_mode = CursorRedrawMode::W3d;
+    }
+
+    pub fn load_d3d_cursor_textures(&mut self) {
+        self.redraw_mode = CursorRedrawMode::Dx8;
+    }
+
+    pub fn current_texture_name(&self) -> Option<String> {
+        self.asset_sets
+            .get(&self.current_cursor)
+            .and_then(|asset| asset.texture_frames.get(self.current_anim_frame).cloned())
+    }
+
+    pub fn current_w3d_model_name(&self) -> Option<String> {
+        self.asset_sets
+            .get(&self.current_cursor)
+            .and_then(|asset| asset.w3d_model_name.clone())
+    }
+
     pub fn compute_camera_scroll(&self) -> CameraScroll {
         let mut delta = Vec2::ZERO;
         if self.current_position.x <= EDGE_SCROLL_BORDER {
@@ -222,6 +322,9 @@ impl W3DMouse {
             screen_position: self.current_position,
             hot_spot,
             texture_frame,
+            image_name: assets.and_then(|asset| asset.image_name.clone()),
+            w3d_model_name: assets.and_then(|asset| asset.w3d_model_name.clone()),
+            w3d_anim_name: assets.and_then(|asset| asset.w3d_anim_name.clone()),
             world_position,
             camera_scroll: self.compute_camera_scroll(),
         }
@@ -245,5 +348,18 @@ mod tests {
         mouse.update(Vec2::new(1.0, 99.0), 0.016);
         let scroll = mouse.compute_camera_scroll();
         assert_eq!(scroll.delta, Vec2::new(-1.0, -1.0));
+    }
+
+    #[test]
+    fn rts_cursors_have_textures_and_w3d_models() {
+        let mut mouse = W3DMouse::default();
+        mouse.set_cursor(MouseCursor::AttackObject);
+        let draw = mouse.draw(None);
+        assert!(draw.texture_frame.is_some());
+        assert!(draw.w3d_model_name.is_some());
+        mouse.init_w3d_assets();
+        assert_eq!(mouse.draw(None).redraw_mode, CursorRedrawMode::W3d);
+        mouse.load_d3d_cursor_textures();
+        assert_eq!(mouse.draw(None).redraw_mode, CursorRedrawMode::Dx8);
     }
 }

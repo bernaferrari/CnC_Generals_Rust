@@ -659,7 +659,9 @@ impl EngineModule for BunkerBusterBehaviorModule {
         self.module_data.as_ref()
     }
 
-    fn on_object_created(&mut self) {}
+    fn on_object_created(&mut self) {
+        self.behavior.on_object_created();
+    }
 
     fn on_delete(&mut self) {}
 }

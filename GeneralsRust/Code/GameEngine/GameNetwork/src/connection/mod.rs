@@ -13,7 +13,8 @@ use crate::security::{
     SecurityManager,
 };
 use crate::time::NetworkInstant;
-use crate::transport::{Transport, TransportMessage, TransportProtocol};
+use crate::transport_unified::UnifiedTransport as Transport;
+use crate::transport::{TransportMessage, TransportProtocol};
 use chrono::{DateTime, Utc};
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 use game_engine::get_game_state;
@@ -29,9 +30,19 @@ use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
-
 const MAX_QUIT_FLUSH_TIME_MS: u64 = 30_000;
 const CONNECTION_LATENCY_HISTORY_LENGTH: usize = 200;
+
+fn pack_net_command(command: &NetCommand) -> NetworkResult<Vec<u8>> {
+    let cmd_ref =
+        crate::commands::cpp_compat_serialization::NetCommandRef::from_net_command(command);
+    Ok(crate::commands::cpp_compat_serialization::serialize_command_cpp_compat(&cmd_ref))
+}
+
+fn unpack_net_command(data: &[u8]) -> NetworkResult<NetCommand> {
+    crate::commands::cpp_compat_serialization::deserialize_command_cpp_compat(data)
+        .map(|cmd| cmd.to_net_command())
+}
 
 #[derive(Clone)]
 pub struct CommandProcessorContext {
@@ -48,6 +59,7 @@ pub struct CommandProcessorContext {
     pub file_progress_tx: broadcast::Sender<FileProgressEvent>,
     pub chat_tx: broadcast::Sender<ChatEvent>,
     pub timeout_tx: broadcast::Sender<TimeoutEvent>,
+    pub frame_manager: Option<Arc<RwLock<crate::frame_data::FrameDataManager>>>,
 }
 
 #[derive(Debug, Default)]
@@ -333,7 +345,7 @@ impl CommandProcessorContext {
                 drop(reassembler);
 
                 if let Some(data) = reassembled {
-                    match bincode::deserialize::<NetCommand>(&data) {
+                    match unpack_net_command(&data) {
                         Ok(inner) => {
                             // Box the recursive call to avoid infinite future size
                             let inner_result =
@@ -912,9 +924,9 @@ impl Connection {
             return Ok(());
         }
 
-        let should_wrap = match bincode::serialized_size(&command) {
-            Ok(size) => {
-                size as usize > crate::commands::wrapper::MAX_WRAPPER_CHUNK_SIZE
+        let should_wrap = match pack_net_command(&command) {
+            Ok(serialized) => {
+                serialized.len() > crate::commands::wrapper::MAX_WRAPPER_CHUNK_SIZE
                     && command.command_type != NetCommandType::Wrapper
             }
             Err(_) => false,
@@ -1002,7 +1014,7 @@ impl Connection {
             }
         };
 
-        let command: NetCommand = bincode::deserialize(&payload)
+        let command: NetCommand = unpack_net_command(&payload)
             .map_err(|e| NetworkError::generic(format!("failed to deserialize command: {}", e)))?;
 
         let is_ack = matches!(
@@ -1127,6 +1139,26 @@ impl Connection {
     async fn enqueue_incoming_commands(&self, commands: Vec<NetCommand>) {
         if commands.is_empty() {
             return;
+        }
+
+        if let Some(ctx) = &self.command_context {
+            if let Some(frame_manager) = &ctx.frame_manager {
+                let manager = frame_manager.read().await;
+                for command in &commands {
+                    if matches!(
+                        command.command_type,
+                        NetCommandType::AckBoth
+                            | NetCommandType::AckStage1
+                            | NetCommandType::AckStage2
+                            | NetCommandType::Wrapper
+                    ) {
+                        continue;
+                    }
+                    if let Err(err) = manager.add_command(command.clone()).await {
+                        debug!("FrameData rejected incoming command: {}", err);
+                    }
+                }
+            }
         }
 
         let mut queue = self.receive_queue.write().await;
@@ -1413,7 +1445,7 @@ impl Connection {
                         let mut batch_messages = Vec::with_capacity(commands_to_send.len());
 
                         for command in commands_to_send {
-                            match bincode::serialize(&command) {
+                            match pack_net_command(&command) {
                                 Ok(serialized) => {
                                     if serialized.len() > crate::commands::wrapper::MAX_WRAPPER_CHUNK_SIZE
                                         && command.command_type != NetCommandType::Wrapper
@@ -1443,7 +1475,7 @@ impl Connection {
                                                             }
                                                         }
                                                     }
-                                                    match bincode::serialize(&wrapper_command) {
+                                                    match pack_net_command(&wrapper_command) {
                                                         Ok(wrapper_bytes) => {
                                                             let envelope = if encryption_enabled {
                                                                 if let Some(sec) = security.as_ref() {
@@ -1803,6 +1835,16 @@ impl ConnectionManager {
     /// Attach a shared security manager used for encryption and session tracking.
     pub fn set_command_context(&mut self, context: CommandProcessorContext) {
         self.command_context = Some(context);
+    }
+
+    pub fn attach_frame_manager(
+        &mut self,
+        frame_manager: Arc<RwLock<crate::frame_data::FrameDataManager>>,
+    ) {
+        if let Some(ctx) = self.command_context.as_mut() {
+            ctx.frame_manager = Some(frame_manager);
+        }
+        // Keep a copy on the manager so later connections inherit it via context clone.
     }
 
     pub fn set_security_manager(&mut self, security: Arc<SecurityManager>) {
@@ -2234,7 +2276,7 @@ impl ConnectionManager {
                                                     warn!("Received packet from {} but connection {} no longer exists", source_addr, player_id);
                                                 }
                                             } else {
-                                                match bincode::deserialize::<NetCommand>(&message.data) {
+                                                match unpack_net_command(&message.data) {
                                                     Ok(net_command) => {
                                                         let player_id = net_command.player_id;
 
@@ -2250,7 +2292,7 @@ impl ConnectionManager {
                                                                 match Connection::with_config(
                                                                     player_id,
                                                                     source_addr,
-                                                                    TransportProtocol::Quic,
+                                                                    TransportProtocol::Udp,
                                                                     transport.clone(),
                                                                     config.clone(),
                                                                     security.clone(),

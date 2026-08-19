@@ -42,7 +42,15 @@
 use crate::chunk_reader::{ChunkReader, ChunkResult};
 use glam::{Vec2, Vec3, Vec4};
 use std::io::{Read, Seek};
-use ww3d_core::{w3d_obsolete::*, W3DChunkType};
+use ww3d_core::{
+    w3d_format::{
+        W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS, W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_TEXTURE,
+        W3D_MESH_FLAG_PRELIT_MASK, W3D_MESH_FLAG_PRELIT_UNLIT, W3D_MESH_FLAG_PRELIT_VERTEX,
+    },
+    w3d_obsolete::*,
+    PrelitMode, W3DChunkType, WW3D, W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS,
+    W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE, W3D_CHUNK_PRELIT_UNLIT, W3D_CHUNK_PRELIT_VERTEX,
+};
 
 /// W3D Mesh Header structure
 /// C++ Reference: w3d_file.h W3dMeshHeader3Struct
@@ -261,8 +269,10 @@ impl MeshLoader {
         mesh.header = Self::read_mesh_header(reader)?;
         reader.close_chunk()?;
 
-        // C++ Line 383: Read all remaining chunks
-        Self::read_chunks(reader, &mut mesh)?;
+        // C++ meshmdlio.cpp:256-294 — pick the prelit wrapper matching WW3D::Get_Prelit_Mode().
+        let prelit_chunk_id = Self::select_prelit_chunk_id(mesh.header.attributes);
+        Self::read_chunks(reader, &mut mesh, prelit_chunk_id)?;
+
 
         Ok(mesh)
     }
@@ -322,65 +332,58 @@ impl MeshLoader {
     fn read_chunks<R: Read + Seek>(
         reader: &mut ChunkReader<R>,
         mesh: &mut W3DMesh,
+        prelit_chunk_id: Option<u32>,
     ) -> ChunkResult<()> {
-        // C++ Line 450: while (cload.Open_Chunk())
         while reader.open_chunk()? {
             let chunk_id = reader.current_chunk_id()?;
 
-            // C++ Line 457: switch (cload.Cur_Chunk_ID())
             match W3DChunkType::from_u32(chunk_id) {
                 Some(W3DChunkType::Vertices) => {
-                    // C++ Line 460-462
                     Self::read_vertices(reader, mesh)?;
                 }
                 Some(W3DChunkType::VertexNormals) => {
-                    // C++ Line 466-468
                     Self::read_vertex_normals(reader, mesh)?;
                 }
                 Some(W3DChunkType::Triangles) => {
-                    // C++ Line 490-492
                     Self::read_triangles(reader, mesh)?;
                 }
                 Some(W3DChunkType::VertexInfluences) => {
-                    // Skinning data for character animation
                     Self::read_vertex_influences(reader, mesh)?;
                 }
                 Some(W3DChunkType::VertexShadeIndices) => {
-                    // Vertex shader indices
                     Self::read_shade_indices(reader, mesh)?;
                 }
                 Some(W3DChunkType::MaterialInfo) => {
-                    // Material information header
                     Self::read_material_info(reader, mesh)?;
                 }
                 _ if chunk_id == W3D_CHUNK_MATERIAL3 => {
-                    // C++ still supports obsolete MATERIAL3/MAP3 texture data for older assets.
                     Self::read_obsolete_material3(reader, mesh)?;
                 }
                 Some(W3DChunkType::Shaders) => {
-                    // Shader array
                     Self::read_shaders(reader, mesh)?;
                 }
                 Some(W3DChunkType::VertexMaterials) => {
-                    // Vertex material array
                     Self::read_vertex_materials(reader, mesh)?;
                 }
                 Some(W3DChunkType::Textures) => {
-                    // Texture array
                     Self::read_textures(reader, mesh)?;
                 }
                 Some(W3DChunkType::MaterialPass) => {
-                    // Material pass (multi-pass rendering)
                     Self::read_material_pass(reader, mesh)?;
                 }
                 Some(W3DChunkType::MeshUserText) => {
-                    // User text chunk
                     Self::read_user_text(reader, mesh)?;
                 }
-                _ => {
-                    // Unknown or unsupported chunk - skip it
-                    // C++: chunks we don't handle are silently skipped
+                Some(W3DChunkType::PrelitUnlit)
+                | Some(W3DChunkType::PrelitVertex)
+                | Some(W3DChunkType::PrelitLightmapMultiPass)
+                | Some(W3DChunkType::PrelitLightmapMultiTexture) => {
+                    // C++ read_prelit_material: only the selected wrapper is loaded.
+                    if prelit_chunk_id == Some(chunk_id) {
+                        Self::read_prelit_material(reader, mesh)?;
+                    }
                 }
+                _ => {}
             }
 
             reader.close_chunk()?;
@@ -388,6 +391,56 @@ impl MeshLoader {
 
         Ok(())
     }
+
+    /// C++ `MeshModelClass::Load_W3D` prelit wrapper selection (meshmdlio.cpp:256-294).
+    fn select_prelit_chunk_id(attributes: u32) -> Option<u32> {
+        if attributes & W3D_MESH_FLAG_PRELIT_MASK == 0 {
+            return None;
+        }
+
+        match WW3D::get_prelit_mode() {
+            PrelitMode::LightmapMultiTexture
+                if attributes & W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_TEXTURE != 0 =>
+            {
+                Some(W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_TEXTURE)
+            }
+            PrelitMode::LightmapMultiTexture | PrelitMode::LightmapMultiPass
+                if attributes & W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_PASS != 0 =>
+            {
+                Some(W3D_CHUNK_PRELIT_LIGHTMAP_MULTI_PASS)
+            }
+            PrelitMode::LightmapMultiTexture
+            | PrelitMode::LightmapMultiPass
+            | PrelitMode::Vertex
+                if attributes & W3D_MESH_FLAG_PRELIT_VERTEX != 0 =>
+            {
+                Some(W3D_CHUNK_PRELIT_VERTEX)
+            }
+            _ if attributes & W3D_MESH_FLAG_PRELIT_UNLIT != 0 => Some(W3D_CHUNK_PRELIT_UNLIT),
+            _ => None,
+        }
+    }
+
+    /// C++ `MeshModelClass::read_prelit_material` (meshmdlio.cpp:1507-1550).
+    fn read_prelit_material<R: Read + Seek>(
+        reader: &mut ChunkReader<R>,
+        mesh: &mut W3DMesh,
+    ) -> ChunkResult<()> {
+        while reader.open_chunk()? {
+            let chunk_id = reader.current_chunk_id()?;
+            match W3DChunkType::from_u32(chunk_id) {
+                Some(W3DChunkType::MaterialInfo) => Self::read_material_info(reader, mesh)?,
+                Some(W3DChunkType::VertexMaterials) => Self::read_vertex_materials(reader, mesh)?,
+                Some(W3DChunkType::Shaders) => Self::read_shaders(reader, mesh)?,
+                Some(W3DChunkType::Textures) => Self::read_textures(reader, mesh)?,
+                Some(W3DChunkType::MaterialPass) => Self::read_material_pass(reader, mesh)?,
+                _ => {}
+            }
+            reader.close_chunk()?;
+        }
+        Ok(())
+    }
+
 
     /// Load vertex positions
     ///
@@ -442,18 +495,22 @@ impl MeshLoader {
         reader: &mut ChunkReader<R>,
         mesh: &mut W3DMesh,
     ) -> ChunkResult<()> {
-        // C++ Line 1123: Read triangle count
+        // C++ W3dTriangleStruct is 32 bytes: vindex[3] + attributes + normal + dist.
+        // Reading only the first 16 bytes desynchronizes later faces into garbage
+        // indices (floating textured shards).
         let count = mesh.header.num_tris as usize;
         mesh.triangles.reserve(count);
         mesh.triangle_attributes.reserve(count);
 
-        // C++ Line 1130: Read triangle array
         for _ in 0..count {
-            // C++: W3dTriangleStruct
             let v0 = reader.read_u32()?;
             let v1 = reader.read_u32()?;
             let v2 = reader.read_u32()?;
             let attributes = reader.read_u32()?;
+            let _nx = reader.read_f32()?;
+            let _ny = reader.read_f32()?;
+            let _nz = reader.read_f32()?;
+            let _dist = reader.read_f32()?;
 
             mesh.triangles.push([v0, v1, v2]);
             mesh.triangle_attributes.push(attributes);
@@ -464,43 +521,28 @@ impl MeshLoader {
 
     /// Load bone influences (skinning weights)
     ///
-    /// # C++ Reference
-    /// - Function: `MeshModelClass::read_vertex_influences`
-    /// - File: meshmdlio.cpp, lines 1440-1520
-    ///
-    /// This is CRITICAL for character animation - it defines how vertices
-    /// are weighted to bones in the skeleton hierarchy.
+    /// C++ `MeshGeometryClass::read_vertex_influences` reads one
+    /// `W3dVertInfStruct` (uint16 BoneIdx + uint8 Pad[6]) per vertex.
     fn read_vertex_influences<R: Read + Seek>(
         reader: &mut ChunkReader<R>,
         mesh: &mut W3DMesh,
     ) -> ChunkResult<()> {
-        // C++ Line 1443: Get vertex count
         let vertex_count = mesh.header.num_vertices as usize;
         mesh.vertex_influences.reserve(vertex_count);
 
-        // C++ Line 1450: Read influences for each vertex
         for _ in 0..vertex_count {
-            // C++ Line 1452: Read bone count for this vertex
-            let bone_count = reader.read_u16()? as usize;
-            let mut influences = Vec::with_capacity(bone_count);
-
-            // C++ Line 1458: Read bone index/weight pairs
-            for _ in 0..bone_count {
-                let bone_index = reader.read_u16()?;
-
-                // C++ Line 1464: Read bone weight (8-bit fixed point)
-                // Weight is stored as u8 where 255 = 1.0
-                let weight_u8 = reader.read_u8()?;
-                let weight = (weight_u8 as f32) / 255.0;
-
-                influences.push(VertexInfluence { bone_index, weight });
-            }
-
-            mesh.vertex_influences.push(influences);
+            let bone_index = reader.read_u16()?;
+            let mut pad = [0u8; 6];
+            reader.read(&mut pad)?;
+            mesh.vertex_influences.push(vec![VertexInfluence {
+                bone_index,
+                weight: 1.0,
+            }]);
         }
 
         Ok(())
     }
+
 
     /// Load shader IDs for polygons
     ///
@@ -1088,16 +1130,21 @@ mod tests {
         assert_eq!(mesh.vertices[2], Vec3::new(0.0, 1.0, 0.0));
     }
 
+    fn push_w3d_triangle(buf: &mut Vec<u8>, v0: u32, v1: u32, v2: u32) {
+        buf.extend_from_slice(&v0.to_le_bytes());
+        buf.extend_from_slice(&v1.to_le_bytes());
+        buf.extend_from_slice(&v2.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&0.0f32.to_le_bytes());
+        buf.extend_from_slice(&0.0f32.to_le_bytes());
+        buf.extend_from_slice(&1.0f32.to_le_bytes());
+        buf.extend_from_slice(&0.0f32.to_le_bytes());
+    }
+
     #[test]
     fn test_read_triangles() {
-        // Create triangle data (1 triangle)
         let mut tri_data = Vec::new();
-
-        // Triangle: indices [0, 1, 2], attributes 0
-        tri_data.extend_from_slice(&0u32.to_le_bytes());
-        tri_data.extend_from_slice(&1u32.to_le_bytes());
-        tri_data.extend_from_slice(&2u32.to_le_bytes());
-        tri_data.extend_from_slice(&0u32.to_le_bytes());
+        push_w3d_triangle(&mut tri_data, 0, 1, 2);
 
         let chunk = create_chunk(W3DChunkType::Triangles.as_u32(), false, &tri_data);
 
@@ -1115,20 +1162,12 @@ mod tests {
 
     #[test]
     fn test_read_vertex_influences() {
-        // Create vertex influences for 2 vertices
+        // C++ W3dVertInfStruct: uint16 BoneIdx + uint8 Pad[6]
         let mut infl_data = Vec::new();
-
-        // Vertex 0: 2 bones
-        infl_data.extend_from_slice(&2u16.to_le_bytes()); // bone count
-        infl_data.extend_from_slice(&0u16.to_le_bytes()); // bone 0
-        infl_data.push(128); // weight 0.5 (128/255)
-        infl_data.extend_from_slice(&1u16.to_le_bytes()); // bone 1
-        infl_data.push(127); // weight 0.5 (127/255)
-
-        // Vertex 1: 1 bone
-        infl_data.extend_from_slice(&1u16.to_le_bytes()); // bone count
-        infl_data.extend_from_slice(&0u16.to_le_bytes()); // bone 0
-        infl_data.push(255); // weight 1.0 (255/255)
+        infl_data.extend_from_slice(&3u16.to_le_bytes());
+        infl_data.extend_from_slice(&[0u8; 6]);
+        infl_data.extend_from_slice(&7u16.to_le_bytes());
+        infl_data.extend_from_slice(&[0u8; 6]);
 
         let chunk = create_chunk(W3DChunkType::VertexInfluences.as_u32(), false, &infl_data);
 
@@ -1141,14 +1180,12 @@ mod tests {
         MeshLoader::read_vertex_influences(&mut reader, &mut mesh).unwrap();
 
         assert_eq!(mesh.vertex_influences.len(), 2);
-        assert_eq!(mesh.vertex_influences[0].len(), 2);
-        assert_eq!(mesh.vertex_influences[0][0].bone_index, 0);
-        assert!((mesh.vertex_influences[0][0].weight - 0.5).abs() < 0.01);
-
-        assert_eq!(mesh.vertex_influences[1].len(), 1);
-        assert_eq!(mesh.vertex_influences[1][0].bone_index, 0);
-        assert!((mesh.vertex_influences[1][0].weight - 1.0).abs() < 0.01);
+        assert_eq!(mesh.vertex_influences[0].len(), 1);
+        assert_eq!(mesh.vertex_influences[0][0].bone_index, 3);
+        assert!((mesh.vertex_influences[0][0].weight - 1.0).abs() < f32::EPSILON);
+        assert_eq!(mesh.vertex_influences[1][0].bone_index, 7);
     }
+
 
     #[test]
     fn test_load_simple_cube_mesh() {
@@ -1195,10 +1232,7 @@ mod tests {
             [1, 6, 2], // Right
         ];
         for tri in &cube_tris {
-            tri_data.extend_from_slice(&tri[0].to_le_bytes());
-            tri_data.extend_from_slice(&tri[1].to_le_bytes());
-            tri_data.extend_from_slice(&tri[2].to_le_bytes());
-            tri_data.extend_from_slice(&0u32.to_le_bytes()); // attributes
+            push_w3d_triangle(&mut tri_data, tri[0], tri[1], tri[2]);
         }
         let tri_chunk = create_chunk(W3DChunkType::Triangles.as_u32(), false, &tri_data);
 

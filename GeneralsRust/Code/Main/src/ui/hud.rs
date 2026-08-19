@@ -693,6 +693,9 @@ pub struct GameHUD {
     game_time: Duration,
     /// Last known low-power state, used to avoid repeating the same warning every frame.
     power_low_active: bool,
+    /// Last PresentationFrame::frame whose events were enqueued on this HUD.
+    /// `apply_to_game_hud` re-runs every render on the same freeze; events apply once.
+    applied_presentation_event_frame: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -849,6 +852,7 @@ impl GameHUD {
             beacon_events: Vec::new(),
             game_time: Duration::from_secs(0),
             power_low_active: false,
+            applied_presentation_event_frame: None,
         }
     }
 
@@ -1284,6 +1288,15 @@ impl GameHUD {
     /// Test/honesty: number of active HUD messages.
     pub fn message_count_for_test(&self) -> usize {
         self.messages.len()
+    }
+
+    /// True when this HUD has not yet applied `logic_frame`'s frozen events.
+    pub fn begin_presentation_event_apply(&mut self, logic_frame: u32) -> bool {
+        if self.applied_presentation_event_frame == Some(logic_frame) {
+            return false;
+        }
+        self.applied_presentation_event_frame = Some(logic_frame);
+        true
     }
 
     pub fn push_info_message(&mut self, text: &str) {

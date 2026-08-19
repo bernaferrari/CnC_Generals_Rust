@@ -12,7 +12,7 @@
 //! - Persistent storage
 //! - Ping services
 
-use crate::error::NetworkResult;
+use crate::error::{NetworkError, NetworkResult};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -244,17 +244,59 @@ impl GameSpyInterface {
     /// Connect to GameSpy master server
     async fn connect_to_gamespy(&self, player_id: String, password: String) -> NetworkResult<()> {
         info!("Connecting to GameSpy master server");
-
-        // Validate credentials
         {
             let config = self.config.read().await;
             config.validate_credentials(&player_id, &password)?;
         }
 
-        // Establish connection to GameSpy backend
-        // This would connect to the actual GameSpy servers
-        // For now, we'll simulate the connection
+        let peer_queue = crate::gamespy::peer_thread::init_peer_message_queue();
+        if let Ok(mut queue) = peer_queue.lock() {
+            queue.start_thread();
+            queue.set_connecting(true);
+        }
+        crate::gamespy::buddy_thread::init_buddy_message_queue();
+        crate::gamespy::ping_thread::init_ping_queue();
+        crate::gamespy::persistent_storage_thread::init_ps_message_queue();
 
+        let (master, _chat, ladder) = {
+            let config = self.config.read().await;
+            let (m, c, l) = config.get_server_urls();
+            (m.to_string(), c.to_string(), l.to_string())
+        };
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .map_err(|e| NetworkError::generic(format!("gamespy http: {e}")))?;
+
+        let mut connected = false;
+        for host in [master, ladder] {
+            let url = if host.starts_with("http") {
+                host
+            } else {
+                format!("http://{host}")
+            };
+            match client.get(&url).send().await {
+                Ok(resp) => {
+                    info!("GameSpy endpoint {} returned {}", url, resp.status());
+                    connected = true;
+                    break;
+                }
+                Err(err) => {
+                    warn!("GameSpy endpoint {} failed: {}", url, err);
+                }
+            }
+        }
+
+        if let Ok(mut queue) = peer_queue.lock() {
+            queue.set_connecting(false);
+            queue.set_connected(connected);
+            let mut resp = crate::gamespy::peer_thread::PeerResponse::default();
+            resp.response_type = crate::gamespy::peer_thread::PeerResponseType::Login;
+            resp.nick = player_id;
+            resp.join_group_ok = connected;
+            queue.add_response(resp);
+        }
         Ok(())
     }
 

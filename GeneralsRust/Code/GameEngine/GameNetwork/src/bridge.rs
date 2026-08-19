@@ -17,7 +17,8 @@ use crate::commands::{
 use crate::error::{NetworkError, NetworkResult};
 use crate::network_defs::{NETWORK_BASE_PORT_NUMBER, NUM_CONNECTIONS};
 use crate::sync::game_sync::NetCommand as SyncNetCommand;
-use crate::transport::{Transport, TransportMessage, TransportProtocol};
+use crate::transport::{TransportMessage, TransportProtocol};
+use crate::transport_unified::UnifiedTransport as Transport;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;

@@ -42,6 +42,8 @@ pub enum WindowMsgPayload {
     TextAndColor(ListBoxTextAndColor),
     ItemData(ListBoxItemData),
     ItemDataOpt(Option<ListBoxItemData>),
+    RightClick(RightClickStruct),
+
 }
 
 pub(crate) const WINDOW_MSG_TOKEN_TAG: usize = 1usize << (usize::BITS - 1);
@@ -220,4 +222,13 @@ pub(crate) fn payload_text(data: WindowMsgData) -> Option<String> {
 pub struct ListBoxCellPosition {
     pub x: i32,
     pub y: i32,
+}
+
+/// C++ `RightClickStruct` sent as `GLM_RIGHT_CLICKED` data2.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RightClickStruct {
+    pub pos: i32,
+    pub mouse_x: i32,
+    pub mouse_y: i32,
 }

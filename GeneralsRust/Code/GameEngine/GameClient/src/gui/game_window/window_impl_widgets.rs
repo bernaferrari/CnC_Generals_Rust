@@ -207,6 +207,142 @@ impl GameWindow {
         }
     }
 
+    pub(crate) fn slider_value(&self) -> Option<i32> {
+        match self.widget.as_ref() {
+            Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
+            Some(WindowWidget::VerticalSlider(slider)) => Some(slider.value()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn apply_slider_value(&mut self, value: i32) {
+        match self.widget.as_mut() {
+            Some(WindowWidget::HorizontalSlider(slider)) => slider.set_value(value),
+            Some(WindowWidget::VerticalSlider(slider)) => slider.set_value(value),
+            _ => {}
+        }
+        self.update_slider_thumb();
+    }
+
+    pub(crate) fn notify_slider_track(&mut self) {
+        let Some(value) = self.slider_value() else {
+            return;
+        };
+        if self.owner_is_self {
+            return;
+        }
+        if let Some(owner) = self.get_owner() {
+            let _ = owner.borrow_mut().send_system_message(
+                WindowMessage::User(GSM_SLIDER_TRACK),
+                self.id as WindowMsgData,
+                value as WindowMsgData,
+            );
+        }
+    }
+
+    pub(crate) fn handle_slider_left_drag(&mut self, packed_mouse: WindowMsgData) -> WindowMsgHandled {
+        let mouse_x = (packed_mouse & 0xFFFF) as i32;
+        let mouse_y = ((packed_mouse >> 16) & 0xFFFF) as i32;
+        let (win_x, win_y) = self.get_screen_position();
+        let (width, height) = self.get_size();
+        let is_horizontal = matches!(self.widget, Some(WindowWidget::HorizontalSlider(_)));
+        let Some(thumb_id) = self.slider_thumb else {
+            return WindowMsgHandled::Handled;
+        };
+        let Some(thumb) = self.find_child_by_id(thumb_id) else {
+            return WindowMsgHandled::Handled;
+        };
+        let (thumb_w, thumb_h) = thumb.borrow().get_size();
+        let (thumb_sx, thumb_sy) = thumb.borrow().get_screen_position();
+        let (thumb_rel_x, _thumb_rel_y) = thumb.borrow().get_position();
+        let child_center_x = thumb_sx + thumb_w / 2;
+        let child_center_y = thumb_sy + thumb_h / 2;
+        let (min_val, max_val) = match self.widget.as_ref() {
+            Some(WindowWidget::HorizontalSlider(slider)) => slider.range(),
+            Some(WindowWidget::VerticalSlider(slider)) => slider.range(),
+            _ => return WindowMsgHandled::Handled,
+        };
+        let span = (max_val - min_val).max(1);
+
+        if is_horizontal {
+            if mouse_x > win_x + width - HORIZONTAL_SLIDER_THUMB_WIDTH / 2 {
+                self.apply_slider_value(max_val);
+                self.notify_slider_track();
+                return WindowMsgHandled::Handled;
+            }
+            if mouse_x < win_x + HORIZONTAL_SLIDER_THUMB_WIDTH / 2 {
+                self.apply_slider_value(min_val);
+                self.notify_slider_track();
+                return WindowMsgHandled::Handled;
+            }
+            if child_center_x < win_x + thumb_w / 2 {
+                let _ = thumb
+                    .borrow_mut()
+                    .set_position(0, HORIZONTAL_SLIDER_THUMB_POSITION);
+                self.apply_slider_value(min_val);
+            } else if child_center_x >= win_x + width - thumb_w / 2 {
+                let track = (width - HORIZONTAL_SLIDER_THUMB_WIDTH).max(0);
+                let _ = thumb.borrow_mut().set_position(
+                    track - HORIZONTAL_SLIDER_THUMB_WIDTH / 2,
+                    HORIZONTAL_SLIDER_THUMB_POSITION,
+                );
+                self.apply_slider_value(max_val);
+            } else {
+                let num_ticks = (width - HORIZONTAL_SLIDER_THUMB_WIDTH) as f32 / span as f32;
+                let delta = child_center_x - win_x - HORIZONTAL_SLIDER_THUMB_WIDTH / 2;
+                let mut position = if num_ticks.abs() > f32::EPSILON {
+                    (delta as f32 / num_ticks) as i32 + min_val
+                } else {
+                    min_val
+                };
+                position = position.clamp(min_val, max_val);
+                match self.widget.as_mut() {
+                    Some(WindowWidget::HorizontalSlider(slider)) => slider.set_value(position),
+                    Some(WindowWidget::VerticalSlider(slider)) => slider.set_value(position),
+                    _ => {}
+                }
+                let _ = thumb
+                    .borrow_mut()
+                    .set_position(thumb_rel_x, HORIZONTAL_SLIDER_THUMB_POSITION);
+            }
+        } else if mouse_y > win_y + height {
+            self.apply_slider_value(min_val);
+            self.notify_slider_track();
+            return WindowMsgHandled::Handled;
+        } else if mouse_y < win_y {
+            self.apply_slider_value(max_val);
+            self.notify_slider_track();
+            return WindowMsgHandled::Handled;
+        } else if child_center_y <= win_y + thumb_h / 2 {
+            let _ = thumb.borrow_mut().set_position(0, 0);
+            self.apply_slider_value(max_val);
+        } else if child_center_y >= win_y + height - thumb_h / 2 {
+            let _ = thumb.borrow_mut().set_position(0, (height - thumb_h).max(0));
+            self.apply_slider_value(min_val);
+        } else {
+            let num_ticks = (height - thumb_h) as f32 / span as f32;
+            let delta = child_center_y - win_y - thumb_h / 2;
+            let mut position = if num_ticks.abs() > f32::EPSILON {
+                (delta as f32 / num_ticks) as i32
+            } else {
+                0
+            };
+            if position > max_val {
+                position = max_val;
+            }
+            position = max_val - position;
+            match self.widget.as_mut() {
+                Some(WindowWidget::HorizontalSlider(slider)) => slider.set_value(position),
+                Some(WindowWidget::VerticalSlider(slider)) => slider.set_value(position),
+                _ => {}
+            }
+        }
+
+        self.notify_slider_track();
+        WindowMsgHandled::Handled
+    }
+
+
     pub(crate) fn show_tab_pane(&mut self, index: usize) {
         let panes: Vec<Rc<RefCell<GameWindow>>> = self
             .children

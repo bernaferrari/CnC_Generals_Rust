@@ -205,9 +205,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
 
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::ListBox(listbox) = widget {
-            let item_height = listbox.item_height() as i32;
-            let scroll = listbox.scroll_offset() as i32 * item_height;
-            let mut draw_y = y + 4 - scroll;
+            let mut draw_y = y + 4;
             let selected = listbox.selected_indices();
             let columns = listbox.columns().max(1) as usize;
             let mut column_widths = listbox.column_widths_for_width(content_width as u32);
@@ -219,6 +217,10 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             let list_clip =
                 region_from_corners(x + 1, y - 3, x + content_width - 1, y + height - 1);
             for (idx, item) in listbox.items().iter().enumerate() {
+                if idx < listbox.scroll_offset() {
+                    continue;
+                }
+                let item_height = item.row_height.max(listbox.item_height()) as i32;
                 if draw_y + item_height < y {
                     draw_y += item_height + 1;
                     continue;

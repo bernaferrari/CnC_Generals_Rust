@@ -174,6 +174,7 @@ impl W3DTracerDraw {
             texture_name: None,
             tile_factor: 0.0,
             visible,
+            scroll_rate: 0.0,
         };
         update_scene_line(id, &desc);
     }
@@ -219,6 +220,7 @@ impl W3DTracerDraw {
             texture_name: None,
             tile_factor: 0.0,
             visible: !self.hidden && !self.fully_obscured_by_shroud,
+            scroll_rate: 0.0,
         };
 
         match self.scene_line_id {

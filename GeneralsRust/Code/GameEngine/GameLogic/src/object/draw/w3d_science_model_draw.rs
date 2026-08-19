@@ -156,7 +156,6 @@ impl DrawModule for W3DScienceModelDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         let science = self.data.required_science;
         if science == SCIENCE_INVALID {
-            DrawModule::set_hidden(&mut self.base, true);
             return;
         }
         let has_science = ThePlayerList()
@@ -170,7 +169,6 @@ impl DrawModule for W3DScienceModelDraw {
             })
             .unwrap_or(true);
         if !has_science {
-            DrawModule::set_hidden(&mut self.base, true);
             return;
         }
         self.base.do_draw_module(transform_mtx);

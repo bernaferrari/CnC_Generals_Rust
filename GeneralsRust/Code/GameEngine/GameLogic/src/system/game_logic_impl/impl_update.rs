@@ -142,15 +142,37 @@ impl GameLogic {
             warn!("Terrain update phase failed: {}", e);
         }
 
+        // Phase 3b: CRC Calculation (C++ lines 3625-3665)
         // -----------------------------------------------------------------------
-        // Phase 3b: CRC Calculation (C++ lines 3625-3654)
-        // -----------------------------------------------------------------------
-        // C++: m_CRC = getCRC(CRC_RECALC); msg->appendIntegerArgument(m_CRC);
+        // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
+        // then TheStatsCollector->update(); TheRecorder->UPDATE();
         let current_crc_interval =
             game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
         if self.frame > 0 && self.frame % current_crc_interval == 0 {
             self.crc_cache = self.compute_crc();
+            let playback = game_engine::common::recorder::with_recorder(|recorder| {
+                recorder.is_playback()
+            })
+            .unwrap_or(false);
+            let _ = playback;
+            if let Ok(mut stream) =
+                game_engine::common::message_stream::get_message_stream().write()
+            {
+                let _ = stream.append_message(
+                    game_engine::common::message_stream::game_message::GameMessageType::LogicCRC(
+                        self.crc_cache,
+                    ),
+                );
+            }
         }
+        game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
+            collector.update();
+        });
+        game_engine::common::recorder::with_recorder_mut(|recorder| {
+            recorder.set_current_frame(self.frame);
+            recorder.update();
+        });
+
 
         // Clear frame events and reset temporary flags
         if let Err(e) = self.clear_frame_events() {
@@ -1341,8 +1363,18 @@ impl GameLogic {
 
         let mut marker = "MARKER:TheAI".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        let mut ai_marker = "MARKER:TAiData".to_string();
-        let _ = Xfer::xfer_ascii_string(&mut xfer, &mut ai_marker);
+        if let Ok(ai) = crate::ai::THE_AI.read() {
+            if let Some(pathfinder) = ai.pathfinder() {
+                if let Ok(pathfinder) = pathfinder.read() {
+                    pathfinder.crc_pathfinder(&mut xfer);
+                }
+            }
+            let mut ai_marker = "MARKER:TAiData".to_string();
+            let _ = Xfer::xfer_ascii_string(&mut xfer, &mut ai_marker);
+            if let Ok(ai_data) = ai.get_ai_data().read() {
+                crate::common::Snapshot::crc(&*ai_data, &mut xfer);
+            }
+        }
 
         let _ = Xfer::close(&mut xfer);
         xfer.get_crc()
@@ -1417,8 +1449,14 @@ impl GameLogic {
         // Release the read lock before acquiring write locks
         drop(player_list);
 
-        // Phase 2: Handle newly-defeated players (C++ lines 166-198)
+        // Phase 2: Handle newly-defeated players (C++ VictoryConditions.cpp 166-198)
         for (player_index, player_arc) in &newly_defeated_indices {
+            let display_name = player_arc
+                .read()
+                .ok()
+                .map(|player| player.get_player_display_name().clone())
+                .unwrap_or_default();
+
             if let Ok(mut player) = player_arc.write() {
                 player.set_defeated(true);
                 info!(
@@ -1427,16 +1465,44 @@ impl GameLogic {
                 );
             }
 
-            // C++: ThePartitionManager->revealMapForPlayerPermanently(p->getPlayerIndex())
-            // Deferred — partition manager integration is a separate port task.
+            if self.frame > 1 {
+                if let Ok(mut shroud) =
+                    crate::system::shroud_manager::get_shroud_manager().lock()
+                {
+                    let _ = shroud.reveal_map_for_player_permanently(*player_index as u32);
+                }
 
-            // C++: TheInGameUI->message("GUI:PlayerHasBeenDefeated", ...)
-            // C++: TheAudio->addAudioEvent(&leftGameSound)
-            // Deferred — UI/audio integration is a separate port task.
+                crate::helpers::TheInGameUI::display_message(&format!(
+                    "GUI:PlayerHasBeenDefeated {}",
+                    display_name
+                ));
 
-            // C++: p->killPlayer()
-            // Deferred — killPlayer() destroys remaining player objects;
-            // this will be implemented when the full player cleanup system is ported.
+                if let Some(audio) = crate::helpers::TheAudio::get() {
+                    let event = crate::common::audio::AudioEventRts::new("GUIMessageReceived");
+                    audio.add_audio_event(&event);
+                }
+            }
+
+            let leftovers: Vec<ObjectID> = self
+                .all_objects
+                .iter()
+                .copied()
+                .filter(|id| {
+                    self.objects
+                        .get(id)
+                        .and_then(|obj| obj.read().ok())
+                        .and_then(|guard| {
+                            guard
+                                .get_controlling_player()
+                                .and_then(|player| player.read().ok())
+                                .map(|player| player.get_player_index() == *player_index)
+                        })
+                        .unwrap_or(false)
+                })
+                .collect();
+            for leftover_id in leftovers {
+                self.destroy_object(leftover_id);
+            }
         }
     }
 

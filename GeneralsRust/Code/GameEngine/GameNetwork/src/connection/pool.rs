@@ -7,7 +7,8 @@
 use crate::connection::Connection;
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use crate::transport::{Transport, TransportProtocol};
+use crate::transport_unified::UnifiedTransport as Transport;
+use crate::transport::TransportProtocol;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -120,6 +120,16 @@ pub fn get_script_display_debug_callback() -> Option<DebugDisplayCallback> {
     with_script_display(|display| display.get_debug_display_callback()).flatten()
 }
 
+pub fn set_script_display_gamma(gamma: f32, bright: f32, contrast: f32) -> bool {
+    with_script_display(|display| display.set_gamma(gamma, bright, contrast, false)).is_some()
+}
+
+pub fn take_script_display_screenshot() -> Option<String> {
+    with_script_display(|display| display.take_screenshot())
+}
+
+
+
 pub fn script_popup_message(
     message: &str,
     x_percent: i32,
@@ -1087,25 +1097,18 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn camera_enable_slave_mode(
         &self,
-        _thing_template_name: &str,
-        _bone_name: &str,
+        thing_template_name: &str,
+        bone_name: &str,
     ) -> GameLogicResult<()> {
-        let _bone_name = _bone_name.trim();
-        if let Some(object_id) = find_object_by_template_name(_thing_template_name) {
-            with_tactical_view(|view| {
-                view.set_camera_lock(Some(object_id));
-                view.set_snap_mode(CameraLockType::Follow, 0.0);
-                if !_bone_name.is_empty() {
-                    // Bone tracking is not explicitly modeled yet; keep follow mode active
-                    // and hold this hook for future skeleton-driven camera support.
-                }
-            });
-        }
+        with_tactical_view(|view| {
+            view.camera_enable_slave_mode(thing_template_name.trim(), bone_name.trim());
+        });
         Ok(())
     }
 
     fn camera_disable_slave_mode(&self) -> GameLogicResult<()> {
         with_tactical_view(|view| {
+            view.camera_disable_slave_mode();
             view.set_camera_lock(None);
             view.set_snap_mode(CameraLockType::Follow, 0.0);
             view.set_mouse_lock(false);
@@ -1208,12 +1211,12 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn has_music_track_completed(&self, track: &str, param: i32) -> bool {
-        let key = normalize_media_name(track);
+        let key = track.trim();
         if key.is_empty() {
             return false;
         }
         let required = param.max(1);
-        Self::music_completed_count_for(&key) >= required
+        TheAudio::get().is_some_and(|audio| audio.has_music_track_completed(key, required))
     }
 
     fn stop_music(&self) -> GameLogicResult<()> {
@@ -1366,6 +1369,12 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
+        // C++ ScriptActions.cpp: TheSnowManager->setVisible(showWeather)
+        if let Some(snow) = crate::snow::get_snow_manager() {
+            if let Ok(mut guard) = snow.lock() {
+                guard.set_visible(visible);
+            }
+        }
         if let Ok(mut weather_guard) = get_weather_system_mut() {
             if let Some(weather) = weather_guard.as_mut() {
                 weather.set_enabled(visible);

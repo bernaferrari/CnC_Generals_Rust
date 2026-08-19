@@ -235,8 +235,9 @@ pub struct MilesAudioDevice {
 
     /// Shutdown flag
     shutdown_flag: Arc<parking_lot::Mutex<bool>>,
+    /// C++ `MilesAudioManager::m_binkHandle`.
+    bink_handle: parking_lot::Mutex<Option<AudioHandle>>,
 }
-
 impl MilesAudioDevice {
     /// Create a new MilesAudioDevice with default configuration
     pub async fn new() -> Result<Self> {
@@ -285,6 +286,7 @@ impl MilesAudioDevice {
             statistics: Arc::new(ParkingRwLock::new(AudioStatistics::default())),
             processing_handles: Vec::new(),
             shutdown_flag: Arc::new(parking_lot::Mutex::new(false)),
+            bink_handle: parking_lot::Mutex::new(None),
         };
 
         Ok(device)
@@ -331,6 +333,27 @@ impl MilesAudioDevice {
             self.processing_handles.len()
         );
         Ok(())
+    }
+
+    /// C++ `MilesAudioManager::getHandleForBink`.
+    ///
+    /// Allocates a reserved 2D sample slot used as Bink's DirectSound/kira sink.
+    pub fn get_handle_for_bink(&self) -> Option<AudioHandle> {
+        let mut slot = self.bink_handle.lock();
+        if slot.is_none() {
+            *slot = Some(AudioHandle::new());
+        }
+        *slot
+    }
+
+    /// C++ `MilesAudioManager::releaseHandleForBink`.
+    pub fn release_handle_for_bink(&self) {
+        *self.bink_handle.lock() = None;
+    }
+
+    /// C++ `BinkVideoPlayer::initializeBinkWithMiles`.
+    pub fn initialize_bink_with_miles(&self) -> bool {
+        self.get_handle_for_bink().is_some()
     }
 
     /// Play an audio file with given configuration

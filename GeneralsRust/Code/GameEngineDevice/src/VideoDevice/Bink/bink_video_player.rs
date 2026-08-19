@@ -475,16 +475,19 @@ impl BinkVideoProviderHandle {
         self.registered = false;
     }
 
-    /// Equivalent to C++ `BinkVideoPlayer::notifyVideoPlayerOfNewProvider(Bool)`.
+    /// C++ `BinkVideoPlayer::notifyVideoPlayerOfNewProvider(Bool)`.
     ///
-    /// In C++ this connects/disconnects Bink audio with the Miles audio system.
-    /// The Rust port does not depend on Miles, so this is a stub that manages
-    /// the provider registration state.
+    /// Lost audio only releases the Miles handle and mutes the soundtrack
+    /// (`BinkSetSoundTrack(0, 0)`). The Bink video provider stays registered
+    /// so `VideoPlayer::open` still returns a stream.
     pub fn notify_video_player_of_new_provider(&mut self, now_has_valid: bool) {
-        if now_has_valid && !self.registered {
-            self.init();
-        } else if !now_has_valid && self.registered {
-            self.deinit();
+        if now_has_valid {
+            if !self.registered {
+                self.init();
+            }
+            game_client_rust::bink::notify_bink_of_new_provider(true);
+        } else {
+            game_client_rust::bink::notify_bink_of_new_provider(false);
         }
     }
 }

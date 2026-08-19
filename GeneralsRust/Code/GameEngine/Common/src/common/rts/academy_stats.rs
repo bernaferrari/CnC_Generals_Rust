@@ -7,10 +7,39 @@
 //! Based on C++ AcademyStats.cpp/h from GeneralsMD codebase.
 
 use crate::common::time;
+use crate::common::random_value::get_game_client_random_value;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
 use once_cell::sync::OnceCell;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
+
+static LOCAL_PLAYER_MINES: AtomicU32 = AtomicU32::new(0);
+static NEUTRAL_VEHICLES_SNIPED: AtomicU32 = AtomicU32::new(0);
+
+/// C++ ThePlayerList local/neutral academy counters used by advice #31/#32.
+pub fn set_academy_peer_counts(local_mines: u32, neutral_vehicles_sniped: u32) {
+    LOCAL_PLAYER_MINES.store(local_mines, Ordering::Relaxed);
+    NEUTRAL_VEHICLES_SNIPED.store(neutral_vehicles_sniped, Ordering::Relaxed);
+}
+
+fn maybe_choose_tip(
+    info: &mut AcademyAdviceInfo,
+    choosing: bool,
+    remaining: &mut i32,
+    max_advice_tips: usize,
+    tip: &str,
+) {
+    if choosing && *remaining > 0 {
+        let rand = get_game_client_random_value(0, *remaining - 1);
+        let limit = max_advice_tips as i32 - info.num_tips as i32;
+        if rand < limit {
+            info.add_tip(tip.to_string());
+        }
+    }
+    *remaining -= 1;
+}
+
 
 /// Maximum number of advice tips to provide at once (C++ AcademyStats.h:39)
 pub const MAX_ADVICE_TIPS: usize = 1;
@@ -373,53 +402,57 @@ impl AcademyStats {
     /// Update statistics (called periodically)
     /// Based on C++ AcademyStats.cpp:279-339
     pub fn update(&mut self) {
-        // C++ line 281-284: Early exit for unknown side
+        self.update_from_player(0, true);
+    }
+
+    /// C++ AcademyStats::update with live money/energy.
+    pub fn update_from_player(&mut self, money: u32, has_power: bool) {
         if self.unknown_side {
             return;
         }
 
         let now = time::frame();
 
-        // C++ line 288: Check if it's time to update
         if self.next_update_frame >= now {
             self.next_update_frame = now + FRAMES_BETWEEN_UPDATES;
 
-            // Note: C++ line 291 iterates over player objects to call updateAcademyStats
-            // This would require object iteration system to be available.
-            // The callback (C++ lines 264-276) would call recordProduction on first update.
-
-            // C++ lines 293-305: Check if player ran out of money before building supply center
-            if self.supply_centers_built == 0 && !self.spent_cash_before_building_supply_center {
-                // Note: Would need Money system to check actual cash amount
-                // For now, we skip this check as it requires external dependency
-                // When Money system is available:
-                // if money.count_money() < self.supply_center_cost {
-                //     self.spent_cash_before_building_supply_center = true;
-                // }
+            if self.is_first_update() {
+                if let Some(world) = crate::common::rts::player::get_player_object_world() {
+                    for id in world.object_ids_for_player(self.player.value() as i32) {
+                        if let Some(snap) = world.snapshot(id) {
+                            self.record_production(snap.kind_of as u64, snap.has_contain);
+                        }
+                    }
+                }
             }
 
-            // C++ lines 307-331: Track power outage duration
-            // Note: Would need Energy system to check power status
-            // When Energy system is available, implement power tracking:
-            // let has_power = energy.has_sufficient_power();
-            // if has_power != self.had_power_last_check {
-            //     if !has_power {
-            //         self.oldest_power_out_frame = now;
-            //     } else {
-            //         let frames = now - self.oldest_power_out_frame;
-            //         if frames > self.power_out_max_frames {
-            //             self.power_out_max_frames = frames;
-            //         }
-            //     }
-            //     self.had_power_last_check = has_power;
-            // }
 
-            // C++ line 333-336: Clear first update flag
+            // C++ lines 293-305: cash before supply center
+            if self.supply_centers_built == 0 && !self.spent_cash_before_building_supply_center {
+                if money < self.supply_center_cost {
+                    self.spent_cash_before_building_supply_center = true;
+                }
+            }
+
+            // C++ lines 307-331: longest power outage
+            if has_power != self.had_power_last_check {
+                if !has_power {
+                    self.oldest_power_out_frame = now;
+                } else {
+                    let frames = now.saturating_sub(self.oldest_power_out_frame);
+                    if frames > self.power_out_max_frames {
+                        self.power_out_max_frames = frames;
+                    }
+                }
+                self.had_power_last_check = has_power;
+            }
+
             if self.is_first_update() {
                 self.set_first_update(false);
             }
         }
     }
+
 
     /// Check if this is the first update
     pub fn is_first_update(&self) -> bool {
@@ -754,78 +787,38 @@ impl AcademyStats {
     /// Based on C++ AcademyStats.cpp:483-705
     fn evaluate_tier1_advice(&self, info: &mut AcademyAdviceInfo, num_available_tips: i32) {
         let max_advice_tips = MAX_ADVICE_TIPS;
-        let mut _num_available = num_available_tips;
+        let mut remaining = num_available_tips;
         let choosing = num_available_tips != -1;
         let mut available_tips = 0;
 
-        // Note: C++ uses GameClientRandomValue for random selection.
-        // For now, we implement deterministic selection (first available tip).
-        // When random system is available, use: rand::thread_rng().gen_range(0, num_available)
-
-        // C++ lines 502-514: Advice #2 - Ran out of money before building supply center
         if self.spent_cash_before_building_supply_center {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildSupplyCenterEarlier".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildSupplyCenterEarlier");
         }
-
-        // C++ lines 516-528: Advice #3 - Build radar
         if !self.researched_radar {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:TryBuildingRadar".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryBuildingRadar");
         }
-
-        // C++ lines 530-542: Advice #4 - Build more dozers/workers
         if self.peons_built < 2 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildMorePeons".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildMorePeons");
         }
-
-        // C++ lines 544-556: Advice #5 - Capture structures
         if self.structures_captured == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:TryCapturingStructures".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryCapturingStructures");
         }
-
-        // C++ lines 558-570: Advice #6 - Spend generals points
         if self.generals_points_spent == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:SpendGeneralsPoints".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:SpendGeneralsPoints");
         }
-
-        // C++ lines 572-584: Advice #7 - Use special powers
         if self.special_powers_used == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:TryUsingSuperweapons".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryUsingSuperweapons");
         }
-
-        // C++ lines 586-598: Advice #8 - Garrison structures
         if self.structures_garrisoned == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:TryGarrisoningAStructure".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryGarrisoningAStructure");
         }
-
-        // C++ lines 600-617: Advice #9 - Build military units more frequently
         let now = time::frame();
         let idle_frames = now.saturating_sub(self.last_unit_built_frame);
         let mut max_idle = self.idle_building_units_max_frames;
@@ -834,31 +827,16 @@ impl AcademyStats {
         }
         if max_idle > 300 * LOGICFRAMES_PER_SECOND || self.last_unit_built_frame == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:IdleBuildingUnits".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:IdleBuildingUnits");
         }
-
-        // C++ lines 619-631: Advice #10 - Drag select units
         if self.drag_select_units == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:TryDragSelectingUnits".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:TryDragSelectingUnits");
         }
-
-        // C++ lines 633-645: Advice #11 - Research upgrades
         if self.upgrades_purchased == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:ResearchUpgrades".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:ResearchUpgrades");
         }
-
-        // C++ lines 647-668: Advice #12 - Ran out of power for too long
         let mut max_power_out = self.power_out_max_frames;
         if !self.had_power_last_check {
             let frames = now.saturating_sub(self.oldest_power_out_frame);
@@ -868,35 +846,22 @@ impl AcademyStats {
         }
         if max_power_out > 600 * LOGICFRAMES_PER_SECOND {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:RanOutOfPower".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:RanOutOfPower");
         }
-
-        // C++ lines 670-683: Advice #13 - Build more gatherers
         if self.gatherers_built == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildMoreGatherers".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildMoreGatherers");
         }
-
-        // C++ lines 685-697: Advice #14 - Build a hero
         if self.heroes_built == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildAHero".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(info, choosing, &mut remaining, max_advice_tips, "ACADEMY:BuildAHero");
         }
 
-        // C++ lines 699-704: Recursive call to randomly choose if we were just counting
         if !choosing && available_tips > 0 {
             self.evaluate_tier1_advice(info, available_tips);
         }
     }
+
 
     /// Evaluate tier 2 (intermediate) advice
     /// Based on C++ AcademyStats.cpp:708-851
@@ -994,46 +959,69 @@ impl AcademyStats {
         let now = time::frame();
 
         // C++ lines 871-883: Advice #25 - Use alternate mouse interface
-        // Note: Would need TheGlobalData->m_useAlternateMouse
-        // Skipped for now as it requires global data system
+        let use_alternate_mouse = crate::common::global_data::read_safe()
+            .map(|data| data.use_alternate_mouse)
+            .unwrap_or(false);
+        if !use_alternate_mouse {
+            available_tips += 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:AlternateMouseInterface",
+            );
+        }
 
-        // C++ lines 885-897: Advice #26 - Use double-click attack move/guard
+        // C++ lines 885-897: Advice #26
         if self.double_click_attack_move_orders_given == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:DoubleClickAttackMoveGuard".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:DoubleClickAttackMoveGuard",
+            );
         }
 
-        // C++ lines 899-911: Advice #27 - Build barracks sooner
+        // C++ lines 899-911: Advice #27
         if !self.built_barracks_within_five_minutes {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildBarracksSooner".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:BuildBarracksSooner",
+            );
         }
 
-        // C++ lines 913-925: Advice #28 - Build war factory sooner
+        // C++ lines 913-925: Advice #28
         if !self.built_war_factory_within_ten_minutes {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildWarFactorySooner".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:BuildWarFactorySooner",
+            );
         }
 
-        // C++ lines 927-939: Advice #29 - Build tech structure sooner
+        // C++ lines 927-939: Advice #29
         if !self.built_tech_structure_within_fifteen_minutes {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:BuildTechStructureSooner".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:BuildTechStructureSooner",
+            );
         }
 
-        // C++ lines 941-958: Advice #30 - No income for too long
+        // C++ lines 941-958: Advice #30
         let delta = now.saturating_sub(self.last_income_frame);
         let mut max_between_income = self.max_frames_between_income;
         if delta > max_between_income {
@@ -1041,19 +1029,39 @@ impl AcademyStats {
         }
         if max_between_income > LOGICFRAMES_PER_SECOND * 120 || self.last_income_frame == 0 {
             available_tips += 1;
-            if choosing && (info.num_tips as usize) < max_advice_tips {
-                info.add_tip("ACADEMY:NoIncome".to_string());
-            }
-            _num_available -= 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:NoIncome",
+            );
         }
 
-        // C++ lines 960-972: Advice #31 - Clear mines with dozers
-        // Note: Would need ThePlayerList->getLocalPlayer()->getAcademyStats()->getMines()
-        // Skipped for now as it requires player list system
+        // C++ lines 960-972: Advice #31
+        if LOCAL_PLAYER_MINES.load(Ordering::Relaxed) > 0 && self.mines_cleared == 0 {
+            available_tips += 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:NoIncome",
+            );
+        }
 
-        // C++ lines 974-989: Advice #32 - Capture sniped vehicles
-        // Note: Would need ThePlayerList->getNeutralPlayer()->getAcademyStats()->getVehiclesSniped()
-        // Skipped for now as it requires player list system
+        // C++ lines 974-989: Advice #32
+        if NEUTRAL_VEHICLES_SNIPED.load(Ordering::Relaxed) > 0 && self.vehicles_recovered == 0 {
+            available_tips += 1;
+            maybe_choose_tip(
+                info,
+                choosing,
+                &mut _num_available,
+                max_advice_tips,
+                "ACADEMY:UnmannedVehicles",
+            );
+        }
+
 
         // C++ lines 991-1006: Advice #33 - Use disguise ability
         if self.disguisable_vehicles_built > 0 && self.vehicles_disguised == 0 {

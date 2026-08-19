@@ -8,7 +8,7 @@
 use super::draw_module::{DebrisDrawInterface, DrawModule, DrawModuleData, ShadowType};
 use crate::common::*;
 use crate::effects::FXList;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{ModelDrawState, TheGameClient, TheGameLogic};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use log::debug;
@@ -112,7 +112,6 @@ fn color_from_packed_i32(value: i32) -> Color {
 }
 
 const MIN_FINAL_FRAMES: u32 = 3;
-const INITIAL_TO_FLYING_FRAMES: u32 = 10;
 
 pub struct W3DDebrisDraw {
     _data: W3DDebrisDrawModuleData,
@@ -127,6 +126,8 @@ pub struct W3DDebrisDraw {
     current_state: DebrisAnimState,
     state_frame_count: u32,
     final_stopped: bool,
+    anim_time: Real,
+    last_submitted_anim: AsciiString,
     owner_id: Option<ObjectID>,
 }
 
@@ -145,6 +146,8 @@ impl W3DDebrisDraw {
             current_state: DebrisAnimState::Initial,
             state_frame_count: 0,
             final_stopped: false,
+            anim_time: 0.0,
+            last_submitted_anim: AsciiString::new(),
             owner_id: None,
         }
     }
@@ -221,6 +224,80 @@ impl W3DDebrisDraw {
     ) -> bool {
         state != DebrisAnimState::Final && frames > MIN_FINAL_FRAMES && !is_above_terrain
     }
+
+    fn is_animation_complete(&self) -> bool {
+        let name = self.get_current_animation();
+        if name.is_empty() {
+            return true;
+        }
+        self.anim_time >= 1.0
+    }
+
+    fn animation_mode(&self) -> i32 {
+        match self.current_state {
+            DebrisAnimState::Initial => 2,
+            DebrisAnimState::Flying => 1,
+            DebrisAnimState::Final if self.final_stopped => 0,
+            DebrisAnimState::Final => 2,
+        }
+    }
+
+    fn submit_mesh(&mut self, transform_mtx: &Matrix3D) {
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let mut scale = 1.0;
+        if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(drawable) = owner_guard.get_drawable() {
+                    if let Ok(drawable_guard) = drawable.read() {
+                        scale = drawable_guard.get_world_scale().x;
+                    }
+                }
+            }
+        }
+        let world_transform = if (scale - 1.0).abs() < f32::EPSILON {
+            *transform_mtx
+        } else {
+            Matrix3D::from_scale(glam::Vec3::splat(scale)) * *transform_mtx
+        };
+        let anim = self.get_current_animation().clone();
+        if anim.as_str() != self.last_submitted_anim.as_str() {
+            self.anim_time = 0.0;
+            self.last_submitted_anim = anim.clone();
+        } else if self.animation_mode() != 0 {
+            self.anim_time = (self.anim_time + 1.0 / 30.0).min(1.0);
+        }
+        let color = if self.model_color.to_argb_u32() == 0 {
+            None
+        } else {
+            Some(self.model_color.to_argb_u32() | 0xFF00_0000)
+        };
+        let state = ModelDrawState {
+            source: Default::default(),
+            logic_drawable_id: 0,
+            model_name: self.model_name.to_string(),
+            world_transform,
+            render_object_scale: Some(scale),
+            render_object_color: color,
+            condition_flags_bits: 0,
+            bone_overrides: Vec::new(),
+            animation_name: if anim.is_empty() {
+                None
+            } else {
+                Some(anim.to_string())
+            },
+            animation_time: self.anim_time,
+            animation_mode: self.animation_mode(),
+            mesh_uv_overrides: Vec::new(),
+            sub_object_visibility: Vec::new(),
+            weapon_bone_bindings: Default::default(),
+        };
+        client.set_active_object_model_draw(owner_id, state);
+    }
 }
 
 impl Module for W3DDebrisDraw {
@@ -243,13 +320,7 @@ impl DrawModule for W3DDebrisDraw {
             return;
         }
 
-        // Matches C++ W3DDebrisDraw.cpp:189-236
-
-        // Store old state to detect transitions (C++ line 211)
-        let _old_state = self.current_state;
-
-        // Matches C++ lines 214-221: Check for state transitions
-        // Transition to FINAL if object has landed and enough frames have passed
+        let old_state = self.current_state;
         if let Some((is_above_terrain, owner_pos)) = self.owner_terrain_state() {
             if Self::should_transition_to_final(
                 self.current_state,
@@ -259,40 +330,16 @@ impl DrawModule for W3DDebrisDraw {
                 self.transition_to_final(&owner_pos, transform_mtx);
             }
         }
-
-        // Matches C++ lines 218-221: Auto-advance from INITIAL to FLYING when animation completes
-        if self.current_state == DebrisAnimState::Initial {
-            // In full implementation, this would call isAnimationComplete(m_renderObject)
-            // For now we use a simple frame count heuristic
-            // Real check: hlod->Is_Animation_Complete() (C++ lines 159-168)
-            if self.state_frame_count > INITIAL_TO_FLYING_FRAMES {
+        if self.current_state != DebrisAnimState::Final && self.is_animation_complete() {
+            if self.current_state == DebrisAnimState::Initial {
                 self.transition_to_flying();
             }
-        } else if self.current_state != DebrisAnimState::Final {
-            // Check if animation is complete and advance state (C++ line 218)
-            // This is where C++ calls isAnimationComplete(m_renderObject)
-            // In the real implementation, this checks the W3D render object
         }
-
-        // Matches C++ lines 222-233: Handle animation updates
-        // In the full implementation:
-        // 1. Get current animation for state (m_anims[m_state])
-        // 2. Check if it's different from current (hanim != m_renderObject->Peek_Animation())
-        // 3. Set animation mode (ANIM_MODE_ONCE, ANIM_MODE_LOOP, ANIM_MODE_MANUAL)
-        // 4. Call m_renderObject->Set_Animation(hanim, 0, mode) (C++ line 232)
-
-        // For FINAL state with m_finalStop flag, use ANIM_MODE_MANUAL (C++ line 230)
-        if self.current_state == DebrisAnimState::Final && self.final_stopped {
-            // Animation is frozen
+        if self.current_state != old_state {
+            self.anim_time = 0.0;
         }
-
-        // Increment frame counter (C++ line 234)
         self.state_frame_count += 1;
-
-        // Note: Actual rendering happens in the W3D device layer
-        // This module just manages state and animation selection
-        // C++ line 202: m_renderObject->Set_Transform(*transformMtx)
-        let _ = (transform_mtx, self.get_current_animation());
+        self.submit_mesh(transform_mtx);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -313,6 +360,23 @@ impl DrawModule for W3DDebrisDraw {
         _old_pos: &Coord3D,
         _old_angle: Real,
     ) {
+        if !self.model_created {
+            return;
+        }
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(drawable) = owner_guard.get_drawable() {
+                    if let Ok(drawable_guard) = drawable.read() {
+                        let transform = drawable_guard.get_transform_matrix();
+                        drop(drawable_guard);
+                        self.submit_mesh(&transform);
+                    }
+                }
+            }
+        }
     }
     fn react_to_geometry_change(&mut self) {}
 
@@ -362,6 +426,8 @@ impl DebrisDrawInterface for W3DDebrisDraw {
         // Reset state machine (C++ lines 148-149)
         self.current_state = DebrisAnimState::Initial;
         self.state_frame_count = 0;
+        self.anim_time = 0.0;
+        self.last_submitted_anim = AsciiString::new();
 
         // Store FX list reference (C++ line 150)
         // Matches C++: m_fxFinal = finalFX

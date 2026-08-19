@@ -8,7 +8,7 @@
 
 use super::draw_module::*;
 use crate::common::*;
-use crate::helpers::{TheGameClient, TERRAIN_TREE_STATE};
+use crate::helpers::TheGameClient;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -412,14 +412,50 @@ impl W3DTreeDraw {
         if !self.tree_added || self.drawable_id == INVALID_ID {
             return;
         }
-        if let Ok(mut tree_map) = TERRAIN_TREE_STATE.lock() {
-            tree_map.remove(&(self.drawable_id as u32));
+        if let Some(client) = TheGameClient::get() {
+            client.remove_tree(self.drawable_id);
         }
         self.tree_added = false;
     }
 
     pub fn is_tree_added(&self) -> bool {
         self.tree_added
+    }
+
+    /// C++ `W3DTreeDraw::reactToTransformChange` (W3DTreeDraw.cpp:107-129).
+    fn register_tree_at(&mut self, location: Coord3D, scale: Real, angle: Real) {
+        if self.tree_added {
+            return;
+        }
+        if location.x == 0.0 && location.y == 0.0 {
+            return;
+        }
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        // C++ sets `m_treeAdded` before `addTree`.
+        self.tree_added = true;
+        client.add_tree(
+            self.drawable_id,
+            &location,
+            scale,
+            angle,
+            0.0,
+            &self.data,
+        );
+    }
+
+    fn register_from_current_drawable(&mut self) {
+        if self.tree_added {
+            return;
+        }
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let Some((location, angle, scale)) = client.drawable_pose_for_tree(self.drawable_id) else {
+            return;
+        };
+        self.register_tree_at(location, scale, angle);
     }
 }
 
@@ -442,26 +478,14 @@ impl Module for W3DTreeDraw {
 
 impl DrawModule for W3DTreeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        let (scale, rotation, translation) = transform_mtx.to_scale_rotation_translation();
-
-        // C++ parity bridge: add the tree to terrain rendering once using current
-        // drawable transform (W3DTreeDraw::reactToTransformChange + addTree call path).
-        if !self.tree_added && (translation.x != 0.0 || translation.y != 0.0) {
-            if let Some(client) = TheGameClient::get() {
-                let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
-                client.add_tree(
-                    self.drawable_id,
-                    &translation,
-                    scale.x,
-                    angle,
-                    0.0,
-                    &self.data,
-                );
-                self.tree_added = true;
-            }
+        // C++ `W3DTreeDraw::doDrawModule` returns immediately (W3DTreeDraw.cpp:133-137).
+        // Keep a fallback so a tree that never received react still registers when drawn.
+        if self.tree_added {
+            return;
         }
-
-        // In C++, W3DTreeDraw::doDrawModule just returns early (W3DTreeDraw.cpp:134-137).
+        let (scale, rotation, translation) = transform_mtx.to_scale_rotation_translation();
+        let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
+        self.register_tree_at(translation, scale.x, angle);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -481,7 +505,9 @@ impl DrawModule for W3DTreeDraw {
         _old_pos: &Coord3D,
         _old_angle: Real,
     ) {
-        // Tree registration is handled in do_draw_module where current transform is available.
+        // C++ registers here so shrouded trees (no doDrawModule) still enter
+        // `TheTerrainRenderObject->addTree` (W3DTreeDraw.cpp:107-129).
+        self.register_from_current_drawable();
     }
     fn react_to_geometry_change(&mut self) {}
 }
@@ -567,5 +593,59 @@ mod tests {
         draw.on_delete();
 
         assert!(!draw.is_tree_added());
+    }
+
+    #[test]
+    fn react_to_transform_change_registers_shrouded_tree_without_draw() {
+        // C++ W3DTreeDraw::reactToTransformChange (W3DTreeDraw.cpp:107-129)
+        // is the addTree path. doDrawModule is a no-op, so shrouded trees
+        // that never draw must still register.
+        let client = TheGameClient::get().expect("game-client bridge");
+        let drawable_id = 0x00EE_7001;
+        let location = Coord3D::new(100.0, 200.0, 5.0);
+        client.seed_drawable_pose_for_test(drawable_id, location, 0.5);
+
+        let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
+        draw.bind_drawable_id(drawable_id);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.react_to_transform_change(&Matrix3D::IDENTITY, &Coord3D::ZERO, 0.0);
+
+        assert!(draw.is_tree_added());
+        let registered = client
+            .get_registered_tree(drawable_id)
+            .expect("shrouded tree must register from reactToTransformChange");
+        assert_eq!(registered.location, location);
+        assert_eq!(registered.angle, 0.5);
+        client.remove_tree(drawable_id);
+    }
+
+    #[test]
+    fn react_at_origin_does_not_register_like_cpp() {
+        // C++ W3DTreeDraw.cpp:115-117 skips x==0 && y==0 and leaves m_treeAdded false.
+        let client = TheGameClient::get().expect("game-client bridge");
+        let drawable_id = 0x00EE_7002;
+        client.seed_drawable_pose_for_test(drawable_id, Coord3D::new(0.0, 0.0, 5.0), 0.0);
+
+        let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
+        draw.bind_drawable_id(drawable_id);
+        draw.react_to_transform_change(&Matrix3D::IDENTITY, &Coord3D::ZERO, 0.0);
+
+        assert!(!draw.is_tree_added());
+        assert!(client.get_registered_tree(drawable_id).is_none());
+    }
+
+    #[test]
+    fn do_draw_module_still_registers_if_react_never_fired() {
+        let client = TheGameClient::get().expect("game-client bridge");
+        let drawable_id = 0x00EE_7003;
+        let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
+        draw.bind_drawable_id(drawable_id);
+
+        let transform = Matrix3D::from_translation(glam::Vec3::new(11.0, 22.0, 3.0));
+        draw.do_draw_module(&transform);
+
+        assert!(draw.is_tree_added());
+        assert!(client.get_registered_tree(drawable_id).is_some());
+        client.remove_tree(drawable_id);
     }
 }

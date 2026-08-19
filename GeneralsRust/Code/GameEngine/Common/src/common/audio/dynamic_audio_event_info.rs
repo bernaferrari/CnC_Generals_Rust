@@ -102,30 +102,8 @@ impl DynamicAudioEventInfo {
     pub fn new() -> Self {
         DynamicAudioEventInfo {
             audio_event_info: AudioEventInfo {
-                sound_type: AudioType::SoundEffect,
-                control: 0,
-                audio_name: String::new(),
-                volume: 0.5,
-                sounds_morning: Vec::new(),
-                sounds: Vec::new(),
-                sounds_night: Vec::new(),
-                sounds_evening: Vec::new(),
-                attack_sounds: Vec::new(),
-                decay_sounds: Vec::new(),
-                pitch_shift_min: 1.0,
-                pitch_shift_max: 1.0,
-                volume_shift: 0.0,
-                min_volume: 0.0,
-                limit: -1,
-                loop_count: 1,
-                delay_min: 0.0,
-                delay_max: 0.0,
-                filename: String::new(),
-                sound_type_field: AudioType::SoundEffect,
-                type_field: 0,
-                priority: AudioPriority::Normal,
-                min_distance: 0.0,
-                max_distance: 100.0,
+                is_level_specific: true,
+                ..AudioEventInfo::default()
             },
             overridden_fields: BitFlags::new(),
             original_name: String::new(),
@@ -135,30 +113,8 @@ impl DynamicAudioEventInfo {
     pub fn from_base_info(base_info: &AudioEventInfo) -> Self {
         DynamicAudioEventInfo {
             audio_event_info: AudioEventInfo {
-                sound_type: base_info.sound_type,
-                control: base_info.control,
-                audio_name: base_info.audio_name.clone(),
-                volume: base_info.volume,
-                sounds_morning: base_info.sounds_morning.clone(),
-                sounds: base_info.sounds.clone(),
-                sounds_night: base_info.sounds_night.clone(),
-                sounds_evening: base_info.sounds_evening.clone(),
-                attack_sounds: base_info.attack_sounds.clone(),
-                decay_sounds: base_info.decay_sounds.clone(),
-                pitch_shift_min: base_info.pitch_shift_min,
-                pitch_shift_max: base_info.pitch_shift_max,
-                volume_shift: base_info.volume_shift,
-                min_volume: base_info.min_volume,
-                limit: base_info.limit,
-                loop_count: base_info.loop_count,
-                delay_min: base_info.delay_min,
-                delay_max: base_info.delay_max,
-                filename: base_info.filename.clone(),
-                sound_type_field: base_info.sound_type_field,
-                type_field: base_info.type_field,
-                priority: base_info.priority,
-                min_distance: base_info.min_distance,
-                max_distance: base_info.max_distance,
+                is_level_specific: true,
+                ..base_info.clone()
             },
             overridden_fields: BitFlags::new(),
             original_name: String::new(),
@@ -436,32 +392,7 @@ impl Default for DynamicAudioEventInfo {
 impl Clone for DynamicAudioEventInfo {
     fn clone(&self) -> Self {
         DynamicAudioEventInfo {
-            audio_event_info: AudioEventInfo {
-                sound_type: self.audio_event_info.sound_type,
-                control: self.audio_event_info.control,
-                audio_name: self.audio_event_info.audio_name.clone(),
-                volume: self.audio_event_info.volume,
-                sounds_morning: self.audio_event_info.sounds_morning.clone(),
-                sounds: self.audio_event_info.sounds.clone(),
-                sounds_night: self.audio_event_info.sounds_night.clone(),
-                sounds_evening: self.audio_event_info.sounds_evening.clone(),
-                attack_sounds: self.audio_event_info.attack_sounds.clone(),
-                decay_sounds: self.audio_event_info.decay_sounds.clone(),
-                pitch_shift_min: self.audio_event_info.pitch_shift_min,
-                pitch_shift_max: self.audio_event_info.pitch_shift_max,
-                volume_shift: self.audio_event_info.volume_shift,
-                min_volume: self.audio_event_info.min_volume,
-                limit: self.audio_event_info.limit,
-                loop_count: self.audio_event_info.loop_count,
-                delay_min: self.audio_event_info.delay_min,
-                delay_max: self.audio_event_info.delay_max,
-                filename: self.audio_event_info.filename.clone(),
-                sound_type_field: self.audio_event_info.sound_type_field,
-                type_field: self.audio_event_info.type_field,
-                priority: self.audio_event_info.priority,
-                min_distance: self.audio_event_info.min_distance,
-                max_distance: self.audio_event_info.max_distance,
-            },
+            audio_event_info: self.audio_event_info.clone(),
             overridden_fields: self.overridden_fields.clone(),
             original_name: self.original_name.clone(),
         }
@@ -501,6 +432,7 @@ mod tests {
             priority: AudioPriority::Normal,
             min_distance: 5.0,
             max_distance: 150.0,
+            ..Default::default()
         }
     }
 

@@ -23,6 +23,14 @@ impl Point2D {
     }
 }
 
+/// Axis-aligned 2D region (`lo`/`hi`), matching C++ `Region2D`.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct GeometryRegion2D {
+    pub lo: Point2D,
+    pub hi: Point2D,
+}
+
+
 /// 3D Point structure
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point3D {
@@ -327,38 +335,59 @@ impl GeometryInfo {
         height: f32,
         depth: f32,
     ) -> Self {
-        let bounding_circle_radius = match geometry_type {
-            GeometryType::Sphere => width,
-            GeometryType::Cylinder => width,
-            GeometryType::Box => {
-                let a = width;
-                let b = depth;
-                (a * a + b * b).sqrt()
-            }
-        };
-        let bounding_sphere_radius = match geometry_type {
-            GeometryType::Sphere => width,
-            GeometryType::Cylinder => {
-                let r = width;
-                let h = height / 2.0;
-                (r * r + h * h).sqrt()
-            }
-            GeometryType::Box => {
-                let a = width;
-                let b = depth;
-                let h = height / 2.0;
-                (a * a + b * b + h * h).sqrt()
-            }
-        };
-        GeometryInfo {
+        let mut info = GeometryInfo {
             geometry_type,
             is_small,
             height,
             width,
             depth,
-            bounding_circle_radius,
-            bounding_sphere_radius,
+            bounding_circle_radius: 0.0,
+            bounding_sphere_radius: 0.0,
+        };
+        // C++ `GeometryInfo::set` copies sphere/cylinder radii before bounds.
+        match geometry_type {
+            GeometryType::Sphere => {
+                info.depth = width;
+                info.height = width;
+            }
+            GeometryType::Cylinder => {
+                info.depth = width;
+            }
+            GeometryType::Box => {}
         }
+        info.calc_bounding_stuff();
+        info
+    }
+
+    /// C++ `GeometryInfo::set`.
+    pub fn set(
+        &mut self,
+        geometry_type: GeometryType,
+        is_small: bool,
+        height: f32,
+        major_radius: f32,
+        minor_radius: f32,
+    ) {
+        self.geometry_type = geometry_type;
+        self.is_small = is_small;
+        match geometry_type {
+            GeometryType::Sphere => {
+                self.width = major_radius;
+                self.depth = major_radius;
+                self.height = major_radius;
+            }
+            GeometryType::Cylinder => {
+                self.width = major_radius;
+                self.depth = major_radius;
+                self.height = height;
+            }
+            GeometryType::Box => {
+                self.width = major_radius;
+                self.depth = minor_radius;
+                self.height = height;
+            }
+        }
+        self.calc_bounding_stuff();
     }
 
     pub fn major_radius(&self) -> f32 {
@@ -371,11 +400,351 @@ impl GeometryInfo {
 
     pub fn set_major_radius(&mut self, r: f32) {
         self.width = r;
+        if matches!(self.geometry_type, GeometryType::Sphere | GeometryType::Cylinder) {
+            self.depth = r;
+        }
+        if self.geometry_type == GeometryType::Sphere {
+            self.height = r;
+        }
+        self.calc_bounding_stuff();
     }
 
     pub fn set_minor_radius(&mut self, r: f32) {
         self.depth = r;
+        if self.geometry_type == GeometryType::Sphere {
+            self.width = r;
+            self.height = r;
+        }
+        self.calc_bounding_stuff();
     }
+
+    /// C++ `GeometryInfo::calcBoundingStuff`.
+    pub fn calc_bounding_stuff(&mut self) {
+        match self.geometry_type {
+            GeometryType::Sphere => {
+                self.bounding_sphere_radius = self.width;
+                self.bounding_circle_radius = self.width;
+            }
+            GeometryType::Cylinder => {
+                self.bounding_circle_radius = self.width;
+                let half_h = self.height * 0.5;
+                self.bounding_sphere_radius = if half_h < self.width {
+                    self.width
+                } else {
+                    half_h
+                };
+            }
+            GeometryType::Box => {
+                self.bounding_circle_radius = (self.width * self.width + self.depth * self.depth).sqrt();
+                let half_h = self.height * 0.5;
+                self.bounding_sphere_radius = (self.width * self.width
+                    + self.depth * self.depth
+                    + half_h * half_h)
+                    .sqrt();
+            }
+        }
+    }
+
+    pub fn bounding_sphere_radius(&self) -> f32 {
+        self.bounding_sphere_radius
+    }
+
+    pub fn bounding_circle_radius(&self) -> f32 {
+        self.bounding_circle_radius
+    }
+
+    /// C++ `GeometryInfo::isIntersectedByLineSegment` (sphere approximation).
+    pub fn is_intersected_by_line_segment(
+        &self,
+        loc: &Coord3D,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> bool {
+        let dist_sq = point_to_line_dist_squared(loc, from, to);
+        let r = self.bounding_sphere_radius;
+        dist_sq <= r * r
+    }
+
+    /// C++ `GeometryInfo::calcPitches`.
+    pub fn calc_pitches(
+        &self,
+        this_pos: &Coord3D,
+        that: &GeometryInfo,
+        that_pos: &Coord3D,
+    ) -> (f32, f32) {
+        let this_center = self.get_center_position(this_pos);
+        let dx = that_pos.x - this_center.x;
+        let dy = that_pos.y - this_center.y;
+        let dxy = (dx * dx + dy * dy).sqrt();
+        let max_dz = (that_pos.z + that.get_max_height_above_position()) - this_center.z;
+        let min_dz = (that_pos.z - that.get_max_height_below_position()) - this_center.z;
+        (min_dz.atan2(dxy), max_dz.atan2(dxy))
+    }
+
+    /// C++ `GeometryInfo::setMaxHeightAbovePosition`.
+    pub fn set_max_height_above_position(&mut self, z: f32) {
+        match self.geometry_type {
+            GeometryType::Sphere => self.width = z,
+            GeometryType::Box | GeometryType::Cylinder => self.height = z,
+        }
+        self.calc_bounding_stuff();
+    }
+
+    /// C++ `GeometryInfo::getMaxHeightAbovePosition`.
+    pub fn get_max_height_above_position(&self) -> f32 {
+        match self.geometry_type {
+            GeometryType::Sphere => self.width,
+            GeometryType::Box | GeometryType::Cylinder => self.height,
+        }
+    }
+
+    /// C++ `GeometryInfo::getMaxHeightBelowPosition`.
+    pub fn get_max_height_below_position(&self) -> f32 {
+        match self.geometry_type {
+            GeometryType::Sphere => self.width,
+            GeometryType::Box | GeometryType::Cylinder => 0.0,
+        }
+    }
+
+    /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
+    pub fn get_z_delta_to_center_position(&self) -> f32 {
+        if self.geometry_type == GeometryType::Sphere {
+            0.0
+        } else {
+            self.height * 0.5
+        }
+    }
+
+    /// C++ `GeometryInfo::getCenterPosition`.
+    pub fn get_center_position(&self, pos: &Coord3D) -> Coord3D {
+        Coord3D {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z + self.get_z_delta_to_center_position(),
+        }
+    }
+
+    /// C++ `GeometryInfo::expandFootprint`.
+    pub fn expand_footprint(&mut self, radius: f32) {
+        self.width += radius;
+        self.depth += radius;
+        self.calc_bounding_stuff();
+    }
+
+    /// C++ `GeometryInfo::get2DBounds`.
+    pub fn get_2d_bounds(&self, geom_center: &Coord3D, angle: f32) -> GeometryRegion2D {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => GeometryRegion2D {
+                lo: Point2D::new(geom_center.x - self.width, geom_center.y - self.width),
+                hi: Point2D::new(geom_center.x + self.width, geom_center.y + self.width),
+            },
+            GeometryType::Box => {
+                let c = angle.cos();
+                let s = angle.sin();
+                let exc = self.width * c;
+                let eyc = self.depth * c;
+                let exs = self.width * s;
+                let eys = self.depth * s;
+                let corners = [
+                    (geom_center.x - exc - eys, geom_center.y + eyc - exs),
+                    (geom_center.x + exc - eys, geom_center.y + eyc + exs),
+                    (geom_center.x + exc + eys, geom_center.y - eyc + exs),
+                    (geom_center.x - exc + eys, geom_center.y - eyc - exs),
+                ];
+                let mut lo_x = corners[0].0;
+                let mut lo_y = corners[0].1;
+                let mut hi_x = corners[0].0;
+                let mut hi_y = corners[0].1;
+                for &(x, y) in &corners[1..] {
+                    if lo_x > x {
+                        lo_x = x;
+                    }
+                    if lo_y > y {
+                        lo_y = y;
+                    }
+                    if hi_x < x {
+                        hi_x = x;
+                    }
+                    if hi_y < y {
+                        hi_y = y;
+                    }
+                }
+                GeometryRegion2D {
+                    lo: Point2D::new(lo_x, lo_y),
+                    hi: Point2D::new(hi_x, hi_y),
+                }
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::clipPointToFootprint`.
+    pub fn clip_point_to_footprint(&self, geom_center: &Coord3D, pt: &mut Coord3D) {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => {
+                let dx = pt.x - geom_center.x;
+                let dy = pt.y - geom_center.y;
+                let radius = (dx * dx + dy * dy).sqrt();
+                if radius > self.width {
+                    let ratio = self.width / radius;
+                    pt.x = geom_center.x + dx * ratio;
+                    pt.y = geom_center.y + dy * ratio;
+                }
+            }
+            GeometryType::Box => {
+                pt.x = pt
+                    .x
+                    .clamp(geom_center.x - self.width, geom_center.x + self.width);
+                pt.y = pt
+                    .y
+                    .clamp(geom_center.y - self.depth, geom_center.y + self.depth);
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::isPointInFootprint`.
+    pub fn is_point_in_footprint(&self, geom_center: &Coord3D, pt: &Coord3D) -> bool {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => {
+                let dx = pt.x - geom_center.x;
+                let dy = pt.y - geom_center.y;
+                (dx * dx + dy * dy).sqrt() <= self.width
+            }
+            GeometryType::Box => {
+                is_within(geom_center.x - self.width, pt.x, geom_center.x + self.width)
+                    && is_within(geom_center.y - self.depth, pt.y, geom_center.y + self.depth)
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::makeRandomOffsetWithinFootprint`.
+    pub fn make_random_offset_within_footprint(&self) -> Coord3D {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => {
+                let max_dist_sq = self.width * self.width;
+                loop {
+                    let x = crate::common::random_value::get_game_logic_random_value_real(
+                        -self.width,
+                        self.width,
+                    );
+                    let y = crate::common::random_value::get_game_logic_random_value_real(
+                        -self.width,
+                        self.width,
+                    );
+                    if x * x + y * y <= max_dist_sq {
+                        return Coord3D { x, y, z: 0.0 };
+                    }
+                }
+            }
+            GeometryType::Box => Coord3D {
+                x: crate::common::random_value::get_game_logic_random_value_real(
+                    -self.width,
+                    self.width,
+                ),
+                y: crate::common::random_value::get_game_logic_random_value_real(
+                    -self.depth,
+                    self.depth,
+                ),
+                z: 0.0,
+            },
+        }
+    }
+
+    /// C++ `GeometryInfo::makeRandomOffsetOnPerimeter`.
+    pub fn make_random_offset_on_perimeter(&self) -> Coord3D {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => Coord3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            GeometryType::Box => {
+                let mut pt = Coord3D {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                };
+                if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {
+                    pt.x = crate::common::random_value::get_game_logic_random_value_real(
+                        -self.width,
+                        self.width,
+                    );
+                    pt.y = if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
+                        < 0.5
+                    {
+                        -self.depth
+                    } else {
+                        self.depth
+                    };
+                } else {
+                    pt.y = crate::common::random_value::get_game_logic_random_value_real(
+                        -self.depth,
+                        self.depth,
+                    );
+                    pt.x = if crate::common::random_value::get_game_logic_random_value_real(0.0, 1.0)
+                        < 0.5
+                    {
+                        -self.width
+                    } else {
+                        self.width
+                    };
+                }
+                pt
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::getFootprintArea`.
+    pub fn get_footprint_area(&self) -> f32 {
+        match self.geometry_type {
+            GeometryType::Sphere | GeometryType::Cylinder => {
+                std::f32::consts::PI * self.bounding_circle_radius * self.bounding_circle_radius
+            }
+            GeometryType::Box => 4.0 * self.width * self.depth,
+        }
+    }
+}
+
+fn is_within(a: f32, b: f32, c: f32) -> bool {
+    a <= b && b <= c
+}
+
+fn calc_dot(a: &Coord3D, b: &Coord3D) -> f32 {
+    a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+fn calc_dist_squared(a: &Coord3D, b: &Coord3D) -> f32 {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    let dz = a.z - b.z;
+    dx * dx + dy * dy + dz * dz
+}
+
+fn point_to_line_dist_squared(pt: &Coord3D, line_start: &Coord3D, line_end: &Coord3D) -> f32 {
+    let line = Coord3D {
+        x: line_end.x - line_start.x,
+        y: line_end.y - line_start.y,
+        z: line_end.z - line_start.z,
+    };
+    let line_to_pt = Coord3D {
+        x: pt.x - line_start.x,
+        y: pt.y - line_start.y,
+        z: pt.z - line_start.z,
+    };
+    let dot = calc_dot(&line_to_pt, &line);
+    if dot <= 0.0 {
+        return calc_dist_squared(pt, line_start);
+    }
+    let line_len_sq = calc_dist_squared(line_start, line_end);
+    if line_len_sq <= dot {
+        return calc_dist_squared(pt, line_end);
+    }
+    let tmp = dot / line_len_sq;
+    let closest = Coord3D {
+        x: line_start.x + tmp * line.x,
+        y: line_start.y + tmp * line.y,
+        z: line_start.z + tmp * line.z,
+    };
+    calc_dist_squared(pt, &closest)
 }
 
 impl Default for GeometryInfo {

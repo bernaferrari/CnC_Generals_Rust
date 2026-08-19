@@ -517,8 +517,10 @@ impl W3DLaserDraw {
 
     fn init_lines(&mut self) {
         self.has_texture = !self.data.texture_name.is_empty();
-        self.texture_aspect_ratio = 1.0;
-
+        self.texture_aspect_ratio = crate::object::draw::texture_aspect_ratio(
+            self.data.texture_name.as_str(),
+        )
+        .unwrap_or(1.0);
         let (inner_r, inner_g, inner_b, inner_a) = color_components_real(self.data.inner_color);
         let (outer_r, outer_g, outer_b, outer_a) = color_components_real(self.data.outer_color);
 
@@ -710,6 +712,7 @@ impl DrawModule for W3DLaserDraw {
                         None
                     },
                     tile_factor: line.tile_factor,
+                    scroll_rate: self.data.scroll_rate,
                     visible: line.visible,
                 };
 

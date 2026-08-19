@@ -388,6 +388,8 @@ impl CnCGameEngine {
     pub(super) fn host_tick_loading_client_residuals(&mut self) -> Result<()> {
         // Wave 604: loading client residual.
         // In loading: minimal updates, mainly for loading screen animations
+        // C++ GameClient.cpp:560-565 — snow + Anim2D in every client state.
+        self.host_update_cpp_snow_and_anim2d();
         self.update_startup_loading()?;
         if self.current_state != GameState::Loading {
             // Loading completed and transitioned this frame; avoid re-applying loading UI.
@@ -469,6 +471,8 @@ impl CnCGameEngine {
         // Wave 603: paused client residual.
         // In paused: update UI and camera, but not game logic
         // (matches C++ where TheGameLogic->isGamePaused() prevents update)
+        // C++ GameClient.cpp:560-565 — snow + Anim2D still run while paused.
+        self.host_update_cpp_snow_and_anim2d();
         self.update_camera(visual_dt);
         self.cleanup_sound_effects();
         self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
@@ -482,6 +486,7 @@ impl CnCGameEngine {
         // Wave 603: endgame client residual.
         // End-of-match screen: keep UI alive, game logic frozen.
         // C++ shows the score screen then transitions to Menu on user input.
+        self.host_update_cpp_snow_and_anim2d();
         self.update_camera(visual_dt);
         self.cleanup_sound_effects();
         if let Err(err) = self.ui_manager.update(dt) {
@@ -1279,6 +1284,15 @@ impl CnCGameEngine {
         false
     }
 
+    /// C++ GameClient.cpp:560-565 — TheSnowManager + TheAnim2DCollection
+    /// UPDATE every client frame in every state.
+    pub(super) fn host_update_cpp_snow_and_anim2d(&mut self) {
+        #[cfg(feature = "game_client")]
+        self.game_client.update_cpp_snow_and_anim2d(
+            game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
+        );
+    }
+
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
     ///
     /// Advances Main-injected device state, shell/pre/post UI, then drains
@@ -1862,6 +1876,8 @@ impl CnCGameEngine {
     /// script camera residual, and presentation-or-boot popup/music/movies.
     pub(super) fn host_tick_post_presentation_client_residuals(&mut self, visual_dt: f32, dt: f32) {
         // Wave 600: post-presentation client residual.
+        // C++ GameClient.cpp:560-565 — snow + Anim2D every client frame.
+        self.host_update_cpp_snow_and_anim2d();
         // Update camera
         if self.current_state != GameState::Menu {
             self.update_camera(visual_dt);
@@ -2227,9 +2243,12 @@ impl CnCGameEngine {
             self.game_client
                 .apply_presentation_superweapon_timers(&sw_timers);
 
-            // Cinematic text residual → InGameUI HUD message.
-            self.game_client
-                .apply_presentation_cinematic_text(pres.cinematic_text.as_deref());
+            // Cinematic text residual → W3DDisplay caption (not HUD chat).
+            self.game_client.apply_presentation_cinematic_text(
+                pres.cinematic_text.as_deref(),
+                pres.cinematic_text_remaining_ms,
+                None,
+            );
             // Wave 964: selection residual for InGameUI host empty dual-world path.
             let sel_units: Vec<game_client::gui::ingame_ui::PresentationSelectedUnitResidual> = {
                 let selected: std::collections::HashSet<_> =

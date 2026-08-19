@@ -9,6 +9,29 @@ use crate::common::ini::ini_game_data::{get_global_data, GlobalData};
 use crate::common::ini::ini_game_lod::{
     get_game_lod_manager, get_game_lod_manager_mut, StaticGameLODInfo, StaticGameLODLevel,
 };
+use crate::common::ini::{INILoadType, INI};
+use crate::common::user_preferences::UserPreferences;
+
+static REBUILD_SHADOWS: OnceLock<fn()> = OnceLock::new();
+static REBUILD_SHORELINE: OnceLock<fn()> = OnceLock::new();
+static REBUILD_TANK_TRACKS: OnceLock<fn()> = OnceLock::new();
+static ADJUST_CLIENT_LOD: OnceLock<fn(i32)> = OnceLock::new();
+static GAME_LOD_INI_LOADED: OnceLock<bool> = OnceLock::new();
+
+/// Terrain/Shadow slices register these; Common only invokes them.
+pub fn register_rebuild_shadows(hook: fn()) {
+    let _ = REBUILD_SHADOWS.set(hook);
+}
+pub fn register_rebuild_shoreline(hook: fn()) {
+    let _ = REBUILD_SHORELINE.set(hook);
+}
+pub fn register_rebuild_tank_tracks(hook: fn()) {
+    let _ = REBUILD_TANK_TRACKS.set(hook);
+}
+pub fn register_adjust_client_lod(hook: fn(i32)) {
+    let _ = ADJUST_CLIENT_LOD.set(hook);
+}
+
 
 const MINIMUM_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const PROFILE_ERROR_LIMIT: f32 = 0.94;
@@ -235,6 +258,11 @@ fn apply_static_lod_level(level_name: &str) {
     };
     let mut global = global_data.write();
 
+    let prev_shadow_volumes = global.use_shadow_volumes;
+    let prev_shadow_decals = global.use_shadow_decals;
+    let prev_soft_water = global.show_soft_water_edge;
+    let prev_texture = global.texture_reduction_factor;
+
     global.max_particle_count = lod_info.max_particle_count;
     global.use_shadow_volumes = lod_info.use_shadow_volumes;
     global.use_shadow_decals = lod_info.use_shadow_decals;
@@ -254,7 +282,31 @@ fn apply_static_lod_level(level_name: &str) {
     if !did_mem_pass() || is_really_low_mhz() {
         global.shell_map_on = false;
     }
-}
+    drop(global);
+
+    // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
+    if requested_texture_reduction != prev_texture {
+        if let Some(hook) = ADJUST_CLIENT_LOD.get() {
+            hook(0);
+        }
+    }
+    if lod_info.use_shadow_volumes != prev_shadow_volumes
+        || lod_info.use_shadow_decals != prev_shadow_decals
+    {
+        if let Some(hook) = REBUILD_SHADOWS.get() {
+            hook();
+        }
+    }
+    if lod_info.show_soft_water_edge != prev_soft_water {
+        if let Some(hook) = REBUILD_SHORELINE.get() {
+            hook();
+        }
+    }
+    if let Some(hook) = REBUILD_TANK_TRACKS.get() {
+        hook();
+    }
+    }
+
 
 fn recommended_texture_reduction(
     manager: &crate::common::ini::ini_game_lod::GameLODManager,
@@ -407,6 +459,8 @@ pub fn prefers_low_res_movies() -> bool {
 }
 
 fn ensure_game_lod_loaded() {
+    load_game_lod_ini_presets_and_options();
+
     let mut map_guard = match dynamic_lod_slow_death().write() {
         Ok(guard) => guard,
         Err(_) => return,
@@ -429,6 +483,79 @@ fn ensure_game_lod_loaded() {
         if let Ok(contents) = fs::read_to_string(&path) {
             parse_game_lod_ini(&contents, &mut map_guard);
         }
+    }
+}
+
+/// C++ `GameLODManager::init`: load GameLOD.ini, GameLODPresets.ini, snapshot
+/// Custom from GlobalData, apply OptionPreferences, then setStaticLODLevel.
+pub fn load_game_lod_ini_presets_and_options() {
+    if GAME_LOD_INI_LOADED.get().is_some() {
+        return;
+    }
+    let _ = GAME_LOD_INI_LOADED.set(true);
+
+    crate::common::ini::ini_game_lod::init_game_lod_manager();
+
+    let mut ini = INI::new();
+    for virtual_path in ["Data/INI/GameLOD.ini", "Data/INI/GameLODPresets.ini"] {
+        if let Some(path) =
+            crate::common::system::install_layout::resolve_data_ini_file(virtual_path)
+        {
+            if let Err(err) = ini.load(&path, INILoadType::Overwrite) {
+                eprintln!("Failed to load GameLOD INI '{}': {err}", path.display());
+            }
+        }
+    }
+
+    refresh_custom_static_lod_level();
+
+    let mut prefs = UserPreferences::new();
+    let _ = prefs.load("Options.ini");
+    if let Some(ideal) = prefs.get_string("IdealStaticGameLOD").cloned() {
+        set_ideal_static_lod_from_string(&ideal);
+    }
+    let user_detail = prefs
+        .get_string("StaticGameLOD")
+        .cloned()
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    if user_detail.eq_ignore_ascii_case("Custom") {
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            if let Some(v) = prefs.get_int("TextureReduction") {
+                if v >= 0 {
+                    global.texture_reduction_factor = v;
+                }
+            }
+            if let Some(v) = prefs.get_bool("UseShadowVolumes") {
+                global.use_shadow_volumes = v;
+            }
+            if let Some(v) = prefs.get_bool("UseShadowDecals") {
+                global.use_shadow_decals = v;
+            }
+            if let Some(v) = prefs.get_int("MaxParticleCount") {
+                global.max_particle_count = v;
+            }
+            if let Some(v) = prefs.get_bool("UseLightMap") {
+                global.use_light_map = v;
+            }
+            if let Some(v) = prefs.get_bool("UseCloudMap") {
+                global.use_cloud_map = v;
+            }
+            if let Some(v) = prefs.get_bool("ShowSoftWaterEdge") {
+                global.show_soft_water_edge = v;
+            }
+            if let Some(v) = prefs.get_bool("UseHeatEffects") {
+                global.use_heat_effects = v;
+            }
+            if let Some(v) = prefs.get_bool("UseTrees") {
+                global.use_trees = v;
+            }
+        }
+    }
+
+    if !user_detail.eq_ignore_ascii_case("Unknown") {
+        set_static_lod_from_string(&user_detail);
     }
 }
 

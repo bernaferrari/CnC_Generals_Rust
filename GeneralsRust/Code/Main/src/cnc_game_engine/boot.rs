@@ -216,9 +216,10 @@ impl CnCGameEngine {
         let camera_target = Vec3::ZERO;
         let camera_position = Vec3::new(0.0, 310.0, -403.99988);
         let camera_zoom = 1.0;
-        let projection_matrix = Mat4::perspective_rh(
+        let aspect = size.width as f32 / size.height as f32;
+        let projection_matrix = perspective_rh_from_horizontal_fov(
             DEFAULT_VIEW_FOV_RADIANS,
-            size.width as f32 / size.height as f32,
+            aspect,
             DEFAULT_VIEW_NEAR_CLIP,
             DEFAULT_VIEW_FAR_CLIP,
         );

@@ -3,12 +3,14 @@ use std::sync::{Arc, Mutex};
 
 use crate::common::{
     Bool, CommandSourceType, Int, KindOf, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real,
-    UnsignedInt, FROM_CENTER_2D,
+    Relationship, UnsignedInt, FROM_CENTER_2D,
 };
 use crate::helpers::{
-    game_client_random_value_real, game_logic_random_value, TheGameLogic, ThePartitionManager,
+    game_client_random_value_real, game_logic_random_value, TheAudio, TheGameLogic,
+    ThePartitionManager,
 };
 use crate::modules::{StealthUpdate as StealthUpdateTrait, UPDATE_SLEEP_NONE};
+use crate::player::{player_list, PlayerArcExt};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
@@ -43,6 +45,22 @@ const STEALTH_NOT_WHILE_FIRING_WEAPON: u32 = STEALTH_NOT_WHILE_FIRING_PRIMARY
     | STEALTH_NOT_WHILE_FIRING_SECONDARY
     | STEALTH_NOT_WHILE_FIRING_TERTIARY;
 const NEVER_FRAME: UnsignedInt = u32::MAX;
+
+fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
+    let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        if stealth_on {
+            obj.get_template().get_sound_stealth_on()
+        } else {
+            obj.get_template().get_sound_stealth_off()
+        }
+    }) else {
+        return;
+    };
+    event.set_object_id(object_id);
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+}
 
 /// Stealth configuration ported from the legacy StealthUpdateModuleData.
 #[derive(Debug, Clone)]
@@ -348,31 +366,57 @@ impl StealthController {
             }
         }
 
-        let (allowed, reveal_too_close) = OBJECT_REGISTRY
-            .with_object(self.object_id, |obj_guard| {
-                (
-                    self.allowed_to_stealth_runtime(obj_guard, now),
-                    self.is_too_close_to_current_target(obj_guard),
-                )
-            })
-            .unwrap_or((false, false));
+        let stealth_owner_id = self.calc_stealth_owner();
+        let stealth_delay = self.stealth_rules_for(stealth_owner_id).0;
+
+        let (allowed, reveal_too_close, was_stealthed, was_detected, locally_controlled) =
+            OBJECT_REGISTRY
+                .with_object(self.object_id, |obj_guard| {
+                    let status = obj_guard.get_status_bits();
+                    (
+                        self.allowed_to_stealth_runtime(obj_guard, now, stealth_owner_id),
+                        self.is_too_close_to_current_target(obj_guard),
+                        status.contains(ObjectStatusMaskType::STEALTHED),
+                        status.contains(ObjectStatusMaskType::DETECTED),
+                        obj_guard.is_locally_controlled(),
+                    )
+                })
+                .unwrap_or((false, false, false, false, false));
 
         if reveal_too_close {
             self.mark_as_detected();
+            return Ok(());
         }
 
         if allowed {
             if now >= self.stealth_allowed_frame {
+                // C++ StealthUpdate.cpp:727-731 — SoundStealthOn when gaining STEALTHED.
+                if !was_stealthed {
+                    play_object_stealth_sound(self.object_id, true);
+                }
                 self.set_status_flag(ObjectStatusMaskType::STEALTHED, true)?;
                 self.is_stealthed = true;
             }
         } else {
-            self.stealth_allowed_frame = now.saturating_add(self.data.stealth_delay_frames);
+            self.stealth_allowed_frame = now.saturating_add(stealth_delay);
+            // C++ StealthUpdate.cpp:742-746 — destalth still plays SoundStealthOn.
+            if was_stealthed {
+                play_object_stealth_sound(self.object_id, true);
+            }
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, false)?;
             self.is_stealthed = false;
         }
 
         let detected = self.detection_expires_frame > now;
+        if detected {
+            // C++ StealthUpdate.cpp:758-763 — first DETECTED plays SoundStealthOff.
+            if !was_detected {
+                play_object_stealth_sound(self.object_id, false);
+            }
+        } else if was_detected && locally_controlled {
+            // C++ StealthUpdate.cpp:771-779 — detection clear plays SoundStealthOn if local.
+            play_object_stealth_sound(self.object_id, true);
+        }
         self.set_status_flag(ObjectStatusMaskType::DETECTED, detected)?;
 
         Ok(())
@@ -411,18 +455,35 @@ impl StealthController {
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
             TheGameLogic::set_wake_frame(self.object_id, UPDATE_SLEEP_NONE);
-        } else if self.disguised {
+        } else if self.disguised || self.disguise_as_template_name.is_some() {
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
             self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
+            self.disguised = false;
         }
     }
 
     /// Get the stealth level mask (StealthForbiddenConditions bitmask)
     pub fn get_stealth_level(&self) -> UnsignedInt {
         self.data.stealth_level_mask
+    }
+
+    pub fn get_stealth_delay(&self) -> UnsignedInt {
+        self.data.stealth_delay_frames
+    }
+
+    pub fn get_order_idle_enemies_to_attack_me_upon_reveal(&self) -> bool {
+        self.data.order_idle_enemies_to_attack
+    }
+
+    pub fn enemy_detection_eva_event(&self) -> Option<&str> {
+        self.data.enemy_detection_eva_event.as_deref()
+    }
+
+    pub fn own_detection_eva_event(&self) -> Option<&str> {
+        self.data.own_detection_eva_event.as_deref()
     }
 
     pub fn begin_stealth(&mut self) -> Result<(), StealthUpdateError> {
@@ -453,24 +514,35 @@ impl StealthController {
     }
 
     pub fn mark_as_detected(&mut self) {
-        let now = TheGameLogic::get_frame();
-        self.detection_expires_frame = now.saturating_add(self.data.stealth_delay_frames);
-        self.set_detected_status();
+        self.apply_detection(0);
     }
 
     pub fn mark_as_detected_for(&mut self, num_frames: UnsignedInt) {
-        if num_frames == 0 {
-            self.mark_as_detected();
-            return;
+        self.apply_detection(num_frames);
+    }
+
+    fn apply_detection(&mut self, num_frames: UnsignedInt) {
+        let owner_id = self.calc_stealth_owner();
+        let (stealth_delay, _, order_idles) = self.stealth_rules_for(owner_id);
+
+        // C++ StealthUpdate.cpp:875-878 — permanently strip an active disguise.
+        if self.disguise_as_template_name.is_some() || self.disguised {
+            let now = TheGameLogic::get_frame();
+            self.disguise_as_template(None, now);
         }
 
         let now = TheGameLogic::get_frame();
-        let detection_expires_frame = now.saturating_add(num_frames);
-        if self.detection_expires_frame < detection_expires_frame {
-            self.detection_expires_frame = detection_expires_frame;
+        if num_frames == 0 {
+            self.detection_expires_frame = now.saturating_add(stealth_delay);
+        } else if self.detection_expires_frame < now.saturating_add(num_frames) {
+            self.detection_expires_frame = now.saturating_add(num_frames);
         }
 
         self.set_detected_status();
+
+        if order_idles {
+            self.order_idle_enemies_to_attack();
+        }
     }
 
     fn set_detected_status(&mut self) {
@@ -481,6 +553,97 @@ impl StealthController {
             );
         }
         self.is_stealthed = true;
+    }
+
+    fn calc_stealth_owner(&self) -> ObjectID {
+        // C++ StealthUpdate.cpp:531-556 — first contained rider when UseRiderStealth.
+        if dual_world_registry_unavailable() || !self.data.use_rider_stealth {
+            return self.object_id;
+        }
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                let Some(contain) = guard.get_contain() else {
+                    return self.object_id;
+                };
+                contain
+                    .lock()
+                    .ok()
+                    .and_then(|contain_guard| {
+                        contain_guard.get_contained_objects().first().copied()
+                    })
+                    .unwrap_or(self.object_id)
+            })
+            .unwrap_or(self.object_id)
+    }
+
+    fn stealth_rules_for(&self, owner_id: ObjectID) -> (UnsignedInt, u32, bool) {
+        if owner_id == self.object_id {
+            return (
+                self.data.stealth_delay_frames,
+                self.data.stealth_level_mask,
+                self.data.order_idle_enemies_to_attack,
+            );
+        }
+        OBJECT_REGISTRY
+            .with_object(owner_id, |owner| {
+                owner.get_stealth().and_then(|handle| {
+                    handle.lock().ok().map(|guard| {
+                        (
+                            guard.data.stealth_delay_frames,
+                            guard.data.stealth_level_mask,
+                            guard.data.order_idle_enemies_to_attack,
+                        )
+                    })
+                })
+            })
+            .flatten()
+            .unwrap_or((
+                self.data.stealth_delay_frames,
+                self.data.stealth_level_mask,
+                self.data.order_idle_enemies_to_attack,
+            ))
+    }
+
+    fn order_idle_enemies_to_attack(&self) {
+        // C++ StealthUpdate.cpp:892-910 + setWakeupIfInRange 817-834.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        let Some((self_pos, self_player)) = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            (*obj.get_position(), obj.get_controlling_player())
+        }) else {
+            return;
+        };
+        let Some(self_player) = self_player else {
+            return;
+        };
+        let Ok(list) = player_list().read() else {
+            return;
+        };
+        for player in list.iter() {
+            let is_enemy = match (player.read(), self_player.read()) {
+                (Ok(other), Ok(mine)) => other.get_relationship(&mine) == Relationship::Enemies,
+                _ => false,
+            };
+            if !is_enemy {
+                continue;
+            }
+            let _ = player.iterate_objects(|enemy| {
+                if let Ok(enemy_guard) = enemy.read() {
+                    if enemy_guard.get_ai().is_some() {
+                        let vision = enemy_guard.get_vision_range();
+                        let delta = *enemy_guard.get_position() - self_pos;
+                        if delta.length() <= vision {
+                            TheGameLogic::set_wake_frame(
+                                enemy_guard.get_id(),
+                                UPDATE_SLEEP_NONE,
+                            );
+                        }
+                    }
+                }
+                Ok(())
+            });
+        }
     }
 
     /// Apply a temporary stealth grant (simplified parity with C++).
@@ -550,13 +713,18 @@ impl StealthController {
             && !status.intersects(self.data.forbidden_status())
     }
 
-    fn allowed_to_stealth_runtime(&mut self, object: &Object, current_frame: UnsignedInt) -> bool {
+    fn allowed_to_stealth_runtime(
+        &mut self,
+        object: &Object,
+        current_frame: UnsignedInt,
+        stealth_owner_id: ObjectID,
+    ) -> bool {
         // Wave 283: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
             return false;
         }
 
-        let flags = self.data.stealth_level_mask;
+        let flags = self.stealth_rules_for(stealth_owner_id).1;
         let status = object.get_status_bits();
 
         if (flags & STEALTH_NOT_WHILE_ATTACKING) != 0
@@ -583,7 +751,19 @@ impl StealthController {
             }
         }
 
-        if !status.contains(ObjectStatusMaskType::CAN_STEALTH) {
+        // C++ StealthUpdate.cpp:294 — CAN_STEALTH is tested on the stealth owner (rider).
+        let can_stealth = if stealth_owner_id == self.object_id {
+            status.contains(ObjectStatusMaskType::CAN_STEALTH)
+        } else {
+            OBJECT_REGISTRY
+                .with_object(stealth_owner_id, |owner| {
+                    owner
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::CAN_STEALTH)
+                })
+                .unwrap_or(false)
+        };
+        if !can_stealth {
             return false;
         }
 
@@ -1662,5 +1842,34 @@ mod tests {
         assert!(!controller.transitioning_to_disguise);
         assert_eq!(controller.disguise_transition_frames, 7);
         assert!(!controller.disguise_halfpoint_reached);
+    }
+
+    #[test]
+    fn mark_as_detected_strips_active_disguise() {
+        let object_id: ObjectID = 4246;
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut data = StealthUpdateModuleData::default();
+        data.order_idle_enemies_to_attack = true;
+        data.use_rider_stealth = true;
+        let mut controller = StealthController::new(Arc::new(data), object_id);
+        controller.disguise_as_template(Some("GLAVehicleBombTruck".to_string()), 0);
+        assert!(controller.is_disguised());
+
+        controller.mark_as_detected();
+        assert!(!controller.is_disguised());
+        assert!(controller.detection_expires_frame > 0);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn stealth_defaults_match_cpp() {
+        let data = StealthUpdateModuleData::default();
+        assert_eq!(data.stealth_delay_frames, u32::MAX);
+        assert_eq!(data.pulse_frames, 30);
+        assert!(data.innate_stealth);
+        assert!(!data.use_rider_stealth);
     }
 }

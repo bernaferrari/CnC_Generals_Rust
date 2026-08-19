@@ -93,7 +93,8 @@ use crate::nat::{NatBinding as NatBind, NatConfig as NatCfg, NatService as NatSv
 use crate::observability::telemetry;
 use crate::security::firewall::{FirewallConfig as FwConfig, FirewallHelper as FwHelper};
 use crate::security::SecurityManager as SecManager;
-use crate::transport::Transport as NetTransport;
+use crate::transport::TransportProtocol;
+use crate::transport_unified::UnifiedTransport as NetTransport;
 use crate::utils::NetworkUtils;
 
 // Public modules
@@ -354,6 +355,8 @@ pub struct NetworkConfig {
     pub enable_encryption: bool,
     /// Debug mode for development
     pub debug_mode: bool,
+    /// In-game transport. C++ uses UDP XOR/CRC; QUIC remains optional.
+    pub protocol: TransportProtocol,
     /// NAT traversal settings
     pub nat: NatCfg,
     /// Firewall/UPnP configuration
@@ -718,6 +721,7 @@ impl Default for NetworkConfig {
             enable_compression: true,
             enable_encryption: true,
             debug_mode: false,
+            protocol: TransportProtocol::Udp,
             nat: NatCfg::default(),
             firewall: FwConfig::default(),
         }
@@ -909,7 +913,10 @@ impl NetworkInterface {
         let frame_listener_counter = AtomicUsize::new(0);
         let executed_frames = Arc::new(Mutex::new(VecDeque::with_capacity(128)));
 
-        let transport = Arc::new(NetTransport::new().await?);
+        let transport = Arc::new(match config.protocol {
+            TransportProtocol::Udp => NetTransport::new_udp().await?,
+            _ => NetTransport::new_quic().await?,
+        });
         let connection_manager = Arc::new(RwLock::new(
             ConnManager::new_with_transport(transport.clone()).await?,
         ));
@@ -934,6 +941,7 @@ impl NetworkInterface {
                 file_progress_tx: file_progress_tx.clone(),
                 chat_tx: chat_tx.clone(),
                 timeout_tx: timeout_tx.clone(),
+                frame_manager: None,
             });
             if let Some(security) = security_manager.clone() {
                 manager.set_security_manager(security);
@@ -967,6 +975,10 @@ impl NetworkInterface {
                 frame_listeners.clone(),
                 executed_frames.clone(),
             )));
+        }
+        {
+            let mut manager = connection_manager.write().await;
+            manager.attach_frame_manager(frame_manager.clone());
         }
         let nat = NatSvc::new(config.nat.clone());
         nat.start_auto_refresh(transport.clone()).await;
@@ -1952,6 +1964,16 @@ impl NetworkInterface {
 
     /// Send a command to all players
     pub async fn send_command(&self, command: NetCommand) -> NetResult<()> {
+        let mut command = command;
+        if command.execution_frame == 0 {
+            command.execution_frame = self.execution_frame();
+        }
+        {
+            let frame_manager = self.frame_manager.read().await;
+            if let Err(err) = frame_manager.add_command(command.clone()).await {
+                debug!("Local command not buffered in FrameData: {}", err);
+            }
+        }
         let connection_manager = self.connection_manager.read().await;
         let result = connection_manager.broadcast_command(command).await;
         drop(connection_manager);
@@ -1979,7 +2001,7 @@ impl NetworkInterface {
     pub async fn connect_player(&self, player_id: u8, addr: SocketAddr) -> NetResult<()> {
         let manager = self.connection_manager.read().await;
         manager
-            .add_connection(player_id, addr, TransportProtocol::Quic)
+            .add_connection(player_id, addr, self.config.protocol)
             .await?;
         drop(manager);
 

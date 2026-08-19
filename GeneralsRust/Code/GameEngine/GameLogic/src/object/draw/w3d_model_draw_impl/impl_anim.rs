@@ -69,6 +69,8 @@ impl W3DModelDraw {
         self.cur_state = Some(new_state_ref);
         self.next_state = pending_next_state;
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
+        self.bind_terrain_track_if_needed();
+        self.hide_all_headlights();
         self.adjust_animation(prev_state, prev_anim_fraction);
     }
 

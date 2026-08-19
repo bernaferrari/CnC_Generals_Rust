@@ -409,12 +409,16 @@ impl Weapon {
             global_bonus_set.as_ref(),
         );
 
+        if self.template.get_request_assist_range() > 0.0 {
+            if let Some(victim) = target_id {
+                self.process_request_assistance(source_id, victim);
+            }
+        }
+
         // Handle special damage types (matches C++ lines 2493-2561)
         match LogicDamageType::from(self.template.get_damage_type()) {
             LogicDamageType::Deploy => {
-                // Deploy - assault transport logic (matches C++ Weapon.cpp lines 2495-2506)
-                // In C++: sourceObj->getAI()->getAssaultTransportAIInterface()->beginAssault(victimObj)
-                // This triggers assault transport units to deploy their garrisoned troops
+                // C++ Weapon.cpp:2495-2506 — beginAssault then continue to normal fire.
                 if let Some(source_obj) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
                 {
                     if let Ok(source_guard) = source_obj.read() {
@@ -429,24 +433,8 @@ impl Weapon {
                         }
                     }
                 }
-                self.ammo_in_clip = self.ammo_in_clip.saturating_sub(1);
-                self.max_shot_count = self.max_shot_count.saturating_sub(1);
-
-                if self.ammo_in_clip == 0 && self.template.get_auto_reloads_clip() {
-                    self.reload_ammo(current_frame);
-                    return Ok((true, None));
-                }
-                return Ok((false, None));
             }
             LogicDamageType::Disarm => {
-                // Disarm - mine clearing logic (matches C++ Weapon.cpp lines 2509-2552)
-                // Full C++ implementation:
-                // 1. Find target's LandMineInterface via getBehaviorModules()
-                // 2. Call lmi->disarm() to deactivate mine
-                // 3. Play fire FX: FXList::doFXPos(m_template->getFireFX(veterancy), ...)
-                // 4. If no interface, check KINDOF_MINE and destroy directly
-                // 5. Record stats: player->getAcademyStats()->recordMineCleared()
-                //
                 if let Some(target_id) = target_id {
                     let mut handled = false;
                     if let Some(behaviors) = OBJECT_REGISTRY
@@ -463,18 +451,17 @@ impl Weapon {
                         }
                     }
 
-                    if !handled {
-                        let is_mine = OBJECT_REGISTRY
-                            .with_object(target_id, |obj_guard| obj_guard.is_kind_of(KindOf::Mine))
-                            .unwrap_or(false);
-                        if is_mine {
-                            let _ = OBJECT_REGISTRY.with_object_mut(target_id, |obj_guard| {
-                                obj_guard.kill(
-                                    Some(LogicDamageType::LandMine),
-                                    Some(LogicDeathType::Exploded),
-                                );
-                            });
-                        }
+                    let kinds = OBJECT_REGISTRY
+                        .with_object(target_id, |obj_guard| {
+                            (
+                                obj_guard.is_kind_of(KindOf::Mine),
+                                obj_guard.is_kind_of(KindOf::BoobyTrap),
+                                obj_guard.is_kind_of(KindOf::Demotrap),
+                            )
+                        })
+                        .unwrap_or((false, false, false));
+                    if (!handled && kinds.0) || kinds.1 || kinds.2 {
+                        let _ = TheGameLogic::destroy_object_by_id(target_id);
                     }
                 }
 
@@ -488,9 +475,7 @@ impl Weapon {
                 return Ok((false, None));
             }
             LogicDamageType::Hack => {
-                // Hack - hacking unit logic (no immediate damage)
-                // Handled separately by hacking system
-                return Ok((false, None));
+                // C++ DAMAGE_HACK is commented-out return — fall through to normal fire.
             }
             _ => {}
         }
@@ -1715,8 +1700,22 @@ impl Snapshotable for Weapon {
             let mut tmpl_name = self.template.get_name().to_string();
             xfer.xfer_ascii_string(&mut tmpl_name)
                 .map_err(|e| e.to_string())?;
-            // On load, we would need to look up the template from WeaponStore
-            // For now, we keep the existing template (CRC/save path)
+            if xfer.is_reading() {
+                let looked_up = crate::weapon::with_weapon_store(|store| {
+                    store.find_weapon_template(&tmpl_name).cloned()
+                })
+                .map_err(|e| e.to_string())?;
+                match looked_up {
+                    Some(template) => self.template = template,
+                    None => {
+                        return Err(format!(
+                            "Weapon template '{}' not found in WeaponStore",
+                            tmpl_name
+                        ))
+                    }
+                }
+            }
+
         }
 
         // Weapon slot
@@ -1728,7 +1727,14 @@ impl Snapshotable for Weapon {
             )
         }
         .map_err(|e| e.to_string())?;
-        // Note: wslot is const in our impl, so we don't restore it
+        if xfer.is_reading() {
+            self.wslot = match wslot {
+                1 => WeaponSlotType::Secondary,
+                2 => WeaponSlotType::Tertiary,
+                _ => WeaponSlotType::Primary,
+            };
+        }
+
 
         // Status
         let mut status = self.status as i32;

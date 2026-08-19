@@ -22,8 +22,8 @@ use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
 
 // Constants matching C++ implementation
-const MANGLER_PORT: u16 = 4321;
-const MANGLER_SERVERS: &[&str] = &[
+pub const MANGLER_PORT: u16 = 4321;
+pub const MANGLER_SERVERS: &[&str] = &[
     "mangler1.gamespy.com",
     "mangler2.gamespy.com",
     "mangler3.gamespy.com",
@@ -50,6 +50,9 @@ impl NatBehavior {
     pub const RELATIVE_PORT_ALLOCATION: Self = Self(32); // Relative offset
     pub const DESTINATION_PORT_DELTA: Self = Self(64); // Mangles based on dest port
 
+    pub fn from_raw(bits: u16) -> Self {
+        Self(bits)
+    }
     pub fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) != 0
     }
@@ -806,6 +809,97 @@ impl NatTraversalManager {
             predicted_ports.len()
         )))
     }
+}
+
+/// C++ `NATStateType`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NatState {
+    Idle,
+    DoConnectionPaths,
+    WaitForStats,
+    Done,
+    Failed,
+}
+
+/// C++ `TheNAT` wrapper around mangler/probe hole-punch.
+pub struct TheNat {
+    manager: Option<NatTraversalManager>,
+    state: NatState,
+    failed_reason: Option<String>,
+}
+
+impl Default for TheNat {
+    fn default() -> Self {
+        Self {
+            manager: None,
+            state: NatState::Idle,
+            failed_reason: None,
+        }
+    }
+}
+
+static THE_NAT: std::sync::Mutex<TheNat> = std::sync::Mutex::new(TheNat {
+    manager: None,
+    state: NatState::Idle,
+    failed_reason: None,
+});
+
+pub fn reset_the_nat() {
+    if let Ok(mut nat) = THE_NAT.lock() {
+        *nat = TheNat::default();
+    }
+}
+
+pub fn the_nat_state() -> NatState {
+    THE_NAT.lock().map(|n| n.state).unwrap_or(NatState::Idle)
+}
+
+pub fn the_nat_failed_reason() -> Option<String> {
+    THE_NAT.lock().ok().and_then(|n| n.failed_reason.clone())
+}
+
+/// Start C++-style connection pairing using mangler/probe.
+pub async fn the_nat_establish(
+    local_id: u8,
+    local_addr: Ipv4Addr,
+    local_port: u16,
+    peers: Vec<(u8, SocketAddr, NatBehavior)>,
+) -> NetworkResult<()> {
+    reset_the_nat();
+    {
+        let mut nat = THE_NAT.lock().unwrap();
+        nat.state = NatState::DoConnectionPaths;
+    }
+    let service = Arc::new(NatService::new(crate::nat::NatConfig::default()));
+    let manager = NatTraversalManager::new(local_id, local_addr, local_port, service).await?;
+    let _ = manager.detect_nat_behavior().await;
+    for (id, addr, behavior) in peers {
+        manager.add_peer(id, addr, behavior).await;
+    }
+    match manager.establish_connections().await {
+        Ok(()) => {
+            let mut nat = THE_NAT.lock().unwrap();
+            nat.manager = Some(manager);
+            nat.state = NatState::Done;
+            Ok(())
+        }
+        Err(err) => {
+            let mut nat = THE_NAT.lock().unwrap();
+            nat.failed_reason = Some(err.to_string());
+            nat.state = NatState::Failed;
+            Err(err)
+        }
+    }
+}
+
+/// C++ `TheNAT->update()` — advances hole-punch and returns current state.
+pub fn the_nat_update() -> NatState {
+    let state = the_nat_state();
+    if state == NatState::DoConnectionPaths {
+        // Connection establishment is driven by `the_nat_establish`; keep state.
+        return state;
+    }
+    state
 }
 
 #[cfg(test)]

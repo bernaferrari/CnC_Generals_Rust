@@ -93,7 +93,7 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
     let boot = include_str!("boot.rs");
     assert!(
         run_loop.contains("engine.host_update_the_audio()"),
-        "live run_loop drive_frame must call TheAudio update after engine.update"
+        "live run_loop drive_frame must call TheAudio update before engine.update"
     );
     assert!(
         audio.contains("TheAudio::get()")

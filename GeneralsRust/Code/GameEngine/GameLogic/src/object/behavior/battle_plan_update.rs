@@ -1,12 +1,13 @@
 //! BattlePlanUpdate - Handle building states and battle plan execution & changes
 //! Author: Kris Morness, September 2002 (C++ version) | Rust conversion: 2025
 
+use crate::common::audio::AudioEventRts;
 use crate::common::{
     kindof_from_name, AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask,
     ModelConditionFlag, ModuleData, ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt,
     ALL_KIND_OF,
 };
-use crate::helpers::TheGameLogic;
+use crate::helpers::{TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheRadar};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, SpecialPowerCommandOptions,
     SpecialPowerUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
@@ -23,8 +24,58 @@ use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::radar::RadarEventType;
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
+
+const BATTLE_PLAN_RADAR_EVENT_SECONDS: f32 = 4.0;
+
+fn named_audio_event(name: &str) -> AudioEventRts {
+    if name.is_empty() {
+        AudioEventRts::default()
+    } else {
+        AudioEventRts::new(name)
+    }
+}
+
+fn play_object_audio(event: &mut AudioEventRts, object_id: ObjectID) {
+    if event.get_event_name().is_empty() {
+        return;
+    }
+    event.set_object_id(object_id);
+    if let Some(audio) = TheAudio::get() {
+        let handle = audio.add_audio_event(event);
+        event.set_playing_handle(handle);
+    }
+}
+
+fn play_announcement_audio(event: &mut AudioEventRts, position: &Coord3D) {
+    if event.get_event_name().is_empty() {
+        return;
+    }
+    event.set_position(&(position.x, position.y, position.z));
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(event);
+    }
+}
+
+fn stop_audio(event: &mut AudioEventRts) {
+    let handle = event.get_playing_handle();
+    if handle == 0 {
+        return;
+    }
+    if let Some(audio) = TheAudio::get() {
+        audio.remove_audio_event(handle);
+    }
+    event.set_playing_handle(0);
+}
+
+fn display_plan_message(label: &str) {
+    if label.is_empty() {
+        return;
+    }
+    TheInGameUI::display_message(&TheGameText::fetch(label));
+}
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -336,6 +387,16 @@ pub struct BattlePlanUpdate {
     bonuses: BattlePlanBonuses,
     vision_object_id: Option<ObjectID>,
     special_power_module: Option<SpecialPowerTemplateId>,
+    bombardment_unpack: AudioEventRts,
+    bombardment_pack: AudioEventRts,
+    bombardment_announcement: AudioEventRts,
+    search_and_destroy_unpack: AudioEventRts,
+    search_and_destroy_idle: AudioEventRts,
+    search_and_destroy_pack: AudioEventRts,
+    search_and_destroy_announcement: AudioEventRts,
+    hold_the_line_unpack: AudioEventRts,
+    hold_the_line_pack: AudioEventRts,
+    hold_the_line_announcement: AudioEventRts,
 }
 
 impl BattlePlanUpdate {
@@ -376,6 +437,20 @@ impl BattlePlanUpdate {
             bonuses,
             vision_object_id: None,
             special_power_module: None,
+            bombardment_unpack: named_audio_event(&specific_data.bombardment_unpack_name),
+            bombardment_pack: named_audio_event(&specific_data.bombardment_pack_name),
+            bombardment_announcement: named_audio_event(&specific_data.bombardment_announcement_name),
+            search_and_destroy_unpack: named_audio_event(&specific_data.search_and_destroy_unpack_name),
+            search_and_destroy_idle: named_audio_event(&specific_data.search_and_destroy_idle_name),
+            search_and_destroy_pack: named_audio_event(&specific_data.search_and_destroy_pack_name),
+            search_and_destroy_announcement: named_audio_event(
+                &specific_data.search_and_destroy_announcement_name,
+            ),
+            hold_the_line_unpack: named_audio_event(&specific_data.hold_the_line_unpack_name),
+            hold_the_line_pack: named_audio_event(&specific_data.hold_the_line_pack_name),
+            hold_the_line_announcement: named_audio_event(
+                &specific_data.hold_the_line_announcement_name,
+            ),
         })
     }
 
@@ -471,7 +546,7 @@ impl BattlePlanUpdate {
         self.status = new_status;
     }
 
-    fn clear_old_status_states(&self, old_status: TransitionStatus) {
+    fn clear_old_status_states(&mut self, old_status: TransitionStatus) {
         self.with_object_mut(|object| match old_status {
             TransitionStatus::Unpacking => match self.current_plan {
                 BattlePlanStatus::Bombardment => {
@@ -511,29 +586,91 @@ impl BattlePlanUpdate {
             },
             _ => {}
         });
+
+        match old_status {
+            TransitionStatus::Unpacking => match self.current_plan {
+                BattlePlanStatus::Bombardment => stop_audio(&mut self.bombardment_unpack),
+                BattlePlanStatus::HoldTheLine => stop_audio(&mut self.hold_the_line_unpack),
+                BattlePlanStatus::SearchAndDestroy => {
+                    stop_audio(&mut self.search_and_destroy_unpack)
+                }
+                _ => {}
+            },
+            TransitionStatus::Active => {
+                if self.current_plan == BattlePlanStatus::SearchAndDestroy {
+                    stop_audio(&mut self.search_and_destroy_idle);
+                }
+            }
+            TransitionStatus::Packing => match self.current_plan {
+                BattlePlanStatus::Bombardment => stop_audio(&mut self.bombardment_pack),
+                BattlePlanStatus::HoldTheLine => stop_audio(&mut self.hold_the_line_pack),
+                BattlePlanStatus::SearchAndDestroy => stop_audio(&mut self.search_and_destroy_pack),
+                _ => {}
+            },
+            _ => {}
+        }
     }
 
     fn apply_unpacking_states(&mut self, now: u32) {
-        let mut next_ready_frame = self.next_ready_frame;
-        self.with_object_mut(|object| match self.current_plan {
-            BattlePlanStatus::Bombardment => {
-                object.set_model_condition_state(ModelConditionFlag::Door1Opening);
-                next_ready_frame = now + self.module_data.bombardment_plan_animation_frames;
+        let (door, frames, message_label) = match self.current_plan {
+            BattlePlanStatus::Bombardment => (
+                Some(ModelConditionFlag::Door1Opening),
+                self.module_data.bombardment_plan_animation_frames,
+                self.module_data.bombardment_message_label.clone(),
+            ),
+            BattlePlanStatus::HoldTheLine => (
+                Some(ModelConditionFlag::Door2Opening),
+                self.module_data.hold_the_line_plan_animation_frames,
+                self.module_data.hold_the_line_message_label.clone(),
+            ),
+            BattlePlanStatus::SearchAndDestroy => (
+                Some(ModelConditionFlag::Door3Opening),
+                self.module_data.search_and_destroy_plan_animation_frames,
+                self.module_data.search_and_destroy_message_label.clone(),
+            ),
+            BattlePlanStatus::None => (None, 0, String::new()),
+        };
+
+        let mut object_id = self.object_id;
+        let mut position = None;
+        self.with_object_mut(|object| {
+            if let Some(door) = door {
+                object.set_model_condition_state(door);
+                object.set_animation_loop_duration(frames);
             }
-            BattlePlanStatus::HoldTheLine => {
-                object.set_model_condition_state(ModelConditionFlag::Door2Opening);
-                next_ready_frame = now + self.module_data.hold_the_line_plan_animation_frames;
-            }
-            BattlePlanStatus::SearchAndDestroy => {
-                object.set_model_condition_state(ModelConditionFlag::Door3Opening);
-                next_ready_frame = now + self.module_data.search_and_destroy_plan_animation_frames;
-            }
-            _ => {}
+            object_id = object.get_id();
+            position = Some(*object.get_position());
         });
-        self.next_ready_frame = next_ready_frame;
+        self.next_ready_frame = now + frames;
+
+        if let Some(pos) = position {
+            if let Some(radar) = TheRadar::get() {
+                radar.create_event(
+                    &pos,
+                    RadarEventType::BattlePlan,
+                    BATTLE_PLAN_RADAR_EVENT_SECONDS,
+                );
+            }
+            display_plan_message(&message_label);
+            match self.current_plan {
+                BattlePlanStatus::Bombardment => {
+                    play_object_audio(&mut self.bombardment_unpack, object_id);
+                    play_announcement_audio(&mut self.bombardment_announcement, &pos);
+                }
+                BattlePlanStatus::HoldTheLine => {
+                    play_object_audio(&mut self.hold_the_line_unpack, object_id);
+                    play_announcement_audio(&mut self.hold_the_line_announcement, &pos);
+                }
+                BattlePlanStatus::SearchAndDestroy => {
+                    play_object_audio(&mut self.search_and_destroy_unpack, object_id);
+                    play_announcement_audio(&mut self.search_and_destroy_announcement, &pos);
+                }
+                BattlePlanStatus::None => {}
+            }
+        }
     }
 
-    fn apply_active_states(&self) {
+    fn apply_active_states(&mut self) {
         self.with_object_mut(|object| match self.current_plan {
             BattlePlanStatus::Bombardment => {
                 object.set_model_condition_state(ModelConditionFlag::Door1WaitingToClose);
@@ -546,26 +683,61 @@ impl BattlePlanUpdate {
             }
             _ => {}
         });
+
+        if self.current_plan == BattlePlanStatus::SearchAndDestroy {
+            play_object_audio(&mut self.search_and_destroy_idle, self.object_id);
+        }
     }
 
     fn apply_packing_states(&mut self, now: u32) {
-        let mut next_ready_frame = self.next_ready_frame;
-        self.with_object_mut(|object| match self.current_plan {
+        let (door, frames) = match self.current_plan {
+            BattlePlanStatus::Bombardment => (
+                Some(ModelConditionFlag::Door1Closing),
+                self.module_data.bombardment_plan_animation_frames,
+            ),
+            BattlePlanStatus::HoldTheLine => (
+                Some(ModelConditionFlag::Door2Closing),
+                self.module_data.hold_the_line_plan_animation_frames,
+            ),
+            BattlePlanStatus::SearchAndDestroy => (
+                Some(ModelConditionFlag::Door3Closing),
+                self.module_data.search_and_destroy_plan_animation_frames,
+            ),
+            BattlePlanStatus::None => (None, 0),
+        };
+
+        let mut object_id = self.object_id;
+        self.with_object_mut(|object| {
+            if let Some(door) = door {
+                object.set_model_condition_state(door);
+                object.set_animation_loop_duration(frames);
+            }
+            object_id = object.get_id();
+        });
+        self.next_ready_frame = now + frames;
+
+        match self.current_plan {
             BattlePlanStatus::Bombardment => {
-                object.set_model_condition_state(ModelConditionFlag::Door1Closing);
-                next_ready_frame = now + self.module_data.bombardment_plan_animation_frames;
+                play_object_audio(&mut self.bombardment_pack, object_id);
             }
             BattlePlanStatus::HoldTheLine => {
-                object.set_model_condition_state(ModelConditionFlag::Door2Closing);
-                next_ready_frame = now + self.module_data.hold_the_line_plan_animation_frames;
+                play_object_audio(&mut self.hold_the_line_pack, object_id);
             }
             BattlePlanStatus::SearchAndDestroy => {
-                object.set_model_condition_state(ModelConditionFlag::Door3Closing);
-                next_ready_frame = now + self.module_data.search_and_destroy_plan_animation_frames;
+                play_object_audio(&mut self.search_and_destroy_pack, object_id);
             }
-            _ => {}
-        });
-        self.next_ready_frame = next_ready_frame;
+            BattlePlanStatus::None => {}
+        }
+    }
+
+    fn stop_all_transition_audio(&mut self) {
+        stop_audio(&mut self.bombardment_unpack);
+        stop_audio(&mut self.bombardment_pack);
+        stop_audio(&mut self.search_and_destroy_unpack);
+        stop_audio(&mut self.search_and_destroy_idle);
+        stop_audio(&mut self.search_and_destroy_pack);
+        stop_audio(&mut self.hold_the_line_unpack);
+        stop_audio(&mut self.hold_the_line_pack);
     }
 
     fn set_battle_plan(&mut self, plan: BattlePlanStatus) {
@@ -858,6 +1030,17 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
             return false;
         }
 
+        if let Some(player) = self
+            .with_object(|object| object.get_controlling_player())
+            .flatten()
+        {
+            if let Ok(mut player) = player.write() {
+                player
+                    .get_academy_stats_mut()
+                    .record_battle_plan_selected();
+            }
+        }
+
         true
     }
 
@@ -872,9 +1055,13 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
     fn is_active(&self) -> bool {
         self.get_active_battle_plan() != BattlePlanStatus::None
     }
-
     fn get_command_option(&self) -> crate::modules::SpecialPowerCommandOption {
-        crate::modules::SpecialPowerCommandOptions::NONE
+        match self.desired_plan {
+            BattlePlanStatus::Bombardment => SpecialPowerCommandOptions::OPTION_ONE,
+            BattlePlanStatus::HoldTheLine => SpecialPowerCommandOptions::OPTION_TWO,
+            BattlePlanStatus::SearchAndDestroy => SpecialPowerCommandOptions::OPTION_THREE,
+            BattlePlanStatus::None => SpecialPowerCommandOptions::NONE,
+        }
     }
 
     fn does_special_power_have_overridable_destination_active(&self) -> bool {
@@ -891,7 +1078,7 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
         &self,
         _command: Option<&crate::command_button::CommandButton>,
     ) -> bool {
-        self.is_active()
+        false
     }
 }
 
@@ -916,6 +1103,30 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
             return Ok(());
         }
 
+        self.bombardment_unpack
+            .set_event_name(self.module_data.bombardment_unpack_name.clone());
+        self.bombardment_pack
+            .set_event_name(self.module_data.bombardment_pack_name.clone());
+        self.bombardment_announcement
+            .set_event_name(self.module_data.bombardment_announcement_name.clone());
+        self.search_and_destroy_unpack
+            .set_event_name(self.module_data.search_and_destroy_unpack_name.clone());
+        self.search_and_destroy_idle
+            .set_event_name(self.module_data.search_and_destroy_idle_name.clone());
+        self.search_and_destroy_pack
+            .set_event_name(self.module_data.search_and_destroy_pack_name.clone());
+        self.search_and_destroy_announcement.set_event_name(
+            self.module_data
+                .search_and_destroy_announcement_name
+                .clone(),
+        );
+        self.hold_the_line_unpack
+            .set_event_name(self.module_data.hold_the_line_unpack_name.clone());
+        self.hold_the_line_pack
+            .set_event_name(self.module_data.hold_the_line_pack_name.clone());
+        self.hold_the_line_announcement
+            .set_event_name(self.module_data.hold_the_line_announcement_name.clone());
+
         let mut special_power_module = None;
         self.with_object_mut(|object| {
             if let Some(template_id) = self.module_data.special_power_template {
@@ -938,6 +1149,8 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
         &mut self,
         _damage_info: &crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.stop_all_transition_audio();
+
         if let Some(vision_id) = self.vision_object_id {
             let _ = TheGameLogic::destroy_object_by_id(vision_id);
         }
@@ -958,6 +1171,12 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
         }
 
         Ok(())
+    }
+}
+
+impl Drop for BattlePlanUpdate {
+    fn drop(&mut self) {
+        self.stop_all_transition_audio();
     }
 }
 

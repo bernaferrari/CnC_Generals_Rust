@@ -13,7 +13,7 @@ use crate::common::{
     UpgradeMaskType, XferVersion, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE,
 };
 use crate::damage::{BodyDamageType, DamageInfo};
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{TheGameLogic, TheInGameUI, TheParticleSystemManager};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
     UpgradeModuleInterface, UpgradeMuxData,
@@ -23,7 +23,11 @@ use crate::object::{
     registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
 use crate::upgrade::upgrade_mask_for_ascii;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::ini_particle_sys::IniParticleSys;
+use game_engine::common::ini::{
+    get_anim2d_collection, get_global_data, FieldParse, INIError, INI,
+};
+use game_engine::common::ini::ini_game_data::ensure_global_data;
 use game_engine::common::rts::NameKeyType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{
@@ -335,7 +339,50 @@ fn parse_particle_system_template(
         return Ok(None);
     }
     let name = AsciiString::from(value);
-    Ok(Some(Arc::new(ParticleSystemTemplate::new(name))))
+    // C++ INI::parseParticleSystemTemplate:
+    // TheParticleSystemManager->findTemplate(token). Missing names stay NULL;
+    // never synthesize an empty ParticleSystemTemplate shell.
+    Ok(IniParticleSys::find_template_by_name(&name).map(Arc::new))
+}
+
+/// C++ AutoHealBehavior::update SingleBurst path: TheInGameUI->addWorldAnimation
+/// of TheGlobalData->m_getHealedAnimationName at the healed unit's top.
+fn spawn_get_healed_world_icon(obj: &Arc<RwLock<GameObject>>) {
+    if !TheGameLogic::get_draw_icon_ui() {
+        return;
+    }
+
+    let global = get_global_data().unwrap_or_else(ensure_global_data);
+    let global = global.read();
+    if global.get_healed_animation_name.is_empty() {
+        return;
+    }
+
+    let Some(collection) = get_anim2d_collection() else {
+        return;
+    };
+    let anim_name = AsciiString::from(global.get_healed_animation_name.as_str());
+    if collection.read().find_template(&anim_name).is_none() {
+        return;
+    }
+
+    let Ok(obj_read) = obj.read() else {
+        return;
+    };
+    let pos = obj_read.get_position();
+    let icon_position = Coord3D::new(
+        pos.x,
+        pos.y,
+        pos.z + obj_read.get_geometry_info().get_max_height_above_position(),
+    );
+
+    TheInGameUI::add_world_animation(
+        global.get_healed_animation_name.as_str(),
+        &icon_position,
+        true,
+        global.get_healed_animation_display_time_in_seconds,
+        global.get_healed_animation_z_rise_per_second,
+    );
 }
 
 fn parse_radius_particle_field(
@@ -1066,22 +1113,10 @@ impl AutoHealBehavior {
             .unwrap_or(false);
 
         if needs_healing {
-            // Self-heal: ID resolve; healer source is self so Option healer is unused.
-            let amount = self.module_data.healing_amount as Real;
-            let radius = self.module_data.radius;
-            let delay = self.module_data.healing_delay;
-            let Some(result) = self.with_object_mut(|obj_write| {
-                if radius == 0.0 {
-                    obj_write.attempt_healing(amount, None)
-                } else {
-                    obj_write
-                        .attempt_healing_from_sole_benefactor(amount, None, delay)
-                        .map(|_| ())
-                }
-            }) else {
-                return Ok(UPDATE_SLEEP_FOREVER);
-            };
-            result?;
+            // C++ update() self-heal path calls pulseHealObject so the unit
+            // heal-pulse particle template (looked up from the store) actually
+            // spawns. Do not attempt_healing here and skip FX.
+            self.pulse_heal_object_id(self.object_id)?;
             Ok(update_sleep_time(healing_delay))
         } else {
             // Go to sleep forever - we'll wake up when damaged again
@@ -1163,7 +1198,10 @@ impl AutoHealBehavior {
             };
 
             if is_friend && passes_kind && needs_heal {
-                self.pulse_heal_object(candidate)?;
+                self.pulse_heal_object(candidate.clone())?;
+                if single_burst {
+                    spawn_get_healed_world_icon(&candidate);
+                }
                 _healed_any = true;
             }
         }

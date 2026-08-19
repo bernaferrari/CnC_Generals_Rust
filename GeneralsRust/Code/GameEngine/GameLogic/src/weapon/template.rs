@@ -33,7 +33,7 @@ use super::helpers::{
     dual_world_registry_unavailable, map_weapon_slot_to_common, ObjectId, INVALID_OBJECT_ID,
 };
 use super::masks_enums::*;
-use super::weapon_instance::Weapon;
+use super::store::with_weapon_store;
 
 /// Weapon template defining weapon properties
 #[derive(Debug, Clone)]
@@ -794,8 +794,7 @@ impl WeaponTemplate {
                 target_pos
             );
 
-            // Record historic damage
-            self.record_historic_damage(target_pos, self.get_current_frame());
+            self.apply_historic_bonus(source_obj, target_pos);
         }
 
         Ok(self.get_current_frame()) // Return current frame for immediate damage
@@ -960,6 +959,8 @@ impl WeaponTemplate {
                                     victim_obj,
                                     target_pos,
                                     source_obj,
+                                    weapon_slot,
+                                    specific_barrel_to_use,
                                     Some(Arc::clone(&weapon_template)),
                                 );
                                 did_launch = true;
@@ -1176,22 +1177,71 @@ impl WeaponTemplate {
         TheGameLogic::get_frame()
     }
 
-    /// Record historic damage for bonus calculations
-    fn record_historic_damage(&self, location: &Coord3D, frame: u32) {
+    /// C++ Weapon.cpp:1169-1186 trimOldHistoricDamage — global historicDamageLimit.
+    pub fn trim_old_historic_damage(&self) {
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let expiration = TheGameLogic::get_frame().saturating_sub(limit);
         if let Ok(mut damage_list) = self.historic_damage.lock() {
-            let damage_info = HistoricWeaponDamageInfo::new(frame, *location);
-            damage_list.push_back(damage_info);
-
-            // Trim old entries inline - avoids re-entrant lock deadlock
-            // (do not call trim_old_historic_damage while holding lock)
-            let cutoff_frame = frame.saturating_sub(self.historic_bonus_time);
             while let Some(front) = damage_list.front() {
-                if front.frame < cutoff_frame {
+                if front.frame <= expiration {
                     damage_list.pop_front();
                 } else {
                     break;
                 }
             }
+        }
+    }
+
+    /// Record historic damage for bonus calculations (no trim; C++ records after check).
+    fn record_historic_damage(&self, location: &Coord3D, frame: u32) {
+        if let Ok(mut damage_list) = self.historic_damage.lock() {
+            damage_list.push_back(HistoricWeaponDamageInfo::new(frame, *location));
+        }
+    }
+
+    /// C++ Weapon.cpp:1214-1251 — fire historic bonus then clear, else record this hit.
+    pub fn apply_historic_bonus(&self, source_obj: ObjectId, pos: &Coord3D) {
+        self.trim_old_historic_damage();
+        if self.historic_bonus_count <= 0 {
+            return;
+        }
+        let Some(bonus_weak) = &self.historic_bonus_weapon else {
+            return;
+        };
+        let Some(bonus_weapon) = bonus_weak.upgrade() else {
+            return;
+        };
+        if bonus_weapon.name == self.name {
+            return;
+        }
+
+        let current_frame = TheGameLogic::get_frame();
+        let rad_sqr = self.historic_bonus_radius * self.historic_bonus_radius;
+        let oldest = current_frame.saturating_sub(self.historic_bonus_time);
+        let count = if let Ok(list) = self.historic_damage.lock() {
+            list.iter()
+                .filter(|info| {
+                    if info.frame < oldest {
+                        return false;
+                    }
+                    let dx = info.location.x - pos.x;
+                    let dy = info.location.y - pos.y;
+                    dx * dx + dy * dy <= rad_sqr
+                })
+                .count() as i32
+        } else {
+            0
+        };
+
+        if count >= self.historic_bonus_count - 1 {
+            let _ = with_weapon_store(|store| {
+                store.create_and_fire_temp_weapon(&bonus_weapon, source_obj, None, Some(pos))
+            });
+            if let Ok(mut list) = self.historic_damage.lock() {
+                list.clear();
+            }
+        } else {
+            self.record_historic_damage(pos, current_frame);
         }
     }
 

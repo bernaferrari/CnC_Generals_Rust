@@ -669,6 +669,12 @@ impl TextEntry {
         }
     }
 
+    /// C++ `EntryData::charPos < maxTextLen-1` — typed length tops out at N-1.
+    fn max_typed_len(&self) -> usize {
+        self.max_length.saturating_sub(1)
+    }
+
+
     /// Set input validation mode
     pub fn with_validation(mut self, mode: ValidationMode) -> Self {
         self.validation_mode = mode;
@@ -729,19 +735,15 @@ impl TextEntry {
         self
     }
 
-    /// Set text content (mutable)
+    /// Set text content (mutable).
+    ///
+    /// C++ `GadgetTextEntrySystem` `GEM_SET_TEXT` copies the UnicodeString as-is
+    /// and sets `charPos` to its length. Typing is clamped to `maxTextLen`;
+    /// programmatic set is not.
     pub fn set_text<S: Into<String>>(&mut self, text: S) {
         let new_text = text.into();
 
-        // Apply length limit
-        if new_text.len() > self.max_length {
-            self.text = new_text[..self.max_length].to_string();
-        } else {
-            self.text = new_text;
-        }
-
-        // Validate the text
-        self.text = self.validate_text(&self.text);
+        self.text = self.validate_text(&new_text);
 
         // Update cursor position
         self.cursor_position = self.text.len();
@@ -924,8 +926,9 @@ impl TextEntry {
         }
 
         // Check length limit
-        if self.text.len() + validated.len() > self.max_length {
-            let remaining = self.max_length.saturating_sub(self.text.len());
+        if self.text.len() + validated.len() > self.max_typed_len() {
+            let remaining = self.max_typed_len().saturating_sub(self.text.len());
+
             if remaining == 0 {
                 return;
             }
@@ -942,6 +945,18 @@ impl TextEntry {
         self.trigger_change_callback();
     }
 
+    /// Append a committed IME character as C++ GadgetTextEntryInput GWM_IME_CHAR.
+    pub fn apply_ime_char(&mut self, ch: char) {
+        if ch == '\r' || ch == '\n' {
+            self.trigger_submit_callback();
+            return;
+        }
+        if ch == '\0' {
+            return;
+        }
+        self.append_input_text(&ch.to_string());
+    }
+
     /// Append text as C++ GadgetTextEntryInput does for GWM_IME_CHAR.
     fn append_input_text(&mut self, text: &str) {
         let validated = self.validate_text(text);
@@ -949,11 +964,12 @@ impl TextEntry {
             return;
         }
 
-        if self.text.len() >= self.max_length {
+        if self.text.len() >= self.max_typed_len() {
             return;
         }
 
-        let remaining = self.max_length.saturating_sub(self.text.len());
+        let remaining = self.max_typed_len().saturating_sub(self.text.len());
+
         let appended: String = validated.chars().take(remaining).collect();
         if appended.is_empty() {
             return;
@@ -983,7 +999,8 @@ impl TextEntry {
 
     /// Insert a single character
     fn insert_char(&mut self, ch: char) {
-        if self.text.len() >= self.max_length {
+        if self.text.len() >= self.max_typed_len() {
+
             return;
         }
 
@@ -1767,11 +1784,22 @@ mod tests {
     fn test_max_length_enforcement() {
         let mut entry = TextEntry::new(1, 0, 0, 100, 30).with_max_length(5);
 
+        // C++ GEM_SET_TEXT does not truncate programmatic set.
         entry.set_text("12345678");
+        assert_eq!(entry.text(), "12345678");
+
+        // C++ GWM_IME_CHAR: charPos < maxTextLen-1, so maxChars=5 stores 4.
+        entry.set_text("");
+        for _ in 0..8 {
+            entry.apply_ime_char('a');
+        }
+        assert_eq!(entry.text(), "aaaa");
+
+        // Typing still clamps once already at/over the typed cap.
+        entry.set_text("12345");
+        entry.insert_text("more");
         assert_eq!(entry.text(), "12345");
 
-        entry.insert_text("more");
-        assert_eq!(entry.text(), "12345"); // Should not exceed max length
     }
 
     #[test]

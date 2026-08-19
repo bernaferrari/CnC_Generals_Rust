@@ -132,6 +132,123 @@ struct ObjectModelDrawFrameState {
 static OBJECT_MODEL_DRAW_FRAMES: Lazy<Mutex<HashMap<ObjectID, ObjectModelDrawFrameState>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// C++ `TWheelInfo` subset used by W3DTruckDraw bone placement.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DrawWheelInfo {
+    pub front_left_height_offset: Real,
+    pub front_right_height_offset: Real,
+    pub rear_left_height_offset: Real,
+    pub rear_right_height_offset: Real,
+    pub wheel_angle: Real,
+}
+
+static OBJECT_WHEEL_INFO: Lazy<Mutex<HashMap<ObjectID, DrawWheelInfo>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Persistent point light (C++ `W3DDynamicLight` used by police cars).
+#[derive(Clone, Debug)]
+pub struct ScenePointLight {
+    pub id: u64,
+    pub pos: [f32; 3],
+    pub ambient: [f32; 3],
+    pub diffuse: [f32; 3],
+    pub far_start: f32,
+    pub far_end: f32,
+    pub enabled: bool,
+    pub fade_remaining: u32,
+}
+
+static SCENE_POINT_LIGHTS: Lazy<Mutex<HashMap<u64, ScenePointLight>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+static NEXT_SCENE_POINT_LIGHT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1);
+
+pub fn create_scene_point_light() -> u64 {
+    let id = NEXT_SCENE_POINT_LIGHT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+        lights.insert(
+            id,
+            ScenePointLight {
+                id,
+                pos: [0.0; 3],
+                ambient: [0.0; 3],
+                diffuse: [0.0; 3],
+                far_start: 5.0,
+                far_end: 15.0,
+                enabled: true,
+                fade_remaining: 0,
+            },
+        );
+    }
+    id
+}
+
+pub fn update_scene_point_light(
+    id: u64,
+    pos: [f32; 3],
+    ambient: [f32; 3],
+    diffuse: [f32; 3],
+    far_start: f32,
+    far_end: f32,
+) {
+    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+        if let Some(light) = lights.get_mut(&id) {
+            light.pos = pos;
+            light.ambient = ambient;
+            light.diffuse = diffuse;
+            light.far_start = far_start;
+            light.far_end = far_end;
+            light.enabled = true;
+        }
+    }
+}
+
+pub fn fade_scene_point_light(id: u64, frames: u32) {
+    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+        if let Some(light) = lights.get_mut(&id) {
+            light.fade_remaining = frames.max(1);
+        }
+    }
+}
+
+pub fn tick_scene_point_lights() {
+    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+        let mut dead = Vec::new();
+        for light in lights.values_mut() {
+            if light.fade_remaining == 0 {
+                continue;
+            }
+            light.fade_remaining -= 1;
+            let factor = light.fade_remaining as f32 / 5.0;
+            light.ambient = [
+                light.ambient[0] * factor,
+                light.ambient[1] * factor,
+                light.ambient[2] * factor,
+            ];
+            light.diffuse = [
+                light.diffuse[0] * factor,
+                light.diffuse[1] * factor,
+                light.diffuse[2] * factor,
+            ];
+            light.far_end = (light.far_end * factor).max(light.far_start);
+            if light.fade_remaining == 0 {
+                light.enabled = false;
+                dead.push(light.id);
+            }
+        }
+        for id in dead {
+            lights.remove(&id);
+        }
+    }
+}
+
+pub fn scene_point_lights() -> Vec<ScenePointLight> {
+    SCENE_POINT_LIGHTS
+        .lock()
+        .map(|lights| lights.values().filter(|l| l.enabled).cloned().collect())
+        .unwrap_or_default()
+}
+
 pub static TERRAIN_TREE_STATE: Lazy<Mutex<HashMap<u32, TerrainTreeRegistration>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -563,6 +680,25 @@ impl TheGameClient {
         frame.active.as_mut().map(func)
     }
 
+    pub fn set_object_wheel_info(&self, object_id: ObjectID, info: DrawWheelInfo) {
+        if object_id == INVALID_ID {
+            return;
+        }
+        if let Ok(mut map) = OBJECT_WHEEL_INFO.lock() {
+            map.insert(object_id, info);
+        }
+    }
+
+    pub fn get_object_wheel_info(&self, object_id: ObjectID) -> Option<DrawWheelInfo> {
+        if object_id == INVALID_ID {
+            return None;
+        }
+        OBJECT_WHEEL_INFO
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&object_id).copied())
+    }
+
     /// Commit the active output after its enclosing draw module completes.
     pub fn commit_active_object_model_draw(&self, object_id: ObjectID, logic_drawable_id: u32) {
         if object_id == INVALID_ID {
@@ -706,6 +842,64 @@ impl TheGameClient {
         );
     }
 
+    /// C++ `W3DTreeDraw::reactToTransformChange` reads `getDrawable()` current
+    /// pose (`W3DTreeDraw.cpp:115-127`). Prefer a non-blocking drawable read so
+    /// a caller already holding the drawable write lock (set_transform) can
+    /// still fall back to the last bridged DRAWABLE_STATE pose.
+    pub fn drawable_pose_for_tree(&self, id: u32) -> Option<(Coord3D, Real, Real)> {
+        if id == INVALID_ID {
+            return None;
+        }
+        let map = DRAWABLE_STATE.lock().ok()?;
+        let state = map.get(&id)?;
+        if let Some(drawable) = state.drawable.as_ref() {
+            if let Ok(guard) = drawable.try_read() {
+                let pos = guard.get_position();
+                let transform = guard.get_transform_matrix();
+                let (scale, rotation, _) = transform.to_scale_rotation_translation();
+                let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
+                let scale = if (guard.get_instance_scale() - 1.0).abs() > f32::EPSILON {
+                    guard.get_instance_scale()
+                } else {
+                    scale.x
+                };
+                return Some((pos, angle, scale));
+            }
+        }
+        Some((state.position, state.orientation, 1.0))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn seed_drawable_pose_for_test(
+        &self,
+        id: u32,
+        position: Coord3D,
+        orientation: Real,
+    ) {
+        let mut map = DRAWABLE_STATE.lock().unwrap();
+        if let Some(state) = map.get_mut(&id) {
+            state.position = position;
+            state.orientation = orientation;
+            return;
+        }
+        map.insert(
+            id,
+            DrawableState {
+                template_name: "TestTree".to_string(),
+                indicator_color: Color::default(),
+                position,
+                orientation,
+                shroud_status_object_id: INVALID_ID,
+                beam_start: None,
+                beam_end: None,
+                beam_width: None,
+                projectile_stream: None,
+                drawable: None,
+                expiration_frame: None,
+            },
+        );
+    }
+
     pub fn set_drawable_expiration_date(&self, id: u32, frame: UnsignedInt) {
         let mut map = DRAWABLE_STATE.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
@@ -783,6 +977,20 @@ impl TheGameClient {
 
         if let Some(hook) = get_terrain_tree_hook() {
             hook(TerrainTreeEvent::Add(registration));
+        }
+    }
+
+    pub fn remove_tree(&self, drawable_id: u32) {
+        if drawable_id == INVALID_ID {
+            return;
+        }
+
+        if let Ok(mut tree_map) = TERRAIN_TREE_STATE.lock() {
+            tree_map.remove(&drawable_id);
+        }
+
+        if let Some(hook) = get_terrain_tree_hook() {
+            hook(TerrainTreeEvent::Remove(drawable_id));
         }
     }
 
@@ -900,5 +1108,23 @@ mod model_draw_bridge_tests {
         assert!(client.object_model_draws(object_id).is_empty());
 
         client.clear_object_model_draws(object_id);
+    }
+
+    #[test]
+    fn drawable_pose_for_tree_prefers_seeded_bridge_state() {
+        // C++ W3DTreeDraw::reactToTransformChange reads getDrawable() pose
+        // (W3DTreeDraw.cpp:115-127). The live Rust module looks up this bridge.
+        let client = TheGameClient::get().expect("game-client bridge");
+        let drawable_id = 0x00EE_7101;
+        let location = Coord3D::new(8.0, 9.0, 1.0);
+        client.seed_drawable_pose_for_test(drawable_id, location, 1.25);
+
+        let pose = client
+            .drawable_pose_for_tree(drawable_id)
+            .expect("seeded tree pose");
+        assert_eq!(pose.0, location);
+        assert_eq!(pose.1, 1.25);
+        assert_eq!(pose.2, 1.0);
+        assert!(client.drawable_pose_for_tree(INVALID_ID).is_none());
     }
 }

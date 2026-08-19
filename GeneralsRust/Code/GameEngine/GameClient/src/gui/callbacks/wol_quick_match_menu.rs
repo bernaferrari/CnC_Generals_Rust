@@ -26,6 +26,14 @@ use crate::gui::{
     WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::TheInGameUI;
+use crate::shell_hooks::{
+    signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME,
+};
+use gamelogic::helpers::TheGameLogic;
+use gamelogic::system::game_logic::GAME_SHELL;
+use game_network::nat::{
+    reset_the_nat, the_nat_establish, the_nat_state, the_nat_update, NatBehavior, NatState,
+};
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::game_engine::get_game_engine;
@@ -1033,7 +1041,10 @@ pub fn wol_quick_match_menu_init(
     update_start_button(&state);
 
     with_window_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
-    // TODO: C++ checks isInShellGame() && getFrame() == 1 and fires SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME
+    reset_the_nat();
+    if TheGameLogic::get_frame() == 1 {
+        signal_ui_interaction(SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME);
+    }
     state.is_in_init = false;
 }
 
@@ -1112,9 +1123,24 @@ pub fn wol_quick_match_menu_update(
         state.raise_message_boxes = false;
     }
 
-    // TODO: C++ has TheNAT->update() loop here handling NATSTATE_DONE (launch game) and NATSTATE_FAILED (show error)
-    // TODO: C++ init deletes TheNAT and sets to NULL
-    // TODO: C++ QM_MATCHED handler calls markGameAsQM(), SendStatsToOtherPlayers(), startGame(0)
+    match the_nat_update() {
+        NatState::Done => {
+            with_gamespy_game_info_mut(|info| {
+                if !info.is_game_in_progress() {
+                    info.start_game(0);
+                }
+            });
+        }
+        NatState::Failed => {
+            gs_message_box_ok(
+                &GameText::fetch("GUI:GSErrorTitle"),
+                &GameText::fetch("GUI:NATFailed"),
+                None,
+            );
+            reset_the_nat();
+        }
+        _ => {}
+    }
 
     if shell_finished && !state.button_pushed {
         handle_buddy_responses();
@@ -1338,7 +1364,53 @@ pub fn wol_quick_match_menu_update(
                                         }
                                     });
 
-                                    with_gamespy_game_info_mut(|info| info.start_game(0));
+                                    with_gamespy_game_info_mut(|info| {
+                                        info.mark_game_as_qm();
+                                        info.start_game(0);
+                                    });
+                                    if let Some(queue) = get_peer_message_queue() {
+                                        if let Ok(mut queue) = queue.lock() {
+                                            let mut stats = PeerRequest::default();
+                                            stats.request_type = PeerRequestType::UtmPlayer;
+                                            stats.text = "STATS".to_string();
+                                            queue.add_request(stats);
+                                        }
+                                    }
+                                    let peers = with_gamespy_game_info(|info| {
+                                        (0..MAX_SLOTS)
+                                            .filter_map(|i| {
+                                                let slot = info.get_slot(i)?;
+                                                if !slot.is_human() {
+                                                    return None;
+                                                }
+                                                let ip = slot.get_ip();
+                                                if ip == 0 {
+                                                    return None;
+                                                }
+                                                Some((
+                                                    i as u8,
+                                                    std::net::SocketAddr::from((
+                                                        std::net::Ipv4Addr::from(ip.to_be()),
+                                                        8088,
+                                                    )),
+                                                    NatBehavior::from_raw(
+                                                        slot.get_nat_behavior() as u16,
+                                                    ),
+                                                ))
+                                            })
+                                            .collect::<Vec<_>>()
+                                    });
+                                    if peers.len() >= 2 {
+                                        tokio::spawn(async move {
+                                            let _ = the_nat_establish(
+                                                0,
+                                                std::net::Ipv4Addr::LOCALHOST,
+                                                8088,
+                                                peers,
+                                            )
+                                            .await;
+                                        });
+                                    }
 
                                     set_window_enabled(&state.button_buddies, false);
                                     close_overlay(GameSpyOverlayType::Buddy);

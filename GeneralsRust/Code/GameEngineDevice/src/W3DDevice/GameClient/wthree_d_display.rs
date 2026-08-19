@@ -172,6 +172,11 @@ pub struct W3DDisplay {
     fps_sample_count: usize,
     average_fps: f32,
     last_frame_time_nanos: i64,
+    last_frame_instant: Option<std::time::Instant>,
+    // -- Cinematic caption (C++ m_cinematicText / m_cinematicFont / m_cinematicTextFrames) --
+    cinematic_text: String,
+    cinematic_font: String,
+    cinematic_text_frames: u32,
 
     // -- Debug display (C++ m_displayStrings[]) --
     debug_display_enabled: bool,
@@ -233,6 +238,10 @@ impl W3DDisplay {
             fps_sample_count: 0,
             average_fps: 30.0,
             last_frame_time_nanos: 0,
+            last_frame_instant: None,
+            cinematic_text: String::new(),
+            cinematic_font: String::new(),
+            cinematic_text_frames: 0,
             debug_display_enabled: false,
             benchmark_timer: 0,
             letter_box_enabled: false,
@@ -702,6 +711,11 @@ impl W3DDisplay {
 
         // Update FPS tracking
         self.update_average_fps();
+        game_engine::common::game_engine::GameEngine::apply_draw_dynamic_lod(self.average_fps);
+        let _ = self.render_letter_box();
+        if self.cinematic_text_frames > 0 {
+            self.cinematic_text_frames -= 1;
+        }
 
         // Build render info from the view's camera
         let mut rinfo = RenderInfo::new();
@@ -758,14 +772,12 @@ impl W3DDisplay {
     /// ignoring frame-time spikes >= 0.5s.
     pub fn update_average_fps(&mut self) {
         let now = std::time::Instant::now();
-        let elapsed_nanos = if self.last_frame_time_nanos == 0 {
-            // First frame — seed with a nominal 33ms.
-            33_000_000
-        } else {
-            now.elapsed().as_nanos() as i64
+        let elapsed_seconds = match self.last_frame_instant {
+            Some(prev) => now.saturating_duration_since(prev).as_secs_f64(),
+            None => 33.0 / 1000.0,
         };
-
-        let elapsed_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
+        self.last_frame_instant = Some(now);
+        self.last_frame_time_nanos = (elapsed_seconds * 1_000_000_000.0) as i64;
 
         if elapsed_seconds <= MAX_FRAME_TIME_CUTOFF && elapsed_seconds > 0.0 {
             let current_fps = 1.0 / elapsed_seconds;
@@ -1135,16 +1147,27 @@ impl W3DDisplay {
     pub fn toggle_letter_box(&mut self) {
         self.letter_box_enabled = !self.letter_box_enabled;
         self.letter_box_fade_start_time_ms = current_time_ms();
+        let _ = game_client_rust::display::view::set_display_letter_boxed(self.letter_box_enabled);
+        game_client_rust::display::view::with_tactical_view(|view| {
+            view.set_zoom_limited(!self.letter_box_enabled);
+        });
     }
 
-    /// Force enable/disable letter-box (C++ enableLetterBox).
     pub fn enable_letter_box(&mut self, enable: bool) {
         if enable && !self.letter_box_enabled {
             self.letter_box_enabled = true;
             self.letter_box_fade_start_time_ms = current_time_ms();
+            game_client_rust::display::view::set_display_letter_boxed(true);
+            game_client_rust::display::view::with_tactical_view(|view| {
+                view.set_zoom_limited(false);
+            });
         } else if !enable && self.letter_box_enabled {
             self.letter_box_enabled = false;
             self.letter_box_fade_start_time_ms = current_time_ms();
+            game_client_rust::display::view::set_display_letter_boxed(false);
+            game_client_rust::display::view::with_tactical_view(|view| {
+                view.set_zoom_limited(true);
+            });
         }
     }
 
@@ -1184,14 +1207,26 @@ impl W3DDisplay {
             return None;
         }
 
-        // C++: drawFillRect for top and bottom bars
-        // height = (screenH - 9/16 * screenW) * 0.5
         let w = self.width as f32;
         let h = self.height as f32;
-        let bar_height = (h - (9.0 / 16.0) * w) * 0.5 * self.letter_box_fade_level;
-
+        let bar_height = ((h - (9.0 / 16.0) * w) * 0.5).max(0.0);
+        let alpha = (self.letter_box_fade_level * 255.0) as u32;
+        let color = alpha << 24;
+        let bar_h = bar_height.round() as i32;
+        if bar_h > 0 {
+            self.draw_fill_rect(0, 0, self.width as i32, bar_h, color);
+            self.draw_fill_rect(0, self.height as i32 - bar_h, self.width as i32, bar_h, color);
+        }
         Some((bar_height, bar_height, self.letter_box_fade_level))
     }
+
+    /// C++ `Display::setCinematicText` / `setCinematicFont` / `setCinematicTextFrames`.
+    pub fn set_cinematic_caption(&mut self, text: &str, font: &str, frames: u32) {
+        self.cinematic_text = text.to_string();
+        self.cinematic_font = font.to_string();
+        self.cinematic_text_frames = frames;
+    }
+
 }
 
 // ---------------------------------------------------------------------------

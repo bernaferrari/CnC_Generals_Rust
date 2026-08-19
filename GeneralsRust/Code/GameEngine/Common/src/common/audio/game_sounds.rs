@@ -86,6 +86,16 @@ pub struct ActiveSound {
     is_voice: Bool,
 }
 
+/// Live-path queries that C++ `SoundManager::canPlayNow` asks of `TheAudio`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlayNowAudioQueries {
+    pub object_playing_voice: bool,
+    pub playing_lower_priority: bool,
+    pub playing_already: bool,
+    pub violates_limit: bool,
+}
+
+
 impl SoundManagerImpl {
     pub fn new() -> Self {
         SoundManagerImpl {
@@ -208,19 +218,20 @@ impl SoundManagerImpl {
 
     /// Determine if a sound can be played now based on various criteria
     pub fn can_play_now(&self, event: &mut AudioEventRts) -> Bool {
-        // 1) Are we muted because we're beyond our maximum distance?
-        // 2) Are we shrouded and this is a shroud sound?
-        // 3) Are we violating our voice count or are we playing above the limit?
-        // 4) Is there an available channel open?
-        // 5) If not, then determine if there is anything of lower priority that we can kill
-        // 6) If not, are we an interrupt-sound type?
+        self.can_play_now_checked(event, &PlayNowAudioQueries::default())
+    }
 
+    /// C++ `SoundManager::canPlayNow` (GameSounds.cpp:174-286).
+    pub fn can_play_now_checked(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+    ) -> Bool {
         let event_info = match event.get_audio_event_info() {
             Some(info) => info,
             None => return false,
         };
 
-        // Check distance culling for positional audio
         if event.is_positional_audio()
             && (event_info.type_field & ST_GLOBAL) == 0
             && event_info.priority != AP_CRITICAL
@@ -234,7 +245,6 @@ impl SoundManagerImpl {
                 }
 
                 if (event_info.type_field & ST_SHROUDED) != 0 {
-                    // Match C++: ST_SHROUDED sounds only play when local player sees the location.
                     let is_visible = with_audio_shroud_resolver(|resolver| {
                         resolver.is_position_visible_to_local_player(pos)
                     })
@@ -246,16 +256,12 @@ impl SoundManagerImpl {
             }
         }
 
-        // Check voice violations
-        if self.violates_voice(event) {
-            if self.is_interrupting(event) {
-                return true;
-            } else {
-                return false;
-            }
+        if self.violates_voice(event, queries.object_playing_voice) {
+            return self.is_interrupting(event);
         }
-        // Limit is enforced by AudioManager::does_violate_limit
-        // (MilesAudioManager.cpp:1802-1882 / GameSounds.cpp:231-241).
+        if queries.violates_limit {
+            return false;
+        }
         if self.is_interrupting(event) {
             return true;
         }
@@ -264,36 +270,28 @@ impl SoundManagerImpl {
             if (self.num_playing_3d_samples as Int) < (self.num_3d_samples as Int) {
                 return true;
             }
-        } else {
-            // UI sound (2D)
-            if (self.num_playing_2d_samples as Int) < (self.num_2d_samples as Int) {
-                return true;
-            }
-        }
-
-        // Check if we can kill lower priority sounds
-        if self.can_kill_lower_priority(event) {
+        } else if (self.num_playing_2d_samples as Int) < (self.num_2d_samples as Int) {
             return true;
         }
 
-        // Check if this is an interrupting sound
+        if queries.playing_lower_priority {
+            return true;
+        }
+
         if self.is_interrupting(event) {
-            return self.can_interrupt_existing(event);
+            return queries.playing_already;
         }
 
         false
     }
 
     /// Check if playing this sound would violate voice restrictions
-    fn violates_voice(&self, event: &AudioEventRts) -> Bool {
+    fn violates_voice(&self, event: &AudioEventRts, object_playing_voice: Bool) -> Bool {
         if let Some(event_info) = event.get_audio_event_info() {
             if (event_info.type_field & ST_VOICE) != 0 {
                 let object_id = event.get_object_id();
-                if object_id != INVALID_OBJECT_ID {
-                    return self
-                        .playing_sounds
-                        .iter()
-                        .any(|sound| sound.is_voice && sound.object_id == object_id);
+                if object_id != 0 && object_id != INVALID_OBJECT_ID {
+                    return object_playing_voice;
                 }
             }
         }
@@ -351,28 +349,21 @@ impl SoundManagerImpl {
     /// Check if we can kill lower priority sounds to make room
     fn can_kill_lower_priority(&self, event: &AudioEventRts) -> Bool {
         let event_priority = event.get_audio_priority();
-
-        // Check if there are any playing sounds with lower priority
         for sound in &self.playing_sounds {
             if sound.priority < event_priority {
                 return true;
             }
         }
-
         false
     }
 
-    /// Check if we can interrupt existing sounds of the same type
     fn can_interrupt_existing(&self, event: &AudioEventRts) -> Bool {
         let event_name = event.get_event_name();
-
-        // Check if there's already a sound of this type playing
         for sound in &self.playing_sounds {
             if sound.event_name == event_name {
                 return true;
             }
         }
-
         false
     }
 
@@ -536,6 +527,14 @@ impl super::game_audio::SoundManager for SoundManagerImpl {
     fn can_play_now(&self, event: &AudioEventRts) -> bool {
         let mut probe = event.clone();
         SoundManagerImpl::can_play_now(self, &mut probe)
+    }
+
+    fn can_play_now_checked(
+        &self,
+        event: &mut AudioEventRts,
+        queries: &PlayNowAudioQueries,
+    ) -> bool {
+        SoundManagerImpl::can_play_now_checked(self, event, queries)
     }
 
     fn post_process_load(&mut self) {

@@ -65,6 +65,32 @@ pub(super) fn collect_selectable_objects(
         .ok()
         .map(|list| list.get_local_player_index())
         .unwrap_or(-1);
+    if is_point {
+        if let Some(picked) = with_tactical_view_ref(|view| {
+            view.pick_drawable(
+                &IPoint2::new(region.x, region.y),
+                true,
+                crate::display::view::PickType::Selectable,
+            )
+        }) {
+            if let Some(obj_ref) = OBJECT_REGISTRY.get_object(ObjectID::from(picked)) {
+                if let Ok(obj) = obj_ref.read() {
+                    if object_matches_context_pick_profile(&obj, profile)
+                        && !object_is_hidden_for_player(&obj, local_player_index)
+                    {
+                        let pos = obj.get_position();
+                        let world = Coord3D::new(pos.x, pos.y, pos.z);
+                        if !world_position_is_under_opaque_window_for_command(&world) {
+                            if obj.is_locally_controlled() {
+                                return (vec![(obj.get_id(), 0.0)], Vec::new());
+                            }
+                            return (Vec::new(), vec![(obj.get_id(), 0.0)]);
+                        }
+                    }
+                }
+            }
+        }
+    }
     let point_world = is_point
         .then(|| screen_to_terrain(&ICoord2D::new(region.x, region.y)))
         .flatten();

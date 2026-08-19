@@ -979,8 +979,6 @@ impl OptionsMenu {
         pref.set_string("Resolution", format!("{} {}", resolution.0, resolution.1));
         pref.set_int("AntiAliasing", anti_aliasing);
         pref.set_string("StaticGameLOD", detail_name.to_string());
-        pref.set_int("TextureReduction", texture_reduction);
-        pref.set_int("MaxParticleCount", particle_cap);
         pref.set_int("ScrollFactor", scroll_speed);
         pref.set_int("MusicVolume", music_volume);
         pref.set_int("SFXVolume", sfx_2d_volume);
@@ -1003,17 +1001,23 @@ impl OptionsMenu {
         Self::set_yes_no(&mut pref, "UseCameraInReplays", use_camera);
         Self::set_yes_no_title(&mut pref, "DrawScrollAnchor", draw_anchor);
         Self::set_yes_no_title(&mut pref, "MoveScrollAnchor", move_anchor);
-        Self::set_yes_no(&mut pref, "UseShadowVolumes", use_shadow_volumes);
-        Self::set_yes_no(&mut pref, "UseShadowDecals", use_shadow_decals);
-        Self::set_yes_no(&mut pref, "UseCloudMap", use_cloud_map);
-        Self::set_yes_no(&mut pref, "UseLightMap", use_light_map);
-        Self::set_yes_no(&mut pref, "ShowSoftWaterEdge", show_soft_water_edge);
-        Self::set_yes_no(&mut pref, "ExtraAnimations", extra_animations);
-        Self::set_yes_no(&mut pref, "DynamicLOD", !no_dynamic_lod);
-        Self::set_yes_no(&mut pref, "FPSLimit", !unlock_fps);
-        Self::set_yes_no(&mut pref, "HeatEffects", heat_effects);
-        Self::set_yes_no(&mut pref, "BuildingOcclusion", building_occlusion);
-        Self::set_yes_no(&mut pref, "ShowTrees", show_props);
+        // C++ saveOptions writes advanced LOD only when Detail == CUSTOMDETAIL.
+        // FPSLimit is never written (`//Never write this out`).
+        const CUSTOMDETAIL: usize = 3;
+        if detail_index == CUSTOMDETAIL {
+            pref.set_int("TextureReduction", texture_reduction);
+            pref.set_int("MaxParticleCount", particle_cap);
+            Self::set_yes_no(&mut pref, "UseShadowVolumes", use_shadow_volumes);
+            Self::set_yes_no(&mut pref, "UseShadowDecals", use_shadow_decals);
+            Self::set_yes_no(&mut pref, "UseCloudMap", use_cloud_map);
+            Self::set_yes_no(&mut pref, "UseLightMap", use_light_map);
+            Self::set_yes_no(&mut pref, "ShowSoftWaterEdge", show_soft_water_edge);
+            Self::set_yes_no(&mut pref, "ExtraAnimations", extra_animations);
+            Self::set_yes_no(&mut pref, "DynamicLOD", !no_dynamic_lod);
+            Self::set_yes_no(&mut pref, "HeatEffects", heat_effects);
+            Self::set_yes_no(&mut pref, "BuildingOcclusion", building_occlusion);
+            Self::set_yes_no(&mut pref, "ShowTrees", show_props);
+        }
         if let Some(firewall_behavior) = self.firewall_behavior_override {
             pref.set_string("FirewallBehavior", firewall_behavior.to_string());
         }
@@ -1021,6 +1025,7 @@ impl OptionsMenu {
         self.firewall_behavior_override = None;
 
         Self::commit_alternate_mouse_setting(alternate_mouse);
+        let display_gamma = Self::slider_to_gamma(gamma_slider);
         {
             let mut global = runtime_global_data::write();
             global.client_retaliation_mode_enabled = retaliation;
@@ -1029,15 +1034,7 @@ impl OptionsMenu {
             global.firewall_send_delay = send_delay;
             global.save_camera_in_replay = save_camera;
             global.use_camera_in_replay = use_camera;
-            global.use_cloud_map = use_cloud_map;
-            global.use_light_map = use_light_map;
-            global.show_soft_water_edge = show_soft_water_edge;
-            global.use_draw_module_lod = !extra_animations;
-            global.use_heat_effects = heat_effects;
-            global.enable_behind_building_markers = building_occlusion;
-            global.use_trees = show_props;
-            global.max_particle_count = particle_cap;
-            global.display_gamma = Self::slider_to_gamma(gamma_slider);
+            global.display_gamma = display_gamma;
             global.anti_alias_box_value = anti_aliasing;
             global.keyboard_scroll_factor = scroll_speed as f32 / 100.0;
             global.music_volume_factor = music_volume as f32 / 100.0;
@@ -1045,15 +1042,34 @@ impl OptionsMenu {
             global.voice_volume_factor = voice_volume as f32 / 100.0;
             global.writable.x_resolution = resolution.0;
             global.writable.y_resolution = resolution.1;
-            global.writable.use_shadow_volumes = use_shadow_volumes;
-            global.writable.use_shadow_decals = use_shadow_decals;
-            global.writable.enable_dynamic_lod = !no_dynamic_lod;
-            global.writable.use_fps_limit = !unlock_fps;
+            if detail_index == CUSTOMDETAIL {
+                global.use_cloud_map = use_cloud_map;
+                global.use_light_map = use_light_map;
+                global.show_soft_water_edge = show_soft_water_edge;
+                global.use_draw_module_lod = !extra_animations;
+                global.use_heat_effects = heat_effects;
+                global.enable_behind_building_markers = building_occlusion;
+                global.use_trees = show_props;
+                global.max_particle_count = particle_cap;
+                global.writable.use_shadow_volumes = use_shadow_volumes;
+                global.writable.use_shadow_decals = use_shadow_decals;
+                global.writable.enable_dynamic_lod = !no_dynamic_lod;
+            }
         }
-        let _ = apply_lod_texture_reduction(texture_reduction);
+        crate::display::display_fx::set_gamma_state(display_gamma, 0.0, 1.0);
+        let _ = crate::core::script_action_handler::set_script_display_gamma(
+            display_gamma,
+            0.0,
+            1.0,
+        );
+
+        if detail_index == CUSTOMDETAIL {
+            let _ = apply_lod_texture_reduction(texture_reduction);
+        }
 
         game_engine::common::game_lod::set_static_lod_from_string(detail_name);
         game_engine::common::game_lod::set_ideal_static_lod_from_string(detail_name);
+        crate::gui::options_host_bridge::apply_display_gamma(display_gamma, 0.0, 1.0, false);
 
         let audio = TheAudio;
         audio.set_volume(music_volume as f32 / 100.0, EngineAudioAffect::Music);
@@ -1963,56 +1979,52 @@ impl MenuCallbacks for LanLobbyMenu {
         layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!(
-            "Initializing LAN Lobby Menu for layout: {}",
-            layout.get_filename()
-        );
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_init(layout);
         self.initialized = true;
         Ok(())
     }
 
     fn update(
         &mut self,
-        _layout: &WindowLayout,
+        layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Update LAN lobby menu state
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_update(layout);
         Ok(())
     }
 
     fn shutdown(
         &mut self,
         layout: &WindowLayout,
-        _user_data: Option<&mut dyn std::any::Any>,
+        user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        info!(
-            "Shutting down LAN Lobby Menu for layout: {}",
-            layout.get_filename()
-        );
+        let immediate = user_data
+            .and_then(|data| data.downcast_ref::<bool>())
+            .copied()
+            .unwrap_or(false);
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_shutdown(layout, immediate);
         self.initialized = false;
         Ok(())
     }
 
     fn system(
         &mut self,
-        _window: &GameWindow,
+        window: &GameWindow,
         msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        debug!("LAN Lobby Menu system message: {:?}", msg);
-        WindowMsgHandled::Ignored
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_system(window, msg, data1, data2)
     }
 
     fn input(
         &mut self,
-        _window: &GameWindow,
+        window: &GameWindow,
         msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        debug!("LAN Lobby Menu input message: {:?}", msg);
-        WindowMsgHandled::Ignored
+        crate::gui::callbacks::lan_lobby_menu::lan_lobby_input(window, msg, data1, data2)
     }
 }
 

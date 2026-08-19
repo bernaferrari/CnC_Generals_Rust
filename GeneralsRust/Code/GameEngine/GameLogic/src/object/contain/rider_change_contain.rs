@@ -1765,6 +1765,10 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn friend_get_rider(&self) -> Option<ObjectID> {
         RiderChangeContain::friend_get_rider(self)
     }

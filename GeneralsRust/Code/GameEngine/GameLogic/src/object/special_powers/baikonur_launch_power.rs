@@ -157,7 +157,42 @@ impl BaikonurLaunchPower {
             .set_position(loc)?;
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        BaikonurLaunchPower::do_special_power(self, command_options);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module
+            .do_special_power_at_object(object_id, command_options);
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &Coord3D,
+        angle: f32,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        let _ = BaikonurLaunchPower::do_special_power_at_location(
+            self,
+            location,
+            angle,
+            command_options,
+        );
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
+
 
 impl Module for BaikonurLaunchPower {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -181,6 +216,24 @@ impl Module for BaikonurLaunchPower {
     }
 }
 
+impl BehaviorModuleInterface for BaikonurLaunchPower {
+    fn get_module_name(&self) -> &'static str {
+        "BaikonurLaunchPower"
+    }
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+}
+super::interface::impl_special_power_subclass!(BaikonurLaunchPower);
+
+
 impl Snapshotable for BaikonurLaunchPower {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         self.base_module.crc(xfer)
@@ -198,11 +251,6 @@ impl Snapshotable for BaikonurLaunchPower {
     }
 }
 
-impl BehaviorModuleInterface for BaikonurLaunchPower {
-    fn get_module_name(&self) -> &'static str {
-        "BaikonurLaunchPower"
-    }
-}
 
 fn parse_special_power_template_field(
     _ini: &mut INI,

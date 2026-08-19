@@ -228,8 +228,6 @@ impl Particle {
         self.angle_z += self.angular_rate_z;
         self.angular_rate_z *= self.angular_damping;
 
-        // Handle particleUpTowardsEmitter rotation (C++ lines 339-348)
-        // This adjusts rotation so 0 degrees points toward the emitter
         if self.particle_up_towards_emitter {
             let emitter_dir_x = self.position.x - self.emitter_position.x;
             let emitter_dir_y = self.position.y - self.emitter_position.y;
@@ -237,14 +235,11 @@ impl Particle {
                 (emitter_dir_x * emitter_dir_x + emitter_dir_y * emitter_dir_y).sqrt();
 
             if emitter_len > 0.0 {
-                // Calculate angle from up vector (0,1) to emitter direction
-                let up_x = 0.0f32;
-                let up_y = 1.0f32;
+                // C++ angleBetween((0,1), dir): signed acos from +Y.
+                // dir=(0,1) → 0 so angle_z = PI. atan2(x, y) measures from +Y.
                 let norm_x = emitter_dir_x / emitter_len;
                 let norm_y = emitter_dir_y / emitter_len;
-
-                // Angle between (0,1) and (norm_x, norm_y) using atan2
-                let angle_to_emitter = norm_y.atan2(norm_x);
+                let angle_to_emitter = norm_x.atan2(norm_y);
                 self.angle_z = angle_to_emitter + std::f32::consts::PI;
             }
         }
@@ -1265,6 +1260,8 @@ pub struct ParticleSystem {
 
     // Control particle
     control_particle: Option<usize>, // Index into particles vector
+    control_particle_pos: Option<Point3<f32>>,
+    dead_controlled_systems: Vec<ParticleSystemId>,
 
     // State flags
     is_local_identity: bool,
@@ -1335,7 +1332,7 @@ impl ParticleSystem {
             position: Point3::origin(),
             last_position: Point3::origin(),
 
-            burst_delay_left: info.burst_delay.sample() as u32,
+            burst_delay_left: 0,
             delay_left: info.initial_delay.sample() as u32,
             start_timestamp: 0, // Will be set when started
             system_lifetime_left: info.system_lifetime,
@@ -1351,6 +1348,8 @@ impl ParticleSystem {
             master_system: None,
 
             control_particle: None,
+            control_particle_pos: None,
+            dead_controlled_systems: Vec::new(),
 
             is_local_identity: true,
             is_identity: true,
@@ -1418,7 +1417,7 @@ impl ParticleSystem {
     /// Delay / wind / transform / emit. Manager commits pending, then integrate.
     pub fn begin_frame_emit(
         &mut self,
-        _local_player_index: i32,
+        local_player_index: i32,
         current_frame: u32,
     ) -> FrameEmitPhase {
         if self.is_destroyed && self.particles.is_empty() && self.pending_emission_infos.is_empty()
@@ -1435,8 +1434,13 @@ impl ParticleSystem {
             return FrameEmitPhase::Delayed;
         }
 
+        self.resolve_attached_parent(local_player_index);
+        if self.is_destroyed {
+            return FrameEmitPhase::Dead;
+        }
         self.update_wind_motion();
         self.update_transform_from_parent();
+        self.apply_control_particle_origin();
 
         if !self.is_destroyed
             && (self.is_forever || self.system_lifetime_left > 0)
@@ -1660,10 +1664,79 @@ impl ParticleSystem {
         self.parent_transform = transform;
     }
 
+    /// C++ `ParticleSystem::setControlParticle` — follow this world position.
+    pub fn set_control_particle_position(&mut self, pos: Point3<f32>) {
+        self.control_particle_pos = Some(pos);
+    }
+
+    pub fn take_dead_controlled_systems(&mut self) -> Vec<ParticleSystemId> {
+        std::mem::take(&mut self.dead_controlled_systems)
+    }
+
+    pub fn attached_system_name(&self) -> &str {
+        &self.template.info().attached_system_name
+    }
+
+    pub fn is_emit_above_ground_only(&self) -> bool {
+        self.template.info().is_emit_above_ground_only
+    }
+
     pub fn update_particle_scale(&mut self) {
         self.particle_scale = Self::read_particle_scale_from_global_data();
     }
 
+    fn apply_control_particle_origin(&mut self) {
+        let Some(pos) = self.control_particle_pos else {
+            return;
+        };
+        self.last_position = self.position;
+        self.position = pos;
+        self.is_identity = false;
+    }
+
+    /// C++ ParticleSys.cpp:1852-1905 — follow drawable/object or self-destroy.
+    fn resolve_attached_parent(&mut self, local_player_index: i32) {
+        if self.attached_drawable_id.is_valid() {
+            if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+                if let Some(state) = client.find_drawable_by_id(self.attached_drawable_id.0) {
+                    self.last_position = self.position;
+                    self.position = Point3::new(
+                        state.position.x,
+                        state.position.y,
+                        state.position.z,
+                    );
+                    let (s, c) = state.orientation.sin_cos();
+                    self.parent_transform =
+                        Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
+                    return;
+                }
+            }
+            self.attached_drawable_id = DrawableId::INVALID;
+            self.destroy();
+            return;
+        }
+
+        if self.attached_object_id != 0 {
+            if let Some(object) =
+                gamelogic::helpers::TheGameLogic::find_object_by_id(self.attached_object_id)
+            {
+                if let Ok(guard) = object.read() {
+                    use gamelogic::common::types::ObjectShroudStatus;
+                    let status = guard.get_shrouded_status(local_player_index);
+                    self.is_shrouded = (status as u8) >= (ObjectShroudStatus::Fogged as u8);
+                    let pos = *guard.get_position();
+                    self.last_position = self.position;
+                    self.position = Point3::new(pos.x, pos.y, pos.z);
+                    let (s, c) = guard.get_orientation().sin_cos();
+                    self.parent_transform =
+                        Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
+                }
+                return;
+            }
+            self.attached_object_id = 0;
+            self.destroy();
+        }
+    }
     fn read_particle_scale_from_global_data() -> f32 {
         match game_engine::common::ini::ini_game_data::get_global_data() {
             Some(arc) => arc.read().particle_scale,
@@ -1868,8 +1941,10 @@ impl ParticleSystem {
                     remove_particle = true;
                 }
             }
-
             if remove_particle {
+                if let Some(controlled) = self.particles[i].controlled_system {
+                    self.dead_controlled_systems.push(controlled);
+                }
                 self.particles.remove(i);
                 self.particle_count = self.particle_count.saturating_sub(1);
             } else {
@@ -1890,7 +1965,7 @@ impl ParticleSystem {
             return;
         }
 
-        // Check burst delay (C++ lines 2037-2040)
+        // Check burst delay (C++ lines 1972 / 2015-2020)
         if self.burst_delay_left > 0 {
             self.burst_delay_left -= 1;
             return;
@@ -1904,25 +1979,18 @@ impl ParticleSystem {
             if let Some(particle_info) = self.generate_particle_info(i, burst_count) {
                 self.pending_emission_infos.push(particle_info);
             }
+            // C++ generateParticleInfo advances StartSizeRate per particle.
+            self.accumulated_size_bonus += info.start_size_rate.sample();
+            const MAX_SIZE_BONUS: f32 = 50.0;
+            if self.accumulated_size_bonus > MAX_SIZE_BONUS {
+                self.accumulated_size_bonus = MAX_SIZE_BONUS;
+            }
         }
 
-        // Reset burst delay (C++ lines 2036-2037)
+        // Reset burst delay after the first immediate burst (C++ m_burstDelayLeft starts at 0)
         self.burst_delay_left = (info.burst_delay.sample() * self.delay_coeff) as u32;
 
-        // Update accumulated size bonus (C++ line 1800)
-        self.accumulated_size_bonus += info.start_size_rate.sample();
-
-        // Clamp accumulated bonus (C++ lines 1801-1802)
-        const MAX_SIZE_BONUS: f32 = 50.0;
-        if self.accumulated_size_bonus > MAX_SIZE_BONUS {
-            self.accumulated_size_bonus = MAX_SIZE_BONUS;
-        }
-
-        // Check if one-shot (C++ doesn't auto-stop on one-shot, but stops emitting)
-        // The is_stopped flag prevents further emission
-        if info.is_one_shot {
-            self.is_stopped = true;
-        }
+        // C++ never reads m_isOneShot at runtime — emission continues until SystemLifetime.
     }
 
     /// Generate particle info (matches C++ ParticleSystem::generateParticleInfo)
@@ -1953,9 +2021,8 @@ impl ParticleSystem {
         // C++ parity: ParticleSys.cpp lines 1782-1783
         // C++: m_size = m_startSize*m_sizeCoeff*TheGlobalData->m_particleScale
         // C++: m_sizeRate = m_sizeRate*m_sizeCoeff*TheGlobalData->m_particleScale
-        particle_info.size = (info.start_size.sample() + self.accumulated_size_bonus)
-            * self.size_coeff
-            * self.particle_scale;
+        particle_info.size = info.start_size.sample() * self.size_coeff * self.particle_scale;
+        particle_info.size += self.accumulated_size_bonus;
         particle_info.size_rate = info.size_rate.sample() * self.size_coeff * self.particle_scale;
         particle_info.size_rate_damping = info.size_rate_damping.sample();
 
@@ -1979,11 +2046,11 @@ impl ParticleSystem {
         }
         particle_info.color_keys = info.color_keys;
 
-        // Color scale
-        particle_info.color_scale = info.color_scale.sample();
+        // C++ ParticleSystem ctor re-ranges ColorScale to [min/255, max/255]
+        particle_info.color_scale = info.color_scale.sample() / 255.0;
 
-        // Wind randomness
-        particle_info.wind_randomness = rng.gen_range(0.5..=1.5);
+        // Wind randomness — C++ GameClientRandomValueReal(0.7f, 1.3f)
+        particle_info.wind_randomness = rng.gen_range(0.7..=1.3);
 
         // Particle up towards emitter
         particle_info.particle_up_towards_emitter = info.is_particle_up_towards_emitter;

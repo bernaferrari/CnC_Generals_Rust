@@ -32,8 +32,8 @@ impl W3DModel {
     /// legacy whole-model hierarchy selection. C++ preserves the first tree
     /// registered under an exact case-insensitive name, while existing Main
     /// rendering historically consults the most recently parsed `hierarchy`.
-    /// Keep both contracts explicit rather than letting an HMODEL borrow an
-    /// unrelated convenience value.
+    /// Rigid HLOD locals now resolve by `hierarchy_name`; this convenience
+    /// field remains only for mesh-only files and older fixtures.
     pub(super) fn retain_source_hierarchy(&mut self, hierarchy: W3dHierarchy) {
         let duplicate_source_name = self
             .hierarchies
@@ -292,6 +292,77 @@ impl W3DModel {
             .flatten()
     }
 
+    /// HTree used by the live rigid HLOD / HAnim path.
+    ///
+    /// One source HLOD owns the tree named by `hierarchy_name`. Mesh-only
+    /// files without an HLOD keep the legacy convenience field. Multiple
+    /// independent HLODs stay fail-closed rather than borrowing the last
+    /// parsed chunk.
+    pub(super) fn hierarchy_for_sampled_hlod_or_legacy(&self) -> Option<&W3dHierarchy> {
+        if self.hlod_parse_failed {
+            return None;
+        }
+        match self.hlods.len() {
+            0 => self.hierarchy.as_ref(),
+            1 => {
+                let hlod = self.hlods.first()?;
+                if hlod.has_invalid_trailing_records {
+                    return None;
+                }
+                self.source_hierarchy_for_hlod(hlod)
+            }
+            _ => None,
+        }
+    }
+
+    /// HLOD `HierarchyName` values that are not present in this file's
+    /// retained HTree set. C++ `Get_HTree` load-on-demand then opens
+    /// `{name}.w3d`.
+    pub(super) fn missing_named_hlod_hierarchy_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for hlod in &self.hlods {
+            if hlod.hierarchy_name.trim().is_empty() {
+                continue;
+            }
+            if self.source_hierarchy_for_hlod(hlod).is_some() {
+                continue;
+            }
+            if names
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(&hlod.hierarchy_name))
+            {
+                continue;
+            }
+            names.push(hlod.hierarchy_name.clone());
+        }
+        names
+    }
+
+    /// Import the first case-insensitive matching HTree from a companion
+    /// `{HierarchyName}.w3d` parse. First registered name wins, matching
+    /// C++ `HTreeManagerClass`.
+    pub(super) fn import_named_hierarchy_from(&mut self, source: &W3DModel, name: &str) {
+        if name.trim().is_empty() {
+            return;
+        }
+        if let Some(hierarchy) = source
+            .hierarchies
+            .iter()
+            .find(|hierarchy| hierarchy.name.eq_ignore_ascii_case(name))
+        {
+            self.retain_source_hierarchy(hierarchy.clone());
+            return;
+        }
+        if let Some(hierarchy) = source
+            .hierarchy
+            .as_ref()
+            .filter(|hierarchy| hierarchy.name.eq_ignore_ascii_case(name))
+        {
+            self.retain_source_hierarchy(hierarchy.clone());
+        }
+    }
+
+
     /// Resolve only the HTree explicitly named by an HMODEL definition. The
     /// current source model can carry several HTree records; matching the
     /// convenience `hierarchy` field by position would change C++ ownership.
@@ -350,9 +421,7 @@ impl W3DModel {
             .collect();
 
         for (mesh, local_transform) in self.meshes.iter().zip(mesh_transforms) {
-            let Some(local_transform) = local_transform else {
-                continue;
-            };
+            let local_transform = local_transform.unwrap_or(mesh.transform);
             for vertex in &mesh.vertices {
                 let pos = local_transform.transform_point3(Vec3::from_array(vertex.position));
                 self.bounding_box_min = self.bounding_box_min.min(pos);
@@ -367,6 +436,39 @@ impl W3DModel {
             self.bounding_box_min = Vec3::ZERO;
             self.bounding_box_max = Vec3::ZERO;
         }
+    }
+
+    /// C++ `MeshGeometryClass` sets `SKIN` only after a complete influence
+    /// chunk. Either the header geometry type or a retained influence array
+    /// is enough to require identity mesh placement plus an HTree palette.
+    pub fn mesh_declares_skin(mesh: &W3DMesh) -> bool {
+        let flagged = mesh.header.as_ref().is_some_and(|header| {
+            (header.attrs & W3D_MESH_FLAG_GEOMETRY_TYPE_MASK) == W3D_MESH_FLAG_GEOMETRY_TYPE_SKIN
+        });
+        let influences = mesh
+            .vertex_influences
+            .as_ref()
+            .is_some_and(|influences| !influences.is_empty());
+        flagged || influences
+    }
+
+    /// C++ `MeshClass::Render` uses `Set_World_Identity` for SKIN
+    /// (`mesh.cpp:746-771`). Deformed vertices come from
+    /// `Container->Get_HTree()`; applying the HLOD bone as mesh-local as
+    /// well is the double-transform shard path.
+    fn skin_render_local_transform(mesh: &W3DMesh, rigid_local: Mat4) -> Mat4 {
+        if Self::mesh_declares_skin(mesh) {
+            Mat4::IDENTITY
+        } else {
+            rigid_local
+        }
+    }
+
+    fn skin_local_for_mesh(&self, mesh_index: usize, rigid_local: Mat4) -> Mat4 {
+        self.meshes
+            .get(mesh_index)
+            .map(|mesh| Self::skin_render_local_transform(mesh, rigid_local))
+            .unwrap_or(rigid_local)
     }
 
     /// Return the render-basis local transform *and* source HTree visibility
@@ -412,11 +514,11 @@ impl W3DModel {
             return None;
         }
         if self.hlods.is_empty() {
-            return Some((mesh.transform, true));
+            return Some((Self::skin_render_local_transform(mesh, mesh.transform), true));
         }
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
-        let hierarchy = self.hierarchy.as_ref()?;
+        let hierarchy = self.static_hlod_parent_context()?.2;
         let bind_pose = compute_bind_pose_global_transforms(hierarchy)?
             .get(bone_index)
             .copied()
@@ -439,7 +541,10 @@ impl W3DModel {
 
 
         Some((
-            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            Self::skin_render_local_transform(
+                mesh,
+                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            ),
             visible,
         ))
     }
@@ -703,7 +808,10 @@ impl W3DModel {
             return Some((fallback_transform, visible));
         };
         Some((
-            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            self.skin_local_for_mesh(
+                mesh_index,
+                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            ),
             visible,
         ))
     }
@@ -818,7 +926,10 @@ impl W3DModel {
         };
 
         Some((
-            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            self.skin_local_for_mesh(
+                mesh_index,
+                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            ),
             visible,
         ))
     }
@@ -935,7 +1046,10 @@ impl W3DModel {
             return Some((fallback_transform, visible));
         };
         Some((
-            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            self.skin_local_for_mesh(
+                mesh_index,
+                Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+            ),
             visible,
         ))
     }
@@ -1198,7 +1312,7 @@ impl W3DModel {
         animation_binding: Option<&W3dAnimationBinding>,
         animation_frame: f32,
     ) -> Option<Vec<[f32; 16]>> {
-        let hierarchy = self.hierarchy.as_ref()?;
+        let hierarchy = self.hierarchy_for_sampled_hlod_or_legacy()?;
         let animation = match animation_binding {
             Some(binding) => {
                 if !self.animation_binding_is_compatible(binding) {
@@ -1301,17 +1415,18 @@ impl W3DModel {
             return None;
         }
         if self.hlods.is_empty() {
-            return Some(mesh.transform);
+            return Some(Self::skin_render_local_transform(mesh, mesh.transform));
         }
 
         let bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
-        let hierarchy = self.hierarchy.as_ref()?;
+        let hierarchy = self.static_hlod_parent_context()?.2;
         let source_transform = compute_bind_pose_global_transforms(hierarchy)?
             .get(bone_index)
             .copied()?;
-        Some(Self::w3d_transform_to_render_basis(Mat4::from_cols_array(
-            &source_transform,
-        )))
+        Some(Self::skin_render_local_transform(
+            mesh,
+            Self::w3d_transform_to_render_basis(Mat4::from_cols_array(&source_transform)),
+        ))
     }
 
     /// Resolve a flattened Main mesh back to the precise source HLOD record.
@@ -1381,27 +1496,24 @@ impl W3DModel {
     /// children and C++ `AdditionalModels`. Aggregate entries are deliberately
     /// allowed here so their parent-bone poses can be prepared without
     /// pretending their external geometry is already rendered.
+    ///
+    /// C++ `Animatable3DObjClass` clones `Get_HTree(hierarchy_name)`, never
+    /// the last hierarchy chunk parsed from the same file. Resolve through
+    /// [`Self::source_hierarchy_for_hlod`] so a later unrelated tree cannot
+    /// hard-fail every mesh to identity.
     pub(super) fn static_hlod_parent_context(&self) -> Option<(&W3dHlod, &W3dHlodLod, &W3dHierarchy)> {
         if self.hlod_parse_failed || self.hlods.len() != 1 {
             return None;
         }
         let hlod = self.hlods.first()?;
-        if hlod.has_invalid_trailing_records {
+        if hlod.has_invalid_trailing_records || hlod.name.is_empty() {
             return None;
         }
         let lod = hlod
             .lods
             .get(Self::cxx_constructor_selected_hlod_lod_index(hlod)?)?;
 
-        let hierarchy = self.hierarchy.as_ref()?;
-        if hlod.name.is_empty()
-            || hlod.hierarchy_name.is_empty()
-            || !hlod
-                .hierarchy_name
-                .eq_ignore_ascii_case(hierarchy.name.as_str())
-        {
-            return None;
-        }
+        let hierarchy = self.source_hierarchy_for_hlod(hlod)?;
         Some((hlod, lod, hierarchy))
     }
 
@@ -1557,7 +1669,7 @@ impl W3DModel {
     /// actual hierarchy. Companion clips remain separate assets, but C++ binds
     /// them to the named HTree only; a matching clip name alone is insufficient.
     pub fn animation_binding_is_compatible(&self, binding: &W3dAnimationBinding) -> bool {
-        let Some(hierarchy) = self.hierarchy.as_ref() else {
+        let Some(hierarchy) = self.hierarchy_for_sampled_hlod_or_legacy() else {
             return false;
         };
         let Some(animation) = binding.animation(self) else {
@@ -1624,8 +1736,216 @@ impl W3DModel {
     }
 
     pub(super) fn sample_animation_data(&self, anim: &W3dAnimation, frame: f32) -> Option<Vec<[f32; 16]>> {
-        let hierarchy = self.hierarchy.as_ref()?;
+        let hierarchy = self.hierarchy_for_sampled_hlod_or_legacy()?;
         let local_transforms = sample_animation_local_transforms(hierarchy, anim, frame)?;
         compute_htree_global_transforms_from_locals(hierarchy, &local_transforms)
+    }
+}
+
+#[cfg(test)]
+mod hlod_named_htree_tests {
+    use super::super::prelude::{Mat4, Vec3, W3dVertInfStruct};
+    use super::super::{
+        W3DMesh, W3DModel, W3dHierarchy, W3dHlod, W3dHlodLod, W3dHlodSubObject, W3dPivot,
+    };
+    fn test_pivot(name: &str, parent_idx: u32, translation: [f32; 3]) -> W3dPivot {
+        W3dPivot {
+            name: name.to_string(),
+            parent_idx,
+            translation,
+            euler_angles: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+
+    fn named_hlod_model(hierarchy: W3dHierarchy, bone_index: u32) -> W3DModel {
+        let hierarchy_name = hierarchy.name.clone();
+        let mut model = W3DModel::new("named_hlod".to_string());
+        model.retain_source_hierarchy(hierarchy);
+        model.hlods.push(W3dHlod {
+            version: 0x0001_0000,
+            name: "HLODROOT".to_string(),
+            hierarchy_name,
+            lods: vec![W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![W3dHlodSubObject {
+                    name: "HLODROOT.RIGID".to_string(),
+                    bone_index,
+                }],
+            }],
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        });
+        let mut mesh = W3DMesh::new("RIGID".to_string());
+        mesh.container_name = "HLODROOT".to_string();
+        mesh.transform = Mat4::from_translation(Vec3::new(7.0, 8.0, 9.0));
+        model.meshes.push(mesh);
+        model
+    }
+
+    #[test]
+    fn failed_hlod_bind_skips_instead_of_identity_draw() {
+        // C++ `HLodClass::Update_Sub_Object_Transforms` (`hlod.cpp:3236-3245`)
+        // only walks created LOD children. A failed bone bind is not
+        // `Set_Transform(IDENTITY)`.
+        let hierarchy = W3dHierarchy {
+            name: "RIG_HIER".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                test_pivot("BONE", 0, [10.0, 20.0, 30.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        };
+        let mut model = named_hlod_model(hierarchy, 1);
+        model.meshes[0].container_name = "OTHER".to_string();
+        assert!(
+            model
+                .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+                .is_none(),
+            "an unresolved HLOD child must skip, not draw at mesh.transform/identity"
+        );
+
+        let mut missing_tree = named_hlod_model(
+            W3dHierarchy {
+                name: "OTHER_TREE".to_string(),
+                pivots: vec![
+                    test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                    test_pivot("BONE", 0, [99.0, 88.0, 77.0]),
+                ],
+                pivot_fixups: Vec::new(),
+            },
+            1,
+        );
+        missing_tree.hlods[0].hierarchy_name = "MISSING_TREE".to_string();
+        assert!(
+            missing_tree
+                .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+                .is_none(),
+            "a missing named HTree must not identity-draw HLOD children"
+        );
+    }
+
+    #[test]
+    fn rigid_hlod_uses_named_htree_not_last_parsed_unrelated_tree() {
+        // C++ `Animatable3DObjClass` clones `Get_HTree(hierarchy_name)`.
+        let named = W3dHierarchy {
+            name: "RIG_HIER".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                test_pivot("BONE", 0, [10.0, 20.0, 30.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        };
+        let mut model = named_hlod_model(named, 1);
+        model.hierarchy = Some(W3dHierarchy {
+            name: "UNRELATED".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                test_pivot("BONE", 0, [99.0, 88.0, 77.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        });
+
+        let (transform, visible) = model
+            .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+            .expect("named HTree must resolve the authored child");
+        assert!(visible);
+        let pos = transform.w_axis.truncate();
+        assert!(
+            (pos - Vec3::new(10.0, 30.0, 20.0)).length() < 0.0001,
+            "named HTree translation must win over the last-parsed tree, got {pos:?}"
+        );
+    }
+
+    #[test]
+    fn companion_named_htree_import_enables_failed_bind_to_resolve() {
+        let mut model = W3DModel::new("geometry".to_string());
+        model.hlods.push(W3dHlod {
+            version: 0x0001_0000,
+            name: "HLODROOT".to_string(),
+            hierarchy_name: "COMPANION".to_string(),
+            lods: vec![W3dHlodLod {
+                max_screen_size: f32::MAX,
+                subobjects: vec![W3dHlodSubObject {
+                    name: "HLODROOT.RIGID".to_string(),
+                    bone_index: 1,
+                }],
+            }],
+            aggregates: None,
+            proxies: None,
+            has_unrendered_aggregates: false,
+            has_invalid_trailing_records: false,
+        });
+        let mut mesh = W3DMesh::new("RIGID".to_string());
+        mesh.container_name = "HLODROOT".to_string();
+        model.meshes.push(mesh);
+
+        assert_eq!(
+            model.missing_named_hlod_hierarchy_names(),
+            vec!["COMPANION".to_string()]
+        );
+        assert!(
+            model
+                .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+                .is_none(),
+            "before companion load the named HTree miss must skip"
+        );
+
+        let mut companion = W3DModel::new("COMPANION".to_string());
+        companion.retain_source_hierarchy(W3dHierarchy {
+            name: "companion".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                test_pivot("BONE", 0, [4.0, 5.0, 6.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        });
+        model.import_named_hierarchy_from(&companion, "COMPANION");
+        assert!(model.missing_named_hlod_hierarchy_names().is_empty());
+
+        let (transform, visible) = model
+            .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+            .expect("case-insensitive companion HTree must become the named source");
+        assert!(visible);
+        let pos = transform.w_axis.truncate();
+        assert!(
+            (pos - Vec3::new(4.0, 6.0, 5.0)).length() < 0.0001,
+            "companion HTree translation, got {pos:?}"
+        );
+    }
+
+    #[test]
+    fn skin_hlod_child_uses_identity_local_after_valid_bind() {
+        // C++ `MeshClass::Render` (`mesh.cpp:746-771`) draws SKIN with
+        // `Set_World_Identity` after a successful HLOD child create.
+        let hierarchy = W3dHierarchy {
+            name: "SKIN_HIER".to_string(),
+            pivots: vec![
+                test_pivot("ROOT", u32::MAX, [0.0; 3]),
+                test_pivot("BONE", 0, [10.0, 20.0, 30.0]),
+            ],
+            pivot_fixups: Vec::new(),
+        };
+        let mut model = named_hlod_model(hierarchy, 1);
+        model.meshes[0].vertex_influences = Some(vec![W3dVertInfStruct {
+            bone_idx: 1,
+            pad: [0; 6],
+        }]);
+
+        let (transform, visible) = model
+            .mesh_local_transform_and_visibility_for_binding(0, None, 0.0)
+            .expect("a created SKIN LOD child must still be walked");
+        assert!(visible);
+        assert_eq!(
+            transform,
+            Mat4::IDENTITY,
+            "SKIN mesh-local must stay identity; HTree is the palette"
+        );
+        assert!(
+            W3DModel::mesh_declares_skin(&model.meshes[0]),
+            "influence array is enough to stamp HierarchyBindPose"
+        );
     }
 }

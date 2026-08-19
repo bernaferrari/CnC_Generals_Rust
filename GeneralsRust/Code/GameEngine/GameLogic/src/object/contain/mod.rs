@@ -101,6 +101,21 @@ pub(crate) fn should_cancel_containment_after_booby_trap(
         && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
 }
 
+/// C++ TransportContain/MobNexusContain: if the rider is a special zero-slot
+/// container (parachute), validate the first contained infantry instead.
+pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<Arc<RwLock<Object>>> {
+    let contain = obj.get_contain()?;
+    let first_id = {
+        let guard = contain.lock().ok()?;
+        if guard.get_max_capacity() != 0 {
+            return None;
+        }
+        *guard.get_contained_objects().first()?
+    };
+    crate::helpers::TheGameLogic::find_object_by_id(first_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(first_id))
+}
+
 /// Trait for common container functionality
 pub trait ContainerInterface {
     /// Check if this container can contain the given object

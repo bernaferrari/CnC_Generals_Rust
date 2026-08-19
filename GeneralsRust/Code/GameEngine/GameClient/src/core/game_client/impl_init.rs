@@ -37,6 +37,10 @@ impl GameClient {
             local_player_id: 0,
             last_applied_military_caption: None,
             last_applied_cinematic_text: None,
+            cinematic_overlay_font: None,
+            cinematic_overlay_frames: 0,
+            letterbox_overlay_enabled: false,
+            letterbox_overlay_fade_start: None,
             last_live_ingame_hud_draw: LiveInGameHudDrawCounts::default(),
 
             drawable_map: std::collections::HashMap::with_capacity(super::DRAWABLE_HASH_SIZE),
@@ -199,6 +203,17 @@ impl GameClient {
                 )
             })),
         );
+        register_save_load_campaign_hooks(Some(Arc::new(|| {
+            let campaign_manager = get_campaign_manager();
+            let campaign = campaign_manager.get_current_campaign()?;
+            Some((
+                campaign.name.clone(),
+                campaign_manager
+                    .get_current_mission_number()
+                    .unwrap_or(-1),
+                campaign_manager.get_current_map().unwrap_or_default(),
+            ))
+        })));
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
                 let setup = get_skirmish_setup();

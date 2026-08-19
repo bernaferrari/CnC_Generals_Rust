@@ -71,6 +71,13 @@ pub fn take_hlod_live_child_states(object_id: ObjectID) -> Option<Vec<HlodLiveCh
         .and_then(|mut store| store.remove(&object_id))
 }
 
+pub fn peek_hlod_live_child_states(object_id: ObjectID) -> Option<Vec<HlodLiveChildState>> {
+    COMMITTED_LIVE_STATES
+        .lock()
+        .ok()
+        .and_then(|store| store.get(&object_id).cloned())
+}
+
     #[cfg(test)]
 mod hlod_live_child_tests {
     use super::*;

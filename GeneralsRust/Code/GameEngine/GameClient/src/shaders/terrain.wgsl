@@ -5,9 +5,9 @@ struct Camera {
     view_proj: mat4x4<f32>,
     view: mat4x4<f32>,
     proj: mat4x4<f32>,
-    position: vec3<f32>,
+    position: vec4<f32>,
+    time: f32,
 }
-
 struct TerrainVertex {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -58,18 +58,29 @@ fn vs_main(vertex: TerrainVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Sample all terrain textures
     let color_0 = textureSample(terrain_texture_0, terrain_sampler, in.tex_coords);
     let color_1 = textureSample(terrain_texture_1, terrain_sampler, in.tex_coords);
     let color_2 = textureSample(terrain_texture_2, terrain_sampler, in.tex_coords);
     let color_3 = textureSample(terrain_texture_3, terrain_sampler, in.tex_coords);
-    
-    // Blend based on vertex blend weights
-    let final_color = color_0 * in.blend_weights.x +
-                     color_1 * in.blend_weights.y +
-                     color_2 * in.blend_weights.z +
-                     color_3 * in.blend_weights.w;
-    
+
+    let weight_sum = in.blend_weights.x + in.blend_weights.y + in.blend_weights.z + in.blend_weights.w;
+    let blend = select(in.blend_weights, vec4<f32>(1.0, 0.0, 0.0, 0.0), weight_sum <= 0.0);
+    var final_color = color_0 * blend.x +
+                     color_1 * blend.y +
+                     color_2 * blend.z +
+                     color_3 * blend.w;
+
+    // C++ CloudMapTerrainTextureClass + LightMapTerrainTextureClass stages.
+    let cloud_uv = in.world_position.xz * 0.002 + vec2<f32>(camera.time * -0.02, camera.time * -0.03);
+    let cloud = 0.70 + 0.30 * hash2(cloud_uv);
+    let noise_uv = in.world_position.xz * 0.015;
+    let noise = 0.85 + 0.15 * hash2(noise_uv + vec2<f32>(17.0, 9.0));
+    final_color = vec4<f32>(final_color.rgb * cloud * noise, final_color.a);
+
     // Modulate by baked vb.diffuse (doTheDynamicLight). Do not fake-N·L again.
     return vec4<f32>(final_color.rgb * in.color.rgb, final_color.a * in.color.a);
+}
+
+fn hash2(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
 }

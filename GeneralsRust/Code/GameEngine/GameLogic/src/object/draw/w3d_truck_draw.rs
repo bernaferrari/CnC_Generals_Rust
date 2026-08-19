@@ -2,7 +2,8 @@ use super::draw_module::*;
 use super::w3d_model_draw::*;
 use crate::common::*;
 use crate::helpers::{
-    BoneOverrideState, TheAudio, TheGameClient, TheGameLogic, TheParticleSystemManager,
+    BoneOverrideState, DrawWheelInfo, TheAudio, TheGameClient, TheGameLogic,
+    TheParticleSystemManager,
 };
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -413,7 +414,9 @@ impl W3DTruckDraw {
                 });
             }
         };
-        let wheel_angle = turning;
+        let wheel_info = client.get_object_wheel_info(owner_id);
+        let wheel_angle = wheel_info.map(|info| info.wheel_angle).unwrap_or(turning);
+        let heights = wheel_info.unwrap_or(DrawWheelInfo::default());
         let mut front = self.front_wheel_rotation
             + self.data.rotation_speed_multiplier * if backwards { -speed } else { speed };
         let mut rear = self.rear_wheel_rotation
@@ -427,59 +430,114 @@ impl W3DTruckDraw {
             rear = -rear;
             front = -front;
         }
+        let steered = |height: Real, spin: Real| {
+            Matrix3D::from_translation(glam::Vec3::new(0.0, 0.0, height))
+                * Matrix3D::from_rotation_z(wheel_angle)
+                * Matrix3D::from_rotation_y(spin)
+        };
+        let unsteered = |height: Real, spin: Real| {
+            Matrix3D::from_translation(glam::Vec3::new(0.0, 0.0, height))
+                * Matrix3D::from_rotation_y(spin)
+        };
         add(
             &mut overrides,
             self.bone_index(info, &self.data.front_left_tire_bone_name),
-            Matrix3D::from_rotation_z(wheel_angle) * Matrix3D::from_rotation_y(front),
+            steered(heights.front_left_height_offset, front),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.front_right_tire_bone_name),
-            Matrix3D::from_rotation_z(wheel_angle) * Matrix3D::from_rotation_y(front),
+            steered(heights.front_right_height_offset, front),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.rear_left_tire_bone_name),
-            Matrix3D::from_rotation_y(rear),
+            unsteered(heights.rear_left_height_offset, rear),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.rear_right_tire_bone_name),
-            Matrix3D::from_rotation_y(rear),
+            unsteered(heights.rear_right_height_offset, rear),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_front_left_tire_bone_name),
-            Matrix3D::from_rotation_z(wheel_angle)
-                * Matrix3D::from_rotation_y(self.mid_front_wheel_rotation),
+            steered(
+                heights.front_left_height_offset,
+                self.mid_front_wheel_rotation,
+            ),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_front_right_tire_bone_name),
-            Matrix3D::from_rotation_z(wheel_angle)
-                * Matrix3D::from_rotation_y(self.mid_front_wheel_rotation),
+            steered(
+                heights.front_right_height_offset,
+                self.mid_front_wheel_rotation,
+            ),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_rear_left_tire_bone_name),
-            Matrix3D::from_rotation_y(self.mid_rear_wheel_rotation),
+            unsteered(
+                heights.rear_left_height_offset,
+                self.mid_rear_wheel_rotation,
+            ),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_rear_right_tire_bone_name),
-            Matrix3D::from_rotation_y(self.mid_rear_wheel_rotation),
+            unsteered(
+                heights.rear_right_height_offset,
+                self.mid_rear_wheel_rotation,
+            ),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_mid_left_tire_bone_name),
-            Matrix3D::from_rotation_y(self.mid_rear_wheel_rotation),
+            unsteered(
+                heights.rear_left_height_offset,
+                self.mid_rear_wheel_rotation,
+            ),
         );
         add(
             &mut overrides,
             self.bone_index(info, &self.data.mid_mid_right_tire_bone_name),
-            Matrix3D::from_rotation_y(self.mid_rear_wheel_rotation),
+            unsteered(
+                heights.rear_right_height_offset,
+                self.mid_rear_wheel_rotation,
+            ),
         );
-        let desired_cab = wheel_angle * self.data.cab_rotation_factor;
+        let mut desired_cab = wheel_angle * self.data.cab_rotation_factor;
+        if wheel_info.is_some() {
+            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
+                if let Ok(owner_guard) = owner.read() {
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            if let Some(point) = ai_guard.get_path_destination() {
+                                let pos = *owner_guard.get_position();
+                                let facing = owner_guard.get_orientation();
+                                let angle_to_goal = relative_angle_2d(pos, facing, point);
+                                if angle_to_goal < 0.0 {
+                                    if desired_cab < angle_to_goal {
+                                        desired_cab = angle_to_goal;
+                                    }
+                                    if desired_cab > 0.0 {
+                                        desired_cab = 0.0;
+                                    }
+                                } else {
+                                    if desired_cab > angle_to_goal {
+                                        desired_cab = angle_to_goal;
+                                    }
+                                    if desired_cab < 0.0 {
+                                        desired_cab = 0.0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
         let cab_index = self.bone_index(info, &self.data.cab_bone_name);
         let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
@@ -705,6 +763,22 @@ impl Snapshotable for W3DTruckDraw {
         self.toss_emitters();
         Ok(())
     }
+}
+
+fn relative_angle_2d(from: Coord3D, facing: Real, to: Coord3D) -> Real {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    if dx == 0.0 && dy == 0.0 {
+        return 0.0;
+    }
+    let mut delta = dy.atan2(dx) - facing;
+    while delta > std::f32::consts::PI {
+        delta -= std::f32::consts::TAU;
+    }
+    while delta < -std::f32::consts::PI {
+        delta += std::f32::consts::TAU;
+    }
+    delta
 }
 
 #[cfg(test)]

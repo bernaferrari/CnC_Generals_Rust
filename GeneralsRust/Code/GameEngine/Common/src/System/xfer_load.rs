@@ -186,8 +186,9 @@ impl Xfer for XferLoad {
             unsafe { self.xfer_user(buffer.as_mut_ptr(), len as usize)? };
         }
 
-        // Convert to string
-        *ascii_string_data = String::from_utf8_lossy(&buffer[..len as usize]).into_owned();
+        // C++ AsciiString::set keeps the raw 8-bit payload. Map each byte to U+00xx
+        // so locale-encoded names survive a Rust String and round-trip on save.
+        *ascii_string_data = buffer[..len as usize].iter().map(|&b| b as char).collect();
 
         Ok(())
     }

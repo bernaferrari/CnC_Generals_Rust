@@ -16,6 +16,7 @@ pub struct MiscAudioEvents {
     pub money_withdraw: AudioEventRts,
     pub sabotage_shut_down_building: AudioEventRts,
     pub sabotage_reset_timer_building: AudioEventRts,
+    pub unit_promoted: AudioEventRts,
 }
 
 impl Default for MiscAudioEvents {
@@ -31,6 +32,7 @@ impl Default for MiscAudioEvents {
             money_withdraw: AudioEventRts::new("money_withdraw"),
             sabotage_shut_down_building: AudioEventRts::new("sabotage_shut_down_building"),
             sabotage_reset_timer_building: AudioEventRts::new("sabotage_reset_timer_building"),
+            unit_promoted: AudioEventRts::new("UnitPromoted"),
         }
     }
 }
@@ -338,6 +340,7 @@ impl TheAudio {
                 AudioEventRts::new(misc_audio.sabotage_shut_down_building.sound_file.as_str());
             let sabotage_reset_timer_building =
                 AudioEventRts::new(misc_audio.sabotage_reset_timer_building.sound_file.as_str());
+            let unit_promoted = AudioEventRts::new(misc_audio.unit_promoted.sound_file.as_str());
 
             MiscAudioEvents {
                 crate_heal,
@@ -350,7 +353,9 @@ impl TheAudio {
                 money_withdraw,
                 sabotage_shut_down_building,
                 sabotage_reset_timer_building,
+                unit_promoted,
             }
+
         })
     }
 
@@ -537,5 +542,14 @@ impl TheAudio {
         if let Ok(mut guard) = manager_lock {
             guard.remove_all_disabled_audio();
         }
+    }
+
+    /// C++ `TheAudio->hasMusicTrackCompleted(track, times)`.
+    pub fn has_music_track_completed(&self, track_name: &str, number_of_times: i32) -> bool {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let Ok(guard) = manager.lock() else {
+            return false;
+        };
+        guard.has_music_track_completed(track_name, number_of_times)
     }
 }

@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use ww3d_assets::loaders::hierarchy_loader::W3DHierarchy;
@@ -31,6 +32,17 @@ const TEAM_COLOR_PALETTE_SIZE: usize = 16;
 const TEAM_COLOR_PALETTE: [u16; TEAM_COLOR_PALETTE_SIZE] = [
     255, 239, 223, 211, 195, 174, 167, 151, 135, 123, 107, 91, 79, 63, 47, 35,
 ];
+
+static TEXTURE_REDUCTION_FACTOR: AtomicU32 = AtomicU32::new(0);
+
+/// C++ `WW3D::Set_Texture_Reduction` hook used by GameLOD.
+pub fn set_asset_texture_reduction(factor: u32) {
+    TEXTURE_REDUCTION_FACTOR.store(factor.min(4), Ordering::Relaxed);
+}
+
+fn current_texture_reduction() -> u32 {
+    TEXTURE_REDUCTION_FACTOR.load(Ordering::Relaxed)
+}
 
 const MAX_WARNING_COUNT: u32 = 20;
 
@@ -563,17 +575,19 @@ impl WthreeDAssetManager {
             return None;
         };
 
-        // Clone and customize the prototype
         let mut custom_proto = base_proto;
         custom_proto.cache_key = Some(cache_key.clone());
         custom_proto.object_color = color;
         custom_proto.ref_count = 1;
 
-        // Handle texture replacement
         if really_texture {
             if let (Some(old_tex), Some(new_tex)) = (old_texture, new_texture) {
                 self.replace_prototype_texture(&mut custom_proto, old_tex, new_tex);
             }
+        }
+
+        if really_color {
+            self.recolor_asset(&mut custom_proto, color);
         }
 
         self.prototypes.insert(cache_key.clone(), custom_proto);
@@ -582,19 +596,102 @@ impl WthreeDAssetManager {
         })
     }
 
-    /// Replace all references to old texture with new texture in a prototype
-    /// (C++ replacePrototypeTexture).
     pub fn replace_prototype_texture(
         &self,
-        _proto: &mut AssetPrototype,
-        _old_name: &str,
-        _new_name: &str,
+        proto: &mut AssetPrototype,
+        old_name: &str,
+        new_name: &str,
     ) -> bool {
-        // PARITY_NOTE: C++ walks sub-objects calling replaceMeshTexture /
-        // replaceHLODTexture. The Rust port stores texture references
-        // differently — actual texture swap deferred to mesh material system.
-        false
+        self.replace_asset_texture(proto, old_name, new_name)
     }
+
+    fn replace_asset_texture(
+        &self,
+        proto: &mut AssetPrototype,
+        old_name: &str,
+        new_name: &str,
+    ) -> bool {
+        match proto.class_id {
+            AssetClassId::Mesh => self.replace_mesh_texture(proto, old_name, new_name),
+            AssetClassId::Hlod => self.replace_hlod_texture(proto, old_name, new_name),
+            _ => false,
+        }
+    }
+
+    fn replace_hlod_texture(
+        &self,
+        proto: &mut AssetPrototype,
+        old_name: &str,
+        new_name: &str,
+    ) -> bool {
+        self.replace_mesh_texture(proto, old_name, new_name)
+    }
+
+    fn replace_mesh_texture(
+        &self,
+        proto: &mut AssetPrototype,
+        old_name: &str,
+        new_name: &str,
+    ) -> bool {
+        let mut did = false;
+        for mesh in &mut proto.meshes {
+            for slot in &mut mesh.texture_names {
+                if slot.eq_ignore_ascii_case(old_name) {
+                    *slot = new_name.to_string();
+                    did = true;
+                }
+            }
+        }
+        did
+    }
+
+    fn recolor_asset(&mut self, proto: &mut AssetPrototype, color: u32) -> bool {
+        match proto.class_id {
+            AssetClassId::Mesh => self.recolor_mesh(proto, color),
+            AssetClassId::Hlod => self.recolor_hlod(proto, color),
+            _ => false,
+        }
+    }
+
+    fn recolor_hlod(&mut self, proto: &mut AssetPrototype, color: u32) -> bool {
+        self.recolor_mesh(proto, color)
+    }
+
+    fn recolor_mesh(&mut self, proto: &mut AssetPrototype, color: u32) -> bool {
+        let mut did = false;
+        let mesh_names: Vec<(usize, String, Vec<String>)> = proto
+            .meshes
+            .iter()
+            .enumerate()
+            .map(|(i, mesh)| (i, mesh.name.clone(), mesh.texture_names.clone()))
+            .collect();
+        for (index, mesh_name, textures) in mesh_names {
+            let leaf = mesh_name
+                .rsplit('.')
+                .next()
+                .unwrap_or(mesh_name.as_str());
+            if leaf.len() >= 10 && leaf[..10].eq_ignore_ascii_case("HOUSECOLOR") {
+                proto.object_color = color;
+                did = true;
+            }
+            for tex in textures {
+                if upper_starts_with(&tex, "ZHC") {
+                    if let Some(munged) = self.recolor_texture(&tex, color) {
+                        if let Some(mesh) = proto.meshes.get_mut(index) {
+                            for slot in &mut mesh.texture_names {
+                                if slot.eq_ignore_ascii_case(&tex) {
+                                    *slot = munged.clone();
+                                    did = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        did
+    }
+
 
     fn warn_missing_asset(&mut self, name: &str) {
         if self.missing_asset_warnings < MAX_WARNING_COUNT {
@@ -963,9 +1060,7 @@ impl WthreeDAssetManager {
         None
     }
 
-    fn try_load_texture(&mut self, name: &str, _allow_reduction: bool) -> bool {
-        // C++ parity: TextureClass::Init from file, uploads to GPU.
-        // Step 1: resolve the texture file on disk
+    fn try_load_texture(&mut self, name: &str, allow_reduction: bool) -> bool {
         let resolved = match self.resolve_texture_file(name) {
             Some(p) => p,
             None => {
@@ -974,7 +1069,6 @@ impl WthreeDAssetManager {
             }
         };
 
-        // Step 2: read file bytes
         let bytes = match std::fs::read(&resolved) {
             Ok(b) => b,
             Err(e) => {
@@ -983,13 +1077,17 @@ impl WthreeDAssetManager {
             }
         };
 
-        // Step 3: decode based on format
+        let reduction = if allow_reduction {
+            current_texture_reduction()
+        } else {
+            0
+        };
+
         let lower_name = name.to_ascii_lowercase();
         if lower_name.ends_with(".dds") {
-            self.load_dds_texture(name, &bytes)
+            self.load_dds_texture_reduced(name, &bytes, reduction)
         } else {
-            // TGA, PNG, BMP, JPEG — use the `image` crate
-            self.load_image_texture(name, &bytes)
+            self.load_image_texture_reduced(name, &bytes, reduction)
         }
     }
 
@@ -1042,6 +1140,50 @@ impl WthreeDAssetManager {
         self.textures.insert(name.to_string(), tex);
         true
     }
+
+    fn load_image_texture_reduced(&mut self, name: &str, bytes: &[u8], reduction: u32) -> bool {
+        if reduction == 0 {
+            return self.load_image_texture(name, bytes);
+        }
+        let img = match image::load_from_memory(bytes) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("Failed to decode texture '{}': {}", name, e);
+                return self.create_placeholder_texture(name);
+            }
+        };
+        let mut rgba = img.to_rgba8();
+        let mut width = rgba.width();
+        let mut height = rgba.height();
+        for _ in 0..reduction {
+            if width <= 1 && height <= 1 {
+                break;
+            }
+            width = (width / 2).max(1);
+            height = (height / 2).max(1);
+            rgba = image::imageops::resize(
+                &rgba,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
+        }
+        let encoded = {
+            let mut buf = Vec::new();
+            let _ = image::DynamicImage::ImageRgba8(rgba).write_to(
+                &mut std::io::Cursor::new(&mut buf),
+                image::ImageOutputFormat::Png,
+            );
+            buf
+        };
+        self.load_image_texture(name, &encoded)
+    }
+
+    fn load_dds_texture_reduced(&mut self, name: &str, bytes: &[u8], reduction: u32) -> bool {
+        let _ = reduction;
+        self.load_dds_texture(name, bytes)
+    }
+
 
     /// Load a standard image (TGA/PNG/BMP/JPEG) using the `image` crate and upload to GPU.
     fn load_image_texture(&mut self, name: &str, bytes: &[u8]) -> bool {
@@ -1985,6 +2127,74 @@ mod tests {
         let handle = mgr.create_render_obj("NonExistent");
         assert!(handle.is_none());
     }
+
+    #[test]
+    fn replace_prototype_texture_swaps_mesh_slots() {
+        let mgr = WthreeDAssetManager::new();
+        let mut proto = AssetPrototype {
+            name: "Camo".to_string(),
+            class_id: AssetClassId::Mesh,
+            ref_count: 1,
+            cache_key: None,
+            object_color: 0,
+            source_path: None,
+            meshes: vec![AssetMeshPayload {
+                name: "Camo".to_string(),
+                vertex_count: 0,
+                index_count: 0,
+                material_name: None,
+                texture_names: vec!["old.tga".to_string(), "keep.tga".to_string()],
+                bounding_min: [0.0; 3],
+                bounding_max: [0.0; 3],
+                bounding_sphere_center: [0.0; 3],
+                bounding_sphere_radius: 0.0,
+                vertex_buffer: None,
+                index_buffer: None,
+            }],
+            hierarchy: None,
+            hlod: None,
+        };
+        assert!(mgr.replace_prototype_texture(&mut proto, "old.tga", "new.tga"));
+        assert_eq!(proto.meshes[0].texture_names[0], "new.tga");
+        assert_eq!(proto.meshes[0].texture_names[1], "keep.tga");
+    }
+
+    #[test]
+    fn customized_create_stores_house_color() {
+        let mut mgr = WthreeDAssetManager::new();
+        mgr.initialize().unwrap();
+        mgr.add_prototype(AssetPrototype {
+            name: "Unit".to_string(),
+            class_id: AssetClassId::Mesh,
+            ref_count: 1,
+            cache_key: None,
+            object_color: 0,
+            source_path: None,
+            meshes: vec![AssetMeshPayload {
+                name: "HOUSECOLOR".to_string(),
+                vertex_count: 0,
+                index_count: 0,
+                material_name: None,
+                texture_names: vec!["ZHCstripe.tga".to_string()],
+                bounding_min: [0.0; 3],
+                bounding_max: [0.0; 3],
+                bounding_sphere_center: [0.0; 3],
+                bounding_sphere_radius: 0.0,
+                vertex_buffer: None,
+                index_buffer: None,
+            }],
+            hierarchy: None,
+            hlod: None,
+        });
+        let handle = mgr.create_render_obj_customized("Unit", 1.0, 0x00FF00, None, None);
+        assert!(handle.is_some());
+        let cached = mgr
+            .prototypes
+            .values()
+            .find(|p| p.object_color == 0x00FF00);
+        assert!(cached.is_some());
+    }
+
 
     #[test]
     fn test_default_trait() {

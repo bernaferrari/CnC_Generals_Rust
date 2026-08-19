@@ -16,7 +16,7 @@ use crate::common::{
     ObjectID, PathfindLayerEnum, PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND,
     MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
-use crate::damage::DamageInfo;
+use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{TheAudio, TheGameLogic, TheTerrainLogic};
 use crate::modules::{
@@ -110,8 +110,8 @@ impl Default for OpenContainModuleData {
             forbid_inside_kind_of: 0,
             weapon_bonus_passed_to_passengers: false,
             allow_allies_inside: true,
-            allow_enemies_inside: false,
-            allow_neutral_inside: false,
+            allow_enemies_inside: true,
+            allow_neutral_inside: true,
         }
     }
 }
@@ -1074,39 +1074,99 @@ impl OpenContain {
         self.last_load_sound_frame = now;
     }
 
-    /// Handle death event — C++ OpenContain::onDie (lines 833-851)
-    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        // C++ line 839-843: Apply damage to contained units based on damage percentage
-        if self.module_data.damage_percentage_to_units > 0.0 {
-            if let Some(info) = damage_info {
-                let damage_to_units =
-                    info.input.amount * self.module_data.damage_percentage_to_units;
+    /// C++ OpenContain::processDamageToContained.
+    /// Applies `percentDamage * maxHealth` as UNRESISTABLE, with BURNED vs NORMAL
+    /// death from `isBurnedDeathToUnits`, source = this container, and a 1.0-percent
+    /// flame-proof `kill()` follow-up.
+    pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
+        if dual_world_registry_unavailable() {
+            return Ok(());
+        }
 
-                for obj in &self.resolve_contained_objects() {
-                    if let Ok(contained) = obj.read() {
-                        if let Some(ai) = contained.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                let mut unit_damage = info.clone();
-                                unit_damage.input.amount = damage_to_units;
-                                unit_damage.sync_from_input();
-                                drop(ai_guard);
-                                drop(contained);
-                                if let Ok(mut contained_mut) = obj.write() {
-                                    let _ = contained_mut.attempt_damage(&mut unit_damage);
-                                }
-                            }
-                        }
-                    }
+        let owner_id = self.get_object_id();
+        let death_type = if self.module_data.is_burned_death_to_units {
+            DeathType::Burned
+        } else {
+            DeathType::Normal
+        };
+        let passenger_ids = self.contained_object_ids.clone();
+        for obj_id in passenger_ids {
+            let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                continue;
+            };
+            let max_health = obj
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_body_module())
+                .and_then(|body| body.lock().ok().map(|body_guard| body_guard.get_max_health()))
+                .unwrap_or(0.0);
+            let mut damage_info = DamageInfo::with_simple(
+                max_health * percent_damage,
+                owner_id,
+                DamageType::Unresistable,
+                death_type,
+            );
+            if let Ok(mut passenger) = obj.write() {
+                let _ = passenger.attempt_damage(&mut damage_info);
+                if !passenger.is_effectively_dead() && (percent_damage - 1.0).abs() <= f32::EPSILON {
+                    passenger.kill(None, None);
                 }
             }
         }
+        Ok(())
+    }
 
-        // C++ line 845: Kill riders who are not free to exit
-        // Default implementation is no-op (C++ OpenContain has empty virtual method)
-        // TransportContain overrides with actual logic
+    /// C++ OpenContain::getDamagePercentageToUnits.
+    pub fn get_damage_percentage_to_units(&self) -> f32 {
+        self.module_data.damage_percentage_to_units
+    }
+
+    /// C++ OpenContain::scatterToNearbyPosition.
+    pub fn scatter_to_nearby_position(&self, rider: &mut Object) -> GameResult<()> {
+        let Some((min_radius, container_pos, layer)) = self.with_object(|owner| {
+            (
+                owner.get_geometry_info().get_bounding_circle_radius(),
+                *owner.get_position(),
+                owner.get_layer(),
+            )
+        }) else {
+            return Ok(());
+        };
+
+        let angle = crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+        let max_radius = min_radius + min_radius / 2.0;
+        let dist = crate::helpers::get_game_logic_random_value_real(min_radius, max_radius);
+        let mut pos = Coord3D::new(
+            dist * angle.cos() + container_pos.x,
+            dist * angle.sin() + container_pos.y,
+            0.0,
+        );
+        if let Some(terrain) = TheTerrainLogic::get() {
+            pos.z = terrain.get_layer_height(pos.x, pos.y, layer);
+        }
+        let _ = rider.set_orientation(angle);
+        if let Some(ai) = rider.get_ai() {
+            let _ = rider.set_position(&container_pos);
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.ignore_obstacle(Some(self.get_object_id()));
+                let _ = ai_guard.ai_move_to_position(&pos);
+            }
+        } else {
+            let _ = rider.set_position(&pos);
+        }
+        Ok(())
+    }
+
+    /// Handle death event — C++ OpenContain::onDie (lines 833-851)
+    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        // C++: processDamageToContained(getDamagePercentageToUnits()) when non-zero.
+        if self.module_data.damage_percentage_to_units != 0.0 {
+            self.process_damage_to_contained(self.module_data.damage_percentage_to_units)?;
+        }
+
         self.kill_riders_who_are_not_free_to_exit()?;
-
-        // C++ line 850: Remove all contained units
         self.remove_all_contained(true)?;
         Ok(())
     }
@@ -2175,6 +2235,10 @@ impl ContainModuleInterface for OpenContain {
 
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         OpenContain::kill_all_contained(self).map_err(|e| e.into())
+    }
+
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = OpenContain::process_damage_to_contained(self, percent_damage);
     }
 
     fn client_visible_contained_flash_as_selected(

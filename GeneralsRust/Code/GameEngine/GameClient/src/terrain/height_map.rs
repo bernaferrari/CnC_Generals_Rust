@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use gamelogic::common::types::MAP_HEIGHT_SCALE;
+use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
@@ -82,6 +82,73 @@ impl ExtraBlendDrawMesh {
     }
 }
 
+/// C++ `TCliffInfo` — per-cell mutant/flip UVs for steep faces.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TCliffInfo {
+    pub u0: f32,
+    pub v0: f32,
+    pub u1: f32,
+    pub v1: f32,
+    pub u2: f32,
+    pub v2: f32,
+    pub u3: f32,
+    pub v3: f32,
+    pub flip: bool,
+    pub mutant: bool,
+    pub tile_index: i16,
+}
+
+impl Default for TCliffInfo {
+    fn default() -> Self {
+        Self {
+            u0: 0.0,
+            v0: 0.0,
+            u1: 1.0,
+            v1: 0.0,
+            u2: 1.0,
+            v2: 1.0,
+            u3: 0.0,
+            v3: 1.0,
+            flip: false,
+            mutant: false,
+            tile_index: 0,
+        }
+    }
+}
+
+/// Result of C++ `WorldHeightMap::getUVForTileIndex`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeightMapUvData {
+    pub u: [f32; 4],
+    pub v: [f32; 4],
+    pub flip: bool,
+    pub stretched: bool,
+}
+
+impl Default for HeightMapUvData {
+    fn default() -> Self {
+        Self {
+            u: [0.0, 1.0, 1.0, 0.0],
+            v: [1.0, 1.0, 0.0, 0.0],
+            flip: false,
+            stretched: false,
+        }
+    }
+}
+
+/// C++ `shoreLineTileInfo` — cell that straddles the water plane.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShoreLineTile {
+    pub packed_xy: u32,
+    pub verts: [[f32; 3]; 4],
+    pub t: [f32; 4],
+}
+
+const STRETCH_LIMIT: f32 = 1.5;
+const TILE_LIMIT: f32 = 4.0;
+const TALL_STRETCH_LIMIT: f32 = 2.0;
+const DIAMOND_STRETCH_LIMIT: f32 = 2.4;
+
 /// Height map data structure
 #[derive(Debug, Clone)]
 pub struct HeightMap {
@@ -116,6 +183,10 @@ pub struct HeightMap {
     pub blended_tiles: Vec<BlendTileInfo>,
     /// C++ `m_extraBlendedTiles` fallback for extra-blend info.
     pub extra_blended_tiles: Vec<BlendTileInfo>,
+    /// C++ `m_cliffInfo` — index 0 unused.
+    pub cliff_info: Vec<TCliffInfo>,
+    /// C++ `m_cliffInfoNdxes` parallel to `tile_ndxes`.
+    pub cliff_info_ndxes: Vec<i16>,
     pub draw_origin_x: i32,
     pub draw_origin_y: i32,
     pub draw_width: i32,
@@ -140,6 +211,8 @@ impl HeightMap {
             extra_blend_tile_ndxes: vec![0i16; sample_count],
             blended_tiles: Vec::new(),
             extra_blended_tiles: Vec::new(),
+            cliff_info: vec![TCliffInfo::default()],
+            cliff_info_ndxes: vec![0i16; sample_count],
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -221,6 +294,8 @@ impl HeightMap {
             extra_blend_tile_ndxes: vec![0i16; sample_count],
             blended_tiles: Vec::new(),
             extra_blended_tiles: Vec::new(),
+            cliff_info: vec![TCliffInfo::default()],
+            cliff_info_ndxes: vec![0i16; sample_count],
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -272,6 +347,8 @@ impl HeightMap {
             extra_blend_tile_ndxes: vec![0i16; sample_count],
             blended_tiles: Vec::new(),
             extra_blended_tiles: Vec::new(),
+            cliff_info: vec![TCliffInfo::default()],
+            cliff_info_ndxes: vec![0i16; sample_count],
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: width as i32,
@@ -344,6 +421,8 @@ impl HeightMap {
             extra_blend_tile_ndxes: vec![0i16; sample_count],
             blended_tiles: Vec::new(),
             extra_blended_tiles: Vec::new(),
+            cliff_info: vec![TCliffInfo::default()],
+            cliff_info_ndxes: vec![0i16; sample_count],
             draw_origin_x: 0,
             draw_origin_y: 0,
             draw_width: dimension as i32,
@@ -352,6 +431,10 @@ impl HeightMap {
     }
 
     /// Get height at world coordinates using the C++ height-map triangle split.
+    ///
+    /// Out-of-range samples clamp to the edge cell like C++ `getClipHeight` /
+    /// `getMaxCellHeight` (`BaseHeightMap.cpp`). They never return a literal 0.0
+    /// just because the query is off-map; empty maps and zero scale still return 0.
     pub fn get_height_at(&self, world_x: f32, world_y: f32) -> f32 {
         if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
             return 0.0;
@@ -362,14 +445,12 @@ impl HeightMap {
         let mut hm_x = world_x / self.scale + self.border_size as f32;
         let mut hm_y = world_y / self.scale + self.border_size as f32;
 
-        // Clamp to heightmap bounds
+        // C++ BaseHeightMap::getClipHeight: x<0 -> 0; x>extent-1 -> extent-1.
         let max_x = self.width.saturating_sub(1) as f32;
         let max_y = self.height.saturating_sub(1) as f32;
-        if hm_x < 0.0 || hm_y < 0.0 || hm_x > max_x || hm_y > max_y {
-            return 0.0;
-        }
         hm_x = hm_x.clamp(0.0, max_x);
         hm_y = hm_y.clamp(0.0, max_y);
+
 
         // Get integer coordinates and fractional parts
         let x0 = hm_x.floor() as u32;
@@ -401,18 +482,16 @@ impl HeightMap {
         self.min_height + normalized_height * self.height_range
     }
 
-    /// Get height at heightmap index
+    /// Get height at heightmap index. Out-of-range samples clamp to the edge
+    /// cell like C++ `getClipHeight` — they never invent a 0.0 sea-level cliff.
     pub fn get_height_at_index(&self, x: u32, y: u32) -> f32 {
-        if x >= self.width || y >= self.height {
+        if self.width == 0 || self.height == 0 || self.heights.is_empty() {
             return 0.0;
         }
-
+        let x = x.min(self.width - 1);
+        let y = y.min(self.height - 1);
         let index = (y * self.width + x) as usize;
-        if index < self.heights.len() {
-            self.heights[index]
-        } else {
-            0.0
-        }
+        self.heights.get(index).copied().unwrap_or(0.0)
     }
 
     /// World-space height at a grid sample (same remapping as `get_height_at`).
@@ -432,8 +511,11 @@ impl HeightMap {
         }
     }
 
-    /// Get surface normal at world coordinates
+    /// Get surface normal at world coordinates.
+    /// Neighbor samples go through `get_height_at`, so off-map taps clamp to
+    /// the edge cell instead of inventing a 0.0 cliff.
     pub fn get_normal_at(&self, world_x: f32, world_y: f32) -> Vec3 {
+
         let step = self.scale;
 
         // Sample heights at neighboring points
@@ -498,8 +580,14 @@ impl HeightMap {
         }
     }
 
+    /// C++ `getClipHeight` — clamp indices then read the 8-bit sample.
     pub fn get_raw_height(&self, x_index: i32, y_index: i32) -> u8 {
-        let ndx = y_index * (self.width as i32) + x_index;
+        if self.width == 0 || self.height == 0 || self.heights.is_empty() {
+            return 0;
+        }
+        let x = x_index.clamp(0, self.width as i32 - 1);
+        let y = y_index.clamp(0, self.height as i32 - 1);
+        let ndx = y * (self.width as i32) + x;
         if ndx >= 0 && (ndx as usize) < self.heights.len() {
             (self.heights[ndx as usize] * (K_MAX_HEIGHT as f32)).round() as u8
         } else {
@@ -538,6 +626,281 @@ impl HeightMap {
         let packed_tile = self.get_tile_index(x_index, y_index) as i32;
         (packed_tile >> 2).max(0) as u32
     }
+
+    pub fn assign_cliff_info(&mut self, info: Vec<TCliffInfo>, ndxes: Vec<i16>) {
+        self.cliff_info = info;
+        if self.cliff_info.is_empty() {
+            self.cliff_info.push(TCliffInfo::default());
+        }
+        self.cliff_info_ndxes = ndxes;
+    }
+
+    /// C++ `WorldHeightMap::getUVData` for the cell at `(x_index, y_index)`.
+    pub fn get_uv_data(&self, x_index: i32, y_index: i32, full_tile: bool) -> HeightMapUvData {
+        let x = x_index + self.draw_origin_x;
+        let y = y_index + self.draw_origin_y;
+        let ndx = y * self.width as i32 + x;
+        if ndx < 0 || (ndx as usize) >= self.tile_ndxes.len() {
+            return HeightMapUvData::default();
+        }
+        let tile_ndx = self.tile_ndxes[ndx as usize];
+        self.get_uv_for_tile_index(ndx as usize, tile_ndx, full_tile)
+    }
+
+    /// C++ `WorldHeightMap::getUVForTileIndex` including `DO_OLD_UV` stretch.
+    pub fn get_uv_for_tile_index(
+        &self,
+        ndx: usize,
+        tile_ndx: i16,
+        full_tile: bool,
+    ) -> HeightMapUvData {
+        let mut uv = HeightMapUvData::default();
+        // Quarter-tile UVs when not a full tile; splat slots treat each cell as 0..1.
+        if full_tile {
+            uv.u = [0.0, 1.0, 1.0, 0.0];
+            uv.v = [1.0, 1.0, 0.0, 0.0];
+        } else {
+            let sub = (tile_ndx & 3) as f32;
+            let ou = (sub % 2.0) * 0.5;
+            let ov = (sub / 2.0).floor() * 0.5;
+            uv.u = [ou, ou + 0.5, ou + 0.5, ou];
+            uv.v = [ov + 0.5, ov + 0.5, ov, ov];
+        }
+
+        if ndx < self.cliff_info_ndxes.len() {
+            let cliff_ndx = self.cliff_info_ndxes[ndx] as usize;
+            if cliff_ndx > 0 && cliff_ndx < self.cliff_info.len() {
+                let info = self.cliff_info[cliff_ndx];
+                let same_class = (tile_ndx >> 2) == (info.tile_index >> 2);
+                if same_class {
+                    uv.u = [info.u0, info.u1, info.u2, info.u3];
+                    uv.v = [info.v0, info.v1, info.v2, info.v3];
+                    uv.flip = info.flip;
+                    uv.stretched = true;
+                    return uv;
+                }
+            }
+        }
+
+        if full_tile {
+            return uv;
+        }
+
+        let width = self.width as usize;
+        if ndx + width + 1 >= self.heights.len() {
+            return uv;
+        }
+        let h0 = self.get_raw_height(
+            (ndx % width) as i32,
+            (ndx / width) as i32,
+        ) as i32;
+        let h1 = self.get_raw_height(
+            (ndx % width) as i32 + 1,
+            (ndx / width) as i32,
+        ) as i32;
+        let h2 = self.get_raw_height(
+            (ndx % width) as i32 + 1,
+            (ndx / width) as i32 + 1,
+        ) as i32;
+        let h3 = self.get_raw_height(
+            (ndx % width) as i32,
+            (ndx / width) as i32 + 1,
+        ) as i32;
+        let min_h = h0.min(h1).min(h2).min(h3);
+        let max_h = h0.max(h1).max(h2).max(h3);
+        let delta_h = max_h - min_h;
+        let height_scale = MAP_HEIGHT_SCALE / MAP_XY_FACTOR.max(f32::EPSILON);
+        if (delta_h as f32) * height_scale < STRETCH_LIMIT {
+            return uv;
+        }
+
+        let below_limit = min_h + (2 * delta_h + 1) / 3;
+        let above_limit = min_h + (delta_h + 1) / 3;
+        let below = [h0, h1, h2, h3]
+            .iter()
+            .filter(|h| **h < below_limit)
+            .count();
+        let above = [h0, h1, h2, h3]
+            .iter()
+            .filter(|h| **h > above_limit)
+            .count();
+        if above != 1 && below != 1 && (above != 2 || below != 2)
+            && (delta_h as f32) * height_scale < DIAMOND_STRETCH_LIMIT
+        {
+            return uv;
+        }
+
+        let mut divisor = TILE_LIMIT / ((delta_h as f32) * height_scale).max(f32::EPSILON);
+        divisor = divisor.clamp(1.0, TILE_LIMIT);
+        let n_v = uv.v[2];
+        let x_v = uv.v[0];
+        let delta_v = x_v - n_v;
+
+        if below == 1 || above > below {
+            if h0 == min_h {
+                uv.v[0] = n_v + delta_v / divisor;
+            } else if h1 == min_h {
+                uv.v[1] = n_v + delta_v / divisor;
+            } else if h2 == min_h {
+                uv.v[2] = x_v - delta_v / divisor;
+            } else if h3 == min_h {
+                uv.v[3] = x_v - delta_v / divisor;
+            }
+            uv.stretched = true;
+        } else if above == 1 || below > above {
+            if h0 == max_h {
+                uv.v[0] = n_v + delta_v / divisor;
+            } else if h1 == max_h {
+                uv.v[1] = n_v + delta_v / divisor;
+            } else if h2 == max_h {
+                uv.v[2] = x_v - delta_v / divisor;
+            } else if h3 == max_h {
+                uv.v[3] = x_v - delta_v / divisor;
+            }
+            uv.stretched = true;
+        } else if (delta_h as f32) * height_scale >= TALL_STRETCH_LIMIT {
+            let n_u = uv.u[0];
+            let x_u = uv.u[1];
+            let mut dx = ((h3 - h2) as f32 * height_scale).hypot(1.0);
+            let mut dy = ((h3 - h0) as f32 * height_scale).hypot(1.0);
+            if dx < STRETCH_LIMIT {
+                dx = 1.0;
+            }
+            if dy < STRETCH_LIMIT {
+                dy = 1.0;
+            }
+            dx = dx.min(TILE_LIMIT) * (x_u - n_u);
+            dy = dy.min(TILE_LIMIT) * (x_v - n_v);
+            uv.u = [n_u, n_u + dx, n_u + dx, n_u];
+            uv.v = [n_v + dy, n_v + dy, n_v, n_v];
+            let mut dx1 = ((h1 - h0) as f32 * height_scale).hypot(1.0);
+            let mut dy1 = ((h2 - h1) as f32 * height_scale).hypot(1.0);
+            if dx1 < STRETCH_LIMIT {
+                dx1 = 1.0;
+            }
+            if dy1 < STRETCH_LIMIT {
+                dy1 = 1.0;
+            }
+            dx1 = dx1.min(TILE_LIMIT) * (x_u - n_u);
+            dy1 = dy1.min(TILE_LIMIT) * (x_v - n_v);
+            uv.u[1] = uv.u[0] + dx1;
+            uv.v[1] = uv.v[3] + dy1;
+            uv.stretched = true;
+        }
+        uv
+    }
+
+    /// World-space UV for a vertex so each MAP_XY_FACTOR cell tiles once.
+    pub fn cell_uv_at_world(&self, world_x: f32, world_z: f32) -> [f32; 2] {
+        let scale = if self.scale.abs() > f32::EPSILON {
+            self.scale
+        } else {
+            MAP_XY_FACTOR
+        };
+        let u = world_x / scale;
+        let v = world_z / scale;
+        let (ix, iy) = {
+            let max_x = self.width.saturating_sub(1) as i32;
+            let max_y = self.height.saturating_sub(1) as i32;
+            let x = ((world_x / scale).floor() as i32 + self.border_size).clamp(0, max_x);
+            let y = ((world_z / scale).floor() as i32 + self.border_size).clamp(0, max_y);
+            (x, y)
+        };
+        let uv = self.get_uv_data(ix - self.draw_origin_x, iy - self.draw_origin_y, false);
+        if uv.stretched {
+            let fx = (world_x / scale + self.border_size as f32 - ix as f32).clamp(0.0, 1.0);
+            let fy = (world_z / scale + self.border_size as f32 - iy as f32).clamp(0.0, 1.0);
+            // Bilinear the four corner UVs.
+            let uu = uv.u[0] * (1.0 - fx) * (1.0 - fy)
+                + uv.u[1] * fx * (1.0 - fy)
+                + uv.u[2] * fx * fy
+                + uv.u[3] * (1.0 - fx) * fy;
+            let vv = uv.v[0] * (1.0 - fx) * (1.0 - fy)
+                + uv.v[1] * fx * (1.0 - fy)
+                + uv.v[2] * fx * fy
+                + uv.v[3] * (1.0 - fx) * fy;
+            [uu, vv]
+        } else {
+            [u, v]
+        }
+    }
+
+    /// C++ `updateShorelineTiles` over the full map.
+    pub fn rebuild_shoreline_tiles(
+        &self,
+        water_height: impl Fn(f32, f32) -> f32,
+        transparent_depth: f32,
+        show_soft_edge: bool,
+    ) -> Vec<ShoreLineTile> {
+        if !show_soft_edge || transparent_depth <= f32::EPSILON {
+            return Vec::new();
+        }
+        let depth_scale = 1.0 / transparent_depth;
+        let border = self.border_size;
+        let scale = if self.scale.abs() > f32::EPSILON {
+            self.scale
+        } else {
+            MAP_XY_FACTOR
+        };
+        let max_x = self.width.saturating_sub(1) as i32;
+        let max_y = self.height.saturating_sub(1) as i32;
+        let mut tiles = Vec::new();
+        for j in 0..max_y {
+            for i in 0..max_x {
+                let x0 = (i - border) as f32 * scale;
+                let y0 = (j - border) as f32 * scale;
+                let x1 = (i - border + 1) as f32 * scale;
+                let y1 = (j - border + 1) as f32 * scale;
+                let t0 = self.world_height_at_index(i as u32, j as u32);
+                let t1 = self.world_height_at_index((i + 1) as u32, j as u32);
+                let t2 = self.world_height_at_index((i + 1) as u32, (j + 1) as u32);
+                let t3 = self.world_height_at_index(i as u32, (j + 1) as u32);
+                let w0 = water_height(x0, y0);
+                let w1 = water_height(x1, y0);
+                let w2 = water_height(x1, y1);
+                let w3 = water_height(x0, y1);
+                if w0 <= 0.0 || w1 <= 0.0 || w2 <= 0.0 || w3 <= 0.0 {
+                    continue;
+                }
+                let mut water_side = 0u8;
+                if w0 > t0 {
+                    water_side |= 1;
+                }
+                if w1 > t1 {
+                    water_side |= 2;
+                }
+                if w2 > t2 {
+                    water_side |= 4;
+                }
+                if w3 > t3 {
+                    water_side |= 8;
+                }
+                if water_side == 0 {
+                    continue;
+                }
+                if water_side == 0xf
+                    && (w0 - t0) >= transparent_depth
+                    && (w1 - t1) >= transparent_depth
+                    && (w2 - t2) >= transparent_depth
+                    && (w3 - t3) >= transparent_depth
+                {
+                    continue;
+                }
+                tiles.push(ShoreLineTile {
+                    packed_xy: (i as u32) | ((j as u32) << 16),
+                    verts: [[x0, t0, y0], [x1, t1, y0], [x1, t2, y1], [x0, t3, y1]],
+                    t: [
+                        ((w0 - t0) * depth_scale).clamp(0.0, 1.0),
+                        ((w1 - t1) * depth_scale).clamp(0.0, 1.0),
+                        ((w2 - t2) * depth_scale).clamp(0.0, 1.0),
+                        ((w3 - t3) * depth_scale).clamp(0.0, 1.0),
+                    ],
+                });
+            }
+        }
+        tiles
+    }
+
 
     /// Match C++ `WorldHeightMap::getTerrainColorAt`: floor/clamp the world
     /// position, unpack the 4-grid terrain tile index, sample the source tile
@@ -636,6 +999,13 @@ impl HeightMap {
         let Some(blend) = blend else {
             return Some(data);
         };
+        let uv = self.get_uv_for_tile_index(ndx as usize, blend.blend_ndx as i16, false);
+        data.u = uv.u;
+        data.v = uv.v;
+        data.cliff = uv.stretched;
+        if uv.flip {
+            data.need_flip = true;
+        }
 
         if blend.horiz != 0 {
             data.need_flip = (blend.inverted & FLIPPED_MASK) != 0;
@@ -1448,7 +1818,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn test_heightmap_sampling_includes_exact_map_edges() {
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.set_height_at_index(3, 0, 0.25);
@@ -1458,7 +1827,12 @@ mod tests {
         assert!((heightmap.get_height_at(3.0, 0.0) - 25.0).abs() < 0.001);
         assert!((heightmap.get_height_at(0.0, 3.0) - 50.0).abs() < 0.001);
         assert!((heightmap.get_height_at(3.0, 3.0) - 75.0).abs() < 0.001);
-        assert_eq!(heightmap.get_height_at(3.001, 3.0), 0.0);
+        // C++ getClipHeight: OOB clamps to the edge cell, never a synthetic 0.
+        assert!((heightmap.get_height_at(3.001, 3.0) - 75.0).abs() < 0.001);
+        assert!(
+            (heightmap.get_height_at(-1.0, -1.0) - heightmap.get_height_at(0.0, 0.0)).abs()
+                < 0.001
+        );
     }
 
     #[test]

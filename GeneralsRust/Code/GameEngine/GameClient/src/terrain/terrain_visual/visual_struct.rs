@@ -31,6 +31,9 @@ pub struct TerrainVisualImpl {
 
     /// C++ WorldHeightMap source tile data used for terrain color/radar sampling.
     source_tiles: Vec<Option<TileData>>,
+    /// C++ `m_textureClasses` — firstTile/numTiles/name for getTextureClassFromNdx.
+    source_tile_classes: Vec<TerrainSourceTileClass>,
+
 
     /// Water rendering system
     water_system: WaterSystem,
@@ -72,6 +75,13 @@ pub struct TerrainVisualImpl {
     terrain_pipeline: Option<wgpu::RenderPipeline>,
     terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
+    /// Bind group 1: standing-water albedo + wrap sampler (C++ TWWater01.tga).
+    water_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    water_texture: Option<Texture>,
+    water_sampler: Option<Sampler>,
+    water_texture_bind_group: Option<BindGroup>,
+    /// True when the bound albedo is the 1x1 teal fallback, not TWWater01.
+    water_texture_is_fallback: bool,
     road_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group 1: road albedo + repeat sampler (C++ RoadType::applyTexture).
     road_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
@@ -149,6 +159,11 @@ pub struct TerrainVisualImpl {
     /// Cached GPU meshes for W3D trees.
     tree_meshes: Vec<GpuTreeMesh>,
     tree_atlas_texture: Option<wgpu::Texture>,
+    /// Bind group 1: tree atlas + clamp sampler (C++ `Set_Texture(0, m_treeTexture)`).
+    /// Owned separately from `road_texture_bind_group` / terrain chunk groups.
+    tree_atlas_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    tree_atlas_sampler: Option<Sampler>,
+    tree_atlas_bind_group: Option<BindGroup>,
 
     /// Camera bind group layout used by the terrain pipeline
     terrain_camera_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
@@ -200,6 +215,18 @@ pub struct TerrainVisualImpl {
     extra_blend_pipeline: Option<wgpu::RenderPipeline>,
     /// Shipped draw-counter incremented by `extra_blend_draw` / `record_extra_blend_pass`.
     extra_blend_draw_count: AtomicU32,
+
+    /// Shore/bib/track/snow/smudge/water-area CPU overlay state.
+    overlay: OverlayGpuState,
+    shoreline_meshes: Vec<GpuWaterPlane>,
+    water_grid_mesh: Option<GpuWaterPlane>,
+    polygon_water_meshes: Vec<GpuWaterPlane>,
+    bib_meshes: Vec<GpuRoadMesh>,
+    tank_track_meshes: Vec<GpuRoadMesh>,
+    custom_edge_meshes: Vec<GpuRoadMesh>,
+    snow_mesh: Option<GpuRoadMesh>,
+    smudge_mesh: Option<GpuRoadMesh>,
+    flat_lod_meshes: Vec<GpuRoadMesh>,
 }
 
 struct GpuChunkMesh {

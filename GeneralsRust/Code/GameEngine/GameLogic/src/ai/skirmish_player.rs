@@ -1863,6 +1863,32 @@ impl AISkirmishPlayer {
         self.base.build_specific_ai_building(building_name)
     }
 
+    pub fn build_specific_building_nearest_team(
+        &mut self,
+        thing_name: &str,
+        team_name: &str,
+    ) -> Result<(), crate::ai::AiError> {
+        self.base
+            .build_specific_building_nearest_team(thing_name, team_name)
+    }
+
+    pub fn calc_closest_construction_zone_near_base(
+        &self,
+        template_name: &str,
+    ) -> Result<Option<Coord3D>, crate::ai::AiError> {
+        self.base
+            .calc_closest_construction_zone_near_base(template_name)
+    }
+
+    pub fn calc_closest_construction_zone_location(
+        &self,
+        template_name: &str,
+        location: &Coord3D,
+    ) -> Result<Option<Coord3D>, crate::ai::AiError> {
+        self.base
+            .calc_closest_construction_zone_location(template_name, location)
+    }
+
     pub fn build_by_supplies(
         &mut self,
         minimum_cash: i32,

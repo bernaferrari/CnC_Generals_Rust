@@ -1069,6 +1069,10 @@ impl ContainModuleInterface for CaveContain {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn is_kick_out_on_capture(&self) -> bool {
         CaveContain::is_kick_out_on_capture(self)
     }

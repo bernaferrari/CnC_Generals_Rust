@@ -657,16 +657,10 @@ impl ParticleSystemFXNugget {
     ) -> Vec<ParticleSystemId> {
         let mut created_systems = Vec::new();
 
-        // Find or create template
-        let template =
-            if let Some(preset) = particle_presets::get_preset_by_name(&self.template_name) {
-                preset
-            } else if let Some(tmpl) = manager.find_template(&self.template_name) {
-                tmpl
-            } else {
-                // Template not found, return empty
-                return created_systems;
-            };
+        // C++ FXList.cpp:575-578 — only TheParticleSystemManager->findTemplate.
+        let Some(template) = manager.find_template(&self.template_name) else {
+            return created_systems;
+        };
 
         // Apply offset with matrix transformation
         let mut offset = self.offset;
@@ -686,11 +680,16 @@ impl ParticleSystemFXNugget {
                 primary.z + offset.z + height_offset,
             );
 
-            // Ground height adjustment
             if self.create_at_ground_height {
-                // C++ parity intent: clamp to terrain. Until terrain query is threaded through
-                // this FX path, keep the caller-provided ground plane instead of forcing 0.0.
-                spawn_pos.z = primary.z + offset.z + height_offset;
+                if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
+                    let dest = gamelogic::common::Coord3D {
+                        x: spawn_pos.x,
+                        y: spawn_pos.y,
+                        z: spawn_pos.z,
+                    };
+                    let layer = terrain.get_layer_for_destination(&dest);
+                    spawn_pos.z = terrain.get_layer_height(spawn_pos.x, spawn_pos.y, layer);
+                }
             }
 
             // Create particle system
@@ -705,9 +704,12 @@ impl ParticleSystemFXNugget {
             };
 
             if let Ok(system_id) = result {
-                // Set system position
+                let attached = object_id.is_some() && self.attach_to_object;
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    system.set_position(spawn_pos);
+                    // C++ FXList.cpp:617-621 — attachToObject replaces setPosition.
+                    if !attached {
+                        system.set_position(spawn_pos);
+                    }
 
                     // C++: orientToObject then rotateLocalTransformX/Y/Z.
                     if self.orient_to_object {

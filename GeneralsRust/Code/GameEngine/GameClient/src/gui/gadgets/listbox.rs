@@ -19,6 +19,8 @@ pub struct ListBoxItem {
     pub column_data: Vec<ListBoxItemData>,
     pub column_colors: Vec<Option<Color>>,
     pub column_user_data: Vec<Option<ListBoxItemData>>,
+    /// C++ `listData[i].height` from DisplayString wrap.
+    pub row_height: u32,
 }
 
 impl ListBoxItem {
@@ -37,6 +39,7 @@ impl ListBoxItem {
             column_data: Vec::new(),
             column_colors: Vec::new(),
             column_user_data: Vec::new(),
+            row_height: 18,
         }
     }
 
@@ -171,6 +174,9 @@ pub struct ListBox {
     last_right_click: Option<ListBoxRightClick>,
     content_top_inset: u32,
     selection_out_cache: Vec<i32>,
+    one_line: bool,
+    wrap_font_height: u32,
+    wrap_char_width: u32,
 }
 
 impl ListBox {
@@ -206,12 +212,133 @@ impl ListBox {
             last_right_click: None,
             content_top_inset: 0,
             selection_out_cache: Vec::new(),
+            one_line: false,
+            wrap_font_height: 18,
+            wrap_char_width: 8,
         }
     }
 
     pub fn with_item_height(mut self, height: u32) -> Self {
         self.item_height = height.max(1);
+        self.wrap_font_height = self.item_height;
         self
+    }
+
+    /// C++ `computeTotalHeight`: ONE_LINE uses font height, else DisplayString wrap.
+    pub fn set_wrap_metrics(&mut self, one_line: bool, font_height: u32, average_width: u32) {
+        self.one_line = one_line;
+        self.wrap_font_height = font_height.max(1);
+        self.wrap_char_width = average_width.max(1);
+        if one_line {
+            self.item_height = self.wrap_font_height;
+        }
+        self.recompute_row_heights();
+    }
+
+    pub fn row_height(&self, index: usize) -> u32 {
+        self.items
+            .get(index)
+            .map(|item| item.row_height.max(1))
+            .unwrap_or(self.item_height.max(1))
+    }
+
+    fn wrapped_text_height(&self, text: &str, wrap_width: u32) -> u32 {
+        let line_height = self.wrap_font_height.max(1);
+        if self.one_line || wrap_width == 0 {
+            return line_height;
+        }
+        let char_w = self.wrap_char_width.max(1);
+        let max_chars = (wrap_width / char_w).max(1) as usize;
+        let mut lines = 1u32;
+        let mut current = 0usize;
+        for word in text.split_whitespace() {
+            let word_len = word.chars().count().max(1);
+            if current == 0 {
+                current = word_len;
+                continue;
+            }
+            if current + 1 + word_len > max_chars {
+                lines += 1;
+                current = word_len;
+            } else {
+                current += 1 + word_len;
+            }
+        }
+        if text.contains('\n') {
+            lines = lines.max(text.lines().count() as u32);
+        }
+        (lines * line_height).max(line_height)
+    }
+
+    fn recompute_row_heights(&mut self) {
+        let widths = self.column_widths_for_width(self.content_width());
+        let first_width = widths.first().copied().unwrap_or(self.content_width());
+        for item in &mut self.items {
+            let mut height = if self.one_line {
+                self.wrap_font_height
+            } else {
+                self.wrapped_text_height_static(
+                    &item.text,
+                    first_width,
+                    self.one_line,
+                    self.wrap_font_height,
+                    self.wrap_char_width,
+                )
+            };
+            for (column, data) in item.column_data.iter().enumerate() {
+                let width = widths.get(column).copied().unwrap_or(first_width);
+                match data {
+                    ListBoxItemData::Text(text) => {
+                        height = height.max(self.wrapped_text_height_static(
+                            text,
+                            width,
+                            self.one_line,
+                            self.wrap_font_height,
+                            self.wrap_char_width,
+                        ));
+                    }
+                    ListBoxItemData::Image { height: img_h, .. } if *img_h > 0 => {
+                        height = height.max(*img_h + 1);
+                    }
+                    _ => {}
+                }
+            }
+            item.row_height = height.max(1);
+        }
+    }
+
+    fn wrapped_text_height_static(
+        text: &str,
+        wrap_width: u32,
+        one_line: bool,
+        font_height: u32,
+        char_width: u32,
+    ) -> u32 {
+        let line_height = font_height.max(1);
+        if one_line || wrap_width == 0 {
+            return line_height;
+        }
+        let char_w = char_width.max(1);
+        let max_chars = (wrap_width / char_w).max(1) as usize;
+        let mut lines = 1u32;
+        let mut current = 0usize;
+        for word in text.split_whitespace() {
+            let word_len = word.chars().count().max(1);
+            if current == 0 {
+                current = word_len;
+                continue;
+            }
+            if current + 1 + word_len > max_chars {
+                lines += 1;
+                current = word_len;
+            } else {
+                current += 1 + word_len;
+            }
+        }
+        if text.contains('\n') {
+            lines = lines.max(text.lines().count() as u32);
+        }
+        (lines * line_height).max(line_height)
     }
 
     pub fn with_selection_mode(mut self, mode: SelectionMode) -> Self {
@@ -403,6 +530,7 @@ impl ListBox {
         let was_at_end =
             self.items.len() <= visible || self.scroll_offset + visible >= self.items.len();
         self.items.push(item);
+        self.recompute_row_heights();
         if self.force_select && self.selected_indices.is_empty() {
             self.selected_indices
                 .push(self.items.len().saturating_sub(1));
@@ -805,8 +933,9 @@ impl ListBox {
         let Some(rel_y) = self.content_relative_y(y) else {
             return (-1, -1);
         };
-        let row = rel_y / self.item_height as i32;
-        let index = self.scroll_offset + row.max(0) as usize;
+        let Some(index) = self.index_at_local_y(rel_y) else {
+            return (-1, -1);
+        };
         if index >= self.items.len() {
             return (-1, -1);
         }
@@ -1004,7 +1133,33 @@ impl ListBox {
     }
 
     fn visible_rows(&self) -> usize {
-        (self.content_height() / self.item_height).max(1) as usize
+        let mut used = 0u32;
+        let mut count = 0usize;
+        let limit = self.content_height();
+        for index in self.scroll_offset..self.items.len() {
+            let height = self.row_height(index);
+            if count > 0 && used + height > limit {
+                break;
+            }
+            used = used.saturating_add(height);
+            count += 1;
+        }
+        count.max(1)
+    }
+
+    fn index_at_local_y(&self, local_y: i32) -> Option<usize> {
+        if local_y < 0 {
+            return None;
+        }
+        let mut used = 0i32;
+        for index in self.scroll_offset..self.items.len() {
+            let height = self.row_height(index) as i32;
+            if local_y < used + height {
+                return Some(index);
+            }
+            used += height;
+        }
+        None
     }
 
     fn item_at_position(&self, x: i32, y: i32) -> Option<usize> {
@@ -1012,13 +1167,7 @@ impl ListBox {
             return None;
         }
         let local_y = self.content_relative_y(y)?;
-        let row = (local_y as u32 / self.item_height) as usize;
-        let index = self.scroll_offset + row;
-        if index < self.items.len() {
-            Some(index)
-        } else {
-            None
-        }
+        self.index_at_local_y(local_y)
     }
 
     fn content_height(&self) -> u32 {
@@ -1146,16 +1295,18 @@ impl ListBox {
     }
 
     fn row_rect(&self, visible_row: usize) -> Rect {
-        let y = self.bounds.y
-            + self.content_top_inset as i32
-            + (visible_row as u32 * self.item_height) as i32;
+        let mut y = self.bounds.y + self.content_top_inset as i32;
+        for offset in 0..visible_row {
+            y += self.row_height(self.scroll_offset + offset) as i32;
+        }
+        let height = self.row_height(self.scroll_offset + visible_row);
         let bottom = self.bounds.y + self.bounds.height as i32;
         let remaining_height = (bottom - y).max(0) as u32;
         Rect::new(
             self.bounds.x,
             y,
             self.content_width(),
-            self.item_height.min(remaining_height),
+            height.min(remaining_height),
         )
     }
 

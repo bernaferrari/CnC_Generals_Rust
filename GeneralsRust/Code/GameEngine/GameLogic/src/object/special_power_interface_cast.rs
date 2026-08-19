@@ -4,12 +4,32 @@ use std::any::Any;
 
 pub(crate) enum SpecialPowerModuleKindMut<'a> {
     SpecialPowerModule(&'a mut crate::object::special_power_module::SpecialPowerModule),
+    OclSpecialPower(&'a mut crate::object::special_powers::OclSpecialPower),
+    CashHackSpecialPower(&'a mut crate::object::special_powers::CashHackSpecialPower),
+    SpyVisionSpecialPower(&'a mut crate::object::special_powers::SpyVisionSpecialPower),
+    DefectorSpecialPower(&'a mut crate::object::special_powers::DefectorSpecialPower),
+    DemoralizeSpecialPower(&'a mut crate::object::special_powers::DemoralizeSpecialPower),
+    FireWeaponPower(&'a mut crate::object::special_powers::FireWeaponPower),
+    BaikonurLaunchPower(&'a mut crate::object::special_powers::BaikonurLaunchPower),
+    CleanupAreaPower(&'a mut crate::object::special_powers::CleanupAreaPower),
+    CashBountyPower(&'a mut crate::object::special_powers::CashBountyPower),
+    SpecialAbility(&'a mut crate::object::special_powers::SpecialAbility),
 }
 
 impl<'a> SpecialPowerModuleKindMut<'a> {
     pub(crate) fn into_interface(self) -> &'a mut dyn SpecialPowerModuleInterface {
         match self {
             Self::SpecialPowerModule(module) => module,
+            Self::OclSpecialPower(module) => module,
+            Self::CashHackSpecialPower(module) => module,
+            Self::SpyVisionSpecialPower(module) => module,
+            Self::DefectorSpecialPower(module) => module,
+            Self::DemoralizeSpecialPower(module) => module,
+            Self::FireWeaponPower(module) => module,
+            Self::BaikonurLaunchPower(module) => module,
+            Self::CleanupAreaPower(module) => module,
+            Self::CashBountyPower(module) => module,
+            Self::SpecialAbility(module) => module,
         }
     }
 
@@ -19,62 +39,81 @@ impl<'a> SpecialPowerModuleKindMut<'a> {
     ) -> Option<&'a mut crate::object::special_power_module::SpecialPowerModule> {
         match self {
             Self::SpecialPowerModule(module) => Some(module),
+            _ => None,
         }
     }
 }
 
-pub(crate) enum SpecialPowerUpdateKindMut<'a> {
-    SpecialPowerUpdate(
-        &'a mut crate::object::update::special_power_update::SpecialPowerUpdateModule,
-    ),
-    SpecialAbilityUpdate(
-        &'a mut crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule,
-    ),
-    SpectreGunshipUpdate(
-        &'a mut crate::object::behavior::spectre_gunship_update::SpectreGunshipUpdateModule,
-    ),
-    SpectreGunshipDeploymentUpdate(
-        &'a mut crate::object::behavior::spectre_gunship_deployment_update::SpectreGunshipDeploymentUpdateModule,
-    ),
-    ParticleUplinkCannonUpdate(
-        &'a mut crate::object::behavior::particle_uplink_cannon_update::ParticleUplinkCannonUpdateModule,
-    ),
-    BattlePlanUpdate(
-        &'a mut crate::object::behavior::battle_plan_update::BattlePlanUpdateModule,
-    ),
-    MissileLauncherBuildingUpdate(
-        &'a mut crate::object::behavior::missile_launcher_building_update::MissileLauncherBuildingUpdateModule,
-    ),
-}
-
-impl<'a> SpecialPowerUpdateKindMut<'a> {
-    pub(crate) fn into_interface(self) -> &'a mut dyn SpecialPowerUpdateInterface {
-        match self {
-            Self::SpecialPowerUpdate(module) => module,
-            Self::SpecialAbilityUpdate(module) => module.behavior_mut(),
-            Self::SpectreGunshipUpdate(module) => module.behavior_mut(),
-            Self::SpectreGunshipDeploymentUpdate(module) => module.behavior_mut(),
-            Self::ParticleUplinkCannonUpdate(module) => module.behavior_mut(),
-            Self::BattlePlanUpdate(module) => module.behavior_mut(),
-            Self::MissileLauncherBuildingUpdate(module) => module.behavior_mut(),
+macro_rules! downcast_special_power {
+    ($module:expr, $ty:ty, $variant:ident) => {
+        if $module.as_any().is::<$ty>() {
+            let module = ($module as &mut dyn Any)
+                .downcast_mut::<$ty>()
+                .expect("type check and downcast must match");
+            return Some(SpecialPowerModuleKindMut::$variant(module));
         }
-    }
+    };
 }
 
 /// Returns the concrete special-power module kind for typed dispatch.
 pub(crate) fn module_special_power_kind(
     module: &mut dyn Module,
 ) -> Option<SpecialPowerModuleKindMut<'_>> {
-    if module
-        .as_any()
-        .is::<crate::object::special_power_module::SpecialPowerModule>()
-    {
-        let module = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::special_power_module::SpecialPowerModule>()
-            .expect("type check and downcast must match");
-        return Some(SpecialPowerModuleKindMut::SpecialPowerModule(module));
-    }
-
+    downcast_special_power!(
+        module,
+        crate::object::special_power_module::SpecialPowerModule,
+        SpecialPowerModule
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::OclSpecialPower,
+        OclSpecialPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::CashHackSpecialPower,
+        CashHackSpecialPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::SpyVisionSpecialPower,
+        SpyVisionSpecialPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::DefectorSpecialPower,
+        DefectorSpecialPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::DemoralizeSpecialPower,
+        DemoralizeSpecialPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::FireWeaponPower,
+        FireWeaponPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::BaikonurLaunchPower,
+        BaikonurLaunchPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::CleanupAreaPower,
+        CleanupAreaPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::CashBountyPower,
+        CashBountyPower
+    );
+    downcast_special_power!(
+        module,
+        crate::object::special_powers::SpecialAbility,
+        SpecialAbility
+    );
     None
 }
 

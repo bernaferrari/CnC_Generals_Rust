@@ -284,6 +284,82 @@ impl IntegratedAiPlayer {
             IntegratedAiPlayer::Skirmish(player) => player.load_post_process(),
         }
     }
+
+    pub fn new_map(&mut self) {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.new_map(),
+            IntegratedAiPlayer::Skirmish(player) => player.new_map(),
+        }
+    }
+
+    pub fn is_skirmish_ai(&self) -> bool {
+        matches!(self, IntegratedAiPlayer::Skirmish(_))
+    }
+
+    pub fn get_ai_difficulty(&self) -> GameDifficulty {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.get_ai_difficulty(),
+            IntegratedAiPlayer::Skirmish(player) => player.get_ai_difficulty(),
+        }
+    }
+
+    pub fn get_ai_enemy_index(&mut self) -> Option<i32> {
+        match self {
+            IntegratedAiPlayer::Standard(_) => None,
+            IntegratedAiPlayer::Skirmish(player) => player.get_ai_enemy().and_then(|arc| {
+                arc.read()
+                    .ok()
+                    .map(|guard| guard.get_player_index() as i32)
+            }),
+        }
+    }
+
+    pub fn build_specific_building_nearest_team(
+        &mut self,
+        thing_name: &str,
+        team_id: i32,
+    ) -> Result<(), AiError> {
+        let team_name = team_id.to_string();
+        match self {
+            IntegratedAiPlayer::Standard(player) => {
+                player.build_specific_building_nearest_team(thing_name, &team_name)
+            }
+            IntegratedAiPlayer::Skirmish(player) => {
+                player.build_specific_building_nearest_team(thing_name, &team_name)
+            }
+        }
+    }
+
+    pub fn calc_closest_construction_zone(&self, template_name: &str) -> Option<Coord3D> {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player
+                .calc_closest_construction_zone_near_base(template_name)
+                .ok()
+                .flatten(),
+            IntegratedAiPlayer::Skirmish(player) => player
+                .calc_closest_construction_zone_near_base(template_name)
+                .ok()
+                .flatten(),
+        }
+    }
+
+    /// C++ `Player::calcClosestConstructionZoneLocation(template, &location)`.
+    pub fn calc_closest_construction_zone_at(
+        &self,
+        template_name: &str,
+        location: &Coord3D,
+    ) -> Option<Coord3D> {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player
+                .calc_closest_construction_zone_location(template_name, location)
+                .ok()
+                .flatten(),
+            IntegratedAiPlayer::Skirmish(player) => player
+                .calc_closest_construction_zone_location(template_name, location)
+                .ok()
+                .flatten(),
+        }
+    }
 }
 
 /// AI Integration Manager - Coordinates all AI subsystems
@@ -300,6 +376,8 @@ pub struct AiIntegrationManager {
     path_results: HashMap<ObjectID, PathResult>,
     /// Cached player handles for AI integration
     player_handles: HashMap<u32, Weak<RwLock<Player>>>,
+    /// Common `AIPlayerInterface` handles kept alive for Player::set_ai.
+    player_interfaces: HashMap<u32, Arc<AiPlayerBridge>>,
     /// Next available group ID
     next_group_id: u32,
     /// Performance metrics
@@ -330,6 +408,7 @@ impl AiIntegrationManager {
             unit_groups: HashMap::new(),
             object_state_machines: HashMap::new(),
             waypoint_graph: None,
+            player_interfaces: HashMap::new(),
             path_results: HashMap::new(),
             player_handles: HashMap::new(),
             next_group_id: 1,
@@ -348,6 +427,7 @@ impl AiIntegrationManager {
         self.waypoint_graph = None;
         self.path_results.clear();
         self.player_handles.clear();
+        self.player_interfaces.clear();
         self.next_group_id = 1;
         self.frame_start = None;
 
@@ -438,6 +518,7 @@ impl AiIntegrationManager {
             IntegratedAiPlayer::Standard(AIPlayer::new(player_id))
         };
         self.ai_players.insert(player_id, ai_player);
+        self.attach_player_interface(player_id);
 
         log::info!("Created AI player for player {}", player_id);
         Ok(())
@@ -450,6 +531,7 @@ impl AiIntegrationManager {
             IntegratedAiPlayer::Standard(AIPlayer::new(player_id))
         };
         self.ai_players.insert(player_id, ai_player);
+        self.attach_player_interface(player_id);
     }
 
     pub fn ensure_ai_player(&mut self, player_id: u32, is_skirmish: bool) {
@@ -460,6 +542,31 @@ impl AiIntegrationManager {
 
     pub fn has_ai_player(&self, player_id: u32) -> bool {
         self.ai_players.contains_key(&player_id)
+    }
+
+    fn attach_player_interface(&mut self, player_id: u32) {
+        let bridge = Arc::new(AiPlayerBridge { player_id });
+        self.player_interfaces.insert(player_id, bridge.clone());
+    }
+
+    pub fn player_interface(&self, player_id: u32) -> Option<Arc<AiPlayerBridge>> {
+        self.player_interfaces.get(&player_id).cloned()
+    }
+
+    fn with_player_mut<R>(
+        &mut self,
+        player_id: u32,
+        f: impl FnOnce(&mut IntegratedAiPlayer) -> R,
+    ) -> Option<R> {
+        self.ai_players.get_mut(&player_id).map(f)
+    }
+
+    fn with_player<R>(
+        &self,
+        player_id: u32,
+        f: impl FnOnce(&IntegratedAiPlayer) -> R,
+    ) -> Option<R> {
+        self.ai_players.get(&player_id).map(f)
     }
 
     pub fn xfer_ai_player(
@@ -485,6 +592,7 @@ impl AiIntegrationManager {
 
     /// Remove AI player
     pub fn remove_ai_player(&mut self, player_id: u32) -> Result<(), AiError> {
+        self.player_interfaces.remove(&player_id);
         if self.ai_players.remove(&player_id).is_some() {
             log::info!("Removed AI player {}", player_id);
             Ok(())
@@ -1150,6 +1258,152 @@ pub fn update_ai_integration(
     ai_sense(world, delta)?;
     ai_decide(frame_time)?;
     ai_execute(frame_time)
+}
+
+
+/// Handle that implements Common `AIPlayerInterface` by forwarding into the
+/// live GameLogic AI player owned by `AiIntegrationManager`.
+#[derive(Debug)]
+pub struct AiPlayerBridge {
+    player_id: u32,
+}
+
+fn to_common_difficulty(
+    difficulty: GameDifficulty,
+) -> game_engine::common::rts::player::GameDifficulty {
+    use game_engine::common::rts::player::GameDifficulty as CommonDifficulty;
+    match difficulty {
+        GameDifficulty::Easy => CommonDifficulty::Easy,
+        GameDifficulty::Normal => CommonDifficulty::Normal,
+        GameDifficulty::Hard => CommonDifficulty::Hard,
+    }
+}
+
+impl game_engine::common::rts::player::AIPlayerInterface for AiPlayerBridge {
+    fn new_map(&self) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| player.new_map())
+        });
+    }
+
+    fn is_skirmish_ai(&self) -> bool {
+        with_ai_integration(|mgr| {
+            mgr.with_player(self.player_id, |player| player.is_skirmish_ai())
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+    }
+
+    fn get_ai_enemy(&self) -> Option<i32> {
+        with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| player.get_ai_enemy_index())
+                .flatten()
+        })
+        .flatten()
+    }
+
+    fn get_ai_difficulty(&self) -> game_engine::common::rts::player::GameDifficulty {
+        with_ai_integration(|mgr| {
+            mgr.with_player(self.player_id, |player| to_common_difficulty(player.get_ai_difficulty()))
+                .unwrap_or(game_engine::common::rts::player::GameDifficulty::Normal)
+        })
+        .unwrap_or(game_engine::common::rts::player::GameDifficulty::Normal)
+    }
+
+    fn build_specific_ai_team(&self, team_name: &str, priority: bool) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_specific_ai_team(team_name, priority);
+            })
+        });
+    }
+
+    fn build_ai_base_defense(&self, flank: bool) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_base_defense(flank);
+            })
+        });
+    }
+
+    fn build_ai_base_defense_structure(&self, thing_name: &str, flank: bool) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_base_defense_structure(thing_name, flank);
+            })
+        });
+    }
+
+    fn build_specific_ai_building(&self, thing_name: &str) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_specific_building(thing_name);
+            })
+        });
+    }
+
+    fn build_by_supplies(&self, minimum_cash: i32, thing_name: &str) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_by_supplies(minimum_cash, thing_name);
+            })
+        });
+    }
+
+    fn build_specific_building_nearest_team(&self, thing_name: &str, team_id: i32) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_specific_building_nearest_team(thing_name, team_id);
+            })
+        });
+    }
+
+    fn build_upgrade(&self, upgrade_name: &str) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.build_upgrade(upgrade_name);
+            })
+        });
+    }
+
+    fn recruit_specific_ai_team(&self, team_name: &str, recruit_radius: f32) {
+        let _ = with_ai_integration_mut(|mgr| {
+            mgr.with_player_mut(self.player_id, |player| {
+                let _ = player.recruit_specific_ai_team(team_name, recruit_radius);
+            })
+        });
+    }
+
+
+    fn calc_closest_construction_zone(
+        &self,
+        template_name: &str,
+    ) -> Option<game_engine::common::rts::player::Coord3D> {
+        with_ai_integration(|mgr| {
+            mgr.with_player(self.player_id, |player| {
+                player.calc_closest_construction_zone(template_name).map(|p| {
+                    game_engine::common::rts::player::Coord3D {
+                        x: p.x,
+                        y: p.y,
+                        z: p.z,
+                    }
+                })
+            })
+            .flatten()
+        })
+        .flatten()
+    }
+}
+
+/// Common-facing handle for a live GameLogic AI player.
+pub fn ai_player_interface(
+    player_id: u32,
+) -> Option<Arc<dyn game_engine::common::rts::player::AIPlayerInterface>> {
+    with_ai_integration(|mgr| {
+        mgr.player_interface(player_id)
+            .map(|bridge| bridge as Arc<dyn game_engine::common::rts::player::AIPlayerInterface>)
+    })
+    .flatten()
 }
 
 #[cfg(test)]

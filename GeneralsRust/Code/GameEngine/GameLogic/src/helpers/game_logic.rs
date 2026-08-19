@@ -58,6 +58,15 @@ impl TheGameLogic {
         }
     }
 
+    /// C++ `TheGameLogic::getFrameObjectsChangedTriggerAreas()`.
+    pub fn get_frame_objects_changed_trigger_areas() -> UnsignedInt {
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .map(|logic| logic.get_frame_objects_changed_trigger_areas())
+            .unwrap_or(0)
+    }
+
+
     /// Get current frame number (mirrors C++ TheGameLogic::Get_Frame)
     pub fn get_frame() -> UnsignedInt {
         crate::system::game_logic::current_frame()

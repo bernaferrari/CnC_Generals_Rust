@@ -238,19 +238,10 @@ impl UndeadBody {
         &mut self.active_body
     }
 
-    /// Check if damage is health-affecting damage
+    /// Check if damage is health-affecting damage.
+    /// Matches C++ `IsHealthDamagingDamage` in Damage.h:110-127.
     fn is_health_damaging_damage(damage_type: DamageType) -> bool {
-        // Most damage types affect health, except for special types
-        !matches!(
-            damage_type,
-            DamageType::Status
-                | DamageType::Deploy
-                | DamageType::Surrender
-                | DamageType::Hack
-                | DamageType::KillPilot
-                | DamageType::KillGarrisoned
-                | DamageType::Disarm
-        )
+        crate::damage::is_health_damaging_damage(damage_type)
     }
 }
 
@@ -660,6 +651,22 @@ mod tests {
 
         // Should not trigger second life (Status is not health-damaging)
         assert!(!body.is_second_life());
+    }
+
+    #[test]
+    fn test_subdual_damage_doesnt_trigger_second_life() {
+        let mut body = create_test_undead_body();
+        let mut subdual = make_damage_info(DamageType::SubdualVehicle, 200.0);
+        assert!(body.attempt_damage(&mut subdual).is_ok());
+        assert!(!body.is_second_life());
+    }
+
+    #[test]
+    fn test_hack_lethal_hit_triggers_second_life() {
+        let mut body = create_test_undead_body();
+        let mut hack = make_damage_info(DamageType::Hack, 200.0);
+        assert!(body.attempt_damage(&mut hack).is_ok());
+        assert!(body.is_second_life());
     }
 
     #[test]

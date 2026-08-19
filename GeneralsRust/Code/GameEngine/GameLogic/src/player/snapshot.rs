@@ -1,5 +1,58 @@
 use super::*;
 
+/// C++ `BitFlags<NUMBITS>::xfer` (BitFlagsIO.h:134-207) for KindOf masks.
+fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMaskType) -> Result<(), String> {
+    use game_engine::common::system::kind_of::KindOfMask;
+
+    const CURRENT_VERSION: XferVersion = 1;
+    let mut version = CURRENT_VERSION;
+    xfer.xfer_version(&mut version, CURRENT_VERSION)
+        .map_err(|e| format!("KindOfMask version xfer failed: {}", e))?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save => {
+            let named = KindOfMask::from_bits_truncate(*mask as u128);
+            let names = named.to_string_list();
+            let mut count = names.len() as i32;
+            xfer.xfer_int(&mut count)
+                .map_err(|e| format!("KindOfMask count xfer failed: {}", e))?;
+            for mut name in names {
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| format!("KindOfMask name xfer failed: {}", e))?;
+            }
+            Ok(())
+        }
+        XferMode::Load => {
+            let mut named = KindOfMask::empty();
+            let mut count = 0i32;
+            xfer.xfer_int(&mut count)
+                .map_err(|e| format!("KindOfMask count load failed: {}", e))?;
+            for _ in 0..count {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| format!("KindOfMask name load failed: {}", e))?;
+                let bit = KindOfMask::from_string(&name).ok_or_else(|| {
+                    format!("KindOfMask invalid bit name '{}'", name)
+                })?;
+                named |= bit;
+            }
+            *mask = named.bits() as KindOfMaskType;
+            Ok(())
+        }
+        XferMode::Crc => {
+            let mut bits = *mask as u128;
+            xfer.xfer_u128(&mut bits)
+                .map_err(|e| format!("KindOfMask crc failed: {}", e))?;
+            Ok(())
+        }
+        _ => Err(format!(
+            "KindOfMask xfer - unknown mode {:?}",
+            xfer.get_xfer_mode()
+        )),
+    }
+}
+
+
 /// Save/load support for Player.
 /// Matches C++ Player::xfer (Player.cpp:3975, version 8).
 impl Snapshotable for Player {
@@ -24,11 +77,9 @@ impl Snapshotable for Player {
             xfer.xfer_int(&mut search_and_destroy)
                 .map_err(|e| e.to_string())?;
             let mut valid_kind_of = bonuses.valid_kind_of;
-            xfer.xfer_u64(&mut valid_kind_of)
-                .map_err(|e| e.to_string())?;
+            xfer_kind_of_mask(xfer, &mut valid_kind_of)?;
             let mut invalid_kind_of = bonuses.invalid_kind_of;
-            xfer.xfer_u64(&mut invalid_kind_of)
-                .map_err(|e| e.to_string())?;
+            xfer_kind_of_mask(xfer, &mut invalid_kind_of)?;
         }
 
         let mut skill_points = self.skill_points;
@@ -100,15 +151,10 @@ impl Snapshotable for Player {
                     .ok()
                     .and_then(|center| center.find_upgrade(&upgrade_name));
                 if template.is_none() {
-                    log::warn!("Player::xfer - Unable to find upgrade '{}'", upgrade_name);
-                    // Skip the upgrade data by reading a dummy
-                    let mut dummy_upgrade = crate::upgrade::Upgrade::new(Arc::new(
-                        crate::upgrade::UpgradeTemplate::new(crate::common::AsciiString::from(
-                            "__dummy__",
-                        )),
+                    return Err(format!(
+                        "Player::xfer - Unable to find upgrade '{}'",
+                        upgrade_name
                     ));
-                    dummy_upgrade.xfer(xfer)?;
-                    continue;
                 }
 
                 let template_arc = template.unwrap();
@@ -128,10 +174,10 @@ impl Snapshotable for Player {
         xfer.xfer_bool(&mut self.radar_disabled)
             .map_err(|e| e.to_string())?;
 
-        // Upgrade masks
+        // C++ Player.cpp:4062/4065 xferUpgradeMask (Xfer.cpp:708-805): version + name list.
         {
             let mut in_progress = self.upgrades_in_progress.bits();
-            xfer.xfer_u128(&mut in_progress)
+            xfer.xfer_upgrade_mask(&mut in_progress)
                 .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.upgrades_in_progress = UpgradeMaskType::from_bits_truncate(in_progress);
@@ -139,7 +185,8 @@ impl Snapshotable for Player {
         }
         {
             let mut completed = self.upgrades_completed.bits();
-            xfer.xfer_u128(&mut completed).map_err(|e| e.to_string())?;
+            xfer.xfer_upgrade_mask(&mut completed)
+                .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.upgrades_completed = UpgradeMaskType::from_bits_truncate(completed);
             }
@@ -517,7 +564,7 @@ impl Snapshotable for Player {
             if xfer.get_xfer_mode() == XferMode::Save {
                 for entry in &self.kind_of_percent_production_change_list {
                     let mut kind_of_raw = entry.kind_of;
-                    xfer.xfer_u64(&mut kind_of_raw).map_err(|e| e.to_string())?;
+                    xfer_kind_of_mask(xfer, &mut kind_of_raw)?;
                     let mut percent = entry.percent;
                     xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
                     let mut refs = entry.refs;
@@ -526,8 +573,8 @@ impl Snapshotable for Player {
             } else {
                 self.kind_of_percent_production_change_list.clear();
                 for _ in 0..change_count {
-                    let mut kind_of_raw: u64 = 0;
-                    xfer.xfer_u64(&mut kind_of_raw).map_err(|e| e.to_string())?;
+                    let mut kind_of_raw: KindOfMaskType = 0;
+                    xfer_kind_of_mask(xfer, &mut kind_of_raw)?;
                     let mut percent: Real = 0.0;
                     xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
                     let mut refs: UnsignedInt = 0;
@@ -640,12 +687,10 @@ impl Snapshotable for Player {
                 xfer.xfer_int(&mut bonuses.search_and_destroy)
                     .map_err(|e| e.to_string())?;
                 let mut valid_kind_of = bonuses.valid_kind_of;
-                xfer.xfer_u64(&mut valid_kind_of)
-                    .map_err(|e| e.to_string())?;
+                xfer_kind_of_mask(xfer, &mut valid_kind_of)?;
                 bonuses.valid_kind_of = valid_kind_of;
                 let mut invalid_kind_of = bonuses.invalid_kind_of;
-                xfer.xfer_u64(&mut invalid_kind_of)
-                    .map_err(|e| e.to_string())?;
+                xfer_kind_of_mask(xfer, &mut invalid_kind_of)?;
                 bonuses.invalid_kind_of = invalid_kind_of;
             }
         }

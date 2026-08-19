@@ -1305,43 +1305,39 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
             return StateReturnType::Failure;
         };
 
-        let mut nemesis_id = self
-            .base
-            .state()
-            .get_machine_goal_object_id()
-            .unwrap_or(crate::common::INVALID_ID);
+        // C++ AIGuardRetaliateAttackAggressorState::onEnter (745-760):
+        // prefer machine nemesis, then last-damage source only if not DAMAGE_HEALING.
+        let mut nemesis_id = self.base.get_nemesis_to_attack();
         if nemesis_id == crate::common::INVALID_ID {
-            nemesis_id = self.base.get_nemesis_to_attack();
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(body) = owner_guard.get_body_module() {
+                    if let Ok(body_guard) = body.lock() {
+                        if let Some(info) = body_guard.get_last_damage_info() {
+                            if info.source_id != crate::common::INVALID_ID
+                                && info.input.damage_type != crate::damage::DamageType::Healing
+                            {
+                                nemesis_id = info.source_id;
+                                self.base.set_nemesis_to_attack(info.source_id);
+                            }
+                        }
+                    }
+                }
+            }
         }
         let mut nemesis = if nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
         } else {
             None
         };
-
-        if nemesis.is_none() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(body) = owner_guard.get_body_module() {
-                    if let Ok(body_guard) = body.lock() {
-                        if let Some(info) = body_guard.get_last_damage_info() {
-                            if info.source_id != crate::common::INVALID_ID {
-                                if let Some(target) = get_legacy_object(info.source_id) {
-                                    if let Ok(target_guard) = target.read() {
-                                        if owner_guard.relationship_to(&target_guard)
-                                            == Relationship::Enemies
-                                        {
-                                            self.base.set_nemesis_to_attack(info.source_id);
-                                            nemesis = Some(target.clone());
-                                            let _ = self.base.with_machine(|machine| {
-                                                machine.set_goal_object_by_id(
-                                                    target.read().ok().map(|g| g.get_id()),
-                                                )
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        if let Some(target) = nemesis.as_ref() {
+            if let Ok(target_guard) = target.read() {
+                if let Ok(owner_guard) = owner.read() {
+                    if owner_guard.relationship_to(&target_guard) == Relationship::Enemies {
+                        let _ = self.base.with_machine(|machine| {
+                            machine.set_goal_object_by_id(Some(target_guard.get_id()))
+                        });
+                    } else {
+                        nemesis = None;
                     }
                 }
             }

@@ -469,8 +469,13 @@ impl CampaignManager {
         self.current_rank_points = points;
     }
 
+    /// C++ `CampaignManager::getRankPoints` always returns 0. Campaign and
+    /// Challenge maps were not designed with rank persistence; starting rank
+    /// on map load is forced to 0. `set_rank_points` still stores the value
+    /// for xfer, but gameplay start uses this getter.
     pub fn get_rank_points(&self) -> i32 {
-        self.current_rank_points
+        let _ = self.current_rank_points;
+        0
     }
 
     pub fn set_xfer_challenge_generals_player_template_num(&mut self, num: i32) {
@@ -676,6 +681,13 @@ mod tests {
         assert_eq!(manager.get_game_difficulty(), GameDifficulty::Hard);
         manager.set_difficulty(GameDifficulty::Easy);
         assert_eq!(manager.get_game_difficulty(), GameDifficulty::Easy);
+    }
+
+    #[test]
+    fn get_rank_points_always_returns_zero_for_campaign_start() {
+        let mut manager = CampaignManager::new();
+        manager.set_rank_points(250);
+        assert_eq!(manager.get_rank_points(), 0);
     }
 
     #[test]

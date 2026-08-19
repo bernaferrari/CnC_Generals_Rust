@@ -35,6 +35,9 @@ type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
 type ClearGameDataHook = Arc<dyn Fn() + Send + Sync>;
 type MissionStartArgsHook = Arc<dyn Fn() -> (i32, i32) + Send + Sync>;
 type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
+/// (campaign side, mission number, current campaign map). `None` = no campaign.
+type CampaignSnapshotHook = Arc<dyn Fn() -> Option<(String, i32, String)> + Send + Sync>;
+
 
 #[derive(Default)]
 struct RuntimeIdCounterHooks {
@@ -60,6 +63,7 @@ struct SaveLoadLifecycleHooks {
     clear_game_data: Option<ClearGameDataHook>,
     mission_start_args: Option<MissionStartArgsHook>,
     save_lock_ghost_objects: Option<SaveLockGhostObjectsHook>,
+    get_campaign_snapshot: Option<CampaignSnapshotHook>,
 }
 
 static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
@@ -171,6 +175,20 @@ pub fn register_save_load_skirmish_hooks(
         hooks.set_skirmish_payload = set_skirmish_payload;
     }
 }
+pub fn register_save_load_campaign_hooks(get_campaign_snapshot: Option<CampaignSnapshotHook>) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.get_campaign_snapshot = get_campaign_snapshot;
+    }
+}
+
+pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
+    let hooks = save_load_hooks().lock().ok()?;
+    hooks
+        .get_campaign_snapshot
+        .as_ref()
+        .and_then(|callback| callback())
+}
+
 
 pub(crate) fn notify_begin_load() {
     if let Ok(hooks) = save_load_hooks().lock() {

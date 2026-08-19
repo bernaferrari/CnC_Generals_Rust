@@ -44,6 +44,17 @@ pub(crate) fn module_projectile_launch_kind(
             .expect("type check and downcast must match");
         return Some(ProjectileLaunchKindMut::DumbProjectileBehavior(module));
     }
+    if module
+        .as_any()
+        .is::<crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule>()
+    {
+        let module = (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule>()
+            .expect("type check and downcast must match");
+        return Some(ProjectileLaunchKindMut::DumbProjectileBehavior(
+            module.behavior_mut(),
+        ));
+    }
 
     None
 }

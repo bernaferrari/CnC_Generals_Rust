@@ -28,6 +28,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.filename.clear();
         self.loaded_terrain_sources.clear();
         self.height_map = None;
+        self.source_tile_classes.clear();
+
         self.reset_draw_area_state();
         self.seismic_simulations.clear();
 
@@ -57,10 +59,21 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.scorch_meshes.clear();
         self.overlay_gpu_meshes_dirty = true;
 
+        self.overlay = OverlayGpuState::default();
+        self.shoreline_meshes.clear();
+        self.water_grid_mesh = None;
+        self.polygon_water_meshes.clear();
+        self.bib_meshes.clear();
+        self.tank_track_meshes.clear();
+        self.custom_edge_meshes.clear();
+        self.snow_mesh = None;
+        self.smudge_mesh = None;
+        self.flat_lod_meshes.clear();
         self.tree_meshes.clear();
         self.last_tree_gpu_vertices.clear();
         self.last_tree_atlas_mips.clear();
         self.tree_atlas_texture = None;
+        self.tree_atlas_bind_group = None;
         self.tree_buffer.clear_all_trees();
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;
@@ -89,7 +102,22 @@ impl SubsystemInterface for TerrainVisualImpl {
 
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
+        self.simulate_water_grid(1.0 / 30.0);
+        self.overlay.cloud_map.update(1000.0 / 30.0);
+        if let Some(snow) = crate::snow::get_snow_manager() {
+            if let Ok(mut guard) = snow.lock() {
+                guard.update(1.0 / 30.0);
+            }
+        }
         self.flush_water_tracks();
+        if self.overlay.overlays_dirty || self.overlay.water_grid_dirty {
+            self.rebuild_all_overlays();
+        }
+        if let Some(device) = self.device.clone() {
+            if self.water_grid_enabled && self.overlay.water_grid_dirty {
+                self.upload_water_grid_mesh(device.as_ref());
+            }
+        }
         let water_elapsed = water_started.elapsed();
 
 
@@ -180,13 +208,22 @@ impl TerrainVisual for TerrainVisualImpl {
                 self.sync_global_water_plane(device.as_ref())?;
             }
         }
+        if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
+            if let Some(device) = self.device.as_ref().cloned() {
+                self.ensure_water_texture_bind_group(device.as_ref());
+            }
+        }
 
-        // C++ `W3DTreeBuffer::drawTrees` fills VB with doLighting on every draw.
         self.update_tree_meshes();
+        self.time += 1.0 / 30.0;
 
         let view_proj = *projection_matrix * *view_matrix;
         let camera_inverse = view_matrix.inverse();
         let camera_position = camera_inverse.transform_point3(Vec3::ZERO);
+        self.upload_snow_mesh(camera_position);
+        if self.overlay.overlays_dirty {
+            self.rebuild_all_overlays();
+        }
         self.recenter_draw_area_on_world_position(camera_position.x, camera_position.z);
         self.chunk_manager.set_camera(camera_position);
         self.chunk_manager.set_view_frustum(ViewFrustum {
@@ -194,6 +231,10 @@ impl TerrainVisual for TerrainVisualImpl {
             view_matrix: *view_matrix,
             projection_matrix: *projection_matrix,
         });
+        // Visibility must see this frame's view/proj. Subsystem update() ran
+        // earlier with a stale/identity frustum and left visible_chunks=0.
+        let _ = self.chunk_manager.update();
+
 
         // Update uniforms
         if let (Some(queue), Some(uniform_buffer)) = (self.queue.as_ref(), &self.uniform_buffer) {

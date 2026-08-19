@@ -1,6 +1,7 @@
 // Remaining InGameUI placement, hints, modes, movies, and helpers.
 // Split from `gui/ingame_ui.rs` dump. Included by `ingame_ui/mod.rs`.
 
+use crate::video_buffer::VideoBuffer;
 impl InGameUI {
     pub fn start_building_placement(&mut self, template_name: String, footprint: Vec2) {
         self.placement_preview = Some(PlacementPreview::new(template_name, footprint));
@@ -24,6 +25,22 @@ impl InGameUI {
     pub fn create_move_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
         self.expire_hint_for_source(HintType::Move, source_id);
 
+        // C++ InGameUI.cpp:2152-2160 — single IMMOBILE selection suppresses the hint.
+        if self.get_select_count() == 1 {
+            if let Some(object_id) = self.get_selection().into_iter().next() {
+                if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
+                    if obj
+                        .read()
+                        .ok()
+                        .map(|guard| guard.is_kind_of(KindOf::Immobile))
+                        .unwrap_or(false)
+                    {
+                        return;
+                    }
+                }
+            }
+        }
+
         if self.hints.len() >= MAX_MOVE_HINTS {
             self.expire_oldest_hint(HintType::Move);
         }
@@ -38,72 +55,35 @@ impl InGameUI {
         });
     }
 
-    pub fn create_attack_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
-        self.expire_hint_for_source(HintType::Attack, source_id);
+    /// C++ InGameUI.cpp:2176-2179 — intentionally empty.
+    pub fn create_attack_hint(&mut self, _start: Coord3D, _end: Coord3D, _source_id: u32) {}
 
-        if self.hints.len() >= MAX_MOVE_HINTS {
-            self.expire_oldest_hint(HintType::Attack);
+    /// C++ InGameUI.cpp:2184-2187 — intentionally empty.
+    pub fn create_force_attack_hint(&mut self, _start: Coord3D, _end: Coord3D, _source_id: u32) {}
+
+    /// C++ InGameUI.cpp:2192-2199 — notify the target drawable, no hint line.
+    pub fn create_garrison_hint(&mut self, _start: Coord3D, _end: Coord3D, source_id: u32) {
+        self.notify_drawable_on_selected(source_id);
+    }
+
+    fn notify_drawable_on_selected(&self, drawable_id: u32) {
+        if drawable_id == 0 {
+            return;
         }
-
-        self.hints.push(HintData {
-            hint_type: HintType::Attack,
-            start,
-            end,
-            creation_frame: self.current_frame,
-            source_id,
-            lifetime_frames: 60,
+        crate::drawable::drawable_manager::with_drawable_manager(|manager| {
+            if let Some(drawable) = manager.get_drawable_mut(crate::core::DrawableId(drawable_id)) {
+                drawable.set_selected(true);
+            }
         });
     }
 
-    pub fn create_force_attack_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
-        if self.hints.len() >= MAX_MOVE_HINTS {
-            self.expire_oldest_hint(HintType::ForceAttack);
-        }
-
-        self.hints.push(HintData {
-            hint_type: HintType::ForceAttack,
-            start,
-            end,
-            creation_frame: self.current_frame,
-            source_id,
-            lifetime_frames: 60,
-        });
-    }
-
-    pub fn create_garrison_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
-        if self.hints.len() >= MAX_MOVE_HINTS {
-            self.expire_oldest_hint(HintType::Garrison);
-        }
-
-        self.hints.push(HintData {
-            hint_type: HintType::Garrison,
-            start,
-            end,
-            creation_frame: self.current_frame,
-            source_id,
-            lifetime_frames: 60,
-        });
-    }
-
+    /// C++ beginAreaSelectHint — drag-select flag only, no invented hint.
     pub fn begin_area_select_hint(&mut self) {
-        self.hints.push(HintData {
-            hint_type: HintType::AreaSelect,
-            start: Coord3D::new(0.0, 0.0, 0.0),
-            end: Coord3D::new(0.0, 0.0, 0.0),
-            creation_frame: self.current_frame,
-            source_id: 0,
-            lifetime_frames: 300,
-        });
+        self.is_selecting = true;
     }
 
     pub fn end_area_select_hint(&mut self) {
-        if let Some(pos) = self
-            .hints
-            .iter()
-            .rposition(|h| h.hint_type == HintType::AreaSelect)
-        {
-            self.hints.remove(pos);
-        }
+        self.is_selecting = false;
     }
 
     /// C++: InGameUI::expireHint() (InGameUI.cpp:3812) — expire a specific hint by type and index.
@@ -148,6 +128,10 @@ impl InGameUI {
             name: name.to_string(),
             text,
             is_countdown,
+            timestamp: i32::MIN,
+            color: self.named_timer_normal_color,
+            display_text: String::new(),
+            use_ready_font: false,
         });
     }
 
@@ -161,6 +145,96 @@ impl InGameUI {
 
     pub fn get_named_timers(&self) -> &[NamedTimerData] {
         &self.named_timers
+    }
+
+    pub fn named_timer_display_shown(&self) -> bool {
+        self.show_named_timers
+    }
+
+    /// C++ postDraw named-timer block (InGameUI.cpp:3699-3784).
+    pub fn update_named_timers(&mut self) {
+        if !self.show_named_timers || self.current_frame == 0 {
+            return;
+        }
+        let flash_duration = self.named_timer_flash_duration as i32;
+        let mut used_flash = self.named_timer_used_flash_color;
+        let mut last_flash = self.named_timer_last_flash_frame;
+        let current_frame = self.current_frame as i32;
+
+        for timer in &mut self.named_timers {
+            let frames_left = Self::script_counter_value(&timer.name);
+            let ready_secs = if frames_left > 0 { frames_left } else { 0 };
+            let seconds = if timer.is_countdown {
+                (ready_secs as f32 * (1.0 / 30.0)) as i32
+            } else {
+                frames_left
+            };
+
+            let value_changed = if timer.is_countdown {
+                seconds != timer.timestamp
+            } else {
+                frames_left != timer.timestamp
+            };
+            if value_changed {
+                timer.use_ready_font = timer.is_countdown && seconds == 0;
+                timer.timestamp = if timer.is_countdown {
+                    seconds
+                } else {
+                    frames_left
+                };
+                timer.display_text = if timer.is_countdown {
+                    let min = seconds / 60;
+                    let sec = seconds - min * 60;
+                    if sec >= 10 {
+                        format!("{} {}:{}", timer.text, min, sec)
+                    } else {
+                        format!("{} {}:0{}", timer.text, min, sec)
+                    }
+                } else {
+                    format!("{} {}", timer.text, frames_left)
+                };
+            }
+
+            if timer.is_countdown && seconds == 0 && flash_duration != 0 {
+                if current_frame >= last_flash + flash_duration {
+                    used_flash = !used_flash;
+                    last_flash = current_frame;
+                }
+            }
+        }
+
+        self.named_timer_used_flash_color = used_flash;
+        self.named_timer_last_flash_frame = last_flash;
+    }
+
+    fn script_counter_value(name: &str) -> i32 {
+        gamelogic::scripting::engine::get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .and_then(|engine| engine.get_counter(name).map(|c| c.value))
+            })
+            .unwrap_or(0)
+    }
+
+    fn format_named_timer_line(text: &str, frames_left: i32, is_countdown: bool) -> String {
+        if !is_countdown {
+            return format!("{text} {frames_left}");
+        }
+        let seconds = if frames_left > 0 {
+            (frames_left as f32 * (1.0 / 30.0)) as i32
+        } else {
+            0
+        };
+        let min = seconds / 60;
+        let sec = seconds - min * 60;
+        if sec >= 10 {
+            format!("{text} {min}:{sec}")
+        } else {
+            format!("{text} {min}:0{sec}")
+        }
     }
 
     // ── GUI command system ─────────────────────────────────────────────
@@ -284,8 +358,28 @@ impl InGameUI {
         self.superweapon_hidden_by_script = hidden;
     }
 
+    pub fn set_superweapon_display_enabled_by_script(&mut self, enabled: bool) {
+        self.superweapon_hidden_by_script = !enabled;
+    }
+
     pub fn is_superweapon_hidden_by_script(&self) -> bool {
         self.superweapon_hidden_by_script
+    }
+
+    pub fn hide_object_superweapon_display_by_script(&mut self, object_id: ObjectID) {
+        for timer in &mut self.superweapon_timers {
+            if timer.object_id == object_id {
+                timer.hidden_by_script = true;
+            }
+        }
+    }
+
+    pub fn show_object_superweapon_display_by_script(&mut self, object_id: ObjectID) {
+        for timer in &mut self.superweapon_timers {
+            if timer.object_id == object_id {
+                timer.hidden_by_script = false;
+            }
+        }
     }
 
     /// Render the in-game UI
@@ -384,10 +478,35 @@ impl InGameUI {
 
     pub fn play_movie(&mut self, movie_name: &str) {
         self.stop_movie();
+        let Some(player) = crate::video_player::get_video_player() else {
+            return;
+        };
+        let Ok(mut guard) = player.lock() else {
+            return;
+        };
+        let Some(player) = guard.as_mut() else {
+            return;
+        };
+        let Some(stream) = player.open(movie_name.to_string()) else {
+            return;
+        };
+        let mut buffer = crate::video_buffer::SoftwareVideoBuffer::new(
+            crate::video_buffer::VideoBufferType::X8R8G8B8,
+        );
+        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
+            stream.close();
+            return;
+        }
+        self.video_stream = Some(stream);
+        self.video_buffer = Some(crate::video_buffer::VideoBufferHandle::new(buffer));
         self.currently_playing_movie = Some(movie_name.to_string());
     }
 
     pub fn stop_movie(&mut self) {
+        if let Some(stream) = self.video_stream.take() {
+            stream.close();
+        }
+        self.video_buffer = None;
         if self.currently_playing_movie.is_some() {
             with_window_video_manager(|manager| manager.stop_all_movies());
         }
@@ -395,7 +514,7 @@ impl InGameUI {
     }
 
     pub fn is_movie_playing(&self) -> bool {
-        self.currently_playing_movie.is_some()
+        self.currently_playing_movie.is_some() && self.video_stream.is_some()
     }
 
     pub fn get_currently_playing_movie(&self) -> Option<&str> {
@@ -404,10 +523,38 @@ impl InGameUI {
 
     pub fn play_cameo_movie(&mut self, movie_name: &str) {
         self.stop_cameo_movie();
+        let Some(player) = crate::video_player::get_video_player() else {
+            return;
+        };
+        let Ok(mut guard) = player.lock() else {
+            return;
+        };
+        let Some(player) = guard.as_mut() else {
+            return;
+        };
+        let Some(stream) = player.open(movie_name.to_string()) else {
+            return;
+        };
+        let mut buffer = crate::video_buffer::SoftwareVideoBuffer::new(
+            crate::video_buffer::VideoBufferType::X8R8G8B8,
+        );
+        if !buffer.allocate(stream.width() as u32, stream.height() as u32) {
+            stream.close();
+            return;
+        }
+        let handle = crate::video_buffer::VideoBufferHandle::new(buffer);
+        self.attach_cameo_video_buffer(Some(handle.clone()));
+        self.cameo_video_stream = Some(stream);
+        self.cameo_video_buffer = Some(handle);
         self.cameo_movie_playing = Some(movie_name.to_string());
     }
 
     pub fn stop_cameo_movie(&mut self) {
+        self.attach_cameo_video_buffer(None);
+        if let Some(stream) = self.cameo_video_stream.take() {
+            stream.close();
+        }
+        self.cameo_video_buffer = None;
         if self.cameo_movie_playing.is_some() {
             with_window_video_manager(|manager| manager.stop_all_movies());
         }
@@ -415,7 +562,49 @@ impl InGameUI {
     }
 
     pub fn is_cameo_movie_playing(&self) -> bool {
-        self.cameo_movie_playing.is_some()
+        self.cameo_movie_playing.is_some() && self.cameo_video_stream.is_some()
+    }
+
+    fn attach_cameo_video_buffer(&self, buffer: Option<crate::video_buffer::VideoBufferHandle>) {
+        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "ControlBar.wnd:RightHUD",
+        );
+        with_window_manager_ref(|manager| {
+            if let Some(window) = manager.get_window_by_id(key as i32) {
+                window.borrow_mut().set_video_buffer(buffer.clone());
+            }
+        });
+    }
+
+    fn update_movie_playback(&mut self) {
+        let mut stop_main = false;
+        if let Some(stream) = self.video_stream.as_mut() {
+            if stream.is_frame_ready() {
+                stream.frame_decompress();
+                if let Some(buffer) = self.video_buffer.as_ref() {
+                    let mut guard = buffer.lock();
+                    stream.frame_render(&mut *guard);
+                }
+                stream.frame_next();
+                if stream.frame_index() == 0 {
+                    stop_main = true;
+                }
+            }
+        }
+        if stop_main {
+            self.stop_movie();
+        }
+
+        if let Some(stream) = self.cameo_video_stream.as_mut() {
+            if stream.is_frame_ready() {
+                stream.frame_decompress();
+                if let Some(buffer) = self.cameo_video_buffer.as_ref() {
+                    let mut guard = buffer.lock();
+                    stream.frame_render(&mut *guard);
+                }
+                stream.frame_next();
+            }
+        }
     }
 
     // ── World animations ──────────────────────────────────────────────

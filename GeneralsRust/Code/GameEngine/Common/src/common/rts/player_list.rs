@@ -214,31 +214,28 @@ impl PlayerList {
     }
 
     /// Set the local player by index.
-    /// C++ Reference: PlayerList::setLocalPlayer() lines 310-350
+    /// C++ Reference: PlayerList::setLocalPlayer()
     pub fn set_local_player(&mut self, index: usize) {
         if index >= MAX_PLAYER_COUNT {
             return;
         }
 
-        // Can't set local player to null - if you try, you get neutral
         let new_index = index;
-
         if self.local_player_index != Some(new_index) {
-            // Old local player stops being local
-            // (In full implementation, this would call becomingLocalPlayer(false))
-
-            // Set new local player
+            if let Some(old) = self.local_player_index {
+                self.players[old].becoming_local_player(false);
+            }
             self.local_player_index = Some(new_index);
-
-            // (In full implementation, this would call becomingLocalPlayer(true))
+            self.players[new_index].becoming_local_player(true);
         }
     }
 
     /// Reset the player list (clear teams and reinit).
     /// C++ Reference: PlayerList::reset() lines 80-88
     pub fn reset(&mut self) {
-        // In C++: TheTeamFactory->clear()
-        // For now, just re-init
+        if let Ok(mut factory) = crate::common::rts::team::get_team_factory().lock() {
+            factory.clear();
+        }
         self.init();
     }
 
@@ -248,15 +245,22 @@ impl PlayerList {
         for i in 0..MAX_PLAYER_COUNT {
             self.players[i].update();
         }
+        let local_mines = self
+            .get_local_player()
+            .map(|p| p.get_academy_stats().get_mines())
+            .unwrap_or(0);
+        let neutral_sniped = self
+            .get_neutral_player()
+            .get_academy_stats()
+            .get_vehicles_sniped();
+        crate::common::rts::academy_stats::set_academy_peer_counts(local_mines, neutral_sniped);
     }
 
     /// Handle new map loaded.
     /// C++ Reference: PlayerList::newMap() lines 230-240
     pub fn new_map(&mut self) {
         for i in 0..MAX_PLAYER_COUNT {
-            // In full implementation, this would call player.newMap()
-            // For now, just re-init the player
-            self.players[i].init(None);
+            self.players[i].new_map();
         }
     }
 
@@ -458,37 +462,37 @@ impl PlayerList {
         result
     }
 
-    /// Validate and return a team for a given owner name.
-    /// C++ Reference: PlayerList::validateTeam() lines 260-275
-    ///
-    /// The owner could be a player or team name. First checks team names,
-    /// then falls back to the neutral player's default team if not found.
-    ///
-    /// # Note
-    /// In the current implementation, this returns the default team of the
-    /// neutral player since TeamFactory integration is not complete.
-    /// Full implementation would use TheTeamFactory->findTeam().
-    pub fn validate_team(&self, _owner: &str) -> Option<usize> {
-        // In full implementation:
-        // 1. Check if owner is a team name: TheTeamFactory->findTeam(owner)
-        // 2. If not found, check if owner is a player name
-        // 3. Return neutral player's default team if nothing found
-
-        // For now, return the neutral player index
+    /// Validate and return the controlling player index for an owner name.
+    /// C++ Reference: PlayerList::validateTeam() — findTeam, then player name, then Neutral.
+    pub fn validate_team(&self, owner: &str) -> Option<usize> {
+        if !owner.is_empty() {
+            if let Ok(factory) = crate::common::rts::team::get_team_factory().lock() {
+                if let Some(team) = factory.find_existing_team(owner) {
+                    if let Some(idx) = team.get_controlling_player() {
+                        return Some(idx as usize);
+                    }
+                }
+                if let Some(proto) = factory.find_team_prototype(owner) {
+                    if let Some(idx) = proto.get_controlling_player() {
+                        return Some(idx);
+                    }
+                }
+            }
+            if let Some(idx) = self.find_player_by_name(owner) {
+                return Some(idx);
+            }
+        }
         Some(0)
     }
 
     /// Update team states for all players.
     /// C++ Reference: PlayerList::updateTeamStates() lines 245-255
-    ///
-    /// Clears team flags (entered/exited) for all players.
     pub fn update_team_states(&mut self) {
         for i in 0..MAX_PLAYER_COUNT {
-            // In full implementation, this would call player.updateTeamStates()
-            // For now, it's a no-op since we don't have full team integration
-            let _ = &mut self.players[i];
+            self.players[i].update_team_states();
         }
     }
+
 
     /// Notify all players that a team is about to be deleted.
     /// C++ Reference: PlayerList::teamAboutToBeDeleted() lines 285-295

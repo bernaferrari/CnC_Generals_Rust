@@ -637,6 +637,12 @@ pub struct Mouse {
     /// Whether mouse input is enabled
     enabled: bool,
 
+    // C++ Mouse::m_minX/m_minY/m_maxX/m_maxY — cursor clip rectangle
+    min_x: i32,
+    min_y: i32,
+    max_x: i32,
+    max_y: i32,
+
     // Tooltip configuration (loaded from INI via MouseSettings)
     tooltip_font_name: String,
     tooltip_font_size: i32,
@@ -669,6 +675,12 @@ impl Mouse {
             state: MouseState::new(),
             stats: InputStats::default(),
             enabled: true,
+
+            // C++ Mouse::init defaults before Display::setMouseLimits
+            min_x: 0,
+            min_y: 0,
+            max_x: 799,
+            max_y: 599,
 
             tooltip_font_name: "Times New Roman".to_string(),
             tooltip_font_size: 12,
@@ -712,10 +724,45 @@ impl Mouse {
             return false;
         }
 
+        let (x, y) = self.clamp_to_limits(x, y);
         self.state.update_position(x, y);
         self.stats.mouse_events += 1;
         self.stats.events_processed += 1;
         true
+    }
+
+    /// C++ `Mouse::setMouseLimits` — clip rectangle is the display size
+    /// with origin at (0, 0).
+    pub fn set_mouse_limits(&mut self, width: u32, height: u32) {
+        self.min_x = 0;
+        self.min_y = 0;
+        self.max_x = width as i32;
+        self.max_y = height as i32;
+        let (x, y) = self.state.position();
+        let (x, y) = self.clamp_to_limits(x, y);
+        self.state.update_position(x, y);
+    }
+
+    pub fn mouse_limits(&self) -> (i32, i32, i32, i32) {
+        (self.min_x, self.min_y, self.max_x, self.max_y)
+    }
+
+    fn clamp_to_limits(&self, x: f32, y: f32) -> (f32, f32) {
+        let x = if x > self.max_x as f32 {
+            self.max_x as f32
+        } else if x < self.min_x as f32 {
+            self.min_x as f32
+        } else {
+            x
+        };
+        let y = if y > self.max_y as f32 {
+            self.max_y as f32
+        } else if y < self.min_y as f32 {
+            self.min_y as f32
+        } else {
+            y
+        };
+        (x, y)
     }
 
     /// Handle mouse button input

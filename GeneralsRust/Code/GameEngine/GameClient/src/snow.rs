@@ -191,10 +191,15 @@ impl SnowManager {
         };
         let guard = settings.read().unwrap_or_else(|e| e.into_inner());
 
+        // C++ SnowManager::updateIniSettings never touches m_isVisible.
+        if self.starting_heights.len() != SNOW_NOISE_X * SNOW_NOISE_Y {
+            self.starting_heights = vec![0.0; SNOW_NOISE_X * SNOW_NOISE_Y];
+        }
         let mut rng = rand::thread_rng();
         let box_dimensions = guard.snow_box_dimensions.max(0.0);
+        let box_i = box_dimensions.max(1.0) as i32;
         for height in &mut self.starting_heights {
-            *height = rng.gen_range(0.0..box_dimensions.max(1.0));
+            *height = rng.gen_range(0..box_i) as f32;
         }
 
         self.velocity = guard.snow_velocity;
@@ -216,7 +221,6 @@ impl SnowManager {
         } else {
             0.0
         };
-        self.is_visible = guard.snow_enabled;
     }
 
     pub fn set_visible(&mut self, show_weather: bool) {
@@ -244,6 +248,73 @@ impl SnowManager {
 
     pub fn is_visible(&self) -> bool {
         self.is_visible
+    }
+
+    pub fn quad_size(&self) -> f32 {
+        self.quad_size
+    }
+
+    pub fn starting_heights(&self) -> &[f32] {
+        &self.starting_heights
+    }
+
+    /// C++ `W3DSnowManager::render` flake centers, mapped to wgpu Y-up.
+    ///
+    /// `camera` is `[x, y_up, z]`. C++ uses Z-up (`x, y, z_up`).
+    pub fn flake_positions_y_up(&self, camera: [f32; 3]) -> Vec<[f32; 3]> {
+        const MAXIMUM_CAMERA_DISTANCE: i32 = 100_000;
+        if !self.is_visible {
+            return Vec::new();
+        }
+        let spacing = self.emitter_spacing;
+        if !(spacing > f32::EPSILON) || self.box_dimensions <= 0.0 {
+            return Vec::new();
+        }
+        if self.starting_heights.len() < SNOW_NOISE_X * SNOW_NOISE_Y {
+            return Vec::new();
+        }
+
+        let cam_x = camera[0];
+        let cam_y_cpp = camera[2];
+        let cam_z_cpp = camera[1];
+
+        let half = (self.box_dimensions / spacing * 0.5).floor() as i32;
+        let cube_center_x = (cam_x / spacing).floor() as i32;
+        let cube_center_y = (cam_y_cpp / spacing).floor() as i32;
+        let origin_x = cube_center_x - half;
+        let origin_y = cube_center_y - half;
+        let dim_x = cube_center_x + half;
+        let dim_y = cube_center_y + half;
+        if dim_x <= origin_x || dim_y <= origin_y {
+            return Vec::new();
+        }
+
+        let snow_ceiling = cam_z_cpp + self.box_dimensions * 0.5;
+        let camera_offset = cam_z_cpp.rem_euclid(self.box_dimensions);
+        let height_traveled = self.time * self.velocity + camera_offset;
+
+        let mut flakes = Vec::with_capacity(
+            ((dim_x - origin_x).max(0) as usize) * ((dim_y - origin_y).max(0) as usize),
+        );
+        for y in origin_y..dim_y {
+            for x in origin_x..dim_x {
+                let noise_x = (x + MAXIMUM_CAMERA_DISTANCE) & (SNOW_NOISE_X as i32 - 1);
+                let noise_y = (y + MAXIMUM_CAMERA_DISTANCE) & (SNOW_NOISE_Y as i32 - 1);
+                let mut noise_offset = (noise_x + noise_y * SNOW_NOISE_X as i32) as usize;
+                if noise_offset >= self.starting_heights.len() {
+                    noise_offset = 0;
+                }
+                let h0 = snow_ceiling
+                    - (height_traveled + self.starting_heights[noise_offset])
+                        .rem_euclid(self.box_dimensions);
+                let wx = x as f32 * spacing
+                    + self.amplitude * (h0 * self.frequency_scale_x + x as f32).sin();
+                let wy_cpp = y as f32 * spacing
+                    + self.amplitude * (h0 * self.frequency_scale_y + y as f32).sin();
+                flakes.push([wx, h0, wy_cpp]);
+            }
+        }
+        flakes
     }
 }
 
@@ -301,5 +372,35 @@ mod tests {
         assert!((snow.time() - 0.75).abs() < 1e-6);
         snow.update(1.5);
         assert!((snow.time() - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn update_ini_settings_does_not_overwrite_script_visibility() {
+        let _ = initialize_snow_manager();
+        let settings = ensure_weather_setting();
+        {
+            let mut guard = settings.write().unwrap_or_else(|e| e.into_inner());
+            guard.snow_enabled = true;
+            guard.snow_box_dimensions = 50.0;
+            guard.snow_box_density = 1.0;
+        }
+        let mut snow = SnowManager::new();
+        snow.init();
+        snow.set_visible(false);
+        snow.update_ini_settings();
+        assert!(
+            !snow.is_visible(),
+            "C++ updateIniSettings never derives m_isVisible from SnowEnabled"
+        );
+        assert_eq!(snow.starting_heights().len(), SNOW_NOISE_X * SNOW_NOISE_Y);
+        let flakes = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
+        assert!(
+            flakes.is_empty(),
+            "hidden snow must not emit flake centers"
+        );
+        snow.set_visible(true);
+        let flakes = snow.flake_positions_y_up([0.0, 10.0, 0.0]);
+        assert_eq!(flakes.len(), 50 * 50);
+        assert!(flakes.iter().any(|p| p[0].abs() > 0.01 || p[2].abs() > 0.01));
     }
 }

@@ -891,6 +891,69 @@ pub fn create_thread_safe_partition(
     Arc::new(RwLock::new(PartitionSolver::new(width, height, cell_size)))
 }
 
+
+/// C++ `SolutionType` from PartitionSolver.h.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolutionType {
+    PreferFastSolution = 0,
+    PreferCorrectSolution = 0x7FFF_FFFF,
+}
+
+/// C++ `PairObjectIDAndUInt` / `EntriesVec` / `SpacesVec`.
+pub type PairObjectIdAndUInt = (u32, u32);
+pub type EntriesVec = Vec<PairObjectIdAndUInt>;
+pub type SpacesVec = Vec<PairObjectIdAndUInt>;
+/// C++ `PairObjectID` / `SolutionVec` — (entry_id, space_id).
+pub type SolutionVec = Vec<(u32, u32)>;
+
+/// C++ `PartitionSolver` bin-packer used by TEAM_LOAD_TRANSPORTS.
+#[derive(Debug, Clone)]
+pub struct BinPartitionSolver {
+    data: EntriesVec,
+    spaces: SpacesVec,
+    how_to_solve: SolutionType,
+    best_solution: SolutionVec,
+}
+
+impl BinPartitionSolver {
+    pub fn new(elements: EntriesVec, spaces: SpacesVec, solve_how: SolutionType) -> Self {
+        Self {
+            data: elements,
+            spaces,
+            how_to_solve: solve_how,
+            best_solution: Vec::new(),
+        }
+    }
+
+    /// C++ `PartitionSolver::solve` PREFER_FAST_SOLUTION path.
+    pub fn solve(&mut self) {
+        self.best_solution.clear();
+        let mut data = self.data.clone();
+        let mut spaces = self.spaces.clone();
+        data.sort_by(|a, b| b.1.cmp(&a.1));
+        spaces.sort_by(|a, b| b.1.cmp(&a.1));
+
+        if self.how_to_solve == SolutionType::PreferFastSolution {
+            for entry in &data {
+                for space in &mut spaces {
+                    if entry.1 <= space.1 {
+                        space.1 -= entry.1;
+                        self.best_solution.push((entry.0, space.0));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_solution(&self) -> &SolutionVec {
+        &self.best_solution
+    }
+}
+
+/// C++-matching alias used by script load-into-transports.
+pub type TransportPartitionSolver = BinPartitionSolver;
+
 #[cfg(test)]
 mod tests {
     use super::*;

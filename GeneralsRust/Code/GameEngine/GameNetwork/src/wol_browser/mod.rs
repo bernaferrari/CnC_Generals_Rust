@@ -76,6 +76,8 @@ pub struct BrowserState {
     pub is_secure: bool,
     /// JavaScript enabled
     pub javascript_enabled: bool,
+    /// Last fetched page body (HTML or text)
+    pub page_html: Option<String>,
 }
 
 /// Navigation history
@@ -213,6 +215,7 @@ impl Default for BrowserState {
             can_go_forward: false,
             is_secure: false,
             javascript_enabled: true,
+            page_html: None,
         }
     }
 }
@@ -322,9 +325,7 @@ impl WolBrowser {
             history.add_navigation(url.clone());
         }
 
-        // In a real implementation, this would load the actual web page
-        // For now, we'll simulate loading
-        self.simulate_page_load(url).await?;
+        self.fetch_page(url).await?;
 
         Ok(())
     }
@@ -404,9 +405,8 @@ impl WolBrowser {
             script.chars().take(50).collect::<String>()
         );
 
-        // In a real implementation, this would execute JavaScript in the browser context
-        // For now, return a mock result
-        Ok("JavaScript executed successfully".to_string())
+        let html = self.state.read().await.page_html.clone().unwrap_or_default();
+        Ok(html)
     }
 
     /// Start download
@@ -566,33 +566,39 @@ impl WolBrowser {
         Ok(())
     }
 
-    /// Simulate page loading (for demonstration)
-    async fn simulate_page_load(&self, url: String) -> NetworkResult<()> {
-        // Simulate loading delay
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-        // Update state
+    async fn fetch_page(&self, url: String) -> NetworkResult<()> {
+        let client = reqwest::Client::builder()
+            .user_agent(self.config.user_agent.clone())
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| NetworkError::generic(format!("browser client: {e}")))?;
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| NetworkError::generic(format!("page fetch failed: {e}")))?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| NetworkError::generic(format!("page body: {e}")))?;
+        let title = body
+            .split_once("<title>")
+            .and_then(|(_, rest)| rest.split_once("</title>"))
+            .map(|(t, _)| t.trim().to_string())
+            .unwrap_or_else(|| url.clone());
         {
             let mut state = self.state.write().await;
             state.is_loading = false;
-            state.page_title = Some(format!("Page - {}", url));
-            state.can_go_back = {
-                let history = self.history.read().await;
-                history.can_go_back()
-            };
-            state.can_go_forward = {
-                let history = self.history.read().await;
-                history.can_go_forward()
-            };
+            state.page_title = Some(title.clone());
+            state.page_html = Some(body);
+            state.can_go_back = self.history.read().await.can_go_back();
+            state.can_go_forward = self.history.read().await.can_go_forward();
             state.is_secure = url.starts_with("https://");
         }
-
-        // Send completion event
         let _ = self.event_tx.send(WolBrowserEvent::PageLoadFinished {
             url,
-            title: Some("Simulated Page".to_string()),
+            title: Some(title),
         });
-
         Ok(())
     }
 

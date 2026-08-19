@@ -199,6 +199,16 @@ impl RadiusDecalTemplate {
         self.name.is_not_empty()
     }
 
+    pub fn set_texture(&mut self, name: &str) {
+        self.name.set(name);
+    }
+
+    pub fn with_texture(name: &str) -> Self {
+        let mut template = Self::default();
+        template.set_texture(name);
+        template
+    }
+
     pub fn xfer_radius_decal_template(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)

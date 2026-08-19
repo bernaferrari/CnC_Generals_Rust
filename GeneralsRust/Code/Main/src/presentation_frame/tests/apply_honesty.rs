@@ -1180,6 +1180,7 @@ fn presentation_frame_freezes_visible_scene_lines() {
         texture_name: Some("EXLaser.tga".to_string()),
         tile_factor: 1.0,
         visible: true,
+        scroll_rate: 0.0,
     };
     if gamelogic::helpers::submit_scene_line(11, &desc).is_none() {
         let _ = game_client::render_bridge::RenderBridge::new().submit_line(11, &desc);

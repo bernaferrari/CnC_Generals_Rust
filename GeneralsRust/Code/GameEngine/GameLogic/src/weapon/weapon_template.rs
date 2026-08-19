@@ -781,6 +781,9 @@ impl WeaponTemplate {
         let veterancy = self.get_object_veterancy_level(source_obj);
         // Fire FX handling (C++ lines 889-941)
         // C++ calls: sourceObj->getDrawable()->handleWeaponFireFX(...)
+        // If a draw module fires at the FX bone it returns true and this
+        // origin fallback is skipped (Weapon.cpp:923-940).
+        let mut handled_fire_fx = false;
         if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
             let drawable = source_obj
                 .read()
@@ -788,7 +791,7 @@ impl WeaponTemplate {
                 .and_then(|guard| guard.get_drawable());
             if let Some(drawable) = drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
-                    let _ = draw_guard.handle_weapon_fire_fx(
+                    handled_fire_fx = draw_guard.handle_weapon_fire_fx(
                         map_weapon_slot_to_common(weapon_slot),
                         specific_barrel_to_use,
                         &actual_victim_pos,
@@ -797,7 +800,6 @@ impl WeaponTemplate {
             }
         }
 
-        // Keep debug trace for parity diagnostics.
         log::debug!(
             "Fire FX for weapon '{}' at barrel {} (veterancy: {:?})",
             self.name,
@@ -805,11 +807,13 @@ impl WeaponTemplate {
             veterancy
         );
 
-        if let Some(fx) = self.get_fire_fx(veterancy) {
-            if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
-                let _ = fx.do_fx_obj(&source_obj, None);
-            } else {
-                let _ = fx.do_fx_at_position(&source_pos);
+        if !handled_fire_fx {
+            if let Some(fx) = self.get_fire_fx(veterancy) {
+                if let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) {
+                    let _ = fx.do_fx_obj(&source_obj, None);
+                } else {
+                    let _ = fx.do_fx_at_position(&source_pos);
+                }
             }
         }
 
@@ -1468,12 +1472,10 @@ impl WeaponTemplate {
             *target_pos
         };
 
-        // Historic bonus weapon system (C++ lines 1214-1251)
-        // Track recent hits and optionally trigger a chained bonus weapon.
+        // Historic bonus weapon system (C++ Weapon.cpp:1214-1251)
         if self.historic_bonus_count > 0 && self.historic_bonus_weapon.is_some() {
             let current_frame = self.get_current_frame();
-            self.record_historic_damage(&actual_pos, current_frame);
-
+            self.trim_old_historic_damage(current_frame);
             if let Some(bonus_weapon) = self.check_historic_bonus(current_frame, &actual_pos) {
                 if !std::ptr::eq(self, bonus_weapon.as_ref()) {
                     let mut bonus_projectile_id = None;
@@ -1503,7 +1505,12 @@ impl WeaponTemplate {
                             e
                         );
                     }
+                    if let Ok(mut list) = self.historic_damage.lock() {
+                        list.clear();
+                    }
                 }
+            } else {
+                self.record_historic_damage(&actual_pos, current_frame);
             }
         }
 
@@ -1918,7 +1925,12 @@ impl WeaponTemplate {
                             }
                             ProjectileLaunchKindMut::DumbProjectileBehavior(dumb) => {
                                 dumb.projectile_launch_at_object_or_position(
-                                    victim_obj, target_pos, source_obj, None,
+                                    victim_obj,
+                                    target_pos,
+                                    source_obj,
+                                    weapon_slot,
+                                    specific_barrel_to_use,
+                                    None,
                                 );
                                 did_launch = true;
                             }
@@ -2151,12 +2163,13 @@ impl WeaponTemplate {
         }
     }
 
-    /// Trim old historic damage entries (matches C++ trimOldHistoricDamage)
+    /// Trim old historic damage entries (C++ trimOldHistoricDamage, global limit).
     fn trim_old_historic_damage(&self, current_frame: u32) {
+        let limit = game_engine::common::global_data::read().historic_damage_limit;
+        let expiration = current_frame.saturating_sub(limit);
         if let Ok(mut damage_list) = self.historic_damage.lock() {
-            let cutoff_frame = current_frame.saturating_sub(self.historic_bonus_time);
             while let Some(front) = damage_list.front() {
-                if front.frame < cutoff_frame {
+                if front.frame <= expiration {
                     damage_list.pop_front();
                 } else {
                     break;
@@ -2165,28 +2178,32 @@ impl WeaponTemplate {
         }
     }
 
-    /// Check if historic bonus weapon should fire
+    /// Check if historic bonus weapon should fire (count existing hits, not this one).
     pub fn check_historic_bonus(
         &self,
         current_frame: u32,
         location: &Coord3D,
     ) -> Option<Arc<WeaponTemplate>> {
-        if self.historic_bonus_count <= 0 || self.historic_bonus_time == 0 {
+        if self.historic_bonus_count <= 0 {
             return None;
         }
 
         if let Ok(damage_list) = self.historic_damage.lock() {
-            // Count recent damage events within radius
             let cutoff_frame = current_frame.saturating_sub(self.historic_bonus_time);
+            let rad_sqr = self.historic_bonus_radius * self.historic_bonus_radius;
             let count = damage_list
                 .iter()
                 .filter(|info| {
-                    info.frame >= cutoff_frame
-                        && info.location.distance(*location) <= self.historic_bonus_radius
+                    if info.frame < cutoff_frame {
+                        return false;
+                    }
+                    let dx = info.location.x - location.x;
+                    let dy = info.location.y - location.y;
+                    dx * dx + dy * dy <= rad_sqr
                 })
-                .count();
+                .count() as i32;
 
-            if count as i32 >= self.historic_bonus_count {
+            if count >= self.historic_bonus_count - 1 {
                 if let Some(bonus_weapon) = &self.historic_bonus_weapon {
                     return bonus_weapon.upgrade();
                 }

@@ -3,11 +3,15 @@
 //! This module handles diplomacy screen callbacks and player interaction
 //! management including alliances, team changes, and communication controls.
 
+use crate::game_text::GameText;
+use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData};
 use crate::gui::{
-    with_window_manager, AnimateWindowManager, AnimationType, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    get_disconnect_menu, with_window_manager, AnimateWindowManager, AnimationType, Color,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
 };
+use crate::helpers::TheInGameUI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::recorder::with_recorder;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::ThePlayerList;
 use log::{debug, info};
@@ -15,7 +19,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
-
 /// Maximum number of player slots
 const MAX_SLOTS: usize = 8;
 const KEY_ESC: usize = 0x1B;
@@ -281,6 +284,7 @@ impl DiplomacyCallbacks {
     pub fn update_briefing_text(&mut self, new_text: &str, clear: bool) {
         if clear {
             self.briefing_list.clear();
+            Self::reset_listbox_solo();
         }
 
         if new_text.is_empty() || self.briefing_list.iter().any(|entry| entry == new_text) {
@@ -288,6 +292,53 @@ impl DiplomacyCallbacks {
         }
 
         self.briefing_list.push(new_text.to_string());
+        Self::append_briefing_to_listbox(new_text, self.briefing_list.len() - 1);
+    }
+
+    fn briefing_message_color(index: usize) -> Color {
+        if index % 2 == 0 {
+            Color::new(255, 255, 255, 255)
+        } else {
+            Color::new(180, 180, 180, 255)
+        }
+    }
+
+    fn with_listbox_solo<R>(f: impl FnOnce(&mut crate::gui::gadgets::ListBox) -> R) -> Option<R> {
+        let key = NameKeyGenerator::name_to_key("Diplomacy.wnd:ListboxSolo") as i32;
+        with_window_manager(|manager| {
+            let window = manager.get_window_by_id(key)?;
+            let mut win = window.borrow_mut();
+            match win.widget.as_mut() {
+                Some(WindowWidget::ListBox(listbox)) => Some(f(listbox)),
+                _ => None,
+            }
+        })
+        .flatten()
+    }
+
+    fn reset_listbox_solo() {
+        let _ = Self::with_listbox_solo(|listbox| listbox.clear());
+    }
+
+    fn append_briefing_to_listbox(label: &str, index: usize) {
+        let translated = GameText::fetch(label);
+        let color = Self::briefing_message_color(index);
+        let _ = Self::with_listbox_solo(|listbox| {
+            listbox.add_entry(ListBoxAddEntry {
+                row: -1,
+                column: 0,
+                overwrite: true,
+                data: ListBoxItemData::Text(translated),
+                color: Some(color),
+            })
+        });
+    }
+
+    fn replay_briefing_into_listbox(&self) {
+        Self::reset_listbox_solo();
+        for (index, label) in self.briefing_list.iter().enumerate() {
+            Self::append_briefing_to_listbox(label, index);
+        }
     }
 
     /// Get local player ID
@@ -356,15 +407,20 @@ impl DiplomacyCallbacks {
         }
         Ok(())
     }
-
-    fn animate_visibility_change(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.apply_visibility_change(false)
-    }
-
     fn show_layout(&self, immediate: bool) {
         if !TheGameLogic::is_input_enabled()
             || TheGameLogic::is_intro_movie_playing()
             || TheGameLogic::is_loading_map()
+        {
+            return;
+        }
+        if TheInGameUI::is_quit_menu_visible() {
+            return;
+        }
+        if get_disconnect_menu()
+            .read()
+            .map(|menu| menu.is_visible())
+            .unwrap_or(false)
         {
             return;
         }
@@ -381,6 +437,48 @@ impl DiplomacyCallbacks {
         let window = state.window.clone();
         if let Some(window) = window.as_ref() {
             let _ = window.borrow_mut().hide(false);
+            let _ = window.borrow_mut().enable(true);
+        }
+
+        let radio_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonInGame");
+        let radio_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:RadioButtonBuddies");
+        let win_ingame = NameKeyGenerator::name_to_key("Diplomacy.wnd:InGameParent") as i32;
+        let win_buddies = NameKeyGenerator::name_to_key("Diplomacy.wnd:BuddiesParent") as i32;
+        let win_solo = NameKeyGenerator::name_to_key("Diplomacy.wnd:SoloParent") as i32;
+        let is_multiplayer = with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
+
+        with_window_manager(|manager| {
+            if let Some(win) = manager.get_window_by_id(radio_ingame as i32) {
+                let _ = win.borrow_mut().hide(true);
+            }
+            if let Some(win) = manager.get_window_by_id(radio_buddies as i32) {
+                let _ = win.borrow_mut().hide(true);
+            }
+            if is_multiplayer {
+                if let Some(win) = manager.get_window_by_id(win_ingame) {
+                    let _ = win.borrow_mut().hide(false);
+                }
+                if let Some(win) = manager.get_window_by_id(win_buddies) {
+                    let _ = win.borrow_mut().hide(true);
+                }
+                if let Some(win) = manager.get_window_by_id(win_solo) {
+                    let _ = win.borrow_mut().hide(true);
+                }
+            } else {
+                if let Some(win) = manager.get_window_by_id(win_ingame) {
+                    let _ = win.borrow_mut().hide(true);
+                }
+                if let Some(win) = manager.get_window_by_id(win_buddies) {
+                    let _ = win.borrow_mut().hide(true);
+                }
+                if let Some(win) = manager.get_window_by_id(win_solo) {
+                    let _ = win.borrow_mut().hide(false);
+                }
+            }
+        });
+
+        if !is_multiplayer {
+            self.replay_briefing_into_listbox();
         }
 
         if !immediate {
@@ -388,9 +486,9 @@ impl DiplomacyCallbacks {
                 state.animate_manager.reset();
                 state.animate_manager.register_window(
                     window,
-                    AnimationType::SlideBottom,
+                    AnimationType::SlideTop,
                     true,
-                    500,
+                    200,
                     0,
                 );
             }

@@ -43,6 +43,34 @@ impl GameFont {
     }
 }
 
+/// C++ `FontCharsClass` from WW3DAssetManager::Get_FontChars.
+#[derive(Debug)]
+pub struct FontCharsClass {
+    pub name: String,
+    pub point_size: i32,
+    pub bold: bool,
+    pub char_height: i32,
+    pub font_data: Arc<Font3DData>,
+    pub alternate_unicode: Option<Arc<FontCharsClass>>,
+}
+
+impl FontCharsClass {
+    pub fn get_char_height(&self) -> i32 {
+        self.char_height
+    }
+}
+
+static FONT_CHARS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Arc<FontCharsClass>>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+/// C++ `WW3DAssetManager::Get_FontChars(name, pointSize, bold)`.
+pub fn get_font_chars(name: &str, point_size: i32, bold: bool) -> Option<Arc<FontCharsClass>> {
+    let mut library = get_font_library()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    library.get_font_chars(name, point_size, bold)
+}
+
 /// W3D font library (device-specific implementation of GameFont/FontLibrary).
 #[derive(Debug)]
 pub struct W3DFontLibrary {
@@ -107,6 +135,56 @@ impl W3DFontLibrary {
         self.count += 1;
 
         Some(handle)
+    }
+
+    /// C++ `WW3DAssetManager::Get_FontChars`.
+    pub fn get_font_chars(
+        &mut self,
+        name: &str,
+        point_size: i32,
+        bold: bool,
+    ) -> Option<Arc<FontCharsClass>> {
+        if name.is_empty() || point_size > 100 {
+            return None;
+        }
+        let key = Self::build_font_key(name, point_size, bold);
+        if let Some(existing) = FONT_CHARS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&key)
+            .cloned()
+        {
+            return Some(existing);
+        }
+        let mut font = GameFont::new(name, point_size, bold);
+        if !self.load_font_data(&mut font) {
+            return None;
+        }
+        let font_data = font.font_data.clone()?;
+        let mut chars = FontCharsClass {
+            name: name.to_string(),
+            point_size,
+            bold,
+            char_height: font.height,
+            font_data,
+            alternate_unicode: None,
+        };
+        if let Some(unicode_data) = font.unicode_font_data.clone() {
+            chars.alternate_unicode = Some(Arc::new(FontCharsClass {
+                name: self.unicode_font_name.clone(),
+                point_size,
+                bold,
+                char_height: unicode_data.char_height as i32,
+                font_data: unicode_data,
+                alternate_unicode: None,
+            }));
+        }
+        let chars = Arc::new(chars);
+        FONT_CHARS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, chars.clone());
+        Some(chars)
     }
 
     pub fn first_font(&self) -> Option<GameFontHandle> {

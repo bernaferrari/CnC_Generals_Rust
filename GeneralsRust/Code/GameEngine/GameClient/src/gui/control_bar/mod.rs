@@ -78,8 +78,10 @@ pub use control_bar_structure_inventory::{
     simulate_structure_inventory_clear, simulate_structure_inventory_evacuate_command_name,
     simulate_structure_inventory_exit_command_name, simulate_structure_inventory_populate,
     simulate_structure_inventory_prepare_occupied, simulate_structure_inventory_stop_command_name,
-    ResidualStructureInventoryAction, STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME,
-    STRUCTURE_INVENTORY_EXIT_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_COMMAND_NAME,
+    ResidualStructureInventoryAction, StructureInventoryOccupant,
+    MAX_STRUCTURE_INVENTORY_BUTTONS, STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME,
+    STRUCTURE_INVENTORY_EVACUATE_ID, STRUCTURE_INVENTORY_EXIT_COMMAND_NAME,
+    STRUCTURE_INVENTORY_STOP_COMMAND_NAME, STRUCTURE_INVENTORY_STOP_ID,
 };
 pub mod control_bar_under_construction;
 pub use control_bar_under_construction::{
@@ -237,6 +239,10 @@ pub struct ControlBarContext {
     pub observer_player_stats: Vec<(String, i32, i32, i32, i32, i32)>,
     pub last_recorded_inventory_count: u32,
     pub ui_dirty: bool,
+    /// C++ `m_containData[].objectID` — per-slot occupant for StructureExit.
+    pub contain_data: Vec<Option<u32>>,
+    /// C++ `m_observerLookAtPlayer` index into ThePlayerList.
+    pub observer_look_at_player: Option<i32>,
 }
 
 /// Command button data matching C++ CommandButton
@@ -273,6 +279,12 @@ pub struct CommandButton {
     pub object: String,
     pub radius_cursor_type: String,
     pub purchase_cost: HashMap<String, i32>,
+    /// C++ inventory slot occupant (`m_containData.objectID`).
+    pub exit_object_id: Option<u32>,
+    /// C++ `GadgetButtonDrawOverlayImage` veterancy chevron.
+    pub overlay_image: Option<String>,
+    pub button_enabled: bool,
+    pub button_hidden: bool,
 }
 
 /// Production item in queue
@@ -296,6 +308,8 @@ impl Default for ControlBarContext {
             observer_player_stats: Vec::new(),
             last_recorded_inventory_count: 0,
             ui_dirty: false,
+            contain_data: Vec::new(),
+            observer_look_at_player: None,
         }
     }
 }
@@ -324,6 +338,10 @@ impl Default for CommandButton {
             object: String::new(),
             radius_cursor_type: String::new(),
             purchase_cost: HashMap::new(),
+            exit_object_id: None,
+            overlay_image: None,
+            button_enabled: true,
+            button_hidden: false,
         }
     }
 }

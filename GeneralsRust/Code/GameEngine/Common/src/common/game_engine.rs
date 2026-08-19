@@ -146,6 +146,33 @@ pub fn init_command_list() {
     }
 }
 
+// C++ GameEngine::reset creates Menus/BlankWindow.wnd, unhides it, then
+// resetAll(), then destroys the layout. Client registers the overlay.
+type BlankWindowFn = dyn Fn() + Send + Sync + 'static;
+static SHOW_BLANK_WINDOW: OnceLock<Option<Box<BlankWindowFn>>> = OnceLock::new();
+static HIDE_BLANK_WINDOW: OnceLock<Option<Box<BlankWindowFn>>> = OnceLock::new();
+
+pub fn register_blank_window_overlay(
+    show: impl Fn() + Send + Sync + 'static,
+    hide: impl Fn() + Send + Sync + 'static,
+) {
+    let _ = SHOW_BLANK_WINDOW.set(Some(Box::new(show)));
+    let _ = HIDE_BLANK_WINDOW.set(Some(Box::new(hide)));
+}
+
+fn show_blank_window_overlay() {
+    if let Some(Some(show)) = SHOW_BLANK_WINDOW.get() {
+        show();
+    }
+}
+
+fn hide_blank_window_overlay() {
+    if let Some(Some(hide)) = HIDE_BLANK_WINDOW.get() {
+        hide();
+    }
+}
+
+
 pub trait AudioManagerInterface: Send + Sync {
     fn init(&mut self) -> SubsystemResult<()>;
     fn update(&mut self, delta_time: Duration) -> SubsystemResult<()>;
@@ -387,6 +414,8 @@ impl GameEngine {
 
         self.bootstrap_global_data_from_ini();
         self.parse_command_line()?;
+        crate::common::game_lod::load_game_lod_ini_presets_and_options();
+
 
         // Initialize asset system
         info!("Initializing asset system");
@@ -671,6 +700,10 @@ impl GameEngine {
     pub async fn reset(&mut self) -> SubsystemResult<()> {
         info!("Resetting GameEngine to initial state");
 
+        // C++ GameEngine::reset: BlankWindow.wnd covers the previous map/UI
+        // while subsystems reset, then the layout is destroyed.
+        show_blank_window_overlay();
+
         // C++ parity: reset all initialized subsystems before rebuilding gameplay/session state.
         if self.initialized {
             self.subsystem_manager.reset_all()?;
@@ -701,6 +734,8 @@ impl GameEngine {
                 }
             }
         }
+
+        hide_blank_window_overlay();
 
         // Reset performance metrics
         self.performance_metrics = PerformanceMetrics::new();
@@ -779,6 +814,40 @@ impl GameEngine {
 
     pub fn get_frames_per_second_limit(&self) -> u32 {
         self.config.max_fps
+    }
+
+    /// C++ `GameLODManager::findDynamicLODLevel(averageFPS)`.
+    pub fn find_dynamic_lod_level(average_fps: f32) -> crate::common::ini::DynamicGameLODLevel {
+        use crate::common::ini::DynamicGameLODLevel;
+        let manager = crate::common::ini::get_game_lod_manager();
+        let ifps = average_fps as i32;
+        for level in [
+            DynamicGameLODLevel::VeryHigh,
+            DynamicGameLODLevel::High,
+            DynamicGameLODLevel::Medium,
+            DynamicGameLODLevel::Low,
+        ] {
+            let Some(index) = level.to_index() else {
+                continue;
+            };
+            if manager.dynamic_game_lod_info[index].min_fps < ifps {
+                return level;
+            }
+        }
+        DynamicGameLODLevel::Low
+    }
+
+    /// C++ `W3DDisplay::draw` (1652-1659): find+set, or force VERY_HIGH when off.
+    pub fn apply_draw_dynamic_lod(average_fps: f32) {
+        use crate::common::ini::{set_dynamic_lod_level, DynamicGameLODLevel};
+        let enable = global_data::read_safe()
+            .map(|data| data.writable.enable_dynamic_lod)
+            .unwrap_or(true);
+        if enable {
+            set_dynamic_lod_level(Self::find_dynamic_lod_level(average_fps));
+        } else {
+            set_dynamic_lod_level(DynamicGameLODLevel::VeryHigh);
+        }
     }
 
     pub fn get_performance_metrics(&self) -> &PerformanceMetrics {
@@ -1941,5 +2010,33 @@ mod tests {
 
         with_recorder_mut(|recorder| recorder.set_game_mode_provider(Some(Arc::new(|| 0))));
         assert!(!engine.is_multiplayer_session());
+    }
+
+    #[test]
+    fn find_dynamic_lod_level_matches_cpp_min_fps_walk() {
+        use crate::common::ini::{
+            get_game_lod_manager_mut, DynamicGameLODLevel,
+        };
+        {
+            let mut manager = get_game_lod_manager_mut();
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::Low.to_index().unwrap()].min_fps = 10;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::Medium.to_index().unwrap()].min_fps =
+                20;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::High.to_index().unwrap()].min_fps = 30;
+            manager.dynamic_game_lod_info[DynamicGameLODLevel::VeryHigh.to_index().unwrap()]
+                .min_fps = 40;
+        }
+        assert_eq!(
+            GameEngine::find_dynamic_lod_level(45.0),
+            DynamicGameLODLevel::VeryHigh
+        );
+        assert_eq!(
+            GameEngine::find_dynamic_lod_level(35.0),
+            DynamicGameLODLevel::High
+        );
+        assert_eq!(
+            GameEngine::find_dynamic_lod_level(5.0),
+            DynamicGameLODLevel::Low
+        );
     }
 }

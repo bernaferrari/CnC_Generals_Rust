@@ -24,6 +24,7 @@ pub mod anti_cheat;
 pub mod auth;
 pub mod encryption;
 pub mod firewall;
+pub mod firewall_detect;
 pub mod key_exchange;
 pub mod validation;
 pub mod windows_firewall;

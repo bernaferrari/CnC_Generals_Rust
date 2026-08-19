@@ -72,6 +72,10 @@ impl MipCountType {
 }
 pub type TextureBase = TextureBaseClass; // Alias for compatibility
 
+/// Retail missing-texture asset name (`RequiredAssets/w3d_missing_texture.tga`).
+pub const MISSING_TEXTURE_NAME: &str = "w3d_missing_texture.tga";
+
+
 // Placeholder for reference counting - will be replaced with Arc
 pub struct RefCountClass;
 
@@ -573,6 +577,16 @@ impl TextureBaseClass {
     }
 
     /// Set texture name
+
+    /// C++ `TextureBaseClass::Is_Missing_Texture`.
+    pub fn is_missing_texture(&self) -> bool {
+        self.name.eq_ignore_ascii_case(MISSING_TEXTURE_NAME)
+            || self
+                .full_path
+                .to_ascii_lowercase()
+                .ends_with(MISSING_TEXTURE_NAME)
+    }
+
     pub fn set_name(&mut self, name: &str) {
         self.name = name.to_string();
     }

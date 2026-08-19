@@ -49,12 +49,39 @@ impl BasicDrawable {
         if self.loco_info.is_none() {
             self.loco_info = Some(LocoInfo::default());
         }
+        self.publish_wheel_info_to_logic();
         self.loco_info.as_mut().unwrap()
     }
 
     /// Get reference to locomotor info if it exists
     pub fn get_loco_info(&self) -> Option<&LocoInfo> {
         self.loco_info.as_ref()
+    }
+
+    /// C++ `Drawable::getWheelInfo` — `TWheelInfo` when loco info exists.
+    pub fn get_wheel_info(&self) -> Option<&WheelInfo> {
+        self.loco_info.as_ref().map(|loco| &loco.wheel_info)
+    }
+
+    pub fn publish_wheel_info_to_logic(&self) {
+        let Some(object_id) = self.object_id else {
+            return;
+        };
+        let Some(wheel) = self.get_wheel_info() else {
+            return;
+        };
+        if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+            client.set_object_wheel_info(
+                object_id,
+                gamelogic::helpers::DrawWheelInfo {
+                    front_left_height_offset: wheel.front_left_height_offset,
+                    front_right_height_offset: wheel.front_right_height_offset,
+                    rear_left_height_offset: wheel.rear_left_height_offset,
+                    rear_right_height_offset: wheel.rear_right_height_offset,
+                    wheel_angle: wheel.wheel_angle,
+                },
+            );
+        }
     }
 
     /// C++ `Drawable::stopAmbientSound`.
@@ -501,6 +528,20 @@ impl BasicDrawable {
             .is_some_and(|frame| current_frame >= frame)
     }
 
+    /// C++ `Drawable::getShouldAnimate(considerPower)`.
+    pub fn get_should_animate(&self, consider_power: bool) -> bool {
+        crate::drawable::ensure_logic_draw_hooks();
+        let Some(object_id) = self.object_id else {
+            return !self.presentation_disabled;
+        };
+        if let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(obj) = object.read() {
+                return gamelogic::object::draw::object_should_animate(&obj, consider_power);
+            }
+        }
+        !self.presentation_disabled
+    }
+
     pub fn set_tint_status(&mut self, status: TintStatus) {
         self.tint_status.set(status);
     }
@@ -515,6 +556,75 @@ impl BasicDrawable {
 
     pub fn set_terrain_decal_size(&mut self, x: f32, y: f32) {
         self.terrain_decal_size = Vector3::new(x, y, 0.0);
+        if let Some(dm) = self.draw_modules.first_mut() {
+            dm.set_terrain_decal_size(x, y);
+        }
+        if self.terrain_decal_type != TerrainDecalType::None {
+            self.sync_projected_terrain_decal();
+        }
+    }
+
+    /// C++ `Drawable::setTerrainDecal` — first draw module only, then create the projected decal.
+    pub fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
+        crate::drawable::ensure_logic_draw_hooks();
+        if self.terrain_decal_type == decal_type {
+            return;
+        }
+        self.terrain_decal_type = decal_type;
+        if let Some(dm) = self.draw_modules.first_mut() {
+            dm.set_terrain_decal(decal_type);
+        }
+        self.sync_projected_terrain_decal();
+    }
+
+    fn client_terrain_decal_texture(decal_type: TerrainDecalType) -> &'static str {
+        match decal_type {
+            TerrainDecalType::Demoralized => "DM_RING",
+            TerrainDecalType::Horde => "EXHorde",
+            TerrainDecalType::HordeWithNationalism => "EXHorde_UP",
+            TerrainDecalType::HordeVehicle => "EXHordeB",
+            TerrainDecalType::HordeWithNationalismVehicle => "EXHordeB_UP",
+            TerrainDecalType::Crate => "EXJunkCrate",
+            TerrainDecalType::HordeWithFanaticism => "EXHordeC_UP",
+            TerrainDecalType::ChemSuit => "EXChemSuit",
+            TerrainDecalType::None => "",
+            TerrainDecalType::ShadowTexture => "shadow",
+        }
+    }
+
+    fn sync_projected_terrain_decal(&mut self) {
+        if let Some(handle) = self.terrain_decal_handle.take() {
+            handle.release();
+        }
+        if self.terrain_decal_type == TerrainDecalType::None {
+            return;
+        }
+        let texture = Self::client_terrain_decal_texture(self.terrain_decal_type);
+        if texture.is_empty() {
+            return;
+        }
+        let mut size_x = self.terrain_decal_size.x;
+        let mut size_y = self.terrain_decal_size.y;
+        if size_x <= 0.0 || size_y <= 0.0 {
+            size_x = 40.0;
+            size_y = 40.0;
+        }
+        let info = crate::radius_decal::ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
+            shadow_name: gamelogic::common::AsciiString::from(texture),
+            size_x,
+            size_y,
+        };
+        if let Some(handle) = crate::radius_decal::get_projected_shadow_manager()
+            .write()
+            .add_decal(&info)
+        {
+            handle.set_position(self.position.x, self.position.y, self.position.z);
+            handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
+            self.terrain_decal_handle = Some(handle);
+        }
     }
 
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {

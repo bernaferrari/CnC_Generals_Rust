@@ -590,7 +590,14 @@ impl GameLogic {
         }
 
         self.objects_changed_trigger_areas.push_back(object_id);
+        self.frame_objects_changed_trigger_areas = self.frame;
+        crate::ai::set_frame_objects_changed_trigger_areas(self.frame);
     }
+
+    pub fn get_frame_objects_changed_trigger_areas(&self) -> UnsignedInt {
+        self.frame_objects_changed_trigger_areas
+    }
+
 
     pub fn update_objects_changed_trigger_areas(&mut self) {
         while let Some(object_id) = self.objects_changed_trigger_areas.pop_front() {

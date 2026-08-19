@@ -20,8 +20,8 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheFXListStore, TheGameLogic, TheObjectCreationListStore};
 use crate::modules::{
-    BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
-    UpdateSleepTime,
+    BehaviorModuleInterface, ContainModuleInterfaceExt, DieModuleInterface,
+    SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::slow_death_behavior::{
     parse_death_types, parse_destruction_altitude, parse_destruction_delay,
@@ -681,48 +681,15 @@ impl BattleBusSlowDeathBehavior {
         &self,
         damage_percent: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 414: empty dual-world → Ok(()).
+        // C++ BattleBusSlowDeathBehavior: getContain()->processDamageToContained(percent)
         if dual_world_registry_unavailable() {
             return Ok(());
         }
-
-        let Some(passengers_opt) = self.with_object(|obj_guard| {
-            obj_guard.get_contain().and_then(|contain| {
-                contain
-                    .lock()
-                    .ok()
-                    .map(|g| g.get_contained_objects().to_vec())
-            })
-        }) else {
-            return Ok(());
-        };
-        let Some(passengers) = passengers_opt else {
-            return Ok(());
-        };
-
-        for passenger_id in passengers {
-            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
-                continue;
-            };
-            let mut passenger_guard = passenger.write().map_err(|_| {
-                std::io::Error::other("BattleBusSlowDeathBehavior passenger write lock poisoned")
-            })?;
-            if let Some(body) = passenger_guard.get_body_module() {
-                let max_health = body
-                    .lock()
-                    .map_err(|_| {
-                        std::io::Error::other("BattleBusSlowDeathBehavior body lock poisoned")
-                    })?
-                    .get_max_health();
-                let damage_amount = max_health * damage_percent;
-                let mut damage_info = DamageInfo::new();
-                damage_info.input.amount = damage_amount;
-                damage_info.input.damage_type = DamageType::Unresistable;
-                damage_info.input.death_type = DeathType::Normal;
-                damage_info.sync_from_input();
-                passenger_guard.attempt_damage(&mut damage_info)?;
+        let _ = self.with_object(|obj_guard| {
+            if let Some(contain) = obj_guard.get_contain() {
+                contain.process_damage_to_contained(damage_percent);
             }
-        }
+        });
         Ok(())
     }
 

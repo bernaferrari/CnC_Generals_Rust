@@ -7,8 +7,14 @@ use crate::*;
 use glam::Mat4;
 use std::sync::Arc;
 
-/// Maximum screen size constant for LOD levels
-pub const NO_MAX_SCREEN_SIZE: f32 = -1.0;
+/// C++ `NO_MAX_SCREEN_SIZE` (`w3d_file.h`) is `WWMATH_FLOAT_MAX`.
+pub const NO_MAX_SCREEN_SIZE: f32 = f32::MAX;
+
+/// C++ `RenderObjClass::AT_MIN_LOD`.
+pub const AT_MIN_LOD: f32 = f32::MAX;
+
+/// C++ `RenderObjClass::AT_MAX_LOD`.
+pub const AT_MAX_LOD: f32 = -1.0;
 
 /// Model node for HLOD sub-objects
 #[derive(Debug, Clone)]
@@ -115,6 +121,8 @@ pub struct HLod {
     pub null_lod_included: bool,
     /// Animation state
     pub animation_state: Option<AnimationState>,
+    /// C++ `HIDE_FLAG` for this HLOD.
+    pub hidden: bool,
 }
 
 impl HLod {
@@ -135,6 +143,7 @@ impl HLod {
             values: Vec::new(),
             null_lod_included: false,
             animation_state: None,
+            hidden: false,
         }
     }
 
@@ -317,91 +326,135 @@ impl HLod {
 
     /// Get polygon count for current LOD
     pub fn get_num_polys(&self) -> usize {
-        let total = 0;
+        let mut total = 0;
         if let Some(current_lod) = self.get_current_lod() {
             for model_node in &current_lod.models {
-                if let Some(_model) = &model_node.model {
-                    // Get polygon count from render object
-                    // total += model.get_num_polys();
+                if let Some(model) = &model_node.model {
+                    if model.is_not_hidden_at_all() {
+                        total += model.get_num_polys();
+                    }
                 }
             }
         }
 
-        // Add polygons from additional models
         for model_node in &self.additional_models.models {
-            if let Some(_model) = &model_node.model {
-                // Get polygon count from render object
-                // total += model.get_num_polys();
+            if let Some(model) = &model_node.model {
+                if model.is_not_hidden_at_all() {
+                    total += model.get_num_polys();
+                }
             }
         }
 
         total
     }
 
-    /// Prepare LOD based on camera
+    /// Prepare LOD based on camera — C++ `HLodClass::Prepare_LOD`.
     pub fn prepare_lod(&mut self, camera: &Camera) {
-        // Calculate screen area and determine best LOD
+        if self.hidden {
+            return;
+        }
         let screen_area = self.calculate_screen_area(camera);
-        self.calculate_and_select_best_lod(screen_area);
+        if self.lods.len() > 1 {
+            let minlod = self.calculate_cost_value_arrays_internal(screen_area);
+            if self.current_lod < minlod {
+                self.set_lod_level(minlod);
+            }
+        }
     }
 
-    /// Recalculate static LOD factors
+    /// Recalculate static LOD factors — C++ `Recalculate_Static_LOD_Factors`.
     pub fn recalculate_static_lod_factors(&mut self) {
-        let lod_count = self.lods.len() as f32;
+        for lod in &mut self.lods {
+            lod.pixel_cost_per_area = 0.0;
 
-        // Calculate costs and benefits for each LOD level
-        for (i, lod) in self.lods.iter_mut().enumerate() {
-            // Calculate polygon count for this LOD
-            let poly_count = 0;
+            let mut polycount = 0usize;
             for model_node in &lod.models {
-                if let Some(_model) = &model_node.model {
-                    // Get polygon count
-                    // poly_count += model.get_num_polys();
+                if let Some(model) = &model_node.model {
+                    if model.is_not_hidden_at_all() {
+                        polycount += model.get_num_polys();
+                    }
                 }
             }
 
-            // Set cost based on polygon count (higher detail = higher cost)
-            lod.non_pixel_cost = poly_count as f32 * 0.1;
-            lod.pixel_cost_per_area = 1.0;
-            lod.benefit_factor = (lod_count - i as f32) / lod_count;
+            lod.non_pixel_cost = if polycount != 0 {
+                polycount as f32
+            } else {
+                0.000001
+            };
+            lod.benefit_factor = if polycount != 0 {
+                1.0 - (0.5 / ((polycount * polycount) as f32))
+            } else {
+                0.0
+            };
         }
     }
 
-    /// Calculate cost/value arrays and select best LOD
+    /// Calculate cost/value arrays and clamp current LOD to minlod.
     fn calculate_and_select_best_lod(&mut self, screen_area: f32) {
-        self.values.resize(self.lods.len(), 0.0);
-        self.costs.resize(self.lods.len(), 0.0);
-
-        for (i, lod) in self.lods.iter().enumerate() {
-            // Cost = NonPixelCost + PixelCostPerArea * screen_area
-            self.costs[i] = lod.non_pixel_cost + lod.pixel_cost_per_area * screen_area;
-
-            // Value = BenefitFactor * screen_area * LODBias
-            self.values[i] = lod.benefit_factor * screen_area * self.lod_bias;
+        let minlod = self.calculate_cost_value_arrays_internal(screen_area);
+        if self.current_lod < minlod {
+            self.set_lod_level(minlod);
         }
-
-        self.select_best_lod_from_arrays(self.lods.len());
     }
 
-    /// Calculate cost/value arrays for LOD selection
+    /// Calculate cost/value arrays for LOD selection.
+    ///
+    /// Returns the C++ `minlod` index. `values` is sized `LodCount+1` with
+    /// `AT_MAX_LOD` in the last slot.
     pub fn calculate_cost_value_arrays(
         &self,
         screen_area: f32,
         values: &mut Vec<f32>,
         costs: &mut Vec<f32>,
     ) -> usize {
-        values.resize(self.lods.len(), 0.0);
-        costs.resize(self.lods.len(), 0.0);
-
-        for (i, lod) in self.lods.iter().enumerate() {
-            // Cost = NonPixelCost + PixelCostPerArea * screen_area
-            costs[i] = lod.non_pixel_cost + lod.pixel_cost_per_area * screen_area;
-
-            // Value = BenefitFactor * screen_area * LODBias
-            values[i] = lod.benefit_factor * screen_area * self.lod_bias;
+        let lod_count = self.lods.len();
+        if lod_count == 0 {
+            values.clear();
+            costs.clear();
+            return 0;
         }
 
-        self.lods.len()
+        costs.resize(lod_count, 0.0);
+        values.resize(lod_count + 1, 0.0);
+
+        for (i, lod) in self.lods.iter().enumerate() {
+            costs[i] = lod.non_pixel_cost + lod.pixel_cost_per_area * screen_area;
+        }
+
+        let mut lod = 0;
+        while lod < lod_count && self.lods[lod].max_screen_size < screen_area {
+            values[lod] = AT_MIN_LOD;
+            lod += 1;
+        }
+
+        if lod >= lod_count {
+            lod = lod_count - 1;
+        } else {
+            values[lod] = AT_MIN_LOD;
+        }
+        let minlod = lod;
+
+        lod += 1;
+        while lod < lod_count {
+            let cost = costs[lod];
+            values[lod] = if cost != 0.0 {
+                (self.lods[lod].benefit_factor * screen_area * self.lod_bias) / cost
+            } else {
+                0.0
+            };
+            lod += 1;
+        }
+        values[lod_count] = AT_MAX_LOD;
+        minlod
+    }
+
+    fn calculate_cost_value_arrays_internal(&mut self, screen_area: f32) -> usize {
+        let mut values = Vec::new();
+        let mut costs = Vec::new();
+        let minlod = self.calculate_cost_value_arrays(screen_area, &mut values, &mut costs);
+        self.values = values;
+        self.costs = costs;
+        minlod
     }
 
     /// Get cost for current LOD
@@ -416,9 +469,12 @@ impl HLod {
 
     /// Get value for next LOD level (after increment)
     pub fn get_post_increment_value(&self) -> f32 {
-        let next_lod = (self.current_lod + 1).min(self.lods.len().saturating_sub(1));
-        self.values.get(next_lod).copied().unwrap_or(0.0)
+        self.values
+            .get(self.current_lod.saturating_add(1))
+            .copied()
+            .unwrap_or(AT_MAX_LOD)
     }
+
 
     /// Set transform
     pub fn set_transform(&mut self, transform: Mat4) {
@@ -473,33 +529,14 @@ impl HLod {
         }
     }
 
-    /// Set hidden state
+    /// Set hidden state — C++ `HLodClass::Set_Hidden` stores HIDE_FLAG.
     pub fn set_hidden(&mut self, hidden: bool) {
-        // Set hidden state for all LOD levels
-        // Note: This would propagate to RenderObj::set_hidden() on each model instance.
-        // Since models are Option<Box<dyn RenderObj>>, we can't call methods without
-        // RenderObj trait having set_hidden. The visibility is controlled via scene graph.
-        // C++ equivalent: HLodClass::Set_Hidden (hlod.cpp) - sets HIDE_FLAG recursively
-        for lod in &mut self.lods {
-            for model_node in &mut lod.models {
-                if let Some(_model) = &mut model_node.model {
-                    // Visibility control would be: model.set_hidden(hidden);
-                    // Currently handled via scene graph culling
-                }
-            }
-        }
+        self.hidden = hidden;
+    }
 
-        // Also set on additional models
-        for model_node in &mut self.additional_models.models {
-            if let Some(_model) = &mut model_node.model {
-                // Same as above - handled via scene graph
-            }
-        }
-
-        // Store the hidden flag for reference
-        // (Note: HLOD structure doesn't currently have a hidden field,
-        // visibility is managed externally)
-        let _ = hidden; // Suppress unused warning
+    /// C++ `Is_Not_Hidden_At_All`.
+    pub fn is_hidden(&self) -> bool {
+        self.hidden
     }
 
     /// Scale the HLOD
@@ -714,20 +751,21 @@ impl HLod {
     }
 
     fn calculate_screen_area(&self, camera: &Camera) -> f32 {
-        // Calculate screen area based on bounding sphere and camera
-        let distance = (camera.position - self.bounding_sphere.center).length();
-        let radius = self.bounding_sphere.radius;
-
-        if distance <= radius {
-            return 1.0; // Object fills screen
+        // C++ `RenderObjClass::Get_Screen_Size`.
+        let view_plane_w = camera.view_plane_max.x - camera.view_plane_min.x;
+        let view_plane_h = camera.view_plane_max.y - camera.view_plane_min.y;
+        if view_plane_w <= 0.0 || view_plane_h <= 0.0 {
+            return 0.0;
         }
-
-        // Approximate screen area based on angular size
-        let angular_size = 2.0 * (radius / distance).atan();
-        let screen_area = angular_size * angular_size;
-
-        // Clamp to reasonable range
-        screen_area.clamp(0.0, 1.0)
+        let width_factor = camera.viewport_width / view_plane_w;
+        let height_factor = camera.viewport_height / view_plane_h;
+        let dist = (self.bounding_sphere.center - camera.position).length();
+        let radius = if dist != 0.0 {
+            self.bounding_sphere.radius / dist
+        } else {
+            0.0
+        };
+        std::f32::consts::PI * radius * radius * width_factor * height_factor
     }
 
     #[allow(dead_code)] // C++ parity
@@ -778,6 +816,7 @@ impl Clone for HLod {
             values: self.values.clone(),
             null_lod_included: self.null_lod_included,
             animation_state: self.animation_state.clone(),
+            hidden: self.hidden,
         }
     }
 }
@@ -813,7 +852,22 @@ pub struct AnimationState {
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub position: Vec3,
-    // Add other camera properties as needed
+    pub viewport_width: f32,
+    pub viewport_height: f32,
+    pub view_plane_min: glam::Vec2,
+    pub view_plane_max: glam::Vec2,
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            viewport_width: 1.0,
+            viewport_height: 1.0,
+            view_plane_min: glam::Vec2::new(-1.0, -1.0),
+            view_plane_max: glam::Vec2::new(1.0, 1.0),
+        }
+    }
 }
 
 /// Render object trait (placeholder - should be defined elsewhere)
@@ -828,6 +882,12 @@ pub trait RenderObject: std::fmt::Debug + Send + Sync {
     fn get_transform(&self) -> &Mat4;
     fn set_transform(&mut self, transform: Mat4);
     fn get_name(&self) -> &str;
+    fn get_num_polys(&self) -> usize {
+        0
+    }
+    fn is_not_hidden_at_all(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

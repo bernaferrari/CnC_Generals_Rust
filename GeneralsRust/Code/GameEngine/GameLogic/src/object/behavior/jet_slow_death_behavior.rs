@@ -631,6 +631,9 @@ impl Snapshotable for JetSlowDeathBehavior {
             .map_err(|err| err.to_string())?;
         let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
         xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut slow_death_activated = self.slow_death_activated;
+        xfer.xfer_bool(&mut slow_death_activated)
+            .map_err(|err| err.to_string())?;
         let mut timer_death_frame = self.timer_death_frame;
         xfer.xfer_unsigned_int(&mut timer_death_frame)
             .map_err(|err| err.to_string())?;
@@ -648,6 +651,8 @@ impl Snapshotable for JetSlowDeathBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|err| err.to_string())?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        xfer.xfer_bool(&mut self.slow_death_activated)
+            .map_err(|err| err.to_string())?;
         xfer.xfer_unsigned_int(&mut self.timer_death_frame)
             .map_err(|err| err.to_string())?;
         xfer.xfer_unsigned_int(&mut self.timer_on_ground_frame)

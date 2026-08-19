@@ -19,6 +19,7 @@ impl TerrainVisualImpl {
 
         // Create water render pipeline
         self.create_water_pipeline(device.as_ref())?;
+        self.ensure_water_texture_bind_group(device.as_ref());
 
         // Create road render pipeline
         self.create_road_pipeline(device.as_ref())?;
@@ -53,6 +54,63 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
+    /// Chunks overlapping the camera XZ window (draw-area plus live look-at).
+    /// Used when frustum visibility is empty so the ground under the camera
+    /// still gets mesh uploads and draws.
+    fn chunk_ids_intersecting_camera_xz_window(&self) -> Vec<ChunkId> {
+        let (draw_min_x, draw_min_z, draw_max_x, draw_max_z) = self.draw_area_bounds_world();
+        let scale = self.map_scale().max(f32::EPSILON);
+        let half_x = (self.draw_width.max(1) as f32) * scale * 0.5;
+        let half_z = (self.draw_height.max(1) as f32) * scale * 0.5;
+        let (look_x, look_z) = crate::display::view::with_tactical_view_ref(|view| {
+            let look = view.position();
+            // Terrain GPU is Y-up (x,z). Tactical View may still store C++ XY ground.
+            if look.z.abs() > look.y.abs() {
+                (look.x, look.z)
+            } else {
+                (look.x, look.y)
+            }
+        });
+        let cam_min_x = look_x - half_x;
+        let cam_max_x = look_x + half_x;
+        let cam_min_z = look_z - half_z;
+        let cam_max_z = look_z + half_z;
+
+        let intersects = |min_x: f32, min_z: f32, max_x: f32, max_z: f32, chunk: &crate::terrain::chunk::TerrainChunk| {
+            chunk.bounds.max.x > min_x
+                && chunk.bounds.min.x < max_x
+                && chunk.bounds.max.z > min_z
+                && chunk.bounds.min.z < max_z
+        };
+
+        let mut ids: Vec<ChunkId> = self
+            .chunk_manager
+            .iter_chunks()
+            .filter(|chunk| {
+                intersects(draw_min_x, draw_min_z, draw_max_x, draw_max_z, chunk)
+                    || intersects(cam_min_x, cam_min_z, cam_max_x, cam_max_z, chunk)
+            })
+            .map(|chunk| chunk.id)
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    fn chunk_ids_for_gpu_draw(&self) -> Vec<ChunkId> {
+        let mut ids = self.visible_chunk_ids_for_draw_area();
+        // Frustum-visible can be a stale/identity set at the origin. Always
+        // union the live camera XZ window so Alpine under the CC still uploads.
+        for id in self.chunk_ids_intersecting_camera_xz_window() {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+
     fn update_chunk_meshes(&mut self) -> TerrainResult<()> {
         let started = std::time::Instant::now();
         let device = match &self.device {
@@ -65,18 +123,15 @@ impl TerrainVisualImpl {
             None => return Ok(()),
         };
 
-        let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
-        let refresh_texture_slots = self.active_chunk_texture_ids.is_none();
-
+        let visible_chunk_ids = self.chunk_ids_for_gpu_draw();
         let select_slots_started = std::time::Instant::now();
-        let stable_texture_ids = if refresh_texture_slots {
-            let ids = self.select_stable_chunk_texture_ids(&visible_chunk_ids);
-            self.active_chunk_texture_ids = Some(ids);
-            ids
-        } else {
-            self.active_chunk_texture_ids
-                .unwrap_or([0; MAX_TEXTURES_PER_CHUNK])
-        };
+        // Recompute every pass so late-loaded source_tile_classes (map BlendTileData)
+        // remesh instead of keeping the first cobble-only slot set.
+        let stable_texture_ids = self.select_stable_chunk_texture_ids(&visible_chunk_ids);
+        let refresh_texture_slots = self.active_chunk_texture_ids != Some(stable_texture_ids);
+        if refresh_texture_slots {
+            self.active_chunk_texture_ids = Some(stable_texture_ids);
+        }
         let select_slots_elapsed = select_slots_started.elapsed();
 
         let texture_slots_changed = refresh_texture_slots;
@@ -156,33 +211,80 @@ impl TerrainVisualImpl {
                     let height = position.y;
                     let slope = normal.dot(Vec3::Y).clamp(-1.0, 1.0).acos();
 
-                    // C++ WorldHeightMap samples BlendTileData tileNdx, not
-                    // height/slope procedural weights (hq-32be).
-                    let map_tile = self.height_map.as_ref().map(|hm| {
-                        hm.get_packed_terrain_tile_at_world(position.x, position.z)
+                    // C++ WorldHeightMap::getTextureClassFromNdx maps tileNdx>>2
+                    // through m_textureClasses firstTile/numTiles. Weights carry
+                    // TextureIds so shared_slot_map (keyed by TextureId, not
+                    // tile%4) can place adjacent vertices on different bound
+                    // slots. tile 0 is a valid class — do not treat it as empty.
+                    // Prefer blend_tile_ndxes when the map wired them.
+                    let tile_sample = self.height_map.as_ref().map(|hm| {
+                        let packed =
+                            hm.get_packed_terrain_tile_at_world(position.x, position.z);
+                        let (ix, iy) = height_map_cell_at_world(hm, position.x, position.z);
+                        let blend_i = hm.get_blend_tile_index(ix, iy);
+                        let other_packed = if blend_i != 0 {
+                            hm.blended_tiles.get(blend_i as usize).map(|blend| {
+                                (blend.blend_ndx >> 2).max(0) as u32
+                            })
+                        } else {
+                            None
+                        };
+                        (packed, blend_i, other_packed)
                     });
-                    let blended = if let Some(tile) = map_tile.filter(|&t| t != 0) {
-                        let mut weights = self.texture_system.generate_texture_weights(
-                            height,
-                            slope,
-                            vertex.tex_coords,
-                            &self.texture_rules,
+
+                    let base_weights = self.texture_system.generate_texture_weights(
+                        height,
+                        slope,
+                        vertex.tex_coords,
+                        &self.texture_rules,
+                    );
+
+                    let blended = if let Some((packed, blend_i, other_packed)) = tile_sample {
+                        let base_id = bound_texture_id_for_source_tile(
+                            packed,
+                            &self.source_tile_classes,
+                            &self.texture_system,
+                            &stable_texture_ids,
+                            &shared_slot_map,
                         );
-                        let slot = (tile as usize) % MAX_TEXTURES_PER_CHUNK;
-                        for (i, w) in weights.weights.iter_mut().enumerate() {
-                            *w = if i == slot { 1.0 } else { 0.0 };
+                        if blend_i != 0 {
+                            let other_id = other_packed.and_then(|other| {
+                                bound_texture_id_for_source_tile(
+                                    other,
+                                    &self.source_tile_classes,
+                                    &self.texture_system,
+                                    &stable_texture_ids,
+                                    &shared_slot_map,
+                                )
+                            });
+                            match (base_id, other_id) {
+                                (Some(a), Some(b)) if a != b => {
+                                    TextureWeights::blend_two(a, b, 0.5)
+                                }
+                                (Some(a), _) => TextureWeights::single(a),
+                                (_, Some(b)) => TextureWeights::single(b),
+                                _ => self.texture_system.blend_textures_at_position(
+                                    position,
+                                    height,
+                                    normal,
+                                    vertex.tex_coords,
+                                    &base_weights,
+                                    &self.texture_rules,
+                                ),
+                            }
+                        } else if let Some(id) = base_id {
+                            TextureWeights::single(id)
+                        } else {
+                            self.texture_system.blend_textures_at_position(
+                                position,
+                                height,
+                                normal,
+                                vertex.tex_coords,
+                                &base_weights,
+                                &self.texture_rules,
+                            )
                         }
-                        weights.indices = [slot as u32, 0, 0, 0];
-
-
-                        weights
                     } else {
-                        let base_weights = self.texture_system.generate_texture_weights(
-                            height,
-                            slope,
-                            vertex.tex_coords,
-                            &self.texture_rules,
-                        );
                         self.texture_system.blend_textures_at_position(
                             position,
                             height,
@@ -192,6 +294,7 @@ impl TerrainVisualImpl {
                             &self.texture_rules,
                         )
                     };
+
 
 
                     vertex_weights.push(blended);
@@ -253,6 +356,15 @@ impl TerrainVisualImpl {
 
                     vertex.blend_indices = packed_indices;
                     vertex.blend_weights = packed_weights;
+                    if let Some(hm) = self.height_map.as_ref() {
+                        vertex.tex_coords =
+                            hm.cell_uv_at_world(vertex.position[0], vertex.position[2]);
+                    }
+                    let shroud = self
+                        .shroud_alpha_at_world(vertex.position[0], vertex.position[2]);
+                    vertex.color[0] *= shroud;
+                    vertex.color[1] *= shroud;
+                    vertex.color[2] *= shroud;
                 }
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -324,7 +436,27 @@ impl TerrainVisualImpl {
         _visible_chunk_ids: &[ChunkId],
     ) -> [TextureId; MAX_TEXTURES_PER_CHUNK] {
         let mut selected_textures: Vec<TextureId> = Vec::new();
+
+        // Bind map texture classes first so adjacent firstTile/numTiles classes
+        // land on different TextureId keys (not tile%4).
+        for class in &self.source_tile_classes {
+            if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
+                break;
+            }
+            if let Some(texture_id) = self.texture_id_for_class_name(&class.name) {
+                if selected_textures
+                    .iter()
+                    .all(|candidate| *candidate != texture_id)
+                {
+                    selected_textures.push(texture_id);
+                }
+            }
+        }
+
         for rule in &self.texture_rules {
+            if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
+                break;
+            }
             let texture_id = rule.texture_id;
             if texture_id == 0 || self.texture_system.get_texture(texture_id).is_none() {
                 continue;
@@ -334,9 +466,6 @@ impl TerrainVisualImpl {
                 .all(|candidate| *candidate != texture_id)
             {
                 selected_textures.push(texture_id);
-                if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
-                    break;
-                }
             }
         }
 
@@ -371,6 +500,27 @@ impl TerrainVisualImpl {
         stable_texture_ids
     }
 
+    fn texture_id_for_class_name(&self, class_name: &str) -> Option<TextureId> {
+        for rule in &self.texture_rules {
+            if let Some(texture) = self.texture_system.get_texture(rule.texture_id) {
+                if texture_matches_class_name(texture, class_name) {
+                    return Some(rule.texture_id);
+                }
+            }
+        }
+        let Some(first) = self.texture_system.first_texture_id() else {
+            return None;
+        };
+        for id in first..=first.saturating_add(255) {
+            if let Some(texture) = self.texture_system.get_texture(id) {
+                if texture_matches_class_name(texture, class_name) {
+                    return Some(id);
+                }
+            }
+        }
+        None
+    }
+
     fn update_road_meshes(&mut self) -> TerrainResult<()> {
         // Retry Roads.ini / Art/Terrain/Road lookup when overlays rebuild
         // (map load) or the bind group was never created. Do not rebuild
@@ -395,6 +545,17 @@ impl TerrainVisualImpl {
             return Ok(());
         };
 
+        // Curve/join geometry is authored on the map plane. C++
+        // `loadFloat4PtSection` / `updateSegLighting` project those verts with
+        // `getMaxCellHeight`. `apply_terrain_heights_and_normals` is the live
+        // equivalent and otherwise has no production callers.
+        self.road_system.invalidate_terrain_lighting();
+        if let Some(height_map) = self.height_map.as_ref() {
+            self.road_system.apply_terrain_heights_and_normals(
+                |pos| height_map.get_height_at(pos.x, pos.z),
+                |pos| height_map.get_normal_at(pos.x, pos.z),
+            );
+        }
 
         let mut road_meshes = Vec::new();
         let mut bridge_meshes = Vec::new();
@@ -404,6 +565,11 @@ impl TerrainVisualImpl {
                 .map(|height_map| height_map.get_height_at(x, y))
                 .unwrap_or(0.0)
         };
+        let sun_direction = self.sun_direction;
+        let sun_color = self.sun_color;
+        let ambient_color = self.ambient_color;
+
+
 
         self.road_system
             .for_each_visible_overlay_source(|road, segment| {
@@ -469,7 +635,14 @@ impl TerrainVisualImpl {
                         height_at,
                     ) {
                         if !verts.is_empty() && !indices.is_empty() {
-                            let gpu_vertices = fill_road_gpu_upload_vertices(&verts);
+                            let mut gpu_vertices = fill_road_gpu_upload_vertices(&verts);
+                            Self::apply_road_vertex_static_diffuse(
+                                &mut gpu_vertices,
+                                height_map,
+                                sun_direction,
+                                sun_color,
+                                ambient_color,
+                            );
                             let gpu_indices: Vec<u32> =
                                 indices.iter().map(|index| *index as u32).collect();
                             if let Some(mesh) = Self::upload_overlay_mesh(
@@ -491,7 +664,7 @@ impl TerrainVisualImpl {
                 if geometry.vertices.is_empty() || geometry.indices.is_empty() {
                     return;
                 }
-                let gpu_vertices: Vec<RoadVertex> = geometry
+                let mut gpu_vertices: Vec<RoadVertex> = geometry
                     .vertices
                     .iter()
                     .map(|vertex| OverlayGpuVertex {
@@ -506,6 +679,20 @@ impl TerrainVisualImpl {
                         diffuse: 0xFFFF_FFFF,
                     })
                     .collect();
+                // Belt-and-suspenders: keep join/curve strips on the height
+                // field even if RoadManager geometry was authored at Y=0.
+                for vertex in &mut gpu_vertices {
+                    vertex.position[1] =
+                        height_at(vertex.position[0], vertex.position[2]) + ROAD_FLOAT_AMOUNT;
+                }
+
+                Self::apply_road_vertex_static_diffuse(
+                    &mut gpu_vertices,
+                    height_map,
+                    sun_direction,
+                    sun_color,
+                    ambient_color,
+                );
                 if let Some(mesh) = Self::upload_overlay_mesh(
                     &device,
                     "Road Mesh",
@@ -579,6 +766,40 @@ impl TerrainVisualImpl {
         })
     }
 
+    /// C++ `RoadSegment::updateSegLighting`: `getStaticDiffuse` into vertex color.
+    /// `loadFloat4PtSection` leaves `diffuse=0`, which unpacks to black and
+    /// produced the pitch-black road strips. Floor at 0.35 so unlit verts stay visible.
+    fn apply_road_vertex_static_diffuse(
+        vertices: &mut [OverlayGpuVertex],
+        height_map: Option<&HeightMap>,
+        sun_direction: Vec3,
+        sun_color: [f32; 3],
+        ambient_color: [f32; 3],
+    ) {
+        const COLOR_FLOOR: f32 = 0.35;
+        for vertex in vertices {
+            let normal = height_map
+                .map(|height_map| height_map.get_normal_at(vertex.position[0], vertex.position[2]))
+                .unwrap_or(Vec3::Y);
+            let lit = Self::terrain_static_diffuse_from_normal(
+                normal,
+                sun_direction,
+                sun_color,
+                ambient_color,
+            );
+            vertex.color = [
+                lit[0].max(COLOR_FLOOR),
+                lit[1].max(COLOR_FLOOR),
+                lit[2].max(COLOR_FLOOR),
+            ];
+            let r = (vertex.color[0] * 255.0).round() as u32;
+            let g = (vertex.color[1] * 255.0).round() as u32;
+            let b = (vertex.color[2] * 255.0).round() as u32;
+            vertex.diffuse = 0xFF00_0000 | (r << 16) | (g << 8) | b;
+        }
+    }
+
+
     pub fn record_chunk_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         if !self.enabled {
             return;
@@ -592,35 +813,32 @@ impl TerrainVisualImpl {
                 pass.set_bind_group(0, camera_bg, &[]);
             }
 
-            let chunk_meshes = &self.chunk_meshes;
-            let chunk_texture_bindings = &self.chunk_texture_bindings;
-            let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
+            let draw_ids = self.chunk_ids_for_gpu_draw();
+            for chunk_id in draw_ids {
+                let Some(binding) = self.chunk_texture_bindings.get(&chunk_id) else {
+                    continue;
+                };
+                let Some(mesh) = self.chunk_meshes.get(&chunk_id) else {
+                    continue;
+                };
 
-            let _ = self.chunk_manager.render_pass_draw(
-                pass,
-                |chunk_id| {
-                    chunk_texture_bindings
-                        .get(&chunk_id)
-                        .map(|binding| binding.bind_group.clone())
-                },
-                |chunk_id| {
-                    let mesh = chunk_meshes.get(&chunk_id)?;
-                    if !visible_chunk_ids.contains(&chunk_id) {
-                        return None;
-                    }
-                    Some((
-                        mesh.vertex_buffer.slice(..),
-                        mesh.index_buffer.slice(..),
-                        mesh.index_count,
-                    ))
-                },
-            );
+                pass.set_bind_group(1, &binding.bind_group, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(
+                    mesh.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+
         }
 
         self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
+        self.record_overlay_draws(pass);
         self.record_tree_draws(pass);
         self.record_water_draws(pass);
+        self.record_extra_water_draws(pass);
     }
 
     pub fn record_chunk_depth_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -674,15 +892,17 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(water_pipeline), Some(camera_bg)) = (
+        let (Some(water_pipeline), Some(camera_bg), Some(water_bg)) = (
             self.water_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
+            self.water_texture_bind_group.as_ref(),
         ) else {
             return;
         };
 
         pass.set_pipeline(water_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
+        pass.set_bind_group(1, water_bg, &[]);
 
         if let Some(water_plane) = self.water_plane.as_ref() {
             pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
@@ -910,11 +1130,180 @@ impl TerrainVisualImpl {
         texture
     }
 
+    fn ensure_water_texture_bind_group(&mut self, device: &wgpu::Device) {
+        if self.water_texture_bind_group.is_some() && !self.water_texture_is_fallback {
+            return;
+        }
+        let Some(layout) = self.water_texture_bind_group_layout.clone() else {
+            return;
+        };
+        let Some(queue) = self.queue.clone() else {
+            return;
+        };
+
+        let (texture, used_fallback, source_name) =
+            match self.load_first_available_water_texture(device) {
+                Some((texture, name)) => (texture, false, name),
+                None => (
+                    Self::create_fallback_water_texture(device, queue.as_ref()),
+                    true,
+                    "fallback-teal-1x1".to_string(),
+                ),
+            };
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if self.water_sampler.is_none() {
+            self.water_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Water Texture Sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        let Some(sampler) = self.water_sampler.as_ref() else {
+            return;
+        };
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Water Texture Bind Group"),
+            layout: layout.as_ref(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+
+        if used_fallback {
+            warn!("Water texture missing; using teal-alpha 1x1 fallback");
+        } else {
+            info!("Water texture bind group ready using {}", source_name);
+        }
+        self.water_texture = Some(texture);
+        self.water_texture_bind_group = Some(bind_group);
+        self.water_texture_is_fallback = used_fallback;
+    }
+
+    fn load_first_available_water_texture(
+        &self,
+        device: &wgpu::Device,
+    ) -> Option<(wgpu::Texture, String)> {
+        for name in self.water_texture_name_candidates() {
+            for path in Self::water_texture_path_candidates(&name) {
+                if TerrainTextures::is_available_terrain_texture_path(&path)
+                    || TerrainTextures::can_resolve_texture_path(&path)
+                {
+                    if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                        return Some((texture, path));
+                    }
+                }
+                if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                    return Some((texture, path));
+                }
+            }
+        }
+        None
+    }
+
+    fn water_texture_name_candidates(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut push_name = |name: &str| {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            if !names
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+            {
+                names.push(trimmed.to_string());
+            }
+        };
+
+        // C++ Water.h / Water.ini StandingWaterTexture default.
+        game_engine::common::ini::ini_water::initialize_water_settings();
+        if let Some(lock) = game_engine::common::ini::ini_water::get_water_transparency() {
+            if let Ok(guard) = lock.read() {
+                push_name(guard.get_final_override().standing_water_texture.as_str());
+            }
+        }
+        for name in ["TWWater01.tga", "TWWater01.dds", "water01.dds", "Water01.tga"] {
+            push_name(name);
+        }
+        names
+    }
+
+    fn water_texture_path_candidates(name: &str) -> Vec<String> {
+        let basename = Path::new(name)
+            .file_name()
+            .and_then(|file| file.to_str())
+            .unwrap_or(name);
+        let mut paths = vec![
+            format!("{TGA_DIR_PATH}{basename}"),
+            format!("art/textures/{basename}"),
+            format!("ART/Textures/{basename}"),
+            format!("{TERRAIN_TGA_DIR_PATH}{basename}"),
+            basename.to_string(),
+        ];
+        if name != basename {
+            paths.insert(0, name.replace('\\', "/"));
+        }
+        paths
+    }
+
+    fn create_fallback_water_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        // Teal-alpha 1x1 so the plane is visible when TWWater01 is missing.
+        const PIXELS: [u8; 4] = [33, 107, 128, 178];
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Water Fallback Teal 1x1"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &PIXELS,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
 
     fn record_tree_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(tree_pipeline), Some(camera_bg)) = (
+        let (Some(tree_pipeline), Some(camera_bg), Some(atlas_bg)) = (
             self.tree_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
+            self.tree_atlas_bind_group.as_ref(),
         ) else {
             return;
         };
@@ -924,6 +1313,8 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(tree_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
+        // Own atlas group. Do not overwrite road/terrain bind group 1 after this pass.
+        pass.set_bind_group(1, atlas_bg, &[]);
         for mesh in &self.tree_meshes {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -936,7 +1327,6 @@ impl TerrainVisualImpl {
         lights[0] = TreeObjectLight {
             ambient: self.ambient_color,
             diffuse: self.sun_color,
-            // wgpu Y-up sun → C++ Z-up lightPos used by W3DTreeBuffer::doLighting.
             light_pos: [
                 self.sun_direction.x,
                 self.sun_direction.z,
@@ -948,12 +1338,45 @@ impl TerrainVisualImpl {
 
     /// C++ `W3DTreeBuffer::drawTrees` VB fill + wgpu upload. Called every update/draw.
     pub fn update_tree_meshes(&mut self) {
-        // C++ WaterRenderObjClass::render recenters `new_skybox` on the camera
-        // each frame (W3DWater.cpp:1702-1707). Rebind the N/E/S/W/T face here
-        // because this is the live per-frame `&mut` hook from `render`/`update`.
         self.rebind_skybox_background_for_camera();
+        self.tree_buffer.tick_cpu(false, |_| TreeShroudStatus::Clear);
+        if self.tree_buffer.take_any_push_changed() {
+            self.tree_buffer.force_vertex_rebuild();
+        }
+        if self.overlay.last_sway_version != 1 {
+            struct SwayRng;
+            impl crate::terrain::TreeRandom for SwayRng {
+                fn int_range(&mut self, min: i32, _max: i32) -> i32 {
+                    min
+                }
+                fn real_range(&mut self, min: f32, _max: f32) -> f32 {
+                    min
+                }
+            }
+            let breeze = crate::terrain::BreezeInfo {
+                breeze_version: 1,
+                lean: 0.04,
+                intensity: 0.03,
+                direction_vec: glam::Vec2::new(0.7, 0.7),
+                randomness: 0.1,
+                breeze_period: 60,
+            };
+            self.tree_buffer.update_sway(breeze, &mut SwayRng);
+            self.overlay.last_sway_version = 1;
+        }
+        if self.tree_meshes.is_empty() {
+            if self
+                .tree_buffer
+                .trees()
+                .iter()
+                .any(|tree| tree.tree_type >= 0)
+            {
+                self.tree_buffer.force_vertex_rebuild();
+            } else if !self.tree_buffer.need_to_update_texture() {
+                return;
+            }
+        }
 
-        // C++ `loadTreesInVertexAndIndexBuffers` returns when nothing changed.
         if !self.tree_meshes.is_empty()
             && !self.tree_buffer.need_to_update_texture()
             && !self.tree_buffer.anything_changed()
@@ -1032,11 +1455,13 @@ impl TerrainVisualImpl {
     fn upload_tree_atlas_texture(&mut self) {
         let (Some(device), Some(queue)) = (self.device.as_ref(), self.queue.as_ref()) else {
             self.tree_atlas_texture = None;
+            self.tree_atlas_bind_group = None;
             return;
         };
         let levels = self.tree_buffer.atlas_upload_levels();
         if levels.is_empty() {
-            self.tree_atlas_texture = None;
+            self.tree_atlas_texture = Some(Self::create_fallback_tree_atlas(device, queue));
+            self.bind_tree_atlas_group();
             return;
         }
         let lod = self.tree_buffer.atlas_upload_mip_index() as u32;
@@ -1079,6 +1504,89 @@ impl TerrainVisualImpl {
             );
         }
         self.tree_atlas_texture = Some(texture);
+        self.bind_tree_atlas_group();
+    }
+
+    fn create_fallback_tree_atlas(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        const PIXELS: [u8; 16] = [
+            40, 90, 28, 255, 32, 78, 22, 255, 36, 84, 24, 255, 28, 70, 18, 255,
+        ];
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("W3D Tree Atlas Fallback"),
+            size: wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &PIXELS,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(8),
+                rows_per_image: Some(2),
+            },
+            wgpu::Extent3d {
+                width: 2,
+                height: 2,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
+    fn bind_tree_atlas_group(&mut self) {
+        let (Some(device), Some(layout), Some(texture)) = (
+            self.device.as_ref(),
+            self.tree_atlas_bind_group_layout.as_ref(),
+            self.tree_atlas_texture.as_ref(),
+        ) else {
+            self.tree_atlas_bind_group = None;
+            return;
+        };
+        if self.tree_atlas_sampler.is_none() {
+            self.tree_atlas_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Tree Atlas Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        let Some(sampler) = self.tree_atlas_sampler.as_ref() else {
+            self.tree_atlas_bind_group = None;
+            return;
+        };
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.tree_atlas_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Tree Atlas Bind Group"),
+            layout: layout.as_ref(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        }));
     }
 
     fn sync_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
@@ -1096,17 +1604,19 @@ impl TerrainVisualImpl {
             return Ok(());
         }
 
-        let water_z = global.water_position_z;
-        let half_extent_x = global.water_extent_x * 0.5;
-        let half_extent_y = global.water_extent_y * 0.5;
-        let min_x = global.water_position_x - half_extent_x;
-        let min_y = global.water_position_y - half_extent_y;
-        let max_x = global.water_position_x + half_extent_x;
-        let max_y = global.water_position_y + half_extent_y;
+        // C++ WaterRenderObjClass::getClippedWaterPlane (W3DWater.cpp:1735-1738)
+        // spans local [0..m_dx] x [0..m_dy] at m_level, then Set_Position
+        // (waterPositionX, waterPositionY, waterPositionZ). Not centered
+        // [-extent/2, +extent/2] — Alpine camera x=1362 must sit over the plane.
+        let water_y = global.water_position_z;
+        let min_x = global.water_position_x;
+        let min_z = global.water_position_y;
+        let max_x = global.water_position_x + global.water_extent_x;
+        let max_z = global.water_position_y + global.water_extent_y;
 
         // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
         let (patch_vertices, list_indices) =
-            bake_water_tiles_world(min_x, min_y, max_x, max_y, water_z, 0xffff_ffff);
+            bake_water_tiles_world(min_x, min_z, max_x, max_z, water_y, 0xffff_ffff);
         if patch_vertices.is_empty() || list_indices.is_empty() {
             self.water_plane = None;
             return Ok(());
@@ -1320,3 +1830,206 @@ impl TerrainVisualImpl {
         self.extra_blend_draw_count.load(Ordering::Relaxed)
     }
 }
+
+fn height_map_cell_at_world(hm: &HeightMap, world_x: f32, world_z: f32) -> (i32, i32) {
+    let max_x = hm.width.saturating_sub(1) as i32;
+    let max_y = hm.height.saturating_sub(1) as i32;
+    let scale = if hm.scale.abs() <= f32::EPSILON {
+        1.0
+    } else {
+        hm.scale
+    };
+    let x = ((world_x / scale).floor() as i32 + hm.border_size).clamp(0, max_x);
+    let y = ((world_z / scale).floor() as i32 + hm.border_size).clamp(0, max_y);
+    (x, y)
+}
+
+fn unique_bound_texture_ids(
+    stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
+    shared_slot_map: &HashMap<TextureId, usize>,
+) -> Vec<TextureId> {
+    let mut unique = Vec::new();
+    for &id in stable_ids {
+        if !shared_slot_map.contains_key(&id) {
+            continue;
+        }
+        if unique.iter().all(|existing| *existing != id) {
+            unique.push(id);
+        }
+    }
+    unique
+}
+
+fn texture_class_index_from_ndx(
+    packed_tile: u32,
+    classes: &[TerrainSourceTileClass],
+) -> Option<usize> {
+    // packed_tile is already tileNdx>>2 (HeightMap::get_packed_terrain_tile_at_world).
+    // C++ WorldHeightMap::getTextureClassFromNdx walks firstTile/numTiles;
+    // tile 0 is a valid class when firstTile == 0.
+    let tile = packed_tile as i32;
+    for (idx, class) in classes.iter().enumerate() {
+        if class.first_tile < 0 || class.num_tiles <= 0 {
+            continue;
+        }
+        if tile >= class.first_tile && tile < class.first_tile + class.num_tiles {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn source_tile_class_contains(classes: &[TerrainSourceTileClass], packed_tile: u32) -> bool {
+    texture_class_index_from_ndx(packed_tile, classes).is_some()
+}
+
+fn texture_matches_class_name(texture: &TerrainTexture, class_name: &str) -> bool {
+    let class = class_name.trim();
+    if class.is_empty() {
+        return false;
+    }
+    if texture.name.eq_ignore_ascii_case(class) {
+        return true;
+    }
+    let class_l = class.to_ascii_lowercase();
+    let path = texture.diffuse_path.replace('\\', "/").to_ascii_lowercase();
+    if path.contains(&class_l) {
+        return true;
+    }
+    std::path::Path::new(&texture.diffuse_path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.eq_ignore_ascii_case(class))
+}
+
+fn bound_texture_id_for_source_tile(
+    packed_tile: u32,
+    classes: &[TerrainSourceTileClass],
+    textures: &TerrainTextures,
+    stable_ids: &[TextureId; MAX_TEXTURES_PER_CHUNK],
+    shared_slot_map: &HashMap<TextureId, usize>,
+) -> Option<TextureId> {
+    let unique = unique_bound_texture_ids(stable_ids, shared_slot_map);
+    if unique.is_empty() {
+        return None;
+    }
+
+    let Some(class_idx) = texture_class_index_from_ndx(packed_tile, classes) else {
+        // Do not treat the tile index as a slot (tile%4 / tile/4). Unmapped
+        // tiles leave TextureId unset so the caller keeps generated weights.
+        return None;
+    };
+
+    if let Some(class) = classes.get(class_idx) {
+        for &id in &unique {
+            if let Some(texture) = textures.get_texture(id) {
+                if texture_matches_class_name(texture, &class.name) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+
+    // Map the texture class onto the 4 bound slots via TextureId keys.
+    Some(unique[class_idx % unique.len()])
+}
+
+#[cfg(test)]
+mod splat_texture_class_tests {
+    use super::*;
+
+    fn class(first_tile: i32, num_tiles: i32, name: &str) -> TerrainSourceTileClass {
+        TerrainSourceTileClass {
+            first_tile,
+            num_tiles,
+            width: 2,
+            name: name.to_string(),
+        }
+    }
+
+    fn bound_fixture() -> (
+        TerrainTextures,
+        Vec<TerrainSourceTileClass>,
+        [TextureId; MAX_TEXTURES_PER_CHUNK],
+        HashMap<TextureId, usize>,
+    ) {
+        let mut textures = TerrainTextures::new();
+        let grass = textures.register_texture(TerrainTexture::new(
+            0,
+            "Grass".to_string(),
+            "Art/Terrain/Grass.tga".to_string(),
+        ));
+        let rock = textures.register_texture(TerrainTexture::new(
+            0,
+            "Rock".to_string(),
+            "Art/Terrain/Rock.tga".to_string(),
+        ));
+        let snow = textures.register_texture(TerrainTexture::new(
+            0,
+            "Snow".to_string(),
+            "Art/Terrain/Snow.tga".to_string(),
+        ));
+        let dirt = textures.register_texture(TerrainTexture::new(
+            0,
+            "Dirt".to_string(),
+            "Art/Terrain/Dirt.tga".to_string(),
+        ));
+        let stable = [grass, rock, snow, dirt];
+        let mut slot_map = HashMap::new();
+        for (slot, id) in stable.iter().enumerate() {
+            slot_map.entry(*id).or_insert(slot);
+        }
+        let classes = vec![
+            class(0, 4, "Grass"),
+            class(4, 4, "Rock"),
+            class(8, 4, "Snow"),
+            class(12, 4, "Dirt"),
+        ];
+        (textures, classes, stable, slot_map)
+    }
+
+    #[test]
+    fn get_texture_class_from_ndx_includes_tile_zero() {
+        // C++ WorldHeightMap::getTextureClassFromNdx (WorldHeightMap.cpp:2308)
+        // after tileNdx>>2. firstTile==0 is a valid class.
+        let classes = [class(0, 4, "Grass"), class(4, 4, "Rock")];
+        assert_eq!(texture_class_index_from_ndx(0, &classes), Some(0));
+        assert!(source_tile_class_contains(&classes, 0));
+        assert_eq!(texture_class_index_from_ndx(3, &classes), Some(0));
+        assert_eq!(texture_class_index_from_ndx(4, &classes), Some(1));
+    }
+
+    #[test]
+    fn adjacent_classes_bind_different_texture_id_slots() {
+        let (textures, classes, stable, slot_map) = bound_fixture();
+        let grass = bound_texture_id_for_source_tile(
+            0, &classes, &textures, &stable, &slot_map,
+        );
+        let rock = bound_texture_id_for_source_tile(
+            4, &classes, &textures, &stable, &slot_map,
+        );
+        let snow = bound_texture_id_for_source_tile(
+            8, &classes, &textures, &stable, &slot_map,
+        );
+        assert_eq!(grass, Some(stable[0]));
+        assert_eq!(rock, Some(stable[1]));
+        assert_eq!(snow, Some(stable[2]));
+        assert_ne!(grass, rock);
+        assert_ne!(rock, snow);
+        // tile%4 would collapse 0/4/8 onto the same slot.
+        assert_ne!(slot_map[&grass.unwrap()], slot_map[&rock.unwrap()]);
+        assert_ne!(slot_map[&rock.unwrap()], slot_map[&snow.unwrap()]);
+    }
+
+    #[test]
+    fn unmapped_tile_is_not_used_as_slot_index() {
+        let (textures, classes, stable, slot_map) = bound_fixture();
+        // packed 99 is outside firstTile/numTiles — must not become 99%4.
+        assert_eq!(
+            bound_texture_id_for_source_tile(99, &classes, &textures, &stable, &slot_map),
+            None
+        );
+    }
+}
+

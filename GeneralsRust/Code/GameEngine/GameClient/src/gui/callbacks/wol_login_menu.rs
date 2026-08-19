@@ -18,7 +18,8 @@ use crate::gui::{
 };
 use crate::shell_hooks::{signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN};
 use chrono::Datelike;
-use game_engine::common::name_key_generator::NameKeyGenerator;
+use crate::w3d_web_browser::W3DWebBrowser;
+use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::preferences::GameSpyMiscPreferences;
 use game_engine::common::system::quoted_printable::{
     ascii_string_to_quoted_printable, quoted_printable_to_ascii_string,
@@ -89,6 +90,7 @@ struct WolLoginState {
 
 thread_local! {
     static WOL_LOGIN_STATE: Rc<RefCell<WolLoginState>> = Rc::new(RefCell::new(WolLoginState::default()));
+    static THE_TOS_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
 }
 
 fn wol_login_state() -> Rc<RefCell<WolLoginState>> {
@@ -401,44 +403,43 @@ fn show_tos(state: &mut WolLoginState) {
     if let Some(parent_tos) = state.parent_tos.as_ref() {
         let _ = parent_tos.borrow_mut().hide(false);
     }
-    // TODO: C++ has useWebBrowserForTOS flag that uses embedded browser for TOS display
-    // TODO: C++ shutdown calls TheWebBrowser->closeBrowserWindow(listboxTOS)
-    state.use_web_browser_for_tos = false;
-    state.web_browser_active = false;
+    state.use_web_browser_for_tos = true;
+    let opened = if let Some(listbox) = state.listbox_tos.as_ref() {
+        THE_TOS_BROWSER.with(|browser| {
+            let mut browser = browser.borrow_mut();
+            let win = listbox.borrow();
+            browser.create_browser_window("TermsOfService", &win)
+                || browser.create_browser_window("TOS", &win)
+        })
+    } else {
+        false
+    };
+    state.web_browser_active = opened;
 
-    if let Some(listbox) = state.listbox_tos.as_ref() {
-        let mut listbox = listbox.borrow_mut();
-        if let Some(widget) = listbox.list_box_mut() {
-            widget.clear();
-            let mut file_name = String::from("Data/TOS.txt");
-            let data = fs::read_to_string(&file_name).or_else(|_| {
-                // TODO: C++ uses GetRegistryLanguage() for language-specific TOS path (e.g. Data/German/TOS.txt)
-                let lang = GameSpyMiscPreferences::new().get_locale();
-                let lang_name = match lang {
-                    1 => "German",
-                    2 => "French",
-                    3 => "Spanish",
-                    4 => "Italian",
-                    5 => "Japanese",
-                    6 => "Korean",
-                    7 => "Chinese",
-                    8 => "Russian",
-                    _ => "English",
-                };
-                file_name = format!("Data/{}/TOS.txt", lang_name);
-                fs::read_to_string(&file_name)
-            });
-            if let Ok(data) = data {
-                let mut content = data.as_str();
-                if content.starts_with('\u{feff}') {
-                    content = &content[1..];
-                }
-                let colors = default_gamespy_colors();
-                let color = colors[GameSpyColor::Default as usize];
-                for line in content.lines() {
-                    let trimmed = line.trim_end();
-                    if !trimmed.is_empty() {
-                        widget.add_item_with_color(trimmed, packed_ui_color(color));
+    if !opened {
+        if let Some(listbox) = state.listbox_tos.as_ref() {
+            let mut listbox = listbox.borrow_mut();
+            if let Some(widget) = listbox.list_box_mut() {
+                widget.clear();
+                let lang = get_registry_language();
+                let lang_name = lang.as_str();
+                let paths = [
+                    format!("Data/{}/TOS.txt", lang_name),
+                    String::from("Data/TOS.txt"),
+                ];
+                let data = paths.iter().find_map(|p| fs::read_to_string(p).ok());
+                if let Some(data) = data {
+                    let mut content = data.as_str();
+                    if content.starts_with('\u{feff}') {
+                        content = &content[1..];
+                    }
+                    let colors = default_gamespy_colors();
+                    let color = colors[GameSpyColor::Default as usize];
+                    for line in content.lines() {
+                        let trimmed = line.trim_end();
+                        if !trimmed.is_empty() {
+                            widget.add_item_with_color(trimmed, packed_ui_color(color));
+                        }
                     }
                 }
             }
@@ -754,7 +755,13 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     with_window_manager(|manager| manager.clear_tab_list());
 
     if state.web_browser_active {
+        if let Some(listbox) = state.listbox_tos.as_ref() {
+            THE_TOS_BROWSER.with(|browser| {
+                browser.borrow_mut().close_browser_window(&listbox.borrow());
+            });
+        }
         state.web_browser_active = false;
+        state.use_web_browser_for_tos = false;
     }
 
     if pop_immediate {

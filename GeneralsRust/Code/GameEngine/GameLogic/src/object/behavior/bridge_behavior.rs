@@ -21,8 +21,8 @@ use crate::common::{
 };
 use crate::damage::{BodyDamageType, DamageInfo};
 use crate::helpers::{
-    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, TheObjectCreationListStore,
-    ThePartitionManager, TheRadar, TheThingFactory,
+    get_game_logic_random_value_real, TheAudio, TheFXListStore, TheGameLogic,
+    TheObjectCreationListStore, ThePartitionManager, TheRadar, TheThingFactory,
 };
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface, PhysicsBehaviorExt,
@@ -765,7 +765,22 @@ impl BridgeBehavior {
         Ok(())
     }
 
-    fn play_audio_event(&self, _event: &AudioEventRTS) {}
+    fn play_audio_event(&self, event: &AudioEventRTS) {
+        // C++ BridgeBehavior::onBodyDamageStateChange: TheAudio->addAudioEvent(...)
+        let Some(audio) = TheAudio::get() else {
+            return;
+        };
+        let mut rts_event = crate::common::audio::AudioEventRts::new(event.sound_file.as_str());
+        if let Ok(object_id) = self.with_object(|guard| guard.get_id()) {
+            if object_id != OBJECT_INVALID_ID {
+                rts_event.set_object_id(object_id);
+            }
+        }
+        if event.player_index >= 0 {
+            rts_event.set_player_index(event.player_index as u32);
+        }
+        audio.add_audio_event(&rts_event);
+    }
 
     fn get_bone_position(
         &self,
@@ -2106,11 +2121,9 @@ fn damage_type_to_index(damage_type: BodyDamageType) -> usize {
 }
 
 fn terrain_bridge_tower_type_from_index(index: usize) -> Option<crate::common::BridgeTowerType> {
-    match index {
-        0 => Some(crate::common::BridgeTowerType::From),
-        1 => Some(crate::common::BridgeTowerType::To),
-        _ => None,
-    }
+    // C++ xfer: bridge->setTowerObjectID(m_towerID[i], (BridgeTowerType)i)
+    // 0 FROM_LEFT, 1 FROM_RIGHT, 2 TO_LEFT, 3 TO_RIGHT
+    crate::common::BridgeTowerType::from_index(index)
 }
 
 #[cfg(test)]

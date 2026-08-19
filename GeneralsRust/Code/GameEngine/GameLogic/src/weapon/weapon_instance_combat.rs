@@ -7,8 +7,7 @@ use crate::common::Coord3D;
 use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::{KindOf, PathfindLayerEnum};
-use crate::common::{Matrix3D, TurretType};
-use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
+use crate::common::{Matrix3D, ObjectStatusTypes, TurretType};
 use crate::damage::{DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
@@ -97,66 +96,123 @@ impl Weapon {
         Ok(())
     }
 
-    /// Calculate scatter for target position
-    /// C++ Reference: Weapon.cpp lines 1550-1600 (scatter logic)
+    /// Calculate scatter for target position.
     ///
-    /// # Behavior
-    /// - Infantry get more scatter (less accurate)
-    /// - Vehicles get moderate scatter
-    /// - Structures get minimal scatter
-    /// - Returns modified target position with random deviation
+    /// C++ Weapon.cpp:953-995 — `scatterRadius = m_scatterRadius`; infantry
+    /// adds `m_infantryInaccuracyDist`. No type multipliers. Structures are
+    /// re-centered by the caller before this runs.
     pub fn calculate_scatter(
         &self,
         target: Coord3D,
-        distance_to_target: f32,
+        _distance_to_target: f32,
         target_object_type: ObjectType,
     ) -> Coord3D {
-        use std::f32::consts::PI;
+        self.scatter_aim_point(target, target_object_type).0
+    }
 
-        let scatter_distance;
-
-        // Adjust scatter based on target type
-        match target_object_type {
-            ObjectType::Infantry => {
-                // Infantry targets get full scatter
-                scatter_distance = self.template.infantry_inaccuracy_dist;
-            }
-            ObjectType::Vehicle => {
-                // Vehicles scatter less (use general scatter radius)
-                scatter_distance = self.template.scatter_radius;
-            }
-            ObjectType::Structure => {
-                // Structures scatter even less
-                scatter_distance = self.template.scatter_radius * 0.5;
-            }
-            ObjectType::Projectile => {
-                // Projectiles (anti-missile) get minimal scatter
-                scatter_distance = self.template.scatter_radius * 0.25;
-            }
-            ObjectType::Unknown => {
-                scatter_distance = self.template.scatter_radius;
-            }
+    /// Returns `(aim_point, rolled_scatter_radius)` after C++ randomization.
+    pub(crate) fn scatter_aim_point(
+        &self,
+        mut target: Coord3D,
+        target_object_type: ObjectType,
+    ) -> (Coord3D, f32) {
+        let mut scatter_radius = self.template.scatter_radius;
+        if target_object_type == ObjectType::Infantry && self.template.infantry_inaccuracy_dist > 0.0
+        {
+            scatter_radius += self.template.infantry_inaccuracy_dist;
+        }
+        if scatter_radius <= 0.0 {
+            return (target, 0.0);
         }
 
-        // No scatter if distance is 0
-        if scatter_distance <= 0.0 {
-            return target;
+        let rolled = self.random_float(0.0, scatter_radius);
+        let angle = self.random_float(0.0, std::f32::consts::PI * 2.0);
+        target.x += rolled * angle.cos();
+        target.y += rolled * angle.sin();
+        if let Some(terrain) = TheTerrainLogic::get() {
+            target.z = terrain.get_ground_height(target.x, target.y, None);
         }
+        (target, rolled)
+    }
 
-        // Generate random scatter within circle
-        let angle = self.random_float(0.0, PI * 2.0);
-        let radius = self.random_float(0.0, scatter_distance);
+    /// C++ Weapon.cpp:2584-2609 — one unused scatter index per shot.
+    pub(crate) fn take_scatter_target_pos(&mut self, primary_target_pos: &Coord3D) -> Option<Coord3D> {
+        if self.scatter_targets_unused.is_empty() {
+            return None;
+        }
+        let last = self.scatter_targets_unused.len() as i32 - 1;
+        let random_pick = get_game_logic_random_value(0, last) as usize;
+        let target_index = self.scatter_targets_unused[random_pick] as usize;
+        let scatter_target = self.template.scatter_targets.get(target_index).copied()?;
+        let scalar = self.template.get_scatter_target_scalar();
+        let mut pos = *primary_target_pos;
+        pos.x += scatter_target.x * scalar;
+        pos.y += scatter_target.y * scalar;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            pos.z = terrain.get_ground_height(pos.x, pos.y, None);
+        }
+        self.scatter_targets_unused.swap_remove(random_pick);
+        Some(pos)
+    }
 
-        let deviation = Coord3D {
-            x: radius * angle.cos(),
-            y: radius * angle.sin(),
-            z: 0.0,
+    /// C++ Weapon.cpp:2896-2910 processRequestAssistance.
+    pub(crate) fn process_request_assistance(&self, source_obj_id: ObjectId, victim_obj_id: ObjectId) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        let Some(requesting_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
+            return;
         };
+        let Ok(requesting_guard) = requesting_arc.read() else {
+            return;
+        };
+        let Some(player_arc) = requesting_guard.get_controlling_player() else {
+            return;
+        };
+        let template_name = requesting_guard.get_template_name().to_string();
+        let range = self.template.get_request_assist_range();
+        if range <= 0.0 {
+            return;
+        }
+        let request_dist_sqr = range * range;
+        let requesting_pos = *requesting_guard.get_position();
+        drop(requesting_guard);
 
-        Coord3D {
-            x: target.x + deviation.x,
-            y: target.y + deviation.y,
-            z: target.z + deviation.z,
+        let Ok(player_guard) = player_arc.read() else {
+            return;
+        };
+        for object_id in player_guard.get_all_objects() {
+            if object_id == source_obj_id {
+                continue;
+            }
+            let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.get_template_name() != template_name {
+                        return None;
+                    }
+                    let dx = object_guard.get_position().x - requesting_pos.x;
+                    let dy = object_guard.get_position().y - requesting_pos.y;
+                    if dx * dx + dy * dy > request_dist_sqr {
+                        return None;
+                    }
+                    Some(object_guard.get_behavior_modules())
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            for behavior in behaviors {
+                if let Ok(mut behavior_guard) = behavior.lock() {
+                    let Some(assist) = behavior_guard.get_assisted_targeting_update_interface()
+                    else {
+                        continue;
+                    };
+                    if assist.is_free_to_assist() {
+                        assist.assist_attack(source_obj_id, victim_obj_id);
+                    }
+                    break;
+                }
+            }
         }
     }
 
@@ -205,6 +261,7 @@ impl Weapon {
         let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
 
         let mut impact_pos = *impact_pos;
+        self.template.apply_historic_bonus(source_obj_id, &impact_pos);
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
             if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
@@ -959,6 +1016,8 @@ impl Weapon {
                                     target_obj_id,
                                     target_pos,
                                     source_obj_id,
+                                    self.weapon_slot,
+                                    self.current_barrel,
                                     Some(Arc::clone(&weapon_template)),
                                 );
                                 did_launch = true;
@@ -1094,13 +1153,37 @@ impl Weapon {
         Ok(Some(laser_id))
     }
 
-    /// Fire weapon effects (sound, VFX)
+    /// Fire weapon effects (sound, VFX).
+    ///
+    /// C++ Weapon.cpp:899-950 — detonation uses projectile detonate FX/OCL;
+    /// SuspendFXDelay nulls FX; undetected stealth skips muzzle FX/sound.
     pub(crate) fn fire_weapon_effects(
         &self,
         source_obj_id: ObjectId,
         source_pos: &Coord3D,
+        impact_pos: &Coord3D,
+        is_projectile_detonation: bool,
     ) -> Result<(), WeaponError> {
-        if !self.template.fire_sound.is_empty() {
+        let current_frame = TheGameLogic::get_frame();
+        let fx_suspended = current_frame < self.suspend_fx_frame;
+
+        let (veterancy, skip_muzzle_fx, play_sound) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj_id, |source| {
+                let stealthed_hidden = !source.is_locally_controlled()
+                    && source.test_status(ObjectStatusTypes::Stealthed)
+                    && !source.test_status(ObjectStatusTypes::Detected)
+                    && !source.test_status(ObjectStatusTypes::Disguised)
+                    && !source.is_kind_of(KindOf::Mine)
+                    && !self.template.play_fx_when_stealthed;
+                (
+                    source.get_veterancy_level(),
+                    stealthed_hidden || fx_suspended,
+                    !stealthed_hidden,
+                )
+            })
+            .unwrap_or((crate::common::VeterancyLevel::Regular, fx_suspended, true));
+
+        if play_sound && !self.template.fire_sound.is_empty() {
             log::debug!("Playing fire sound for weapon '{}'", self.template.name);
             game_engine::common::audio::dispatch_weapon_fire(
                 self.template.fire_sound.name(),
@@ -1110,57 +1193,30 @@ impl Weapon {
             );
         }
 
-        // Interface with VFX system to play firing effects
-        // C++ equivalent: Drawable->handleWeaponFireFX(...)
-        //
-        // Visual effects include:
-        // - Muzzle flash (bright flash at barrel)
-        // - Barrel recoil animation
-        // - Shell ejection particles
-        // - Tracer effects (visible projectile trail)
-        // - Smoke/dust particles
-        //
-        // NOTE: Requires Drawable system and FXList integration
-        // FX selection based on veterancy level for quality scaling
-        //
-        // When available:
-        // if let Some(fx_list) = self.template.get_fire_fx(veterancy_level) {
-        //     drawable.play_fx(fx_list, source_pos);
-        // }
+        let fx_pos = if is_projectile_detonation {
+            impact_pos
+        } else {
+            source_pos
+        };
 
-        let veterancy = TheGameLogic::find_object_by_id(source_obj_id)
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_veterancy_level()))
-            .unwrap_or(crate::common::VeterancyLevel::Regular);
-
-        if let Some(fx_list) = self.template.get_fire_fx(veterancy) {
-            let _ = fx_list.do_fx_at_position(source_pos);
-        }
-
-        if let Some(fire_ocl) = self.template.get_fire_ocl(veterancy) {
-            let _ = fire_ocl.create_at_position(source_pos, source_obj_id);
-        }
-
-        Ok(())
-    }
-
-    /// Fire scatter targets
-    pub(crate) fn fire_scatter_targets(
-        &self,
-        source_obj_id: ObjectId,
-        primary_target_pos: &Coord3D,
-        bonus: &WeaponBonus,
-        inflict_damage: bool,
-    ) -> Result<(), WeaponError> {
-        for scatter_target in &self.template.scatter_targets {
-            let scatter_pos = Coord3D::new(
-                primary_target_pos.x + scatter_target.x * self.template.scatter_target_scalar,
-                primary_target_pos.y + scatter_target.y * self.template.scatter_target_scalar,
-                primary_target_pos.z,
-            );
-
-            if inflict_damage {
-                self.deal_damage_internal(source_obj_id, None, &scatter_pos, bonus, false)?;
+        if !skip_muzzle_fx {
+            let fx = if is_projectile_detonation {
+                self.template.get_projectile_detonate_fx(veterancy)
+            } else {
+                self.template.get_fire_fx(veterancy)
+            };
+            if let Some(fx_list) = fx {
+                let _ = fx_list.do_fx_at_position(fx_pos);
             }
+        }
+
+        let ocl = if is_projectile_detonation {
+            self.template.get_projectile_detonation_ocl(veterancy)
+        } else {
+            self.template.get_fire_ocl(veterancy)
+        };
+        if let Some(ocl) = ocl {
+            let _ = ocl.create_at_position(fx_pos, source_obj_id);
         }
 
         Ok(())

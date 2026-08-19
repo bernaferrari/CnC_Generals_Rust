@@ -19,6 +19,8 @@ use std::sync::Arc;
 /// Contains the sound file reference and playback parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioEventRTS {
+    /// Audio event name resolved against AudioEvent definitions (C++ AudioEventRTS).
+    pub event_name: String,
     /// Name/path of the audio file
     pub sound_file: String,
     /// Volume level (0.0 - 1.0)
@@ -48,11 +50,12 @@ impl From<String> for AudioEventRTS {
         Self::from_sound_file(sound_file)
     }
 }
-
 impl AudioEventRTS {
-    /// Create a new AudioEventRTS
+
+
     pub fn new() -> Self {
         Self {
+            event_name: String::new(),
             sound_file: String::new(),
             volume: 1.0,
             min_delay: 0,
@@ -61,6 +64,14 @@ impl AudioEventRTS {
             is_looped: false,
             priority: 0,
             player_index: -1,
+        }
+    }
+
+    /// Create from an audio event name (C++ `INI::parseAudioEventRTS`).
+    pub fn from_event_name(event_name: String) -> Self {
+        Self {
+            event_name,
+            ..Self::new()
         }
     }
 
@@ -104,13 +115,19 @@ impl AudioEventRTS {
 
     /// Check if this is a valid audio event
     pub fn is_valid(&self) -> bool {
-        !self.sound_file.is_empty()
+        !self.event_name.is_empty() || !self.sound_file.is_empty()
     }
 
     /// Play this audio event through the global audio manager.
     pub fn play(&self) {
         if self.is_valid() {
-            let mut event = EngineAudioEventRts::with_event_name(&self.sound_file);
+            let name = if !self.event_name.is_empty() {
+                self.event_name.as_str()
+            } else {
+                self.sound_file.as_str()
+            };
+            let mut event = EngineAudioEventRts::with_event_name(name);
+
             event.set_volume(self.volume);
             if self.is_looped {
                 event.set_loop_count(2);
@@ -575,8 +592,10 @@ fn parse_audio_event_from_args(args: &[&str]) -> INIResult<AudioEventRTS> {
         return Ok(AudioEventRTS::new());
     }
 
-    Ok(AudioEventRTS::from_sound_file(event_name))
+    Ok(AudioEventRTS::from_event_name(event_name))
 }
+
+
 
 macro_rules! audio_event_parser {
     ($fn_name:ident, $field:ident) => {

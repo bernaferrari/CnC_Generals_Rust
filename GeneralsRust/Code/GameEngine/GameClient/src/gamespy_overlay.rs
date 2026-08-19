@@ -24,7 +24,7 @@ pub enum GameSpyOverlayType {
     Options,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GameSpyHostRequest {
     pub game_name: String,
     pub game_description: String,
@@ -32,6 +32,13 @@ pub struct GameSpyHostRequest {
     pub allow_observers: bool,
     pub use_stats: bool,
     pub limit_armies: bool,
+    pub exe_crc: u32,
+    pub ini_crc: u32,
+    pub game_version: u32,
+    pub restrict_game_list: bool,
+    pub ladder_ip: String,
+    pub ladder_port: u16,
+    pub host_ping_str: String,
 }
 
 #[derive(Debug, Clone)]

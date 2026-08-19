@@ -23,7 +23,8 @@ pub(crate) const GGM_GET_LABEL: u32 = GGM_LEFT_DRAG + 2;
 pub(crate) const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
 pub(crate) const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 pub(crate) const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
-pub(crate) const GSM_SLIDER_TRACK: u32 = GGM_LEFT_DRAG + 11;
+pub const GSM_SLIDER_TRACK: u32 = GGM_LEFT_DRAG + 11;
+
 pub(crate) const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
 pub(crate) const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
 pub(crate) const GLM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 15;
@@ -56,6 +57,10 @@ pub const GCM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 40;
 pub const GCM_GET_SELECTION: u32 = GGM_LEFT_DRAG + 41;
 pub const GCM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 42;
 pub const GCM_UPDATE_TEXT: u32 = GGM_LEFT_DRAG + 43;
+pub(crate) const GEM_GET_TEXT: u32 = GGM_LEFT_DRAG + 44;
+pub(crate) const GEM_SET_TEXT: u32 = GGM_LEFT_DRAG + 45;
+pub(crate) const GEM_EDIT_DONE: u32 = GGM_LEFT_DRAG + 46;
+pub(crate) const GEM_UPDATE_TEXT: u32 = GGM_LEFT_DRAG + 47;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 pub(crate) fn shell_color_from_packed_arg(value: WindowMsgData) -> crate::gui::shell::Color {
@@ -92,6 +97,8 @@ pub const GWS_COMBO_BOX: u32 = 0x0000_8000;
 pub const GWS_ALL_SLIDER: u32 = GWS_VERT_SLIDER | GWS_HORZ_SLIDER;
 
 pub(crate) const HORIZONTAL_SLIDER_THUMB_POSITION: i32 = 10;
+pub(crate) const HORIZONTAL_SLIDER_THUMB_WIDTH: i32 = 13;
+
 pub const GWS_GADGET_WINDOW: u32 = GWS_PUSH_BUTTON
     | GWS_RADIO_BUTTON
     | GWS_TAB_CONTROL

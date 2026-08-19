@@ -47,6 +47,53 @@ fn falloff_weight(distance: f32, radius: f32, falloff: f32) -> f32 {
     }
 }
 
+/// C++ `TheGlobalData` sun used by `getStaticDiffuse` / `doTheLight`.
+/// Light position is C++ Z-up; chunk normals are wgpu Y-up (`x,z,y`).
+fn static_terrain_light_params() -> (Vec3, [f32; 3], [f32; 3]) {
+    if let Some(global) = game_engine::common::ini::get_global_data() {
+        let data = global.read();
+        let pos = data.terrain_light_pos[0];
+        return (
+            Vec3::new(pos.x, pos.z, pos.y),
+            [
+                data.terrain_diffuse[0].r,
+                data.terrain_diffuse[0].g,
+                data.terrain_diffuse[0].b,
+            ],
+            [
+                data.terrain_ambient[0].r,
+                data.terrain_ambient[0].g,
+                data.terrain_ambient[0].b,
+            ],
+        );
+    }
+    let data = game_engine::common::global_data::read();
+    let pos = data.terrain_light_pos[0];
+    (
+        Vec3::new(pos[0], pos[2], pos[1]),
+        data.terrain_diffuse[0],
+        data.terrain_ambient[0],
+    )
+}
+
+/// C++ `BaseHeightMapRenderObjClass::getStaticDiffuse` analog.
+/// Same N·L as roads (`terrain_static_diffuse_from_normal`) plus a 0.35 floor.
+fn static_diffuse_from_normal(normal: Vec3) -> [f32; 4] {
+    const COLOR_FLOOR: f32 = 0.35;
+    let (light_pos, sun_color, ambient_color) = static_terrain_light_params();
+    let mut color = super::terrain_visual::TerrainVisualImpl::terrain_static_diffuse_from_normal(
+        normal,
+        light_pos,
+        sun_color,
+        ambient_color,
+    );
+    color[0] = color[0].max(COLOR_FLOOR);
+    color[1] = color[1].max(COLOR_FLOOR);
+    color[2] = color[2].max(COLOR_FLOOR);
+    color
+}
+
+
 /// Unique identifier for terrain chunks
 pub type ChunkId = u32;
 
@@ -244,7 +291,8 @@ impl TerrainChunk {
                 // Calculate normal using central differences so lighting matches the legacy renderer.
                 let normal = self.compute_normal(tex_u, tex_v, step);
 
-                let base_color = [1.0, 1.0, 1.0, 1.0];
+                // C++ HeightMap.cpp: vb->diffuse = getStaticDiffuse(x,y) then doTheDynamicLight.
+                let base_color = static_diffuse_from_normal(normal);
                 self.base_colors.push(base_color);
                 self.vertices.push(TerrainVertex::from_components(
                     Vec3::new(world_x, height, world_z),
@@ -294,7 +342,7 @@ impl TerrainChunk {
     }
 
     /// C++ per-vertex dynamic light bake (`doTheDynamicLight`) into chunk VB colours.
-    /// Always starts from white global diffuse (`0xFFFFFFFF`) then adds pulse lights.
+    /// Starts from sun-lit `base_colors` (`getStaticDiffuse` / `vbMirror`) then adds pulses.
     /// Map coords are C++ Z-up: `(x, y, z) = (wgpu.x, wgpu.z, wgpu.y)`.
     pub fn apply_dynamic_lights(&mut self) {
         let lights = scene_dynamic_lights();
@@ -442,16 +490,20 @@ impl TerrainChunk {
         let view_proj = frustum.projection_matrix * frustum.view_matrix;
         let min = self.bounds.min;
         let max = self.bounds.max;
+        // Degenerate Y=0 slabs (pre-geometry) sit on the ground plane and
+        // must still pass; inflate so a flat AABB is not a zero-thickness test.
+        let min_y = min.y.min(0.0);
+        let max_y = max.y.max(min_y + 64.0);
 
         let corners = [
-            Vec3::new(min.x, min.y, min.z),
-            Vec3::new(max.x, min.y, min.z),
-            Vec3::new(min.x, max.y, min.z),
-            Vec3::new(max.x, max.y, min.z),
-            Vec3::new(min.x, min.y, max.z),
-            Vec3::new(max.x, min.y, max.z),
-            Vec3::new(min.x, max.y, max.z),
-            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(min.x, min_y, min.z),
+            Vec3::new(max.x, min_y, min.z),
+            Vec3::new(min.x, max_y, min.z),
+            Vec3::new(max.x, max_y, min.z),
+            Vec3::new(min.x, min_y, max.z),
+            Vec3::new(max.x, min_y, max.z),
+            Vec3::new(min.x, max_y, max.z),
+            Vec3::new(max.x, max_y, max.z),
         ];
 
         let mut left_out = 0;
@@ -484,18 +536,31 @@ impl TerrainChunk {
             }
         }
 
-        if left_out == 8
-            || right_out == 8
-            || bottom_out == 8
-            || top_out == 8
-            || near_out == 8
-            || far_out == 8
+        if left_out != 8
+            && right_out != 8
+            && bottom_out != 8
+            && top_out != 8
+            && near_out != 8
+            && far_out != 8
         {
-            return false;
+            return true;
         }
 
-        true
+        // C++ HeightMap draws a window around the camera. If the clip test
+        // rejects everything (identity/wrong clip space), keep chunks under
+        // the look-at so Alpine is not a blue void.
+        let camera = frustum.view_matrix.inverse().transform_point3(Vec3::ZERO);
+        let pad = (max.x - min.x)
+            .abs()
+            .max((max.z - min.z).abs())
+            .max(512.0);
+        camera.x + pad >= min.x
+            && camera.x - pad <= max.x
+            && camera.z + pad >= min.z
+            && camera.z - pad <= max.z
+
     }
+
 
     /// Apply terrain modification to this chunk
     pub fn apply_modification(&mut self, modification: &TerrainModification) -> TerrainResult<()> {
@@ -1415,8 +1480,16 @@ impl ChunkManager {
                 self.stats.visible_chunks += 1;
             }
 
-            // Regenerate geometry if needed
-            if chunk.dirty && chunk.visible {
+            // Frustum can miss the look-at window. Still build dirty chunks
+            // under the camera so Alpine is not a 3x3 cobble wall.
+            let near_camera = {
+                let cx = (chunk.bounds.min.x + chunk.bounds.max.x) * 0.5;
+                let cz = (chunk.bounds.min.z + chunk.bounds.max.z) * 0.5;
+                let dx = cx - camera_position.x;
+                let dz = cz - camera_position.z;
+                dx * dx + dz * dz <= 512.0 * 512.0
+            };
+            if chunk.dirty && (chunk.visible || near_camera) {
                 let resolution = match chunk.lod_level {
                     0 => 65,
                     1 => 33,
@@ -1430,10 +1503,10 @@ impl ChunkManager {
                 } else {
                     self.stats.geometry_updates += 1;
                 }
-            } else if chunk.visible && !chunk.vertices.is_empty() {
-                // Lights fade every frame; re-bake VB like C++ updateVBForLight.
+            } else if (chunk.visible || near_camera) && !chunk.vertices.is_empty() {
                 chunk.apply_dynamic_lights();
             }
+
         }
 
         self.stats.rendered_chunks = self.stats.visible_chunks;

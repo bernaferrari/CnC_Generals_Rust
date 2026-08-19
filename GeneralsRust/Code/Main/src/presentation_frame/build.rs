@@ -111,6 +111,67 @@ fn direct_host_visual_mesh_scale(
         })
 }
 
+/// Freeze the local player's energy grid from host Player fields, falling
+/// back to that player's constructed objects when the residual is still 0.
+///
+/// `update_player_resources` writes `power_produced` / `power_consumed` from
+/// object EnergyProduction. Live freeze can run before that scan, so a
+/// standing CC + plant would otherwise stamp 0 into the HUD overlay.
+fn freeze_host_player_power(
+    logic: &GameLogic,
+    local_player_id: u32,
+    local: Option<&crate::game_logic::Player>,
+) -> (i32, i32, i32) {
+    let power_src = local.or_else(|| {
+        logic
+            .get_players()
+            .values()
+            .find(|player| player.is_local && player.team != Team::Neutral)
+    });
+    let power_player_id = power_src.map(|player| player.id).unwrap_or(local_player_id);
+    let power_team = power_src.map(|player| player.team);
+    let (obj_produced, obj_consumed) = logic.host_objects().values().fold(
+        (0_i32, 0_i32),
+        |(produced, consumed), object| {
+            let owned = match object.owner_player_id {
+                Some(id) => id == power_player_id,
+                None => power_team == Some(object.team),
+            };
+            if !owned || !object.is_constructed() || !object.is_alive() {
+                return (produced, consumed);
+            }
+            (
+                produced.saturating_add(object.power_provided),
+                consumed.saturating_add(object.power_consumed.abs()),
+            )
+        },
+    );
+    let overcharge = power_src
+        .map(|player| player.captured_overcharge_power_delta)
+        .unwrap_or(0);
+    let (mut produced, consumed) = match power_src {
+        Some(player) if player.power_produced != 0 || player.power_consumed != 0 => {
+            (player.power_produced, player.power_consumed)
+        }
+        _ => (obj_produced.saturating_add(overcharge), obj_consumed),
+    };
+    let sabotaged = power_src.is_some_and(|player| {
+        player.power_sabotaged_till_frame > 0 && logic.frame < player.power_sabotaged_till_frame
+    });
+    if sabotaged {
+        produced = 0;
+    }
+    let available = match power_src {
+        Some(player)
+            if !sabotaged && (player.power_produced != 0 || player.power_consumed != 0) =>
+        {
+            player.power_available
+        }
+        _ => produced - consumed,
+    };
+    (available, produced, consumed)
+}
+
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
     ///
@@ -879,9 +940,13 @@ impl PresentationFrame {
         players.sort_by_key(|p| p.id);
         // Economy authority: freeze effective (includes pending_supply_delta).
         let local_supplies = local.map(|p| p.effective_supplies()).unwrap_or(0);
-        let local_power = local.map(|p| p.power_available).unwrap_or(0);
-        let local_power_produced = local.map(|p| p.power_produced).unwrap_or(0);
-        let local_power_consumed = local.map(|p| p.power_consumed).unwrap_or(0);
+        let (local_power, local_power_produced, local_power_consumed) =
+            freeze_host_player_power(logic, local_player_id, local);
+        #[cfg(feature = "game_client")]
+        game_client::gui::control_bar::ControlBar::stamp_presentation_power(
+            local_power_produced,
+            local_power_consumed,
+        );
         let local_color_rgb = local.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
         let local_is_alive = local.map(|p| p.is_alive).unwrap_or(false);
         let local_radar_count = local.map(|p| p.radar_count).unwrap_or(0);
@@ -1212,10 +1277,37 @@ impl PresentationFrame {
                     color: (line.color[0], line.color[1], line.color[2], line.color[3]),
                     texture_name: line.texture_name,
                     tile_factor: line.tile_factor,
+                    scroll_rate: line.scroll_rate,
                 })
                 .collect();
         #[cfg(not(feature = "game_client"))]
         let scene_lines: Vec<PresentationSceneLine> = Vec::new();
+
+        #[cfg(feature = "game_client")]
+        let camera_fade = {
+            let _ = game_client::display::status_circle::render_camera_fade();
+            game_client::display::status_circle::current_camera_fade()
+                .map(|overlay| PresentationCameraFade {
+                    fade: overlay.fade as u8,
+                    intensity: overlay.intensity,
+                    diffuse: overlay.diffuse,
+                })
+                .unwrap_or_default()
+        };
+        #[cfg(not(feature = "game_client"))]
+        let camera_fade = PresentationCameraFade::default();
+
+        #[cfg(all(feature = "game_client", feature = "game_engine_device"))]
+        {
+            let context = game_engine_device::w3_d_device::game_client::w3_d_waypoint_buffer::WaypointDrawContext {
+                in_waypoint_mode: game_client::helpers::TheInGameUI::is_in_waypoint_mode(),
+                selected: Vec::new(),
+                moused_over: None,
+            };
+            let _ = game_engine_device::w3_d_device::game_client::w3_d_waypoint_buffer::draw_live_waypoints(
+                Some(&context),
+            );
+        }
 
         let projectile_streams: Vec<PresentationProjectileStream> = logic
             .projectile_stream_snapshot()
@@ -1634,6 +1726,7 @@ impl PresentationFrame {
             particle_systems,
             laser_beams,
             scene_lines,
+            camera_fade,
             projectile_streams,
             projectiles,
             floating_texts,

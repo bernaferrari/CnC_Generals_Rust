@@ -29,6 +29,7 @@ fn make_info(audio_name: &str) -> AudioEventInfo {
         priority: AudioPriority::Normal,
         min_distance: 0.0,
         max_distance: 1000.0,
+        ..Default::default()
     }
 }
 

@@ -14,10 +14,7 @@ impl InGameUI {
     }
 
     fn add_message_text(&mut self, text: &str, rgb_color: Option<u32>) {
-        if !self.messages_enabled {
-            return;
-        }
-
+        // C++ addMessageText has no m_messagesOn gate — toggle only hides draw.
         let color1 = rgb_color.unwrap_or(self.message_color1);
         let color2 = rgb_color.unwrap_or(self.message_color2);
 
@@ -30,6 +27,7 @@ impl InGameUI {
         let msg = MessageText {
             text: text.to_string(),
             color,
+            original_color: color,
             creation_frame: self.current_frame,
         };
 
@@ -48,10 +46,46 @@ impl InGameUI {
         self.messages_enabled
     }
 
+    pub fn get_message_color(&self, index: i32) -> u32 {
+        if index % 2 == 0 {
+            self.message_color1
+        } else {
+            self.message_color2
+        }
+    }
+
+    /// C++ InGameUI::update message fade (InGameUI.cpp:1636-1661).
     pub fn expire_messages(&mut self) {
-        let delay_frames = (self.message_delay_ms as f32 / 33.0) as u32;
-        self.messages
-            .retain(|m| self.current_frame < m.creation_frame + delay_frames);
+        let message_timeout = (self.message_delay_ms / 30 / 1000).max(0) as u32;
+        let current_frame = self.current_frame;
+        let mut i = self.messages.len();
+        while i > 0 {
+            i -= 1;
+            let age = current_frame.saturating_sub(self.messages[i].creation_frame);
+            if age <= message_timeout {
+                continue;
+            }
+            let (r, g, b, a) = Self::unpack_argb(self.messages[i].color);
+            let amount = (age as f32 * 0.01) as i32;
+            let new_a = (a as i32 - amount).max(0) as u8;
+            self.messages[i].color = Self::pack_argb(r, g, b, new_a);
+            if new_a == 0 {
+                self.messages.remove(i);
+            }
+        }
+    }
+
+    fn unpack_argb(color: u32) -> (u8, u8, u8, u8) {
+        (
+            ((color >> 16) & 0xFF) as u8,
+            ((color >> 8) & 0xFF) as u8,
+            (color & 0xFF) as u8,
+            ((color >> 24) & 0xFF) as u8,
+        )
+    }
+
+    fn pack_argb(r: u8, g: u8, b: u8, a: u8) -> u32 {
+        ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
     }
 
     pub fn remove_message_at_index(&mut self, index: usize) {
@@ -130,30 +164,41 @@ impl InGameUI {
         GameText::fetch(label)
     }
 
-    fn mouseover_tooltip_text(template_name: &str, display_name: &str) -> Option<String> {
-        let mut tooltip = display_name.trim().to_string();
-        if tooltip.is_empty() {
-            tooltip = GameText::fetch(&format!("ThingTemplate:{template_name}"));
-        }
-
-        if tooltip.is_empty() || tooltip == GameText::fetch("OBJECT:Prop") {
+    fn mouseover_tooltip_text(real_template_name: &str, display_name: &str) -> Option<String> {
+        let raw = display_name.trim().to_string();
+        // C++ compares the RAW display name to OBJECT:Prop before fallback.
+        if raw == GameText::fetch("OBJECT:Prop") {
             return None;
         }
-
+        let tooltip = if raw.is_empty() {
+            GameText::fetch(&format!("ThingTemplate:{real_template_name}"))
+        } else {
+            raw
+        };
+        if tooltip.is_empty() {
+            return None;
+        }
         Some(tooltip)
     }
 
     fn mouseover_tooltip_for_template(template_name: &str) -> Option<String> {
+        Self::mouseover_tooltip_for_templates(template_name, template_name)
+    }
+
+    fn mouseover_tooltip_for_templates(
+        apparent_template_name: &str,
+        real_template_name: &str,
+    ) -> Option<String> {
         let display_name = get_thing_factory()
             .ok()
             .and_then(|guard| {
                 guard
                     .as_ref()
-                    .and_then(|factory| factory.find_template(template_name, false))
+                    .and_then(|factory| factory.find_template(apparent_template_name, false))
                     .map(|template| template.get_display_name().to_string())
             })
             .unwrap_or_default();
-        Self::mouseover_tooltip_text(template_name, &display_name)
+        Self::mouseover_tooltip_text(real_template_name, &display_name)
     }
 
     fn format_supply_warehouse_tooltip_feedback(
@@ -224,7 +269,6 @@ impl InGameUI {
     }
 
     fn mouseover_tooltip_color_for_object(object: &Object) -> [u8; 4] {
-        let mut color = object.get_indicator_color();
         let local_player = player_list()
             .read()
             .ok()
@@ -240,10 +284,16 @@ impl InGameUI {
                 .and_then(|list| list.get_player(disguised_index).cloned())
                 .and_then(|player| player.read().ok().map(|player| player.get_player_color()))
             {
-                color = disguised_color;
+                return [
+                    disguised_color.r,
+                    disguised_color.g,
+                    disguised_color.b,
+                    disguised_color.a,
+                ];
             }
         }
 
+        let mut color = object.get_indicator_color();
         if let Some(contain) = object.get_contain() {
             if let Ok(contain_guard) = contain.lock() {
                 if contain_guard.is_garrisonable() {
@@ -334,7 +384,7 @@ impl InGameUI {
     }
 
     pub fn expire_military_subtitle(&mut self) {
-        if let Some(ref sub) = self.current_military_subtitle {
+        if let Some(sub) = &self.current_military_subtitle {
             if self.current_frame >= sub.lifetime_frame {
                 self.remove_military_subtitle();
             }
@@ -356,6 +406,13 @@ impl InGameUI {
     }
 
     fn update_military_subtitle(&mut self) {
+        if let Some(subtitle) = self.current_military_subtitle.as_mut() {
+            if gamelogic::helpers::TheScriptEngine::is_time_frozen_script() {
+                subtitle.lifetime_frame = subtitle.lifetime_frame.saturating_sub(1);
+                subtitle.block_begin_frame = subtitle.block_begin_frame.saturating_sub(1);
+                subtitle.increment_on_frame = subtitle.increment_on_frame.saturating_sub(1);
+            }
+        }
         let speed_frames = self.military_caption_speed_frames();
         let point_size = self.military_caption_point_size;
         let char_width = self.caption_char_width();

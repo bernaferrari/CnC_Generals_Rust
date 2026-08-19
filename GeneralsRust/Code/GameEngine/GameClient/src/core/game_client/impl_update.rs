@@ -179,13 +179,26 @@ impl GameClient {
             return;
         }
         use crate::drawable::DrawableExt;
-        let tracked = self.drawable_map.values().find_map(|drawable| {
-            drawable
-                .downcast_ref::<crate::drawable::drawable::BasicDrawable>()
-                .filter(|basic| basic.is_selected())
-                .map(|basic| basic.get_position())
-        });
-        if let Some(pos) = tracked {
+        // C++ `TheInGameUI->getFirstSelectedDrawable()` is the first entry of
+        // the selection list. HashMap iteration is unordered, so pick the
+        // lowest DrawableId among selected units for a stable follow target.
+        let mut first: Option<(crate::drawable::DrawableId, crate::drawable::Coord3D)> = None;
+        for (id, drawable) in &self.drawable_map {
+            let Some(basic) = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+            else {
+                continue;
+            };
+            if !basic.is_selected() {
+                continue;
+            }
+            let pos = basic.get_position();
+            match first {
+                None => first = Some((*id, pos)),
+                Some((prev, _)) if id.0 < prev.0 => first = Some((*id, pos)),
+                _ => {}
+            }
+        }
+        if let Some((_, pos)) = first {
             crate::display::view::with_tactical_view(|view| {
                 view.look_at(&crate::display::view::Point3::new(pos.x, pos.y, pos.z));
             });
@@ -758,12 +771,39 @@ impl GameClient {
     ///
     /// C++ script camera letterbox residual without dual-owning Main RenderPipeline 3D draw.
     pub fn apply_presentation_cinematic_letterbox(&mut self, enabled: bool) {
+        if self.letterbox_overlay_enabled != enabled {
+            self.letterbox_overlay_enabled = enabled;
+            self.letterbox_overlay_fade_start = Some(Instant::now());
+        }
         if let Some(ref display) = self.subsystem_manager.display {
             let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
             if display.is_letter_box_enabled() != enabled {
                 display.enable_letter_box(enabled);
             }
         }
+    }
+
+    /// C++ `W3DDisplay::renderLetterBox` fade (LETTER_BOX_FADE_TIME = 1000 ms).
+    pub fn letterbox_overlay_fade(&self) -> f32 {
+        const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
+        let Some(start) = self.letterbox_overlay_fade_start else {
+            return if self.letterbox_overlay_enabled {
+                1.0
+            } else {
+                0.0
+            };
+        };
+        let t = (start.elapsed().as_millis() as f32 / LETTER_BOX_FADE_TIME_MS).clamp(0.0, 1.0);
+        if self.letterbox_overlay_enabled {
+            t
+        } else {
+            1.0 - t
+        }
+    }
+
+    /// Whether letterbox bars should be drawn (enabled or still fading out).
+    pub fn letterbox_overlay_visible(&self) -> bool {
+        self.letterbox_overlay_fade() > 0.0
     }
 
     /// Apply presentation military caption residual to InGameUI subsystem.
@@ -831,26 +871,60 @@ impl GameClient {
         ui.replace_superweapon_timers_from_presentation(&packed);
     }
 
-    /// Apply presentation cinematic text residual as InGameUI HUD message.
+    /// Apply presentation cinematic text as a W3DDisplay caption residual.
     ///
-    /// Mirrors C++ display_cinematic_text → TheInGameUI::message path.
-    /// Anti-spam: only push when text changes.
-    pub fn apply_presentation_cinematic_text(&mut self, text: Option<&str>) {
+    /// C++ `doDisplayCinematicText` → `setCinematicText` / `setCinematicFont` /
+    /// `setCinematicTextFrames(LOGICFRAMES_PER_SECOND * time)`. Drawn centered
+    /// at 90% screen height over the letterbox; not an InGameUI HUD message.
+    pub fn apply_presentation_cinematic_text(
+        &mut self,
+        text: Option<&str>,
+        remaining_ms: Option<i32>,
+        font: Option<&str>,
+    ) {
         let text = text.filter(|t| !t.is_empty());
         if self.last_applied_cinematic_text.as_deref() == text {
             return;
         }
         self.last_applied_cinematic_text = text.map(|t| t.to_string());
-        let Some(text) = text else {
+        self.cinematic_overlay_font = font
+            .filter(|f| !f.is_empty())
+            .map(|f| f.to_string());
+        let Some(_) = text else {
+            self.cinematic_overlay_frames = 0;
             return;
         };
-        let Some(ref ui) = self.subsystem_manager.in_game_ui else {
-            return;
-        };
-        let Ok(mut ui) = ui.lock() else {
-            return;
-        };
-        ui.push_hud_message(text.to_string());
+        // C++ frames = LOGICFRAMES_PER_SECOND * time; remaining_ms is the
+        // live residual of that countdown.
+        const LOGICFRAMES_PER_SECOND: u32 = 30;
+        self.cinematic_overlay_frames = remaining_ms
+            .map(|ms| ((ms.max(0) as u32) * LOGICFRAMES_PER_SECOND + 999) / 1000)
+            .filter(|frames| *frames > 0)
+            .unwrap_or(LOGICFRAMES_PER_SECOND * 10);
+    }
+
+    /// Live cinematic caption (text, optional font, remaining rendered frames).
+    pub fn cinematic_overlay(&self) -> Option<(&str, Option<&str>, u32)> {
+        let text = self.last_applied_cinematic_text.as_deref()?;
+        if self.cinematic_overlay_frames == 0 {
+            return None;
+        }
+        Some((
+            text,
+            self.cinematic_overlay_font.as_deref(),
+            self.cinematic_overlay_frames,
+        ))
+    }
+
+    /// C++ `m_cinematicTextFrames--` once per rendered frame.
+    pub fn decrement_cinematic_overlay_frame(&mut self) {
+        if self.cinematic_overlay_frames > 0 {
+            self.cinematic_overlay_frames -= 1;
+            if self.cinematic_overlay_frames == 0 {
+                self.last_applied_cinematic_text = None;
+                self.cinematic_overlay_font = None;
+            }
+        }
     }
 
     /// Wave 964: presentation selection residual → InGameUI (host empty dual-world).
@@ -1095,8 +1169,10 @@ impl GameClient {
 
         // Startup movies remain Main/runtime-host owned; skip movie branch here.
         self.ensure_shell_visible()?;
-        // C++ GameClient.cpp:560-597 — snow, Anim2D, camera-track (no OS re-poll).
-        self.update_cpp_snow_and_anim2d(delta_time);
+        // Snow/Anim2D: C++ runs every GameClient::update. Live host ticks
+        // them from cnc_game_engine residuals in every state (including when
+        // this shell is skipped). Dual-world `update()` still ticks above.
+        // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
         self.update_camera_tracking_drawable();
         self.update_pre_draw_ui()?;
 

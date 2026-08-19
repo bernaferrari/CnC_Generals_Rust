@@ -109,6 +109,7 @@ pub struct CashHackSpecialPower {
     module_name_key: NameKeyType,
     data: Arc<CashHackSpecialPowerModuleData>,
     owner_object_id: ObjectID,
+    base_module: crate::object::special_power_module::SpecialPowerModule,
 }
 
 impl CashHackSpecialPower {
@@ -119,8 +120,9 @@ impl CashHackSpecialPower {
     ) -> Self {
         Self {
             module_name_key,
-            data,
             owner_object_id,
+            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            data,
         }
     }
 
@@ -276,7 +278,39 @@ impl CashHackSpecialPower {
 
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module.do_special_power(command_options);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module
+            .do_special_power_at_object(object_id, command_options);
+        let _ = CashHackSpecialPower::do_special_power_at_object(self, object_id);
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &Coord3D,
+        angle: f32,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        let _ = (location, angle, command_options);
+        let _ = CashHackSpecialPower::do_special_power_at_location(self, location);
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
+
 
 impl Module for CashHackSpecialPower {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -326,7 +360,21 @@ impl BehaviorModuleInterface for CashHackSpecialPower {
     fn get_module_name(&self) -> &'static str {
         "CashHackSpecialPower"
     }
+
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
 }
+
+super::interface::impl_special_power_subclass!(CashHackSpecialPower);
 
 // INI field parsers
 
