@@ -32,3 +32,14 @@ Thumbs.db
 .dolt/
 *.db
 .beads/dolt-config.log
+
+# Local retail/extracted game data — never commit
+windows_game/
+=
+.events.jsonl
+.events.jsonl.lock
+.runtime/
+daemon/*.pid
+daemon/*.lock
+daemon/*.log
+
