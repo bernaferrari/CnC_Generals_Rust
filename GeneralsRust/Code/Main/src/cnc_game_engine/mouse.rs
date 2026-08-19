@@ -541,7 +541,8 @@ impl CnCGameEngine {
         if release_behavior == LeftMouseReleaseBehavior::ContextCommand
             && drag_distance_screen <= 2.0
         {
-            let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
+            let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty()
+                || !self.selected_objects.is_empty();
             let issued = self.handle_left_context_click(origin, physical_lmb_gesture);
             self.interactive_playability.note_gameplay_order(
                 matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless,
@@ -574,7 +575,7 @@ impl CnCGameEngine {
                 }
             }
             // Click on empty ground: C++ clears selection. Keep a press-edge
-            // force-select (pick miss → first local) so the click can command.
+            // force-select so a physical sit-through can command on this release.
             if self.pending_map_command.is_none()
                 && self.pending_structure_placement.is_none()
                 && self.find_object_at_position(end, false).is_none()
@@ -584,6 +585,16 @@ impl CnCGameEngine {
                 if !shift_down {
                     self.host_set_selection(self.current_player_id, Vec::new());
                 }
+            } else if physical_lmb_gesture
+                && !self.selected_objects.is_empty()
+                && self.interactive_playability.match_started_from_menu_wnd
+            {
+                let issued = self.handle_left_context_click(origin, physical_lmb_gesture);
+                log::info!(
+                    "physical LMB release command after select issued={issued} sel={}",
+                    self.selected_objects.len()
+                );
+                self.interactive_playability.note_gameplay_order(true, issued);
             }
             return;
         }
@@ -667,9 +678,10 @@ impl CnCGameEngine {
     ) -> bool {
         let mouse_pos = self.mouse_world_position;
 
-        // Prefer live player selection; fall back to engine selection residual.
-        // Wave 234: selection prefers engine/presentation freeze.
-        let selected = self.ui_selected_ids(self.current_player_id);
+        let mut selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
         if selected.is_empty() {
             return false;
         }
