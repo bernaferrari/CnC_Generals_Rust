@@ -1947,6 +1947,48 @@ fn menu_transition_applies_product_title_and_tears_down_loading_overlay() {
     );
 }
 
+#[test]
+fn menu_to_menu_does_not_hide_shell_or_shutdown_main_menu() {
+    // C++ GameLogic.cpp:2195-2203 GAME_SHELL finish never hideShell /
+    // MainMenuShutdown. Menu→Menu after Loaded startup shell map must keep
+    // MainMenu.wnd (hq-3vo4 / hq-pzya).
+    let transition = include_str!("input.rs");
+    let start = transition
+        .find("pub(super) fn host_transition_to_state")
+        .expect("host_transition_to_state");
+    let body = &transition[start..];
+    let exit_arm = body
+        .split("GameState::Menu => {")
+        .nth(1)
+        .and_then(|s| s.split("GameState::Loading => {").next())
+        .expect("Menu exit arm");
+    assert!(
+        exit_arm.contains("if new_state != GameState::Menu"),
+        "Menu→Menu must skip hide_shell_menu: {exit_arm}"
+    );
+    assert!(
+        !exit_arm.contains("self.hide_shell_menu();")
+            || exit_arm.contains("if new_state != GameState::Menu"),
+        "unconditional hide_shell_menu on Menu exit tears down MainMenu: {exit_arm}"
+    );
+
+    let shell = include_str!("shell.rs");
+    let show = shell
+        .split("pub(super) fn show_shell_menu")
+        .nth(1)
+        .and_then(|s| s.split("pub(super) fn hide_shell_menu").next())
+        .expect("show_shell_menu");
+    assert!(
+        !show.contains("if self.shell_menu_active"),
+        "show_shell_menu must not early-return on stale shell_menu_active: {show}"
+    );
+    assert!(
+        show.contains("get_screen_count()") && show.contains("Menus/MainMenu.wnd"),
+        "show_shell_menu must inspect the live stack like C++ startNewGame: {show}"
+    );
+}
+
+
 #[cfg(test)]
 mod world_scene_skip_residual_tests {
     #[test]
@@ -2007,6 +2049,28 @@ mod runtime_host_windowed_bridge_tests {
         .expect("parse headless");
         assert!(RuntimeHostBridge::is_headless_mode(&headless));
         assert!(RuntimeHostBridge::from_command_line(&headless).is_some());
+    }
+
+    #[test]
+    fn hyphen_runtime_host_flags_construct_bridge() {
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let control = dir.path().join("control.txt");
+        let status = dir.path().join("status.txt");
+        let frame = dir.path().join("frame.png");
+        let args = CommandLineArgs::parse_from_args(vec![
+            "generals".into(),
+            format!("--runtime-host=windowed"),
+            format!("--gpui-control={}", control.display()),
+            format!("--gpui-status={}", status.display()),
+            format!("--gpui-frame={}", frame.display()),
+        ])
+        .expect("parse hyphen equals");
+        assert!(!RuntimeHostBridge::is_headless_mode(&args));
+        assert!(RuntimeHostBridge::is_runtime_host_requested(&args));
+        assert!(
+            RuntimeHostBridge::from_command_line(&args).is_some(),
+            "hyphen --runtime-host/--gpui-* must construct RuntimeHostBridge"
+        );
     }
 
     #[test]

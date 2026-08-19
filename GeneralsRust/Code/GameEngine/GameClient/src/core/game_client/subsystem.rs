@@ -64,13 +64,8 @@ impl SubsystemManager {
         if let Some(ref terrain) = self.terrain_visual {
             terrain.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
-
-        if let Some(ref window_manager) = self.window_manager {
-            window_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .reset()?;
-        }
+        // C++ GameClient::reset does not reset TheWindowManager (GameClient.cpp:426-457).
+        // Destroying root windows here wipes MainMenu.wnd on GAME_SHELL apply (hq-3vo4).
 
         if let Some(ref font_library) = self.font_library {
             font_library

@@ -394,7 +394,7 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "gla_supplystash" | "glasupplystash" => "ubsupply".to_string(),
         "gla_barracks" | "glabarracks" => "ubbarracks".to_string(),
         "gla_tunnelnetwork" | "glatunnelnetwork" => "ubundtunn".to_string(),
-        // NatureProp.ini trees / rocks (Model / ModelName).
+        // NatureProp.ini trees / rocks (W3DTreeDraw ModelName, never Object name).
         "generictree" | "genericopttree" | "treedogwood1" => "ptdogwod01".to_string(),
         "treedogwood1snow" => "ptdogwod01_s".to_string(),
         "bush01" => "ptbush01".to_string(),
@@ -404,6 +404,10 @@ pub fn remap_model_key_alias(model_key: &str) -> String {
         "treeoak1" => "ptoak01".to_string(),
         "treemaple2" => "ptmaple02".to_string(),
         "treepine" => "ptpine01".to_string(),
+        "treespruce" => "ptspruce01".to_string(),
+        "treespruce2" => "ptspruce01_hi".to_string(),
+        "treespruce03" => "ptxpine03".to_string(),
+        "treespruce03snow" => "ptxpine06".to_string(),
         "rocks1" => "pmrocks01".to_string(),
         "rocks2" => "pmrocks02".to_string(),
         // Preserve a concrete requested model exactly. It may be a valid
@@ -771,22 +775,53 @@ pub fn honesty_projectile_object_model_key_residual_ok() -> bool {
 }
 
 pub fn model_key_from_template(template: &ThingTemplate) -> String {
-    let raw = template.get_model_name();
-    let remapped = remap_model_key_alias(raw);
-    if remapped.is_empty() {
-        remap_model_key_alias(&template.name)
-    } else {
-        remapped
+    if let Some(model) = template
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+    {
+        return remap_model_key_alias(model);
     }
+    drawable_w3d_model_key(&template.name)
+}
+
+/// C++ W3DTreeDraw / W3DModelDraw load `ModelName` / ConditionState Model.
+/// ObjectReskin identities such as `TreeSpruce03` are never W3D basenames.
+pub fn drawable_w3d_model_key(object_or_model_name: &str) -> String {
+    let trimmed = object_or_model_name.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(mapped) = authored_model_name_for_object(trimmed) {
+        return remap_model_key_alias(&mapped);
+    }
+    remap_model_key_alias(trimmed)
+}
+
+fn authored_model_name_for_object(object_name: &str) -> Option<String> {
+    let manager_arc = crate::assets::get_asset_manager()?;
+    let manager = manager_arc.lock().ok()?;
+    let mapped = manager.get_model_for_object(object_name)?;
+    let mapped = mapped.trim();
+    if mapped.is_empty() || mapped.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    if mapped.eq_ignore_ascii_case(object_name) {
+        return None;
+    }
+    Some(mapped.to_string())
 }
 
 /// Model key from presentation fields (model_key preferred, else template_name).
+///
+/// Callers sometimes pass the Object / ObjectReskin identity as `model_key`.
+/// Resolve that through INI `ModelName` instead of requesting `TreeSpruce03.w3d`.
 pub fn model_key_from_presentation(model_key: Option<&str>, template_name: &str) -> String {
-    let raw = model_key
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or(template_name);
-    remap_model_key_alias(raw)
+    if let Some(raw) = model_key.map(str::trim).filter(|s| !s.is_empty()) {
+        return drawable_w3d_model_key(raw);
+    }
+    drawable_w3d_model_key(template_name)
 }
 
 /// Known common unit template → model key pairs used by host setup / prewarm.
@@ -892,6 +927,7 @@ pub fn common_unit_model_keys() -> &'static [(&'static str, &'static str)] {
         ("GenericOptTree", "ptdogwod01"),
         ("TreeDogwood1", "ptdogwod01"),
         ("TreeMaple2", "ptmaple02"),
+        ("TreeSpruce03", "ptxpine03"),
         ("Rocks1", "pmrocks01"),
     ]
 }
@@ -1382,6 +1418,43 @@ mod tests {
         assert_eq!(key.to_ascii_lowercase(), "avhummer");
         let key2 = model_key_from_presentation(None, "USA_Ranger");
         assert_eq!(key2.to_ascii_lowercase(), "airanger_s");
+    }
+
+    #[test]
+    fn tree_spruce03_lookup_uses_reskin_modelname() {
+        assert_eq!(
+            drawable_w3d_model_key("TreeSpruce03").to_ascii_lowercase(),
+            "ptxpine03",
+            "C++ W3DTreeDraw loads NatureProp ModelName PTXPine03, not TreeSpruce03.w3d"
+        );
+        assert_eq!(
+            model_key_from_presentation(Some("TreeSpruce03"), "TreeSpruce03").to_ascii_lowercase(),
+            "ptxpine03"
+        );
+        let mut t = ThingTemplate::new("TreeSpruce03");
+        t.set_model("PTXPine03");
+        assert_eq!(model_key_from_template(&t).to_ascii_lowercase(), "ptxpine03");
+        let unnamed = ThingTemplate::new("TreeSpruce03");
+        assert_eq!(
+            model_key_from_template(&unnamed).to_ascii_lowercase(),
+            "ptxpine03",
+            "object-name fallback must still remap through ModelName"
+        );
+    }
+
+    #[test]
+    fn missing_reskin_mesh_skips_without_invented_geometry() {
+        let result = resolve_mesh_for_model_key("PTXPine03", false);
+        match &result {
+            MeshResolveResult::Loaded { .. } => {}
+            MeshResolveResult::Missing { requested_key, .. } => {
+                assert_eq!(requested_key.to_ascii_lowercase(), "ptxpine03");
+            }
+            MeshResolveResult::Placeholder { .. } => {
+                panic!("must not invent placeholder geometry for a missing base-Generals mesh")
+            }
+        }
+        assert!(!result.is_placeholder());
     }
 
     #[test]

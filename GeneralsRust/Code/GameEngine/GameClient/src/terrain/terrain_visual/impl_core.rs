@@ -40,6 +40,7 @@ impl TerrainVisualImpl {
             skybox_background_pipeline: None,
             skybox_background_bind_group_layout: None,
             skybox_sampler: None,
+            last_skybox_face_bind: None,
             seismic_simulations: Vec::new(),
             water_grid_enabled: false,
             grid_water_handle: WaterHandle(0),
@@ -71,8 +72,12 @@ impl TerrainVisualImpl {
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],
             fog_color: [0.5, 0.6, 0.7],
-            fog_start: 800.0,
-            fog_end: 3000.0,
+            // C++ SceneClass: FogEnabled(false), FogStart(0), FogEnd(1000).
+            // A degenerate span (end <= start) keeps the shader from
+            // distance-fogging every fragment when live lighting has
+            // fog_range=None.
+            fog_start: 0.0,
+            fog_end: 0.0,
             time: 0.0,
             oversize_amount: 0,
             draw_width: NORMAL_DRAW_WIDTH,

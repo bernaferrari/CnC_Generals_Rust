@@ -1326,10 +1326,10 @@ impl GameLogic {
                 self.script_superweapon_display_enabled = true;
                 self.script_superweapon_hidden_objects.clear();
 
-                // Keep the decoded per-player lists in the legacy ScriptEngine solely for
-                // C++-style immediate CALL_SUBROUTINE resolution.  The live host's regular
-                // once-per-frame traversal is MissionScriptRuntime above; do not run a second
-                // parallel ScriptEngine::update loop here.
+                // Install decoded per-player lists into the crate ScriptEngine.
+                // Live once-per-frame walk is ScriptEngine::update (C++
+                // GameLogic.cpp:3600).  MissionScriptRuntime stays for
+                // CALL_SUBROUTINE / action-handler queues, not a second walk.
                 let _ = gamelogic::scripting::engine::initialize_script_engine();
                 if let Ok(mut engine_guard) =
                     gamelogic::scripting::engine::get_script_engine().write()

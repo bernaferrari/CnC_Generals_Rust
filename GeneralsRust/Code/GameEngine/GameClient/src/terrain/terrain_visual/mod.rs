@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use glam::{Mat4, Vec2, Vec3, Vec4Swizzles};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use wgpu::util::DeviceExt;
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, RenderPass, Sampler, SamplerDescriptor, Texture,
@@ -55,7 +55,7 @@ use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::file_system::paths::{
-    MAP_PREVIEW_DIR_PATH, TERRAIN_TGA_DIR_PATH, USER_TGA_DIR_PATH,
+    MAP_PREVIEW_DIR_PATH, TERRAIN_TGA_DIR_PATH, TGA_DIR_PATH, USER_TGA_DIR_PATH,
 };
 use image::GenericImageView;
 use image::ImageFormat;

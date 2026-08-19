@@ -87,6 +87,8 @@ pub struct TerrainVisualImpl {
     skybox_background_pipeline: Option<wgpu::RenderPipeline>,
     skybox_background_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
     skybox_sampler: Option<Sampler>,
+    /// Last skybox face that produced a GPU bind (or fog fallback).
+    last_skybox_face_bind: Option<String>,
 
     /// Seismic simulation
     seismic_simulations: Vec<SeismicSimulationNode>,
@@ -257,9 +259,10 @@ impl TerrainSamplerMode {
 const DEFAULT_TERRAIN_COLORS: [[u8; 4]; 4] = [
     [60, 120, 60, 255],   // Grass
     [120, 120, 120, 255], // Cliff
-    [240, 240, 240, 255], // Snow
+    [80, 80, 80, 255],    // Missing/neutral (was snow-white scraps)
     [194, 162, 96, 255],  // Sand
 ];
+
 
 const NORMAL_DRAW_WIDTH: i32 = 129;
 const NORMAL_DRAW_HEIGHT: i32 = 129;
