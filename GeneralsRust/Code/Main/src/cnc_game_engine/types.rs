@@ -163,14 +163,24 @@ pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, 
     }
     let pt = unsafe { CGEventGetLocation(event) };
     unsafe { CFRelease(event) };
-    let cg = unsafe { macos_own_cg_window_bounds() }?;
-    if cg.size.width <= 1.0 || cg.size.height <= 1.0 {
-        return None;
-    }
     let size = window.inner_size();
     let scale = window.scale_factor().max(0.0001);
     let lw = (size.width as f64 / scale).max(1.0);
     let lh = (size.height as f64 / scale).max(1.0);
+    let cg = unsafe { macos_own_cg_window_bounds(lw, lh) }?;
+    log::info!(
+        "macos cg window origin=({:.0},{:.0}) size={:.0}x{:.0} event=({:.0},{:.0})",
+        cg.origin.x,
+        cg.origin.y,
+        cg.size.width,
+        cg.size.height,
+        pt.x,
+        pt.y
+    );
+    if cg.size.width <= 1.0 || cg.size.height <= 1.0 {
+        return None;
+    }
+    // size/scale already computed for window matching
     // Title bar sits above the Metal view; strip it using aspect of inner size.
     let title = (cg.size.height - lh * (cg.size.width / lw)).max(0.0);
     let content_h = (cg.size.height - title).max(1.0);
@@ -184,7 +194,7 @@ pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, 
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn macos_own_cg_window_bounds() -> Option<NsRect> {
+unsafe fn macos_own_cg_window_bounds(target_w: f64, target_h: f64) -> Option<NsRect> {
     const ON_SCREEN: u32 = 1;
     const UTF8: u32 = 0x0800_0100;
     const CF_SINT32: i32 = 3;
@@ -201,7 +211,9 @@ unsafe fn macos_own_cg_window_bounds() -> Option<NsRect> {
     let key_y = cstr(b"Y\0");
     let key_w = cstr(b"Width\0");
     let key_h = cstr(b"Height\0");
-    let mut found = None;
+    let want_w = target_w * 0.9;
+    let want_h = target_h + 32.0;
+    let mut found: Option<(f64, NsRect)> = None;
     let n = CFArrayGetCount(arr);
     for i in 0..n {
         let dict = CFArrayGetValueAtIndex(arr, i);
@@ -238,11 +250,19 @@ unsafe fn macos_own_cg_window_bounds() -> Option<NsRect> {
             (read_f64(key_x), read_f64(key_y), read_f64(key_w), read_f64(key_h))
         {
             if w > 1.0 && h > 1.0 {
-                found = Some(NsRect {
-                    origin: CgPoint { x, y },
-                    size: NsSize { width: w, height: h },
-                });
-                break;
+                let score = (w - want_w)
+                    .abs()
+                    .min((w - target_w).abs())
+                    + (h - want_h).abs().min((h - target_h).abs());
+                if found.as_ref().map(|(s, _)| *s).unwrap_or(f64::MAX) > score {
+                    found = Some((
+                        score,
+                        NsRect {
+                            origin: CgPoint { x, y },
+                            size: NsSize { width: w, height: h },
+                        },
+                    ));
+                }
             }
         }
     }
@@ -253,7 +273,7 @@ unsafe fn macos_own_cg_window_bounds() -> Option<NsRect> {
     CFRelease(key_w);
     CFRelease(key_h);
     CFRelease(arr);
-    found
+    found.map(|(_, rect)| rect)
 }
 
 
@@ -1231,6 +1251,7 @@ pub struct CnCGameEngine {
     /// models/textures/terrain are loaded lazily for the first time.
     pub(crate) menu_world_frames_rendered: u32,
     pub(crate) last_slow_menu_tick_log: Option<Instant>,
+    pub(crate) ingame_entered_at: Option<Instant>,
     pub(crate) match_over: bool,
     pub(crate) victory_summary: Option<VictorySummary>,
 }

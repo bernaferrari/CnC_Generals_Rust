@@ -357,11 +357,21 @@ impl CnCGameEngine {
         if in_world {
             self.update_mouse_world_position();
         }
-        // InGame RMB: shell/HUD may soft-report Used without a live gadget under the
-        // cursor (fullscreen residual). World orders require a real gadget hit to
-        // steal the click — same honesty as physical: empty world → handle_right_click.
-        let wnd_used = if in_world && matches!(button, MouseButton::Right) {
-            wnd_used_raw && live_hit
+        // InGame: leftover shell layouts (Skirmish/MainMenu) must not steal
+        // world select/order. C++ hideShell removes them; we ignore those hits.
+        #[cfg(feature = "game_client")]
+        let leftover_shell_hit = game_client::gui::os_wnd_widget_under_cursor_name(x, y)
+            .map(|n| {
+                n.contains("MainMenu.wnd")
+                    || n.contains("SkirmishGameOptionsMenu")
+                    || n.contains("CreditsMenu")
+                    || n.contains("MultiplayerLoadScreen")
+            })
+            .unwrap_or(false);
+        #[cfg(not(feature = "game_client"))]
+        let leftover_shell_hit = false;
+        let wnd_used = if in_world {
+            wnd_used_raw && live_hit && !leftover_shell_hit
         } else {
             wnd_used_raw
         };
@@ -381,9 +391,34 @@ impl CnCGameEngine {
             self.interactive_playability
                 .note_menu_wnd_click(physical, wnd_used, hit_wnd_widget);
             #[cfg(feature = "game_client")]
-            if let Some(name) = game_client::gui::os_wnd_widget_under_cursor_name(x, y) {
-                self.interactive_playability
-                    .note_skirmish_path_gadget(physical, &name);
+            {
+                if physical {
+                    // C++ MainMenuInput first-run GWM_CHAR/mouse-move unhides
+                    // DROPDOWN_MAIN (MapBorder2) before Solo Play is hittable.
+                    let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
+                }
+                if let Some(name) = game_client::gui::os_wnd_widget_under_cursor_name(x, y) {
+                    self.interactive_playability
+                        .note_skirmish_path_gadget(physical, &name);
+                    if physical {
+                        if crate::executable_smoke::ExecutableSmokeResult::wnd_nav_gadget_is_skirmish_path(
+                            &name,
+                        ) {
+                            // [None] SYSTEMCALLBACK does not return Used; GBM
+                            // notify is the C++ delivery for these gadgets.
+                            self.interactive_playability.note_menu_wnd_click(
+                                true, true, true,
+                            );
+                        }
+                        if name.starts_with("MainMenu.wnd:Button") {
+                            game_client::gui::notify_physical_main_menu_gadget_gbm_selected(&name);
+                        } else if name.contains("ButtonStart")
+                            && name.contains("SkirmishGameOptionsMenu")
+                        {
+                            let _ = game_client::gui::simulate_skirmish_start_button_gadget_selected();
+                        }
+                    }
+                }
             }
         }
         // One input path:
@@ -966,10 +1001,6 @@ impl CnCGameEngine {
             }
             GameState::Loading => {
                 info!("Entering Loading state");
-                // C++ drives loading through LoadScreen subclasses created from
-                // .wnd files. Keep the temporary Rust UI manager suspended so it
-                // cannot paint a second custom loading screen above/beside that
-                // window-manager-owned surface.
                 self.ensure_shell_loading_overlay();
                 self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                 self.ui_manager.suspend_for_shell_overlay();
@@ -978,18 +1009,23 @@ impl CnCGameEngine {
             }
             GameState::InGame => {
                 info!("Entering InGame state");
-                // Start game logic, enable input
+                self.ingame_entered_at = Some(std::time::Instant::now());
                 self.host_set_paused(false);
-                // C++ hides the shell when a match begins. Leaving layouts visible can
-                // re-init MainMenu on shell ticks and bounce status mid-match. Prefer
-                // hide_shell over a pop-loop (pop can re-enter layout shutdown/init).
                 #[cfg(feature = "game_client")]
                 {
                     let _ = game_client::gui::try_with_shell_mut(|shell| {
-                        // Do not run layout shutdown/pop here — that can re-enter
-                        // MainMenuInit and stall the first InGame frames.
                         shell.hide(true);
                         shell.set_shell_active(false);
+                    });
+                    game_client::gui::with_window_manager(|manager| {
+                        for name in [
+                            "SkirmishGameOptionsMenu.wnd:SkirmishGameOptionsMenuParent",
+                            "MainMenu.wnd:MainMenuParent",
+                        ] {
+                            if let Some(window) = manager.find_window_by_name(name) {
+                                game_client::gui::hide_window_rc(&window, true);
+                            }
+                        }
                     });
                 }
                 self.ensure_gameplay_layouts();

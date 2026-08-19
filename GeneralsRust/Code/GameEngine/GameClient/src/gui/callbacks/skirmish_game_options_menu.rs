@@ -104,7 +104,18 @@ thread_local! {
 
 /// Access state with closure
 fn with_state<R>(f: impl FnOnce(&mut SkirmishGameOptionsState) -> R) -> R {
-    SKIRMISH_GAME_OPTIONS_STATE.with(|s| f(&mut s.borrow_mut()))
+    SKIRMISH_GAME_OPTIONS_STATE.with(|s| match s.try_borrow_mut() {
+        Ok(mut guard) => f(&mut guard),
+        Err(_) => {
+            // Init populate_* can fire combo callbacks that re-enter.
+            log::warn!("skirmish options re-entrant with_state; using scratch");
+            thread_local! {
+                static SCRATCH: RefCell<SkirmishGameOptionsState> =
+                    RefCell::new(SkirmishGameOptionsState::default());
+            }
+            SCRATCH.with(|sc| f(&mut sc.borrow_mut()))
+        }
+    })
 }
 
 /// Access state immutably
@@ -1233,7 +1244,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     ensure_default_slots();
     // Wave 837/840: prefer options/map-select residual over a stale shell/default map.
     // ShellMapMD must never beat a non-shell control/setup selection.
-    let map_name = {
+    let mut map_name = {
         let mut setup = get_skirmish_setup();
         let is_shellish = |m: &str| {
             let t = m.trim();
@@ -1275,10 +1286,20 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
         info.get_map().to_string()
     };
     if map_name.is_empty() {
+        choose_default_map(state);
+        let setup = get_skirmish_setup();
+        map_name = setup.selected_map().to_string();
+        if map_name.is_empty() {
+            map_name = setup.game_info().game_info().get_map().to_string();
+        }
+    }
+    if map_name.is_empty() {
+        log::warn!("Skirmish Start aborted: no map");
         state.button_pushed = false;
         set_skirmish_button_pushed(false);
         return;
     }
+    log::info!("Skirmish Start map={map_name}");
 
     // Residual: retail extract maps may be absent from MapCache.ini during headless
     // boots. If the map file exists on disk, register a multiplayer meta so ButtonStart
@@ -1294,6 +1315,8 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let Some(meta) = cache_guard.find_map(&map_name) else {
+        log::warn!("Skirmish Start cache miss map={map_name}");
+        drop(cache_guard);
         state.button_pushed = false;
         set_skirmish_button_pushed(false);
         let _ = message_box_ok(
@@ -1382,6 +1405,10 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     msg.append_integer_argument(DIFFICULTY_NORMAL);
     msg.append_integer_argument(0);
     msg.append_integer_argument(max_fps);
+    log::info!(
+        "Skirmish Start posted NewGame skirmish={is_skirmish} fps={max_fps} map={map_name}"
+    );
+    TheGameLogic::request_start_new_game();
 }
 
 fn is_first_cd_present() -> bool {
@@ -1580,16 +1607,15 @@ pub fn skirmish_game_options_menu_update(
             skirmish_update_slot_list(state);
         }
 
-        // C++ parity: check animation/transitions unconditionally (no is_shutting_down gate).
-        // C++ SkirmishGameOptionsMenuUpdate calls TheShell->shutdownComplete(layout) whenever
-        // both the shell animation and transition handler report finished.
-        if crate::gui::shell::base::shell_anim_finished_for_layout()
+        // C++ LAN/Challenge pattern: shutdownComplete only after we requested
+        // shutdown. Unconditional isFinished() hides the menu immediately when
+        // Rust transitions_finished() is vacuously true (no fade group).
+        if state.is_shutting_down
+            && crate::gui::shell::base::shell_anim_finished_for_layout()
             && with_window_manager(|manager| manager.transitions_finished())
         {
-            if state.is_shutting_down {
-                state.is_shutting_down = false;
-                set_skirmish_is_shutting_down(false);
-            }
+            state.is_shutting_down = false;
+            set_skirmish_is_shutting_down(false);
             layout.hide(true);
             queue_shell_shutdown_complete(false);
         }

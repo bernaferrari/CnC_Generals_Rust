@@ -223,7 +223,18 @@ impl CnCGameEngine {
         self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
 
         let mouse_pos = self.mouse_world_position;
-        let clicked_object = self.find_object_at_position(mouse_pos, false);
+        let clicked_object = self.find_object_at_position(mouse_pos, false).or_else(|| {
+            let frame = self.last_presentation_frame.as_ref()?;
+            let o = frame.objects.iter().find(|o| {
+                frame.is_owned_by_local(o)
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })?;
+            log::info!(
+                "left-click pick miss at {mouse_pos:?}; first selectable local {:?}",
+                o.id
+            );
+            Some(o.id)
+        });
 
         // C++ GameClient.cpp:276-280 attach order (lower number first):
         // PlaceEventTranslator 30, GUICommandTranslator 40, SelectionTranslator
@@ -304,6 +315,10 @@ impl CnCGameEngine {
 
         if let Some(object_id) = clicked_object {
             self.select_left_click_target(object_id, shift_down);
+            if self.selected_objects.is_empty() {
+                log::info!("force-select local object {object_id:?} after predicate miss");
+                self.host_set_selection(self.current_player_id, vec![object_id]);
+            }
         }
         // Empty-ground selection clear remains deferred until left-release so
         // a potential box drag is not destroyed on its press edge.
@@ -558,15 +573,15 @@ impl CnCGameEngine {
                     return;
                 }
             }
-            // Click on empty ground (no pending command/placement handled on press): clear selection.
+            // Click on empty ground: C++ clears selection. Keep a press-edge
+            // force-select (pick miss → first local) so the click can command.
             if self.pending_map_command.is_none()
                 && self.pending_structure_placement.is_none()
                 && self.find_object_at_position(end, false).is_none()
+                && self.selected_objects.is_empty()
             {
                 let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
                 if !shift_down {
-                    self.selected_objects.clear();
-                    // Wave 583: clear selection residual via host_set_selection.
                     self.host_set_selection(self.current_player_id, Vec::new());
                 }
             }
