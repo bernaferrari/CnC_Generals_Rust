@@ -2973,13 +2973,33 @@ fn main_menu_challenge_latched() -> bool {
     state.launch_challenge_menu && state.campaign_selected
 }
 
+/// Click `name` once it is enabled, visible, and under-cursor. FLASH groups
+/// keep ButtonUSA hidden until SP-group frame 16 and ButtonEasy until the
+/// Difficulty FLASH unhide. Fixed `tick(8)` misses those; C++ waits for the
+/// gadget. Missing windows fail immediately (unit fixtures).
+fn dispatch_os_click_named_window_when_hittable(name: &str, max_ticks: u32) -> bool {
+    if dispatch_os_click_named_window(name) {
+        return true;
+    }
+    let exists = with_window_manager(|manager| manager.find_window_by_name(name).is_some());
+    if !exists {
+        return false;
+    }
+    for _ in 0..max_ticks {
+        tick_main_menu_transitions(1);
+        if dispatch_os_click_named_window(name) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Human click-through: CHAR reveal → Single Player → Skirmish (not `simulate_*`).
 pub fn drive_os_wnd_open_skirmish_like_cpp() -> bool {
     let _ = reveal_main_menu_first_input_like_cpp();
     tick_main_menu_transitions(4);
-    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
-    tick_main_menu_transitions(8);
-    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSkirmish");
+    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
+    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSkirmish", 32);
     tick_main_menu_transitions(4);
     main_menu_skirmish_latched()
 }
@@ -3002,22 +3022,22 @@ pub fn drive_os_wnd_start_campaign_like_cpp(side: ShowSide, diff: GameDifficulty
     }
     let _ = reveal_main_menu_first_input_like_cpp();
     tick_main_menu_transitions(4);
-    let clicked_sp = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
-    tick_main_menu_transitions(8);
+    let clicked_sp =
+        dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
     let faction = match side {
         ShowSide::USA => "MainMenu.wnd:ButtonUSA",
         ShowSide::GLA => "MainMenu.wnd:ButtonGLA",
         ShowSide::China => "MainMenu.wnd:ButtonChina",
         _ => return false,
     };
-    let clicked_faction = dispatch_os_click_named_window(faction);
-    tick_main_menu_transitions(8);
+    // SP BUTTONFLASH unhides USA at frame 16; Difficulty FLASH unhides Easy ~28.
+    let clicked_faction = dispatch_os_click_named_window_when_hittable(faction, 32);
     let diff_btn = match diff {
         GameDifficulty::Easy => "MainMenu.wnd:ButtonEasy",
         GameDifficulty::Hard => "MainMenu.wnd:ButtonHard",
         _ => "MainMenu.wnd:ButtonMedium",
     };
-    let clicked_diff = dispatch_os_click_named_window(diff_btn);
+    let clicked_diff = dispatch_os_click_named_window_when_hittable(diff_btn, 40);
     tick_main_menu_transitions(4);
     if !clicked_sp && !clicked_faction && !clicked_diff {
         return false;
@@ -3049,13 +3069,11 @@ pub fn drive_os_wnd_start_china_campaign_like_cpp() -> bool {
 }
 
 /// Human click-through: CHAR reveal → Single Player → Challenge → Medium
-/// → C++ `setupGameStart` pushes `Menus/ChallengeMenu.wnd` (second menu).
 pub fn drive_os_wnd_open_challenge_menu_like_cpp() -> bool {
     let _ = reveal_main_menu_first_input_like_cpp();
     tick_main_menu_transitions(4);
-    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonSinglePlayer");
-    tick_main_menu_transitions(8);
-    let _ = dispatch_os_click_named_window("MainMenu.wnd:ButtonChallenge");
+    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonSinglePlayer", 16);
+    let _ = dispatch_os_click_named_window_when_hittable("MainMenu.wnd:ButtonChallenge", 32);
     tick_main_menu_transitions(8);
     if !main_menu_challenge_latched() {
         return false;
