@@ -358,6 +358,7 @@ impl CnCGameEngine {
         self.window
             .set_outer_position(winit::dpi::PhysicalPosition::new(px, py));
         self.window.focus_window();
+        make_host_window_key_and_accept_mouse(&self.window);
         let (ox, oy, ow, oh) = self.runtime_host_window_outer_rect();
         self.runtime_host_last_gameplay_cmd = format!("window_move_ok:{ox},{oy},{ow}x{oh}");
         log::info!(

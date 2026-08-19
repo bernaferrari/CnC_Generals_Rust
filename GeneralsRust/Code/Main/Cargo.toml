@@ -423,3 +423,6 @@ path = "src/bin/executable_smoke_gate.rs"
 [[example]]
 name = "run_exec_smoke"
 path = "examples/run_exec_smoke.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
