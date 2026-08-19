@@ -43,6 +43,16 @@ pub(super) fn apply_runtime_host_window_visibility(window: &Window, headless: bo
     )
 }
 
+/// Park the windowed host at the top-left so MainMenu gadgets are not
+/// covered by IDE/agent windows. Headless must never call this.
+pub(super) fn apply_runtime_host_window_placement(window: &Window) {
+    let scale = window.scale_factor().max(0.0001);
+    let x = (0.0 * scale).round() as i32;
+    let y = (80.0 * scale).round() as i32;
+    window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+    window.focus_window();
+}
+
 
 pub(super) fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     let was_minimized = *minimized;
