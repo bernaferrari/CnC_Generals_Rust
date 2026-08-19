@@ -304,6 +304,8 @@ impl CnCGameEngine {
         let logical_x = x / scale;
         let logical_y = y / scale;
         self.mouse_position = (logical_x, logical_y);
+        self.mouse_cursor_seen = true;
+
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_move(logical_x, logical_y);
         let mx = logical_x as i32;
@@ -548,6 +550,8 @@ impl CnCGameEngine {
     /// dispatch + under-cursor residual.
     pub(super) fn inject_winit_equivalent_cursor_at(&mut self, x: f32, y: f32) {
         self.mouse_position = (x, y);
+        self.mouse_cursor_seen = true;
+
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_move(x, y);
         self.ui_manager.handle_mouse_move(x as i32, y as i32);

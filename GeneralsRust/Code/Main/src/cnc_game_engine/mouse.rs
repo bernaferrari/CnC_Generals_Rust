@@ -992,8 +992,11 @@ impl CnCGameEngine {
             // C++ parity (LookAtXlat.cpp): key scrolling uses SCROLL_AMT=100 in screen-space and
             // applies horizontal/vertical/keyboard factors once per logic frame.
             const SCROLL_AMT: f32 = 100.0;
-            let scroll_step =
-                SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0) * logic_frames_per_second;
+            // C++ applies SCROLL_AMT once per logic frame. A 0.7s hitch must not
+            // become ~23 frames of edge-scroll (camera flies hundreds of km).
+            let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
+            let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
+
             let mut screen_scroll = Vec2::ZERO;
             // C++ LookAt keyboard scroll uses arrows (not WASD).
             // WASD are unit hotkeys: A attack-move, S stop, D deploy, etc.
@@ -1025,9 +1028,11 @@ impl CnCGameEngine {
             // events, which would permanently edge-scroll the camera off the map.
             if matches!(self.current_state, GameState::InGame | GameState::Paused)
                 && !self.runtime_host_headless
+                && self.mouse_cursor_seen
                 && !self.chat_panel.is_open()
                 && !self.diplomacy_panel.is_active()
             {
+
                 const EDGE_SCROLL_SIZE: f32 = 5.0;
                 let (mx, my) = self.mouse_position;
                 let size = self.window.inner_size();
@@ -1050,7 +1055,8 @@ impl CnCGameEngine {
 
                 if edge_dx != 0.0 || edge_dy != 0.0 {
                     let edge_step =
-                        SCROLL_AMT * keyboard_scroll_factor * dt.max(0.0) * logic_frames_per_second;
+                        SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
+
                     screen_scroll.x += edge_dx * horizontal_scroll_speed_factor * edge_step;
                     screen_scroll.y += edge_dy * vertical_scroll_speed_factor * edge_step;
                 }
@@ -1082,7 +1088,8 @@ impl CnCGameEngine {
                         offset.y += vertical_scroll_speed_factor
                             * direction.y
                             * keyboard_scroll_factor.powi(2);
-                        screen_scroll += offset * dt.max(0.0) * logic_frames_per_second;
+                        screen_scroll += offset * scroll_dt * logic_frames_per_second;
+
                     }
                 }
             }
@@ -1104,8 +1111,17 @@ impl CnCGameEngine {
 
         if movement.length() > 0.0 {
             self.camera_target += movement;
+            self.camera_target = self.clamp_to_world_bounds(self.camera_target);
             camera_changed = true;
         }
+        if matches!(self.current_state, GameState::InGame)
+            && self.camera_is_unreasonably_far_from_local_units()
+        {
+            self.snap_camera_to_local_units_if_needed();
+            camera_changed = true;
+        }
+
+
 
         if let Some(mode) = self.camera_slave_mode.as_ref() {
             // Prefer dual-tick presentation pose so camera follow does not re-read live transforms.
