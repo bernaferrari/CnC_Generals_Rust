@@ -249,6 +249,11 @@ impl CnCGameEngine {
                 // playability evidence. Injected control-file clicks use
                 // MouseInputOrigin::Injected and must not set those flags.
                 let pressed = matches!(state, ElementState::Pressed);
+                log::info!(
+                    "Physical MouseInput button={button:?} pressed={pressed} cursor=({}, {})",
+                    self.mouse_position.0 as i32,
+                    self.mouse_position.1 as i32
+                );
                 self.handle_mouse_button_input(*button, pressed, MouseInputOrigin::Physical);
                 true
             }

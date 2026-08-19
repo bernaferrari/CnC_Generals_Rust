@@ -341,4 +341,27 @@ impl CnCGameEngine {
             "winit_gameplay_order_fail_no_selection".into()
         };
     }
+
+    /// Park the OS window in point-space so a HID clicker can hit gadgets
+    /// that would otherwise sit under overlapping IDE/agent windows.
+    /// Does not inject mouse and does not touch playable_claim evidence.
+    pub(super) fn runtime_host_cmd_window_move(&mut self, args: &HashMap<String, String>) {
+        if self.runtime_host_headless {
+            self.runtime_host_last_gameplay_cmd = "window_move_fail_headless".into();
+            return;
+        }
+        let x: i32 = args.get("x").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let y: i32 = args.get("y").and_then(|s| s.parse().ok()).unwrap_or(80);
+        let scale = self.window.scale_factor().max(0.0001);
+        let px = ((x as f64) * scale).round() as i32;
+        let py = ((y as f64) * scale).round() as i32;
+        self.window
+            .set_outer_position(winit::dpi::PhysicalPosition::new(px, py));
+        self.window.focus_window();
+        let (ox, oy, ow, oh) = self.runtime_host_window_outer_rect();
+        self.runtime_host_last_gameplay_cmd = format!("window_move_ok:{ox},{oy},{ow}x{oh}");
+        log::info!(
+            "window_move: requested {x},{y} pt -> winit outer {ox},{oy} {ow}x{oh}"
+        );
+    }
 }

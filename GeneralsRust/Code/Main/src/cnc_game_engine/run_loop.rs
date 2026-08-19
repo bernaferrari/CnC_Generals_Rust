@@ -405,6 +405,7 @@ pub async fn run_cnc_game(
                                     } else {
                                         created_window.set_visible(true);
                                         created_window.focus_window();
+                                        apply_runtime_host_window_placement(created_window);
                                         if !apply_runtime_host_window_visibility(
                                             created_window,
                                             false,
