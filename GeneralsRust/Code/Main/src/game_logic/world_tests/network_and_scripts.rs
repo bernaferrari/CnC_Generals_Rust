@@ -464,11 +464,14 @@ fn live_script_tick_runs_one_script_engine_update() {
     let tick = include_str!("../world_scripts/scripts_camera.rs");
     let runtime = include_str!("../mission_scripts.rs");
     assert!(tick.contains("engine.update()"));
+    assert!(tick.contains("guard.take()"));
     assert!(tick.contains("note_logic_frame"));
+
     assert!(
         !tick.contains("self.mission_scripts.update("),
         "MissionScriptRuntime must not be a second live ScriptEngine walk"
     );
+
     assert!(!tick.contains("update_shell_budgeted"));
     assert!(!runtime.contains("update_shell_budgeted"));
     assert!(!runtime.contains("SHELL_HEAVY_SCRIPT_WARMUP_FRAMES"));

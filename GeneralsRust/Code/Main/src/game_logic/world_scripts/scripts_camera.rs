@@ -370,17 +370,29 @@ impl GameLogic {
                 }
             }
         }
-        // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame
-        // (ScriptEngine.cpp:5479-5574).  Host MissionScriptRuntime is the
-        // action-handler drain/queue, not a second walker over the same lists
-        // (hq-fxq1).  GAME_SHELL uses this same single pass; no menu budget.
-        if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                if let Err(err) = engine.update() {
-                    log::error!("ScriptEngine::update failed: {err}");
-                }
+        // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.
+        // Take the engine out of the global RwLock for the duration of update().
+        // std::sync::RwLock is not re-entrant: holding write() across update()
+        // deadlocks when MUSIC_SET_TRACK / MOVE_CAMERA_TO call
+        // get_script_engine().read() (hang after "named cache populated").
+        let taken = match gamelogic::scripting::engine::get_script_engine().write() {
+            Ok(mut guard) => guard.take(),
+            Err(_) => {
+                log::error!("ScriptEngine::update failed: lock poisoned");
+                None
+            }
+        };
+        if let Some(engine) = taken {
+            if let Err(err) = engine.update() {
+                log::error!("ScriptEngine::update failed: {err}");
+            }
+            if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
+                *guard = Some(engine);
             }
         }
+
+
+
         self.mission_scripts.note_logic_frame(self.frame as u64);
 
         self.script_broadcasts
