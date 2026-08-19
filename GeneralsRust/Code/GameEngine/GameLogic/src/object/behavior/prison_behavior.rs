@@ -581,77 +581,29 @@ impl ContainModuleInterface for PrisonBehaviorContainHandle {
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PrisonBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-
         let guard = self
             .behavior
             .lock()
             .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
-
-        let mut visual_count = guard.visuals.len() as u16;
-        xfer.xfer_unsigned_short(&mut visual_count)
-            .map_err(|e| e.to_string())?;
-
-        for visual in &guard.visuals {
-            let mut object_id = visual.object_id;
-            xfer.xfer_object_id(&mut object_id)
-                .map_err(|e| e.to_string())?;
-            let mut drawable_id = visual.drawable_id;
-            xfer.xfer_unsigned_int(&mut drawable_id)
-                .map_err(|e| e.to_string())?;
-        }
-
-        Ok(())
+        Snapshotable::crc(&*guard, xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-
+        // Live module snapshot is PrisonBehavior::xfer (version, OpenContain,
+        // visualCount + each yard objectID/drawableID). Do not skip visuals.
         let mut guard = self
             .behavior
             .lock()
             .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
-
-        let mut visual_count = guard.visuals.len() as u16;
-        xfer.xfer_unsigned_short(&mut visual_count)
-            .map_err(|e| e.to_string())?;
-
-        if xfer.is_reading() {
-            guard.visuals.clear();
-            for _ in 0..visual_count {
-                let mut object_id: ObjectID = 0;
-                xfer.xfer_object_id(&mut object_id)
-                    .map_err(|e| e.to_string())?;
-                let mut drawable_id: crate::common::DrawableID = 0;
-                xfer.xfer_unsigned_int(&mut drawable_id)
-                    .map_err(|e| e.to_string())?;
-                guard.visuals.push(PrisonVisual {
-                    object_id,
-                    drawable_id,
-                });
-            }
-        } else {
-            for visual in &guard.visuals {
-                let mut object_id = visual.object_id;
-                xfer.xfer_object_id(&mut object_id)
-                    .map_err(|e| e.to_string())?;
-                let mut drawable_id = visual.drawable_id;
-                xfer.xfer_unsigned_int(&mut drawable_id)
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-
-        Ok(())
+        Snapshotable::xfer(&mut *guard, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        let mut guard = self
+            .behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
+        Snapshotable::load_post_process(&mut *guard)
     }
 }
 
@@ -673,7 +625,7 @@ impl Snapshotable for PrisonBehavior {
             xfer.xfer_object_id(&mut object_id)
                 .map_err(|e| e.to_string())?;
             let mut drawable_id = visual.drawable_id;
-            xfer.xfer_unsigned_int(&mut drawable_id)
+            xfer.xfer_drawable_id(&mut drawable_id)
                 .map_err(|e| e.to_string())?;
         }
 
@@ -689,19 +641,23 @@ impl Snapshotable for PrisonBehavior {
         // extend OpenContain base class
         Snapshotable::xfer(&mut self.contain, xfer)?;
 
-        // visual list count and data
+        // C++ PrisonBehavior::xfer: visualCount then each m_objectID/m_drawableID.
         let mut visual_count = self.visuals.len() as u16;
         xfer.xfer_unsigned_short(&mut visual_count)
             .map_err(|e| e.to_string())?;
 
         if xfer.is_reading() {
-            self.visuals.clear();
+            if !self.visuals.is_empty() {
+                return Err(
+                    "PrisonBehavior::xfer - the visual list should be empty but is not".to_string(),
+                );
+            }
             for _ in 0..visual_count {
                 let mut object_id: ObjectID = 0;
                 xfer.xfer_object_id(&mut object_id)
                     .map_err(|e| e.to_string())?;
                 let mut drawable_id: crate::common::DrawableID = 0;
-                xfer.xfer_unsigned_int(&mut drawable_id)
+                xfer.xfer_drawable_id(&mut drawable_id)
                     .map_err(|e| e.to_string())?;
                 self.visuals.push(PrisonVisual {
                     object_id,
@@ -714,7 +670,7 @@ impl Snapshotable for PrisonBehavior {
                 xfer.xfer_object_id(&mut object_id)
                     .map_err(|e| e.to_string())?;
                 let mut drawable_id = visual.drawable_id;
-                xfer.xfer_unsigned_int(&mut drawable_id)
+                xfer.xfer_drawable_id(&mut drawable_id)
                     .map_err(|e| e.to_string())?;
             }
         }

@@ -566,9 +566,17 @@ impl PresentationFrame {
         self.apply_events_to_game_hud(hud);
     }
 
-    /// Route frozen gameplay events into HUD message / radar channels.
-    /// Fail-closed: text residual only — not full EVA voice / WND dialog parity.
+    /// Route frozen gameplay events into HUD radar (and no-op audio-only kinds).
+    ///
+    /// C++ completion/EVA/victory/ownership feedback is voice, radar blip, or
+    /// WinLose WND — not `InGameUI::message` overlay text (InGameUI.cpp:1993
+    /// callers; Player.cpp:1639 onStructureConstructionComplete; Eva.cpp
+    /// setShouldPlay). `apply_to_game_hud` is invoked every render on the
+    /// last freeze, so each LogicFrame is applied once per HUD.
     pub fn apply_events_to_game_hud(&self, hud: &mut crate::ui::GameHUD) {
+        if !hud.begin_presentation_event_apply(self.frame.0) {
+            return;
+        }
         for ev in &self.events {
             match ev {
                 PresentationEvent::RadarMessage {
@@ -590,71 +598,23 @@ impl PresentationFrame {
                     };
                     hud.add_radar_message(text, pos, ping_kind);
                 }
-                PresentationEvent::ConstructionComplete { template, .. } => {
-                    hud.push_info_message(&format!("Construction complete: {template}"));
-                }
-                PresentationEvent::UpgradeComplete { name, .. } => {
-                    hud.push_info_message(&format!("Upgrade complete: {name}"));
-                }
-                PresentationEvent::ProductionComplete { template, .. } => {
-                    hud.push_info_message(&format!("Unit ready: {template}"));
-                }
-                PresentationEvent::OwnerChanged { id, team } => {
-                    hud.push_info_message(&format!("Ownership changed: #{} -> {:?}", id.0, team));
-                }
-                PresentationEvent::AttackTargeted { attacker, target } => {
-                    if let Some(t) = target {
-                        hud.push_info_message(&format!("Attack: #{} -> #{}", attacker.0, t.0));
-                    }
-                }
-                PresentationEvent::MoveOrdered { unit, destination } => {
-                    hud.push_info_message(&format!(
-                        "Move: #{} -> ({:.0},{:.0})",
-                        unit.0, destination[0], destination[2]
-                    ));
-                }
-                PresentationEvent::DamageApplied {
-                    target,
-                    amount,
-                    destroyed,
-                    ..
-                } => {
-                    if *destroyed {
-                        hud.push_info_message(&format!("Destroyed: #{}", target.0));
-                    } else if *amount > 0.0 {
-                        hud.push_info_message(&format!("-{} HP #{}", *amount as i32, target.0));
-                    }
-                }
-                PresentationEvent::HealApplied { target, health } => {
-                    hud.push_info_message(&format!("Heal #{} -> {:.0} HP", target.0, health));
-                }
-                PresentationEvent::EconomyChanged {
-                    player_id,
-                    supplies,
-                    power_available,
-                } => {
-                    hud.push_info_message(&format!(
-                        "Economy P{}: ${} power={}",
-                        player_id, supplies, power_available
-                    ));
-                }
-                PresentationEvent::ObjectDestroyed { id, .. } => {
-                    hud.push_info_message(&format!("Destroyed: #{}", id.0));
-                }
-                PresentationEvent::Victory { winner_player } => {
-                    let msg = match winner_player {
-                        Some(p) => format!("Victory: player {p}"),
-                        None => "Victory".to_string(),
-                    };
-                    hud.push_info_message(&msg);
-                }
-                PresentationEvent::ParticleSystemSpawned { .. } => {}
-                PresentationEvent::WeaponFireLoopStarted { .. }
+                // C++: VoiceCreated / UnitReady / UpgradeComplete / EVA audio only.
+                PresentationEvent::ConstructionComplete { .. }
+                | PresentationEvent::UpgradeComplete { .. }
+                | PresentationEvent::ProductionComplete { .. }
+                | PresentationEvent::OwnerChanged { .. }
+                | PresentationEvent::EvaAlert { .. }
+                | PresentationEvent::Victory { .. }
+                | PresentationEvent::AttackTargeted { .. }
+                | PresentationEvent::MoveOrdered { .. }
+                | PresentationEvent::HealApplied { .. }
+                | PresentationEvent::DamageApplied { .. }
+                | PresentationEvent::ObjectDestroyed { .. }
+                | PresentationEvent::EconomyChanged { .. }
+                | PresentationEvent::ParticleSystemSpawned { .. }
+                | PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. }
                 | PresentationEvent::WeaponDischarged { .. } => {}
-                PresentationEvent::EvaAlert { name } => {
-                    hud.push_info_message(&format!("EVA: {name}"));
-                }
             }
         }
     }

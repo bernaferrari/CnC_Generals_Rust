@@ -164,32 +164,13 @@ pub fn os_display_warning_box(
     button_flags: u32,
     other_flags: u32,
 ) -> OSDisplayButtonType {
-    // C++ Ref: if (!TheGameText) return OSDBT_ERROR;
     let (prompt, message) = match game_text {
         Some(gt) => (gt.fetch(prompt_key), gt.fetch(message_key)),
         None => return OSDisplayButtonType::Error,
     };
-
-    let config = DialogConfig::from_flags(button_flags, other_flags);
-
-    // Log the dialog (in production, this would show a native dialog)
-    // C++ Ref: Uses MessageBoxW/MessageBoxA on Windows
-    eprintln!(
-        "[OSDisplay] {} {}: {}",
-        config.icon_label(),
-        prompt,
-        message
-    );
-
-    // C++ Ref: Default behavior is OK button
-    // The original C++ only distinguishes OK and Cancel from MessageBox return values
-    OSDisplayButtonType::Ok
+    os_display_warning_box_direct(&prompt, &message, button_flags, other_flags)
 }
 
-/// Display a warning box with pre-resolved (already localized) strings.
-///
-/// This is the direct string variant — use when you already have the display strings
-/// and don't need game text lookup.
 pub fn os_display_warning_box_direct(
     prompt: &str,
     message: &str,
@@ -197,15 +178,170 @@ pub fn os_display_warning_box_direct(
     other_flags: u32,
 ) -> OSDisplayButtonType {
     let config = DialogConfig::from_flags(button_flags, other_flags);
-
     eprintln!(
         "[OSDisplay] {} {}: {}",
         config.icon_label(),
         prompt,
         message
     );
+    if let Some(hook) = test_dialog_hook() {
+        return hook(prompt, message, &config);
+    }
+    present_native_warning_box(prompt, message, &config)
+}
 
-    OSDisplayButtonType::Ok
+fn test_dialog_hook() -> Option<fn(&str, &str, &DialogConfig) -> OSDisplayButtonType> {
+    TEST_DIALOG_HOOK.lock().ok().and_then(|guard| *guard)
+}
+
+/// Tests install a hook so unit tests do not block on a real MessageBox.
+pub fn set_os_display_test_hook(
+    hook: Option<fn(&str, &str, &DialogConfig) -> OSDisplayButtonType>,
+) {
+    if let Ok(mut guard) = TEST_DIALOG_HOOK.lock() {
+        *guard = hook;
+    }
+}
+
+static TEST_DIALOG_HOOK: std::sync::Mutex<
+    Option<fn(&str, &str, &DialogConfig) -> OSDisplayButtonType>,
+> = std::sync::Mutex::new(None);
+
+fn present_native_warning_box(
+    prompt: &str,
+    message: &str,
+    config: &DialogConfig,
+) -> OSDisplayButtonType {
+    #[cfg(target_os = "windows")]
+    {
+        return windows_message_box(prompt, message, config);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return macos_alert(prompt, message, config);
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        return unix_zenity_or_kdialog(prompt, message, config);
+    }
+    #[allow(unreachable_code)]
+    OSDisplayButtonType::Cancel
+}
+
+#[cfg(target_os = "windows")]
+fn windows_message_box(
+    prompt: &str,
+    message: &str,
+    config: &DialogConfig,
+) -> OSDisplayButtonType {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ffi::OsStr;
+
+    const MB_OK: u32 = 0x0000_0000;
+    const MB_OKCANCEL: u32 = 0x0000_0001;
+    const MB_SYSTEMMODAL: u32 = 0x0000_1000;
+    const MB_APPLMODAL: u32 = 0x0000_0000;
+    const MB_TASKMODAL: u32 = 0x0000_2000;
+    const MB_ICONEXCLAMATION: u32 = 0x0000_0030;
+    const MB_ICONINFORMATION: u32 = 0x0000_0040;
+    const MB_ICONERROR: u32 = 0x0000_0010;
+    const IDOK: i32 = 1;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn MessageBoxW(
+            hwnd: *mut core::ffi::c_void,
+            text: *const u16,
+            caption: *const u16,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let mut flags = if config.show_cancel { MB_OKCANCEL } else { MB_OK };
+    flags |= match config.modality {
+        DialogModality::SystemModal => MB_SYSTEMMODAL,
+        DialogModality::TaskModal => MB_TASKMODAL,
+        _ => MB_APPLMODAL,
+    };
+    flags |= match config.icon {
+        DialogIcon::Exclamation => MB_ICONEXCLAMATION,
+        DialogIcon::Information => MB_ICONINFORMATION,
+        DialogIcon::Error | DialogIcon::Stop => MB_ICONERROR,
+        DialogIcon::None => 0,
+    };
+    let text: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
+    let caption: Vec<u16> = OsStr::new(prompt).encode_wide().chain(Some(0)).collect();
+    let result = unsafe { MessageBoxW(core::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), flags) };
+    if result == IDOK {
+        OSDisplayButtonType::Ok
+    } else {
+        OSDisplayButtonType::Cancel
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_alert(prompt: &str, message: &str, config: &DialogConfig) -> OSDisplayButtonType {
+    let buttons = if config.show_cancel {
+        r#"{"OK", "Cancel"}"#
+    } else {
+        r#"{"OK"}"#
+    };
+    let script = format!(
+        r#"display dialog {message} with title {title} buttons {buttons} default button "OK""#,
+        message = apple_script_string(message),
+        title = apple_script_string(prompt),
+        buttons = buttons,
+    );
+    let output = std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .output();
+    match output {
+        Ok(result) if result.status.success() => {
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            if stdout.contains("Cancel") {
+                OSDisplayButtonType::Cancel
+            } else {
+                OSDisplayButtonType::Ok
+            }
+        }
+        _ => OSDisplayButtonType::Cancel,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apple_script_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn unix_zenity_or_kdialog(
+    prompt: &str,
+    message: &str,
+    config: &DialogConfig,
+) -> OSDisplayButtonType {
+    let extra = if config.show_cancel {
+        &["--ok-label=OK", "--cancel-label=Cancel"][..]
+    } else {
+        &["--ok-label=OK"][..]
+    };
+    let zenity = std::process::Command::new("zenity")
+        .args(["--warning", "--title", prompt, "--text", message])
+        .args(extra)
+        .status();
+    if let Ok(status) = zenity {
+        return if status.success() {
+            OSDisplayButtonType::Ok
+        } else {
+            OSDisplayButtonType::Cancel
+        };
+    }
+    let kdialog = std::process::Command::new("kdialog")
+        .args(["--title", prompt, "--sorry", message])
+        .status();
+    match kdialog {
+        Ok(status) if status.success() => OSDisplayButtonType::Ok,
+        _ => OSDisplayButtonType::Cancel,
+    }
 }
 
 /// Check whether the system supports Unicode display.
@@ -278,8 +414,10 @@ mod tests {
 
     #[test]
     fn test_warning_box_with_game_text() {
+        set_os_display_test_hook(Some(|_, _, _| OSDisplayButtonType::Ok));
         let gt = MockGameText;
         let result = os_display_warning_box(Some(&gt), "prompt:test", "msg:test", 1, 0);
+        set_os_display_test_hook(None);
         assert_eq!(result, OSDisplayButtonType::Ok);
     }
 
@@ -291,8 +429,10 @@ mod tests {
 
     #[test]
     fn test_warning_box_direct() {
-        let result = os_display_warning_box_direct("Title", "Message", 1, 0);
-        assert_eq!(result, OSDisplayButtonType::Ok);
+        set_os_display_test_hook(Some(|_, _, _| OSDisplayButtonType::Cancel));
+        let result = os_display_warning_box_direct("Title", "Message", 1 | 2, 0);
+        set_os_display_test_hook(None);
+        assert_eq!(result, OSDisplayButtonType::Cancel);
     }
 
     #[test]

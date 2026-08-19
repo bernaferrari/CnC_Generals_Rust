@@ -248,6 +248,8 @@ pub struct GameLogic {
     command_queue: VecDeque<GameCommand>,
     radar_updates: Vec<RadarUpdate>,
     objects_changed_trigger_areas: VecDeque<ObjectID>,
+    frame_objects_changed_trigger_areas: UnsignedInt,
+
 
     // Game state
     game_mode: Int,
@@ -363,6 +365,8 @@ impl Default for GameLogic {
             command_queue: VecDeque::new(),
             radar_updates: Vec::new(),
             objects_changed_trigger_areas: VecDeque::new(),
+            frame_objects_changed_trigger_areas: 0,
+
             game_mode: GAME_NONE,
             game_paused: false,
             loading_map: false,

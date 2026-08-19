@@ -697,7 +697,7 @@ impl W3DVolumetricShadow {
         };
         for mesh_index in 0..geometry.get_mesh_count() {
             self.build_silhouette(mesh_index, 0);
-            self.construct_volume(mesh_index, 0, extrusion);
+            self.construct_volume_vb(mesh_index, 0, extrusion);
             self.object_xform_history[0][mesh_index] = self
                 .robj
                 .as_ref()
@@ -858,6 +858,30 @@ impl W3DVolumetricShadow {
         self.shadow_volume[light_index][mesh_index] = Some(volume);
         self.shadow_volume_count[mesh_index] = triangle_count;
     }
+
+    fn construct_volume_vb(&mut self, mesh_index: usize, light_index: usize, extrusion: f32) {
+        self.construct_volume(mesh_index, light_index, extrusion);
+        let Some(volume) = self.shadow_volume[light_index][mesh_index].as_ref() else {
+            return;
+        };
+        let vert_count = volume.num_active_vertex as i32;
+        let index_count = (volume.num_active_polygon * 3) as i32;
+        let mut mgr = super::wthree_d_buffer_manager::the_w3d_buffer_manager()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(vb) = mgr.get_slot(
+            super::wthree_d_buffer_manager::VbmFvfType::Xyz,
+            vert_count,
+        ) else {
+            return;
+        };
+        let Some(_ib) = mgr.get_index_slot(index_count) else {
+            mgr.release_slot(vb);
+            return;
+        };
+        let _ = (vb, extrusion);
+    }
+
 
     pub fn render_volume(
         &self,

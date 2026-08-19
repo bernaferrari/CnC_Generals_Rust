@@ -9,7 +9,7 @@ use super::{
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::{
-    CommandSourceType, Coord3D, ModelConditionFlags, ObjectID, Xfer, XferMode, XferVersion,
+    CommandSourceType, Coord3D, KindOf, ModelConditionFlags, ObjectID, Xfer, XferMode, XferVersion,
     WEAPONSLOT_COUNT,
 };
 use crate::{GameLogicError, GameLogicResult};
@@ -713,7 +713,15 @@ impl WeaponSet {
             }
 
             let damage = weapon.estimate_weapon_damage(source_obj, Some(target_obj), None);
-            let attack_range = weapon.get_attack_range(source_obj);
+            // C++ WeaponSet.cpp:706-709 — hero KILLPILOT is not auto-chosen.
+            if weapon.get_damage_type() == DamageType::KillPilot
+                && crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
+                    .unwrap_or(false)
+                && self.current_weapon == WeaponSlotType::Primary
+            {
+                continue;
+            }
 
             // C++ line 847: Check if weapon is ready to fire
             let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
@@ -1254,7 +1262,13 @@ impl WeaponSet {
 
             // C++ WeaponSet.cpp line 662-666: Check damage > 0 (unless unresistable)
             let damage = weapon.estimate_weapon_damage(source_obj, target_obj, target_pos);
-            if damage <= 0.0 && weapon.get_damage_type() != DamageType::Unresistable {
+            if weapon.get_damage_type() == DamageType::KillPilot
+                && crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
+                    .unwrap_or(false)
+                && self.current_weapon == WeaponSlotType::Primary
+                && specific_slot.is_none()
+            {
                 continue;
             }
 

@@ -443,9 +443,9 @@ impl Object {
             }
         }
 
-        // Do promotion animation if conditions are met (C++ lines 3065-3080)
-        if do_animation && provide_feedback {
-            // Play promotion effect if we have the systems available
+        // C++ Object::onVeterancyLevelChanged: animation + unitPromoted only when
+        // doAnimation && TheGameLogic->getDrawIconUI() && provideFeedback.
+        if do_animation && crate::helpers::TheGameLogic::get_draw_icon_ui() && provide_feedback {
             let pos = *self.get_position();
             let pos_with_offset = Coord3D::new(
                 pos.x + self.health_box_offset.x,
@@ -453,7 +453,6 @@ impl Object {
                 pos.z + self.health_box_offset.z,
             );
 
-            // Spawn promotion effect
             if let Some(tracker) = &self.experience_tracker {
                 if let Ok(mut _tracker_guard) = tracker.lock() {
                     let _ = crate::experience::PromotionEffectSpawner::spawn_effect(
@@ -463,7 +462,16 @@ impl Object {
                     );
                 }
             }
+
+            if let Some(audio) = crate::helpers::TheAudio::get() {
+                let mut sound = crate::helpers::TheAudio::get_misc_audio()
+                    .unit_promoted
+                    .clone();
+                sound.set_object_id(self.id as u32);
+                audio.add_audio_event(&sound);
+            }
         }
+
 
         // Fire veterancy event
         self.fire_veterancy_event(old_level, new_level);

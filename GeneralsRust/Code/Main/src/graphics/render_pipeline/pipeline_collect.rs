@@ -412,13 +412,11 @@ impl RenderPipeline {
                                 // parent pass. Proxies, multiple HLODs, and unresolved selected
                                 // rigid children remain intentionally non-rendering rather than
                                 // drawing every source group.
-                                // C++ positions the Drawable/hull first, then
-                                // captures only its exact primary turret
-                                // HTree pivots after the selected HAnim has
-                                // sampled. The frozen Draw-state binding is
-                                // the sole authority here; unsupported/missing
-                                // bindings retain the normal HLOD pose rather
-                                // than rotating all vehicle geometry.
+                                // C++ `HLodClass::Update_Sub_Object_Transforms` only walks
+                                // created LOD children (`hlod.cpp:3236-3245`). A failed bone
+                                // bind is not an identity-local draw — that was the floating
+                                // shard path. Meshes outside the constructor-selected LOD
+                                // fail `rigid_hlod_subobject_for_mesh` and are skipped here.
                                 let Some((mesh_local_transform, animation_visible)) = w3d_model
                                     .mesh_local_transform_and_visibility_for_primary_turret_and_weapon_controls(
                                         mesh_idx,
@@ -459,23 +457,19 @@ impl RenderPipeline {
                                 {
                                     continue;
                                 }
-                                let mesh_local_transform = if transform_is_reasonable_for_mesh(
-                                    mesh_local_transform,
-                                ) {
-                                    mesh_local_transform
-                                } else {
+                                if !transform_is_reasonable_for_mesh(mesh_local_transform) {
                                     let key = format!(
                                         "{}::{}::{}",
                                         template_name_owned, model_name, mesh.name
                                     );
                                     if self.debug_warned_bad_mesh_transforms.insert(key.clone()) {
                                         warn!(
-                                        "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; using identity transform",
+                                        "Invalid mesh local transform for '{}': template='{}' model='{}' mesh='{}'; skipping (C++ does not identity-draw failed HLOD binds)",
                                         key, template_name_owned, model_name, mesh.name
                                     );
                                     }
-                                    Mat4::IDENTITY
-                                };
+                                    continue;
+                                }
                                 let mut render_item = RenderItem::new(
                                     object_id,
                                     model_name.to_string(),
@@ -486,6 +480,7 @@ impl RenderPipeline {
                                     Self::render_pass_for_material(&material),
                                 );
                                 render_item.set_mesh_local_transform(mesh_local_transform);
+                                stamp_skinned_hierarchy_bind_pose(&mut render_item, mesh);
                                 render_item.distance = world_position.distance(camera_position);
                                 render_item.apply_frozen_presentation_visuals(
                                     visibility,
@@ -566,8 +561,7 @@ impl RenderPipeline {
                                     }
                                 }
                             }
-
-                            if !w3d_model.meshes.is_empty() || has_source_aggregate_attachments {
+                            if self.render_items.len() > render_item_count_before_model {
                                 trace!(
                                     "Object {} will render with FOW alpha={}, explored={}",
                                     object_id,
@@ -579,7 +573,20 @@ impl RenderPipeline {
                             }
                         }
 
-                        self.debug_last_zero_mesh_models += 1;
+                        if w3d_model.meshes.is_empty() {
+                            self.debug_last_zero_mesh_models += 1;
+                            // Ready-but-empty is a missing visual, not a successful draw.
+                            model_missing += 1;
+                            if self.debug_last_missing_model_samples.len() < 16 {
+                                self.debug_last_missing_model_samples.push(format!(
+                                    "{}:{} [zero-mesh Ready]",
+                                    template_name_owned, model_name
+                                ));
+                            }
+                        }
+                        // Animation/HLOD produced no items. Do not skip the
+                        // fallback cube — the previous meshes.is_empty() gate
+                        // hid every real W3D that failed its pose.
                         // Fall through to fallback cube below (same as Failed path).
 
                         if Self::missing_model_debug_cubes_enabled()
@@ -709,17 +716,12 @@ impl RenderPipeline {
                         }
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let material = mesh.material.clone();
-                            let Some(mesh_local_transform) =
-                                w3d_model.mesh_local_transform_for_animation(mesh_idx, 0, 0.0)
+                            let Some(mesh_local_transform) = w3d_model
+                                .mesh_local_transform_for_animation(mesh_idx, 0, 0.0)
+                                .filter(|transform| transform_is_reasonable_for_mesh(*transform))
                             else {
                                 continue;
                             };
-                            let mesh_local_transform =
-                                if transform_is_reasonable_for_mesh(mesh_local_transform) {
-                                    mesh_local_transform
-                                } else {
-                                    Mat4::IDENTITY
-                                };
                             let mut render_item = RenderItem::new_presentation_projectile(
                                 p.id,
                                 model_name.to_string(),
@@ -730,6 +732,7 @@ impl RenderPipeline {
                                 Self::render_pass_for_material(&material),
                             );
                             render_item.set_mesh_local_transform(mesh_local_transform);
+                            stamp_skinned_hierarchy_bind_pose(&mut render_item, mesh);
                             self.render_items.push(render_item);
                         }
                         alive_objects += 1;
@@ -805,16 +808,15 @@ impl RenderPipeline {
         }
 
         let world_scale = Self::world_cull_scale(world_matrix);
-        // Gameplay/render space is X/Z ground, Y-up (gameplay_to_render_transform is
-        // identity). Use a building-sized fallback: selection_radius 0→10 is far too
-        // small for CCs/factories and culls them before the mesh is ever loaded.
-        let fallback_radius = selection_radius.max(Self::structure_cull_fallback_radius(
-            template_name,
-            model_name,
-        ));
         let fallback_center = world_matrix.w_axis.truncate();
-        model_bounds
-            .map(|(local_center, local_radius)| {
+        match model_bounds {
+            Some((local_center, local_radius)) => {
+                // Prefer the W3D AABB. selection_radius 0→10 is only a lower
+                // bound once real mesh extents exist — never the sole sphere.
+                let fallback_radius = selection_radius.max(Self::structure_cull_fallback_radius(
+                    template_name,
+                    model_name,
+                ));
                 let world_center = world_matrix.transform_point3(local_center);
                 let world_radius = Self::scaled_world_cull_radius(
                     Some(local_radius),
@@ -822,11 +824,14 @@ impl RenderPipeline {
                     world_scale,
                 );
                 (world_center, world_radius)
-            })
-            .unwrap_or((
-                fallback_center,
-                Self::scaled_world_cull_radius(None, fallback_radius, world_scale),
-            ))
+            }
+            None => {
+                // No cached AABB: a 10-unit guess at the object origin culls
+                // AmericaCommandCenter (1362) before the mesh can load, so the
+                // bounds never populate. Pass through until the W3D AABB exists.
+                (fallback_center, f32::INFINITY)
+            }
+        }
     }
 
     /// Largest affine-axis scale used to convert local W3D bounds into the
@@ -901,8 +906,41 @@ impl RenderPipeline {
     }
 
     pub(super) fn model_local_cull_bounds(model: &crate::assets::W3DModel) -> Option<(Vec3, f32)> {
-        let min = model.bounding_box_min;
-        let max = model.bounding_box_max;
+        if let Some(bounds) =
+            Self::aabb_to_cull_sphere(model.bounding_box_min, model.bounding_box_max)
+        {
+            return Some(bounds);
+        }
+        // Bind-pose can fail for every HLOD child (container/identity mismatch),
+        // leaving the stored AABB at the zero sentinel. Union mesh vertices in
+        // their baked/local transform so a CC is not a radius-10 guess.
+        let mut min = Vec3::splat(f32::MAX);
+        let mut max = Vec3::splat(f32::MIN);
+        let mut any = false;
+        for mesh in &model.meshes {
+            let xform = if mesh.transform.is_finite() {
+                mesh.transform
+            } else {
+                Mat4::IDENTITY
+            };
+            for vertex in &mesh.vertices {
+                let pos = xform.transform_point3(Vec3::from_array(vertex.position));
+                if !pos.is_finite() {
+                    continue;
+                }
+                min = min.min(pos);
+                max = max.max(pos);
+                any = true;
+            }
+        }
+        if any {
+            Self::aabb_to_cull_sphere(min, max)
+        } else {
+            None
+        }
+    }
+
+    fn aabb_to_cull_sphere(min: Vec3, max: Vec3) -> Option<(Vec3, f32)> {
         if !min.is_finite() || !max.is_finite() {
             return None;
         }
@@ -1184,13 +1222,16 @@ impl RenderPipeline {
                     }
                     child.local_transform
                 } else {
-                    let Some(bind) =
-                        model.mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
+                    let Some(transform) = model
+                        .mesh_local_transform_for_animation(mesh_index, usize::MAX, 0.0)
                     else {
                         continue;
                     };
-                    bind
+                    transform
                 };
+                if !transform_is_reasonable_for_mesh(mesh_local_transform) {
+                    continue;
+                }
                 let mut material = mesh.material.clone();
                 material.diffuse_color *= color_rgb;
                 material.opacity *= color[3];
@@ -1203,6 +1244,7 @@ impl RenderPipeline {
                     continue;
                 };
                 item.set_mesh_local_transform(scale * mesh_local_transform);
+                stamp_skinned_hierarchy_bind_pose(&mut item, mesh);
                 item.distance = world_position.distance(camera_position);
                 self.render_items.push(item);
             }
@@ -1364,12 +1406,9 @@ impl RenderPipeline {
                             ) {
                                 continue;
                             }
-                            let mesh_local_transform =
-                                if transform_is_reasonable_for_mesh(mesh_local_transform) {
-                                    mesh_local_transform
-                                } else {
-                                    Mat4::IDENTITY
-                                };
+                            if !transform_is_reasonable_for_mesh(mesh_local_transform) {
+                                continue;
+                            }
                             let mut item = match owner_object_id {
                                 Some(object_id) => RenderItem::new(
                                     crate::game_logic::ObjectId(object_id),
@@ -1399,6 +1438,7 @@ impl RenderPipeline {
                             item.animation_binding = animation_binding.clone();
                             item.capture_bone_controls = capture_bone_controls.clone();
                             item.set_mesh_local_transform(mesh_local_transform);
+                            stamp_skinned_hierarchy_bind_pose(&mut item, mesh);
                             Self::attach_bridge_draw_metadata(&mut item, &submission);
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
@@ -1742,6 +1782,20 @@ fn real_w3d_name_resolved(model_name: &str) -> bool {
     !t.is_empty() && t != crate::assets::mesh_asset_resolve::PLACEHOLDER_MODEL_KEY
 }
 
+/// C++ `MeshGeometryClass` sets `SKIN` only after a complete influence chunk.
+/// Either the header geometry type or a retained influence array is enough to
+/// require a real HTree palette instead of the renderer's identity pad.
+fn mesh_declares_skin(mesh: &crate::assets::W3DMesh) -> bool {
+    crate::assets::W3DModel::mesh_declares_skin(mesh)
+}
+
+fn stamp_skinned_hierarchy_bind_pose(item: &mut RenderItem, mesh: &crate::assets::W3DMesh) {
+    if mesh_declares_skin(mesh) {
+        item.bone_palette_source = RenderItemBonePaletteSource::HierarchyBindPose;
+    }
+}
+
+
 #[cfg(test)]
 mod w3d_live_path_tests {
     use super::*;
@@ -1781,6 +1835,62 @@ mod w3d_live_path_tests {
         assert!(
             src.contains("new_unbound_client_drawable"),
             "standalone C++ GameClient drawables must reach the renderer without an ObjectID cast"
+        );
+        let identity_tuple_fallback = ["unwrap_or((mesh", ".transform, true))"].join("");
+        let identity_mesh_fallback = ["unwrap_or(mesh", ".transform)"].join("");
+        assert!(
+            !src.contains(&identity_tuple_fallback),
+            "failed HLOD binds must skip, not identity-draw"
+        );
+        assert!(
+            !src.contains(&identity_mesh_fallback),
+            "failed HLOD binds must skip, not identity-draw"
+        );
+        assert!(
+            src.contains("stamp_skinned_hierarchy_bind_pose"),
+            "SKIN meshes must stamp a resolved HTree palette source"
+        );
+    }
+
+    #[test]
+    fn skin_meshes_stamp_hierarchy_bind_pose_not_identity_pad() {
+        // C++ `MeshClass::Render` (`mesh.cpp:746-771`) deforms SKIN through
+        // `Container->Get_HTree()`. Collect must stamp HierarchyBindPose so
+        // the renderer does not upload the identity 64-mat pad.
+        let mut skin = crate::assets::W3DMesh::new("skin".to_string());
+        skin.vertex_influences = Some(vec![ww3d_core::w3d_format::W3dVertInfStruct {
+            bone_idx: 1,
+            pad: [0; 6],
+        }]);
+        let mut item = RenderItem::new(
+            crate::game_logic::ObjectId(1),
+            "SkinModel".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &crate::assets::W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        stamp_skinned_hierarchy_bind_pose(&mut item, &skin);
+        assert_eq!(
+            item.bone_palette_source,
+            RenderItemBonePaletteSource::HierarchyBindPose
+        );
+
+        let rigid = crate::assets::W3DMesh::new("rigid".to_string());
+        let mut rigid_item = RenderItem::new(
+            crate::game_logic::ObjectId(2),
+            "RigidModel".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &crate::assets::W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        stamp_skinned_hierarchy_bind_pose(&mut rigid_item, &rigid);
+        assert_ne!(
+            rigid_item.bone_palette_source,
+            RenderItemBonePaletteSource::HierarchyBindPose
         );
     }
 

@@ -13,9 +13,10 @@ pub mod loader;
 pub mod loaders;
 pub use loaders::{animation_loader, hierarchy_loader, mesh_loader};
 pub mod material;
+pub mod proto_loaders;
 pub mod prototype;
 pub mod prototype_loader;
-pub mod prototypes;
+
 pub mod rendering;
 pub mod shatter;
 pub mod sound;
@@ -91,10 +92,16 @@ pub use material::{
     DstBlendFunc, FogFunc, Material, MaterialManager, MaterialPass, PrimaryGradient,
     SecondaryGradient, Shader, SrcBlendFunc, Texturing, VertexMaterial,
 };
+pub use proto_loaders::{
+    AggregateLoader, BoxLoader, CollectionLoader, DazzleLoader, DistLodLoader, HLodProtoLoader,
+    NullLoader, ParticleEmitterLoader, RingLoader, SphereLoader,
+};
 pub use prototype::{CloneRenderObj, PrimitivePrototype, Prototype, PrototypeBuilder};
 pub use prototype_loader::{
     DefaultLoaders, HAnimLoader, HModelLoader, HTreeLoader, MeshLoader, PrototypeLoader,
 };
+
+
 pub use rendering::{
     BufferHandle, GpuMesh, GpuSkinnedMesh, MeshData, NullRenderBackend, PipelineHandle,
     RenderBackend, RenderCommand, Renderer, SkinnedMeshData, SkinnedVertex, TextureHandle, Vertex,

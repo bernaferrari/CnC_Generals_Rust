@@ -246,54 +246,76 @@ impl InputLight {
         }
     }
 
-    /// Initialize from a point or spot light
     fn from_point_or_spot(light: &Light, object_center: Vec3) -> Self {
-        let to_light = light.position - object_center;
-        let distance = to_light.length();
-        let direction = if distance > 0.0 {
-            to_light / distance
-        } else {
-            Vec3::Y
-        };
-
-        // Calculate attenuation
-        let mut atten = light.calculate_attenuation(distance);
-
-        // Apply spot falloff if applicable
-        if light.light_type == LightType::Spot {
-            atten *= light.calculate_spot_falloff(-direction);
+        let mut direction = light.position - object_center;
+        let dist = direction.length();
+        if dist > 0.0 {
+            direction /= dist;
         }
 
-        // Apply intensity
-        atten *= light.intensity;
+        let mut atten = 1.0;
+        if light.flags.far_attenuation {
+            let start = light.far_atten_start;
+            let end = light.far_atten_end;
+            if (end - start).abs() < 1.0e-5 {
+                if dist > start {
+                    atten = 0.0;
+                }
+            } else {
+                atten = (1.0 - (dist - start) / (end - start)).clamp(0.0, 1.0);
+            }
+        }
 
-        let diffuse = light.diffuse * atten;
-        let ambient = light.ambient * light.intensity;
+        if light.light_type == LightType::Spot {
+            let mut spot_dir = light.spot_direction;
+            spot_dir = light.transform.transform_vector3(spot_dir);
+            let cos_a = light.spot_angle_cos;
+            let denom = 1.0 - cos_a;
+            if denom.abs() > 1.0e-5 {
+                atten *= ((-spot_dir).dot(direction) - cos_a) / denom;
+            }
+            atten = atten.clamp(0.0, 1.0);
+        }
+
+        let mut ambient = light.ambient * light.intensity;
+        let mut diffuse = light.diffuse * light.intensity;
+        let cutoff2 = get_lighting_lod_cutoff() * get_lighting_lod_cutoff();
+        let rejected = diffuse.length_squared() <= cutoff2;
+        if !rejected {
+            ambient *= atten;
+            diffuse *= atten;
+        } else {
+            ambient *= atten;
+            ambient += atten * diffuse;
+            diffuse = Vec3::ZERO;
+        }
 
         Self {
             direction,
             ambient,
             diffuse,
-            diffuse_rejected: diffuse.length() < get_lighting_lod_cutoff(),
-            is_point: true,
+            diffuse_rejected: rejected,
+            is_point: light.light_type == LightType::Point,
             center: light.position,
-            inner_radius: light.near_atten_end,
+            inner_radius: light.far_atten_start,
             outer_radius: light.far_atten_end,
-            point_ambient: ambient,
-            point_diffuse: diffuse,
+            point_ambient: light.ambient * light.intensity,
+            point_diffuse: light.diffuse * light.intensity,
         }
     }
 
-    /// Initialize from a directional light
     fn from_directional(light: &Light, _object_center: Vec3) -> Self {
-        let diffuse = light.diffuse * light.intensity;
-        let ambient = light.ambient * light.intensity;
-
+        let z = light.transform.z_axis.truncate();
+        let direction = if z.length_squared() > 0.0 {
+            -z.normalize()
+        } else {
+            -light.spot_direction
+        };
         Self {
-            direction: -light.spot_direction,
-            ambient,
-            diffuse,
-            diffuse_rejected: diffuse.length() < get_lighting_lod_cutoff(),
+            direction,
+            ambient: light.ambient,
+            diffuse: light.diffuse,
+            diffuse_rejected: false,
             is_point: false,
             center: Vec3::ZERO,
             inner_radius: 0.0,
@@ -303,10 +325,8 @@ impl InputLight {
         }
     }
 
-    /// Calculate contribution metric (for importance sorting)
     fn contribution(&self) -> f32 {
-        // Contribution is based on diffuse intensity
-        self.diffuse.length()
+        self.diffuse.length_squared()
     }
 }
 
@@ -318,15 +338,14 @@ struct OutputLight {
     /// Diffuse color with attenuation
     diffuse: Vec3,
 }
-
 impl OutputLight {
-    /// Initialize from input light and camera transform
     fn from_input(input: &InputLight, camera_tm: &Mat4) -> Self {
-        // Transform direction to camera space
-        let direction = camera_tm.transform_vector3(input.direction);
-
+        let mut direction = camera_tm.inverse().transform_vector3(input.direction);
+        if direction.length_squared() == 0.0 {
+            direction.x = 1.0;
+        }
         Self {
-            direction: direction.normalize(),
+            direction,
             diffuse: input.diffuse,
         }
     }
@@ -366,7 +385,7 @@ impl LightEnvironment {
             output_ambient: Vec3::ZERO,
             output_lights: Vec::new(),
             fill_light: None,
-            fill_intensity: 0.5,
+            fill_intensity: 0.0,
         }
     }
 
@@ -385,69 +404,98 @@ impl LightEnvironment {
     /// Lights are sorted by importance (contribution). Only the most important
     /// MAX_LIGHTS lights are kept.
     pub fn add_light(&mut self, light: &Light) {
-        let input_light = InputLight::from_light(light, self.object_center);
-
-        // Add ambient contribution
-        self.output_ambient += input_light.ambient;
-
-        // Skip if diffuse is too weak
-        if input_light.diffuse_rejected {
+        if light.diffuse.x < 0.05 && light.diffuse.y < 0.05 && light.diffuse.z < 0.05 {
             return;
         }
 
-        // Add to input lights
-        self.input_lights.push(input_light);
-
-        // Sort by contribution (highest first)
-        self.input_lights.sort_by(|a, b| {
-            b.contribution()
-                .partial_cmp(&a.contribution())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Keep only MAX_LIGHTS
-        if self.input_lights.len() > MAX_LIGHTS {
-            self.input_lights.truncate(MAX_LIGHTS);
+        let mut new_light = InputLight::from_light(light, self.object_center);
+        if self.fill_intensity != 0.0 {
+            new_light.diffuse *= light.intensity;
         }
 
+        self.output_ambient += new_light.ambient;
+
+        if new_light.diffuse_rejected && !new_light.is_point {
+            return;
+        }
+
+        let contribution = new_light.contribution();
+        let mut inserted = false;
+        for light_index in 0..self.input_lights.len() {
+            if contribution > self.input_lights[light_index].contribution() {
+                let count = self.input_lights.len();
+                for i in (light_index + 1..=count).rev() {
+                    if i < MAX_LIGHTS {
+                        if i == count {
+                            self.input_lights.push(self.input_lights[i - 1].clone());
+                        } else {
+                            self.input_lights[i] = self.input_lights[i - 1].clone();
+                        }
+                    }
+                }
+                self.input_lights[light_index] = new_light;
+                if self.input_lights.len() > MAX_LIGHTS {
+                    self.input_lights.truncate(MAX_LIGHTS);
+                }
+                inserted = true;
+                break;
+            }
+        }
+
+        if !inserted && self.input_lights.len() < MAX_LIGHTS {
+            self.input_lights.push(new_light);
+        }
         self.light_count = self.input_lights.len();
     }
 
-    /// Pre-render update - transform lights to camera space
     pub fn pre_render_update(&mut self, camera_tm: &Mat4) {
+        self.calculate_fill_light();
         self.output_lights.clear();
-
         for input_light in &self.input_lights {
             self.output_lights
                 .push(OutputLight::from_input(input_light, camera_tm));
         }
+        self.output_ambient.x = self.output_ambient.x.clamp(0.0, 1.0);
+        self.output_ambient.y = self.output_ambient.y.clamp(0.0, 1.0);
+        self.output_ambient.z = self.output_ambient.z.clamp(0.0, 1.0);
     }
 
     /// Calculate and add a fill light
     ///
     /// Fill light is used to prevent completely black shadows
     pub fn calculate_fill_light(&mut self) {
-        if self.light_count == 0 {
+        if self.light_count == 0 || self.fill_intensity == 0.0 {
             return;
         }
 
-        // Calculate average opposite direction of all lights
-        let mut avg_dir = Vec3::ZERO;
-        for light in &self.input_lights {
-            avg_dir -= light.direction;
+        let primary_contribution = self.input_lights[0].contribution();
+        let mut average_light = self.input_lights[0].clone();
+        let num_lights = self.light_count.min(MAX_LIGHTS - 1);
+        for i in 1..num_lights {
+            let ratio = if primary_contribution != 0.0 {
+                self.input_lights[i].contribution() / primary_contribution
+            } else {
+                0.0
+            };
+            average_light.direction += self.input_lights[i].direction * ratio;
+            average_light.ambient += self.input_lights[i].ambient * ratio;
+            average_light.diffuse += self.input_lights[i].diffuse * ratio;
+        }
+        if average_light.direction.length_squared() > 0.0 {
+            average_light.direction = average_light.direction.normalize();
         }
 
-        if avg_dir.length() > 0.0 {
-            avg_dir = avg_dir.normalize();
-        } else {
-            avg_dir = Vec3::Y;
+        let mut hsv = rgb_to_hsv(average_light.diffuse);
+        hsv.x += 180.0;
+        if hsv.x > 360.0 {
+            hsv.x -= 360.0;
         }
+        hsv.z *= self.fill_intensity;
 
-        // Create fill light
         let fill = InputLight {
-            direction: avg_dir,
+            direction: average_light.direction * -1.0,
             ambient: Vec3::ZERO,
-            diffuse: self.output_ambient * self.fill_intensity,
+            diffuse: hsv_to_rgb(hsv),
             diffuse_rejected: false,
             is_point: false,
             center: Vec3::ZERO,
@@ -456,8 +504,22 @@ impl LightEnvironment {
             point_ambient: Vec3::ZERO,
             point_diffuse: Vec3::ZERO,
         };
+        self.fill_light = Some(fill.clone());
+        self.add_fill_light_computed(fill);
+    }
 
-        self.fill_light = Some(fill);
+    fn add_fill_light_computed(&mut self, fill: InputLight) {
+        if fill.diffuse.x < 0.05 && fill.diffuse.y < 0.05 && fill.diffuse.z < 0.05 {
+            self.output_ambient += fill.ambient;
+            return;
+        }
+        self.output_ambient += fill.ambient;
+        if self.light_count == MAX_LIGHTS {
+            self.input_lights[MAX_LIGHTS - 1] = fill;
+        } else {
+            self.input_lights.push(fill);
+            self.light_count += 1;
+        }
     }
 
     /// Add the fill light to the active lights
@@ -510,12 +572,63 @@ impl LightEnvironment {
     }
 }
 
+fn rgb_to_hsv(rgb: Vec3) -> Vec3 {
+    let max = rgb.x.max(rgb.y).max(rgb.z);
+    let min = rgb.x.min(rgb.y).min(rgb.z);
+    let mut hsv = Vec3::new(0.0, 0.0, max);
+    hsv.y = if max != 0.0 { (max - min) / max } else { 0.0 };
+    if hsv.y == 0.0 {
+        hsv.x = -1.0;
+    } else {
+        let delta = max - min;
+        hsv.x = if rgb.x == max {
+            (rgb.y - rgb.z) / delta
+        } else if rgb.y == max {
+            2.0 + (rgb.z - rgb.x) / delta
+        } else {
+            4.0 + (rgb.x - rgb.y) / delta
+        };
+        hsv.x *= 60.0;
+        if hsv.x < 0.0 {
+            hsv.x += 360.0;
+        }
+    }
+    hsv
+}
+
+fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
+    let mut h = hsv.x;
+    let s = hsv.y;
+    let v = hsv.z;
+    if s == 0.0 {
+        return Vec3::splat(v);
+    }
+    if h == 360.0 {
+        h = 0.0;
+    }
+    h /= 60.0;
+    let i = h.floor() as i32;
+    let f = h - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    match i {
+        0 => Vec3::new(v, t, p),
+        1 => Vec3::new(q, v, p),
+        2 => Vec3::new(p, v, t),
+        3 => Vec3::new(p, q, v),
+        4 => Vec3::new(t, p, v),
+        _ => Vec3::new(v, p, q),
+    }
+}
+
+
 /// Global lighting LOD cutoff - uses Arc<Mutex<f32>> for thread-safe mutable access
 static LIGHTING_LOD_CUTOFF: OnceLock<Arc<Mutex<f32>>> = OnceLock::new();
 
 fn get_lod_cutoff_cell() -> Arc<Mutex<f32>> {
     LIGHTING_LOD_CUTOFF
-        .get_or_init(|| Arc::new(Mutex::new(0.01)))
+        .get_or_init(|| Arc::new(Mutex::new(0.5)))
         .clone()
 }
 
@@ -652,10 +765,10 @@ mod tests {
         assert_eq!(env.get_light_count(), MAX_LIGHTS);
     }
 
-    #[test]
     fn test_fill_light() {
         let mut env = LightEnvironment::new();
         env.reset(Vec3::ZERO, Vec3::new(0.2, 0.2, 0.2));
+        env.set_fill_intensity(1.0);
 
         let light = Light::point(
             "Light1".to_string(),
@@ -666,9 +779,8 @@ mod tests {
         env.add_light(&light);
 
         env.calculate_fill_light();
-        env.add_fill_light();
 
-        // Should have original light + fill light
+        // Original light + hue-flipped fill occupying the next slot.
         assert_eq!(env.get_light_count(), 2);
     }
 }

@@ -35,6 +35,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::physics::{SurfaceType, TerrainQuery};
 use crate::player::PlayerType;
+use crate::player::ThePlayerList;
 use crate::scripting::engine::get_script_engine;
 pub use crate::scripting::engine::AttackPriorityInfo;
 use crate::team::get_team_factory;
@@ -1385,6 +1386,24 @@ impl AiGroup {
             let _ = ai_guard.execute_command(params);
         }
     }
+
+    /// C++ `AIGroup::crc` — member IDs, size, unused leader, speed, dirty, id.
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        for &id in &self.member_list {
+            let mut member_id = id;
+            let _ = xfer.xfer_object_id(&mut member_id);
+        }
+        let mut size = self.member_list.len() as u32;
+        let _ = xfer.xfer_unsigned_int(&mut size);
+        let mut leader = INVALID_ID;
+        let _ = xfer.xfer_object_id(&mut leader);
+        let mut speed = self.speed;
+        let _ = xfer.xfer_real(&mut speed);
+        let mut dirty = self.dirty;
+        let _ = xfer.xfer_bool(&mut dirty);
+        let mut id = self.id;
+        let _ = xfer.xfer_unsigned_int(&mut id);
+    }
 }
 
 fn to_module_attitude(attitude: AttitudeType) -> AIAttitudeType {
@@ -1543,9 +1562,16 @@ impl AI {
             }
         }
 
-        // Run player updates (matches C++ ThePlayerList->UPDATE()).
-        // AI player lifecycle is managed by AIManager in this port.
-
+        // C++ AI::update — ThePlayerList->UPDATE() after pathfind queue.
+        if let Ok(list) = ThePlayerList().read() {
+            let players: Vec<_> = list.iter().cloned().collect();
+            drop(list);
+            for player in players {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard.update();
+                }
+            }
+        }
         Ok(())
     }
 
@@ -1641,14 +1667,14 @@ impl AI {
         };
 
         let candidates = partition.get_objects_in_range(&me_pos, range);
+        // C++ AI.cpp:651 — NULL or default AttackPriorityInfo is closest-first.
+        let use_priority = info.is_some_and(|i| !i.get_name().is_empty());
         let mut closest_id = None;
         let mut closest_dist_sqr = range * range + 1.0;
 
         let mut best_enemy = None;
         let mut effective_priority = 0;
         let mut actual_priority = 0;
-
-        let use_priority = info.is_some();
         let attack_priority_modifier = self
             .ai_data
             .read()
@@ -1686,17 +1712,27 @@ impl AI {
                             return None;
                         }
                         if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
-                            if let Some(player_id) = me_guard.get_controlling_player_id() {
-                                if !target.is_visible_to_player(player_id as u32) {
-                                    return None;
-                                }
+                            let target_pos = *target.get_position();
+                            if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+                                Some(me),
+                                &me_pos,
+                                Some(target_id),
+                                &target_pos,
+                            ) {
+                                return None;
                             }
                         }
                         if (qualifiers & search_qualifiers::UNFOGGED) != 0 {
-                            if let Some(player_id) = me_guard.get_controlling_player_id() {
-                                if !target.is_visible_to_player(player_id as u32) {
-                                    return None;
-                                }
+                            let player_index = me_guard
+                                .get_controlling_player()
+                                .and_then(|player| {
+                                    player.read().ok().map(|guard| guard.get_player_index())
+                                })
+                                .unwrap_or(-1);
+                            if target.get_shrouded_status(player_index)
+                                != crate::common::ObjectShroudStatus::Clear
+                            {
+                                return None;
                             }
                         }
                         if target.is_stealthed() && !target.is_detected() {
@@ -1868,10 +1904,14 @@ impl AI {
                             return None;
                         }
                         if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
-                            if let Some(player_id) = me_guard.get_controlling_player_id() {
-                                if !target.is_visible_to_player(player_id as u32) {
-                                    return None;
-                                }
+                            let target_pos = *target.get_position();
+                            if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+                                Some(me),
+                                me_guard.get_position(),
+                                Some(target_id),
+                                &target_pos,
+                            ) {
+                                return None;
                             }
                         }
                         Some(ThePartitionManager::get_distance_squared(
@@ -1970,7 +2010,7 @@ impl AI {
             return Ok(0.0);
         }
 
-        let Some((mut range, player_is_human, attitude)) =
+        let Some((mut range, player_is_human, attitude, contained, weapon_range)) =
             OBJECT_REGISTRY.with_object(object, |obj_guard| {
                 let range = obj_guard.get_vision_range();
                 let player_is_human = obj_guard
@@ -1988,7 +2028,9 @@ impl AI {
                         .ok()
                         .map(|ai_guard| ai_guard.get_attitude())
                 });
-                (range, player_is_human, attitude)
+                let contained = obj_guard.get_contained_by().is_some();
+                let weapon_range = obj_guard.get_largest_weapon_range();
+                (range, player_is_human, attitude, contained, weapon_range)
             })
         else {
             return Err(AiError::InvalidObject);
@@ -2010,12 +2052,16 @@ impl AI {
             }
         }
 
-        if (factors_to_consider & vision_factors::MOOD) != 0 && !player_is_human {
+        // C++ AI.cpp:814-826 — contained uses weapon range; Sleep returns 0.
+        if contained {
+            range = weapon_range;
+        } else if (factors_to_consider & vision_factors::MOOD) != 0 && !player_is_human {
             if let Some(attitude) = attitude {
                 match attitude {
+                    AIAttitudeType::Sleep => return Ok(0.0),
                     AIAttitudeType::Aggressive => range *= ai_data.aggressive_range_modifier,
                     AIAttitudeType::Defensive => range *= ai_data.alert_range_modifier,
-                    AIAttitudeType::Passive | AIAttitudeType::Sleep | AIAttitudeType::Normal => {}
+                    AIAttitudeType::Passive | AIAttitudeType::Normal => {}
                 }
             }
         }
@@ -2028,6 +2074,51 @@ impl Default for AI {
     fn default() -> Self {
         Self::new()
     }
+}
+
+impl Snapshot for AI {
+    /// C++ `AI::crc` — pathfinder snapshot, then TAiData / AIGroup markers.
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        if let Some(pathfinder) = &self.pathfinder {
+            if let Ok(pf) = pathfinder.read() {
+                pf.crc_pathfinder(xfer);
+            }
+        }
+
+        if let Ok(data) = self.ai_data.read() {
+            let mut marker = String::from("MARKER:TAiData");
+            let _ = xfer.xfer_ascii_string(&mut marker);
+            data.crc(xfer);
+        }
+
+        for group in &self.group_list {
+            if let Ok(group_guard) = group.read() {
+                let mut marker = String::from("MARKER:AIGroup");
+                let _ = xfer.xfer_ascii_string(&mut marker);
+                group_guard.crc(xfer);
+            }
+        }
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+    }
+
+    fn load_post_process(&mut self) {}
+}
+
+static FRAME_OBJECTS_CHANGED_TRIGGER_AREAS: std::sync::atomic::AtomicU32 =
+    std::sync::atomic::AtomicU32::new(0);
+
+/// Stamp used by area-guard scans (C++ `getFrameObjectsChangedTriggerAreas`).
+pub fn set_frame_objects_changed_trigger_areas(frame: u32) {
+    FRAME_OBJECTS_CHANGED_TRIGGER_AREAS.store(frame, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// C++ `TheGameLogic::getFrameObjectsChangedTriggerAreas`.
+pub fn get_frame_objects_changed_trigger_areas() -> u32 {
+    FRAME_OBJECTS_CHANGED_TRIGGER_AREAS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Debug)]
@@ -2806,6 +2897,32 @@ impl Pathfinder {
     ) -> bool {
         self.inner
             .is_line_passable_for_surfaces(from, to, surfaces, ignore_obstacle_id)
+    }
+
+    /// C++ `Pathfinder::findGroundPath` used by `AIGroup::friend_computeGroundPath`.
+    pub fn find_group_ground_path(
+        &self,
+        from: &Coord3D,
+        to: &Coord3D,
+        diameter_cells: i32,
+    ) -> Option<Vec<Coord3D>> {
+        let cell = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let radius = diameter_cells.max(1) as f32 * cell * 0.5;
+        let result = self.inner.find_ground_path(
+            *from,
+            *to,
+            crate::ai::pathfind_complete::SURFACE_GROUND,
+            false,
+            radius,
+            false,
+            false,
+            None,
+        );
+        if result.success && result.waypoints.len() >= 2 {
+            Some(result.waypoints)
+        } else {
+            None
+        }
     }
 
     /// Terrain/object line-of-sight check for attack states.

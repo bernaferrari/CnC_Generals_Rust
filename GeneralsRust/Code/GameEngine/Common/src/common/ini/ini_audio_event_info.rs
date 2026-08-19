@@ -115,6 +115,117 @@ fn register_audio_event_info(info: &AudioEventInfo) {
     };
 }
 
+fn bits_to_control_flags(bits: u32) -> AudioControlFlags {
+    AudioControlFlags {
+        loop_audio: (bits & AC_LOOP) != 0,
+        random: (bits & AC_RANDOM) != 0,
+        all: (bits & AC_ALL) != 0,
+        post_delay: (bits & AC_POSTDELAY) != 0,
+        interrupt: (bits & AC_INTERRUPT) != 0,
+    }
+}
+
+fn engine_type_to_ini(sound_type: EngineAudioType) -> AudioType {
+    match sound_type {
+        EngineAudioType::Music => AudioType::Music,
+        EngineAudioType::Streaming => AudioType::Streaming,
+        EngineAudioType::SoundEffect => AudioType::SoundEffect,
+    }
+}
+
+fn engine_priority_to_ini(priority: EngineAudioPriority) -> AudioPriority {
+    match priority {
+        EngineAudioPriority::Lowest => AudioPriority::Lowest,
+        EngineAudioPriority::Low => AudioPriority::Low,
+        EngineAudioPriority::Normal => AudioPriority::Normal,
+        EngineAudioPriority::High => AudioPriority::High,
+        EngineAudioPriority::Critical => AudioPriority::Critical,
+    }
+}
+
+fn engine_info_to_ini(info: &EngineAudioEventInfo) -> AudioEventInfo {
+    AudioEventInfo {
+        audio_name: info.audio_name.clone(),
+        sound_type: engine_type_to_ini(info.sound_type),
+        filename: info.filename.clone(),
+        volume: info.volume,
+        volume_shift: info.volume_shift,
+        min_volume: info.min_volume,
+        pitch_shift_min: info.pitch_shift_min,
+        pitch_shift_max: info.pitch_shift_max,
+        delay_min: info.delay_min as i32,
+        delay_max: info.delay_max as i32,
+        limit: info.limit,
+        loop_count: info.loop_count,
+        priority: engine_priority_to_ini(info.priority),
+        audio_type: info.type_field,
+        control: bits_to_control_flags(info.control),
+        sounds: info.sounds.clone(),
+        sounds_night: info.sounds_night.clone(),
+        sounds_evening: info.sounds_evening.clone(),
+        sounds_morning: info.sounds_morning.clone(),
+        attack_sounds: info.attack_sounds.clone(),
+        decay_sounds: info.decay_sounds.clone(),
+        min_distance: info.min_distance,
+        max_distance: info.max_distance,
+        low_pass_freq: info.low_pass_freq,
+    }
+}
+
+fn lookup_engine_audio_event(name: &str) -> Option<AudioEventInfo> {
+    let manager = get_global_audio_manager()?;
+    let guard = manager.lock().ok()?;
+    guard
+        .find_audio_event_info(name)
+        .map(|info| engine_info_to_ini(info.as_ref()))
+}
+
+fn ensure_placeholder_event(name: &str) {
+    let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+    if let Ok(mut guard) = manager.lock() {
+        let _ = guard.new_audio_event_info(name.to_string());
+    }
+}
+
+fn add_music_track_name(name: String) {
+    let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+    if let Ok(mut guard) = manager.lock() {
+        guard.add_track_name(name);
+    }
+}
+
+/// C++ `INI::parseMusicTrackDefinition` / `parseAudioEventDefinition` / `parseDialogDefinition`.
+fn parse_named_audio_definition(
+    ini: &mut INI,
+    sound_type: AudioType,
+    default_name: &str,
+    add_track: bool,
+) -> INIResult<()> {
+    let name = match ini.get_next_value_token().or_else(|| ini.get_first_token()) {
+        Some(token) => token,
+        None => return Err(INIError::InvalidData),
+    };
+
+    // C++ `TheAudio->newAudioEventInfo(name)` inserts first so Default* lookup
+    // succeeds for the template itself (empty copy + addTrackName).
+    ensure_placeholder_event(&name);
+
+    let mut event = if let Some(default_info) = lookup_engine_audio_event(default_name) {
+        if add_track {
+            add_music_track_name(name.clone());
+        }
+        default_info
+    } else {
+        AudioEventInfo::new(name.clone(), sound_type)
+    };
+    event.audio_name = name;
+    event.sound_type = sound_type;
+    event.parse_audio_fields(ini)?;
+    register_audio_event_info(&event);
+    Ok(())
+}
+
+
 /// Audio Event Information structure
 #[derive(Debug, Clone)]
 pub struct AudioEventInfo {
@@ -297,6 +408,8 @@ impl AudioEventInfo {
             priority: map_audio_priority(self.priority),
             min_distance: self.min_distance,
             max_distance: self.max_distance,
+            low_pass_freq: self.low_pass_freq,
+            is_level_specific: false,
         }
     }
 }
@@ -538,68 +651,17 @@ const FIELD_PARSE_TABLE: &[super::ini::FieldParse<AudioEventInfo>] = &[
 
 /// Parse music track definition from INI file
 pub fn parse_music_track_definition(ini: &mut INI) -> INIResult<()> {
-    // Read the track name
-    let name = match ini.get_next_value_token().or_else(|| ini.get_first_token()) {
-        Some(token) => token,
-        None => return Err(INIError::InvalidData),
-    };
-
-    // Create new audio event info for music track
-    let mut track = AudioEventInfo::new(name.clone(), AudioType::Music);
-
-    // Apply defaults from "DefaultMusicTrack" if it exists
-    // This would be handled by the audio system in a real implementation
-
-    // Parse the track fields
-    track.parse_audio_fields(ini)?;
-
-    register_audio_event_info(&track);
-
-    Ok(())
+    parse_named_audio_definition(ini, AudioType::Music, "DefaultMusicTrack", true)
 }
 
 /// Parse audio event definition from INI file
 pub fn parse_audio_event_definition(ini: &mut INI) -> INIResult<()> {
-    // Read the event name
-    let name = match ini.get_next_value_token().or_else(|| ini.get_first_token()) {
-        Some(token) => token,
-        None => return Err(INIError::InvalidData),
-    };
-
-    // Create new audio event info
-    let mut event = AudioEventInfo::new(name.clone(), AudioType::SoundEffect);
-
-    // Apply defaults from "DefaultSoundEffect" if it exists
-    // This would be handled by the audio system in a real implementation
-
-    // Parse the event fields
-    event.parse_audio_fields(ini)?;
-
-    register_audio_event_info(&event);
-
-    Ok(())
+    parse_named_audio_definition(ini, AudioType::SoundEffect, "DefaultSoundEffect", false)
 }
 
 /// Parse dialog event definition from INI file
 pub fn parse_dialog_definition(ini: &mut INI) -> INIResult<()> {
-    // Read the dialog name
-    let name = match ini.get_next_value_token().or_else(|| ini.get_first_token()) {
-        Some(token) => token,
-        None => return Err(INIError::InvalidData),
-    };
-
-    // Create new audio event info for dialog
-    let mut dialog = AudioEventInfo::new(name.clone(), AudioType::Streaming);
-
-    // Apply defaults from "DefaultDialog" if it exists
-    // This would be handled by the audio system in a real implementation
-
-    // Parse the dialog fields
-    dialog.parse_audio_fields(ini)?;
-
-    register_audio_event_info(&dialog);
-
-    Ok(())
+    parse_named_audio_definition(ini, AudioType::Streaming, "DefaultDialog", false)
 }
 
 #[cfg(test)]

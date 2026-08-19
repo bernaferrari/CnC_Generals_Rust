@@ -2,8 +2,33 @@
 use super::*;
 
 pub(super) const DEFAULT_SKIRMISH_MAP: &str = "Defcon6";
+/// C++ `View::m_FOV` is the **horizontal** field of view (View.h:173, View.cpp:53).
+/// glam `perspective_rh` takes vertical FOV, so convert at matrix build time.
 pub(super) const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 pub(super) const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
+
+/// C++ `CameraClass::Set_View_Plane(hfov, -1)` (WW3D2/camera.cpp:257-261):
+/// `height_half = tan(hfov/2) / aspect` ⇒ `vfov = 2*atan(tan(hfov/2)/aspect)`.
+#[inline]
+pub(super) fn vertical_fov_from_horizontal(hfov_radians: f32, aspect: f32) -> f32 {
+    let aspect = aspect.max(0.01);
+    2.0 * ((hfov_radians * 0.5).tan() / aspect).atan()
+}
+
+#[inline]
+pub(super) fn perspective_rh_from_horizontal_fov(
+    hfov_radians: f32,
+    aspect: f32,
+    near: f32,
+    far: f32,
+) -> glam::Mat4 {
+    glam::Mat4::perspective_rh(
+        vertical_fov_from_horizontal(hfov_radians, aspect),
+        aspect,
+        near,
+        far,
+    )
+}
 pub(super) const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
 pub(super) const SHELL_MENU_WINDOW_TITLE: &str = "Command & Conquer Generals Zero Hour";
 

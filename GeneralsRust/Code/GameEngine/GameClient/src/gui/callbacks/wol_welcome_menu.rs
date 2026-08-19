@@ -41,6 +41,11 @@ use game_network::gamespy::persistent_storage_thread::{
     get_ps_message_queue, PSResponseType, LOC_MAX, LOC_MIN,
 };
 use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
+use game_network::firewall_helper::{
+    behavior_detection_update, detect_firewall, firewall_detection_done, get_firewall_behavior,
+    write_firewall_behavior,
+};
+use game_engine::common::ini::ini_game_data::get_global_data;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -972,9 +977,7 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std:
         open_overlay(GameSpyOverlayType::LocaleSelect);
     }
 
-    // TODO: C++ creates TheFirewallHelper and calls detectFirewall() on init
-    // TODO: C++ calls TheFirewallHelper->behaviorDetectionUpdate() in update loop
-    // TODO: C++ writes firewall behavior to GlobalData and to disk
+    detect_firewall();
 
     with_window_manager(|manager| manager.transition_set_group("WOLWelcomeMenuFade", false));
 }
@@ -1031,7 +1034,13 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&dyn st
         raise_gs_message_box();
     }
 
-    // TODO: C++ calls TheFirewallHelper->behaviorDetectionUpdate() here to detect firewall type each frame
+    if !firewall_detection_done() && behavior_detection_update() {
+        write_firewall_behavior();
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.firewall_behavior = get_firewall_behavior().0 as u32;
+        }
+    }
 
     if should_poll {
         handle_buddy_responses();

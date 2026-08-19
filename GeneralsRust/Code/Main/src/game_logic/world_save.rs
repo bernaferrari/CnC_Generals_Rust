@@ -2638,14 +2638,19 @@ impl GameLogic {
 
                     #[cfg(feature = "game_client")]
                     if let Some(hm) = heightmap_data.as_ref() {
-                        use gamelogic::common::MAP_HEIGHT_SCALE;
+                        use gamelogic::common::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
                         let width = hm.width.max(1) as u32;
                         let height = hm.height.max(1) as u32;
                         if hm.data.len() == (width * height) as usize {
                             let max_height = 255.0 * MAP_HEIGHT_SCALE;
+                            // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap
+                            // stores map-authored border (ZH Alpine = 70).
+                            // HeightMap::new defaults scale=1 / border=0; the
+                            // visual freeze copies these fields verbatim.
                             let mut heightmap = game_client::terrain::height_map::HeightMap::new(
-                                width, height, max_height, 1.0,
+                                width, height, max_height, MAP_XY_FACTOR,
                             );
+                            apply_cpp_heightmap_xy_and_border(&mut heightmap, hm.border_size);
                             heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
                             if let Some(blend) = blend_tile_data.as_ref() {
                                 if blend.tile_ndxes.len() == heightmap.tile_ndxes.len() {
@@ -2679,13 +2684,14 @@ impl GameLogic {
                                     }));
                                     heightmap.assign_blended_tiles(tiles);
                                 }
-
                             }
+
+                            let border = heightmap.border_size.max(0) as u32;
                             self.terrain = Some(super::terrain::TerrainData::from_heightmap(
                                 heightmap,
                                 self.world_min,
                                 self.world_max,
-                                hm.border_size.max(0) as u32,
+                                border,
                             ));
                             if let Some(meta) = self.last_map_settings.clone() {
                                 let spawned_map_object_ids = self.spawned_map_object_ids.clone();
@@ -2760,12 +2766,17 @@ impl GameLogic {
                             None
                         };
 
-                        if let Some(heightmap) = loaded {
+                        if let Some(mut heightmap) = loaded {
+                            apply_cpp_heightmap_xy_and_border(
+                                &mut heightmap,
+                                heightmap.border_size,
+                            );
+                            let border = heightmap.border_size.max(0) as u32;
                             let terrain = super::terrain::TerrainData::from_heightmap(
                                 heightmap,
                                 self.world_min,
                                 self.world_max,
-                                0,
+                                border,
                             );
                             self.terrain = Some(terrain);
                             if let Some(meta) = self.last_map_settings.clone() {
@@ -2910,4 +2921,15 @@ fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
         return None;
     }
     read_info.lists.into_iter().next().map(|boxed| *boxed)
+}
+
+#[cfg(feature = "game_client")]
+fn apply_cpp_heightmap_xy_and_border(
+    heightmap: &mut game_client::terrain::height_map::HeightMap,
+    map_border: i32,
+) {
+    use gamelogic::common::MAP_XY_FACTOR;
+    // C++ MapObject.h MAP_XY_FACTOR; WorldHeightMap::m_borderSize else ZH 70.
+    heightmap.scale = MAP_XY_FACTOR;
+    heightmap.border_size = if map_border > 0 { map_border } else { 70 };
 }

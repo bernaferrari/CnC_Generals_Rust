@@ -18,6 +18,18 @@ use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::{sync::RwLock, task};
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static CRATE_TEXTURE_REDUCTION: AtomicU32 = AtomicU32::new(0);
+
+pub fn set_crate_texture_reduction(factor: u32) {
+    CRATE_TEXTURE_REDUCTION.store(factor.min(4), Ordering::Relaxed);
+}
+
+fn crate_texture_reduction() -> u32 {
+    CRATE_TEXTURE_REDUCTION.load(Ordering::Relaxed)
+}
+
 use wgpu::{
     AddressMode, CompareFunction, Device, Extent3d, FilterMode, Origin3d, Queue, Sampler,
     SamplerDescriptor, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture as WgpuTexture,
@@ -932,10 +944,29 @@ impl W3DTextureManager {
         image: DynamicImage,
     ) -> Result<W3DTextureGpu> {
         let rgba_image = image.to_rgba8();
-        let (width, height) = rgba_image.dimensions();
-        let raw_data = rgba_image.into_raw();
+        let (mut width, mut height) = rgba_image.dimensions();
+        let mut raw_data = rgba_image.into_raw();
 
-        // Calculate mip levels
+        // C++ TextureClass IsReducible / WW3D::Get_Texture_Reduction.
+        let reduction = crate_texture_reduction();
+        for _ in 0..reduction {
+            if width <= 1 && height <= 1 {
+                break;
+            }
+            let Some(img) = image::RgbaImage::from_raw(width, height, raw_data) else {
+                break;
+            };
+            width = (width / 2).max(1);
+            height = (height / 2).max(1);
+            let resized = image::imageops::resize(
+                &img,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
+            raw_data = resized.into_raw();
+        }
+
         let mip_levels = if self.mip_levels_auto {
             (width.min(height) as f32).log2().floor() as u32 + 1
         } else {

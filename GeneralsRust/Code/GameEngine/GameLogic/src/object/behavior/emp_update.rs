@@ -18,7 +18,7 @@ use crate::modules::{
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::{
-    registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
+    drawable::TintStatus, registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
     INVALID_ID as OBJECT_INVALID_ID,
 };
 use crate::weapon::WeaponAffectsMask;
@@ -32,6 +32,19 @@ use std::sync::{Arc, RwLock, Weak};
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
+/// C++ EMPUpdate.cpp saturateRGB — operate in 0-1, then pack back to Color.
+fn saturate_rgb(color: Color, factor: Real) -> Color {
+    let half = factor * 0.5;
+    let sat = |channel: u8| -> u8 {
+        let mut v = (channel as Real / 255.0) * factor - half;
+        if v < 0.0 {
+            v = 0.0;
+        }
+        (v * 255.0).round().clamp(0.0, 255.0) as u8
+    };
+    Color::rgb(sat(color.r), sat(color.g), sat(color.b))
 }
 
 const WEAPON_AFFECTS_MASK_NAMES: &[&str] = &[
@@ -413,10 +426,18 @@ impl EMPUpdate {
                         return false;
                     }
                     victim.kill(None, None);
+                    if let Some(drawable) = victim.get_drawable() {
+                        if let Ok(mut drw) = drawable.write() {
+                            drw.set_tint_status(TintStatus::DISABLED);
+                        }
+                    }
                     return false;
-                }
-
-                if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
+                } else if victim.is_kind_of(KindOf::Structure) {
+                    // C++ EMPUpdate.cpp:251-255 — civilian/tech buildings skip EMP.
+                    if !victim.is_faction_structure() {
+                        return false;
+                    }
+                } else if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
                     let relationship = source_guard.relationship_to(victim);
                     if matches!(relationship, Relationship::Allies) {
                         return false;
@@ -521,13 +542,23 @@ impl UpdateModuleInterface for EMPUpdate {
             return UpdateSleepTime::None;
         };
 
-        let now = TheGameLogic::get_frame();
-
         if let Ok(obj) = obj_arc.read() {
             self.current_scale += (self.target_scale - self.current_scale) * 0.05;
             if let Some(drawable) = obj.get_drawable() {
-                let scale = Matrix3D::from_scale(Coord3D::splat(self.current_scale));
-                drawable.set_instance_matrix(Some(&scale));
+                if let Ok(mut dr) = drawable.write() {
+                    dr.set_instance_scale(self.current_scale);
+                    if now < self.tint_env_play_frame {
+                        dr.color_tint(Some(saturate_rgb(self.module_data.start_color, 2.0)));
+                    }
+                    if now == self.tint_env_play_frame {
+                        dr.color_flash(
+                            Some(saturate_rgb(self.module_data.end_color, 5.0)),
+                            9999,
+                            self.tint_env_fade_frames,
+                            true,
+                        );
+                    }
+                }
             }
         }
 

@@ -964,6 +964,10 @@ impl ContainModuleInterface for TunnelContain {
         TunnelContain::kill_all_contained(self).map_err(|e| e.into())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn remove_all_contained(
         &mut self,
         expose_stealth: bool,

@@ -31,6 +31,12 @@ impl InGameUI {
             idle_workers: Vec::new(),
             current_frame: 0,
             radius_cursor: RadiusCursorState::new(),
+            radius_cursor_templates: vec![
+                crate::radius_decal::RadiusDecalTemplate::with_texture("SCCAttackDamageArea");
+                RadiusCursorType::COUNT as usize
+            ],
+            cur_radius_decal: crate::radius_decal::RadiusDecal::new(),
+            guard_hint_stashed_position: Coord3D::new(0.0, 0.0, 0.0),
             superweapon_timers: Vec::new(),
             mouse_mode: MouseMode::Default,
             current_cursor: MouseCursor::Arrow,
@@ -46,6 +52,17 @@ impl InGameUI {
             named_timer_last_flash_frame: 0,
             named_timer_used_flash_color: false,
             show_named_timers: true,
+            named_timer_position: (0.05, 0.8),
+            named_timer_flash_duration: 1.0,
+            named_timer_flash_color: 0xFFFFFFFF,
+            named_timer_normal_font: "Arial".to_string(),
+            named_timer_normal_point_size: 10,
+            named_timer_normal_bold: false,
+            named_timer_normal_color: 0xFFFFFFFF,
+            named_timer_ready_font: "Arial".to_string(),
+            named_timer_ready_point_size: 10,
+            named_timer_ready_bold: false,
+            named_timer_ready_color: 0xFFFFFFFF,
             gui_command: None,
             quit_menu_visible: false,
             window_layouts: HashMap::new(),
@@ -127,6 +144,12 @@ impl InGameUI {
             // Movie playback (C++ constructor: InGameUI.cpp)
             currently_playing_movie: None,
             cameo_movie_playing: None,
+            video_stream: None,
+            video_buffer: None,
+            cameo_video_stream: None,
+            cameo_video_buffer: None,
+            displayed_max_warning: false,
+            last_ui_logic_frame: u32::MAX,
 
             // World animations
             world_animations: Vec::new(),
@@ -143,28 +166,23 @@ impl InGameUI {
     }
 
     /// Handle mouse input for selection box
-    pub fn update_resources(&mut self, credits: i32, power_available: i32, power_used: i32) {
-        self.resource_display
-            .update(credits, power_available, power_used);
-    }
-
-    /// Update minimap world bounds
-    pub fn update_camera(&mut self, position: Vec3, viewport: Vec2) {
-        self.minimap.camera_position = position;
-        self.minimap.camera_viewport = viewport;
-    }
-
-    /// Add or update unit icon on minimap
-    pub fn set_player_id(&mut self, player_id: u32) {
-        self.player_id = player_id;
-        self.sync_selection_state();
-    }
-
     pub fn add_superweapon_timer(
         &mut self,
         player_index: u8,
         object_id: ObjectID,
         power_name: String,
+        ready_frame: u32,
+    ) {
+        self.add_superweapon(player_index, object_id, power_name, None, ready_frame);
+    }
+
+    /// C++ InGameUI::addSuperweapon (InGameUI.cpp:548-580).
+    pub fn add_superweapon(
+        &mut self,
+        player_index: u8,
+        object_id: ObjectID,
+        power_name: String,
+        template_name: Option<String>,
         ready_frame: u32,
     ) {
         let existing = self.superweapon_timers.iter().any(|t| {
@@ -173,16 +191,53 @@ impl InGameUI {
         if existing {
             return;
         }
+        let template_name = template_name.unwrap_or_else(|| power_name.clone());
+        let (hidden_by_science, color) =
+            Self::superweapon_science_and_color(player_index, &template_name);
         self.superweapon_timers.push(SuperweaponTimerData {
             player_index,
             object_id,
             power_name,
+            template_name,
             ready_frame,
             countdown_text: String::new(),
             ready: false,
             hidden_by_script: false,
-            hidden_by_science: false,
+            hidden_by_science,
+            timestamp: -1,
+            eva_ready_played: false,
+            color,
+            force_update_text: true,
+            name_text: String::new(),
+            time_text: String::new(),
+            use_ready_font: false,
         });
+    }
+
+    fn superweapon_science_and_color(player_index: u8, template_name: &str) -> (bool, u32) {
+        let player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(player_index as i32).cloned());
+        let color = player
+            .as_ref()
+            .and_then(|p| p.read().ok().map(|g| g.get_player_color()))
+            .map(|c| {
+                ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
+            })
+            .unwrap_or(0xFFFFFFFF);
+        let hidden_by_science = get_special_power_store()
+            .and_then(|store| store.find_special_power_template(template_name).cloned())
+            .map(|template| {
+                let science = template.get_required_science();
+                science != game_engine::common::rts::SCIENCE_INVALID
+                    && player
+                        .as_ref()
+                        .and_then(|p| p.read().ok().map(|g| !g.has_science(science)))
+                        .unwrap_or(true)
+            })
+            .unwrap_or(false);
+        (hidden_by_science, color)
     }
 
     pub fn remove_superweapon_timer(
@@ -200,31 +255,278 @@ impl InGameUI {
         self.superweapon_timers.len() < before
     }
 
-    pub fn update_superweapon_timers(&mut self, current_frame: u32) {
-        const LOGICFRAMES_PER_SECOND: u32 = 30;
-        for timer in &mut self.superweapon_timers {
-            if timer.hidden_by_script || timer.hidden_by_science {
+    /// C++ InGameUI::objectChangedTeam (InGameUI.cpp:612-651).
+    pub fn object_changed_team(&mut self, object_id: ObjectID, old_player: i32, new_player: i32) {
+        if old_player < 0 || new_player < 0 {
+            return;
+        }
+        let old_idx = old_player as u8;
+        let new_idx = new_player as u8;
+        let moved: Vec<SuperweaponTimerData> = self
+            .superweapon_timers
+            .iter()
+            .filter(|t| t.object_id == object_id && t.player_index == old_idx)
+            .cloned()
+            .collect();
+        for timer in &moved {
+            self.remove_superweapon_timer(old_idx, object_id, &timer.power_name);
+            self.add_superweapon(
+                new_idx,
+                object_id,
+                timer.power_name.clone(),
+                Some(timer.template_name.clone()),
+                timer.ready_frame,
+            );
+        }
+        if !moved.is_empty() {
+            return;
+        }
+        if TheGameLogic::get_frame() != 0 {
+            return;
+        }
+        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(guard) = obj.read() else {
+            return;
+        };
+        if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction)
+            || guard.is_kind_of(KindOf::CommandCenter)
+        {
+            return;
+        }
+        for behavior in guard.get_behavior_modules() {
+            let Ok(module) = behavior.lock() else {
+                continue;
+            };
+            let Some(sp) = module.get_special_power_module_interface_const() else {
+                continue;
+            };
+            let power_name = sp.get_power_name().to_string();
+            if power_name.is_empty() {
                 continue;
             }
-            if current_frame >= timer.ready_frame && timer.ready_frame > 0 {
-                if !timer.ready {
-                    timer.ready = true;
-                }
-                timer.countdown_text = "READY".to_string();
-            } else if timer.ready_frame > 0 {
-                let remaining = timer.ready_frame.saturating_sub(current_frame);
-                let total_seconds = remaining / LOGICFRAMES_PER_SECOND;
-                let minutes = total_seconds / 60;
-                let seconds = total_seconds % 60;
-                timer.countdown_text = format!("{}:{:02}", minutes, seconds);
-                timer.ready = false;
+            drop(module);
+            self.add_superweapon(new_idx, object_id, power_name, None, 0);
+        }
+    }
+
+    /// C++ postDraw SW block state (InGameUI.cpp:3487-3697).
+    pub fn update_superweapon_timers(&mut self, current_frame: u32) {
+        const LOGICFRAMES_PER_SECOND: u32 = 30;
+        if current_frame == 0 {
+            return;
+        }
+        let mut flash_toggled = false;
+        let mut i = 0;
+        let mut shared_seen: Vec<(u8, String)> = Vec::new();
+        while i < self.superweapon_timers.len() {
+            let player_index = self.superweapon_timers[i].player_index;
+            let power_name = self.superweapon_timers[i].power_name.clone();
+            if self.superweapon_timers[i].hidden_by_script
+                || self.superweapon_timers[i].hidden_by_science
+            {
+                i += 1;
+                continue;
             }
+
+            let object_id = self.superweapon_timers[i].object_id;
+            let template_name = self.superweapon_timers[i].template_name.clone();
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                i += 1;
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                i += 1;
+                continue;
+            };
+            if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction) {
+                i += 1;
+                continue;
+            }
+
+            let lookup_name = if template_name.is_empty() {
+                power_name.as_str()
+            } else {
+                template_name.as_str()
+            };
+            let (is_ready, ready_frame, power_type, shared) = guard
+                .with_special_power_module_interface_by_name(lookup_name, |sp| {
+                    let template = get_special_power_store().and_then(|store| {
+                        store.find_special_power_template(lookup_name).cloned()
+                    });
+                    (
+                        sp.is_ready(),
+                        sp.get_ready_frame(),
+                        template
+                            .as_ref()
+                            .map(|t| t.get_special_power_type())
+                            .unwrap_or(gamelogic::object::special_power_types::SpecialPowerType::Invalid),
+                        template
+                            .as_ref()
+                            .map(|t| t.is_shared_n_sync())
+                            .unwrap_or(false),
+                    )
+                })
+                .unwrap_or((
+                    false,
+                    self.superweapon_timers[i].ready_frame,
+                    gamelogic::object::special_power_types::SpecialPowerType::Invalid,
+                    false,
+                ));
+            drop(guard);
+
+            if shared && shared_seen.iter().any(|(p, n)| *p == player_index && n == &power_name) {
+                i += 1;
+                continue;
+            }
+            if shared {
+                shared_seen.push((player_index, power_name.clone()));
+            }
+
+            let ready_secs = if ready_frame < current_frame {
+                0
+            } else {
+                (ready_frame - current_frame) / LOGICFRAMES_PER_SECOND
+            } as i32;
+
+            if is_ready && !self.superweapon_timers[i].eva_ready_played {
+                Self::announce_superweapon_ready(object_id, power_type);
+                self.superweapon_timers[i].eva_ready_played = true;
+            } else if !is_ready {
+                self.superweapon_timers[i].eva_ready_played = false;
+            }
+
+            if self.superweapon_hidden_by_script {
+                i += 1;
+                continue;
+            }
+
+            let change_bolding = ready_secs != self.superweapon_timers[i].timestamp
+                || is_ready != self.superweapon_timers[i].ready
+                || self.superweapon_timers[i].force_update_text;
+            if change_bolding {
+                if is_ready {
+                    self.superweapon_timers[i].use_ready_font = true;
+                } else if self.superweapon_timers[i].timestamp == 0 {
+                    self.superweapon_timers[i].use_ready_font = false;
+                }
+                self.superweapon_timers[i].force_update_text = false;
+                self.superweapon_timers[i].ready = is_ready;
+                self.superweapon_timers[i].timestamp = ready_secs;
+                self.superweapon_timers[i].ready_frame = ready_frame;
+                let min = ready_secs / 60;
+                let sec = ready_secs - min * 60;
+                let label = GameText::fetch(&format!("GUI:{lookup_name}"));
+                self.superweapon_timers[i].name_text = format!("{label}: ");
+                self.superweapon_timers[i].time_text = format!("{min}:{sec:02}");
+                self.superweapon_timers[i].countdown_text =
+                    format!("{label}: {min}:{sec:02}");
+            }
+
+            if is_ready && self.superweapon_flash_duration != 0.0 && !flash_toggled {
+                if current_frame
+                    >= self.superweapon_last_flash_frame
+                        + self.superweapon_flash_duration as u32
+                {
+                    self.superweapon_used_flash_color = !self.superweapon_used_flash_color;
+                    self.superweapon_last_flash_frame = current_frame;
+                    flash_toggled = true;
+                }
+            }
+            i += 1;
+        }
+    }
+
+    fn announce_superweapon_ready(
+        object_id: ObjectID,
+        power_type: gamelogic::object::special_power_types::SpecialPowerType,
+    ) {
+        use gamelogic::object::special_power_types::SpecialPowerType;
+        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(guard) = obj.read() else {
+            return;
+        };
+        let local = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(local) = local else {
+            return;
+        };
+        let Ok(local_guard) = local.read() else {
+            return;
+        };
+        let own = guard
+            .get_controlling_player()
+            .and_then(|p| p.read().ok().map(|g| g.get_player_index() == local_guard.get_player_index()))
+            .unwrap_or(false);
+        let ally = guard
+            .get_team()
+            .and_then(|team| {
+                team.read()
+                    .ok()
+                    .map(|t| local_guard.get_relationship_with_team(&t) != Relationship::Enemies)
+            })
+            .unwrap_or(false);
+        let message = match power_type {
+            SpecialPowerType::ParticleUplinkCannon
+            | SpecialPowerType::SupwParticleUplinkCannon
+            | SpecialPowerType::LazrParticleUplinkCannon => {
+                if own {
+                    crate::eva::EvaMessage::SuperweaponReadyOwnParticleCannon
+                } else if ally {
+                    crate::eva::EvaMessage::SuperweaponReadyAllyParticleCannon
+                } else {
+                    crate::eva::EvaMessage::SuperweaponReadyEnemyParticleCannon
+                }
+            }
+            SpecialPowerType::NeutronMissile
+            | SpecialPowerType::NukeNeutronMissile
+            | SpecialPowerType::SupwNeutronMissile => {
+                if own {
+                    crate::eva::EvaMessage::SuperweaponReadyOwnNuke
+                } else if ally {
+                    crate::eva::EvaMessage::SuperweaponReadyAllyNuke
+                } else {
+                    crate::eva::EvaMessage::SuperweaponReadyEnemyNuke
+                }
+            }
+            SpecialPowerType::ScudStorm => {
+                if own {
+                    crate::eva::EvaMessage::SuperweaponReadyOwnScudStorm
+                } else if ally {
+                    crate::eva::EvaMessage::SuperweaponReadyAllyScudStorm
+                } else {
+                    crate::eva::EvaMessage::SuperweaponReadyEnemyScudStorm
+                }
+            }
+            _ => return,
+        };
+        if let Ok(mut eva) = crate::eva::get_eva().lock() {
+            eva.set_should_play(message);
         }
     }
 
     pub fn get_superweapon_timers(&self) -> &[SuperweaponTimerData] {
         &self.superweapon_timers
     }
+
+    /// Visible SW rows after script/science/construction filters.
+    pub fn visible_superweapon_draw_entries(&self) -> Vec<&SuperweaponTimerData> {
+        if self.superweapon_hidden_by_script {
+            return Vec::new();
+        }
+        self.superweapon_timers
+            .iter()
+            .filter(|t| !t.hidden_by_script && !t.hidden_by_science)
+            .collect()
+    }
+
+    // ── Mouse cursor system ──────────────────────────────────────────────
+    // C++: InGameUI::setMouseCursor() (InGameUI.cpp:516-525)
 
     // ── Mouse cursor system ──────────────────────────────────────────────
     // C++: InGameUI::setMouseCursor() (InGameUI.cpp:516-525)
@@ -398,48 +700,43 @@ impl InGameUI {
                     )
                     .map_err(|e| e.to_string())?;
             }
-
-            let rank = guard.get_veterancy_level();
-            let rank_val = rank as i32;
-            if rank_val > 0 {
-                let pip_size = 4.0;
-                let pip_x = screen.x + 20.0;
-                let pip_y = screen.y - 25.0;
-                for i in 0..rank_val.min(3) {
-                    renderer
-                        .draw_rect_with_scissor(
-                            UIRect::new(
-                                pip_x,
-                                pip_y - (i as f32) * (pip_size + 1.0),
-                                pip_size,
-                                pip_size,
-                            ),
-                            [1.0, 0.85, 0.0, 1.0],
-                            None,
-                        )
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-
-            let ring_radius = 20.0f32;
-            let segments = 24u32;
-            for i in 0..segments {
-                let angle1 = (i as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
-                let angle2 = ((i + 1) as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
-                let x1 = screen.x + ring_radius * angle1.cos();
-                let y1 = screen.y + ring_radius * angle1.sin();
-                let x2 = screen.x + ring_radius * angle2.cos();
-                let y2 = screen.y + ring_radius * angle2.sin();
-                renderer.draw_line(
-                    Vec2::new(x1, y1),
-                    Vec2::new(x2, y2),
-                    1.5,
-                    [0.0, 1.0, 0.0, 0.6],
-                    0.0,
-                );
-            }
         }
         Ok(())
+    }
+
+    /// Update UI state
+    pub fn update(&mut self, delta_time: Duration) {
+        self.last_update = Instant::now();
+        self.ui_time += delta_time.as_secs_f32();
+        if let Ok(mut renderer) = self.renderer.write() {
+            renderer.set_time(self.ui_time);
+        }
+        self.current_frame = TheGameLogic::get_frame();
+        self.update_movie_playback();
+        self.expire_messages();
+        self.update_military_subtitle();
+        self.update_floating_texts();
+        self.update_named_timers();
+        self.update_superweapon_timers(self.current_frame);
+        self.last_ui_logic_frame = self.current_frame;
+        self.handle_radius_cursor();
+    }
+
+    pub fn pre_draw(&mut self, frame: u32) {
+        self.current_frame = frame;
+        self.expire_hints();
+        self.expire_messages();
+        self.update_floating_texts();
+        self.update_superweapon_timers(frame);
+        self.update_named_timers();
+        self.update_military_subtitle();
+        self.update_and_draw_world_animations();
+    }
+
+    pub fn post_draw(&mut self, frame: u32) {
+        self.current_frame = frame;
+        self.update_superweapon_timers(frame);
+        self.update_named_timers();
     }
 
     /// C++: drawPlacementCursor() — renders ghost building at the given
@@ -684,6 +981,8 @@ impl InGameUI {
         if let Ok(mut renderer) = self.renderer.write() {
             renderer.set_time(self.ui_time);
         }
+        // C++ InGameUI::update calls handleRadiusCursor each frame.
+        self.handle_radius_cursor();
     }
 
     /// Resize UI elements
@@ -776,6 +1075,29 @@ impl InGameUI {
         self.superweapon_ready_point_size = settings.superweapon_ready_point_size;
         self.superweapon_ready_bold = settings.superweapon_ready_bold;
 
+        self.named_timer_position = (
+            settings.named_timer_position.x,
+            settings.named_timer_position.y,
+        );
+        self.named_timer_flash_duration = settings.named_timer_flash_duration;
+        self.named_timer_flash_color = settings.named_timer_flash_color;
+        self.named_timer_normal_font = settings.named_timer_normal_font.clone();
+        self.named_timer_normal_point_size = settings.named_timer_normal_point_size;
+        self.named_timer_normal_bold = settings.named_timer_normal_bold;
+        self.named_timer_normal_color = settings.named_timer_normal_color;
+        self.named_timer_ready_font = settings.named_timer_ready_font.clone();
+        self.named_timer_ready_point_size = settings.named_timer_ready_point_size;
+        self.named_timer_ready_bold = settings.named_timer_ready_bold;
+        self.named_timer_ready_color = settings.named_timer_ready_color;
+
+        self.floating_text_timeout_frames = if settings.floating_text_timeout == 0 {
+            DEFAULT_FLOATING_TEXT_TIMEOUT
+        } else {
+            settings.floating_text_timeout
+        };
+        self.floating_text_move_up_speed = settings.floating_text_move_up_speed;
+        self.floating_text_vanish_rate = settings.floating_text_vanish_rate;
+
         self.drawable_caption_font = settings.drawable_caption_font.clone();
         self.drawable_caption_point_size = settings.drawable_caption_point_size;
         self.drawable_caption_bold = settings.drawable_caption_bold;
@@ -788,6 +1110,7 @@ impl InGameUI {
     }
 
     fn apply_global_language_font_overrides(&mut self) {
+        crate::global_language::init_global_language_data();
         let Some(language) = get_global_language_read() else {
             return;
         };
@@ -840,8 +1163,14 @@ impl InGameUI {
     }
 
     fn language_font_override(font: &FontDesc) -> Option<(String, i32, bool)> {
-        (!font.name.is_empty() && *font != FontDesc::default())
-            .then(|| (font.name.clone(), font.size, font.bold))
+        if font.name.is_empty() || *font == FontDesc::default() {
+            return None;
+        }
+        let size = crate::global_language::get_global_language_data()
+            .read()
+            .map(|data| data.adjust_font_size(font.size))
+            .unwrap_or(font.size);
+        Some((font.name.clone(), size, font.bold))
     }
 
     // ── Command hint system ──────────────────────────────────────────────

@@ -271,8 +271,9 @@ pub fn construct_shadow_volume(
     for edge in silhouette {
         let p0 = mesh.vertices[edge[0] as usize];
         let p1 = mesh.vertices[edge[1] as usize];
-        let e0 = p0 + (p0 - light_pos_object).normalize_or_zero() * shadow_extrude_distance;
-        let e1 = p1 + (p1 - light_pos_object).normalize_or_zero() * shadow_extrude_distance;
+        // C++ constructVolume: extrude = (vert - light) * shadowExtrudeDistance + vert
+        let e0 = p0 + (p0 - light_pos_object) * shadow_extrude_distance;
+        let e1 = p1 + (p1 - light_pos_object) * shadow_extrude_distance;
         let base = vertices.len() as u16;
         vertices.extend_from_slice(&[p0, p1, e1, e0]);
         indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

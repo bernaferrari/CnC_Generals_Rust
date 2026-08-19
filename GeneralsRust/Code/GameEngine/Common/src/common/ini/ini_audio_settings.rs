@@ -13,6 +13,8 @@ use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use crate::common::user_preferences::UserPreferences;
+
 
 /// Maximum number of hardware 3D providers
 pub const MAX_HW_PROVIDERS: usize = 4;
@@ -771,9 +773,61 @@ pub fn parse_audio_settings_definition(ini: &mut INI) -> INIResult<()> {
 
         // Parse using field table
         ini.init_from_ini_with_fields(&mut *settings, FIELD_PARSE_TABLE)?;
+
+        // C++ INI::parseAudioSettingsDefinition (GameAudio.cpp:1106-1124):
+        // OptionPreferences override preferred slider volumes after AudioSettings.ini.
+        apply_option_preferences_to_settings(&mut settings);
     }
 
     Ok(())
+}
+
+fn preferred_volume_from_options(
+    raw_percent: Option<f32>,
+    default_fraction: f32,
+    relative_2d: f32,
+    is_2d: bool,
+) -> f32 {
+    if let Some(percent) = raw_percent {
+        return percent.max(0.0) / 100.0;
+    }
+    let mut volume = default_fraction;
+    if is_2d && relative_2d < 0.0 {
+        volume *= 1.0 + relative_2d;
+    } else if !is_2d && relative_2d > 0.0 {
+        volume *= 1.0 - relative_2d;
+    }
+    volume
+}
+
+fn apply_option_preferences_to_settings(settings: &mut AudioSettings) {
+    let mut prefs = UserPreferences::new();
+    let _ = prefs.load("Options.ini");
+    let relative = settings.relative_2d_volume;
+    settings.preferred_sound_volume = preferred_volume_from_options(
+        prefs.get_float("SFXVolume"),
+        settings.default_sound_volume,
+        relative,
+        true,
+    );
+    settings.preferred_3d_sound_volume = preferred_volume_from_options(
+        prefs.get_float("SFX3DVolume"),
+        settings.default_3d_sound_volume,
+        relative,
+        false,
+    );
+    settings.preferred_speech_volume = preferred_volume_from_options(
+        prefs.get_float("VoiceVolume"),
+        settings.default_speech_volume,
+        0.0,
+        true,
+    );
+    settings.preferred_music_volume = preferred_volume_from_options(
+        prefs.get_float("MusicVolume"),
+        settings.default_music_volume,
+        0.0,
+        true,
+    );
 }
 
 #[cfg(test)]

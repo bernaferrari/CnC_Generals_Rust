@@ -13,6 +13,8 @@ impl TerrainVisualImpl {
             chunk_manager: ChunkManager::new(),
             texture_system: TerrainTextures::new(),
             source_tiles: vec![None; NUM_SOURCE_TILES],
+            source_tile_classes: Vec::new(),
+
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(Self::terrain_tracks_config()),
@@ -27,6 +29,11 @@ impl TerrainVisualImpl {
             terrain_pipeline: None,
             terrain_depth_pipeline: None,
             water_pipeline: None,
+            water_texture_bind_group_layout: None,
+            water_texture: None,
+            water_sampler: None,
+            water_texture_bind_group: None,
+            water_texture_is_fallback: false,
             road_pipeline: None,
             road_texture_bind_group_layout: None,
             road_texture: None,
@@ -68,6 +75,9 @@ impl TerrainVisualImpl {
             last_tree_atlas_mips: Vec::new(),
             tree_meshes: Vec::new(),
             tree_atlas_texture: None,
+            tree_atlas_bind_group_layout: None,
+            tree_atlas_sampler: None,
+            tree_atlas_bind_group: None,
             terrain_camera_bind_group_layout: None,
             terrain_texture_bind_group_layout: None,
             terrain_camera_bind_group: None,
@@ -101,6 +111,16 @@ impl TerrainVisualImpl {
             extra_blend_vertex_count: 0,
             extra_blend_pipeline: None,
             extra_blend_draw_count: AtomicU32::new(0),
+            overlay: OverlayGpuState::default(),
+            shoreline_meshes: Vec::new(),
+            water_grid_mesh: None,
+            polygon_water_meshes: Vec::new(),
+            bib_meshes: Vec::new(),
+            tank_track_meshes: Vec::new(),
+            custom_edge_meshes: Vec::new(),
+            snow_mesh: None,
+            smudge_mesh: None,
+            flat_lod_meshes: Vec::new(),
         }
     }
 
@@ -155,8 +175,9 @@ impl TerrainVisualImpl {
 
     /// Number of visible chunks; used to accumulate draw-call stats.
     pub fn chunk_draw_count(&self) -> usize {
-        self.visible_chunk_ids_for_draw_area().len()
+        self.chunk_ids_for_gpu_draw().len()
     }
+
 
     /// Apply texture-LOD side effects immediately after a runtime LOD adjustment.
     ///
@@ -367,18 +388,39 @@ impl TerrainVisualImpl {
     /// C++ `WaterTracksRenderSystem::flush` from the live water record.
     pub fn flush_water_tracks(&mut self) {
         struct SampledWaterHeight {
-            height: f32,
+            water_y: f32,
+            grid_enabled: bool,
+            grid: WaterGridCpuState,
         }
         impl crate::terrain::WaterTrackHeightProvider for SampledWaterHeight {
-            fn water_height(&self, _x: f32, _y: f32) -> f32 {
-                self.height
+            fn water_height(&self, x: f32, y: f32) -> f32 {
+                if self.grid_enabled {
+                    let (cells_x, cells_y, cell_size) = self.grid.resolution;
+                    if cells_x >= 1.0 && cells_y >= 1.0 && cell_size > 0.0 {
+                        let local = self
+                            .grid
+                            .transform
+                            .inverse()
+                            .transform_point3(glam::Vec3::new(x, y, 0.0));
+                        let gx = (local.x / cell_size) as i32;
+                        let gy = (local.y / cell_size) as i32;
+                        if let Some(delta) = self.grid.height_deltas.get(&(gx, gy)) {
+                            return self.grid.transform.w_axis.z + *delta;
+                        }
+                    }
+                }
+                self.water_y
             }
         }
-        let height = self
-            .get_water_grid_height(0.0, 0.0)
-            .or_else(|| self.get_height_at(0.0, 0.0).ok())
+        let water_y = get_global_data()
+            .map(|g| g.read().water_position_z)
+            .or_else(|| self.get_water_grid_height(0.0, 0.0))
             .unwrap_or(0.0);
-        let flush = self.water_tracks.flush(&SampledWaterHeight { height });
+        let flush = self.water_tracks.flush(&SampledWaterHeight {
+            water_y,
+            grid_enabled: self.water_grid_enabled,
+            grid: self.water_grid.clone(),
+        });
         self.last_water_tracks_flush = flush;
         self.upload_water_track_meshes();
     }
@@ -450,18 +492,38 @@ impl TerrainVisualImpl {
         self.chunk_manager.renderable_chunk_count()
     }
 
-    pub fn debug_pending_visible_chunk_count(&self) -> usize {
-        self.chunk_manager.pending_visible_chunk_count()
+    pub fn load_source_tiles_from_texture_classes(
+        &mut self,
+        classes: &[TerrainSourceTileClass],
+    ) -> TerrainResult<usize> {
+        self.source_tile_classes = classes.to_vec();
+
+        let mut loaded = 0usize;
+        for class in classes {
+            loaded += self.load_source_tiles_for_class(class)?;
+        }
+        self.bind_source_tile_classes_as_slots();
+        Ok(loaded)
     }
 
-    pub fn debug_chunk_summary(&self) -> String {
-        self.chunk_manager.render_diagnostic_summary()
+    fn bind_source_tile_classes_as_slots(&mut self) {
+        let classes = self.source_tile_classes.clone();
+        let mut ids = Vec::new();
+        for class in &classes {
+            let Some(path) = Self::resolve_source_tile_texture_path(&class.name) else {
+                continue;
+            };
+            let Some(path_str) = path.to_str() else {
+                continue;
+            };
+            if let Ok(new_ids) = self.texture_system.load_textures(&[path_str]) {
+                ids.extend(new_ids);
+            }
+        }
+        if !ids.is_empty() {
+            self.build_rules_from_textures(&ids);
+        }
     }
-
-    pub fn debug_total_chunk_geometry_revision(&self) -> u64 {
-        self.chunk_manager.total_geometry_revision()
-    }
-
     pub fn debug_dirty_chunk_count(&self) -> usize {
         self.chunk_manager.dirty_chunk_count()
     }
@@ -481,16 +543,7 @@ impl TerrainVisualImpl {
         self.source_tiles[index] = Some(tile);
     }
 
-    pub fn load_source_tiles_from_texture_classes(
-        &mut self,
-        classes: &[TerrainSourceTileClass],
-    ) -> TerrainResult<usize> {
-        let mut loaded = 0usize;
-        for class in classes {
-            loaded += self.load_source_tiles_for_class(class)?;
-        }
-        Ok(loaded)
-    }
+
 
     fn load_source_tiles_for_class(
         &mut self,

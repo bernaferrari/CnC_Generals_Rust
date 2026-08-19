@@ -418,7 +418,12 @@ impl Snapshot for GameStateMap {
                         state.real_map_path_to_portable_map_path(&save_game_map_name);
                     xfer.xfer_ascii_string(&mut portable)?;
 
-                    let mut pristine_map_name = String::new();
+                    // C++ GameStateMap.cpp:260-283 — keep the previously stored pristine
+                    // path unless the current map is outside the save directory.
+                    let mut pristine_map_name = {
+                        let save_info = state.get_save_game_info();
+                        save_info.pristine_map_name.clone()
+                    };
                     if !state.is_in_save_directory(Path::new(&global)) && !global.is_empty() {
                         pristine_map_name = global.clone();
                         first_save = true;
@@ -540,7 +545,9 @@ impl Snapshot for GameStateMap {
                 if xfer.get_xfer_mode() == XferMode::Load {
                     notify_set_skirmish_payload(Some(encode_skirmish_snapshot(&info)));
                 }
-            } else if xfer.get_xfer_mode() == XferMode::Load {
+            } else {
+                // C++ GameStateMap.cpp:408-414 — delete TheSkirmishGameInfo whenever
+                // the mode is not skirmish, on both save and load.
                 notify_set_skirmish_payload(None);
             }
 

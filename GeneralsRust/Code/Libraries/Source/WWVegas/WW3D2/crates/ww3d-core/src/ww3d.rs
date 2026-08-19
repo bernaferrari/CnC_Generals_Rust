@@ -92,13 +92,24 @@ fn renderer_storage() -> &'static Mutex<Option<RendererHandle>> {
     STORAGE.get_or_init(|| Mutex::new(None))
 }
 
-#[derive(Default)]
+/// C++ `WW3D::PrelitModeEnum` (`ww3d.h`). Selects which prelit material
+/// wrapper (`W3D_CHUNK_PRELIT_*`) a mesh load consumes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PrelitMode {
+    Unlit = 0,
+    Vertex = 1,
+    #[default]
+    LightmapMultiPass = 2,
+    LightmapMultiTexture = 3,
+}
+
 struct WW3DState {
     is_sorting_enabled: bool,
     static_sort_lists_enabled: bool,
     decals_enabled: bool,
     decal_rejection_distance: f32,
     pending_static_sort: Vec<(Arc<dyn Any + Send + Sync>, u32)>,
+    prelit_mode: PrelitMode,
 }
 
 fn ww3d_state() -> &'static Mutex<WW3DState> {
@@ -106,10 +117,14 @@ fn ww3d_state() -> &'static Mutex<WW3DState> {
     STATE.get_or_init(|| {
         Mutex::new(WW3DState {
             is_sorting_enabled: true,
-            static_sort_lists_enabled: false,
+            // C++ WW3D defaults this false, then W3DDisplay::init enables it
+            // for the whole session. No Device/Main boot hook exists here, so
+            // the live default must match post-init C++.
+            static_sort_lists_enabled: true,
             decals_enabled: true,
             decal_rejection_distance: 1_000_000.0,
             pending_static_sort: Vec::new(),
+            prelit_mode: PrelitMode::LightmapMultiPass,
         })
     })
 }
@@ -395,6 +410,23 @@ impl WW3D {
             Err(W3DError::RendererUnavailable)
         }
     }
+
+    /// C++ `WW3D::Set_Prelit_Mode`.
+    pub fn set_prelit_mode(mode: PrelitMode) {
+        ww3d_state()
+            .lock()
+            .expect("WW3D state poisoned")
+            .prelit_mode = mode;
+    }
+
+    /// C++ `WW3D::Get_Prelit_Mode`. Defaults to lightmap multi-pass.
+    pub fn get_prelit_mode() -> PrelitMode {
+        ww3d_state()
+            .lock()
+            .expect("WW3D state poisoned")
+            .prelit_mode
+    }
+
 }
 
 // Re-export for compatibility with legacy naming.

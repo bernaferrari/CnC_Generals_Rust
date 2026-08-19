@@ -1267,6 +1267,8 @@ impl ScriptEvaluator {
             // Skirmish: tech building within distance of a location
             // C++: ThePartitionManager->getClosestObject with KindOf::TECH_BUILDING + player filters
             ConditionType::SkirmishTechBuildingWithinDistance => {
+                // C++: playerFromParam first (no latch), then cached customData,
+                // missing trigger returns false without latching.
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "SkirmishTechBuildingWithinDistance condition missing player parameter"
@@ -1286,17 +1288,23 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let distance = distance_param.get_real();
-                let area_name = trigger_param.get_string();
-
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
+                if condition.custom_data == 1 {
+                    return Ok(true);
+                }
+                if condition.custom_data == -1 {
+                    return Ok(false);
+                }
+
                 let Ok(player_guard) = player_arc.read() else {
                     return Ok(false);
                 };
                 let player_index = player_guard.get_player_index();
 
+                let distance = distance_param.get_real();
+                let area_name = trigger_param.get_string();
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
                     None => return Ok(false),
@@ -1341,8 +1349,10 @@ impl ScriptEvaluator {
                         }
                     }
 
+                    condition.custom_data = 1;
                     return Ok(true);
                 }
+                condition.custom_data = -1;
                 Ok(false)
             }
 
@@ -1925,6 +1935,19 @@ impl ScriptEvaluator {
 
             // Skirmish: player's supply source is safe (above minimum amount)
             ConditionType::SupplySourceSafe => {
+                // C++ evaluateSkirmishSupplySourceSafe: cache for 2*LOGICFRAMES_PER_SECOND.
+                let frame = TheGameLogic::get_frame();
+                if frame <= condition.custom_frame {
+                    if condition.custom_data == -1 {
+                        return Ok(false);
+                    }
+                    if condition.custom_data == 1 {
+                        return Ok(true);
+                    }
+                }
+                condition.custom_frame =
+                    frame.saturating_add(2 * LOGICFRAMES_PER_SECOND as u32);
+
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "SupplySourceSafe condition missing player parameter".to_string(),
@@ -1947,6 +1970,7 @@ impl ScriptEvaluator {
                 })
                 .flatten()
                 .unwrap_or(false);
+                condition.custom_data = if safe { 1 } else { -1 };
                 Ok(safe)
             }
 

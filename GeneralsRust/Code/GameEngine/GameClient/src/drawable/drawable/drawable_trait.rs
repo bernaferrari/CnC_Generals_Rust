@@ -170,6 +170,11 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     /// Set terrain decal type
     fn set_terrain_decal_type(&mut self, decal_type: TerrainDecalType);
 
+    /// C++ `Drawable::setTerrainDecal` — store type and forward to the first draw module.
+    fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
+        self.set_terrain_decal_type(decal_type);
+    }
+
     /// Get the owning object ID if this drawable is bound to a GameLogic object.
     fn get_object_id(&self) -> Option<u32> {
         None

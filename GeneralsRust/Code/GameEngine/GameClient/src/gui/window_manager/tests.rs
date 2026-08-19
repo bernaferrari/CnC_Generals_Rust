@@ -2868,3 +2868,55 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
         "authored HIDDEN child must survive layout.hide(false)"
     );
 }
+
+#[test]
+fn combo_field_click_opens_list_and_claims_lone_window() {
+    let _lock = lock_test_mouse();
+    let combo = with_window_manager(|manager| {
+        manager.reset();
+        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+        let layout_def = WindowLayoutDefinition::default();
+        let mut info = WindowLayoutInfo::default();
+        let combo_def = WindowDefinition {
+            name: "test.wnd:Combo".to_string(),
+            window_type: "COMBOBOX".to_string(),
+            status: WindowStatus::ENABLED,
+            style: GWS_COMBO_BOX,
+            size: (120, 20),
+            combo_box_data: Some(ComboBoxData {
+                is_editable: false,
+                max_display: 5,
+                ..Default::default()
+            }),
+            ..WindowDefinition::default()
+        };
+        let combo = manager
+            .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
+            .unwrap();
+        let _ = with_payload(WindowMsgPayload::Text("Alpha".to_string()), |token| {
+            combo
+                .borrow_mut()
+                .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0)
+        });
+        let packed = 10usize | (10usize << 16);
+        let _ = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, packed);
+        combo
+    });
+
+    let links = combo.borrow().combobox_links().unwrap();
+    let list = combo.borrow().find_child_by_id(links.list_box).unwrap();
+    assert!(
+        !list.borrow().is_hidden(),
+        "combo field click must unhide the child list"
+    );
+
+    with_window_manager(|manager| {
+        let lone = manager.lone_window.as_ref().and_then(|w| w.upgrade());
+        assert!(
+            lone.is_some_and(|window| Rc::ptr_eq(&window, &combo)),
+            "opening a combo must claim the lone window"
+        );
+        manager.reset();
+    });
+}
+

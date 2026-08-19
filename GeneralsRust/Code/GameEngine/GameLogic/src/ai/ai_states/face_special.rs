@@ -1,102 +1,153 @@
-/// AI Face Object State
+/// AI Face Object State — C++ AIFaceState (m_obj=true).
 #[derive(Debug)]
-pub struct AIFaceObjectState;
+pub struct AIFaceObjectState {
+    can_turn_in_place: bool,
+}
 
 impl AIFaceObjectState {
     pub fn new() -> Self {
-        Self
+        Self {
+            can_turn_in_place: false,
+        }
     }
 }
 
 impl AIState for AIFaceObjectState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        // Wave 254: empty dual-world → fail-closed (no factory owner).
         if dual_world_registry_unavailable() {
             return StateReturnType::Failed;
         }
-
-        let Some(goal_id) = context.goal_object else {
-            return StateReturnType::Failed;
-        };
-        let Some(goal_pos) =
-            OBJECT_REGISTRY.with_object(goal_id, |goal_guard| *goal_guard.get_position())
-        else {
-            return StateReturnType::Failed;
-        };
-        let oriented = OBJECT_REGISTRY
-            .with_object_mut(context.owner_id, |owner_guard| {
-                let owner_pos = owner_guard.get_position();
-                let dx = goal_pos.x - owner_pos.x;
-                let dy = goal_pos.y - owner_pos.y;
-                let angle = dy.atan2(dx);
-                let _ = owner_guard.set_orientation(angle);
-            })
-            .is_some();
-        if !oriented {
+        if context.goal_object.is_none() {
             return StateReturnType::Failed;
         }
-        StateReturnType::Success
+        self.can_turn_in_place = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| leftover_can_turn_in_place(owner))
+            .unwrap_or(false);
+        StateReturnType::Continue
     }
 
-    fn update(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
-        StateReturnType::Success
+    fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        leftover_face_update(context, true, self.can_turn_in_place)
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // C++ AIFaceState::onExit() is genuinely empty -- orientation is set in onEnter/update only.
-    }
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::FaceObject
     }
 }
 
-/// AI Face Position State
+/// AI Face Position State — C++ AIFaceState (m_obj=false).
 #[derive(Debug)]
-pub struct AIFacePositionState;
+pub struct AIFacePositionState {
+    can_turn_in_place: bool,
+}
 
 impl AIFacePositionState {
     pub fn new() -> Self {
-        Self
+        Self {
+            can_turn_in_place: false,
+        }
     }
 }
 
 impl AIState for AIFacePositionState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        // Wave 254: empty dual-world → fail-closed (no factory owner).
         if dual_world_registry_unavailable() {
             return StateReturnType::Failed;
         }
-
-        let Some(goal_pos) = context.goal_position else {
-            return StateReturnType::Failed;
-        };
-        let oriented = OBJECT_REGISTRY
-            .with_object_mut(context.owner_id, |owner_guard| {
-                let owner_pos = owner_guard.get_position();
-                let dx = goal_pos.x - owner_pos.x;
-                let dy = goal_pos.y - owner_pos.y;
-                let angle = dy.atan2(dx);
-                let _ = owner_guard.set_orientation(angle);
-            })
-            .is_some();
-        if !oriented {
+        if context.goal_position.is_none() {
             return StateReturnType::Failed;
         }
-        StateReturnType::Success
+        self.can_turn_in_place = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| leftover_can_turn_in_place(owner))
+            .unwrap_or(false);
+        StateReturnType::Continue
     }
 
-    fn update(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
-        StateReturnType::Success
+    fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        leftover_face_update(context, false, self.can_turn_in_place)
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // C++ AIFaceState::onExit() is genuinely empty -- same class as FaceObject, no cleanup needed.
-    }
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::FacePosition
     }
+}
+
+fn leftover_can_turn_in_place(owner: &GameObject) -> bool {
+    let Some(ai) = owner.get_ai_update_interface() else {
+        return false;
+    };
+    let Ok(ai_guard) = ai.lock() else {
+        return false;
+    };
+    let Some(locomotor) = ai_guard.get_cur_locomotor() else {
+        return false;
+    };
+    locomotor
+        .lock()
+        .map(|loco| loco.template.min_speed == 0.0)
+        .unwrap_or(false)
+}
+
+fn leftover_face_update(
+    context: &mut AIStateMachineContext,
+    face_object: bool,
+    can_turn_in_place: bool,
+) -> StateReturnType {
+    if dual_world_registry_unavailable() {
+        return StateReturnType::Failed;
+    }
+    let target_pos = if face_object {
+        let Some(goal_id) = context.goal_object else {
+            return StateReturnType::Failed;
+        };
+        let Some(pos) = OBJECT_REGISTRY.with_object(goal_id, |g| *g.get_position()) else {
+            return StateReturnType::Failed;
+        };
+        pos
+    } else {
+        let Some(pos) = context.goal_position else {
+            return StateReturnType::Failed;
+        };
+        pos
+    };
+    let Some((owner_pos, owner_ori, ai)) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+        (
+            *owner.get_position(),
+            owner.get_orientation(),
+            owner.get_ai_update_interface(),
+        )
+    }) else {
+        return StateReturnType::Failed;
+    };
+    let Some(ai) = ai else {
+        return StateReturnType::Failed;
+    };
+    let Ok(mut ai_guard) = ai.lock() else {
+        return StateReturnType::Failed;
+    };
+    let angle_to = (target_pos.y - owner_pos.y).atan2(target_pos.x - owner_pos.x);
+    let mut rel = angle_to - owner_ori;
+    const PI: f32 = std::f32::consts::PI;
+    const TAU: f32 = std::f32::consts::TAU;
+    while rel > PI {
+        rel -= TAU;
+    }
+    while rel < -PI {
+        rel += TAU;
+    }
+    if rel.abs() < 0.035 {
+        return StateReturnType::Success;
+    }
+    if can_turn_in_place {
+        ai_guard.set_locomotor_goal_orientation(owner_ori + rel);
+    } else {
+        ai_guard.set_locomotor_goal_position_explicit(target_pos);
+    }
+    StateReturnType::Continue
 }
 
 /// AI Rappel Into State

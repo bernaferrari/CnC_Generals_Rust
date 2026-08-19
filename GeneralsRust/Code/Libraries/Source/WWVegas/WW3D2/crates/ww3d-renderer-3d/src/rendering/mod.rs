@@ -55,7 +55,9 @@ pub mod mesh_model;
 pub mod modern_texture_manager;
 
 // Re-export commonly used types
-pub use crate::scene_system::{PolyRenderType, SceneClass, SceneId, SceneManagerClass};
+pub use crate::scene_system::{
+    ExtraPassPolyRenderType, PolyRenderType, SceneClass, SceneId, SceneManagerClass,
+};
 pub use shader_core::ShaderManager;
 
 // Re-export mesh model types for convenience

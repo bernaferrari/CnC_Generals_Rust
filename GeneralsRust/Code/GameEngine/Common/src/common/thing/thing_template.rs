@@ -10,7 +10,9 @@
 use crate::common::bit_flags::{
     create_armor_set_flags, create_weapon_set_flags, ArmorSetBitFlags, BitFlags, WeaponSetBitFlags,
 };
+use crate::common::ini::ini_mapped_image::{get_mapped_image_collection, Image};
 use crate::common::ini::INI;
+
 use crate::common::system::Snapshotable;
 use crate::common::thing::module::{BaseModuleData, CapturedModuleData};
 #[cfg(test)]
@@ -201,6 +203,33 @@ fn is_module_object_field(field: &str) -> bool {
     matches!(field, "Behavior" | "Body" | "Draw" | "ClientUpdate")
 }
 
+const CPP_RESKIN_FIELDS: &[&str] = &[
+    "Draw",
+    "Geometry",
+    "GeometryMajorRadius",
+    "GeometryMinorRadius",
+    "GeometryHeight",
+    "GeometryIsSmall",
+    "FenceWidth",
+    "FenceXOffset",
+    "MaxSimultaneousOfType",
+    "MaxSimultaneousLinkKey",
+];
+
+fn is_reskin_property(key: &str) -> bool {
+    let base = property_base_key(key);
+    if CPP_RESKIN_FIELDS
+        .iter()
+        .any(|field| field.eq_ignore_ascii_case(base))
+    {
+        return true;
+    }
+    key.split_once('.')
+        .map(|(header, _)| property_base_key(header).eq_ignore_ascii_case("Draw"))
+        .unwrap_or(false)
+}
+
+
 fn collect_module_body(
     properties: &HashMap<String, String>,
     header_key: &str,
@@ -230,6 +259,100 @@ fn collect_module_body(
     }
     (raw_body, fields)
 }
+
+fn parse_override_module_body(lines: &[&str]) -> HashMap<String, String> {
+    let mut properties = HashMap::new();
+    let mut prefix: Option<String> = None;
+    let mut depth = 0u32;
+    let mut body_lines: Vec<String> = Vec::new();
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let first = line.split_whitespace().next().unwrap_or("");
+        if first.eq_ignore_ascii_case("End") {
+            if depth > 0 {
+                if depth > 1 {
+                    body_lines.push("End".to_string());
+                }
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(prefix) = prefix.take() {
+                        if !body_lines.is_empty() {
+                            properties.insert(format!("{}.__body", prefix), body_lines.join("\n"));
+                        }
+                    }
+                    body_lines.clear();
+                }
+            }
+            continue;
+        }
+        if depth == 0 {
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+                if is_module_object_field(key) {
+                    insert_repeated_local(&mut properties, key.to_string(), value.to_string());
+                    prefix = Some(current_repeatable_local(&properties, key));
+                    depth = 1;
+                    body_lines.clear();
+                }
+            }
+            continue;
+        }
+        body_lines.push(line.to_string());
+        if let Some((key, value)) = line.split_once('=') {
+            if let Some(prefix) = prefix.as_deref() {
+                insert_repeated_local(
+                    &mut properties,
+                    format!("{}.{}", prefix, key.trim()),
+                    value.trim().to_string(),
+                );
+            }
+            if is_module_object_field(key.trim())
+                || key.trim().eq_ignore_ascii_case("ConditionState")
+                || key.trim().eq_ignore_ascii_case("TransitionState")
+            {
+                depth += 1;
+            }
+        } else if first.eq_ignore_ascii_case("DefaultConditionState")
+            || first.eq_ignore_ascii_case("ConditionState")
+            || first.eq_ignore_ascii_case("TransitionState")
+        {
+            depth += 1;
+        }
+    }
+    properties
+}
+
+fn insert_repeated_local(properties: &mut HashMap<String, String>, key: String, value: String) {
+    if !properties.contains_key(&key) {
+        properties.insert(key, value);
+        return;
+    }
+    for index in 1.. {
+        let repeated = format!("{}#{}", key, index);
+        if !properties.contains_key(&repeated) {
+            properties.insert(repeated, value);
+            return;
+        }
+    }
+}
+
+fn current_repeatable_local(properties: &HashMap<String, String>, field: &str) -> String {
+    let mut last = field.to_string();
+    for index in 1.. {
+        let repeated = format!("{}#{}", field, index);
+        if properties.contains_key(&repeated) {
+            last = repeated;
+        } else {
+            break;
+        }
+    }
+    last
+}
+
 
 fn module_data_from_body(
     module_name: &str,
@@ -466,13 +589,29 @@ pub enum EditorSortingType {
     NumSortingTypes,
 }
 
-/// Shadow types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShadowType {
-    None = 0,
-    Volume,
-    Decal,
+/// Shadow types. Values match C++ `Shadow.h` (`TheShadowNames` / `parseBitString8`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ShadowType(pub u8);
+
+impl ShadowType {
+    pub const None: Self = Self(0);
+    pub const Decal: Self = Self(0x01);
+    pub const Volume: Self = Self(0x02);
+    pub const Projection: Self = Self(0x04);
+    pub const DynamicProjection: Self = Self(0x08);
+    pub const DirectionalProjection: Self = Self(0x10);
+    pub const AlphaDecal: Self = Self(0x20);
+    pub const AdditiveDecal: Self = Self(0x40);
+
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub fn contains(self, flag: Self) -> bool {
+        (self.0 & flag.0) != 0
+    }
 }
+
 
 /// Module parsing modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1404,8 +1543,9 @@ pub struct ThingTemplate {
     hijack_guard: bool,
 
     // Visual properties
-    _selected_portrait_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
-    _button_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
+    selected_portrait_image: Option<Image>,
+    button_image: Option<Image>,
+
     selected_portrait_image_name: AsciiString,
     button_image_name: AsciiString,
     upgrade_cameo_upgrade_names: [AsciiString; MAX_UPGRADE_CAMEO_UPGRADES],
@@ -1449,12 +1589,13 @@ pub struct ThingTemplate {
     crushable_level: UnsignedByte,
     structure_rubble_height: UnsignedByte,
 
-    // Internal state
     armor_copied_from_default: bool,
     weapons_copied_from_default: bool,
-    _module_parsing_mode: ModuleParseMode,
-    _module_being_replaced_name: AsciiString,
-    _module_being_replaced_tag: AsciiString,
+    module_parsing_mode: ModuleParseMode,
+    module_being_replaced_name: AsciiString,
+    module_being_replaced_tag: AsciiString,
+    /// Top-level `Locomotor = SET_NORMAL Foo` entries (C++ AIUpdateModuleData).
+    locomotor_sets: HashMap<String, Vec<AsciiString>>,
 
     #[cfg(feature = "load_test_assets")]
     lta_name: AsciiString,
@@ -1515,8 +1656,9 @@ impl ThingTemplate {
             enter_guard: false,
             hijack_guard: false,
 
-            _selected_portrait_image: None,
-            _button_image: None,
+            selected_portrait_image: None,
+            button_image: None,
+
             selected_portrait_image_name: AsciiString::new(),
             button_image_name: AsciiString::new(),
             upgrade_cameo_upgrade_names: [
@@ -1564,9 +1706,10 @@ impl ThingTemplate {
 
             armor_copied_from_default: false,
             weapons_copied_from_default: false,
-            _module_parsing_mode: ModuleParseMode::Normal,
-            _module_being_replaced_name: AsciiString::new(),
-            _module_being_replaced_tag: AsciiString::new(),
+            module_parsing_mode: ModuleParseMode::Normal,
+            module_being_replaced_name: AsciiString::new(),
+            module_being_replaced_tag: AsciiString::new(),
+            locomotor_sets: HashMap::new(),
 
             #[cfg(feature = "load_test_assets")]
             lta_name: AsciiString::new(),
@@ -1583,6 +1726,16 @@ impl ThingTemplate {
     pub fn get_display_name(&self) -> &UnicodeString {
         &self.display_name
     }
+    /// C++ ThingTemplate::getSelectedPortraitImage().
+    pub fn get_selected_portrait_image(&self) -> Option<&Image> {
+        self.selected_portrait_image.as_ref()
+    }
+
+    /// C++ ThingTemplate::getButtonImage().
+    pub fn get_button_image(&self) -> Option<&Image> {
+        self.button_image.as_ref()
+    }
+
 
     /// Number of production prerequisites attached to this template.
     pub fn get_prereq_count(&self) -> usize {
@@ -2187,6 +2340,44 @@ impl ThingTemplate {
         };
 
         let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
+
+        if self.module_parsing_mode != ModuleParseMode::AddRemoveReplace {
+            self.behavior_module_info.clear_copied_from_default_entries(
+                interface_mask.0 as i32,
+                &AsciiString::from(module_name),
+                self,
+            );
+            self.draw_module_info.clear_copied_from_default_entries(
+                interface_mask.0 as i32,
+                &AsciiString::from(module_name),
+                self,
+            );
+            self.client_update_module_info.clear_copied_from_default_entries(
+                interface_mask.0 as i32,
+                &AsciiString::from(module_name),
+                self,
+            );
+        }
+
+        if self.module_parsing_mode == ModuleParseMode::AddRemoveReplace
+            && !self.module_being_replaced_name.is_empty()
+            && self.module_being_replaced_name.as_str() != module_name
+        {
+            return Err(format!(
+                "ReplaceModule must replace modules with another module of the same type, but you are attempting to replace a {} with a {}",
+                self.module_being_replaced_name, module_name
+            ));
+        }
+        if self.module_parsing_mode == ModuleParseMode::AddRemoveReplace
+            && !self.module_being_replaced_tag.is_empty()
+            && self.module_being_replaced_tag.as_str() == module_tag
+        {
+            return Err(format!(
+                "ReplaceModule must specify a new, unique tag for the replaced module, but you are not doing so for {} ({})",
+                module_tag, self.module_being_replaced_name
+            ));
+        }
+
         let (raw_body, fields) = collect_module_body(properties, property_key);
         let data = module_data_from_body(module_name, module_type, module_tag, &raw_body, fields);
         let target_info = match module_type {
@@ -2194,13 +2385,18 @@ impl ThingTemplate {
             ModuleType::Draw => &mut self.draw_module_info,
             ModuleType::ClientUpdate => &mut self.client_update_module_info,
         };
+        if data.is_ai_module_data() {
+            target_info.clear_ai_module_info();
+        }
+        let inheritable = self.module_parsing_mode == ModuleParseMode::Inheritable;
+        let overrideable = self.module_parsing_mode == ModuleParseMode::OverrideableByLikeKind;
         target_info.add_module_info(
             AsciiString::from(module_name),
             AsciiString::from(module_tag),
             data,
             interface_mask.0 as i32,
-            false,
-            false,
+            inheritable,
+            overrideable,
         );
 
         Ok(())
@@ -2235,7 +2431,160 @@ impl ThingTemplate {
             self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
         }
 
+        self.load_module_overrides(properties)?;
         Ok(())
+    }
+
+    fn collect_repeatable_keys(properties: &HashMap<String, String>, field: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+        if properties.contains_key(field) {
+            keys.push(field.to_string());
+        }
+        for index in 1.. {
+            let repeated = format!("{}#{}", field, index);
+            if properties.contains_key(&repeated) {
+                keys.push(repeated);
+            } else {
+                break;
+            }
+        }
+        keys
+    }
+
+    fn remove_module_info(&mut self, tag: &AsciiString) -> Option<AsciiString> {
+        if let Some(name) = self.behavior_module_info.clear_module_data_with_tag(tag) {
+            return Some(name);
+        }
+        if let Some(name) = self.draw_module_info.clear_module_data_with_tag(tag) {
+            return Some(name);
+        }
+        self.client_update_module_info
+            .clear_module_data_with_tag(tag)
+    }
+
+    fn load_modules_from_override_prefix(
+        &mut self,
+        properties: &HashMap<String, String>,
+        prefix: &str,
+    ) -> Result<(), String> {
+        let mut nested = HashMap::new();
+        let dotted = format!("{}.", prefix);
+        for (key, value) in properties {
+            if let Some(rest) = key.strip_prefix(&dotted) {
+                nested.insert(rest.to_string(), value.clone());
+            }
+        }
+        if let Some(body) = properties.get(&format!("{}.__body", prefix)) {
+            let lines: Vec<&str> = body.lines().collect();
+            let from_body = parse_override_module_body(&lines);
+            for (key, value) in from_body {
+                nested.entry(key).or_insert(value);
+            }
+        }
+        self.load_modules_from_properties_without_overrides(&nested)
+    }
+
+    fn load_modules_from_properties_without_overrides(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let mut fields = properties
+            .iter()
+            .filter_map(|(key, value)| {
+                if key.contains('.') {
+                    return None;
+                }
+                let base_key = property_base_key(key);
+                is_module_object_field(base_key).then_some((
+                    module_field_order(base_key),
+                    property_repeat_index(key),
+                    base_key,
+                    key.as_str(),
+                    value.as_str(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        fields.sort_by_key(|(field_order, repeat_index, field_name, _, _)| {
+            (*field_order, *repeat_index, (*field_name).to_string())
+        });
+        for (_, _, field_name, property_key, value) in fields {
+            self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
+        }
+        Ok(())
+    }
+
+    fn load_module_overrides(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        for key in Self::collect_repeatable_keys(properties, "RemoveModule") {
+            if let Some(tag) = properties.get(&key) {
+                let tag = AsciiString::from(tag.trim());
+                if !tag.is_empty() {
+                    let _ = self.remove_module_info(&tag);
+                }
+            }
+        }
+
+        for key in Self::collect_repeatable_keys(properties, "ReplaceModule") {
+            let tag = properties
+                .get(&key)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if !tag.is_empty() {
+                let tag_ascii = AsciiString::from(tag.as_str());
+                let removed = self.remove_module_info(&tag_ascii);
+                self.module_being_replaced_name = removed.unwrap_or_default();
+                self.module_being_replaced_tag = tag_ascii;
+            }
+            self.module_parsing_mode = ModuleParseMode::AddRemoveReplace;
+            self.load_modules_from_override_prefix(properties, &key)?;
+            self.module_being_replaced_name.clear();
+            self.module_being_replaced_tag.clear();
+            self.module_parsing_mode = ModuleParseMode::Normal;
+        }
+
+        for key in Self::collect_repeatable_keys(properties, "AddModule") {
+            self.module_parsing_mode = ModuleParseMode::AddRemoveReplace;
+            self.load_modules_from_override_prefix(properties, &key)?;
+            self.module_parsing_mode = ModuleParseMode::Normal;
+        }
+
+        for key in Self::collect_repeatable_keys(properties, "InheritableModule") {
+            self.module_parsing_mode = ModuleParseMode::Inheritable;
+            self.load_modules_from_override_prefix(properties, &key)?;
+            self.module_parsing_mode = ModuleParseMode::Normal;
+        }
+
+        for key in Self::collect_repeatable_keys(properties, "OverrideableByLikeKind") {
+            self.module_parsing_mode = ModuleParseMode::OverrideableByLikeKind;
+            self.load_modules_from_override_prefix(properties, &key)?;
+            self.module_parsing_mode = ModuleParseMode::Normal;
+        }
+
+        Ok(())
+    }
+
+    /// C++ `AIUpdateModuleData::parseLocomotorSet` via ThingTemplate Locomotor field.
+    pub fn parse_locomotor_field(&mut self, value: &str) -> Result<(), String> {
+        let mut tokens = value.split_whitespace();
+        let set_name = tokens
+            .next()
+            .ok_or_else(|| "Locomotor field missing set name".to_string())?;
+        let names: Vec<AsciiString> = tokens
+            .filter(|token| !token.is_empty() && !token.eq_ignore_ascii_case("None"))
+            .map(AsciiString::from)
+            .collect();
+        self.locomotor_sets.insert(set_name.to_string(), names);
+        Ok(())
+    }
+
+    pub fn locomotor_sets(&self) -> &HashMap<String, Vec<AsciiString>> {
+        &self.locomotor_sets
+    }
+
+    pub fn locomotor_set_names(&self, set: &str) -> Option<&[AsciiString]> {
+        self.locomotor_sets.get(set).map(Vec::as_slice)
     }
 
     /// Find the best matching armor template set for the supplied flags.
@@ -2457,23 +2806,37 @@ impl ThingTemplate {
         }
 
         // Mark build facilities
-        // This would iterate through prerequisites and mark templates as build facilities
         if self.is_kind_of_mask(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits())
         {
             self.is_build_facility = true;
         }
 
-        // Resolve image names
+        // C++ ThingTemplate::resolveNames: findImageByName THEN clear the name.
         if !self.selected_portrait_image_name.is_empty() {
-            // self.selected_portrait_image = TheMappedImageCollection->findImageByName(name);
+            if let Some(collection) = get_mapped_image_collection() {
+                if let Some(image) = collection
+                    .read()
+                    .find_image_by_name(self.selected_portrait_image_name.as_str())
+                {
+                    self.selected_portrait_image = Some(image.clone());
+                }
+            }
             self.selected_portrait_image_name.clear();
         }
 
         if !self.button_image_name.is_empty() {
-            // self.button_image = TheMappedImageCollection->findImageByName(name);
+            if let Some(collection) = get_mapped_image_collection() {
+                if let Some(image) = collection
+                    .read()
+                    .find_image_by_name(self.button_image_name.as_str())
+                {
+                    self.button_image = Some(image.clone());
+                }
+            }
             self.button_image_name.clear();
         }
     }
+
 
     #[cfg(feature = "load_test_assets")]
     pub fn init_for_lta(&mut self, name: &AsciiString) {
@@ -2675,8 +3038,9 @@ impl ThingTemplate {
             match base_key {
                 // --- Display ---
                 "DisplayName" => {
-                    // C++ uses parseAndTranslateLabel -> UnicodeString
-                    self.display_name = UnicodeString::from(trimmed);
+                    // C++ INI::parseAndTranslateLabel
+                    let translated = INI::translate_label(trimmed).unwrap_or_else(|_| trimmed.to_string());
+                    self.display_name = UnicodeString::from(translated.as_str());
                 }
                 "DisplayColor" => {
                     if let Ok(c) = parse_color_int(trimmed) {
@@ -2684,8 +3048,9 @@ impl ThingTemplate {
                     }
                 }
                 "EditorSorting" => {
-                    self.editor_sorting = parse_editor_sorting(trimmed);
+                    self.editor_sorting = parse_editor_sorting(trimmed)?;
                 }
+
 
                 // --- Physical ---
                 "Scale" => {
@@ -2745,10 +3110,11 @@ impl ThingTemplate {
 
                 // --- Placement / factory ---
                 "PlacementViewAngle" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
+                    if let Ok(v) = INI::parse_angle_real(trimmed) {
                         self.placement_view_angle = v;
                     }
                 }
+
                 "FactoryExitWidth" => {
                     if let Ok(v) = trimmed.parse::<Real>() {
                         self.factory_exit_width = v;
@@ -2759,8 +3125,6 @@ impl ThingTemplate {
                         self.factory_extra_bib_width = v;
                     }
                 }
-
-                // --- Experience / skill ---
                 "SkillPointValue" => {
                     parse_int_list_into(trimmed, &mut self.skill_point_values);
                 }
@@ -2785,7 +3149,6 @@ impl ThingTemplate {
                         self.hijack_guard = v;
                     }
                 }
-
                 // --- Side ---
                 "Side" => {
                     self.default_owning_side = AsciiString::from(trimmed);
@@ -2793,8 +3156,9 @@ impl ThingTemplate {
 
                 // --- Build ---
                 "Buildable" => {
-                    self.buildable = parse_buildable_status(trimmed);
+                    self.buildable = parse_buildable_status(trimmed)?;
                 }
+
                 "BuildCost" => {
                     if let Ok(v) = trimmed.parse::<UnsignedShort>() {
                         self.build_cost = v;
@@ -2811,8 +3175,9 @@ impl ThingTemplate {
                     }
                 }
                 "BuildCompletion" => {
-                    self.build_completion = parse_build_completion(trimmed);
+                    self.build_completion = parse_build_completion(trimmed)?;
                 }
+
                 "EnergyProduction" => {
                     if let Ok(v) = trimmed.parse::<i32>() {
                         self.energy_production = v;
@@ -2878,8 +3243,9 @@ impl ThingTemplate {
 
                 // --- Shadow ---
                 "Shadow" => {
-                    self.shadow_type = parse_shadow_type(trimmed);
+                    self.shadow_type = parse_shadow_type(trimmed)?;
                 }
+
                 "ShadowSizeX" => {
                     if let Ok(v) = trimmed.parse::<Real>() {
                         self.shadow_size_x = v;
@@ -2960,27 +3326,33 @@ impl ThingTemplate {
 
                 // --- Geometry (delegated to GeometryInfo) ---
                 "Geometry" => {
-                    self.geometry_info.geometry_type = parse_geometry_type(trimmed);
+                    self.geometry_info.geometry_type = parse_geometry_type(trimmed)?;
+                    self.geometry_info.calc_bounding_stuff();
                 }
+
                 "GeometryMajorRadius" => {
                     if let Ok(v) = trimmed.parse::<Real>() {
-                        self.geometry_info.width = v;
+                        self.geometry_info.set_major_radius(v);
                     }
                 }
                 "GeometryMinorRadius" => {
                     if let Ok(v) = trimmed.parse::<Real>() {
-                        self.geometry_info.depth = v;
+                        self.geometry_info.set_minor_radius(v);
                     }
                 }
                 "GeometryHeight" => {
                     if let Ok(v) = trimmed.parse::<Real>() {
                         self.geometry_info.height = v;
+                        self.geometry_info.calc_bounding_stuff();
                     }
                 }
                 "GeometryIsSmall" => {
                     if let Ok(v) = parse_bool_simple(trimmed) {
                         self.geometry_info.is_small = v;
                     }
+                }
+                "Locomotor" => {
+                    self.parse_locomotor_field(trimmed)?;
                 }
 
                 // --- WeaponSet / ArmorSet are handled separately ---
@@ -2999,6 +3371,83 @@ impl ThingTemplate {
 
         Ok(())
     }
+
+    /// C++ `getReskinFieldParse()`: Draw, Geometry*, Fence*, MaxSimultaneous*.
+    pub fn parse_reskin_fields_from_ini(
+        &mut self,
+        properties: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        let filtered: HashMap<String, String> = properties
+            .iter()
+            .filter(|(key, _)| is_reskin_property(key))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        self.load_modules_from_properties_without_overrides(&filtered)?;
+
+        for (key, value) in &filtered {
+            let base_key = property_base_key(key);
+            let trimmed = value.trim();
+            if is_module_object_field(base_key) || is_module_body_property(key) {
+                continue;
+            }
+            match base_key {
+                "Geometry" => {
+                    self.geometry_info.geometry_type = parse_geometry_type(trimmed)?;
+                    self.geometry_info.calc_bounding_stuff();
+                }
+                "GeometryMajorRadius" => {
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.set_major_radius(v);
+                    }
+                }
+                "GeometryMinorRadius" => {
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.set_minor_radius(v);
+                    }
+                }
+                "GeometryHeight" => {
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.geometry_info.height = v;
+                        self.geometry_info.calc_bounding_stuff();
+                    }
+                }
+                "GeometryIsSmall" => {
+                    if let Ok(v) = parse_bool_simple(trimmed) {
+                        self.geometry_info.is_small = v;
+                    }
+                }
+                "FenceWidth" => {
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.fence_width = v;
+                    }
+                }
+                "FenceXOffset" => {
+                    if let Ok(v) = trimmed.parse::<Real>() {
+                        self.fence_x_offset = v;
+                    }
+                }
+                "MaxSimultaneousOfType" => {
+                    if trimmed.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
+                        self.max_simultaneous_determined_by_superweapon_restriction = true;
+                        self.max_simultaneous_of_type = 0;
+                    } else if let Ok(v) = trimmed.parse::<UnsignedShort>() {
+                        self.max_simultaneous_of_type = v;
+                        self.max_simultaneous_determined_by_superweapon_restriction = false;
+                    }
+                }
+                "MaxSimultaneousLinkKey" => {
+                    self.max_simultaneous_link_key = if trimmed.is_empty() {
+                        0
+                    } else {
+                        NameKeyGenerator::name_to_key(trimmed)
+                    };
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
 
     /// Set the KindOf mask from a resolved bitmask (`u64` or full `u128`).
     ///
@@ -3026,23 +3475,23 @@ fn parse_color_int(s: &str) -> Result<Color, ()> {
     Ok(Color(0xFF000000 | v))
 }
 
-fn parse_editor_sorting(s: &str) -> EditorSortingType {
+fn parse_editor_sorting(s: &str) -> Result<EditorSortingType, String> {
     match s.trim() {
-        "NONE" | "None" | "Invalid" => EditorSortingType::None,
-        "STRUCTURE" | "Structure" | "Building" => EditorSortingType::Structure,
-        "INFANTRY" | "Infantry" | "Unit" => EditorSortingType::Infantry,
-        "VEHICLE" | "Vehicle" => EditorSortingType::Vehicle,
-        "SHRUBBERY" | "Shrubbery" => EditorSortingType::Shrubbery,
-        "MISC_MAN_MADE" | "MiscManMade" | "Infrastructure" => EditorSortingType::MiscManMade,
-        "MISC_NATURAL" | "MiscNatural" | "Civilian" => EditorSortingType::MiscNatural,
-        "DEBRIS" | "Debris" => EditorSortingType::Debris,
-        "SYSTEM" | "System" => EditorSortingType::System,
-        "AUDIO" | "Audio" => EditorSortingType::Audio,
-        "TEST" | "Test" => EditorSortingType::Test,
-        "FOR_REVIEW" | "ForReview" => EditorSortingType::ForReview,
-        "ROAD" | "Road" => EditorSortingType::Road,
-        "WAYPOINT" | "Waypoint" => EditorSortingType::Waypoint,
-        _ => EditorSortingType::None,
+        "NONE" | "None" | "Invalid" => Ok(EditorSortingType::None),
+        "STRUCTURE" | "Structure" | "Building" => Ok(EditorSortingType::Structure),
+        "INFANTRY" | "Infantry" | "Unit" => Ok(EditorSortingType::Infantry),
+        "VEHICLE" | "Vehicle" => Ok(EditorSortingType::Vehicle),
+        "SHRUBBERY" | "Shrubbery" => Ok(EditorSortingType::Shrubbery),
+        "MISC_MAN_MADE" | "MiscManMade" | "Infrastructure" => Ok(EditorSortingType::MiscManMade),
+        "MISC_NATURAL" | "MiscNatural" | "Civilian" => Ok(EditorSortingType::MiscNatural),
+        "DEBRIS" | "Debris" => Ok(EditorSortingType::Debris),
+        "SYSTEM" | "System" => Ok(EditorSortingType::System),
+        "AUDIO" | "Audio" => Ok(EditorSortingType::Audio),
+        "TEST" | "Test" => Ok(EditorSortingType::Test),
+        "FOR_REVIEW" | "ForReview" => Ok(EditorSortingType::ForReview),
+        "ROAD" | "Road" => Ok(EditorSortingType::Road),
+        "WAYPOINT" | "Waypoint" => Ok(EditorSortingType::Waypoint),
+        _ => Err(format!("Unknown EditorSorting token '{}'", s)),
     }
 }
 
@@ -3081,47 +3530,60 @@ fn lookup_module_interface_mask(
     }
 }
 
-fn parse_buildable_status(s: &str) -> BuildableStatus {
-    // C++ `BuildableStatusNames` spells the multi-word values with
-    // underscores.  Accept the old Rust spellings too so editor fixtures
-    // remain valid, but preserve the retail INI representation.
+fn parse_buildable_status(s: &str) -> Result<BuildableStatus, String> {
     match s.trim().to_ascii_uppercase().as_str() {
-        "IGNORE_PREREQUISITES" | "IGNOREPREREQUISITES" => BuildableStatus::IgnorePrerequisites,
-        "NO" => BuildableStatus::No,
-        "ONLY_BY_AI" | "ONLYBYAI" => BuildableStatus::OnlyByAi,
-        _ => BuildableStatus::Yes,
+        "YES" => Ok(BuildableStatus::Yes),
+        "IGNORE_PREREQUISITES" | "IGNOREPREREQUISITES" => Ok(BuildableStatus::IgnorePrerequisites),
+        "NO" => Ok(BuildableStatus::No),
+        "ONLY_BY_AI" | "ONLYBYAI" => Ok(BuildableStatus::OnlyByAi),
+        _ => Err(format!("Unknown Buildable token '{}'", s)),
     }
 }
 
-fn parse_build_completion(s: &str) -> BuildCompletionType {
-    // C++ `BuildCompletionNames` uses `PLACED_BY_PLAYER` and
-    // `APPEARS_AT_RALLY_POINT`; the latter is the constructor default.
+fn parse_build_completion(s: &str) -> Result<BuildCompletionType, String> {
     match s.trim().to_ascii_uppercase().as_str() {
-        "PLACED_BY_PLAYER" | "PLACEDBYPLAYER" => BuildCompletionType::PlacedByPlayer,
-        _ => BuildCompletionType::AppearsAtRallyPoint,
+        "PLACED_BY_PLAYER" | "PLACEDBYPLAYER" => Ok(BuildCompletionType::PlacedByPlayer),
+        "APPEARS_AT_RALLY_POINT" | "APPEARSATRALLYPOINT" => {
+            Ok(BuildCompletionType::AppearsAtRallyPoint)
+        }
+        _ => Err(format!("Unknown BuildCompletion token '{}'", s)),
     }
 }
 
-fn parse_shadow_type(s: &str) -> ShadowType {
-    // `ThingTemplate.cpp` parses this field with `TheShadowNames`, whose
-    // retail tokens are `SHADOW_VOLUME` and `SHADOW_DECAL` (rather than the
-    // shortened enum labels).  Keep accepting the latter for hand-authored
-    // Rust fixtures, but make the game data spellings first-class.
-    match s.trim().to_ascii_uppercase().as_str() {
-        "SHADOW_VOLUME" | "VOLUME" => ShadowType::Volume,
-        "SHADOW_DECAL" | "DECAL" => ShadowType::Decal,
-        _ => ShadowType::None,
-    }
+const SHADOW_NAMES: &[&str] = &[
+    "SHADOW_DECAL",
+    "SHADOW_VOLUME",
+    "SHADOW_PROJECTION",
+    "SHADOW_DYNAMIC_PROJECTION",
+    "SHADOW_DIRECTIONAL_PROJECTION",
+    "SHADOW_ALPHA_DECAL",
+    "SHADOW_ADDITIVE_DECAL",
+];
+
+fn parse_shadow_type(s: &str) -> Result<ShadowType, String> {
+    let mapped: Vec<String> = s
+        .split_whitespace()
+        .map(|token| match token.to_ascii_uppercase().as_str() {
+            "VOLUME" => "SHADOW_VOLUME".to_string(),
+            "DECAL" => "SHADOW_DECAL".to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+    let tokens: Vec<&str> = mapped.iter().map(String::as_str).collect();
+    let bits = INI::parse_bit_string_32(&tokens, SHADOW_NAMES)
+        .map_err(|_| format!("Unknown Shadow token '{}'", s))?;
+    Ok(ShadowType(bits as u8))
 }
 
-fn parse_geometry_type(s: &str) -> GeometryType {
+fn parse_geometry_type(s: &str) -> Result<GeometryType, String> {
     match s.trim() {
-        "SPHERE" | "Sphere" => GeometryType::Sphere,
-        "CYLINDER" | "Cylinder" => GeometryType::Cylinder,
-        "BOX" | "Box" => GeometryType::Box,
-        _ => GeometryType::Sphere,
+        "SPHERE" | "Sphere" => Ok(GeometryType::Sphere),
+        "CYLINDER" | "Cylinder" => Ok(GeometryType::Cylinder),
+        "BOX" | "Box" => Ok(GeometryType::Box),
+        _ => Err(format!("Unknown Geometry token '{}'", s)),
     }
 }
+
 
 /// Parse a space-separated list of integers into a fixed-size array.
 /// Mirrors C++ ThingTemplate::parseIntList.
@@ -3226,9 +3688,26 @@ mod tests {
     fn shadow_parser_accepts_retail_cpp_shadow_tokens() {
         // These are the tokens in GameClient/Shadow.h's TheShadowNames table
         // and in the extracted Zero Hour object INIs.
-        assert_eq!(parse_shadow_type("SHADOW_VOLUME"), ShadowType::Volume);
-        assert_eq!(parse_shadow_type("shadow_decal"), ShadowType::Decal);
-        assert_eq!(parse_shadow_type("NONE"), ShadowType::None);
+        assert_eq!(
+            parse_shadow_type("SHADOW_VOLUME").unwrap(),
+            ShadowType::Volume
+        );
+        assert_eq!(
+            parse_shadow_type("shadow_decal").unwrap(),
+            ShadowType::Decal
+        );
+        assert_eq!(parse_shadow_type("NONE").unwrap(), ShadowType::None);
+        assert_eq!(
+            parse_shadow_type("SHADOW_DECAL").unwrap().bits(),
+            0x01
+        );
+        assert_eq!(
+            parse_shadow_type("SHADOW_VOLUME").unwrap().bits(),
+            0x02
+        );
+        let combo = parse_shadow_type("SHADOW_ALPHA_DECAL SHADOW_DIRECTIONAL_PROJECTION").unwrap();
+        assert!(combo.contains(ShadowType::AlphaDecal));
+        assert!(combo.contains(ShadowType::DirectionalProjection));
     }
 
     #[test]
@@ -3251,22 +3730,48 @@ mod tests {
     #[test]
     fn build_parsers_accept_retail_cpp_enum_tokens() {
         assert_eq!(
-            parse_build_completion("PLACED_BY_PLAYER"),
+            parse_build_completion("PLACED_BY_PLAYER").unwrap(),
             BuildCompletionType::PlacedByPlayer
         );
         assert_eq!(
-            parse_build_completion("APPEARS_AT_RALLY_POINT"),
+            parse_build_completion("APPEARS_AT_RALLY_POINT").unwrap(),
             BuildCompletionType::AppearsAtRallyPoint
         );
         assert_eq!(
-            parse_buildable_status("Ignore_Prerequisites"),
+            parse_buildable_status("Ignore_Prerequisites").unwrap(),
             BuildableStatus::IgnorePrerequisites
         );
         assert_eq!(
-            parse_buildable_status("Only_By_AI"),
+            parse_buildable_status("Only_By_AI").unwrap(),
             BuildableStatus::OnlyByAi
         );
     }
+
+    #[test]
+    fn experience_and_trainable_fields_are_parsed() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("IsTrainable".to_string(), "Yes".to_string()),
+            ("EnterGuard".to_string(), "Yes".to_string()),
+            ("HijackGuard".to_string(), "No".to_string()),
+            ("ExperienceValue".to_string(), "50 100 150 200".to_string()),
+            ("ExperienceRequired".to_string(), "0 100 200 300".to_string()),
+            ("SkillPointValue".to_string(), "1 2 3 4".to_string()),
+            ("PlacementViewAngle".to_string(), "90".to_string()),
+        ]);
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("experience fields should parse");
+        assert!(template.is_trainable());
+        assert!(template.is_enter_guard());
+        assert!(!template.is_hijack_guard());
+        assert_eq!(template.get_experience_value(0), 50);
+        assert_eq!(template.get_experience_required(1), 100);
+        assert!((template.get_placement_view_angle() - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    }
+
+
+
 
     #[test]
     fn object_field_parse_accepts_cpp_fields_not_yet_wired() {
@@ -4148,15 +4653,12 @@ impl Snapshotable for ThingTemplate {
         xfer.xfer_bool(&mut self.enter_guard).map_err(xfer_err)?;
         xfer.xfer_bool(&mut self.hijack_guard).map_err(xfer_err)?;
 
-        // Shadow properties
-        let mut shadow_type_u8 = self.shadow_type as u8;
+        // Shadow properties — raw C++ bit values (SHADOW_DECAL=1, VOLUME=2, …)
+        let mut shadow_type_u8 = self.shadow_type.bits();
         xfer.xfer_unsigned_byte(&mut shadow_type_u8)
             .map_err(xfer_err)?;
-        self.shadow_type = match shadow_type_u8 {
-            1 => ShadowType::Volume,
-            2 => ShadowType::Decal,
-            _ => ShadowType::None,
-        };
+        self.shadow_type = ShadowType(shadow_type_u8);
+
 
         xfer.xfer_real(&mut self.shadow_size_x).map_err(xfer_err)?;
         xfer.xfer_real(&mut self.shadow_size_y).map_err(xfer_err)?;

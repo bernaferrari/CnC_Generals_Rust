@@ -583,8 +583,8 @@ impl CnCGameEngine {
     /// it resolves retail assets, validates them, and attempts a window load when
     /// the client GUI is available. Missing assets are logged honestly.
     pub(super) fn ensure_gameplay_layouts(&mut self) {
-        // C++ ShowControlBar residual: resolve + validate + headless WindowManager load
-        // when assets present. Does not claim windowed W3D retail draw.
+        // C++ ShowControlBar: resolve + validate + load into TheWindowManager
+        // when assets present. Ready-gate window_count is the live instance.
         let honesty = crate::gameplay_layout::control_bar_layout_honesty(true);
         let report = crate::gameplay_layout::format_control_bar_honesty(&honesty);
         match &honesty.status {
@@ -602,13 +602,32 @@ impl CnCGameEngine {
                         info!("ensure_gameplay_layouts: ControlBar parent already live ({path})");
                     } else {
                         let loaded = crate::gameplay_layout::materialise_live_control_bar();
-                        info!(
-                            "ensure_gameplay_layouts: TheWindowManager ControlBar live={loaded} path={path}"
-                        );
+                        if loaded {
+                            info!(
+                                "ensure_gameplay_layouts: TheWindowManager ControlBar live=true path={path}"
+                            );
+                        } else {
+                            error!(
+                                "ensure_gameplay_layouts: TheWindowManager ControlBar live=false path={path} searched={:?}",
+                                crate::gameplay_layout::CONTROL_BAR_CANDIDATES
+                            );
+                        }
                     }
                     let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(
                         true,
                     );
+                    // show_control_bar no-ops when ControlBarState.visible is
+                    // already true; the WND parent can still be HIDDEN from
+                    // HideControlBar at boot. Force the retail parent visible.
+                    game_client::gui::with_window_manager(|wm| {
+                        if let Some(parent) = wm.find_window_by_name(
+                            crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
+                        ) {
+                            if parent.borrow().is_hidden() {
+                                let _ = parent.borrow_mut().hide(false);
+                            }
+                        }
+                    });
                     // C++ GameLogic.cpp:2233 setControlBarSchemeByPlayer(local)
                     // then ShowControlBar switches DEFAULT (ControlBarCallback.cpp:489).
                     if crate::gameplay_layout::control_bar_parent_is_live() {
@@ -629,16 +648,42 @@ impl CnCGameEngine {
                 }
             }
             crate::gameplay_layout::GameplayLayoutStatus::AssetsUnavailable { searched } => {
-                warn!(
-                    "ensure_gameplay_layouts: ControlBar assets unavailable (searched {} candidates). {}",
-                    searched.len(),
-                    report
+                error!(
+                    "ensure_gameplay_layouts: ControlBar assets unavailable (searched {:?}). {}",
+                    searched, report
                 );
             }
             crate::gameplay_layout::GameplayLayoutStatus::LoadFailed { path, error } => {
-                warn!(
+                error!(
                     "ensure_gameplay_layouts: ControlBar load failed path={} error={} ({})",
                     path, error, report
+                );
+            }
+        }
+        // C++ InGameUI::createControlBar + ShowControlBar always leave
+        // ControlBarParent on TheWindowManager. Disk-probe Ready/miss must
+        // not skip the archive resolver when the live parent is still gone.
+        #[cfg(feature = "game_client")]
+        if !self.runtime_host_headless
+            && !crate::gameplay_layout::control_bar_parent_is_live()
+        {
+            let loaded = crate::gameplay_layout::materialise_live_control_bar();
+            if loaded {
+                info!("ensure_gameplay_layouts: ControlBarParent materialised on live WM after enter");
+                let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
+                game_client::gui::with_window_manager(|wm| {
+                    if let Some(parent) = wm.find_window_by_name(
+                        crate::gameplay_layout::CONTROL_BAR_PARENT_NAME,
+                    ) {
+                        if parent.borrow().is_hidden() {
+                            let _ = parent.borrow_mut().hide(false);
+                        }
+                    }
+                });
+            } else {
+                error!(
+                    "ensure_gameplay_layouts: ControlBarParent missing on live WM after InGame enter; searched={:?}",
+                    crate::gameplay_layout::CONTROL_BAR_CANDIDATES
                 );
             }
         }

@@ -215,6 +215,26 @@ pub struct W3DWaypointBuffer {
     line_style: WaypointLineStyle,
 }
 
+static LAST_WAYPOINT_FRAME: std::sync::Mutex<WaypointDrawFrame> =
+    std::sync::Mutex::new(WaypointDrawFrame {
+        node_positions: Vec::new(),
+        lines: Vec::new(),
+    });
+
+/// Last submitted waypoint overlay.
+pub fn last_waypoint_draw_frame() -> WaypointDrawFrame {
+    LAST_WAYPOINT_FRAME
+        .lock()
+        .map(|frame| frame.clone())
+        .unwrap_or_default()
+}
+
+/// C++ HeightMap `m_waypointBuffer->drawWaypoints` after terrain/roads/fog.
+pub fn draw_live_waypoints(context: Option<&WaypointDrawContext>) -> WaypointDrawFrame {
+    let mut buffer = W3DWaypointBuffer::new();
+    buffer.draw_and_submit(context)
+}
+
 impl W3DWaypointBuffer {
     /// Construct with the C++ asset names available.
     #[must_use]
@@ -528,6 +548,59 @@ impl W3DWaypointBuffer {
         if self.waypoint_node_render_object.is_some() {
             frame.node_positions.push(position);
         }
+    }
+
+    /// Submit one `drawWaypoints` frame as SCMNode models + EXLaser scene lines.
+    pub fn submit_frame(&self, frame: &WaypointDrawFrame) {
+        use game_engine::common::system::geometry::Coord3D;
+        use game_engine::common::system::scene_submission::SceneLineDesc;
+        use game_engine::common::system::scene_submission::SceneModelDesc;
+        use game_engine::common::system::scene_submission::SceneSubmission;
+        use game_client::render_bridge::{submit_bridge_scene_line, RenderBridge};
+
+        for line in &frame.lines {
+            if line.points.len() < 2 {
+                continue;
+            }
+            for pair in line.points.windows(2) {
+                let desc = SceneLineDesc {
+                    start: Coord3D::new(pair[0][0], pair[0][1], pair[0][2]),
+                    end: Coord3D::new(pair[1][0], pair[1][1], pair[1][2]),
+                    width: line.style.width,
+                    color_r: line.style.color[0],
+                    color_g: line.style.color[1],
+                    color_b: line.style.color[2],
+                    opacity: 1.0,
+                    texture_name: Some(WAYPOINT_LINE_TEXTURE.to_string()),
+                    tile_factor: 1.0,
+                    visible: true,
+                    scroll_rate: 0.0,
+                };
+                let _ = submit_bridge_scene_line(&desc);
+            }
+        }
+
+        let bridge = RenderBridge::new();
+        for (index, position) in frame.node_positions.iter().enumerate() {
+            let mut desc = SceneModelDesc::default();
+            desc.drawable_id = 0x5700_0000 | index as u32;
+            desc.model_name = WAYPOINT_NODE_RENDER_OBJECT.to_string();
+            desc.world_transform = game_engine::common::system::geometry::Matrix3D::from_translation(
+                Coord3D::new(position[0], position[1], position[2]),
+            );
+            desc.cast_shadow = false;
+            SceneSubmission::submit_model(&bridge, desc);
+        }
+    }
+
+    /// C++ HeightMap `drawWaypoints` call site.
+    pub fn draw_and_submit(&mut self, context: Option<&WaypointDrawContext>) -> WaypointDrawFrame {
+        let frame = self.draw_waypoints(context);
+        self.submit_frame(&frame);
+        if let Ok(mut last) = LAST_WAYPOINT_FRAME.lock() {
+            *last = frame.clone();
+        }
+        frame
     }
 }
 

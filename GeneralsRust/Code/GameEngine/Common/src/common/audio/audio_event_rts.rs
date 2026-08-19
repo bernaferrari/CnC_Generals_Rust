@@ -15,6 +15,8 @@ use crate::common::system::file_system::get_file_system;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::cell::Cell;
+
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc, OnceLock, RwLock,
@@ -58,13 +60,64 @@ pub struct AudioEventInfo {
     pub priority: AudioPriority,
     pub min_distance: Real,
     pub max_distance: Real,
+    /// C++ `AudioEventInfo::m_lowPassFreq` (LowPassCutoff). Off-screen 3D occlusion.
+    #[serde(default = "default_low_pass_freq")]
+    pub low_pass_freq: Real,
+    /// C++ `AudioEventInfo::m_isLevelSpecific` — map-authored overrides purged on reset.
+    #[serde(default)]
+    pub is_level_specific: bool,
+
 }
 
 impl AudioEventInfo {
+    /// C++ `AudioEventInfo::isLevelSpecific`.
+    #[must_use]
+    pub fn is_level_specific(&self) -> bool {
+        self.is_level_specific
+    }
+
     /// C++ `AudioEventInfo::isPermanentSound`: looping with `loopCount == 0`.
     #[must_use]
     pub fn is_permanent_sound(&self) -> bool {
         (self.control & AC_LOOP) != 0 && self.loop_count == 0
+    }
+}
+
+
+fn default_low_pass_freq() -> Real {
+    1.0
+}
+
+impl Default for AudioEventInfo {
+    fn default() -> Self {
+        Self {
+            sound_type: AudioType::SoundEffect,
+            control: 0,
+            audio_name: String::new(),
+            volume: 0.5,
+            sounds_morning: Vec::new(),
+            sounds: Vec::new(),
+            sounds_night: Vec::new(),
+            sounds_evening: Vec::new(),
+            attack_sounds: Vec::new(),
+            decay_sounds: Vec::new(),
+            pitch_shift_min: 1.0,
+            pitch_shift_max: 1.0,
+            volume_shift: 0.0,
+            min_volume: 0.0,
+            limit: -1,
+            loop_count: 1,
+            delay_min: 0.0,
+            delay_max: 0.0,
+            filename: String::new(),
+            sound_type_field: AudioType::SoundEffect,
+            type_field: 0,
+            priority: AudioPriority::Normal,
+            min_distance: 0.0,
+            max_distance: 100.0,
+            low_pass_freq: 1.0,
+            is_level_specific: false,
+        }
     }
 }
 
@@ -424,7 +477,7 @@ pub struct AudioEventRts {
     pub volume_shift: Real,
     pub delay: Real,
     pub loop_count: Int,
-    pub playing_audio_index: Int,
+    pub playing_audio_index: Cell<Int>,
     pub all_count: Int,
     pub player_index: Int,
     pub portion_to_play_next: PortionToPlay,
@@ -511,7 +564,7 @@ impl Clone for AudioEventRts {
             volume_shift: self.volume_shift,
             delay: self.delay,
             loop_count: self.loop_count,
-            playing_audio_index: self.playing_audio_index,
+            playing_audio_index: Cell::new(self.playing_audio_index.get()),
             all_count: self.all_count,
             player_index: self.player_index,
             portion_to_play_next: self.portion_to_play_next,
@@ -546,7 +599,7 @@ impl AudioEventRts {
             volume_shift: 0.0,
             delay: 0.0,
             loop_count: 1,
-            playing_audio_index: -1,
+            playing_audio_index: Cell::new(-1),
             all_count: 0,
             player_index: -1,
             portion_to_play_next: PortionToPlay::Attack,
@@ -638,15 +691,15 @@ impl AudioEventRts {
                 get_game_audio_random_value(0, max_index) as usize
             };
 
-            if idx as i32 == self.playing_audio_index && event_info.sounds.len() > 2 {
+            if idx as i32 == self.playing_audio_index.get() && event_info.sounds.len() > 2 {
                 idx = (idx + 1) % event_info.sounds.len();
             }
 
-            self.playing_audio_index = idx as i32;
+            self.playing_audio_index.set(idx as i32);
             idx
         } else {
-            let next = (self.playing_audio_index + 1).rem_euclid(event_info.sounds.len() as i32);
-            self.playing_audio_index = next;
+            let next = (self.playing_audio_index.get() + 1).rem_euclid(event_info.sounds.len() as i32);
+            self.playing_audio_index.set(next);
             next as usize
         };
 
@@ -1006,7 +1059,7 @@ impl AudioEventRts {
         if let Some(event_info) = &self.event_info {
             (event_info.control & AC_LOOP) != 0
         } else {
-            self.loop_count != 1
+            false
         }
     }
 
@@ -1059,7 +1112,7 @@ impl AudioEventRts {
         self.volume_shift = 0.0;
         self.delay = 0.0;
         self.loop_count = 1;
-        self.playing_audio_index = -1;
+        self.playing_audio_index.set(-1);
         self.all_count = 0;
         self.player_index = -1;
         self.portion_to_play_next = PortionToPlay::Attack;
@@ -1262,12 +1315,12 @@ impl AudioEventRts {
         self.owner_type = OwnerType::Drawable;
     }
 
-    pub fn get_drawable_id_override(&self) -> DrawableId {
-        if self.owner_type == OwnerType::Drawable {
-            self.drawable_id
-        } else {
-            INVALID_DRAWABLE_ID
-        }
+    pub fn get_playing_audio_index(&self) -> Int {
+        self.playing_audio_index.get()
+    }
+
+    pub fn set_playing_audio_index(&self, pai: Int) {
+        self.playing_audio_index.set(pai);
     }
 
     pub fn set_handle_to_kill(&mut self, handle_to_kill: AudioHandle) {
@@ -1313,14 +1366,6 @@ impl AudioEventRts {
 
     pub fn is_dead(&self) -> bool {
         self.owner_type == OwnerType::Dead
-    }
-
-    pub fn get_playing_audio_index(&self) -> Int {
-        self.playing_audio_index
-    }
-
-    pub fn set_playing_audio_index(&mut self, pai: Int) {
-        self.playing_audio_index = pai;
     }
 
     pub fn get_uninterruptable(&self) -> Bool {
@@ -1587,8 +1632,7 @@ mod tests {
         assert_eq!(coord.x, 1.0);
         assert_eq!(coord.y, 2.0);
         assert_eq!(coord.z, 3.0);
-
-        coord.scale(2.0);
+        coord.add(&other);
         assert_eq!(coord.x, 2.0);
         assert_eq!(coord.y, 4.0);
         assert_eq!(coord.z, 6.0);
@@ -1633,6 +1677,7 @@ mod tests {
                 priority: AudioPriority::Normal,
                 min_distance: min_d,
                 max_distance: max_d,
+                ..Default::default()
             }
         }
 
@@ -1705,7 +1750,6 @@ mod tests {
         assert_eq!(miles_get_effective_volume(&sfx3d, &listener, &sliders), 0.0);
 
         let mut global3d = AudioEventRts::new();
-        global3d.set_event_name("Test".to_string());
         global3d.set_audio_event_info(std::sync::Arc::new(info(
             AudioType::SoundEffect,
             ST_WORLD | ST_GLOBAL,
@@ -1749,6 +1793,7 @@ mod tests {
             priority: AudioPriority::Normal,
             min_distance: 5.0,
             max_distance: 40.0,
+            ..Default::default()
         };
         assert_eq!(
             miles_positional_ranges(Some(&info), 25.0, 1000.0),

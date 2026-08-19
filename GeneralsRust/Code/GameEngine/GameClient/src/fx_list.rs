@@ -98,6 +98,15 @@ impl FXListManagerInterface for FXListManagerBridge {
 
 pub fn register_fx_list_manager_bridge() {
     let _ = gamelogic::helpers::register_fx_list_manager(Arc::new(FXListManagerBridge));
+    ensure_default_ray_effect_manager();
+}
+
+fn ensure_default_ray_effect_manager() {
+    let slot = FX_RAY_MANAGER.get_or_init(|| RwLock::new(None));
+    let mut guard = slot.write().unwrap_or_else(|e| e.into_inner());
+    if guard.is_none() {
+        *guard = Some(Arc::new(Mutex::new(RayEffectManager::new())));
+    }
 }
 
 pub type FXListResult<T> = Result<T, FXListError>;
@@ -321,7 +330,30 @@ pub fn do_the_dynamic_light_from_scene(
     vertex_normal: [f32; 3],
     vertex_diffuse: u32,
 ) -> u32 {
-    let lights = scene_dynamic_lights();
+    gamelogic::helpers::tick_scene_point_lights();
+    let mut lights = scene_dynamic_lights();
+    for light in gamelogic::helpers::scene_point_lights() {
+        lights.push(DisplayDynamicLight {
+            pos: light.pos,
+            color: [
+                light.diffuse[0] + light.ambient[0],
+                light.diffuse[1] + light.ambient[1],
+                light.diffuse[2] + light.ambient[2],
+            ],
+            far_atten_start: light.far_start,
+            far_atten_end: light.far_end,
+            increase_frames: 0,
+            decay_frames: 0,
+            cur_increase_frames: 0,
+            cur_decay_frames: 0,
+            target_color: light.diffuse,
+            target_far_atten_end: light.far_end,
+            decay_range: false,
+            decay_color: false,
+            far_attenuation: true,
+            enabled: light.enabled,
+        });
+    }
     do_the_dynamic_light(vertex_xyz, vertex_normal, vertex_diffuse, &lights)
 }
 
@@ -441,6 +473,7 @@ fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) -> bool {
 }
 
 fn with_ray_manager<F: FnOnce(&mut RayEffectManager)>(f: F) {
+    ensure_default_ray_effect_manager();
     let Some(manager) = FX_RAY_MANAGER.get() else {
         return;
     };
@@ -473,6 +506,46 @@ fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
     }
 }
 
+fn fx_local_player_index() -> i32 {
+    gamelogic::player::player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(-1)
+}
+
+fn fx_pos_cell_is_clear(primary: Option<&Coord3D>) -> bool {
+    let Some(primary) = primary else {
+        return true;
+    };
+    let player = fx_local_player_index();
+    if player < 0 {
+        return true;
+    }
+    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        return true;
+    };
+    if !shroud.has_shroud_grid() {
+        return true;
+    }
+    matches!(
+        shroud.get_shroud_state(player as u32, primary),
+        gamelogic::system::shroud_manager::ShroudState::Visible
+    )
+}
+
+fn fx_obj_is_visible(primary: Option<&Object>) -> bool {
+    let Some(primary) = primary else {
+        return true;
+    };
+    use gamelogic::common::types::ObjectShroudStatus;
+    let player = fx_local_player_index();
+    if player < 0 {
+        return true;
+    }
+    let status = primary.get_shrouded_status(player);
+    (status as u8) <= (ObjectShroudStatus::PartialClear as u8)
+}
 pub struct FXList {
     nuggets: Vec<Box<dyn FXNugget>>,
 }
@@ -500,6 +573,9 @@ impl FXList {
         secondary: Option<&Coord3D>,
         override_radius: f32,
     ) {
+        if !fx_pos_cell_is_clear(primary) {
+            return;
+        }
         for nugget in &self.nuggets {
             nugget.do_fx_pos(
                 primary,
@@ -512,6 +588,9 @@ impl FXList {
     }
 
     pub fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
+        if !fx_obj_is_visible(primary) {
+            return;
+        }
         for nugget in &self.nuggets {
             nugget.do_fx_obj(primary, secondary);
         }
@@ -1324,7 +1403,7 @@ impl FXNugget for ParticleSystemWrapper {
         drop(systems);
     }
 
-    fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
+    fn do_fx_obj(&self, primary: Option<&Object>, secondary: Option<&Object>) {
         let Some(primary) = primary else {
             return;
         };
@@ -1336,15 +1415,33 @@ impl FXNugget for ParticleSystemWrapper {
         };
         let position = primary.get_position();
         let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
-        let transform = primary.get_transform_matrix();
-        let cols = transform.to_cols_array_2d();
-        let mtx = nalgebra::Matrix3::new(
-            cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
-            cols[2][1], cols[2][2],
-        );
+
+        // C++ FXList.cpp:519-529 — Z-rotation from attacker→victim so sparks
+        // continue in the incoming shot direction.
+        let mtx = if self.nugget.ricochet {
+            secondary.map(|secondary| {
+                let secondary_pos = secondary.get_position();
+                let aiming_angle =
+                    (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
+                let (s, c) = aiming_angle.sin_cos();
+                nalgebra::Matrix3::from_columns(&[
+                    nalgebra::Vector3::new(c, s, 0.0),
+                    nalgebra::Vector3::new(-s, c, 0.0),
+                    nalgebra::Vector3::new(0.0, 0.0, 1.0),
+                ])
+            })
+        } else {
+            let cols = primary.get_transform_matrix().to_cols_array_2d();
+            Some(nalgebra::Matrix3::new(
+                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
+                cols[2][0], cols[2][1], cols[2][2],
+            ))
+        };
+
+        let object_id = Some(primary.get_id());
         let systems = self
             .nugget
-            .do_fx_obj(primary_point, Some(&mtx), None, manager);
+            .do_fx_obj(primary_point, mtx.as_ref(), object_id, manager);
         drop(systems);
     }
 }

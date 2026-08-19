@@ -83,7 +83,8 @@ pub use gameplay_audio_dispatch::{
 };
 
 pub use game_sounds::{
-    create_sound_manager, register_audio_shroud_resolver, AudioShroudResolver, SoundManagerImpl,
+    create_sound_manager, register_audio_shroud_resolver, AudioShroudResolver, PlayNowAudioQueries,
+    SoundManagerImpl,
 };
 
 pub use game_speech::{

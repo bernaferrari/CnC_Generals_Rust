@@ -265,6 +265,21 @@ pub fn initialize() -> GameLogicResult<()> {
             })
             .unwrap_or((false, 0.0))
     });
+    game_engine::common::thing::register_align_on_terrain(|angle, pos, stick_to_ground, mtx| {
+        let terrain = crate::terrain::get_terrain_logic();
+        let Ok(guard) = terrain.read() else {
+            return;
+        };
+        let logic_pos = crate::common::Coord3D::new(pos.x, pos.y, pos.z);
+        let mut logic_mtx = crate::common::Matrix3D::IDENTITY;
+        let _ = guard.align_on_terrain(angle, &logic_pos, stick_to_ground, &mut logic_mtx);
+        let cols = logic_mtx.to_cols_array_2d();
+        for r in 0..4 {
+            for c in 0..4 {
+                mtx.m[r][c] = cols[c][r];
+            }
+        }
+    });
 
     log::info!("Game Logic systems initialized successfully");
     Ok(())

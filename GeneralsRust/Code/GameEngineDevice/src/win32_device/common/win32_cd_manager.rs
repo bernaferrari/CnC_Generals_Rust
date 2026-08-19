@@ -96,8 +96,7 @@ impl CDDriveInterface for Win32CDDrive {
             self.disk = CDDisk::NoDisk;
             
             if may_require_update {
-                // TODO: Implement unloadMusicFilesFromCD equivalent
-                // TheFileSystem->unloadMusicFilesFromCD();
+                unload_music_files_from_cd();
             }
         }
     }
@@ -283,6 +282,11 @@ impl std::error::Error for Win32CdManagerError {}
 /// Factory function to create CD Manager - matches C++ CreateCDManager
 pub fn create_cd_manager() -> Box<dyn CDManagerInterface> {
     Box::new(Win32CdManager::new())
+}
+
+/// C++ `FileSystem::unloadMusicFilesFromCD`.
+pub fn unload_music_files_from_cd() {
+    game_engine_device::platform::cd::unload_music_files_from_cd();
 }
 
 #[cfg(test)]

@@ -9,6 +9,17 @@ pub struct PresentationSceneLine {
     pub color: (f32, f32, f32, f32),
     pub texture_name: String,
     pub tile_factor: f32,
+    #[serde(default)]
+    pub scroll_rate: f32,
+}
+
+/// Frozen C++ `W3DStatusCircle` camera fade (ADD/SUBTRACT/SATURATE/MULTIPLY).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationCameraFade {
+    /// `TFade` discriminant: 0 none, 1 subtract, 2 add, 3 saturate, 4 multiply.
+    pub fade: u8,
+    pub intensity: f32,
+    pub diffuse: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -12,7 +12,7 @@
 use super::draw_module::*;
 use super::w3d_model_draw::*;
 use crate::common::*;
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
@@ -35,6 +35,9 @@ struct TreadObjectInfo {
 
     /// Current UV scroll offset
     uv_offset: Real,
+
+    /// Leaf mesh name after the W3D `Model.TREADS*` dot (C++ `meshName`).
+    mesh_name: String,
 }
 
 impl TreadObjectInfo {
@@ -42,7 +45,33 @@ impl TreadObjectInfo {
         Self {
             tread_type,
             uv_offset: 0.0,
+            mesh_name: String::new(),
         }
+    }
+
+    fn with_mesh(tread_type: TreadType, mesh_name: String) -> Self {
+        Self {
+            tread_type,
+            uv_offset: 0.0,
+            mesh_name,
+        }
+    }
+}
+
+fn tread_leaf_name(full_name: &str) -> Option<&str> {
+    let leaf = full_name.rsplit_once('.').map(|(_, leaf)| leaf)?;
+    if leaf.len() >= 6 && leaf[..6].eq_ignore_ascii_case("TREADS") {
+        Some(leaf)
+    } else {
+        None
+    }
+}
+
+fn classify_tread_leaf(leaf: &str) -> TreadType {
+    match leaf.as_bytes().get(6).map(|b| b.to_ascii_uppercase()) {
+        Some(b'L') => TreadType::Left,
+        Some(b'R') => TreadType::Right,
+        _ => TreadType::Middle,
     }
 }
 
@@ -376,10 +405,43 @@ impl W3DTankDraw {
     ///
     /// Finds tread sub-objects in the model and caches them for animation.
     fn update_tread_objects(&mut self) {
-        self.treads.clear();
-        // C++ W3DTankDraw only populates this list from real mesh sub-objects named
-        // TREADS* that use a LinearOffsetTextureMapper. Until the render object bridge
-        // exposes those sub-objects, keep the list empty rather than animating fake treads.
+        if self.data.tread_animation_rate == 0.0 {
+            self.treads.clear();
+            return;
+        }
+        let Some(owner_id) = self.base.owner_id() else {
+            self.treads.clear();
+            return;
+        };
+        let Some(children) = peek_hlod_live_child_states(owner_id) else {
+            return;
+        };
+        if children.is_empty() {
+            return;
+        }
+        let any_linear_offset = children.iter().any(|child| child.uv_animations_disabled);
+        let previous = std::mem::take(&mut self.treads);
+        for child in children {
+            if self.treads.len() >= MAX_TREADS_PER_TANK {
+                break;
+            }
+            let Some(leaf) = tread_leaf_name(&child.name) else {
+                continue;
+            };
+            if any_linear_offset && !child.uv_animations_disabled {
+                continue;
+            }
+            let uv_offset = previous
+                .iter()
+                .find(|tread| tread.mesh_name.eq_ignore_ascii_case(leaf))
+                .map(|tread| tread.uv_offset)
+                .unwrap_or(0.0);
+            self.treads.push(TreadObjectInfo {
+                tread_type: classify_tread_leaf(leaf),
+                uv_offset,
+                mesh_name: leaf.to_string(),
+            });
+        }
     }
 
     /// Update tread UV coordinates for animation
@@ -400,9 +462,28 @@ impl W3DTankDraw {
     }
 
     fn publish_tread_uv_overrides(&self) {
-        // C++ only mutates material overrides on real discovered TREADS* sub-objects.
-        // The render bridge does not expose those sub-objects yet, so there is nothing
-        // to publish without fabricating tread state.
+        let Some(owner_id) = self.base.owner_id() else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let overrides: Vec<MeshUvOverrideState> = self
+            .treads
+            .iter()
+            .filter(|tread| !tread.mesh_name.is_empty())
+            .map(|tread| MeshUvOverrideState {
+                mesh_name_prefix: tread.mesh_name.clone(),
+                u_offset: tread.uv_offset,
+                v_offset: 0.0,
+            })
+            .collect();
+        if overrides.is_empty() {
+            return;
+        }
+        let _ = client.with_active_object_model_draw(owner_id, |state| {
+            state.mesh_uv_overrides = overrides;
+        });
     }
 
     /// Update tread animation based on movement
@@ -494,6 +575,7 @@ impl Module for W3DTankDraw {
 
 impl DrawModule for W3DTankDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        self.update_tread_objects();
         let mut direction = Coord3D::new(transform_mtx.x_axis.x, transform_mtx.x_axis.y, 0.0);
         let mut turning = 0.0;
         let mut is_motive = false;
@@ -717,6 +799,47 @@ mod tests {
         assert_eq!(draw.treads[0].uv_offset, 0.0);
         assert_eq!(draw.treads[1].uv_offset, 0.5);
         assert_eq!(draw.treads[2].uv_offset, 0.0);
+    }
+
+    #[test]
+    fn update_tread_objects_discovers_linear_offset_treads() {
+        let object_id = 8801;
+        publish_hlod_live_child_states(
+            object_id,
+            vec![
+                HlodLiveChildState {
+                    name: "AVTank.TREADSL".to_string(),
+                    hidden: false,
+                    local_transform: Matrix3D::IDENTITY,
+                    uv_animations_disabled: true,
+                },
+                HlodLiveChildState {
+                    name: "AVTank.TREADSR".to_string(),
+                    hidden: false,
+                    local_transform: Matrix3D::IDENTITY,
+                    uv_animations_disabled: true,
+                },
+                HlodLiveChildState {
+                    name: "AVTank.Turret".to_string(),
+                    hidden: false,
+                    local_transform: Matrix3D::IDENTITY,
+                    uv_animations_disabled: false,
+                },
+            ],
+        );
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 0.25,
+            ..W3DTankDrawModuleData::default()
+        });
+        draw.bind_owner_id(object_id);
+        draw.update_tread_objects();
+        let _ = take_hlod_live_child_states(object_id);
+
+        assert_eq!(draw.treads.len(), 2);
+        assert_eq!(draw.treads[0].tread_type, TreadType::Left);
+        assert_eq!(draw.treads[0].mesh_name, "TREADSL");
+        assert_eq!(draw.treads[1].tread_type, TreadType::Right);
+        assert_eq!(draw.treads[1].mesh_name, "TREADSR");
     }
 
     #[test]

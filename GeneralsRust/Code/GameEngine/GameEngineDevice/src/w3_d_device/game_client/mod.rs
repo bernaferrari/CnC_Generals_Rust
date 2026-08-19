@@ -16,7 +16,9 @@ pub mod w3_d_game_client_fx;
 pub mod w3_d_poly;
 pub mod w3_d_prop_buffer;
 pub mod w3_d_view;
+pub mod w3_d_status_circle;
 pub mod w3_d_waypoint_buffer;
+pub mod w3_d_font_chars;
 
 pub use w3_d_display::{
     create_light_pulse, do_the_dynamic_light, do_the_dynamic_light_from_scene,

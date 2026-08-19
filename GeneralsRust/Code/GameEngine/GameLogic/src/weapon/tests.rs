@@ -1120,7 +1120,7 @@ fn test_calculate_scatter_no_scatter() {
 
 #[test]
 fn test_calculate_scatter_infantry_accuracy() {
-    // Infantry should use infantry_inaccuracy_dist
+    // Infantry adds infantry_inaccuracy_dist onto scatter_radius (C++ Weapon.cpp:958-972)
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
     Arc::make_mut(&mut weapon.template).infantry_inaccuracy_dist = 50.0;
@@ -1128,14 +1128,13 @@ fn test_calculate_scatter_infantry_accuracy() {
     let target = Coord3D::new(100.0, 100.0, 50.0);
     let scattered = weapon.calculate_scatter(target, 100.0, ObjectType::Infantry);
 
-    // Scattered position should be within max scatter distance from target
     let distance_x = (scattered.x - target.x).abs();
     let distance_y = (scattered.y - target.y).abs();
     let distance_xy = (distance_x * distance_x + distance_y * distance_y).sqrt();
 
     assert!(
-        distance_xy <= 50.0,
-        "Infantry scatter should be within 50.0 units, got {}",
+        distance_xy <= 150.0,
+        "Infantry scatter should be within 150.0 units, got {}",
         distance_xy
     );
 }
@@ -1185,21 +1184,20 @@ fn test_calculate_scatter_vehicle_less_than_infantry() {
 
 #[test]
 fn test_calculate_scatter_structure_even_less() {
-    // Structures scatter even less than vehicles (50% of scatter_radius)
+    // Structures use the authored scatter_radius with no type multiplier.
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
 
     let target = Coord3D::new(100.0, 100.0, 50.0);
     let scattered = weapon.calculate_scatter(target, 100.0, ObjectType::Structure);
 
-    // Scattered position should be within 50% of scatter_radius (50 units)
     let distance_x = (scattered.x - target.x).abs();
     let distance_y = (scattered.y - target.y).abs();
     let distance_xy = (distance_x * distance_x + distance_y * distance_y).sqrt();
 
     assert!(
-        distance_xy <= 50.0,
-        "Structure scatter should be within 50.0 units (50% of 100), got {}",
+        distance_xy <= 100.0,
+        "Structure scatter should be within authored 100.0 units, got {}",
         distance_xy
     );
 }
@@ -1311,11 +1309,11 @@ fn test_scatter_remains_within_bounds() {
         let scattered_inf = weapon.calculate_scatter(target, 100.0, ObjectType::Infantry);
         let scattered_veh = weapon.calculate_scatter(target, 100.0, ObjectType::Vehicle);
 
-        // Infantry should be within 75.0
+        // Infantry should be within scatter_radius + infantry_inaccuracy_dist
         let inf_dist =
             (scattered_inf.x * scattered_inf.x + scattered_inf.y * scattered_inf.y).sqrt();
         assert!(
-            inf_dist <= 75.0,
+            inf_dist <= 125.0,
             "Infantry scatter exceeded max bounds: {}",
             inf_dist
         );

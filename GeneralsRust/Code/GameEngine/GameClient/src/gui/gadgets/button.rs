@@ -801,7 +801,21 @@ impl Gadget for PushButton {
                     match key {
                         KeyCode::Enter | KeyCode::Space => {
                             if self.is_checkbox {
-                                self.handle_mouse_press(MouseButton::Left)
+                                // C++ GadgetPushButton KEY_ENTER/SPACE toggles
+                                // check-like state and sends GBM_SELECTED with
+                                // no audio; click sound is mouse-only.
+                                self.is_checked = !self.is_checked;
+                                self.state = if self.is_checked {
+                                    GadgetState::Pressed
+                                } else {
+                                    GadgetState::Focused
+                                };
+                                let mut messages =
+                                    vec![GadgetMessage::Clicked { gadget_id: self.id }];
+                                if let Some(callback) = &self.callback {
+                                    callback(self.id);
+                                }
+                                messages
                             } else {
                                 self.mouse_pressed = true;
                                 self.state = GadgetState::Pressed;
@@ -1458,4 +1472,34 @@ mod tests {
         );
         assert_eq!(button.clock_request(), None);
     }
+
+    #[test]
+    fn checkbox_keyboard_toggle_is_silent_like_cpp() {
+        let _guard = audio_test_guard();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&events);
+        register_button_audio_hook(Box::new(move |event| {
+            captured_events
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .push(event.to_string());
+        }));
+
+        let mut button = PushButton::new(1, 0, 0, 100, 30).as_checkbox(false);
+        button.set_focus(true);
+        let messages = button.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Enter,
+            modifiers: KeyModifiers::none(),
+        });
+
+        assert!(button.is_checked());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::Clicked { gadget_id: 1 }]
+        ));
+        let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert!(played.is_empty());
+        clear_button_audio_hook();
+    }
+
 }

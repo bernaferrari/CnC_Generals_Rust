@@ -537,6 +537,7 @@ struct SceneLineEntry {
     color: [f32; 4],
     texture_name: String,
     tile_factor: f32,
+    scroll_rate: f32,
     visible: bool,
 }
 
@@ -1251,6 +1252,7 @@ pub struct FrozenSceneLine {
     pub color: [f32; 4],
     pub texture_name: String,
     pub tile_factor: f32,
+    pub scroll_rate: f32,
 }
 
 /// Snapshot visible lines from the global RenderBridge (empty if not initialized).
@@ -1268,6 +1270,7 @@ pub fn snapshot_visible_scene_lines() -> Vec<FrozenSceneLine> {
             end: [entry.end.x, entry.end.y, entry.end.z],
             width: entry.width,
             color: entry.color,
+            scroll_rate: entry.scroll_rate,
             texture_name: entry.texture_name.clone(),
             tile_factor: entry.tile_factor,
         })
@@ -1673,6 +1676,7 @@ impl SceneSubmissionTrait for RenderBridge {
                 color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
                 texture_name: desc.texture_name.clone().unwrap_or_default(),
                 tile_factor: desc.tile_factor,
+                scroll_rate: desc.scroll_rate,
                 visible: desc.visible,
             };
             bridge.scene_lines.insert(id, entry);
@@ -1700,6 +1704,7 @@ impl SceneSubmissionTrait for RenderBridge {
                 entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
                 entry.texture_name = desc.texture_name.clone().unwrap_or_default();
                 entry.tile_factor = desc.tile_factor;
+                entry.scroll_rate = desc.scroll_rate;
                 entry.visible = desc.visible;
             }
         }
@@ -1854,6 +1859,18 @@ pub fn init_render_bridge() {
 
 pub fn get_render_bridge() -> &'static Mutex<Option<RenderBridge>> {
     &THE_RENDER_BRIDGE
+}
+
+/// Submit a scene line to the live RenderBridge (C++ `Add_Render_Object` for SegLine).
+pub fn submit_bridge_scene_line(
+    desc: &game_engine::common::system::scene_submission::SceneLineDesc,
+) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
+    use game_engine::common::system::scene_submission::SceneSubmission;
+    let bridge = RenderBridge::new();
+    if let Some(id) = SceneSubmission::submit_line(&bridge, 0, desc) {
+        return Some(id);
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -3368,6 +3385,7 @@ mod tests {
             color_r: 1.0,
             color_g: 0.0,
             color_b: 0.0,
+            scroll_rate: 0.0,
             opacity: 1.0,
             texture_name: Some("EXLaser.tga".to_string()),
             tile_factor: 1.0,

@@ -7,7 +7,58 @@
 //! - `/GeneralsMD/Code/GameEngine/Source/Common/RTS/Money.cpp`
 //! - `/GeneralsMD/Code/GameEngine/Include/Common/Money.h`
 
-/// Money management system
+use std::collections::HashSet;
+use std::sync::{Mutex, LazyLock};
+
+static PENDING_INCOME: LazyLock<Mutex<HashSet<i32>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn play_money_sound(player_index: i32, withdraw: bool) {
+    use crate::common::audio::audio_event_rts::AudioEventRts;
+    use crate::common::audio::game_audio::get_global_audio_manager;
+    use crate::common::ini::ini_misc_audio::get_misc_audio;
+
+    let Some(misc) = get_misc_audio() else {
+        return;
+    };
+    let misc = misc.read();
+
+    let src = if withdraw {
+        &misc.money_withdraw_sound
+    } else {
+        &misc.money_deposit_sound
+    };
+    if src.sound_file.is_empty() {
+        return;
+    }
+    let Some(manager) = get_global_audio_manager() else {
+        return;
+    };
+    let Ok(mut manager) = manager.try_lock() else {
+        return;
+    };
+    let mut event = AudioEventRts::with_event_name(&src.sound_file);
+    event.set_player_index(player_index);
+    if let Some(info) = manager.find_audio_event_info(event.get_event_name()) {
+        event.set_audio_event_info(info.clone());
+    }
+    let _ = manager.add_audio_event(&event);
+}
+
+fn notify_income(player_index: i32) {
+    if let Ok(mut pending) = PENDING_INCOME.lock() {
+        pending.insert(player_index);
+    }
+}
+
+/// Consume a pending C++ `recordIncome` mark for this player.
+pub fn take_pending_income(player_index: i32) -> bool {
+    PENDING_INCOME
+        .lock()
+        .map(|mut pending| pending.remove(&player_index))
+        .unwrap_or(false)
+}
+
 ///
 /// Tracks how much "money" (resources) a player has and provides
 /// methods for depositing and withdrawing funds with sound effects.
@@ -88,19 +139,10 @@ impl Money {
         }
 
         // C++ Money.cpp lines 31-37: Audio sound effect
-        // @todo: Do we do this frequently enough that it is a performance hit?
         if play_sound {
-            // When audio system is available:
-            // AudioEventRTS event = TheAudio->getMiscAudio()->m_moneyWithdrawSound;
-            // event.setPlayerIndex(self.player_index);
-            // TheAudio->addAudioEvent(&event);
-            #[cfg(feature = "logging")]
-            log::trace!(
-                "Money withdrawal sound for player {}: ${}",
-                self.player_index,
-                actual_withdrawal
-            );
+            play_money_sound(self.player_index, true);
         }
+
 
         // C++ Money.cpp line 39: Deduct the money
         self.money -= actual_withdrawal;
@@ -124,18 +166,8 @@ impl Money {
         }
 
         // C++ Money.cpp lines 50-56: Audio sound effect
-        // @todo: Do we do this frequently enough that it is a performance hit?
         if play_sound {
-            // When audio system is available:
-            // AudioEventRTS event = TheAudio->getMiscAudio()->m_moneyDepositSound;
-            // event.setPlayerIndex(self.player_index);
-            // TheAudio->addAudioEvent(&event);
-            #[cfg(feature = "logging")]
-            log::trace!(
-                "Money deposit sound for player {}: ${}",
-                self.player_index,
-                amount_to_deposit
-            );
+            play_money_sound(self.player_index, false);
         }
 
         // C++ Money.cpp line 58: Add the money
@@ -143,16 +175,7 @@ impl Money {
 
         // C++ Money.cpp lines 60-67: Record income for academy stats
         if amount_to_deposit > 0 {
-            // When player system is available:
-            // Player *player = ThePlayerList->getNthPlayer(self.player_index);
-            // if player {
-            //     player.get_academy_stats().record_income();
-            // }
-            #[cfg(feature = "logging")]
-            log::trace!(
-                "Academy stats: record_income() for player {}",
-                self.player_index
-            );
+            notify_income(self.player_index);
         }
     }
 

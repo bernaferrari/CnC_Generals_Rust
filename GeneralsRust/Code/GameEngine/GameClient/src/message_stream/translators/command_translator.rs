@@ -253,6 +253,7 @@ impl CommandTranslator {
                 )
             {
                 if let Some(message) = pending_command_for_object(&pending, object_id) {
+                    play_voice_for_command(self.current_selection.iter().copied(), &message);
                     self.clear_targeting_modes();
                     return vec![message];
                 }
@@ -276,6 +277,10 @@ impl CommandTranslator {
                                 Some(object_id),
                             );
                             if !messages.is_empty() {
+                                play_voice_for_command(
+                                    self.current_selection.iter().copied(),
+                                    &messages[0],
+                                );
                                 self.clear_targeting_modes();
                                 return messages;
                             }
@@ -299,6 +304,7 @@ impl CommandTranslator {
                 None,
             );
             if !messages.is_empty() {
+                play_voice_for_command(self.current_selection.iter().copied(), &messages[0]);
                 self.clear_targeting_modes();
                 return messages;
             }
@@ -789,6 +795,21 @@ impl CommandTranslator {
                 }
                 return Vec::new();
             }
+        }
+
+        if let Some(msg) = command.as_ref() {
+            let mut info = VoicePlayInfo {
+                air: false,
+                target_id: target,
+            };
+            if let Some(target_id) = target {
+                if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
+                    if let Ok(target_guard) = target_obj.read() {
+                        info.air = target_guard.is_using_airborne_locomotor();
+                    }
+                }
+            }
+            pick_and_play_unit_voice_response(self.current_selection.iter().copied(), msg, &info);
         }
 
         command.map(|msg| vec![msg]).unwrap_or_default()

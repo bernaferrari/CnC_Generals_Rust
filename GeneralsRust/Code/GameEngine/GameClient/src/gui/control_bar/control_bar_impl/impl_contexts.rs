@@ -17,6 +17,13 @@ impl ControlBar {
             return Ok(());
         }
 
+        super::control_bar_observer::init_observer_controls();
+        if super::control_bar_observer::observer_look_at_player_index().is_some() {
+            super::control_bar_observer::populate_observer_info_window();
+        } else {
+            super::control_bar_observer::populate_observer_list();
+        }
+
         let player_list = logic_player_list();
         let player_count = player_list
             .read()
@@ -44,7 +51,6 @@ impl ControlBar {
             let display_name = player.get_player_display_name().clone();
             let money = player.get_money().get_money();
 
-            // C++ KindOf bit indices (from KindOf.h): Score=45, Structure=8, ScoreCreate=46, ScoreDestroy=47
             let score_bit = 1u64 << 45;
             let struct_bit = 1u64 << 8;
             let score_create_bit = 1u64 << 46;
@@ -72,6 +78,8 @@ impl ControlBar {
 
         if let Ok(mut ctx) = self.context.write() {
             ctx.observer_player_stats = observer_stats;
+            ctx.observer_look_at_player =
+                super::control_bar_observer::observer_look_at_player_index();
         }
 
         Ok(())

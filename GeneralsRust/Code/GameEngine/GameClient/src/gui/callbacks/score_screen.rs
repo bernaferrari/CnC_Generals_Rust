@@ -26,12 +26,20 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::recorder::{get_recorder, RecorderMode};
 use game_engine::common::skirmish_battle_honors::{
-    SkirmishBattleHonors, BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA,
-    BATTLE_HONOR_CAMPAIGN_USA, BATTLE_HONOR_CHALLENGE_MODE,
+    SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE,
+    BATTLE_HONOR_BATTLE_TANK, BATTLE_HONOR_BLITZ10, BATTLE_HONOR_BLITZ5,
+    BATTLE_HONOR_CAMPAIGN_CHINA, BATTLE_HONOR_CAMPAIGN_GLA, BATTLE_HONOR_CAMPAIGN_USA,
+    BATTLE_HONOR_CHALLENGE_MODE, BATTLE_HONOR_LOYALTY_CHINA, BATTLE_HONOR_LOYALTY_GLA,
+    BATTLE_HONOR_LOYALTY_USA, BATTLE_HONOR_STREAK, BH_CHALLENGE_MASK_1, BH_CHALLENGE_MASK_2,
+    BH_CHALLENGE_MASK_3, BH_CHALLENGE_MASK_4, BH_CHALLENGE_MASK_5, BH_CHALLENGE_MASK_6,
+    BH_CHALLENGE_MASK_7,
 };
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
+use game_engine::common::rts::score_keeper::{KindOf, KindOfMaskType};
+use crate::gui::get_skirmish_setup;
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine, TheVictoryConditions};
 use gamelogic::player::{Player, PlayerType, ThePlayerList};
 use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
+use game_network::{GameInfo, GameSlot, SlotState, MAX_SLOTS as NETWORK_MAX_SLOTS};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -906,6 +914,197 @@ fn set_observer_windows(state: &mut ScoreScreenState, player: &Player, index: i3
     }
 }
 
+const LOGICFRAMES_PER_SECOND: u32 = 30;
+
+const SUPERWEAPON_TEMPLATES_SCUD: &[&str] = &[
+    "GLAScudStorm",
+    "Boss_GLAScudStorm",
+    "Chem_GLAScudStorm",
+    "Slth_GLAScudStorm",
+    "Demo_GLAScudStorm",
+];
+const SUPERWEAPON_TEMPLATES_PPC: &[&str] = &[
+    "AmericaParticleCannonUplink",
+    "AirF_AmericaParticleCannonUplink",
+    "Lazr_AmericaParticleCannonUplink",
+    "SupW_AmericaParticleCannonUplink",
+    "Boss_ParticleCannonUplink",
+];
+const SUPERWEAPON_TEMPLATES_NUKE: &[&str] = &[
+    "ChinaNuclearMissileLauncher",
+    "Boss_NuclearMissileLauncher",
+    "Infa_ChinaNuclearMissileLauncher",
+    "Nuke_ChinaNuclearMissileLauncher",
+    "Tank_ChinaNuclearMissileLauncher",
+];
+
+fn is_slot_local_ally(game: &GameInfo, slot: &GameSlot) -> bool {
+    let local_num = game.get_local_slot_num();
+    let Some(local_slot) = game.get_slot(local_num.max(0) as usize) else {
+        return true;
+    };
+    if std::ptr::eq(slot, local_slot) {
+        return true;
+    }
+    if slot.get_team_number() < 0 {
+        return false;
+    }
+    slot.get_team_number() == local_slot.get_team_number()
+}
+
+fn update_skirmish_battle_honors(stats: &mut SkirmishBattleHonors, player: &Player) {
+    let score = player.get_score_keeper();
+    if stats.get_win_streak() >= 5 {
+        stats.set_honors(BATTLE_HONOR_STREAK as i32);
+    }
+    for name in SUPERWEAPON_TEMPLATES_SCUD {
+        if score.get_total_objects_built(name) > 0 {
+            stats.set_built_scud();
+        }
+    }
+    for name in SUPERWEAPON_TEMPLATES_PPC {
+        if score.get_total_objects_built(name) > 0 {
+            stats.set_built_particle_cannon();
+        }
+    }
+    for name in SUPERWEAPON_TEMPLATES_NUKE {
+        if score.get_total_objects_built(name) > 0 {
+            stats.set_built_nuke();
+        }
+    }
+    if stats.built_nuke() && stats.built_particle_cannon() && stats.built_scud() {
+        stats.set_honors(BATTLE_HONOR_APOCALYPSE as i32);
+    }
+
+    let mut vehicle_mask = KindOfMaskType::new();
+    vehicle_mask.set(KindOf::Vehicle);
+    let mut aircraft_invalid = KindOfMaskType::new();
+    aircraft_invalid.set(KindOf::Aircraft);
+    if score.get_total_units_built_filtered(&vehicle_mask, &aircraft_invalid) >= 50 {
+        stats.set_honors(BATTLE_HONOR_BATTLE_TANK as i32);
+    }
+    let mut aircraft_mask = KindOfMaskType::new();
+    aircraft_mask.set(KindOf::Aircraft);
+    let none_mask = KindOfMaskType::new();
+    if score.get_total_units_built_filtered(&aircraft_mask, &none_mask) >= 20 {
+        stats.set_honors(BATTLE_HONOR_AIR_WING as i32);
+    }
+
+    let minutes = TheGameLogic::get_frame() / LOGICFRAMES_PER_SECOND / 60;
+    if minutes < 5 {
+        stats.set_honors(BATTLE_HONOR_BLITZ5 as i32);
+    }
+    if minutes < 10 {
+        stats.set_honors(BATTLE_HONOR_BLITZ10 as i32);
+    }
+
+    let side = player.get_side();
+    if stats.get_num_games_loyal() >= 20 {
+        if side == "America" {
+            stats.set_honors(BATTLE_HONOR_LOYALTY_USA as i32);
+        } else if side == "China" {
+            stats.set_honors(BATTLE_HONOR_LOYALTY_CHINA as i32);
+        } else if side == "GLA" {
+            stats.set_honors(BATTLE_HONOR_LOYALTY_GLA as i32);
+        }
+    }
+
+    let setup = get_skirmish_setup();
+    let game = setup.game_info().game_info();
+    let mut num_easy = 0;
+    let mut num_medium = 0;
+    let mut num_brutal = 0;
+    for i in 0..NETWORK_MAX_SLOTS {
+        let Some(slot) = game.get_slot(i) else {
+            continue;
+        };
+        if slot.is_ai() && !is_slot_local_ally(game, slot) {
+            match slot.get_state() {
+                SlotState::EasyAI => num_easy += 1,
+                SlotState::MedAI => num_medium += 1,
+                SlotState::BrutalAI => num_brutal += 1,
+                _ => {}
+            }
+        }
+    }
+    if num_easy > 0 || num_medium > 0 || num_brutal > 0 {
+        let map = game.get_map().to_string();
+        if num_easy > 0 {
+            let old = stats.get_endurance_medal(&map, SlotState::EasyAI as i32);
+            stats.set_endurance_medal(
+                &map,
+                SlotState::EasyAI as i32,
+                old.max(num_easy + num_medium + num_brutal),
+            );
+        }
+        if num_medium > 0 {
+            let old = stats.get_endurance_medal(&map, SlotState::MedAI as i32);
+            stats.set_endurance_medal(
+                &map,
+                SlotState::MedAI as i32,
+                old.max(num_medium + num_brutal),
+            );
+        }
+        if num_brutal > 0 {
+            let old = stats.get_endurance_medal(&map, SlotState::BrutalAI as i32);
+            stats.set_endurance_medal(&map, SlotState::BrutalAI as i32, old.max(num_brutal));
+        }
+    }
+}
+
+fn update_challenge_medals(medals: &mut i32) {
+    let setup = get_skirmish_setup();
+    let game = setup.game_info().game_info();
+    if !game.is_skirmish() {
+        return;
+    }
+    let mut num_ais = 0;
+    let mut num_brutals = 0;
+    for i in 0..NETWORK_MAX_SLOTS {
+        let Some(slot) = game.get_slot(i) else {
+            continue;
+        };
+        if slot.is_ai() && !is_slot_local_ally(game, slot) {
+            num_ais += 1;
+            if slot.get_state() == SlotState::BrutalAI {
+                num_brutals += 1;
+            }
+        } else if slot.is_ai() {
+            return;
+        }
+    }
+    if num_ais == 0 {
+        return;
+    }
+    *medals |= match num_brutals {
+        1 => BH_CHALLENGE_MASK_1,
+        2 => BH_CHALLENGE_MASK_2,
+        3 => BH_CHALLENGE_MASK_3,
+        4 => BH_CHALLENGE_MASK_4,
+        5 => BH_CHALLENGE_MASK_5,
+        6 => BH_CHALLENGE_MASK_6,
+        7 => BH_CHALLENGE_MASK_7,
+        _ => 0,
+    } as i32;
+}
+
+fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
+    let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
+    if !player.get_academy_stats().calculate_academy_advice(&mut info) {
+        return;
+    }
+    let Some(widget) = listbox.borrow_mut().list_box_mut() else {
+        return;
+    };
+    for i in 0..info.num_tips.max(0) as usize {
+        if let Some(tip) = info.advice.get(i) {
+            if !tip.is_empty() {
+                widget.add_item(tip);
+            }
+        }
+    }
+}
+
 fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32) {
     if !(0..MAX_SLOTS).contains(&pos) {
         return;
@@ -955,13 +1154,12 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
             let _ = win.borrow_mut().hide(false);
         }
     }
-
     if player.is_local_player() {
         if let Some(listbox) = state.listbox_academy.as_ref() {
             let _ = listbox.borrow_mut().hide(false);
             hide_window(&state.static_text_academy_title, false);
             if TheGameLogic::is_in_skirmish_game() || TheGameLogic::is_in_multiplayer_game() {
-                let _info = game_engine::common::rts::AcademyAdviceInfo::default();
+                fill_academy_advice(listbox, player);
             }
         }
     }
@@ -975,17 +1173,26 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
     }
 
     if state.screen_type == ScoreScreenType::Skirmish && player.is_local_player() {
+        let setup = get_skirmish_setup();
+        let sandbox = setup.game_info().game_info().is_sandbox();
+        let victory = TheVictoryConditions::is_local_allied_victory();
+        if (sandbox || !victory) && player.is_player_active() && !victory {
+            return;
+        }
+
         let mut stats = SkirmishBattleHonors::new();
-        if TheGameLogic::is_in_skirmish_game() {
-            if TheGameLogic::is_in_multiplayer_game() {
-                stats.set_losses(stats.get_losses() + 1);
-                stats.set_win_streak(0);
-            } else {
-                stats.set_wins(stats.get_wins() + 1);
-                stats.set_win_streak(stats.get_win_streak() + 1);
-                let best = stats.get_best_win_streak().max(stats.get_win_streak());
-                stats.set_best_win_streak(best);
-            }
+        if victory {
+            stats.set_wins(stats.get_wins() + 1);
+            stats.set_win_streak(stats.get_win_streak() + 1);
+            let best = stats.get_best_win_streak().max(stats.get_win_streak());
+            stats.set_best_win_streak(best);
+            update_skirmish_battle_honors(&mut stats, player);
+            let mut challenge_medals = stats.get_challenge_medals();
+            update_challenge_medals(&mut challenge_medals);
+            stats.set_challenge_medals(challenge_medals);
+        } else {
+            stats.set_losses(stats.get_losses() + 1);
+            stats.set_win_streak(0);
         }
         let last_general = stats.get_last_general();
         stats.set_last_general(player.get_side().to_string());

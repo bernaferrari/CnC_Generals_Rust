@@ -4,8 +4,13 @@
 
 //! Display adaptor that renders through the shared `PlatformContext`.
 
-use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewTrait};
+use crate::display::view::{
+    set_display_letter_boxed, vertical_fov_from_horizontal, with_tactical_view,
+    with_tactical_view_ref, FilterType, ViewTrait, LETTER_BOX_FADE_TIME_MS,
+};
 use crate::display::DisplayInterface;
+use crate::display::display_fx;
+use crate::display::shadow_pass;
 use crate::drawable::drawable_manager::DrawableManager;
 use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
@@ -17,7 +22,8 @@ use crate::radius_decal::get_projected_shadow_manager;
 use crate::game_text::GameText;
 use crate::gui::display_string::{get_display_string_manager, DisplayStringHandle};
 use crate::gui::font::{get_font_library, FontDesc};
-use crate::gui::{with_ui_renderer, with_window_manager};
+use crate::gui::{ui_renderer::UIRect, with_ui_renderer, with_window_manager};
+use crate::input::with_mouse;
 use crate::platform::GraphicsContext;
 use crate::system::debug_display::DebugDisplay;
 use crate::system::SubsystemInterface;
@@ -171,6 +177,8 @@ pub struct Display {
     letterbox_fade_start_time: Option<Instant>,
     drawable_manager: Arc<Mutex<DrawableManager>>,
     lighting_state: DisplayLightingState,
+    last_movie_frame: Mutex<Option<(u32, u32, Vec<u8>)>>,
+    pending_screenshot: Mutex<Option<std::path::PathBuf>>,
 }
 
 impl Display {
@@ -241,6 +249,8 @@ impl Display {
             letterbox_fade_start_time: None,
             drawable_manager: Arc::new(Mutex::new(DrawableManager::new())),
             lighting_state: DisplayLightingState::from_current_global_data(),
+            last_movie_frame: Mutex::new(None),
+            pending_screenshot: Mutex::new(None),
         }
     }
 
@@ -368,10 +378,16 @@ impl Display {
 
     pub fn set_width(&mut self, width: u32) {
         self.width = width;
+        self.update_mouse_limits();
     }
 
     pub fn set_height(&mut self, height: u32) {
         self.height = height;
+        self.update_mouse_limits();
+    }
+
+    fn update_mouse_limits(&self) {
+        with_mouse(|mouse| mouse.set_mouse_limits(self.width, self.height));
     }
 
     pub fn set_bit_depth(&mut self, bit_depth: u32) {
@@ -518,20 +534,151 @@ impl Display {
 
     pub fn toggle_movie_capture(&mut self) {
         self.movie_capture_enabled = !self.movie_capture_enabled;
+        if self.movie_capture_enabled {
+            display_fx::reset_movie_capture_counter();
+        }
+        let _ = ww3d_engine::set_movie_capture_enabled(self.movie_capture_enabled);
     }
 
     pub fn is_movie_capture_enabled(&self) -> bool {
         self.movie_capture_enabled
     }
 
+    /// C++ `W3DDisplay::setGamma` — stored ramp is applied as a shader-side transfer.
+    pub fn set_gamma(&mut self, gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
+        display_fx::set_gamma_state(gamma, bright, contrast);
+    }
+
+    /// C++ `W3DDisplay::takeScreenShot`.
+    pub fn take_screenshot(&mut self) -> String {
+        let path = display_fx::next_screenshot_path();
+        let leaf = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("sshot.bmp")
+            .to_string();
+        if let Ok(mut pending) = self.pending_screenshot.lock() {
+            *pending = Some(path.clone());
+        }
+        let _ = ww3d_engine::make_screenshot(&path);
+        crate::helpers::TheInGameUI::message(&format!(
+            "{} {}",
+            crate::game_text::GameText::fetch("GUI:ScreenCapture"),
+            leaf
+        ));
+        leaf
+    }
+
+
     pub fn enable_letter_box(&mut self, enabled: bool) {
+        if self.letterbox_enabled == enabled {
+            return;
+        }
         self.letterbox_enabled = enabled;
-        self.letterbox_fade_level = if enabled { 1.0 } else { 0.0 };
         self.letterbox_fade_start_time = Some(Instant::now());
+        set_display_letter_boxed(enabled);
+        with_tactical_view(|view| view.set_zoom_limited(!enabled));
+    }
+
+    pub fn toggle_letter_box(&mut self) {
+        self.enable_letter_box(!self.letterbox_enabled);
     }
 
     pub fn is_letter_box_enabled(&self) -> bool {
         self.letterbox_enabled
+    }
+
+    pub fn is_letter_boxed(&self) -> bool {
+        self.letterbox_enabled
+    }
+
+    pub fn is_letter_box_fading(&self) -> bool {
+        let fade = self.letterbox_fade_now();
+        (self.letterbox_enabled && fade < 1.0) || (!self.letterbox_enabled && fade > 0.0)
+    }
+
+    fn letterbox_fade_now(&self) -> f32 {
+        let Some(start) = self.letterbox_fade_start_time else {
+            return if self.letterbox_enabled { 1.0 } else { 0.0 };
+        };
+        let t = (start.elapsed().as_millis() as f32 / LETTER_BOX_FADE_TIME_MS).clamp(0.0, 1.0);
+        if self.letterbox_enabled {
+            t
+        } else {
+            1.0 - t
+        }
+    }
+
+    /// C++ `W3DDisplay::renderLetterBox` — 16:9 black bars via `drawFillRect`.
+    fn queue_letterbox_and_filters(&self, renderer: &mut crate::gui::ui_renderer::UIRenderer) {
+        let fade = self.letterbox_fade_now();
+        if fade > 0.0 {
+            let width = self.width.max(1) as f32;
+            let height = self.height.max(1) as f32;
+            let bar_height = ((height - (9.0 / 16.0) * width) * 0.5 * fade).max(0.0);
+            if bar_height > 0.5 {
+                let color = [0.0, 0.0, 0.0, fade];
+                renderer.draw_rect(UIRect::new(0.0, 0.0, width, bar_height), color, 10_000.0);
+                renderer.draw_rect(
+                    UIRect::new(0.0, height - bar_height, width, bar_height),
+                    color,
+                    10_000.0,
+                );
+            }
+        }
+
+        with_tactical_view_ref(|view| {
+            let composite = view.filter_composite();
+            if composite.filter == FilterType::Null || composite.fade <= 0.0 {
+                return;
+            }
+            let width = self.width.max(1) as f32;
+            let height = self.height.max(1) as f32;
+            let fade = composite.fade.clamp(0.0, 1.0);
+            let (color, z) = match composite.filter {
+                FilterType::BlackAndWhite => match composite.mode {
+                    crate::display::view::FilterMode::BWRedAndWhite => {
+                        ([0.55, 0.05, 0.05, 0.55 * fade], 9_900.0)
+                    }
+                    crate::display::view::FilterMode::BWGreenAndWhite => {
+                        ([0.05, 0.45, 0.05, 0.55 * fade], 9_900.0)
+                    }
+                    _ => ([0.35, 0.35, 0.35, 0.72 * fade], 9_900.0),
+                },
+                FilterType::MotionBlur => ([0.08, 0.08, 0.12, 0.28 * fade], 9_850.0),
+                FilterType::Crossfade => ([0.0, 0.0, 0.0, fade], 9_950.0),
+                FilterType::Null => return,
+            };
+            renderer.draw_rect(UIRect::new(0.0, 0.0, width, height), color, z);
+            if composite.filter == FilterType::MotionBlur {
+                let pan = composite.scroll_delta;
+                renderer.draw_rect(
+                    UIRect::new(pan.x * 0.15, pan.y * 0.15, width, height),
+                    [0.12, 0.12, 0.16, 0.12 * fade],
+                    z + 1.0,
+                );
+            }
+        });
+
+        let ((x, y), cursor) =
+            crate::input::with_mouse(|mouse| (mouse.position(), mouse.get_cursor()));
+        if !matches!(
+            cursor,
+            crate::input::mouse::MouseCursor::None | crate::input::mouse::MouseCursor::Invalid
+        ) {
+            let size = 24.0;
+            renderer.draw_rect(
+                UIRect::new(x - 2.0, y - 2.0, size, size),
+                [1.0, 1.0, 1.0, 0.85],
+                11_000.0,
+            );
+            renderer.draw_rect_outline(
+                UIRect::new(x - 2.0, y - 2.0, size, size),
+                1.5,
+                [0.1, 0.1, 0.1, 1.0],
+                11_001.0,
+            );
+        }
     }
 
     pub fn set_debug_display_callback(
@@ -583,6 +730,11 @@ impl Display {
 
             stream.frame_decompress();
             stream.frame_render(buffer.as_mut());
+            if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
+                if let Ok(mut frame) = self.last_movie_frame.lock() {
+                    *frame = Some((w, h, rgba));
+                }
+            }
 
             if stream.frame_index() != stream.frame_count() - 1 {
                 stream.frame_next();
@@ -627,6 +779,7 @@ impl Display {
         }
     }
 
+
     fn build_particle_uniforms(&self) -> ParticleUniforms {
         with_tactical_view_ref(|view| {
             let camera_pos = view.get_3d_camera_position();
@@ -637,8 +790,12 @@ impl Display {
 
             let view_matrix = Matrix4::look_at_rh(&camera, &target, &up);
             let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
-            let projection_matrix =
-                Matrix4::new_perspective(aspect, view.field_of_view(), 1.0, 20000.0);
+            let projection_matrix = Matrix4::new_perspective(
+                aspect,
+                vertical_fov_from_horizontal(view.field_of_view(), aspect),
+                1.0,
+                20000.0,
+            );
 
             ParticleUniforms {
                 view_matrix: view_matrix.into(),
@@ -659,8 +816,14 @@ impl Display {
 impl SubsystemInterface for Display {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(global_data) = get_global_data() {
-            let time_of_day = global_data.read().time_of_day;
+            let (time_of_day, gamma) = {
+                let gd = global_data.read();
+                (gd.time_of_day, gd.display_gamma)
+            };
             self.set_time_of_day(time_of_day);
+            if (gamma - 1.0).abs() > 0.0001 {
+                self.set_gamma(gamma, 0.0, 1.0, false);
+            }
         }
         Ok(())
     }
@@ -681,6 +844,7 @@ impl SubsystemInterface for Display {
         }
         Ok(())
     }
+
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.update_views();
@@ -747,7 +911,7 @@ impl DisplayInterface for Display {
                 (tactical_view.width() as f32 / tactical_view.height().max(1) as f32).max(0.01);
             let projection_matrix = nalgebra::Matrix4::new_perspective(
                 aspect,
-                tactical_view.field_of_view(),
+                vertical_fov_from_horizontal(tactical_view.field_of_view(), aspect),
                 1.0,
                 20000.0,
             );
@@ -826,6 +990,30 @@ impl DisplayInterface for Display {
             }
         });
 
+        // C++ W3DParticleSys::doParticles — terrain visible-box cull.
+        if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut()
+        {
+            if let Some(mgr) = guard.as_mut() {
+                with_tactical_view_ref(|view| {
+                    let cam = view.get_3d_camera_position();
+                    let target = view.position();
+                    let aspect =
+                        (view.width() as f32 / view.height().max(1) as f32).max(0.01);
+                    let visible = shadow_pass::maximum_visible_box(
+                        [cam.x, cam.y, cam.z],
+                        [target.x, target.y, target.z],
+                        1.0,
+                        20000.0,
+                        vertical_fov_from_horizontal(view.field_of_view(), aspect),
+                        aspect,
+                        shadow_pass::terrain_min_height(),
+                    );
+                    mgr.cull_particles_to_visible_box(visible.center, visible.extent, 512);
+                });
+            }
+        }
+
+
         // Particle rendering via W3DParticleSystemBridge
         #[cfg(feature = "w3d_support")]
         if let Some(renderer) = self.particle_renderer.as_ref() {
@@ -875,6 +1063,15 @@ impl DisplayInterface for Display {
                     }
                 }
             }
+            let uniforms = self.build_particle_uniforms();
+            if let Ok(mut renderer_guard) = renderer.lock() {
+                renderer_guard.render_tracer_and_ray_fx(
+                    &mut encoder,
+                    &view,
+                    &self.depth_view,
+                    &uniforms,
+                );
+            }
         }
 
         // Weather and decal rendering pass
@@ -905,12 +1102,9 @@ impl DisplayInterface for Display {
             } else {
                 Vec::new()
             };
-            // C++ W3DProjectedShadowManager::flushDecals — radius delivery rings.
-            decals.extend(
-                get_projected_shadow_manager()
-                    .read()
-                    .collect_render_items(),
-            );
+            // C++ W3DProjectedShadowManager::flushDecals — unit + radius decals.
+            decals.extend(shadow_pass::collect_unit_decal_items());
+
             if !decals.is_empty() {
                 let mut uniforms = self.build_particle_uniforms();
                 uniforms.particle_count = decals.len() as u32;
@@ -940,9 +1134,28 @@ impl DisplayInterface for Display {
                 // Drop the write guard before gadget draw so `with_ui_renderer_mut`
                 // can record real commands. Holding it discarded WND draws.
                 with_window_manager(|manager| manager.draw_all());
+                if let Ok(frame) = self.last_movie_frame.lock() {
+                    if let Some((w, h, rgba)) = frame.as_ref() {
+                        display_fx::blit_video_rgba(*w, *h, rgba, self.width, self.height);
+                        let copyright = display_fx::copyright_text(&self.copyright_display_string);
+                        if !copyright.is_empty() {
+                            display_fx::draw_copyright_hint(self.width, self.height, &copyright);
+                        }
+                    }
+                }
+                if self.debug_display_callback.is_some() {
+                    let fps = display_fx::note_frame_for_fps();
+                    let particles = get_particle_system_manager()
+                        .ok()
+                        .and_then(|g| g.as_ref().map(|m| m.particle_count() as u32))
+                        .unwrap_or(0);
+                    display_fx::draw_debug_overlay(self.width, fps, 0, particles);
+                    display_fx::draw_framerate_bar(self.width, fps, 30.0);
+                }
                 let mut renderer = renderer_arc
                     .write()
                     .map_err(|_| "UI renderer lock poisoned")?;
+                self.queue_letterbox_and_filters(&mut renderer);
                 let render_result = {
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Display UI Pass"),
@@ -971,6 +1184,26 @@ impl DisplayInterface for Display {
         self.graphics
             .queue()
             .submit(std::iter::once(encoder.finish()));
+
+        if self.movie_capture_enabled {
+            if let Ok(frame) = self.last_movie_frame.lock() {
+                if let Some((w, h, rgba)) = frame.as_ref() {
+                    let path = display_fx::next_movie_frame_path();
+                    let bgr = display_fx::rgba_to_bgr(rgba, *w, *h);
+                    let _ = display_fx::write_bmp_bgr(&path, *w, *h, &bgr);
+                }
+            }
+        }
+        if let Ok(mut pending) = self.pending_screenshot.lock() {
+            if let Some(path) = pending.take() {
+                if let Ok(frame) = self.last_movie_frame.lock() {
+                    if let Some((w, h, rgba)) = frame.as_ref() {
+                        let bgr = display_fx::rgba_to_bgr(rgba, *w, *h);
+                        let _ = display_fx::write_bmp_bgr(&path, *w, *h, &bgr);
+                    }
+                }
+            }
+        }
 
         frame.present();
         Ok(())

@@ -59,6 +59,8 @@ pub struct MessageText {
     pub text: String,
     /// Packed ARGB color for this message instance (stays with it across shifts)
     pub color: u32,
+    /// Original packed ARGB assigned at add time (fade reads this)
+    pub original_color: u32,
     /// Logic frame when this message was created
     pub creation_frame: u32,
 }
@@ -99,6 +101,12 @@ pub struct FloatingTextData {
     pub creation_frame: u32,
     pub timeout: u32,
     pub move_up_speed: f32,
+    /// C++ FloatingTextData::m_frameCount — frames since spawn (draw rise).
+    pub frame_count: u32,
+    /// C++ FloatingTextData::m_frameTimeOut — absolute frame when fade starts.
+    pub frame_timeout: u32,
+    /// Current alpha 0-255. C++ packed into m_color.
+    pub alpha: u8,
 }
 
 /// C++: NamedTimerInfo (InGameUI.h:217-228)
@@ -107,6 +115,14 @@ pub struct NamedTimerData {
     pub name: String,
     pub text: String,
     pub is_countdown: bool,
+    /// C++ NamedTimerInfo::timestamp — last formatted seconds/frames.
+    pub timestamp: i32,
+    /// C++ NamedTimerInfo::color
+    pub color: u32,
+    /// Last formatted display line (name + M:SS or raw frames).
+    pub display_text: String,
+    /// Ready/zero-countdown uses the ready font + flash.
+    pub use_ready_font: bool,
 }
 
 /// Mouse cursor types. C++: Mouse::MouseCursor (Mouse.h:121-190)
@@ -377,8 +393,51 @@ pub enum RadiusCursorType {
 }
 
 impl RadiusCursorType {
-    /// Total number of radius cursor types. C++: RADIUSCURSOR_COUNT
     pub const COUNT: u32 = 30;
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        let key = name.trim().replace('-', "_");
+        let key = key.to_ascii_uppercase();
+        Some(match key.as_str() {
+            "NONE" => Self::None,
+            "ATTACK_DAMAGE_AREA" | "ATTACKDAMAGEAREARADIUSCURSOR" => Self::AttackDamageArea,
+            "ATTACK_SCATTER_AREA" | "ATTACKSCATTERAREARADIUSCURSOR" => Self::AttackScatterArea,
+            "ATTACK_CONTINUE_AREA" | "ATTACKCONTINUEAREARADIUSCURSOR" => Self::AttackContinueArea,
+            "GUARD_AREA" | "GUARDAREARADIUSCURSOR" => Self::GuardArea,
+            "EMERGENCY_REPAIR" | "EMERGENCYREPAIRRADIUSCURSOR" => Self::EmergencyRepair,
+            "FRIENDLY_SPECIALPOWER" | "FRIENDLYSPECIALPOWERRADIUSCURSOR" => {
+                Self::FriendlySpecialPower
+            }
+            "OFFENSIVE_SPECIALPOWER" | "OFFENSIVESPECIALPOWERRADIUSCURSOR" => {
+                Self::OffensiveSpecialPower
+            }
+            "SUPERWEAPON_SCATTER_AREA" | "SUPERWEAPONSCATTERAREARADIUSCURSOR" => {
+                Self::SuperweaponScatterArea
+            }
+            "PARTICLECANNON" | "PARTICLECANNONRADIUSCURSOR" => Self::ParticleCannon,
+            "A10STRIKE" | "A10STRIKERADIUSCURSOR" => Self::A10Strike,
+            "CARPETBOMB" | "CARPETBOMBRADIUSCURSOR" => Self::CarpetBomb,
+            "DAISYCUTTER" | "DAISYCUTTERRADIUSCURSOR" => Self::DaisyCutter,
+            "PARADROP" | "PARADROPRADIUSCURSOR" => Self::Paradrop,
+            "SPYSATELLITE" | "SPYSATELLITERADIUSCURSOR" => Self::SpySatellite,
+            "SPECTREGUNSHIP" | "SPECTREGUNSHIPRADIUSCURSOR" => Self::SpectreGunship,
+            "HELIX_NAPALM_BOMB" | "HELIXNAPALMBOMBRADIUSCURSOR" => Self::HelixNapalmBomb,
+            "NUCLEARMISSILE" | "NUCLEARMISSILERADIUSCURSOR" => Self::NuclearMissile,
+            "EMPPULSE" | "EMPPULSERADIUSCURSOR" => Self::EmpPulse,
+            "ARTILLERYBARRAGE" | "ARTILLERYRADIUSCURSOR" => Self::ArtilleryBarrage,
+            "NAPALMSTRIKE" | "NAPALMSTRIKERADIUSCURSOR" => Self::NapalmStrike,
+            "CLUSTERMINES" | "CLUSTERMINESRADIUSCURSOR" => Self::ClusterMines,
+            "SCUDSTORM" | "SCUDSTORMRADIUSCURSOR" => Self::ScudStorm,
+            "ANTHRAXBOMB" | "ANTHRAXBOMBRADIUSCURSOR" => Self::AnthraxBomb,
+            "AMBUSH" | "AMBUSHRADIUSCURSOR" => Self::Ambush,
+            "RADAR" | "RADARRADIUSCURSOR" => Self::Radar,
+            "SPYDRONE" | "SPYDRONERADIUSCURSOR" => Self::SpyDrone,
+            "FRENZY" | "FRENZYRADIUSCURSOR" => Self::Frenzy,
+            "CLEARMINES" | "CLEARMINESRADIUSCURSOR" => Self::ClearMines,
+            "AMBULANCE" | "AMBULANCERADIUSCURSOR" => Self::Ambulance,
+            _ => return None,
+        })
+    }
 }
 
 /// Radius cursor state. C++: m_curRadiusCursor + m_curRcType (InGameUI.h:799-801)
@@ -415,11 +474,23 @@ pub struct SuperweaponTimerData {
     pub player_index: u8,
     pub object_id: ObjectID,
     pub power_name: String,
+    /// C++ SuperweaponInfo template name (xfer + GUI: label).
+    pub template_name: String,
     pub ready_frame: u32,
     pub countdown_text: String,
     pub ready: bool,
     pub hidden_by_script: bool,
     pub hidden_by_science: bool,
+    /// C++ SuperweaponInfo::m_timestamp — seconds shown.
+    pub timestamp: i32,
+    /// C++ SuperweaponInfo::m_evaReadyPlayed (xfer v3).
+    pub eva_ready_played: bool,
+    /// C++ SuperweaponInfo player color.
+    pub color: u32,
+    pub force_update_text: bool,
+    pub name_text: String,
+    pub time_text: String,
+    pub use_ready_font: bool,
 }
 
 /// Selection box representation
@@ -920,6 +991,9 @@ pub struct InGameUI {
     pub current_frame: u32,
 
     radius_cursor: RadiusCursorState,
+    radius_cursor_templates: Vec<crate::radius_decal::RadiusDecalTemplate>,
+    cur_radius_decal: crate::radius_decal::RadiusDecal,
+    guard_hint_stashed_position: Coord3D,
     superweapon_timers: Vec<SuperweaponTimerData>,
 
     /// C++: m_mouseMode (InGameUI.h:770)
@@ -945,6 +1019,17 @@ pub struct InGameUI {
     named_timer_last_flash_frame: i32,
     named_timer_used_flash_color: bool,
     show_named_timers: bool,
+    named_timer_position: (f32, f32),
+    named_timer_flash_duration: f32,
+    named_timer_flash_color: u32,
+    named_timer_normal_font: String,
+    named_timer_normal_point_size: i32,
+    named_timer_normal_bold: bool,
+    named_timer_normal_color: u32,
+    named_timer_ready_font: String,
+    named_timer_ready_point_size: i32,
+    named_timer_ready_bold: bool,
+    named_timer_ready_color: u32,
 
     gui_command: Option<String>,
     quit_menu_visible: bool,
@@ -1044,6 +1129,13 @@ pub struct InGameUI {
     currently_playing_movie: Option<String>,
     /// C++: m_cameoVideoBuffer/m_cameoVideoStream (InGameUI.h:717-718)
     cameo_movie_playing: Option<String>,
+    video_stream: Option<Box<dyn crate::video_stream::VideoStreamInterface>>,
+    video_buffer: Option<crate::video_buffer::VideoBufferHandle>,
+    cameo_video_stream: Option<Box<dyn crate::video_stream::VideoStreamInterface>>,
+    cameo_video_buffer: Option<crate::video_buffer::VideoBufferHandle>,
+    /// C++: m_displayedMaxWarning
+    displayed_max_warning: bool,
+    last_ui_logic_frame: u32,
 
     // ── World animations (C++: m_worldAnimationList, InGameUI.h:830) ──
     world_animations: Vec<WorldAnimationData>,

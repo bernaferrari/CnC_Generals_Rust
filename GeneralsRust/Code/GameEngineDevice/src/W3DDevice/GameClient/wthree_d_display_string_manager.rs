@@ -27,17 +27,26 @@ impl WthreeDDisplayStringManager {
         }
     }
 
-    /// Initialize the manager
     pub fn initialize(&mut self) -> Result<(), WthreeDDisplayStringManagerError> {
         if self.initialized {
             return Ok(());
         }
-        // PARITY_NOTE: C++ W3DDisplayStringManager.cpp manages UnicodeString display strings
-        // for the W3D device. init() creates the font/text rendering resources.
-        // shutdown() frees all allocated DisplayString objects.
-        // Full port requires: UnicodeString system, font rendering, text layout engine.
+        self.post_process_load();
         self.initialized = true;
         Ok(())
+    }
+
+    /// C++ `W3DDisplayStringManager::postProcessLoad`.
+    pub fn post_process_load(&mut self) {
+        for numeral in 0..10 {
+            let key = format!("NUMBER:{numeral}");
+            self.resources
+                .insert(key, std::ptr::null_mut());
+        }
+        self.resources
+            .insert("LABEL:FORMATION".to_string(), std::ptr::null_mut());
+        let _ = game_client_rust::display_string_manager::get_group_numeral_string(0);
+        let _ = game_client_rust::display_string_manager::get_formation_letter_string();
     }
 
     /// Shutdown the manager

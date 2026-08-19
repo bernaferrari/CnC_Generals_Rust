@@ -46,6 +46,7 @@ pub mod drawable_draw_pipeline;
 pub mod drawable_manager;
 pub mod shroud_state;
 pub mod update;
+pub mod logic_visual_hooks;
 
 pub use crate::drawable_info::{DrawableInfo, ExtraRenderFlags};
 
@@ -68,3 +69,4 @@ pub use update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, SwayClientUpdateModule,
 };
+pub use logic_visual_hooks::ensure_logic_draw_hooks;

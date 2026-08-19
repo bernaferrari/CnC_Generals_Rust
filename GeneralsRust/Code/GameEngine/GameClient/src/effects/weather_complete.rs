@@ -681,6 +681,11 @@ impl WeatherSystem {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+        if let Some(snow) = crate::snow::get_snow_manager() {
+            if let Ok(mut guard) = snow.lock() {
+                guard.set_visible(enabled);
+            }
+        }
         if !enabled {
             if let Some(rain) = &mut self.rain_system {
                 rain.set_enabled(false);

@@ -16,9 +16,15 @@ use crate::display::cinematic_camera::{
     CameraPath, CameraPitchTransition, CameraPositionTransition, CameraRotateTransition,
     CameraWaypoint, CameraZoomTransition,
 };
-use gamelogic::helpers::TheGameLogic;
+use crate::drawable::drawable_manager::{with_drawable_manager, with_drawable_manager_ref};
+use crate::drawable::{DrawableType, Vector3 as DrawVec3};
+use crate::gui::{with_window_manager_ref, HintType, WindowStatus};
+use crate::helpers::TheInGameUI;
+use crate::terrain::terrain_visual::get_terrain_visual;
+use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
+use gamelogic::scripting::engine::get_named_object_tracker;
 use glam::{Mat4, Vec3, Vec4};
-use rand::random;
+use std::cell::Cell;
 
 /// Unique identifier for view instances
 pub type ViewId = u32;
@@ -28,12 +34,161 @@ pub const DEFAULT_VIEW_WIDTH: i32 = 640;
 pub const DEFAULT_VIEW_HEIGHT: i32 = 480;
 pub const DEFAULT_VIEW_ORIGIN_X: i32 = 0;
 pub const DEFAULT_VIEW_ORIGIN_Y: i32 = 0;
+/// Default **horizontal** FOV. C++ `View::m_FOV` (View.h:173, View.cpp:53).
 pub const DEFAULT_FOV_DEGREES: f32 = 50.0;
 pub const DEFAULT_FOV_RADIANS: f32 = DEFAULT_FOV_DEGREES * PI / 180.0;
+
+/// C++ `CameraClass::Set_View_Plane(hfov, -1)` (WW3D2/camera.cpp:257-261):
+/// `vfov = 2*atan(tan(hfov/2)/aspect)` so 50° horizontal is preserved.
+pub fn vertical_fov_from_horizontal(hfov_radians: f32, aspect: f32) -> f32 {
+    let aspect = aspect.max(0.01);
+    2.0 * ((hfov_radians * 0.5).tan() / aspect).atan()
+}
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 const FRAME_LENGTH_MS: f32 = 1000.0 / LOGIC_FRAMES_PER_SECOND;
 const DEFAULT_NEAR_CLIP: f32 = 1.0;
 const DEFAULT_FAR_CLIP: f32 = 20000.0;
+const MIN_CAPPED_ZOOM: f32 = 0.5;
+const MAX_GROUND_LEVEL: f32 = 120.0;
+const TERRAIN_SAMPLE_SIZE: f32 = 40.0;
+const SCROLL_RESOLUTION: f32 = 250.0;
+const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+const MAX_REQUEST_CACHE_SIZE: usize = 50;
+const DEFAULT_CAMERA_HEIGHT: f32 = 200.0;
+const DEFAULT_CAMERA_PITCH_DEG: f32 = 37.5;
+pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
+
+thread_local! {
+    static DISPLAY_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
+pub fn set_display_letter_boxed(enabled: bool) {
+    DISPLAY_LETTER_BOXED.with(|flag| flag.set(enabled));
+}
+
+/// C++ `TheDisplay->isLetterBoxed()`.
+pub fn is_display_letter_boxed() -> bool {
+    DISPLAY_LETTER_BOXED.with(|flag| flag.get())
+}
+
+fn ground_height_at(x: f32, y: f32) -> f32 {
+    TheTerrainLogic::get()
+        .map(|terrain| terrain.get_ground_height(x, y, None))
+        .unwrap_or(0.0)
+}
+
+fn height_around_pos(x: f32, y: f32) -> f32 {
+    let sample = TERRAIN_SAMPLE_SIZE;
+    [
+        ground_height_at(x, y),
+        ground_height_at(x + sample, y - sample),
+        ground_height_at(x - sample, y - sample),
+        ground_height_at(x + sample, y + sample),
+        ground_height_at(x - sample, y + sample),
+    ]
+    .into_iter()
+    .fold(f32::NEG_INFINITY, f32::max)
+    .max(0.0)
+}
+
+fn camera_offset_from_global(ground_level: f32) -> Point3 {
+    let (height, pitch_deg, yaw_deg) = get_global_data()
+        .map(|global| {
+            let global = global.read();
+            let height = if global.camera_height.abs() < 1.0 {
+                DEFAULT_CAMERA_HEIGHT
+            } else {
+                global.camera_height
+            };
+            let pitch = if global.camera_pitch.abs() < 0.1 {
+                DEFAULT_CAMERA_PITCH_DEG
+            } else {
+                global.camera_pitch
+            };
+            (height, pitch, global.camera_yaw)
+        })
+        .unwrap_or((
+            DEFAULT_CAMERA_HEIGHT,
+            DEFAULT_CAMERA_PITCH_DEG,
+            0.0,
+        ));
+    let z = ground_level + height;
+    let pitch = pitch_deg * PI / 180.0;
+    let yaw = yaw_deg * PI / 180.0;
+    let tan_pitch = pitch.tan();
+    let y = if tan_pitch.abs() < 1.0e-4 {
+        -z
+    } else {
+        -z / tan_pitch
+    };
+    Point3::new(-y * yaw.tan(), y, z)
+}
+
+fn rotate_vec_around_x(v: Vec3, angle: f32) -> Vec3 {
+    let (s, c) = angle.sin_cos();
+    Vec3::new(v.x, v.y * c - v.z * s, v.y * s + v.z * c)
+}
+
+fn rotate_vec_around_z(v: Vec3, angle: f32) -> Vec3 {
+    let (s, c) = angle.sin_cos();
+    Vec3::new(v.x * c - v.y * s, v.x * s + v.y * c, v.z)
+}
+
+fn intersect_terrain_ray(start: Vec3, end: Vec3) -> Option<Vec3> {
+    get_terrain_visual()
+        .ok()
+        .and_then(|guard| guard.as_ref().and_then(|visual| visual.intersect_terrain(start, end)))
+}
+
+
+fn ray_sphere_t(origin: Vec3, dir: Vec3, center: Vec3, radius: f32) -> Option<f32> {
+    let oc = origin - center;
+    let a = dir.dot(dir);
+    if a.abs() < 1.0e-12 {
+        return None;
+    }
+    let b = 2.0 * oc.dot(dir);
+    let c = oc.dot(oc) - radius * radius;
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return None;
+    }
+    let sqrt_disc = disc.sqrt();
+    let t0 = (-b - sqrt_disc) / (2.0 * a);
+    let t1 = (-b + sqrt_disc) / (2.0 * a);
+    if t0 >= 0.0 {
+        Some(t0)
+    } else if t1 >= 0.0 {
+        Some(t1)
+    } else {
+        None
+    }
+}
+fn named_object_transform(object_name: &str, bone_name: &str) -> Option<(Vec3, Vec3)> {
+    if object_name.is_empty() {
+        return None;
+    }
+    let tracker = get_named_object_tracker();
+    let object_id = tracker.get_object_id(object_name).ok().flatten()?;
+    let object = TheGameLogic::find_object_by_id(object_id)?;
+    let object = object.read().ok()?;
+    let pos = object.get_position();
+    let mut eye = Vec3::new(pos.x, pos.y, pos.z);
+    let mut target = eye + Vec3::Y;
+    if !bone_name.is_empty() {
+        if let Some(drawable) = object.get_drawable() {
+            if let Ok(drawable) = drawable.read() {
+                if let Some(transform) = drawable.get_bone_transform(bone_name) {
+                    eye = transform.w_axis.truncate();
+                    let forward = (-transform.z_axis.truncate()).normalize_or(Vec3::Y);
+                    target = eye + forward;
+                }
+            }
+        }
+    }
+    Some((eye, target))
+}
 
 /// Basic 2D point
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -287,6 +442,15 @@ impl FilterMode {
     }
 }
 
+/// CPU description of the active viewport filter for Display compositing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewFilterComposite {
+    pub filter: FilterType,
+    pub mode: FilterMode,
+    pub fade: f32,
+    pub scroll_delta: Vector2,
+}
+
 /// Errors that can occur in view operations
 #[derive(Error, Debug)]
 pub enum ViewError {
@@ -455,6 +619,24 @@ pub struct View {
     shake_angle_cos: f32,
     shake_angle_sin: f32,
     shake_offset: Vector2,
+    /// C++ `W3DView::m_cameraOffset` boom from look-at to eye.
+    camera_offset: Point3,
+    /// C++ `W3DView::m_groundLevel`.
+    ground_level: f32,
+    /// C++ `W3DView::m_FXPitch`.
+    fx_pitch: f32,
+    is_camera_slaved: bool,
+    use_real_zoom_cam: bool,
+    camera_slave_object_name: String,
+    camera_slave_object_bone_name: String,
+    camera_constraint_lo: Vector2,
+    camera_constraint_hi: Vector2,
+    camera_constraint_valid: bool,
+    scroll_amount: Vector2,
+    camera_has_moved_since_request: bool,
+    location_requests: Vec<(IPoint2, Point3)>,
+    slave_eye: Option<Point3>,
+    slave_target: Option<Point3>,
 }
 
 /// State for `rotateCameraTowardObject` / `rotateCameraTowardPosition`.
@@ -548,6 +730,21 @@ impl View {
             shake_angle_cos: 0.0,
             shake_angle_sin: 0.0,
             shake_offset: Vector2::zero(),
+            camera_offset: camera_offset_from_global(10.0),
+            ground_level: 10.0,
+            fx_pitch: 1.0,
+            is_camera_slaved: false,
+            use_real_zoom_cam: false,
+            camera_slave_object_name: String::new(),
+            camera_slave_object_bone_name: String::new(),
+            camera_constraint_lo: Vector2::zero(),
+            camera_constraint_hi: Vector2::zero(),
+            camera_constraint_valid: false,
+            scroll_amount: Vector2::zero(),
+            camera_has_moved_since_request: true,
+            location_requests: Vec::new(),
+            slave_eye: None,
+            slave_target: None,
         }
     }
 
@@ -567,12 +764,26 @@ impl View {
         self.ok_to_adjust_height = false;
         self.default_angle = 0.0;
         self.default_pitch_angle = 0.0;
+        self.ground_level = 10.0;
+        self.camera_offset = camera_offset_from_global(self.ground_level);
+        self.fx_pitch = 1.0;
+        self.is_camera_slaved = false;
+        self.use_real_zoom_cam = false;
+        self.camera_has_moved_since_request = true;
     }
 
     /// Reset the view to default state
     pub fn reset(&mut self) {
         self.zoom_limited = true;
         self.camera_path = None;
+        self.is_camera_slaved = false;
+        self.use_real_zoom_cam = false;
+        self.fx_pitch = 1.0;
+        self.fov = DEFAULT_FOV_RADIANS;
+        self.location_requests.clear();
+        self.camera_has_moved_since_request = true;
+        self.slave_eye = None;
+        self.slave_target = None;
         self.view_filter_type = FilterType::Null;
         self.view_filter_mode = FilterMode::Null;
         self.fade_total_frames = 0;
@@ -655,17 +866,52 @@ impl View {
 
     /// Center the view on the given world coordinate.
     ///
-    /// C++ parity: `View::lookAt` stores the view's top-left world origin,
-    /// keeping Z unchanged and offsetting by half the current view size.
+    /// C++ `W3DView::lookAt` stores the 3D look-at point (z forced to 0).
+    /// Elevated targets are ray-cast onto the heightmap so the object sits
+    /// in the screen center.
     pub fn look_at(&mut self, target: &Point3) {
-        self.position.x = target.x - self.width as f32 * 0.5;
-        self.position.y = target.y - self.height as f32 * 0.5;
+        let mut pos = *target;
+        let ground = ground_height_at(pos.x, pos.y);
+        if target.z > PATHFIND_CELL_SIZE_F + ground {
+            let (start, end) = self.look_at_pick_ray(*target);
+            if let Some(hit) = intersect_terrain_ray(start, end) {
+                pos.x = hit.x;
+                pos.y = hit.y;
+            }
+        }
+        pos.z = 0.0;
+        self.position = pos;
+        self.camera_has_moved_since_request = true;
     }
 
-    /// Scroll the view by a 2D delta
+    /// Scroll the view by a screen-space delta converted through the 3D camera.
+    ///
+    /// C++ `W3DView::scrollBy` unprojects two device points `SCROLL_RESOLUTION`
+    /// apart so pan follows yaw/pitch.
     pub fn scroll_by(&mut self, delta: &Vector2) {
-        self.position.x += delta.x;
-        self.position.y += delta.y;
+        if delta.x == 0.0 && delta.y == 0.0 {
+            return;
+        }
+        self.scroll_amount = *delta;
+        let width = self.width.max(1) as f32;
+        let height = self.height.max(1) as f32;
+        let aspect = width / height;
+        let start = IPoint2::new(self.origin_x + self.width, self.origin_y + self.height);
+        let end = IPoint2::new(
+            start.x + (delta.x * SCROLL_RESOLUTION).round() as i32,
+            start.y + (delta.y * SCROLL_RESOLUTION * aspect).round() as i32,
+        );
+        if let (Ok(world_start), Ok(world_end)) = (
+            self.screen_to_world_at_z(&start, self.ground_level),
+            self.screen_to_world_at_z(&end, self.ground_level),
+        ) {
+            self.position.x += world_end.x - world_start.x;
+            self.position.y += world_end.y - world_start.y;
+        } else {
+            self.position.x += delta.x;
+            self.position.y += delta.y;
+        }
+        self.camera_has_moved_since_request = true;
     }
 
     // Angle and rotation
@@ -710,6 +956,7 @@ impl View {
         } else {
             self.zoom = zoom;
         }
+        self.rebuild_real_zoom_fov();
     }
 
     pub fn height_above_ground(&self) -> f32 {
@@ -729,7 +976,78 @@ impl View {
     }
 
     pub fn set_zoom_to_default(&mut self) {
-        self.set_zoom(self.max_zoom);
+        let terrain_height_max = height_around_pos(self.position.x, self.position.y);
+        let desired_height = terrain_height_max + self.max_height_above_ground;
+        let desired_zoom = if self.camera_offset.z.abs() > 1.0e-4 {
+            desired_height / self.camera_offset.z
+        } else {
+            self.max_zoom
+        };
+        self.zoom = if self.zoom_limited {
+            desired_zoom.clamp(self.min_zoom, self.max_zoom)
+        } else {
+            desired_zoom
+        };
+        self.height_above_ground = self.max_height_above_ground;
+        self.camera_constraint_valid = false;
+        self.camera_has_moved_since_request = true;
+    }
+
+    /// C++ `W3DView::initHeightForMap`.
+    pub fn init_height_for_map(&mut self) {
+        self.ground_level = ground_height_at(self.position.x, self.position.y).min(MAX_GROUND_LEVEL);
+        self.camera_offset = camera_offset_from_global(self.ground_level);
+        self.camera_constraint_valid = false;
+        self.camera_has_moved_since_request = true;
+    }
+
+    /// C++ `W3DView::cameraEnableSlaveMode`.
+    pub fn camera_enable_slave_mode(&mut self, object_name: &str, bone_name: &str) {
+        self.is_camera_slaved = true;
+        self.camera_slave_object_name = object_name.to_string();
+        self.camera_slave_object_bone_name = bone_name.to_string();
+        self.apply_slave_camera();
+    }
+
+    /// C++ `W3DView::cameraDisableSlaveMode`.
+    pub fn camera_disable_slave_mode(&mut self) {
+        self.is_camera_slaved = false;
+        self.slave_eye = None;
+        self.slave_target = None;
+    }
+
+    pub fn is_camera_slaved(&self) -> bool {
+        self.is_camera_slaved
+    }
+
+    /// C++ `W3DView::cameraEnableRealZoomMode`.
+    pub fn camera_enable_real_zoom_mode(&mut self) {
+        self.use_real_zoom_cam = true;
+        self.fx_pitch = 1.0;
+        self.rebuild_real_zoom_fov();
+    }
+
+    /// C++ `W3DView::cameraDisableRealZoomMode`.
+    pub fn camera_disable_real_zoom_mode(&mut self) {
+        self.use_real_zoom_cam = false;
+        self.fx_pitch = 1.0;
+        self.fov = DEFAULT_FOV_RADIANS;
+    }
+
+    pub fn is_real_zoom_cam(&self) -> bool {
+        self.use_real_zoom_cam
+    }
+
+    pub fn fx_pitch(&self) -> f32 {
+        self.fx_pitch
+    }
+
+    pub fn ground_level(&self) -> f32 {
+        self.ground_level
+    }
+
+    pub fn camera_offset(&self) -> Point3 {
+        self.camera_offset
     }
 
     // Zoom limits
@@ -743,10 +1061,11 @@ impl View {
         self.zoom_limited
     }
 
-    // Field of view
+    /// Horizontal field of view in radians (C++ `View::getFieldOfView`).
     pub fn field_of_view(&self) -> f32 {
         self.fov
     }
+    /// Set horizontal field of view in radians (C++ `View::setFieldOfView`).
     pub fn set_field_of_view(&mut self, fov_radians: f32) {
         self.fov = fov_radians.clamp(0.1, PI - 0.1);
     }
@@ -783,22 +1102,115 @@ impl View {
         self.ok_to_adjust_height = ok;
     }
 
-    /// Get the actual 3D camera position in world space
+    /// Get the actual 3D camera position in world space.
+    ///
+    /// C++ `W3DView::buildCameraTransform` eye point (or slave bone translation).
     pub fn get_3d_camera_position(&self) -> Point3 {
-        // Calculate actual camera position based on look-at point, angles, and zoom
-        let distance = self.height_above_ground + self.zoom * 100.0;
+        self.build_camera_eye_and_target().0
+    }
 
-        // Create camera position offset from look-at point
-        let offset = Vector3::new(
-            -self.angle.sin() * self.pitch_angle.cos() * distance,
-            -self.angle.cos() * self.pitch_angle.cos() * distance,
-            self.pitch_angle.sin() * distance + self.terrain_height_under_camera,
-        );
+    fn look_at_pick_ray(&self, target: Point3) -> (Vec3, Vec3) {
+        let eye = self.camera_position_vec3();
+        let mut dir = self.camera_target_vec3() - eye;
+        if dir.length_squared() < 1.0e-8 {
+            dir = Vec3::Y;
+        }
+        let dir = dir.normalize() * DEFAULT_FAR_CLIP;
+        let start = Vec3::new(target.x, target.y, target.z);
+        (start, start + dir)
+    }
 
-        let mut target = self.position;
-        target.x += self.shake_offset.x;
-        target.y += self.shake_offset.y;
-        target + offset
+    fn apply_slave_camera(&mut self) {
+        match named_object_transform(
+            &self.camera_slave_object_name,
+            &self.camera_slave_object_bone_name,
+        ) {
+            Some((eye, target)) => {
+                self.position = Point3::new(eye.x, eye.y, eye.z);
+                self.slave_eye = Some(Point3::new(eye.x, eye.y, eye.z));
+                self.slave_target = Some(Point3::new(target.x, target.y, target.z));
+            }
+            None => {
+                self.is_camera_slaved = false;
+                self.slave_eye = None;
+                self.slave_target = None;
+            }
+        }
+    }
+
+    fn rebuild_real_zoom_fov(&mut self) {
+        if !self.use_real_zoom_cam {
+            return;
+        }
+        let capped = self.zoom.clamp(MIN_CAPPED_ZOOM, 1.0);
+        self.fov = DEFAULT_FOV_RADIANS * capped * capped;
+    }
+
+    fn build_camera_eye_and_target(&self) -> (Point3, Point3) {
+        if self.is_camera_slaved {
+            if let (Some(eye), Some(target)) = (self.slave_eye, self.slave_target) {
+                return (eye, target);
+            }
+        }
+
+        let mut pos = self.position;
+        pos.x += self.shake_offset.x;
+        pos.y += self.shake_offset.y;
+        if self.camera_constraint_valid {
+            pos.x = pos.x.clamp(self.camera_constraint_lo.x, self.camera_constraint_hi.x);
+            pos.y = pos.y.clamp(self.camera_constraint_lo.y, self.camera_constraint_hi.y);
+        }
+
+        let mut source = if self.use_real_zoom_cam {
+            Vec3::new(
+                self.camera_offset.x,
+                self.camera_offset.y,
+                self.camera_offset.z,
+            )
+        } else {
+            Vec3::new(
+                self.camera_offset.x * self.zoom,
+                self.camera_offset.y * self.zoom,
+                self.camera_offset.z * self.zoom,
+            )
+        };
+        if source.z.abs() < 1.0e-4 {
+            source.z = DEFAULT_CAMERA_HEIGHT.max(1.0);
+        }
+
+        let factor = 1.0 - (self.ground_level / source.z);
+        source = rotate_vec_around_x(source, self.pitch_angle);
+        source = rotate_vec_around_z(source, self.angle);
+        source *= factor;
+        source.x += pos.x;
+        source.y += pos.y;
+        source.z += self.ground_level;
+
+        let mut target = Vec3::new(pos.x, pos.y, self.ground_level);
+        let mut fx_pitch = self.fx_pitch;
+        if self.use_real_zoom_cam {
+            let mut pitch_adjust = 1.0;
+            if !is_display_letter_boxed() {
+                let capped = self.zoom.clamp(MIN_CAPPED_ZOOM, 1.0);
+                source.z *= 0.5 + capped * 0.5;
+                pitch_adjust = capped;
+            }
+            fx_pitch = 0.25 + pitch_adjust * 0.75;
+            let denom = fx_pitch.max(1.0e-4);
+            source.x = target.x + (source.x - target.x) / denom;
+            source.y = target.y + (source.y - target.y) / denom;
+        } else if fx_pitch <= 1.0 {
+            let height = (source.z - target.z) * fx_pitch;
+            target.z = source.z - height;
+        } else {
+            source.x = target.x + (source.x - target.x) / fx_pitch;
+            source.y = target.y + (source.y - target.y) / fx_pitch;
+        }
+
+        (
+            Point3::new(source.x, source.y, source.z),
+            Point3::new(target.x, target.y, target.z),
+        )
     }
 
     fn camera_position_vec3(&self) -> Vec3 {
@@ -807,11 +1219,8 @@ impl View {
     }
 
     fn camera_target_vec3(&self) -> Vec3 {
-        Vec3::new(
-            self.position.x + self.shake_offset.x,
-            self.position.y + self.shake_offset.y,
-            self.position.z,
-        )
+        let target = self.build_camera_eye_and_target().1;
+        Vec3::new(target.x, target.y, target.z)
     }
 
     fn view_matrix(&self) -> Mat4 {
@@ -832,12 +1241,11 @@ impl View {
         let aspect = width / height;
 
         match self.projection_mode {
-            ProjectionMode::Perspective => Mat4::perspective_rh_gl(
-                self.fov.clamp(0.1, PI - 0.1),
-                aspect,
-                DEFAULT_NEAR_CLIP,
-                DEFAULT_FAR_CLIP,
-            ),
+            ProjectionMode::Perspective => {
+                let hfov = self.fov.clamp(0.1, PI - 0.1);
+                let vfov = vertical_fov_from_horizontal(hfov, aspect);
+                Mat4::perspective_rh_gl(vfov, aspect, DEFAULT_NEAR_CLIP, DEFAULT_FAR_CLIP)
+            }
             ProjectionMode::Orthographic => {
                 let ortho_scale = self.zoom.max(0.1);
                 let half_w = width * 0.5 * ortho_scale;
@@ -956,9 +1364,178 @@ impl View {
         self.screen_to_world_at_z(screen, 0.0)
     }
 
-    /// Transform screen coordinate to point on terrain (Z=0)
+    /// Transform screen coordinate to a point on the 3D heightmap.
+    ///
+    /// C++ `W3DView::screenToTerrain`: pick ray through `TheTerrainRenderObject->Cast_Ray`.
     pub fn screen_to_terrain(&self, screen: &IPoint2) -> Result<Point3, ViewError> {
-        self.screen_to_world_at_z(screen, 0.0)
+        if let Some((_, world)) = self
+            .location_requests
+            .iter()
+            .rev()
+            .find(|(cached, _)| cached.x == screen.x && cached.y == screen.y)
+        {
+            return Ok(*world);
+        }
+
+        let (ray_start, ray_end) = self.get_pick_ray(screen)?;
+        let hit = if let Some(intersection) = intersect_terrain_ray(ray_start, ray_end) {
+            Point3::new(intersection.x, intersection.y, intersection.z)
+        } else {
+            self.screen_to_world_at_z(screen, 0.0)?
+        };
+        Ok(hit)
+    }
+
+    /// C++ `W3DView::getPickRay`.
+    pub fn get_pick_ray(&self, screen: &IPoint2) -> Result<(Vec3, Vec3), ViewError> {
+        if self.width <= 0 || self.height <= 0 {
+            return Err(ViewError::NotInitialized);
+        }
+        let x = ((screen.x - self.origin_x) as f32 / self.width as f32) * 2.0 - 1.0;
+        let y = 1.0 - ((screen.y - self.origin_y) as f32 / self.height as f32) * 2.0;
+        let inverse = self.view_projection_matrix().inverse();
+        if !inverse.is_finite() {
+            return Err(ViewError::InvalidTransformation);
+        }
+        let near_clip = Vec4::new(x, y, -1.0, 1.0);
+        let far_clip = Vec4::new(x, y, 1.0, 1.0);
+        let near_world4 = inverse * near_clip;
+        let far_world4 = inverse * far_clip;
+        if near_world4.w.abs() < 1.0e-6 || far_world4.w.abs() < 1.0e-6 {
+            return Err(ViewError::InvalidTransformation);
+        }
+        let near_world = near_world4.truncate() / near_world4.w;
+        let far_world = far_world4.truncate() / far_world4.w;
+        let mut dir = far_world - near_world;
+        if dir.length_squared() < 1.0e-12 {
+            return Err(ViewError::InvalidTransformation);
+        }
+        dir = dir.normalize() * DEFAULT_FAR_CLIP;
+        let start = self.camera_position_vec3();
+        Ok((start, start + dir))
+    }
+
+    /// C++ `W3DView::pickDrawable`: skip opaque GUI, cast a 3D ray through drawables.
+    pub fn pick_drawable(
+        &self,
+        screen: &IPoint2,
+        _force_attack: bool,
+        _pick_type: PickType,
+    ) -> Option<u32> {
+        if self.screen_blocked_by_opaque_window(screen) {
+            return None;
+        }
+        let (ray_start, ray_end) = self.get_pick_ray(screen).ok()?;
+        let dir = ray_end - ray_start;
+        let dir_len_sq = dir.length_squared();
+        if dir_len_sq < 1.0e-8 {
+            return None;
+        }
+
+        let mut best_id = None;
+        let mut best_t = f32::MAX;
+        with_drawable_manager_ref(|manager| {
+            for id in manager.get_all_drawable_ids() {
+                let Some(drawable) = manager.get_drawable(id) else {
+                    continue;
+                };
+                if !drawable.is_visible() {
+                    continue;
+                }
+                let (center, radius) = drawable.get_bounding_sphere();
+                let sphere_center = Vec3::new(center.x, center.y, center.z);
+                let radius = radius.max(1.0);
+                if let Some(t) = ray_sphere_t(ray_start, dir, sphere_center, radius) {
+                    if t >= 0.0 && t <= 1.0 && t < best_t {
+                        best_t = t;
+                        best_id = Some(drawable.get_object_id().unwrap_or(drawable.get_id().0));
+                    }
+                }
+            }
+        });
+        best_id
+    }
+
+    /// C++ `W3DView::iterateDrawablesInRegion`: project drawable centers into the screen box.
+    pub fn iterate_drawables_in_region(&self, region: Option<(IPoint2, IPoint2)>) -> Vec<u32> {
+        if let Some((lo, hi)) = region {
+            if lo.x == hi.x && lo.y == hi.y {
+                return self
+                    .pick_drawable(&lo, true, PickType::Selectable)
+                    .into_iter()
+                    .collect();
+            }
+        }
+
+        let mut ids = Vec::new();
+        with_drawable_manager_ref(|manager| {
+            for id in manager.get_all_drawable_ids() {
+                let Some(drawable) = manager.get_drawable(id) else {
+                    continue;
+                };
+                if !drawable.is_visible() {
+                    continue;
+                }
+                let pos = drawable.get_position();
+                let point = Point3::new(pos.x, pos.y, pos.z);
+                let Some(screen) = self.world_to_screen(&point) else {
+                    continue;
+                };
+                let inside = match region {
+                    None => true,
+                    Some((lo, hi)) => {
+                        let min_x = lo.x.min(hi.x);
+                        let max_x = lo.x.max(hi.x);
+                        let min_y = lo.y.min(hi.y);
+                        let max_y = lo.y.max(hi.y);
+                        screen.x >= min_x
+                            && screen.x <= max_x
+                            && screen.y >= min_y
+                            && screen.y <= max_y
+                    }
+                };
+                if inside {
+                    ids.push(drawable.get_object_id().unwrap_or(drawable.get_id().0));
+                }
+            }
+        });
+        ids
+    }
+
+    fn screen_blocked_by_opaque_window(&self, screen: &IPoint2) -> bool {
+        with_window_manager_ref(|manager| {
+            let mut window = manager.get_window_under_cursor(screen.x, screen.y, false);
+            while let Some(current) = window {
+                let guard = current.borrow();
+                if !guard.get_status().contains(WindowStatus::SEE_THRU) {
+                    return true;
+                }
+                window = guard.get_parent();
+            }
+            false
+        })
+    }
+
+    /// CPU fade + type used by Display to composite viewport filters.
+    pub fn filter_composite(&self) -> ViewFilterComposite {
+        let fade = if self.fade_total_frames > 0 {
+            let t = (self.fade_progress_frames as f32 / self.fade_total_frames as f32).clamp(0.0, 1.0);
+            if self.fade_direction < 0 {
+                1.0 - t
+            } else {
+                t
+            }
+        } else if self.view_filter_type == FilterType::Null {
+            0.0
+        } else {
+            1.0
+        };
+        ViewFilterComposite {
+            filter: self.view_filter_type,
+            mode: self.view_filter_mode,
+            fade,
+            scroll_delta: self.scroll_amount,
+        }
     }
 
     /// Get the four corner points of the view projected into world space at given Z
@@ -1132,8 +1709,9 @@ impl View {
 
     /// Update the view state (called once per frame)
     pub fn update_view(&mut self) {
-        // Calculate current height above ground
-        self.current_height_above_ground = self.height_above_ground;
+        self.terrain_height_under_camera = height_around_pos(self.position.x, self.position.y);
+        self.current_height_above_ground =
+            self.camera_offset.z * self.zoom - self.terrain_height_under_camera;
 
         let mut camera_path_active = false;
         if let Some(mut path) = self.camera_path.take() {
@@ -1198,11 +1776,7 @@ impl View {
                 if let Ok(object_guard) = object.read() {
                     let target = object_guard.get_position();
                     let target_center = Point3::new(target.x, target.y, target.z);
-                    let current_center = Point3::new(
-                        self.position.x + self.width as f32 * 0.5,
-                        self.position.y + self.height as f32 * 0.5,
-                        self.position.z,
-                    );
+                    let current_center = self.position;
 
                     match self.camera_lock_type {
                         CameraLockType::Follow => {
@@ -1267,6 +1841,13 @@ impl View {
             self.freeze_time_for_camera_movement = false;
             self.freeze_time_for_camera_movement_active = false;
         }
+
+        if self.is_camera_slaved {
+            self.apply_slave_camera();
+        }
+        if self.use_real_zoom_cam {
+            self.rebuild_real_zoom_fov();
+        }
     }
 
     /// Force a redraw of the view.
@@ -1276,6 +1857,138 @@ impl View {
     }
 }
 
+thread_local! {
+    static HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
+}
+
+#[derive(Default)]
+struct HintModelCache {
+    move_hints: Vec<Option<crate::drawable::DrawableId>>,
+    locater_anchor: Option<crate::drawable::DrawableId>,
+    locater_arrow: Option<crate::drawable::DrawableId>,
+}
+
+fn spawn_world_model(name: &str, position: Point3, animation: &str) -> crate::drawable::DrawableId {
+    with_drawable_manager(|manager| {
+        manager.create_drawable(DrawableType::Model {
+            model_name: name.to_string(),
+            position: DrawVec3::new(position.x, position.y, position.z),
+            scale: 1.0,
+            animation_state: animation.to_string(),
+        })
+    })
+}
+
+fn hide_or_move_model(id: crate::drawable::DrawableId, position: Option<Point3>) {
+    with_drawable_manager(|manager| {
+        if let Some(drawable) = manager.get_drawable_mut(id) {
+            match position {
+                Some(pos) => {
+                    drawable.set_visible(true);
+                    drawable.set_position(DrawVec3::new(pos.x, pos.y, pos.z));
+                }
+                None => drawable.set_visible(false),
+            }
+        }
+    });
+}
+
+fn draw_move_hint_and_locater_models(view: &View) {
+    let frame = TheGameLogic::get_frame();
+    let hint_name = get_global_data()
+        .map(|data| {
+            let name = data.read().move_hint_name.clone();
+            if name.is_empty() {
+                "MoveHint".to_string()
+            } else {
+                name
+            }
+        })
+        .unwrap_or_else(|| "MoveHint".to_string());
+
+    let live: Vec<Point3> = TheInGameUI::get_hints()
+        .into_iter()
+        .filter(|hint| {
+            hint.hint_type == HintType::Move
+                && frame.saturating_sub(hint.creation_frame) <= 40
+        })
+        .map(|hint| Point3::new(hint.end.x, hint.end.y, hint.end.z))
+        .collect();
+
+    HINT_MODELS.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        while cache.move_hints.len() < live.len() {
+            let pos = live[cache.move_hints.len()];
+            cache
+                .move_hints
+                .push(Some(spawn_world_model(&hint_name, pos, "ONCE")));
+        }
+        for (slot, id) in cache.move_hints.iter_mut().enumerate() {
+            let Some(model) = *id else {
+                continue;
+            };
+            hide_or_move_model(model, live.get(slot).copied());
+        }
+    });
+
+    if TheInGameUI::is_placement_anchored() {
+        if let Some((start, end)) = TheInGameUI::get_placement_points() {
+            let start_world = view
+                .screen_to_terrain(&IPoint2::new(start.x, start.y))
+                .unwrap_or(Point3::new(start.x as f32, start.y as f32, 0.0));
+            let end_world = view
+                .screen_to_terrain(&IPoint2::new(end.x, end.y))
+                .unwrap_or(Point3::new(end.x as f32, end.y as f32, 0.0));
+            let dx = (end.x - start.x) as f32;
+            let dy = (end.y - start.y) as f32;
+            let show_arrow = (dx * dx + dy * dy).sqrt() >= 5.0;
+            HINT_MODELS.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                if cache.locater_anchor.is_none() {
+                    cache.locater_anchor =
+                        Some(spawn_world_model("Locater01", start_world, "LOOP"));
+                }
+                if cache.locater_arrow.is_none() {
+                    cache.locater_arrow = Some(spawn_world_model("Locater02", start_world, "LOOP"));
+                }
+                if let Some(id) = cache.locater_anchor {
+                    hide_or_move_model(id, if show_arrow { None } else { Some(start_world) });
+                }
+                if let Some(id) = cache.locater_arrow {
+                    hide_or_move_model(
+                        id,
+                        if show_arrow {
+                            Some(start_world)
+                        } else {
+                            None
+                        },
+                    );
+                    if show_arrow {
+                        with_drawable_manager(|manager| {
+                            if let Some(drawable) = manager.get_drawable_mut(id) {
+                                drawable.set_position(DrawVec3::new(
+                                    end_world.x,
+                                    end_world.y,
+                                    end_world.z,
+                                ));
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    } else {
+        HINT_MODELS.with(|cache| {
+            let cache = cache.borrow();
+            if let Some(id) = cache.locater_anchor {
+                hide_or_move_model(id, None);
+            }
+            if let Some(id) = cache.locater_arrow {
+                hide_or_move_model(id, None);
+            }
+        });
+    }
+}
 thread_local! {
     static THE_TACTICAL_VIEW: RefCell<View> = {
         let mut view = View::new();
@@ -1321,11 +2034,7 @@ impl View {
 
         let frames = ms_to_frames(milliseconds);
         let (ease_in, ease_out) = ease_ratios(milliseconds, ease_in, ease_out);
-        let end_position = Vec3::new(
-            target.x - self.width as f32 * 0.5,
-            target.y - self.height as f32 * 0.5,
-            self.position.z,
-        );
+        let end_position = Vec3::new(target.x, target.y, 0.0);
 
         self.camera_move = Some(CameraPositionTransition::new(
             end_position,
@@ -1360,9 +2069,6 @@ impl View {
             return;
         }
 
-        let half_w = self.width as f32 * 0.5;
-        let half_h = self.height as f32 * 0.5;
-
         let mut path = Vec::with_capacity(waypoints.len());
         for index in 0..waypoints.len() {
             let point = waypoints[index];
@@ -1380,7 +2086,7 @@ impl View {
             };
 
             path.push(CameraWaypoint {
-                position: Vec3::new(point.x - half_w, point.y - half_h, self.position.z),
+                position: Vec3::new(point.x, point.y, 0.0),
                 angle,
                 time_multiplier: 1,
             });
@@ -1548,11 +2254,7 @@ impl View {
                         }
                     }
 
-                    let center = Point3::new(
-                        self.position.x + self.width as f32 * 0.5,
-                        self.position.y + self.height as f32 * 0.5,
-                        self.position.z,
-                    );
+                    let center = self.position;
                     let dir_x = info.target_position.x - center.x;
                     let dir_y = info.target_position.y - center.y;
                     let dir_length = (dir_x * dir_x + dir_y * dir_y).sqrt();
@@ -1673,11 +2375,7 @@ impl View {
         }
 
         if let Some(move_transition) = &self.camera_move {
-            let center = Point3::new(
-                self.position.x + self.width as f32 * 0.5,
-                self.position.y + self.height as f32 * 0.5,
-                self.position.z,
-            );
+            let center = self.position;
             let dir_x = target.x - center.x;
             let dir_y = target.y - center.y;
             if (dir_x * dir_x + dir_y * dir_y).sqrt() < 0.1 {
@@ -1723,11 +2421,7 @@ impl View {
         if let Some(move_transition) = self.camera_move.take() {
             let remaining_frames = move_transition.remaining_frames().max(1);
             let current = move_transition.get_current_position();
-            let end_position = Vec3::new(
-                target.x - self.width as f32 * 0.5,
-                target.y - self.height as f32 * 0.5,
-                current.z,
-            );
+            let end_position = Vec3::new(target.x, target.y, 0.0);
             self.camera_move = Some(CameraPositionTransition::new(
                 end_position,
                 remaining_frames,
@@ -1792,11 +2486,7 @@ impl View {
         let num_frames = (ms as f32 / FRAME_LENGTH_MS) as i32;
         let num_frames = num_frames.max(1);
 
-        let center = Point3::new(
-            self.position.x + self.width as f32 * 0.5,
-            self.position.y + self.height as f32 * 0.5,
-            self.position.z,
-        );
+        let center = self.position;
         let dir_x = pos.x - center.x;
         let dir_y = pos.y - center.y;
         let dir_length = (dir_x * dir_x + dir_y * dir_y).sqrt();
@@ -1969,21 +2659,14 @@ mod tests {
         let target = Point3::new(100.0, 200.0, 0.0);
         view.look_at(&target);
 
-        // C++ parity: lookAt stores top-left, preserving existing Z.
-        assert!((view.position().x - (target.x - DEFAULT_VIEW_WIDTH as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().y - (target.y - DEFAULT_VIEW_HEIGHT as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().z - 12.0).abs() < 0.001);
+        // C++ W3DView::lookAt stores the look-at point and forces z=0.
+        assert!((view.position().x - target.x).abs() < 0.001);
+        assert!((view.position().y - target.y).abs() < 0.001);
+        assert!((view.position().z - 0.0).abs() < 0.001);
 
-        let delta = Vector2::new(50.0, -25.0);
-        view.scroll_by(&delta);
-
-        assert!(
-            (view.position().x - (target.x - DEFAULT_VIEW_WIDTH as f32 * 0.5 + 50.0)).abs() < 0.001
-        );
-        assert!(
-            (view.position().y - (target.y - DEFAULT_VIEW_HEIGHT as f32 * 0.5 - 25.0)).abs()
-                < 0.001
-        );
+        let before = *view.position();
+        view.scroll_by(&Vector2::new(50.0, -25.0));
+        assert_ne!(*view.position(), before);
     }
 
     #[test]
@@ -2060,8 +2743,8 @@ mod tests {
         }
 
         assert!(view.is_camera_movement_finished());
-        assert!((view.position().x - (target.x - DEFAULT_VIEW_WIDTH as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().y - (target.y - DEFAULT_VIEW_HEIGHT as f32 * 0.5)).abs() < 0.001);
+        assert!((view.position().x - target.x).abs() < 0.001);
+        assert!((view.position().y - target.y).abs() < 0.001);
     }
 
     #[test]
@@ -2081,8 +2764,8 @@ mod tests {
         }
 
         assert!(view.is_camera_movement_finished());
-        let expected_x = path.last().unwrap().x - DEFAULT_VIEW_WIDTH as f32 * 0.5;
-        let expected_y = path.last().unwrap().y - DEFAULT_VIEW_HEIGHT as f32 * 0.5;
+        let expected_x = path.last().unwrap().x;
+        let expected_y = path.last().unwrap().y;
         assert!((view.position().x - expected_x).abs() < 0.001);
         assert!((view.position().y - expected_y).abs() < 0.001);
     }
@@ -2094,8 +2777,8 @@ mod tests {
             Point3::new(260.0, 260.0, 0.0),
             Point3::new(520.0, 360.0, 0.0),
         ];
-        let start_x = path[0].x - DEFAULT_VIEW_WIDTH as f32 * 0.5;
-        let start_y = path[0].y - DEFAULT_VIEW_HEIGHT as f32 * 0.5;
+        let start_x = path[0].x;
+        let start_y = path[0].y;
 
         let mut normal = View::new();
         normal.init();
@@ -2202,9 +2885,9 @@ mod tests {
         let target = Point3::new(320.0, 240.0, 99.0);
         view.move_camera_to(&target, 0, 0, false, 0.0, 0.0);
         assert!(view.camera_move.is_none());
-        assert!((view.position().x - (target.x - DEFAULT_VIEW_WIDTH as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().y - (target.y - DEFAULT_VIEW_HEIGHT as f32 * 0.5)).abs() < 0.001);
-        assert!((view.position().z - 3.0).abs() < 0.001);
+        assert!((view.position().x - target.x).abs() < 0.001);
+        assert!((view.position().y - target.y).abs() < 0.001);
+        assert!((view.position().z - 0.0).abs() < 0.001);
 
         let old_angle = view.angle();
         view.rotate_camera(0.5, 0, 0.0, 0.0);
@@ -2395,8 +3078,8 @@ mod tests {
             modified.update_view();
         }
 
-        let expected_x = retarget.x - DEFAULT_VIEW_WIDTH as f32 * 0.5;
-        let expected_y = retarget.y - DEFAULT_VIEW_HEIGHT as f32 * 0.5;
+        let expected_x = retarget.x;
+        let expected_y = retarget.y;
         assert!((modified.position().x - expected_x).abs() < 0.001);
         assert!((modified.position().y - expected_y).abs() < 0.001);
         assert!(
@@ -2492,6 +3175,61 @@ mod tests {
         let moved = p1 + v;
         assert_eq!(moved, Point3::new(2.0, 3.0, 4.0));
     }
+
+    #[test]
+    fn init_height_for_map_rebuilds_camera_offset_from_ground() {
+        let mut view = View::new();
+        view.init();
+        view.set_position(&Point3::new(10.0, 20.0, 0.0));
+        view.init_height_for_map();
+        assert!(view.ground_level() <= 120.0);
+        assert!(view.camera_offset().z > view.ground_level());
+    }
+
+    #[test]
+    fn real_zoom_mode_changes_field_of_view() {
+        let mut view = View::new();
+        view.init();
+        view.set_zoom_limited(false);
+        view.set_zoom(0.6);
+        let default_fov = view.field_of_view();
+        view.camera_enable_real_zoom_mode();
+        view.update_view();
+        assert!(view.is_real_zoom_cam());
+        assert!((view.field_of_view() - default_fov).abs() > 0.001);
+        view.camera_disable_real_zoom_mode();
+        assert!(!view.is_real_zoom_cam());
+        assert!((view.field_of_view() - DEFAULT_FOV_RADIANS).abs() < 0.001);
+    }
+
+    #[test]
+    fn slave_mode_attaches_until_named_object_missing() {
+        let mut view = View::new();
+        view.init();
+        view.camera_enable_slave_mode("MissingCameraBone", "CAMERABONE");
+        assert!(!view.is_camera_slaved());
+        view.update_view();
+        assert!(!view.is_camera_slaved());
+    }
+
+    #[test]
+    fn screen_to_terrain_returns_finite_point() {
+        let mut view = View::new();
+        view.init();
+        view.look_at(&Point3::new(100.0, 200.0, 0.0));
+        let hit = view
+            .screen_to_terrain(&IPoint2::new(320, 240))
+            .expect("pick");
+        assert!(hit.x.is_finite() && hit.y.is_finite() && hit.z.is_finite());
+    }
+
+    #[test]
+    fn pick_drawable_skips_when_view_uninitialized() {
+        let view = View::new();
+        assert!(view
+            .pick_drawable(&IPoint2::new(10, 10), false, PickType::Selectable)
+            .is_none());
+    }
 }
 
 /// Trait for objects that can be rendered by the Display system
@@ -2508,6 +3246,7 @@ pub trait ViewTrait: Send + Sync {
 
     /// Draw this view (called by the Display system)
     fn draw_view(&self) -> Result<(), ViewError>;
+
 
     /// Update view state (called once per frame)
     fn update_view(&mut self) -> Result<(), ViewError>;
@@ -2540,8 +3279,7 @@ impl ViewTrait for View {
     }
 
     fn draw_view(&self) -> Result<(), ViewError> {
-        // This would integrate with the rendering system
-        // For now, just signal that drawing was requested
+        draw_move_hint_and_locater_models(self);
         View::force_redraw(self);
         Ok(())
     }

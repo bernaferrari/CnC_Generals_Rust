@@ -2321,6 +2321,16 @@ impl TheControlBar {
         with_control_bar_backend_result(|backend| backend.get_observer_look_at_player_index())
             .flatten()
     }
+
+    /// C++ `TheControlBar->getArrowImage()` (`m_genArrow`).
+    pub fn get_arrow_image() -> Option<crate::gui::game_window::Image> {
+        crate::gui::control_bar::control_bar_observer::get_gen_arrow_image()
+    }
+
+    /// C++ `TheControlBar->setArrowImage()`.
+    pub fn set_arrow_image(image: Option<crate::gui::game_window::Image>) {
+        crate::gui::control_bar::control_bar_observer::set_gen_arrow_image(image);
+    }
 }
 
 pub struct TacticalViewBridge;

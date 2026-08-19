@@ -1749,19 +1749,34 @@ impl ScriptConditionEvaluator {
 
     pub(crate) fn eval_supply_source_safe(
         &self,
-        condition: &Condition,
+        condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // C++ evaluateSkirmishSupplySourceSafe: cache for 2*LOGICFRAMES_PER_SECOND.
+        let frame = TheGameLogic::get_frame();
+        if frame <= condition.custom_frame {
+            if condition.custom_data == -1 {
+                return Ok(ScriptConditionResult::False);
+            }
+            if condition.custom_data == 1 {
+                return Ok(ScriptConditionResult::True);
+            }
+        }
+        condition.custom_frame = frame.saturating_add(2 * LOGICFRAMES_PER_SECOND as u32);
+
         let player_name = self.get_condition_string_param(condition, 0)?;
         let min_supply_amount = self.get_condition_int_param(condition, 1)?;
         log::debug!("Evaluating if supply source safe for '{}'", player_name);
 
         let Ok(players) = player_list().read() else {
+            condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
+            condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
         let Ok(player) = player_arc.read() else {
+            condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
         let player_id = player.get_player_index() as u32;
@@ -1781,6 +1796,7 @@ impl ScriptConditionEvaluator {
         .flatten()
         .unwrap_or(false);
 
+        condition.custom_data = if is_safe { 1 } else { -1 };
         Ok(if is_safe {
             ScriptConditionResult::True
         } else {

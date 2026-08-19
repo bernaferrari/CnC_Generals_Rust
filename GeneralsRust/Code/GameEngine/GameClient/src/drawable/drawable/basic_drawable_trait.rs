@@ -241,15 +241,27 @@ impl Drawable for BasicDrawable {
         if self.terrain_decal_type != TerrainDecalType::None {
             if self.decal_opacity_fade_rate != 0.0 {
                 self.decal_opacity += self.decal_opacity_fade_rate;
+                if let Some(dm) = self.draw_modules.first_mut() {
+                    dm.set_terrain_decal_opacity(self.decal_opacity);
+                }
+                if let Some(handle) = &self.terrain_decal_handle {
+                    handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
+                }
                 if self.decal_opacity_fade_rate < 0.0 && self.decal_opacity <= 0.0 {
                     self.decal_opacity_fade_rate = 0.0;
                     self.decal_opacity = 0.0;
-                    self.terrain_decal_type = TerrainDecalType::None;
+                    self.set_terrain_decal(TerrainDecalType::None);
                 } else if self.decal_opacity_fade_rate > 0.0 && self.decal_opacity >= 1.0 {
                     self.decal_opacity = 1.0;
                     self.decal_opacity_fade_rate = 0.0;
+                    if let Some(dm) = self.draw_modules.first_mut() {
+                        dm.set_terrain_decal_opacity(self.decal_opacity);
+                    }
                 }
             }
+        if let Some(handle) = &self.terrain_decal_handle {
+            handle.set_position(self.position.x, self.position.y, self.position.z);
+        }
         } else {
             self.decal_opacity = 0.0;
         }
@@ -297,6 +309,7 @@ impl Drawable for BasicDrawable {
                 }
             }
         }
+        self.publish_wheel_info_to_logic();
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {
@@ -319,6 +332,23 @@ impl Drawable for BasicDrawable {
                 .unwrap_or(false);
             if !effectively_dead {
                 self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
+            }
+        }
+
+        if let Some(object_id) = self.object_id {
+            if let Some(wheel) = self.get_wheel_info() {
+                if let Some(client) = gamelogic::helpers::TheGameClient::get() {
+                    client.set_object_wheel_info(
+                        object_id,
+                        gamelogic::helpers::DrawWheelInfo {
+                            front_left_height_offset: wheel.front_left_height_offset,
+                            front_right_height_offset: wheel.front_right_height_offset,
+                            rear_left_height_offset: wheel.rear_left_height_offset,
+                            rear_right_height_offset: wheel.rear_right_height_offset,
+                            wheel_angle: wheel.wheel_angle,
+                        },
+                    );
+                }
             }
         }
 
@@ -520,7 +550,11 @@ impl Drawable for BasicDrawable {
     }
 
     fn set_terrain_decal_type(&mut self, decal_type: TerrainDecalType) {
-        self.terrain_decal_type = decal_type;
+        self.set_terrain_decal(decal_type);
+    }
+
+    fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
+        BasicDrawable::set_terrain_decal(self, decal_type);
     }
 
     fn draw_ui_text(&self) -> Result<(), Box<dyn Error>> {

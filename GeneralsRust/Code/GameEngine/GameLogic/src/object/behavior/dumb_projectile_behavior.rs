@@ -23,14 +23,15 @@ use crate::helpers::{
     get_game_logic_random_value_real, TheFXListStore, TheGameLogic, ThePartitionManager,
 };
 use crate::modules::{
-    BehaviorModuleInterface, ProjectileUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
+    BehaviorModuleInterface, CollideModuleInterface, ProjectileUpdateInterface,
+    UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
     registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
     INVALID_ID as OBJECT_INVALID_ID,
 };
-use crate::weapon::WeaponTemplate;
+use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -767,146 +768,135 @@ impl DumbProjectileBehavior {
             self.detonate()?;
             return Ok(());
         }
-
-        // Check for collision with terrain (C++ lines 467-475)
-        self.check_collision(&step)?;
+        // C++ update() does not query overlap. Object/ground hits come from
+        // PhysicsBehavior::onCollide -> projectileHandleCollision.
 
         self.current_step += 1;
         Ok(())
     }
 
-    /// Check for collision at given position
-    /// Matches C++ DumbProjectileBehavior collision detection logic
-    fn check_collision(
-        &mut self,
-        pos: &Coord3D,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 286: empty dual-world → Ok(()).
+    /// C++ DumbProjectileBehavior::projectileHandleCollision.
+    /// Driven by PhysicsBehavior::onCollide, not per-step partition overlap.
+    pub fn projectile_handle_collision(&mut self, other: Option<ObjectID>) -> bool {
         if dual_world_registry_unavailable() {
-            return Ok(());
+            return true;
+        }
+        if self.has_detonated {
+            return true;
         }
 
-        // Check object collisions first (matches DumbProjectileBehavior::projectileHandleCollision).
-        if let Some(partition) = ThePartitionManager::get() {
-            let candidates = partition.get_objects_in_range_boundary_2d(pos, 0.0);
-            for candidate_id in candidates {
-                if candidate_id == self.object_id {
-                    continue;
+        if let Some(other_id) = other {
+            if other_id == self.object_id {
+                return true;
+            }
+            if let Some(template) = &self.detonation_weapon {
+                if !template.should_projectile_collide_with(
+                    self.launcher_id,
+                    self.object_id,
+                    other_id,
+                    self.victim_id,
+                ) {
+                    return true;
                 }
-                if let Some(template) = &self.detonation_weapon {
-                    if !template.should_projectile_collide_with(
-                        self.launcher_id,
-                        self.object_id,
-                        candidate_id,
-                        self.victim_id,
-                    ) {
-                        continue;
-                    }
-                }
+            }
 
-                let Some((contain_handle, immune)) = OBJECT_REGISTRY
-                    .with_object(candidate_id, |other_guard| {
-                        if other_guard.is_effectively_dead() {
-                            return None;
-                        }
-                        let immune = other_guard
-                            .get_garrison_contain_module_data()
-                            .ok()
-                            .map(|data| data.immune_to_clear_building_attacks)
-                            .unwrap_or(false);
-                        Some((other_guard.get_contain(), immune))
-                    })
-                    .flatten()
-                else {
-                    continue;
-                };
-
-                if self.module_data.garrison_hit_kill_count > 0 {
-                    if let Some(contain_handle) = contain_handle {
-                        if let Ok(contain_guard) = contain_handle.lock() {
-                            let garrisoned = contain_guard.get_contained_count() > 0;
-                            let garrisonable = contain_guard.is_garrisonable();
-                            if garrisoned && garrisonable && !immune {
-                                let contained_ids = contain_guard.get_contained_objects().to_vec();
-                                let mut num_killed = 0;
-                                drop(contain_guard);
-
-                                for contained_id in contained_ids {
-                                    if num_killed >= self.module_data.garrison_hit_kill_count {
-                                        break;
-                                    }
-                                    let kindof = self.module_data.garrison_hit_kill_kindof;
-                                    let kindof_not = self.module_data.garrison_hit_kill_kindof_not;
-                                    let launcher_id = self.launcher_id;
-                                    let Some(killed) = OBJECT_REGISTRY.with_object_mut(
-                                        contained_id,
-                                        |contained_guard| {
-                                            if contained_guard.is_effectively_dead() {
-                                                return false;
-                                            }
-                                            if !contained_guard.is_kind_of_multi(kindof, kindof_not)
-                                            {
-                                                return false;
-                                            }
-
-                                            if launcher_id != OBJECT_INVALID_ID {
-                                                let _ = OBJECT_REGISTRY.with_object_mut(
-                                                    launcher_id,
-                                                    |launcher_guard| {
-                                                        launcher_guard
-                                                            .score_the_kill(contained_guard);
-                                                    },
-                                                );
-                                            }
-                                            contained_guard.kill(None, None);
-                                            true
-                                        },
-                                    ) else {
-                                        continue;
-                                    };
-                                    if killed {
-                                        num_killed += 1;
-                                    }
-                                }
-
-                                if num_killed > 0 {
-                                    if let Some(fx) = &self.module_data.garrison_hit_kill_fx {
-                                        let _ = fx.do_fx_obj_ids(candidate_id, None, None);
-                                    }
-
-                                    let _ =
-                                        OBJECT_REGISTRY.with_object(candidate_id, |other_guard| {
-                                            if let Some(player_arc) =
-                                                other_guard.get_controlling_player()
-                                            {
-                                                if let Ok(mut player_guard) = player_arc.write() {
-                                                    player_guard
-                                                        .get_academy_stats_mut()
-                                                        .record_cleared_garrisoned_building();
-                                                }
-                                            }
-                                        });
-
-                                    let _ =
-                                        TheGameLogic::destroy_object_by_id(self.owner_object_id());
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                self.detonate()?;
-
-                let _ = self.with_object_mut(|projectile| {
-                    projectile.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-                });
-
-                return Ok(());
+            if self.handle_garrison_hit_kill(other_id) {
+                return true;
             }
         }
 
-        Ok(())
+        let _ = self.detonate();
+        let _ = self.with_object_mut(|projectile| {
+            projectile.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+        });
+        true
+    }
+
+    fn handle_garrison_hit_kill(&self, other_id: ObjectID) -> bool {
+        if self.module_data.garrison_hit_kill_count <= 0 {
+            return false;
+        }
+
+        let Some((contain_handle, immune)) = OBJECT_REGISTRY
+            .with_object(other_id, |other_guard| {
+                if other_guard.is_effectively_dead() {
+                    return None;
+                }
+                let immune = other_guard
+                    .get_garrison_contain_module_data()
+                    .ok()
+                    .map(|data| data.immune_to_clear_building_attacks)
+                    .unwrap_or(false);
+                Some((other_guard.get_contain(), immune))
+            })
+            .flatten()
+        else {
+            return false;
+        };
+
+        let Some(contain_handle) = contain_handle else {
+            return false;
+        };
+        let Ok(contain_guard) = contain_handle.lock() else {
+            return false;
+        };
+        let garrisoned = contain_guard.get_contained_count() > 0;
+        let garrisonable = contain_guard.is_garrisonable();
+        if !garrisoned || !garrisonable || immune {
+            return false;
+        }
+
+        let contained_ids = contain_guard.get_contained_objects().to_vec();
+        drop(contain_guard);
+
+        let mut num_killed = 0;
+        for contained_id in contained_ids {
+            if num_killed >= self.module_data.garrison_hit_kill_count {
+                break;
+            }
+            let kindof = self.module_data.garrison_hit_kill_kindof;
+            let kindof_not = self.module_data.garrison_hit_kill_kindof_not;
+            let launcher_id = self.launcher_id;
+            let Some(killed) = OBJECT_REGISTRY.with_object_mut(contained_id, |contained_guard| {
+                if contained_guard.is_effectively_dead() {
+                    return false;
+                }
+                if !contained_guard.is_kind_of_multi(kindof, kindof_not) {
+                    return false;
+                }
+                if launcher_id != OBJECT_INVALID_ID {
+                    let _ = OBJECT_REGISTRY.with_object_mut(launcher_id, |launcher_guard| {
+                        launcher_guard.score_the_kill(contained_guard);
+                    });
+                }
+                contained_guard.kill(None, None);
+                true
+            }) else {
+                continue;
+            };
+            if killed {
+                num_killed += 1;
+            }
+        }
+
+        if num_killed == 0 {
+            return false;
+        }
+
+        if let Some(fx) = &self.module_data.garrison_hit_kill_fx {
+            let _ = fx.do_fx_obj_ids(other_id, None, None);
+        }
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |projectile_guard| {
+            if let Some(player_arc) = projectile_guard.get_controlling_player() {
+                if let Ok(mut player_guard) = player_arc.write() {
+                    player_guard
+                        .get_academy_stats_mut()
+                        .record_cleared_garrisoned_building();
+                }
+            }
+        });
+        let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
+        true
     }
 
     /// Detonate projectile and trigger weapon effects
@@ -995,12 +985,15 @@ impl DumbProjectileBehavior {
         self.launcher_id = launcher_id;
     }
 
-    /// Launch projectile toward an object or position (C++ parity helper).
+    /// C++ DumbProjectileBehavior::projectileLaunchAtObjectOrPosition.
+    /// Positions at the weapon slot/barrel bone, then builds the Bezier path.
     pub fn projectile_launch_at_object_or_position(
         &mut self,
         victim: Option<ObjectID>,
         victim_pos: &Coord3D,
         launcher: ObjectID,
+        weapon_slot: WeaponSlotType,
+        specific_barrel_to_use: i32,
         detonation_weapon: Option<Arc<WeaponTemplate>>,
     ) {
         self.set_launcher_id(launcher);
@@ -1015,6 +1008,25 @@ impl DumbProjectileBehavior {
             WeaponBonusConditionFlags::none()
         };
         self.lifespan_frame = self.get_current_frame() + self.module_data.max_lifespan;
+
+        if let Ok(projectile_arc) = self.get_object() {
+            let _ = WeaponTemplate::position_projectile_for_launch(
+                &projectile_arc,
+                launcher,
+                weapon_slot,
+                specific_barrel_to_use,
+            );
+        }
+
+        self.projectile_fire_at_object_or_position(victim, victim_pos);
+    }
+
+    /// C++ DumbProjectileBehavior::projectileFireAtObjectOrPosition.
+    fn projectile_fire_at_object_or_position(
+        &mut self,
+        victim: Option<ObjectID>,
+        victim_pos: &Coord3D,
+    ) {
         if let Ok(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
             self.flight_path_start = pos;
         }
@@ -1187,6 +1199,60 @@ impl BehaviorModuleInterface for DumbProjectileBehavior {
     fn get_projectile_update_interface(&mut self) -> Option<&mut dyn ProjectileUpdateInterface> {
         Some(self)
     }
+
+    fn get_collide(&mut self) -> Option<&mut dyn CollideModuleInterface> {
+        Some(self)
+    }
+}
+
+impl CollideModuleInterface for DumbProjectileBehavior {
+    fn on_collision(&mut self, _object_id: ObjectID, other_id: ObjectID) {
+        let other = if other_id == OBJECT_INVALID_ID {
+            None
+        } else {
+            Some(other_id)
+        };
+        let _ = self.projectile_handle_collision(other);
+    }
+}
+
+/// Route a physics collide event to this object's DumbProjectileBehavior.
+/// C++ PhysicsBehavior::onCollide -> ProjectileUpdateInterface::projectileHandleCollision.
+pub(crate) fn dispatch_dumb_projectile_handle_collision(
+    object_id: ObjectID,
+    other: Option<ObjectID>,
+) -> bool {
+    if dual_world_registry_unavailable() {
+        return false;
+    }
+    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id)
+        .or_else(|| OBJECT_REGISTRY.get_object(object_id))
+    else {
+        return false;
+    };
+    let handle = {
+        let Ok(obj) = obj_arc.try_read() else {
+            return false;
+        };
+        obj.behavior_modules().into_iter().find(|handle| {
+            handle.with_module(|module| {
+                module.as_any().is::<DumbProjectileBehavior>()
+                    || module.as_any().is::<DumbProjectileBehaviorModule>()
+            })
+        })
+    };
+    let Some(handle) = handle else {
+        return false;
+    };
+    handle.with_module(|module| {
+        if let Some(dumb) = (module as &mut dyn Any).downcast_mut::<DumbProjectileBehavior>() {
+            return dumb.projectile_handle_collision(other);
+        }
+        if let Some(wrap) = (module as &mut dyn Any).downcast_mut::<DumbProjectileBehaviorModule>() {
+            return wrap.behavior_mut().projectile_handle_collision(other);
+        }
+        false
+    })
 }
 
 // -------------------------------------------------------------------------------------------------

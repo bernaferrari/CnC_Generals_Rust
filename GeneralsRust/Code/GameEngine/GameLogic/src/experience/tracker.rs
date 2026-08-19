@@ -312,9 +312,12 @@ impl ExperienceTracker {
         }
 
         let max_level = VeterancyLevel::Heroic as i32;
-        let new_level = (self.current_level as i32) + levels_to_gain;
-
-        new_level <= max_level
+        let mut new_level = (self.current_level as i32) + levels_to_gain;
+        // C++: return true if we can gain levels, even if we can't gain ALL requested.
+        if new_level > max_level {
+            new_level = max_level;
+        }
+        new_level > self.current_level as i32
     }
 
     /// Check if this object can be trained (gain at least one level)
@@ -581,7 +584,17 @@ mod tests {
 
         assert!(tracker.can_gain_exp_for_level(1)); // Can gain 1 level
         assert!(tracker.can_gain_exp_for_level(3)); // Can gain 3 levels
-        assert!(!tracker.can_gain_exp_for_level(4)); // Can't gain 4 levels (only 3 levels available)
+        // C++ clamps newLevel to LEVEL_LAST, so Regular+4 still reaches Heroic.
+        assert!(tracker.can_gain_exp_for_level(4));
+
+        let mut elite = ExperienceTracker::new(124);
+        elite.set_veterancy_level(VeterancyLevel::Elite);
+        // Elite + 2 clamps to Heroic and is still a gain.
+        assert!(elite.can_gain_exp_for_level(2));
+
+        let mut heroic = ExperienceTracker::new(125);
+        heroic.set_veterancy_level(VeterancyLevel::Heroic);
+        assert!(!heroic.can_gain_exp_for_level(1));
     }
 
     #[test]

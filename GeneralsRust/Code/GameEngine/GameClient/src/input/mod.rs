@@ -128,10 +128,10 @@ pub struct InputConfig {
     /// Mouse sensitivity multiplier
     pub mouse_sensitivity: f32,
 
-    /// Key repeat delay in milliseconds
+    /// Key repeat delay in milliseconds (10 input frames at 30Hz)
     pub key_repeat_delay: u32,
 
-    /// Key repeat interval in milliseconds
+    /// Key repeat interval in milliseconds (2 input frames at 30Hz)
     pub key_repeat_interval: u32,
 
     /// Mouse double-click time in milliseconds
@@ -151,8 +151,8 @@ impl Default for InputConfig {
             mouse_enabled: true,
             gamepad_enabled: true,
             mouse_sensitivity: 1.0,
-            key_repeat_delay: 500,
-            key_repeat_interval: 30,
+            key_repeat_delay: 333,
+            key_repeat_interval: 67,
             double_click_time: 500,
             max_event_queue_size: 1000,
             touch_enabled: false,
@@ -465,8 +465,8 @@ mod tests {
         assert!(config.mouse_enabled);
         assert!(config.gamepad_enabled);
         assert_eq!(config.mouse_sensitivity, 1.0);
-        assert_eq!(config.key_repeat_delay, 500);
-        assert_eq!(config.key_repeat_interval, 30);
+        assert_eq!(config.key_repeat_delay, 333);
+        assert_eq!(config.key_repeat_interval, 67);
         assert_eq!(config.double_click_time, 500);
         assert!(!config.touch_enabled);
     }

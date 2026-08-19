@@ -2912,6 +2912,10 @@ impl ContainModuleInterface for GarrisonContain {
         Ok(())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn is_displayed_on_control_bar(&self) -> bool {
         GarrisonContain::is_displayed_on_control_bar(self)
     }

@@ -8,16 +8,23 @@ use super::body_module::{
     BodyResult, DamageInfo, DamageInfoInput, DamageType, MaxHealthChangeType, ObjectId,
     VeterancyLevel,
 };
-use crate::ai::CommandSourceType;
+use crate::ai::{CommandSourceType, THE_AI};
+use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::types::ThingTemplate;
 use crate::common::{
-    AsciiString, DefaultThingTemplate, KindOf, ObjectStatusTypes, PlayerMaskType, INVALID_ID,
+    AsciiString, DefaultThingTemplate, KindOf, ObjectStatusTypes, PlayerMaskType, Relationship,
+    INVALID_ID, FROM_BOUNDING_SPHERE_2D,
 };
 use crate::damage::{is_subdual_damage, DamageInfoOutput, DeathType};
-use crate::helpers::{game_client_random_value, TheParticleSystemManager, TheThingFactory};
+use crate::helpers::{
+    get_game_logic_random_value, game_client_random_value, TheAudio, TheParticleSystemManager,
+    ThePartitionManager, TheThingFactory,
+};
+use crate::modules::AIUpdateInterfaceExt;
 use crate::object::armor::{ensure_default_templates_loaded, Armor, ArmorTemplate, TheArmorStore};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
+use crate::player::{player_list, PlayerType};
 use crate::system::game_logic::current_frame;
 use game_engine::common::bit_flags::{create_armor_set_flags, ArmorSetBitFlags, ArmorSetFlags};
 use game_engine::common::game_common::convert_duration_from_msecs_to_frames;
@@ -37,8 +44,179 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 /// Yellow damage threshold percentage (when fear sounds play)
-#[allow(dead_code)]
 const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
+
+fn record_neutral_vehicle_sniped() {
+    let Ok(list) = player_list().read() else {
+        return;
+    };
+    let Some(neutral) = list.get_neutral_player() else {
+        return;
+    };
+    if let Ok(mut player) = neutral.write() {
+        player.get_academy_stats_mut().record_vehicle_sniped();
+    }
+}
+
+fn record_cleared_garrison_for_object(victim: &Object) {
+    if let Some(player) = victim.get_controlling_player() {
+        if let Ok(mut guard) = player.write() {
+            guard
+                .get_academy_stats_mut()
+                .record_cleared_garrisoned_building();
+        }
+    }
+}
+
+fn play_object_template_sound(owner: &Object, mut event: crate::common::audio::AudioEventRts) {
+    if event.get_event_name().is_empty() {
+        return;
+    }
+    event.set_object_id(owner.get_id());
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+}
+
+fn play_voice_fear(owner: &Object) {
+    let mut event = owner.get_template().get_voice_fear();
+    if event.get_event_name().is_empty() {
+        return;
+    }
+    let pos = *owner.get_position();
+    event.set_position(&(pos.x, pos.y, pos.z));
+    if let Some(player) = owner.get_controlling_player() {
+        if let Ok(guard) = player.read() {
+            event.set_player_index(guard.get_player_index());
+        }
+    }
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+}
+
+fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
+    if damager.is_airborne_target() {
+        return false;
+    }
+    if damager.relationship_to(obj) != Relationship::Enemies {
+        return false;
+    }
+    let max_dist = THE_AI
+        .read()
+        .ok()
+        .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_retaliate_distance))
+        .unwrap_or(210.0);
+    let dist_sqr =
+        ThePartitionManager::get_distance_squared(obj, damager, FROM_BOUNDING_SPHERE_2D);
+    if dist_sqr > max_dist * max_dist {
+        return false;
+    }
+    if obj
+        .get_controlling_player()
+        .and_then(|p| p.read().ok().map(|g| g.get_player_type()))
+        != Some(PlayerType::Human)
+    {
+        return false;
+    }
+    if obj.is_kind_of(KindOf::Drone) {
+        return false;
+    }
+    true
+}
+
+fn should_retaliate(obj: &Object) -> bool {
+    if obj.is_kind_of(KindOf::CannotRetaliate) || obj.is_kind_of(KindOf::Immobile) {
+        return false;
+    }
+    if obj.is_kind_of(KindOf::Drone) {
+        return false;
+    }
+    let Some(ai) = obj.get_ai() else {
+        return false;
+    };
+    if !ai.is_idle() {
+        return false;
+    }
+    if obj.test_status(ObjectStatusTypes::Stealthed) && !obj.test_status(ObjectStatusTypes::Detected)
+    {
+        return false;
+    }
+    if obj.test_status(ObjectStatusTypes::IsUsingAbility) {
+        return false;
+    }
+    true
+}
+
+fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
+    let Some(controlling_player) = victim.get_controlling_player() else {
+        return;
+    };
+    let Ok(player_guard) = controlling_player.read() else {
+        return;
+    };
+    if !player_guard.is_logical_retaliation_mode_enabled()
+        || player_guard.get_player_type() != PlayerType::Human
+    {
+        return;
+    }
+    drop(player_guard);
+    if !should_retaliate_against_aggressor(victim, damager) {
+        return;
+    }
+    let friends_radius = THE_AI
+        .read()
+        .ok()
+        .and_then(|ai| {
+            ai.get_ai_data()
+                .read()
+                .ok()
+                .map(|d| d.retaliate_friends_radius)
+        })
+        .unwrap_or(120.0)
+        + victim.get_geometry_info().get_bounding_circle_radius();
+    let Some(partition) = ThePartitionManager::get() else {
+        return;
+    };
+    let victim_player_id = victim.get_controlling_player_id();
+    let damager_id = damager.get_id();
+    let candidates = partition.get_objects_in_range_boundary_2d(victim.get_position(), friends_radius);
+    for friend_id in candidates {
+        if friend_id == victim.get_id() || friend_id == damager_id {
+            continue;
+        }
+        let _ = OBJECT_REGISTRY.with_object(friend_id, |them| {
+            if them.get_controlling_player_id() != victim_player_id {
+                return;
+            }
+            if !should_retaliate(them) {
+                return;
+            }
+            if them.is_kind_of(KindOf::Immobile) {
+                return;
+            }
+            let Some(ai) = them.get_ai() else {
+                return;
+            };
+            let can_attack = matches!(
+                them.get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    damager,
+                    CommandSourceType::FromAi,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            );
+            if can_attack {
+                ai.ai_guard_retaliate(
+                    damager_id,
+                    them.get_position(),
+                    i32::MAX,
+                    CommandSourceType::FromAi,
+                );
+            }
+        });
+    }
+}
 
 /// Configuration data specific to active bodies
 #[derive(Debug, Clone)]
@@ -1353,6 +1531,7 @@ impl BodyModuleInterface for ActiveBody {
                                 obj.ai_idle();
                                 obj.set_team_to_neutral();
                             }
+                            record_neutral_vehicle_sniped();
                         }
                     }
                     if kill_vehicle {
@@ -1435,8 +1614,8 @@ impl BodyModuleInterface for ActiveBody {
                                                         dam.score_the_kill(victim);
                                                     },
                                                 );
+                                                record_cleared_garrison_for_object(victim);
                                                 victim.kill(None, None);
-                                                true
                                             })
                                             .unwrap_or(false)
                                         {
@@ -1508,7 +1687,7 @@ impl BodyModuleInterface for ActiveBody {
                 self.internal_change_health(-amount)?;
             }
 
-            let (previous_health, current_health) = {
+            let (previous_health, current_health, max_health) = {
                 let state = self
                     .state
                     .read()
@@ -1516,7 +1695,11 @@ impl BodyModuleInterface for ActiveBody {
                 damage_info.output.actual_damage_dealt = amount;
                 damage_info.output.actual_damage_clipped =
                     state.previous_health - state.current_health;
-                (state.previous_health, state.current_health)
+                (
+                    state.previous_health,
+                    state.current_health,
+                    state.max_health,
+                )
             };
 
             // Store damage info
@@ -1566,6 +1749,37 @@ impl BodyModuleInterface for ActiveBody {
                 }
             }
 
+            // C++ ActiveBody.cpp:574-583 — victim player remembers who attacked.
+            let last_source_id = self
+                .state
+                .read()
+                .ok()
+                .and_then(|state| {
+                    state
+                        .last_damage_info
+                        .as_ref()
+                        .map(|info| info.input.source_id)
+                })
+                .unwrap_or(INVALID_ID);
+            if last_source_id != INVALID_ID {
+                if let Some(owner) = self.get_owner() {
+                    if let Ok(owner_guard) = owner.read() {
+                        if let Some(victim_player) = owner_guard.get_controlling_player() {
+                            let src_index = OBJECT_REGISTRY.with_object(last_source_id, |src| {
+                                src.get_controlling_player().and_then(|p| {
+                                    p.read().ok().map(|g| g.get_player_index())
+                                })
+                            });
+                            if let Some(Some(src_index)) = src_index {
+                                if let Ok(mut player) = victim_player.write() {
+                                    player.set_attacked_by(src_index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if current_health < previous_health {
                 self.notify_damage_modules_on_damage(damage_info);
             }
@@ -1574,6 +1788,39 @@ impl BodyModuleInterface for ActiveBody {
             let new_state = self.get_damage_state();
             if new_state != old_state {
                 self.notify_damage_modules_on_state_change(damage_info, old_state, new_state);
+                if let Some(owner) = self.get_owner() {
+                    if let Ok(owner_guard) = owner.read() {
+                        match new_state {
+                            BodyDamageType::Damaged => {
+                                play_object_template_sound(
+                                    &owner_guard,
+                                    owner_guard.get_template().get_sound_on_damaged(),
+                                );
+                            }
+                            BodyDamageType::ReallyDamaged => {
+                                play_object_template_sound(
+                                    &owner_guard,
+                                    owner_guard.get_template().get_sound_on_really_damaged(),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // C++: 25% chance to shout VoiceFear when health crosses yellow.
+            if max_health > 0.0
+                && (previous_health / max_health) > YELLOW_DAMAGE_PERCENT
+                && (current_health / max_health) < YELLOW_DAMAGE_PERCENT
+                && current_health > 0.0
+                && get_game_logic_random_value(0, 99) < 25
+            {
+                if let Some(owner) = self.get_owner() {
+                    if let Ok(owner_guard) = owner.read() {
+                        play_voice_fear(&owner_guard);
+                    }
+                }
             }
 
             // Check if we died
@@ -1597,6 +1844,43 @@ impl BodyModuleInterface for ActiveBody {
 
         // Do damage FX
         self.do_damage_fx(damage_info)?;
+
+        // C++ ActiveBody.cpp:655-701 — civilians become repulsors; friends retaliate.
+        if let Some(owner) = self.get_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                let enable_repulsors = THE_AI
+                    .read()
+                    .ok()
+                    .and_then(|ai| {
+                        ai.get_ai_data()
+                            .read()
+                            .ok()
+                            .map(|data| data.enable_repulsors)
+                    })
+                    .unwrap_or(false);
+                if enable_repulsors && owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
+                    owner_guard.set_status(ObjectStatusTypes::Repulsor.into(), true);
+                }
+            }
+            if let Ok(owner_guard) = owner.read() {
+                let source_id = self
+                    .state
+                    .read()
+                    .ok()
+                    .and_then(|state| {
+                        state
+                            .last_damage_info
+                            .as_ref()
+                            .map(|info| info.input.source_id)
+                    })
+                    .unwrap_or(damage_info.input.source_id);
+                if source_id != INVALID_ID {
+                    let _ = OBJECT_REGISTRY.with_object(source_id, |damager| {
+                        retaliate_nearby_friends(&owner_guard, damager);
+                    });
+                }
+            }
+        }
 
         Ok(())
     }

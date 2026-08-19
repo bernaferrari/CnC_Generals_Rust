@@ -34,6 +34,8 @@ pub struct SceneLineDesc {
     pub texture_name: Option<String>,
     pub tile_factor: f32,
     pub visible: bool,
+    /// C++ `SegmentedLineClass::Set_UV_Offset_Rate(Vector2(0, m_scrollRate))`.
+    pub scroll_rate: f32,
 }
 
 pub type SceneLineId = u64;

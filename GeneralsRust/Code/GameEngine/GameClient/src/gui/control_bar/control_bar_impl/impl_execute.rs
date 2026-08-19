@@ -510,7 +510,42 @@ impl ControlBar {
                     continue;
                 };
                 if let Some(cmd) = context.available_commands.get(i) {
+                    if cmd.button_hidden || cmd.command_name.is_empty() {
+                        let _ = win.borrow_mut().hide(true);
+                        continue;
+                    }
                     win.borrow_mut().set_user_data(cmd.command_name.clone());
+                    if !cmd.button_image.is_empty() {
+                        if let Some(image) = wm.win_find_image(&cmd.button_image) {
+                            let _ = win.borrow_mut().set_enabled_image(0, image);
+                            win.borrow_mut()
+                                .set_status(crate::gui::game_window::WindowStatus::IMAGE);
+                        }
+                    }
+                    if let Some(overlay) = cmd.overlay_image.as_deref() {
+                        if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                            win.borrow_mut().widget_mut()
+                        {
+                            button.set_overlay_image(Some(overlay));
+                        }
+                    } else if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                        win.borrow_mut().widget_mut()
+                    {
+                        button.set_overlay_image(None::<String>);
+                    }
+                    if context.current_state == ControlBarState::StructureInventory {
+                        win.borrow_mut()
+                            .set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                        let _ = win
+                            .borrow_mut()
+                            .clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
+                    }
+                    let _ = win.borrow_mut().enable(cmd.button_enabled);
+                    let _ = win.borrow_mut().hide(false);
+                } else if context.current_state == ControlBarState::Command
+                    || context.current_state == ControlBarState::StructureInventory
+                {
+                    let _ = win.borrow_mut().hide(true);
                 }
             }
         });

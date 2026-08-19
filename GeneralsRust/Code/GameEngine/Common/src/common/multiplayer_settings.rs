@@ -58,15 +58,17 @@ impl Default for MultiplayerSettings {
             map_name: "Default".to_string(),
             use_random_seed: true,
             seed: 0,
-            start_countdown_timer: 5,
+            // C++ MultiplayerSettings ctor: countdown 0, starting-money list empty
+            // until INI addStartingMoneyChoice. Extra lobby fields are Rust-only.
+            start_countdown_timer: 0,
             max_beacons_per_player: DEFAULT_MAX_BEACONS,
             use_shroud: true,
             show_random_player_template: true,
             show_random_start_pos: true,
             show_random_color: true,
             colors: Vec::new(),
-            starting_money_choices: vec![5000, 10000, 20000, 30000, 40000, 50000],
-            default_starting_money: 10000,
+            starting_money_choices: Vec::new(),
+            default_starting_money: 0,
         }
     }
 }

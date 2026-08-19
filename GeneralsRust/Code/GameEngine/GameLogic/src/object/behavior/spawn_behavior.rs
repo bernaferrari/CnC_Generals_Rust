@@ -1180,14 +1180,19 @@ impl UpdateModuleInterface for SpawnBehavior {
         // Process replacement times
         if self.should_try_to_spawn()? {
             let current_time = TheGameLogic::get_frame() as Int;
-
-            while let Some(replacement_time) = self.replacement_times.front().cloned() {
-                if current_time <= replacement_time {
-                    break;
-                }
-                self.replacement_times.pop_front();
-                if self.create_spawn()? {
-                    // Successfully created spawn
+            // C++ SpawnBehavior::update: erase a due slot only after createSpawn
+            // succeeds. A busy door leaves the replacement time on the queue so
+            // the hive retries next update instead of permanently losing the slot.
+            let mut index = 0;
+            while index < self.replacement_times.len() {
+                if current_time > self.replacement_times[index] {
+                    if self.create_spawn()? {
+                        self.replacement_times.remove(index);
+                    } else {
+                        index += 1;
+                    }
+                } else {
+                    index += 1;
                 }
             }
 

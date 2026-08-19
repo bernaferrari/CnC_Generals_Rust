@@ -56,6 +56,15 @@ pub struct SkinnedGroup2Binds {
 pub struct WgpuMaterialBinds;
 
 const MAX_LIGHTS: usize = 8;
+const MAX_BONES: usize = 64;
+
+fn pad_bone_palette(bones: &[Mat4]) -> [Mat4; MAX_BONES] {
+    let mut padded = [Mat4::IDENTITY; MAX_BONES];
+    let n = bones.len().min(MAX_BONES);
+    padded[..n].copy_from_slice(&bones[..n]);
+    padded
+}
+
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -273,7 +282,8 @@ impl WgpuMaterialBinds {
         bones: &[Mat4],
         arena: &mut FrameUniformArena,
     ) -> Result<BonesBinds> {
-        let slice = arena.allocate(gpu, bytemuck::cast_slice(bones), 256)?;
+        let padded = pad_bone_palette(bones);
+        let slice = arena.allocate(gpu, bytemuck::cast_slice(&padded), 256)?;
         let bind_group = gpu
             .wgpu_device()
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -299,7 +309,8 @@ impl WgpuMaterialBinds {
         animation_time: f32,
         arena: &mut FrameUniformArena,
     ) -> Result<SkinnedGroup2Binds> {
-        let bones_slice = arena.allocate(gpu, bytemuck::cast_slice(bones), 256)?;
+        let padded = pad_bone_palette(bones);
+        let bones_slice = arena.allocate(gpu, bytemuck::cast_slice(&padded), 256)?;
         let uv_uniform = build_uv_transform_uniform(material_pass, animation_time);
         let uv_slice = arena.allocate(gpu, bytemuck::bytes_of(&uv_uniform), 256)?;
 

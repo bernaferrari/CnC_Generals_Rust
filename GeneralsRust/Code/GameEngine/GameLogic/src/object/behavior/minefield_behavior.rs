@@ -21,6 +21,7 @@ use crate::object::behavior::behavior_module::{
     xfer_update_module_base_state, BehaviorModuleData, LandMineInterface,
 };
 use crate::object::Object as GameObject;
+use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
 use crate::weapon::{with_weapon_store, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -28,6 +29,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
+use game_engine::system::geometry::GeometryType;
 use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 410: host-only path has no dual-world factory objects.
@@ -585,21 +587,26 @@ impl MinefieldBehavior {
             && self.module_data.stops_regen_after_creator_dies
         {
             self.next_death_check_frame = now + self.module_data.creator_death_check_rate;
-            let producer_dead = self
+            let producer_id = self
                 .owner()
                 .and_then(|owner| owner.read().ok().map(|object| object.get_producer_id()))
-                .filter(|id| *id != INVALID_ID)
-                .and_then(TheGameLogic::find_object_by_id)
-                .and_then(|producer| {
-                    producer
-                        .read()
-                        .ok()
-                        .map(|object| object.is_effectively_dead())
-                })
-                .unwrap_or(true);
-            if producer_dead {
-                self.regenerates = false;
-                self.draining = true;
+                .unwrap_or(INVALID_ID);
+            // C++ only treats a *valid* producer as dead. INVALID_ID is not a dead creator,
+            // so unowned/cleared fields keep regenerating.
+            if producer_id != INVALID_ID {
+                let producer_dead = TheGameLogic::find_object_by_id(producer_id)
+                    .and_then(|producer| {
+                        producer
+                            .read()
+                            .ok()
+                            .map(|object| object.is_effectively_dead())
+                    })
+                    .unwrap_or(true);
+                if producer_dead {
+                    self.regenerates = false;
+                    self.draining = true;
+                    self.stop_owner_auto_heal();
+                }
             }
         }
 
@@ -660,7 +667,7 @@ impl MinefieldBehavior {
             }
         }
 
-        let (other_pos, should_ignore_worker, clearing_mines, relationship) = {
+        let (other_pos, owner_pos, geom_type, major_radius, minor_radius, should_ignore_worker, clearing_mines, relationship) = {
             let Ok(object) = owner.read() else {
                 return;
             };
@@ -678,8 +685,13 @@ impl MinefieldBehavior {
                     })
                 })
                 .unwrap_or(false);
+            let geom = object.get_geometry_info();
             (
                 *other_object.get_position(),
+                *object.get_position(),
+                geom.get_geometry_type(),
+                geom.get_major_radius(),
+                geom.get_minor_radius(),
                 worker,
                 clearing,
                 object.relationship_to(&other_object),
@@ -722,7 +734,15 @@ impl MinefieldBehavior {
             });
         }
 
-        let _ = self.detonate_once(&other_pos);
+        let mut det_pt = other_pos;
+        clip_point_to_footprint(
+            geom_type,
+            major_radius,
+            minor_radius,
+            &owner_pos,
+            &mut det_pt,
+        );
+        let _ = self.detonate_once(&det_pt);
     }
 
     fn on_damage_internal(&mut self, damage_info: &mut DamageInfo) {
@@ -789,6 +809,22 @@ impl MinefieldBehavior {
         }
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
     }
+
+    fn stop_owner_auto_heal(&self) {
+        let Some(owner) = self.owner() else {
+            return;
+        };
+        let Some(module) = owner
+            .read()
+            .ok()
+            .and_then(|object| object.find_update_module("AutoHealBehavior"))
+        else {
+            return;
+        };
+        module.with_module_downcast::<AutoHealBehaviorModule, _, _>(|ahb| {
+            ahb.behavior_mut().stop_healing();
+        });
+    }
 }
 
 fn dist_squared(a: &Coord3D, b: &Coord3D) -> Real {
@@ -796,6 +832,32 @@ fn dist_squared(a: &Coord3D, b: &Coord3D) -> Real {
     let dy = a.y - b.y;
     let dz = a.z - b.z;
     dx * dx + dy * dy + dz * dz
+}
+
+/// C++ GeometryInfo::clipPointToFootprint — keep the blast on the minefield pad.
+fn clip_point_to_footprint(
+    geom_type: GeometryType,
+    major_radius: Real,
+    minor_radius: Real,
+    geom_center: &Coord3D,
+    pt: &mut Coord3D,
+) {
+    match geom_type {
+        GeometryType::Sphere | GeometryType::Cylinder => {
+            let dx = pt.x - geom_center.x;
+            let dy = pt.y - geom_center.y;
+            let radius = (dx * dx + dy * dy).sqrt();
+            if radius > major_radius && radius > 0.0 {
+                let ratio = major_radius / radius;
+                pt.x = geom_center.x + dx * ratio;
+                pt.y = geom_center.y + dy * ratio;
+            }
+        }
+        GeometryType::Box => {
+            pt.x = pt.x.clamp(geom_center.x - major_radius, geom_center.x + major_radius);
+            pt.y = pt.y.clamp(geom_center.y - minor_radius, geom_center.y + minor_radius);
+        }
+    }
 }
 
 impl BehaviorModuleInterface for MinefieldBehavior {

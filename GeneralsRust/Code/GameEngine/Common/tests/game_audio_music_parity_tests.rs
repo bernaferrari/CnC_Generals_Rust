@@ -37,6 +37,7 @@ fn info(
         priority: AudioPriority::Normal,
         min_distance: 25.0,
         max_distance: 100.0,
+        ..Default::default()
     }
 }
 
@@ -372,7 +373,7 @@ fn friend_force_play_uses_speech_slider_and_tracks_handle() {
     let briefing = event_named(info("MissionBrief", AudioType::Streaming, 0, 0, 1), 0.8);
     manager.friend_force_play_audio_event_rts(&briefing);
     assert_eq!(manager.force_played_count(), 1);
-    assert!((manager.force_played_volume().unwrap() - 0.4).abs() < 1e-5);
+    assert!((manager.force_played_volume().unwrap() - 0.8).abs() < 1e-5);
 
     manager.reset();
     assert_eq!(manager.force_played_count(), 0);

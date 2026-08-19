@@ -1285,6 +1285,32 @@ impl ParkingPlaceBehavior {
             _ => ModuleExitDoorType::NoneAvailable,
         }
     }
+
+    /// C++ `objType->isKindOf(KINDOF_PRODUCED_AT_HELIPAD)` — the ThingTemplate of
+    /// the unit that wants a pad, not only a live spawn instance.
+    fn object_template_is_produced_at_helipad(obj: &crate::object::Object) -> bool {
+        obj.is_kind_of(KindOf::ProducedAtHelipad)
+            || obj.get_template().is_kind_of(KindOf::ProducedAtHelipad)
+    }
+
+    /// Helipad-only pads are identified on the parking-place object's template
+    /// (HeliPark / ProducedAtHelipad), even when no spawn object exists yet.
+    fn parking_place_template_is_produced_at_helipad(&self) -> bool {
+        if self.object_id == crate::common::INVALID_ID {
+            return false;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return false;
+        };
+        owner
+            .read()
+            .ok()
+            .map(|guard| Self::object_template_is_produced_at_helipad(&guard))
+            .unwrap_or(false)
+    }
+
 }
 
 impl ModuleExitInterface for ParkingPlaceBehavior {
@@ -1298,18 +1324,24 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
 
     fn reserve_door_for_exit(
         &mut self,
-        _spawner: Option<&crate::object::Object>,
+        spawner: Option<&crate::object::Object>,
         spawn: Option<&crate::object::Object>,
     ) -> ModuleExitDoorType {
+        // C++ ParkingPlaceBehavior::reserveDoorForExit: buildInfo/purgeDead first,
+        // then `objType->isKindOf(KINDOF_PRODUCED_AT_HELIPAD)` → DOOR_NONE_NEEDED.
+        self.build_info();
+        self.purge_dead();
+
         let produced_at_helipad = spawn
-            .map(|obj| obj.is_kind_of(crate::common::KindOf::ProducedAtHelipad))
-            .unwrap_or(false);
+            .map(Self::object_template_is_produced_at_helipad)
+            .unwrap_or(false)
+            || spawner
+                .map(Self::object_template_is_produced_at_helipad)
+                .unwrap_or(false)
+            || self.parking_place_template_is_produced_at_helipad();
         if produced_at_helipad {
             return ModuleExitDoorType::None;
         }
-
-        self.build_info();
-        self.purge_dead();
 
         if let Some(ppi) = self
             .spaces

@@ -28,7 +28,7 @@ use super::minimap_renderer::{
 };
 use super::render_item::{
     FrozenDirectSceneShroudRenderState, FrozenObjectlessDrawableShroudRenderState,
-    GhostLightingRoute, RenderItem, RenderItemOwner,
+    GhostLightingRoute, RenderItem, RenderItemBonePaletteSource, RenderItemOwner,
 };
 use crate::assets::textures::RawTexture;
 use crate::assets::{ModelPrewarmStats, W3DMaterial, W3DModel};

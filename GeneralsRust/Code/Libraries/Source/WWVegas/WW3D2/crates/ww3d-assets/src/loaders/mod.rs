@@ -32,8 +32,9 @@ use crate::w3d_loader::{W3DLoader, W3DModel};
 use std::io::{self, Read, Seek, SeekFrom};
 use ww3d_core::{
     W3dMaterialInfoStruct, W3dMeshHeader3Struct, W3dRGBAStruct, W3dTexCoordStruct,
-    W3dTextureInfoStruct, W3dTextureStruct, W3dTriangleStruct, W3dVectorStruct,
+    W3dTextureInfoStruct, W3dTextureStruct, W3dTriangleStruct, W3dVectorStruct, W3dVertInfStruct,
 };
+
 
 // Compatibility re-exports from old loaders module
 // These are stub types to maintain compatibility with existing code
@@ -67,8 +68,53 @@ pub fn parse_w3d_file_with_asset_name<R: Read + Seek>(
     let model = W3DLoader::load_from_bytes(&data)
         .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))?;
     register_loaded_model(asset_manager, model, asset_name);
+    register_extra_prototypes(&data, asset_manager);
     Ok(())
 }
+
+fn register_extra_prototypes(data: &[u8], asset_manager: &mut AssetManager) {
+    use crate::prototype_loader::{find_loader, DefaultLoaders};
+    use ww3d_core::{
+        W3D_CHUNK_ANIMATION, W3D_CHUNK_COMPRESSED_ANIMATION, W3D_CHUNK_HIERARCHY, W3D_CHUNK_HLOD,
+        W3D_CHUNK_HMODEL, W3D_CHUNK_MESH,
+    };
+
+    let loaders = DefaultLoaders::new().as_vec();
+    let mut offset = 0usize;
+    while offset + 8 <= data.len() {
+        let chunk_type = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+        let raw_size = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().unwrap());
+        let chunk_size = (raw_size & 0x7FFF_FFFF) as usize;
+        offset += 8;
+        if offset + chunk_size > data.len() {
+            break;
+        }
+        let chunk_data = &data[offset..offset + chunk_size];
+        offset += chunk_size;
+
+        if matches!(
+            chunk_type,
+            W3D_CHUNK_MESH
+                | W3D_CHUNK_HIERARCHY
+                | W3D_CHUNK_ANIMATION
+                | W3D_CHUNK_COMPRESSED_ANIMATION
+                | W3D_CHUNK_HLOD
+                | W3D_CHUNK_HMODEL
+        ) {
+            continue;
+        }
+
+        if let Some(loader) = find_loader(&loaders, chunk_type) {
+            if let Ok(prototype) = loader.load_w3d(chunk_data, chunk_type, "") {
+                let name = prototype.name().to_string();
+                if !name.is_empty() && !asset_manager.is_asset_loaded(&name) {
+                    asset_manager.add_prototype(name, prototype);
+                }
+            }
+        }
+    }
+}
+
 
 fn register_loaded_model(
     asset_manager: &mut AssetManager,
@@ -170,6 +216,18 @@ fn mesh_to_prototype(mesh: &W3DMesh, name_override: Option<&str>) -> MeshPrototy
         .collect();
     prototype.vertex_shade_indices =
         (!mesh.shade_indices.is_empty()).then(|| mesh.shade_indices.clone());
+    if !mesh.vertex_influences.is_empty() {
+        prototype.vertex_influences = Some(
+            mesh.vertex_influences
+                .iter()
+                .map(|influences| W3dVertInfStruct {
+                    bone_idx: influences.first().map(|inf| inf.bone_index).unwrap_or(0),
+                    pad: [0; 6],
+                })
+                .collect(),
+        );
+    }
+
     if !mesh.tex_coords.is_empty() {
         prototype.stage_texcoords.push(
             mesh.tex_coords
@@ -347,7 +405,13 @@ mod tests {
             false,
             vectors(&[[0.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]),
         );
-        let triangles = chunk(W3DChunkType::Triangles, false, u32s(&[0, 1, 2, 0]));
+        let mut tri_bytes = u32s(&[0, 1, 2, 0]);
+        push_f32(&mut tri_bytes, 0.0);
+        push_f32(&mut tri_bytes, 0.0);
+        push_f32(&mut tri_bytes, 1.0);
+        push_f32(&mut tri_bytes, 0.0);
+        let triangles = chunk(W3DChunkType::Triangles, false, tri_bytes);
+
         chunk(
             W3DChunkType::Mesh,
             true,

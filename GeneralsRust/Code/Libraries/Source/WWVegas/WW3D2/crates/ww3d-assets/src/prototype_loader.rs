@@ -416,6 +416,18 @@ impl MeshLoader {
             mesh.stage_texcoords
                 .push(convert_stage_coords(&detail_mesh.tex_coords));
         }
+        if !detail_mesh.vertex_influences.is_empty() {
+            mesh.vertex_influences = Some(
+                detail_mesh
+                    .vertex_influences
+                    .iter()
+                    .map(|influences| ww3d_core::W3dVertInfStruct {
+                        bone_idx: influences.first().map(|inf| inf.bone_index).unwrap_or(0),
+                        pad: [0; 6],
+                    })
+                    .collect(),
+            );
+        }
         mesh
     }
 
@@ -1386,44 +1398,43 @@ impl PrototypeLoader for HAnimLoader {
 /// MeshLoaderClass     _MeshLoader;
 /// HModelLoaderClass   _HModelLoader;
 /// ```
-pub struct DefaultLoaders {
-    #[allow(dead_code)] // C++ parity
-    mesh_loader: MeshLoader,
-    #[allow(dead_code)] // C++ parity
-    hmodel_loader: HModelLoader,
-    #[allow(dead_code)] // C++ parity
-    htree_loader: HTreeLoader,
-    #[allow(dead_code)] // C++ parity
-    hanim_loader: HAnimLoader,
-}
+pub struct DefaultLoaders;
 
 impl DefaultLoaders {
     /// Create a new set of default loaders
     pub fn new() -> Self {
-        Self {
-            mesh_loader: MeshLoader::new(),
-            hmodel_loader: HModelLoader::new(),
-            htree_loader: HTreeLoader::new(),
-            hanim_loader: HAnimLoader::new(),
-        }
+        Self
     }
 
-    /// Get all loaders as a vec of trait objects
-    pub fn as_vec(&self) -> Vec<Box<dyn PrototypeLoader>> {
-        vec![
-            Box::new(MeshLoader::new()),
-            Box::new(HModelLoader::new()),
-            Box::new(HTreeLoader::new()),
-            Box::new(HAnimLoader::new()),
-        ]
-    }
-
-    /// Install all default loaders into an asset manager
-    pub fn install_into(&self, loaders: &mut Vec<Box<dyn PrototypeLoader>>) {
+    fn push_all(loaders: &mut Vec<Box<dyn PrototypeLoader>>) {
+        // C++ WW3DAssetManager ctor (assetmgr.cpp:148-162) plus HTree/HAnim
+        // (managed separately in C++) and ParticleEmitter (W3DDisplay.cpp:700).
         loaders.push(Box::new(MeshLoader::new()));
         loaders.push(Box::new(HModelLoader::new()));
         loaders.push(Box::new(HTreeLoader::new()));
         loaders.push(Box::new(HAnimLoader::new()));
+        loaders.push(Box::new(crate::proto_loaders::CollectionLoader));
+        loaders.push(Box::new(crate::proto_loaders::BoxLoader));
+        loaders.push(Box::new(crate::proto_loaders::HLodProtoLoader));
+        loaders.push(Box::new(crate::proto_loaders::DistLodLoader));
+        loaders.push(Box::new(crate::proto_loaders::AggregateLoader));
+        loaders.push(Box::new(crate::proto_loaders::NullLoader));
+        loaders.push(Box::new(crate::proto_loaders::DazzleLoader));
+        loaders.push(Box::new(crate::proto_loaders::RingLoader));
+        loaders.push(Box::new(crate::proto_loaders::SphereLoader));
+        loaders.push(Box::new(crate::proto_loaders::ParticleEmitterLoader));
+    }
+
+    /// Get all loaders as a vec of trait objects
+    pub fn as_vec(&self) -> Vec<Box<dyn PrototypeLoader>> {
+        let mut loaders = Vec::new();
+        Self::push_all(&mut loaders);
+        loaders
+    }
+
+    /// Install all default loaders into an asset manager
+    pub fn install_into(&self, loaders: &mut Vec<Box<dyn PrototypeLoader>>) {
+        Self::push_all(loaders);
     }
 }
 
@@ -1503,10 +1514,21 @@ mod tests {
 
         default_loaders.install_into(&mut loaders);
 
-        assert_eq!(loaders.len(), 4);
-        assert!(loaders[0].can_load(W3D_CHUNK_MESH));
-        assert!(loaders[1].can_load(W3D_CHUNK_HMODEL));
-        assert!(loaders[2].can_load(W3D_CHUNK_HIERARCHY));
-        assert!(loaders[3].can_load(W3D_CHUNK_ANIMATION));
+        assert_eq!(loaders.len(), 14);
+        assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_MESH)));
+        assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_HMODEL)));
+        assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_HIERARCHY)));
+        assert!(loaders.iter().any(|l| l.can_load(W3D_CHUNK_ANIMATION)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_COLLECTION)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_BOX)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_HLOD)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_LODMODEL)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_AGGREGATE)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_NULL_OBJECT)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_DAZZLE)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_RING)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_SPHERE)));
+        assert!(loaders.iter().any(|l| l.can_load(ww3d_core::W3D_CHUNK_EMITTER)));
     }
+
 }

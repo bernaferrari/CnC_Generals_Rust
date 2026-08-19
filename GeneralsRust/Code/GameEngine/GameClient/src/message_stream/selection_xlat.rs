@@ -27,6 +27,7 @@ use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list, PLAYER_INDEX_INVALID};
+use gamelogic::helpers::TheGameLogic;
 
 /// Drag tolerance in pixels before starting area selection
 /// Matches C++ Mouse.cpp m_dragTolerance
@@ -43,9 +44,12 @@ const PICK_RADIUS_WORLD: f32 = 12.0;
 /// Matches C++ Mouse.cpp m_dragToleranceMS
 pub const DRAG_TOLERANCE_MS: u64 = 250;
 
-/// Double-click time window (milliseconds)
-/// Matches C++ SelectionXlat.cpp double-tap logic
+/// Double-click time window (milliseconds) for mouse double-click selection
+/// Matches C++ Mouse.cpp m_dragToleranceMS-adjacent click window
 pub const DOUBLE_CLICK_TIME_MS: u64 = 500;
+
+/// C++ SelectionXlat.cpp: `now - m_lastGroupSelTime < 20` logic frames
+const CONTROL_GROUP_DOUBLE_TAP_FRAMES: u32 = 20;
 
 fn is_alternate_mouse_enabled() -> bool {
     get_global_data()
@@ -261,7 +265,7 @@ pub struct SelectionTranslator {
 
     // Group selection tracking
     // Matches C++ SelectionXlat.h:26-27
-    last_group_sel_time: Instant,
+    last_group_sel_time: u32,
     last_group_sel_group: i32,
 
     // Feedback anchor points
@@ -302,7 +306,7 @@ impl SelectionTranslator {
         Self {
             left_mouse_button_is_down: false,
             drag_selecting: false,
-            last_group_sel_time: Instant::now(),
+            last_group_sel_time: 0,
             last_group_sel_group: -1,
             select_feedback_anchor: ICoord2D::default(),
             deselect_feedback_anchor: ICoord2D::default(),
@@ -990,23 +994,20 @@ impl SelectionTranslator {
         if group < 10 {
             debug!("Selecting control group {}", group);
 
-            let now = Instant::now();
-            let time_since_last = now.duration_since(self.last_group_sel_time);
+            let now = TheGameLogic::get_frame();
+            if self.last_group_sel_time == 0 {
+                self.last_group_sel_time = now;
+            }
 
-            // Check for double-press to jump view
-            // Matches C++ SelectionXlat.cpp:1086-1103
-            if time_since_last.as_millis() < DOUBLE_CLICK_TIME_MS as u128
+            // C++ SelectionXlat.cpp:1086-1103 — double-tap jumps the camera
+            if now.saturating_sub(self.last_group_sel_time) < CONTROL_GROUP_DOUBLE_TAP_FRAMES
                 && group as i32 == self.last_group_sel_group
             {
                 debug!("Double-tap select control group {}", group);
-                // Would jump camera to group location here
-                // Matches C++ SelectionXlat.cpp:1100
+                self.look_at_control_group(group);
             } else {
-                // Deselect all and select group
-                // Matches C++ SelectionXlat.cpp:1107-1127
                 self.deselect_all();
 
-                // Select all objects in the group
                 let mut selected_ids = Vec::new();
                 let group_ids = self.control_groups[group as usize].clone();
                 for object_id in group_ids {
@@ -1018,13 +1019,18 @@ impl SelectionTranslator {
                         selected_ids.push(object_id);
                     }
                 }
-
                 if !selected_ids.is_empty() {
                     messages.push(GameMessageType::CreateSelectedGroup(true, selected_ids));
                 } else {
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
                 }
                 messages.push(GameMessageType::SelectTeamSlot(group));
+                if let Some(msg) = messages.first() {
+                    crate::message_stream::translators::play_voice_for_command(
+                        self.current_selection.iter().copied(),
+                        msg,
+                    );
+                }
             }
 
             self.last_group_sel_time = now;
@@ -1045,10 +1051,14 @@ impl SelectionTranslator {
 
         debug!("Adding control group {} to selection", group);
 
-        let now = Instant::now();
-        if now.duration_since(self.last_group_sel_time).as_millis() < DOUBLE_CLICK_TIME_MS as u128
+        let now = TheGameLogic::get_frame();
+        if self.last_group_sel_time == 0 {
+            self.last_group_sel_time = now;
+        }
+        if now.saturating_sub(self.last_group_sel_time) < CONTROL_GROUP_DOUBLE_TAP_FRAMES
             && group as i32 == self.last_group_sel_group
         {
+            self.look_at_control_group(group);
             self.last_group_sel_time = now;
             self.last_group_sel_group = group as i32;
             return messages;
@@ -1093,19 +1103,23 @@ impl SelectionTranslator {
     /// Matches C++ MSG_META_VIEW_TEAM0-9 by centering the tactical view on the
     /// last live object in the hotkey squad without changing selection.
     fn handle_view_control_group(&self, group: u8) {
+        self.look_at_control_group(group);
+    }
+
+    /// Center the tactical view on the last live object in a hotkey squad.
+    /// C++ `TheTacticalView->lookAt(objlist[numObjs-1]->getDrawable()->getPosition())`.
+    fn look_at_control_group(&self, group: u8) {
         if group >= 10 {
             return;
         }
 
-        let Some(object_id) = self.control_groups[group as usize].last().copied() else {
-            return;
-        };
-
-        let Some(drawable) = self
-            .collect_drawables()
-            .into_iter()
-            .find(|d| d.object_id == object_id)
-        else {
+        let drawables = self.collect_drawables();
+        let last_live = self.control_groups[group as usize].iter().rev().find_map(|id| {
+            drawables
+                .iter()
+                .find(|drawable| drawable.object_id == *id && !drawable.is_dead)
+        });
+        let Some(drawable) = last_live else {
             return;
         };
 

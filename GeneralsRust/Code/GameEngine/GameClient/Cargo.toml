@@ -177,7 +177,7 @@ proptest = "1.9"
 mockall = "0.12"
 
 [features]
-default = ["platform-native"]
+default = ["platform-native", "online_ui"]
 video = []  # Video features temporarily disabled
 network = ["dep:game_network_crate"]
 multiplayer = ["network", "quinn"]

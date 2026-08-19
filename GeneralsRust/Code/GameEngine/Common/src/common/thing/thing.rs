@@ -46,6 +46,30 @@ pub fn register_underwater_provider(
     UNDERWATER_PROVIDER.get_or_init(|| Mutex::new(Box::new(provider)));
 }
 
+/// C++ `TerrainLogic::alignOnTerrain(angle, pos, stickToGround, mtx)`.
+static ALIGN_ON_TERRAIN: OnceLock<
+    Mutex<Box<dyn Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync>>,
+> = OnceLock::new();
+
+/// Register GameLogic `TerrainLogic::align_on_terrain` for STICK_TO_TERRAIN_SLOPE.
+pub fn register_align_on_terrain(
+    provider: impl Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync + 'static,
+) {
+    let _ = ALIGN_ON_TERRAIN.set(Mutex::new(Box::new(provider)));
+}
+
+fn align_on_terrain(angle: Real, pos: &Coord3D, stick_to_ground: bool, mtx: &mut Matrix3D) -> bool {
+    let Some(provider) = ALIGN_ON_TERRAIN.get() else {
+        return false;
+    };
+    let Ok(guard) = provider.lock() else {
+        return false;
+    };
+    guard(angle, pos, stick_to_ground, mtx);
+    true
+}
+
+
 /// Cache flags for optimizing recalculations
 #[derive(Debug, Clone, Copy)]
 struct CacheFlags(u8);
@@ -252,12 +276,10 @@ impl Thing for BaseThing {
     }
 
     fn set_position(&mut self, pos: &Coord3D) {
-        // Store old values for change notification
         let old_angle = self.cached_angle;
         let old_pos = self.cached_pos;
         let old_mtx = self.transform;
 
-        // Check if we need to stick to terrain slope
         if !self
             .template
             .is_kind_of_mask(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64)
@@ -266,12 +288,12 @@ impl Thing for BaseThing {
             self.cached_pos = *pos;
             self.cache_flags.clear(CacheFlags::VALID_ALTITUDE_TERRAIN);
             self.cache_flags.clear(CacheFlags::VALID_ALTITUDE_SEALEVEL);
-
             self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
         } else {
-            // Align to terrain - would need terrain logic integration
-            let mtx = Matrix3D::identity();
-            // TheTerrainLogic->alignOnTerrain(getOrientation(), *pos, true, mtx);
+            let mut mtx = self.transform;
+            if !align_on_terrain(self.cached_angle, pos, true, &mut mtx) {
+                mtx.set_translation(pos.x, pos.y, pos.z);
+            }
             self.set_transform_matrix(&mtx);
         }
 
@@ -302,10 +324,12 @@ impl Thing for BaseThing {
 
             self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
         } else {
-            // Stick to terrain slope
-            let mtx = Matrix3D::identity();
-            let _pos = self.cached_pos;
-            // TheTerrainLogic->alignOnTerrain(getOrientation(), pos, true, mtx);
+            let mut pos = self.cached_pos;
+            pos.z = z;
+            let mut mtx = self.transform;
+            if !align_on_terrain(self.cached_angle, &pos, true, &mut mtx) {
+                mtx.set_z_translation(z);
+            }
             self.set_transform_matrix(&mtx);
         }
     }
@@ -325,14 +349,14 @@ impl Thing for BaseThing {
             .template
             .is_kind_of_mask(KindOfMask::STICK_TO_TERRAIN_SLOPE.bits() as u64)
         {
-            // Align to terrain
-            // TheTerrainLogic->alignOnTerrain(angle, pos, true, self.transform);
+            let mut mtx = self.transform;
+            if !align_on_terrain(angle, &pos, true, &mut mtx) {
+                mtx.set_translation(pos.x, pos.y, pos.z);
+            }
+            self.transform = mtx;
         } else {
-            // Standard orientation - straight up in Z axis
             let cos_angle = angle.cos();
             let sin_angle = angle.sin();
-
-            // Create rotation matrix
             self.transform = Matrix3D::new([
                 [cos_angle, -sin_angle, 0.0, pos.x],
                 [sin_angle, cos_angle, 0.0, pos.y],
@@ -344,7 +368,6 @@ impl Thing for BaseThing {
         self.cached_angle = Self::normalize_angle(angle);
         self.cached_pos = pos;
         self.cache_flags.clear(CacheFlags::VALID_DIRVECTOR);
-
         self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
     }
 

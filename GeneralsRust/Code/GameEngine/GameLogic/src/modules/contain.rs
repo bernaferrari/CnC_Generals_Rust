@@ -485,6 +485,10 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn get_rider_id(&self) -> Option<ObjectID> {
         self.friend_get_rider()
     }
+
+    /// C++ ContainModuleInterface::processDamageToContained.
+    /// OpenContain/TransportContain override with BURNED vs NORMAL + flame-proof kill.
+    fn process_damage_to_contained(&mut self, _percent_damage: f32) {}
 }
 
 /// Extension trait for Arc<Mutex<dyn ContainModuleInterface>> to provide convenient methods
@@ -526,6 +530,7 @@ pub trait ContainModuleInterfaceExt {
         damage_info: &mut crate::damage::DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn kill_all_contained(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn process_damage_to_contained(&self, percent_damage: f32);
 }
 
 impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
@@ -724,6 +729,12 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
             guard.kill_all_contained()
         } else {
             Ok(())
+        }
+    }
+
+    fn process_damage_to_contained(&self, percent_damage: f32) {
+        if let Ok(mut guard) = self.lock() {
+            guard.process_damage_to_contained(percent_damage);
         }
     }
 }

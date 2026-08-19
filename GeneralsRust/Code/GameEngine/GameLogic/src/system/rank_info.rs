@@ -18,24 +18,61 @@ use std::time::Duration;
 /// Global singleton mirroring `TheRankInfoStore`.
 static RANK_INFO_STORE: OnceCell<RwLock<RankInfoStore>> = OnceCell::new();
 
-/// Return an immutable guard to the global rank info store, if initialised.
 pub fn the_rank_info_store() -> Option<RwLockReadGuard<'static, RankInfoStore>> {
+    sync_rank_store_from_ini();
     RANK_INFO_STORE
         .get()
         .map(|store| store.read().expect("RankInfoStore poisoned"))
 }
 
-/// Return a mutable guard to the global rank info store, if initialised.
 pub fn the_rank_info_store_mut() -> Option<RwLockWriteGuard<'static, RankInfoStore>> {
+    sync_rank_store_from_ini();
     RANK_INFO_STORE
         .get()
         .map(|store| store.write().expect("RankInfoStore poisoned"))
 }
 
-/// Initialise the global rank info store if it has not been set yet.
 pub fn init_global_rank_info_store() {
     let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::default()));
+    sync_rank_store_from_ini();
 }
+
+fn sync_rank_store_from_ini() {
+    init_global_rank_info_store_if_needed();
+    let common = game_engine::common::ini::get_rank_info_store();
+    if common.is_empty() {
+        return;
+    }
+    let Some(store) = RANK_INFO_STORE.get() else {
+        return;
+    };
+    let Ok(mut dest) = store.write() else {
+        return;
+    };
+    if dest.get_rank_level_count() > 0 {
+        return;
+    }
+    let count = common.get_rank_level_count();
+    for level in 1..=count {
+        let Some(src) = common.get_rank_info(level) else {
+            continue;
+        };
+        let definition = RankDefinition {
+            rank: level as usize,
+            rank_name: src.rank_name.clone(),
+            skill_points_needed: src.skill_points_needed,
+            science_purchase_points_granted: src.science_purchase_points_granted as i32,
+            sciences_granted: src.sciences_granted.clone(),
+            mode: RankDefinitionMode::Create,
+        };
+        let _ = dest.apply_rank_definition(definition);
+    }
+}
+
+fn init_global_rank_info_store_if_needed() {
+    let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::default()));
+}
+
 
 /// Rank descriptor exported by the subsystem.
 #[derive(Debug, Clone, PartialEq)]

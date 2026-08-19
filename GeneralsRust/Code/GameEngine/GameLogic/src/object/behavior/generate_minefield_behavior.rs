@@ -1239,7 +1239,8 @@ impl GenerateMinefieldBehavior {
         }
 
         if !state.generated {
-            state.upgraded = true;
+            // C++ upgradeImplementation() calls placeMines() with m_upgraded still false,
+            // so the first placement uses mine_name (not mine_name_upgraded).
             drop(state);
             self.place_mines()?;
             return Ok(());
@@ -1405,11 +1406,9 @@ impl UpgradeModuleInterface for GenerateMinefieldBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        let applied = if self.config.upgradable {
-            self.upgrade_minefield().is_ok()
-        } else {
-            self.place_mines().is_ok()
-        };
+        // C++ GenerateMinefieldBehavior::upgradeImplementation() only calls placeMines().
+        // m_upgraded is set later in update() when Upgrade_ChinaEMPMines completes.
+        let applied = self.place_mines().is_ok();
 
         if applied {
             if let Ok(mut state) = self.state.write() {
@@ -1903,7 +1902,7 @@ mod tests {
         assert!(result);
 
         let stats = behavior.get_statistics();
-        assert!(stats.is_upgraded);
+        assert!(!stats.is_upgraded);
     }
 
     #[test]

@@ -29,6 +29,44 @@ fn take_pending_control_bar_stage() -> Option<ControlBarStage> {
     )
 }
 
+/// C++ `setDefaultControlBarConfig` (ControlBar.cpp:3001-3014) does
+/// `m_contextParent[CP_MASTER]->winHide(FALSE)`. CommandWindow is authored
+/// `STATUS = ENABLED+HIDDEN+SEE_THRU` (ControlBar.wnd); C++ then shows it and
+/// the 14 `ButtonCommand` children from `switchToContext(CB_CONTEXT_COMMAND)`
+/// (ControlBar.cpp:2177-2188) + `populateCommand` (ControlBarCommand.cpp:317).
+/// Live InGame DEFAULT is that dozer/command-set context, so clear the bits.
+fn reveal_ingame_command_window() {
+    with_window_manager(|manager| {
+        let set_hidden = |name: &str, hidden: bool| {
+            if let Some(win) = manager.find_window_by_name(name) {
+                let _ = win.borrow_mut().hide(hidden);
+            }
+        };
+        set_hidden("ControlBar.wnd:ControlBarParent", false);
+        set_hidden("ControlBar.wnd:CommandWindow", false);
+        set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
+        set_hidden("ControlBar.wnd:OCLTimerWindow", true);
+        set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
+        set_hidden("ControlBar.wnd:BeaconWindow", true);
+        for i in 1..=14 {
+            set_hidden(&format!("ControlBar.wnd:ButtonCommand{:02}", i), false);
+        }
+        // C++ setDefaultControlBarConfig: view 80% height, parent at default
+        // WND pos. Authored 800x600 y=480 is offscreen on 640x480. Pin the
+        // parent to the bottom 20% of the live display.
+        if let Some(parent) = manager.find_window_by_name("ControlBar.wnd:ControlBarParent") {
+            let (_sw, sh) = manager.screen_size();
+            let mut win = parent.borrow_mut();
+            let (_w, h) = win.get_size();
+            let bar_h = if h >= 32 { h.min(sh / 4).max(64) } else { (sh as f32 * 0.20) as i32 };
+            let y = (sh - bar_h).max(0);
+            let _ = win.set_position(0, y);
+        }
+    });
+}
+
+
+
 impl ControlBar {
     // ---------------------------------------------------------------------------
     // Science purchase system
@@ -156,6 +194,30 @@ impl ControlBar {
     pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
         PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
         self.control_bar_stage = stage;
+        match stage {
+            // C++ ControlBar.cpp:2984-2985 / 3001-3014 setDefaultControlBarConfig.
+            ControlBarStage::Default => reveal_ingame_command_window(),
+            ControlBarStage::Low => {
+                // C++ setLowControlBarConfig :3044 CP_MASTER winHide(FALSE).
+                with_window_manager(|manager| {
+                    if let Some(win) =
+                        manager.find_window_by_name("ControlBar.wnd:ControlBarParent")
+                    {
+                        let _ = win.borrow_mut().hide(false);
+                    }
+                });
+            }
+            ControlBarStage::Hidden => {
+                // C++ setHiddenControlBar :3052 CP_MASTER winHide(TRUE).
+                with_window_manager(|manager| {
+                    if let Some(win) =
+                        manager.find_window_by_name("ControlBar.wnd:ControlBarParent")
+                    {
+                        let _ = win.borrow_mut().hide(true);
+                    }
+                });
+            }
+        }
     }
 
     /// C++ `ShowControlBar` (ControlBarCallback.cpp:489) when ControlBarParent is live.
@@ -168,7 +230,7 @@ impl ControlBar {
 
     pub fn apply_pending_control_bar_stage(&mut self) {
         if let Some(stage) = take_pending_control_bar_stage() {
-            self.control_bar_stage = stage;
+            self.switch_control_bar_stage(stage);
         }
     }
 
@@ -234,6 +296,8 @@ impl ControlBar {
 
         if is_observer {
             self.observer_mode = true;
+            super::control_bar_observer::init_observer_controls();
+            super::control_bar_observer::ensure_gen_arrow_from_mapped_images();
             let _ = self.switch_to_context(ControlBarState::Observer, None);
         } else {
             self.observer_mode = false;
@@ -421,10 +485,28 @@ impl ControlBar {
         if !self.observer_mode {
             return None;
         }
+        if let Some(index) = super::control_bar_observer::observer_look_at_player_index() {
+            return Some(index);
+        }
         self.context
             .read()
             .ok()
-            .map(|ctx| ctx.player_id as i32)
+            .and_then(|ctx| ctx.observer_look_at_player)
+    }
+
+    pub fn set_observer_look_at_player_index(&mut self, index: Option<i32>) {
+        super::control_bar_observer::set_observer_look_at_player(index);
+        if let Ok(mut ctx) = self.context.write() {
+            ctx.observer_look_at_player = index;
+        }
+    }
+
+    pub fn get_arrow_image(&self) -> Option<crate::gui::game_window::Image> {
+        super::control_bar_observer::get_gen_arrow_image()
+    }
+
+    pub fn set_arrow_image(&mut self, image: Option<crate::gui::game_window::Image>) {
+        super::control_bar_observer::set_gen_arrow_image(image);
     }
 
     pub fn has_any_shortcut_selection(&self) -> bool {

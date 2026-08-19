@@ -1066,7 +1066,7 @@ impl LaserSegmentUpload {
                 end: line.end,
                 width: line.width,
                 tile_factor: line.tile_factor.max(0.001),
-                scroll_offset: 0.0,
+                scroll_offset: line.scroll_rate,
             };
             let verts = segment_to_vertices(&host, line.color, 0.0);
             for v in verts {

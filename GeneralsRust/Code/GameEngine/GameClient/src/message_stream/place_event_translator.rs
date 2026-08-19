@@ -268,13 +268,19 @@ impl PlaceEventTranslator {
             let Some(world_end) = screen_to_terrain(&anchor_end) else {
                 return GameMessageDisposition::KeepMessage;
             };
-            emit_message(GameMessage::new(GameMessageType::DozerConstructLine(
-                build_id, world, world_end, angle,
-            )));
+            let msg = GameMessageType::DozerConstructLine(build_id, world, world_end, angle);
+            crate::message_stream::translators::play_voice_for_command(
+                std::iter::once(builder_id),
+                &msg,
+            );
+            emit_message(GameMessage::new(msg));
         } else {
-            emit_message(GameMessage::new(GameMessageType::DozerConstruct(
-                build_id, world, angle,
-            )));
+            let msg = GameMessageType::DozerConstruct(build_id, world, angle);
+            crate::message_stream::translators::play_voice_for_command(
+                std::iter::once(builder_id),
+                &msg,
+            );
+            emit_message(GameMessage::new(msg));
         }
 
         clear_completed_placement();

@@ -48,6 +48,19 @@ impl RayEffectStore {
     fn free_index(&self) -> Option<usize> {
         self.slots.iter().position(|slot| slot.is_none())
     }
+
+    fn alloc_index(&mut self) -> usize {
+        if let Some(idx) = self.free_index() {
+            return idx;
+        }
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| slot.as_ref().map(|e| (i, e.drawable_id)))
+            .min_by_key(|(_, id)| *id)
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
 }
 
 fn global_rays() -> &'static Mutex<RayEffectStore> {
@@ -66,7 +79,7 @@ pub fn create_ray_effect_by_template(
         return None;
     }
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    let idx = store.free_index()?;
+    let idx = store.alloc_index();
     let id = store.next_id;
     store.next_id = store.next_id.wrapping_add(1).max(1);
     let midpoint = ray_effect_midpoint(start, end);
@@ -84,9 +97,7 @@ pub fn create_ray_effect_by_template(
 /// C++ `RayEffectSystem::addRayEffect`.
 pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool {
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    let Some(idx) = store.free_index() else {
-        return false;
-    };
+    let idx = store.alloc_index();
     store.slots[idx] = Some(LiveRayEffect {
         drawable_id,
         template_name: String::new(),

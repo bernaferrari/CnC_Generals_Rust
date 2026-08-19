@@ -223,6 +223,7 @@ impl DrawModule for W3DRopeDraw {
                     opacity: 1.0,
                     texture_name: None,
                     tile_factor: 0.0,
+                    scroll_rate: 0.0,
                     visible: true,
                 };
 

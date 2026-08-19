@@ -305,20 +305,33 @@ impl KeyState {
     }
 }
 
+/// C++ `Keyboard::KEY_REPEAT_DELAY` — first repeat after 10 input frames.
+pub const KEY_REPEAT_DELAY: u32 = 10;
+/// Subsequent repeats fire every 2 input frames (`sequence = frame - (DELAY + 2)`).
+pub const KEY_REPEAT_INTERVAL: u32 = 2;
+/// Input frame rate used to convert millisecond repeat config to frames.
+const KEY_REPEAT_INPUT_HZ: u32 = 30;
+
+fn duration_to_repeat_frames(duration: Duration) -> u32 {
+    let ms = duration.as_millis().min(u128::from(u32::MAX)) as u32;
+    ((ms.saturating_mul(KEY_REPEAT_INPUT_HZ) + 500) / 1000).max(1)
+}
+
 /// Complete keyboard state tracking
 #[derive(Debug)]
 pub struct KeyboardState {
     /// Current state of all keys
     key_states: HashMap<KeyCode, KeyState>,
-    /// Time when each key was last pressed (for repeat handling)
-    key_press_times: HashMap<KeyCode, Instant>,
-    /// Keys that are repeating
-    repeating_keys: HashMap<KeyCode, Instant>,
+    /// Input frame when each held key last updated its repeat sequence
+    key_sequences: HashMap<KeyCode, u32>,
     /// Current modifier key state
     modifiers: KeyModifiers,
-    /// Key repeat configuration
-    repeat_delay: Duration,
-    repeat_interval: Duration,
+    /// First-repeat delay in input frames (C++ KEY_REPEAT_DELAY = 10)
+    repeat_delay_frames: u32,
+    /// Subsequent-repeat interval in input frames (C++ 2)
+    repeat_interval_frames: u32,
+    /// Input frame counter incremented by `update_repeat`
+    input_frame: u32,
     /// Last key that was pressed (for hotkey detection)
     last_key_pressed: Option<KeyCode>,
 }
@@ -328,23 +341,24 @@ impl KeyboardState {
     pub fn new() -> Self {
         Self {
             key_states: HashMap::new(),
-            key_press_times: HashMap::new(),
-            repeating_keys: HashMap::new(),
+            key_sequences: HashMap::new(),
             modifiers: KeyModifiers::empty(),
-            repeat_delay: Duration::from_millis(500),
-            repeat_interval: Duration::from_millis(30),
+            repeat_delay_frames: KEY_REPEAT_DELAY,
+            repeat_interval_frames: KEY_REPEAT_INTERVAL,
+            input_frame: 0,
             last_key_pressed: None,
         }
     }
 
-    /// Set key repeat configuration
+    /// Set key repeat configuration. Milliseconds are converted at 30Hz to
+    /// match C++ frame-based `KEY_REPEAT_DELAY` / 2-frame interval.
     pub fn set_repeat_config(&mut self, delay: Duration, interval: Duration) {
-        self.repeat_delay = delay;
-        self.repeat_interval = interval;
+        self.repeat_delay_frames = duration_to_repeat_frames(delay);
+        self.repeat_interval_frames = duration_to_repeat_frames(interval);
     }
 
     /// Update key state from input
-    pub fn update_key(&mut self, key: KeyCode, pressed: bool, timestamp: Instant) {
+    pub fn update_key(&mut self, key: KeyCode, pressed: bool, _timestamp: Instant) {
         let current_state = self
             .key_states
             .get(&key)
@@ -353,16 +367,13 @@ impl KeyboardState {
 
         let new_state = match (current_state, pressed) {
             (KeyState::Released, true) | (KeyState::JustReleased, true) => {
-                self.key_press_times.insert(key, timestamp);
-                self.repeating_keys.remove(&key);
-                // Track last key pressed for hotkey detection
+                self.key_sequences.insert(key, self.input_frame);
                 self.last_key_pressed = Some(key);
                 KeyState::JustPressed
             }
             (KeyState::JustPressed, true) | (KeyState::Pressed, true) => KeyState::Pressed,
             (KeyState::Pressed, false) | (KeyState::JustPressed, false) => {
-                self.key_press_times.remove(&key);
-                self.repeating_keys.remove(&key);
+                self.key_sequences.remove(&key);
                 KeyState::JustReleased
             }
             (KeyState::Released, false) | (KeyState::JustReleased, false) => KeyState::Released,
@@ -470,29 +481,38 @@ impl KeyboardState {
         self.modifiers.contains(KeyModifiers::ALT)
     }
 
-    /// Update key repeat handling
-    pub fn update_repeat(&mut self, now: Instant) -> Vec<KeyCode> {
-        let mut repeated_keys = Vec::new();
+    /// Update key repeat handling.
+    ///
+    /// C++ `Keyboard::checkKeyRepeat`: first fire when
+    /// `(inputFrame - sequence) > KEY_REPEAT_DELAY` (10), then the repeating
+    /// key's sequence is set to `inputFrame - (DELAY + 2)` so the next fire
+    /// is 2 frames later. Only one key repeats per input frame.
+    pub fn update_repeat(&mut self, _now: Instant) -> Vec<KeyCode> {
+        self.input_frame = self.input_frame.wrapping_add(1);
 
-        for (&key, &press_time) in &self.key_press_times {
-            if self.is_key_down(key) {
-                let elapsed = now.duration_since(press_time);
-
-                if let Some(&last_repeat) = self.repeating_keys.get(&key) {
-                    // Key is already repeating
-                    if now.duration_since(last_repeat) >= self.repeat_interval {
-                        self.repeating_keys.insert(key, now);
-                        repeated_keys.push(key);
-                    }
-                } else if elapsed >= self.repeat_delay {
-                    // Start repeating
-                    self.repeating_keys.insert(key, now);
-                    repeated_keys.push(key);
-                }
+        let mut candidate = None;
+        for (&key, &sequence) in &self.key_sequences {
+            if self.is_key_down(key)
+                && self.input_frame.wrapping_sub(sequence) > self.repeat_delay_frames
+            {
+                candidate = Some(key);
+                break;
             }
         }
 
-        repeated_keys
+        let Some(key) = candidate else {
+            return Vec::new();
+        };
+
+        let now = self.input_frame;
+        for sequence in self.key_sequences.values_mut() {
+            *sequence = now;
+        }
+        self.key_sequences.insert(
+            key,
+            now.wrapping_sub(self.repeat_delay_frames.saturating_add(self.repeat_interval_frames)),
+        );
+        vec![key]
     }
 
     /// Update state for next frame (convert Just* states to stable states)
@@ -518,10 +538,10 @@ impl KeyboardState {
     /// Reset all key states
     pub fn reset(&mut self) {
         self.key_states.clear();
-        self.key_press_times.clear();
-        self.repeating_keys.clear();
+        self.key_sequences.clear();
         self.modifiers = KeyModifiers::empty();
         self.last_key_pressed = None;
+        self.input_frame = 0;
     }
 }
 

@@ -1,5 +1,7 @@
-// Water Shader for Command & Conquer Generals
-// Handles water rendering with reflection and transparency
+// Live water overlay. Group 0 is the same camera uniform as terrain
+// (view_proj first). Group 1 is a single standing-water albedo if the
+// pipeline created it; the host binds TWWater01 or a teal 1x1 fallback.
+// Do not declare bindings 1-7 on group 0 — those are never created.
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -27,22 +29,32 @@ struct VertexOutput {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
+@group(1) @binding(0)
+var water_texture: texture_2d<f32>;
+@group(1) @binding(1)
+var water_sampler: sampler;
+
 @vertex
 fn vs_main(vertex: WaterVertex) -> VertexOutput {
     var out: VertexOutput;
-    
-    let world_position = vertex.position;
-    out.world_position = world_position;
-    out.clip_position = camera.view_proj * vec4<f32>(world_position, 1.0);
-    // C++ SEA_PATCH_VERTEX.c already includes standing-water + HeightMap POINT lights.
+    out.world_position = vertex.position;
+    out.clip_position = camera.view_proj * vec4<f32>(vertex.position, 1.0);
     out.color = vertex.color;
     out.tex_coords = vertex.tex_coords;
     out.alpha = vertex.alpha;
-    
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, in.alpha);
+    // C++ Water.h StandingWaterTexture (TWWater01). Missing/black sample
+    // falls back to a teal-alpha plane so Alpine still shows water.
+    let tex = textureSample(water_texture, water_sampler, in.tex_coords);
+    let tex_luma = dot(tex.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let teal = vec4<f32>(0.13, 0.42, 0.50, 0.70);
+    let use_tex = tex_luma > 0.02 || tex.a > 0.02;
+    let water = select(teal, tex, use_tex);
+    let lit = max(in.color, vec3<f32>(0.35));
+    let alpha = clamp(max(water.a, 0.55) * max(in.alpha, 0.50), 0.0, 1.0);
+    return vec4<f32>(lit * water.rgb, alpha);
 }

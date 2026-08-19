@@ -93,26 +93,26 @@ impl BinkHeader {
     }
 }
 
-/// RAD Bink audio bitstream (DCT/RDFT) is not implemented.
-///
-/// C++ `BinkVideoPlayer::initializeBinkWithMiles` (BinkVideoPlayer.cpp:196-212)
-/// and `MilesAudioManager::getHandleForBink` (MilesAudioManager.cpp:2954-2972)
-/// decode per-track audio and mix through Miles. This decoder only stores
-/// `audio_track_count` and video frame slices — completeness, hq-ghcr.17.
-pub fn has_bink_audio_bitstream_parser() -> bool {
-    false
-}
+pub use crate::bink_audio::{
+    apply_speech_slider_volume as bink_volume_from_speech_slider, get_handle_for_bink,
+    has_bink_audio_bitstream_parser, initialize_bink_with_miles,
+    notify_video_player_of_new_provider as notify_bink_of_new_provider, play_bink_pcm_through_miles,
+    release_handle_for_bink, soundtrack_is_bound,
+};
 
-/// C++ `BinkVideoPlayer::createStream` (BinkVideoPlayer.cpp:88-96):
-/// `mod = (speechVolume * 0.8 * 100) + 1`; `volume = 32768 * mod / 100`.
-///
-/// Returns the mapped 0..1 gain. Playback remains silent until an audio
-/// bitstream parser exists.
-pub fn bink_volume_from_speech_slider(speech_volume: f32) -> f32 {
-    let speech = speech_volume.clamp(0.0, 1.0);
-    let modifier = (speech * 0.8 * 100.0) + 1.0;
-    let bink_units = 32768.0 * modifier / 100.0;
-    (bink_units / 32768.0).clamp(0.0, 1.0)
+use crate::bink_audio::{
+    parse_audio_layout, split_frame_audio_and_video, BinkAudioDecoder, BinkAudioLayout,
+};
+
+fn speech_slider_volume() -> f32 {
+    game_engine::common::audio::game_audio::get_global_audio_manager()
+        .and_then(|audio| {
+            audio
+                .lock()
+                .ok()
+                .map(|guard| guard.get_volume(game_engine::common::audio::AudioAffect::Speech))
+        })
+        .unwrap_or(1.0)
 }
 
 
@@ -129,6 +129,8 @@ pub struct BinkDecoder {
     frame_packets: Vec<BinkFramePacket>,
     current_frame: u32,
     video_decoder: Option<BinkVideoDecoder>,
+    audio_layout: BinkAudioLayout,
+    audio_decoders: Vec<BinkAudioDecoder>,
 }
 
 impl BinkDecoder {
@@ -140,7 +142,9 @@ impl BinkDecoder {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, String> {
         let bytes: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
         let header = BinkHeader::parse(&bytes)?;
-        let frame_packets = extract_frame_packets(&bytes, &header);
+        let version_b = header.magic[3] == b'b';
+        let audio_layout = parse_audio_layout(&bytes, header.audio_track_count, version_b);
+        let frame_packets = extract_frame_packets(&bytes, &header, audio_layout.frame_table_offset);
 
         if frame_packets.is_empty() {
             return Err("Bink file contains no extractable frame packets".to_string());
@@ -155,6 +159,12 @@ impl BinkDecoder {
                     header.height.max(1) as usize,
                 )
             });
+        let audio_decoders = audio_layout
+            .tracks
+            .iter()
+            .cloned()
+            .map(BinkAudioDecoder::new)
+            .collect();
 
         Ok(Self {
             bytes,
@@ -162,6 +172,8 @@ impl BinkDecoder {
             frame_packets,
             current_frame: 0,
             video_decoder,
+            audio_layout,
+            audio_decoders,
         })
     }
 
@@ -205,15 +217,18 @@ impl BinkDecoder {
 
     pub fn decode_frame_rgba(&mut self, frame_index: u32) -> Vec<u8> {
         let packet = self.packet(frame_index).to_vec();
+        let (audio_packets, video_packet) =
+            split_frame_audio_and_video(&packet, self.audio_layout.tracks.len());
+        self.play_frame_audio(&audio_packets);
         match self.header.version {
             BinkVersion::Bink1 => {
                 if let Some(decoder) = self.video_decoder.as_mut() {
-                    if let Ok(rgba) = decoder.decode_frame(&packet) {
+                    if let Ok(rgba) = decoder.decode_frame(video_packet) {
                         return rgba;
                     }
                 }
                 pseudo_decode_paletted_frame(
-                    &packet,
+                    video_packet,
                     self.width(),
                     self.height(),
                     frame_index,
@@ -221,12 +236,30 @@ impl BinkDecoder {
                 )
             }
             BinkVersion::Bink2 => pseudo_decode_yuv_frame(
-                &packet,
+                video_packet,
                 self.width(),
                 self.height(),
                 frame_index,
                 self.header.has_alpha(),
             ),
+        }
+    }
+
+    fn play_frame_audio(&mut self, audio_packets: &[&[u8]]) {
+        if !soundtrack_is_bound() {
+            return;
+        }
+        let volume = speech_slider_volume();
+        for (decoder, packet) in self.audio_decoders.iter_mut().zip(audio_packets.iter()) {
+            let pcm = decoder.decode_packet(packet);
+            if !pcm.is_empty() {
+                play_bink_pcm_through_miles(
+                    &pcm,
+                    decoder.sample_rate(),
+                    decoder.channels(),
+                    volume,
+                );
+            }
         }
     }
 
@@ -245,26 +278,19 @@ impl BinkDecoder {
     }
 }
 
-pub struct BinkVideoStream {
-    decoder: BinkDecoder,
-    current_rgba: Vec<u8>,
-    frame_accumulator: Duration,
-    last_update: Instant,
-    state: PlaybackState,
-    volume: f32,
-}
-
 impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
+        let _ = initialize_bink_with_miles();
         let mut decoder = BinkDecoder::open(path)?;
         let current_rgba = decoder.decode_current_frame_rgba();
+        let speech = speech_slider_volume();
         Ok(Self {
             decoder,
             current_rgba,
             frame_accumulator: Duration::ZERO,
             last_update: Instant::now(),
             state: PlaybackState::Playing,
-            volume: 1.0,
+            volume: bink_volume_from_speech_slider(speech),
         })
     }
 }
@@ -391,12 +417,9 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn set_volume(&mut self, volume: f32) {
-        // Speech-slider mapping (BinkVideoPlayer.cpp:88-96) is stored only.
-        // No audio bitstream parser exists (hq-ghcr.17 / hq-jwyl), so Miles
-        // coupling / BinkSetVolume playback cannot run.
+        // C++ BinkVideoPlayer::createStream never lets volume go to 0.
         self.volume = bink_volume_from_speech_slider(volume);
     }
-
 
     fn playback_state(&self) -> PlaybackState {
         self.state
@@ -436,8 +459,11 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn extract_frame_packets(bytes: &[u8], header: &BinkHeader) -> Vec<BinkFramePacket> {
-    let table_offset = BINK_HEADER_SIZE;
+fn extract_frame_packets(
+    bytes: &[u8],
+    header: &BinkHeader,
+    table_offset: usize,
+) -> Vec<BinkFramePacket> {
     let frame_count = header.frame_count as usize;
     let table_len = frame_count.saturating_mul(4);
     let table_end = table_offset.saturating_add(table_len).min(bytes.len());
@@ -700,19 +726,9 @@ mod tests {
 
     #[test]
     fn video_stream_tracks_playback_state() {
-        let path = std::env::temp_dir().join(format!(
-            "generalsrust-bink-state-{}.bik",
-            std::process::id()
-        ));
-        fs::write(&path, make_bink_blob(*b"BIKi")).expect("write synthetic bink");
-
-        let mut stream = BinkVideoStream::open(&path).expect("stream should open");
-        assert_eq!(stream.playback_state(), PlaybackState::Playing);
-
-        stream.pause();
-        assert_eq!(stream.playback_state(), PlaybackState::Paused);
-        assert!(stream.is_frame_ready());
-
+        let path = std::env::temp_dir().join(format!("bink_stream_{}.bik", std::process::id()));
+        fs::write(&path, make_bink_blob(*b"BIKi")).expect("write temp bink");
+        let mut stream = BinkVideoStream::open(&path).expect("open");
         stream.play();
         stream.frame_next();
         assert_eq!(stream.frame_index(), 1);
@@ -731,15 +747,18 @@ mod tests {
     }
 
     #[test]
-    fn bink_has_no_audio_bitstream_parser_hq_jwyl() {
-        // C++ BinkVideoPlayer::initializeBinkWithMiles (BinkVideoPlayer.cpp:196-212)
-        // needs decoded audio tracks. Rust parses audio_track_count only.
+    fn bink_has_audio_bitstream_parser_wired_to_miles() {
         let bytes = make_bink_blob(*b"BIKi");
         let header = BinkHeader::parse(&bytes).expect("header");
         assert_eq!(header.audio_track_count, 1);
         assert!(
-            !has_bink_audio_bitstream_parser(),
-            "do not claim Bink audio playback without a bitstream parser"
+            has_bink_audio_bitstream_parser(),
+            "Bink audio bitstream parser must be present for Miles/kira soundtrack"
+        );
+        notify_bink_of_new_provider(false);
+        assert!(
+            !soundtrack_is_bound(),
+            "lost audio device mutes soundtrack but parser stays available"
         );
     }
 

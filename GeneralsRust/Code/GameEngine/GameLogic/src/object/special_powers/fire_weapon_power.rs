@@ -86,6 +86,7 @@ pub struct FireWeaponPower {
     module_name_key: NameKeyType,
     data: Arc<FireWeaponPowerModuleData>,
     owner_object_id: ObjectID,
+    base_module: crate::object::special_power_module::SpecialPowerModule,
 }
 
 impl FireWeaponPower {
@@ -96,8 +97,9 @@ impl FireWeaponPower {
     ) -> Self {
         Self {
             module_name_key,
-            data,
             owner_object_id,
+            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            data,
         }
     }
 
@@ -198,7 +200,41 @@ impl FireWeaponPower {
         self.fire_weapon_at_location(&pos);
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module.do_special_power(command_options);
+        let _ = FireWeaponPower::do_special_power(self);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module
+            .do_special_power_at_object(object_id, command_options);
+        let _ = FireWeaponPower::do_special_power_at_object(self, object_id);
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &crate::common::Coord3D,
+        angle: f32,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        self.base_module
+            .do_special_power_at_location(location, angle, command_options);
+        let _ = FireWeaponPower::do_special_power_at_location(self, location);
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
+
 
 impl Module for FireWeaponPower {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -222,6 +258,24 @@ impl Module for FireWeaponPower {
     }
 }
 
+impl BehaviorModuleInterface for FireWeaponPower {
+    fn get_module_name(&self) -> &'static str {
+        "FireWeaponPower"
+    }
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+}
+super::interface::impl_special_power_subclass!(FireWeaponPower);
+
+
 impl Snapshotable for FireWeaponPower {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -244,11 +298,6 @@ impl Snapshotable for FireWeaponPower {
     }
 }
 
-impl BehaviorModuleInterface for FireWeaponPower {
-    fn get_module_name(&self) -> &'static str {
-        "FireWeaponPower"
-    }
-}
 
 // INI field parsers
 

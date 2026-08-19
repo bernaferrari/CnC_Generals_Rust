@@ -1630,7 +1630,7 @@ impl Recorder {
 
         if same_player || local_player_index < 0 {
             let playback_crc = crc_info.read_crc();
-            let frame = 0; // Would come from TheGameLogic->getFrame()
+            let frame = self.get_current_frame();
 
             if frame > 0 && new_crc != playback_crc && !crc_info.saw_crc_mismatch() {
                 crc_info.set_saw_crc_mismatch();
@@ -1643,6 +1643,7 @@ impl Recorder {
             }
         }
     }
+
 
     /// Cleanup replay file after desync
     /// Matches C++ RecorderClass::cleanUpReplayFile() from Recorder.cpp:265-330

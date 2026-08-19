@@ -155,6 +155,7 @@ pub struct OclSpecialPower {
     module_name_key: NameKeyType,
     data: Arc<OclSpecialPowerModuleData>,
     owner_object_id: ObjectID,
+    base_module: crate::object::special_power_module::SpecialPowerModule,
 }
 
 impl OclSpecialPower {
@@ -165,8 +166,9 @@ impl OclSpecialPower {
     ) -> Self {
         Self {
             module_name_key,
-            data,
             owner_object_id,
+            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            data,
         }
     }
 
@@ -390,10 +392,66 @@ impl OclSpecialPower {
 
         let ctx = crate::object_creation_list::live_creation_context();
         let _ = ocl.create_with_angle(&ctx, Some(&*owner_guard), &pos, &pos, 0.0, 0);
-
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        if owner_guard.is_disabled() {
+            return;
+        }
+        let pos = *owner_guard.get_position();
+        drop(owner_guard);
+        // C++ OCLSpecialPower::doSpecialPower calls the base at-location path first.
+        self.base_module
+            .do_special_power_at_location(&pos, -999999.0, command_options);
+        let _ = OclSpecialPower::do_special_power(self);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        let _ = command_options;
+        let _ = OclSpecialPower::do_special_power_at_object(self, object_id);
+        // Inherent at-object path already converts to location; call base via location
+        // after spawn so recharge/EVA still run if the target existed.
+        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
+            if let Ok(guard) = obj.read() {
+                let pos = *guard.get_position();
+                drop(guard);
+                self.base_module
+                    .do_special_power_at_location(&pos, -999999.0, command_options);
+            }
+        }
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &Coord3D,
+        angle: f32,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        // C++ calls SpecialPowerModule::doSpecialPowerAtLocation first.
+        self.base_module
+            .do_special_power_at_location(location, angle, command_options);
+        let _ = OclSpecialPower::do_special_power_at_location(self, location, angle);
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        OclSpecialPower::get_reference_thing_template(self)
+    }
 }
+
 
 /// Try to find a passable position near the given coordinate.
 /// Simplified version - the full C++ version uses PartitionManager::findPositionAround
@@ -465,7 +523,21 @@ impl BehaviorModuleInterface for OclSpecialPower {
     fn get_module_name(&self) -> &'static str {
         "OCLSpecialPower"
     }
+
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
 }
+
+super::interface::impl_special_power_subclass!(OclSpecialPower);
 
 // INI field parsers
 

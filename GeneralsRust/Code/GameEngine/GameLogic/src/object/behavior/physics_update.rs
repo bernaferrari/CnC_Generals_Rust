@@ -863,6 +863,9 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         let state = &mut handle.state;
 
         let airborne_at_end = obj.is_above_terrain();
+        let projectile_ground_collide = state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
+            && !airborne_at_end
+            && obj.is_kind_of(KindOf::Projectile);
 
         if state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
             && !airborne_at_end
@@ -925,7 +928,17 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, airborne_at_end);
         state.set_flag(FLAG_IS_IN_UPDATE, false);
 
-        self.calc_sleep_time(state, &obj)
+        let sleep = self.calc_sleep_time(state, &obj);
+        let object_id = self.object_id;
+        drop(handle);
+        drop(obj);
+        if projectile_ground_collide {
+            crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision(
+                object_id,
+                None,
+            );
+        }
+        sleep
     }
 
     fn get_update_phase(&self) -> SleepyUpdatePhase {
@@ -992,6 +1005,16 @@ impl CollideModuleInterface for PhysicsBehaviorUpdate {
         if let Ok(mut handle) = self.physics_handle.lock() {
             handle.state.last_collidee = other_id;
         }
+        // C++ PhysicsBehavior::onCollide: projectiles handle their own collisions.
+        let other = if other_id == crate::common::INVALID_ID {
+            None
+        } else {
+            Some(other_id)
+        };
+        let _ = crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision(
+            self.object_id,
+            other,
+        );
     }
 }
 

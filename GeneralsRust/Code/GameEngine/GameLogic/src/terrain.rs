@@ -462,10 +462,11 @@ impl Bridge {
     }
 
     /// Set tower object ID
+    /// C++ `Bridge::setTowerObjectID` indexes `towerObjectID[which]`.
     pub fn set_tower_object_id(&mut self, id: ObjectID, which: BridgeTowerType) {
-        match which {
-            BridgeTowerType::From => self.bridge_info.tower_object_id[0] = id,
-            BridgeTowerType::To => self.bridge_info.tower_object_id[1] = id,
+        let index = which as usize;
+        if index < self.bridge_info.tower_object_id.len() {
+            self.bridge_info.tower_object_id[index] = id;
         }
     }
 
@@ -1561,6 +1562,58 @@ impl TerrainLogic {
         }
 
         best_layer
+    }
+
+    /// C++ `makeAlignToNormalMatrix` — X points at `angle`, Z is the terrain normal.
+    pub fn make_align_to_normal_matrix(
+        angle: Real,
+        pos: &Coord3D,
+        normal: &Coord3D,
+    ) -> Matrix3D {
+        let z = *normal;
+        let mut x = Coord3D::new(angle.cos(), angle.sin(), 0.0);
+        if z.z != 0.0 {
+            x.z = -(x.x * z.x + x.y * z.y) / z.z;
+            let len = x.length();
+            if len > f32::EPSILON {
+                x /= len;
+            }
+        }
+        let mut y = z.cross(x);
+        let y_len = y.length();
+        if y_len > f32::EPSILON {
+            y /= y_len;
+        }
+        Matrix3D::from_cols(
+            glam::Vec4::new(x.x, x.y, x.z, 0.0),
+            glam::Vec4::new(y.x, y.y, y.z, 0.0),
+            glam::Vec4::new(z.x, z.y, z.z, 0.0),
+            glam::Vec4::new(pos.x, pos.y, pos.z, 1.0),
+        )
+    }
+
+    /// C++ `TerrainLogic::alignOnTerrain`. Tilts STICK_TO_TERRAIN_SLOPE units to
+    /// the ground normal and keeps world position (+2.5 bridge-layer hack).
+    pub fn align_on_terrain(
+        &self,
+        angle: Real,
+        pos: &Coord3D,
+        stick_to_ground: bool,
+        mtx: &mut Matrix3D,
+    ) -> PathfindLayerEnum {
+        let layer = self.get_layer_for_destination(pos);
+        let mut terrain_normal = Coord3D::new(0.0, 0.0, 1.0);
+        let mut terrain_at_pos =
+            self.get_layer_height(pos.x, pos.y, layer, Some(&mut terrain_normal), true);
+        if layer != PathfindLayerEnum::Ground {
+            terrain_at_pos += 2.5;
+        }
+        let mut aligned_pos = *pos;
+        if stick_to_ground {
+            aligned_pos.z = terrain_at_pos;
+        }
+        *mtx = Self::make_align_to_normal_matrix(angle, &aligned_pos, &terrain_normal);
+        layer
     }
 
     pub fn find_farthest_edge_point(&self, farthest_from: &Coord3D) -> Coord3D {
@@ -2780,10 +2833,57 @@ impl TerrainLogic {
     }
 
 
-    /// Set active boundary
+    /// Set active boundary and rebuild partition/shroud/radar like C++ TerrainLogic.
     pub fn set_active_boundary(&mut self, new_active_boundary: i32) {
+        if new_active_boundary < 0 || new_active_boundary as usize >= self.boundaries.len() {
+            return;
+        }
+        if new_active_boundary == self.active_boundary {
+            return;
+        }
+        let boundary = self.boundaries[new_active_boundary as usize];
+        if boundary.x == 0 || boundary.y == 0 {
+            return;
+        }
+
+        if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
+            shroud.process_entire_pending_undo_shroud_reveal_queue();
+        }
+
+        let object_ids = crate::system::game_logic::get_game_logic()
+            .lock()
+            .ok()
+            .map(|logic| logic.get_all_object_ids().to_vec())
+            .unwrap_or_default();
+        for object_id in &object_ids {
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
+                if let Ok(mut guard) = obj.write() {
+                    guard.friend_prepare_for_map_boundary_adjust();
+                }
+            }
+        }
+
         self.active_boundary = new_active_boundary;
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.partition_manager_mut().clear();
+        }
+
+        if let Some(radar) = crate::helpers::TheRadar::get() {
+            radar.refresh_terrain();
+        }
+
+        for object_id in &object_ids {
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
+                if let Ok(mut guard) = obj.write() {
+                    guard.friend_notify_of_new_map_boundary();
+                }
+            }
+        }
+
+        crate::helpers::TheTacticalView::force_camera_constraint_recalc();
     }
+
 
     /// Flatten terrain under a building/object.
     /// Reference: C++ TerrainLogic::flattenTerrain() in TerrainLogic.cpp

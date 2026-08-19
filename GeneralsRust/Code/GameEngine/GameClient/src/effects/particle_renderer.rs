@@ -257,9 +257,9 @@ fn particle_billboard_vertex(particle: &Particle, _system: &ParticleSystem) -> P
         ],
         size: [particle.size, particle.size],
         color: [
-            particle.color[0] * particle.color_scale,
-            particle.color[1] * particle.color_scale,
-            particle.color[2] * particle.color_scale,
+            particle.color[0],
+            particle.color[1],
+            particle.color[2],
             1.0,
         ],
         uv_rect: [0.0, 0.0, 1.0, 1.0],
@@ -1061,6 +1061,108 @@ impl ParticleRenderer {
         self.stats.render_time_ms += start_time.elapsed().as_secs_f64() * 1000.0;
     }
 
+    /// Submit FXList tracer streaks and ray beams into the live wgpu pass.
+    pub fn render_tracer_and_ray_fx(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        uniforms: &ParticleUniforms,
+    ) {
+        let mut vertices = Vec::new();
+        for mesh in crate::effects::tracer_fx::bake_all_tracer_gpu_meshes() {
+            if mesh.vertices.len() < 4 {
+                continue;
+            }
+            let start = mesh.vertices[0].position;
+            let end = mesh.vertices[2].position;
+            let dx = end[0] - start[0];
+            let dy = end[1] - start[1];
+            let dz = end[2] - start[2];
+            let length = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
+            let color = mesh.vertices[0].color;
+            vertices.push(ParticleVertex {
+                position: [
+                    (start[0] + end[0]) * 0.5,
+                    (start[1] + end[1]) * 0.5,
+                    (start[2] + end[2]) * 0.5,
+                ],
+                size: [length, mesh.vertices.len() as f32 * 0.0 + {
+                    let p0 = mesh.vertices[0].position;
+                    let p1 = mesh.vertices[1].position;
+                    let wx = p1[0] - p0[0];
+                    let wy = p1[1] - p0[1];
+                    let wz = p1[2] - p0[2];
+                    (wx * wx + wy * wy + wz * wz).sqrt().max(0.05)
+                }],
+                color,
+                uv_rect: [0.0, 0.0, 1.0, 1.0],
+                rotation: dy.atan2(dx),
+                alpha: color[3],
+                _padding: 0.0,
+            });
+        }
+        for ray in crate::effects::ray_effect_system::live_ray_effects() {
+            let dx = ray.end[0] - ray.start[0];
+            let dy = ray.end[1] - ray.start[1];
+            let dz = ray.end[2] - ray.start[2];
+            let length = (dx * dx + dy * dy + dz * dz).sqrt().max(0.001);
+            vertices.push(ParticleVertex {
+                position: ray.midpoint,
+                size: [length, 0.4],
+                color: [0.85, 0.95, 1.0, 1.0],
+                uv_rect: [0.0, 0.0, 1.0, 1.0],
+                rotation: dy.atan2(dx),
+                alpha: 1.0,
+                _padding: 0.0,
+            });
+        }
+        if vertices.is_empty() {
+            return;
+        }
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[*uniforms]));
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Tracer Ray FX Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Tracer Ray FX Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            render_pass.set_pipeline(&self.additive_pipeline);
+            render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.default_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.billboard_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, vertex_buffer.slice(..));
+            render_pass.draw(0..4, 0..vertices.len() as u32);
+        }
+        self.stats.draw_calls += 1;
+        self.stats.particles_rendered += vertices.len();
+    }
+
     pub fn render_decals(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1173,7 +1275,12 @@ impl ParticleRenderer {
         if matches!(
             info.particle_type,
             ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge
-        ) {
+        ) || info
+            .particle_type_name
+            .as_bytes()
+            .get(..4)
+            .is_some_and(|prefix| prefix == b"SMUD")
+        {
             return;
         }
         if info.shader_type == ParticleShaderType::Invalid {

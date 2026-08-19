@@ -1143,10 +1143,8 @@ impl CnCGameEngine {
         if let Some(previous) = self.script_fps_limit_last_tick {
             let now = Instant::now();
             if now.duration_since(previous) < limit {
-                // Cap the wait so a tight Sleep(0) spin cannot stall InGame
-                // event-loop frames (first-match mesh load / UI).
-                let remaining =
-                    (limit - now.duration_since(previous)).min(Duration::from_millis(8));
+                // C++ GameEngine::execute Sleep(0) spin until (1000/fps)-1.
+                let remaining = limit - now.duration_since(previous);
                 if remaining > Duration::ZERO {
                     std::thread::sleep(remaining);
                 }
@@ -1652,7 +1650,7 @@ impl CnCGameEngine {
         self.camera_slave_mode = None;
         self.sync_orbit_from_camera_transform();
         let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
-        self.projection_matrix = Mat4::perspective_rh(
+        self.projection_matrix = perspective_rh_from_horizontal_fov(
             DEFAULT_VIEW_FOV_RADIANS,
             aspect,
             DEFAULT_VIEW_NEAR_CLIP,

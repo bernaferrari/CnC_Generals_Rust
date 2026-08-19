@@ -169,8 +169,53 @@ impl Player {
         self.units_should_hunt
     }
 
-    pub fn set_units_should_hunt(&mut self, should_hunt: Bool, _source: CommandSourceType) {
+    pub fn set_units_should_hunt(&mut self, should_hunt: Bool, source: CommandSourceType) {
         self.units_should_hunt = should_hunt;
+
+        // C++ Player::setUnitsShouldHunt: team prototypes → instances → members.
+        let mut member_ids: Vec<ObjectID> = Vec::new();
+        if let Ok(factory) = get_team_factory().lock() {
+            for prototype in &self.player_team_prototypes {
+                for team in factory.find_team_instances(prototype.get_name().as_str()) {
+                    if let Ok(team_guard) = team.read() {
+                        member_ids.extend_from_slice(team_guard.get_members());
+                    }
+                }
+            }
+        }
+        if member_ids.is_empty() {
+            if let Some(team) = &self.default_team {
+                if let Ok(team_guard) = team.read() {
+                    member_ids.extend_from_slice(team_guard.get_members());
+                }
+            }
+        }
+        if member_ids.is_empty() {
+            member_ids.extend_from_slice(&self.owned_objects);
+        }
+
+        for object_id in member_ids {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                object_id,
+                |object_guard| {
+                    if object_guard.is_any_kind_of(&[
+                        KindOf::Dozer,
+                        KindOf::Harvester,
+                        KindOf::IgnoresSelectAll,
+                    ]) {
+                        return;
+                    }
+                    object_guard.leave_group();
+                    if let Some(ai) = object_guard.get_ai_update_interface() {
+                        if should_hunt {
+                            ai.ai_hunt(source);
+                        } else {
+                            ai.ai_idle(source);
+                        }
+                    }
+                },
+            );
+        }
     }
 
     /// Forward scripted repair requests to this player's AI controller.

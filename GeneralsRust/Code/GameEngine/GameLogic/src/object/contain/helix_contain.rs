@@ -1041,6 +1041,10 @@ impl ContainModuleInterface for HelixContain {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn client_visible_contained_flash_as_selected(
         &mut self,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

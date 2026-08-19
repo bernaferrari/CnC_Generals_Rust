@@ -1999,7 +1999,7 @@ impl INI {
 
         let msecs = value * multiplier;
         let frames = Self::convert_duration_msecs_to_frames(msecs);
-        Ok(frames.round().max(0.0) as u32)
+        Ok(frames.ceil().max(0.0) as u32)
     }
 
     /// Parse duration string into frames (real).

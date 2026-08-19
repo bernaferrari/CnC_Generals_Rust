@@ -526,6 +526,7 @@ impl AudioManager {
             priority: AudioPriority::Normal,
             min_distance: self.audio_settings.global_min_range as Real,
             max_distance: self.audio_settings.global_max_range as Real,
+            ..Default::default()
         });
 
         event.set_audio_event_info(info);
@@ -1382,6 +1383,7 @@ impl AudioManager {
             priority: AudioPriority::Normal,
             min_distance: 0.0,
             max_distance: 100.0,
+            ..Default::default()
         });
 
         self.all_audio_event_info

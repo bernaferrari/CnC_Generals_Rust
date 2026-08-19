@@ -14,7 +14,7 @@ use crate::gui::{
     WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_network::lan_api::{LanApi, LanConfig};
+use game_network::lan_api::{ensure_the_lan, the_lan, LanApi, LanConfig};
 use gamelogic::helpers::TheGameText;
 
 const KEY_ESC: usize = 0x1B;
@@ -44,14 +44,8 @@ struct NetworkDirectConnectState {
 thread_local! {
     static NETWORK_DIRECT_CONNECT_STATE: Rc<RefCell<NetworkDirectConnectState>> = Rc::new(RefCell::new(NetworkDirectConnectState::default()));
 }
-static LAN_API: OnceLock<tokio::sync::Mutex<Option<LanApi>>> = OnceLock::new();
-
-fn network_direct_connect_state() -> Rc<RefCell<NetworkDirectConnectState>> {
-    NETWORK_DIRECT_CONNECT_STATE.with(Rc::clone)
-}
-
 fn lan_api_cell() -> &'static tokio::sync::Mutex<Option<LanApi>> {
-    LAN_API.get_or_init(|| tokio::sync::Mutex::new(None))
+    the_lan()
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -217,24 +211,10 @@ fn update_local_ip_text(state: &NetworkDirectConnectState, local_ip: Ipv4Addr) {
 }
 
 async fn ensure_lan_api(player_name: &str) -> Option<tokio::sync::MutexGuard<'_, Option<LanApi>>> {
-    let mut guard = lan_api_cell().lock().await;
-    if guard.is_none() {
-        let mut config = LanConfig::default();
-        config.player_name = player_name.to_string();
-        config.login_name = player_name.to_string();
-        config.host_name = player_name.to_string();
-        match LanApi::new(config).await {
-            Ok(mut api) => {
-                if api.init().await.is_ok() {
-                    *guard = Some(api);
-                }
-            }
-            Err(err) => {
-                log::warn!("Failed to initialize LAN API: {}", err);
-            }
-        }
+    if let Err(err) = ensure_the_lan(player_name).await {
+        log::warn!("Failed to initialize LAN API: {}", err);
     }
-    Some(guard)
+    Some(the_lan().lock().await)
 }
 
 fn request_set_name(name: String) {

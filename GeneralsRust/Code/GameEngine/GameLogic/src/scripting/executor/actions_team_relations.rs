@@ -4,6 +4,8 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::modules::AIUpdateInterfaceExt;
+
 
 impl ScriptActionDispatcher {
     pub(crate) fn do_team_flash(
@@ -298,8 +300,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doTeamLoadTransports()
-    /// Team loads into their transport vehicles
+    /// C++ Reference: ScriptActions::doTeamLoadTransports() / PartitionSolver
     pub(crate) fn do_team_load_transports(
         &mut self,
         action: &ScriptAction,
@@ -307,14 +308,58 @@ impl ScriptActionDispatcher {
         let team_name = self.get_string_param(action, 0)?;
         log::info!("Team '{}' loading transports", team_name);
 
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let params = AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
+        let team_arc = self.get_team_by_name(&team_name)?;
+        let members = team_arc
+            .read()
+            .map(|team| team.get_members().to_vec())
+            .unwrap_or_default();
+
+        let mut units = game_engine::common::partition_solver::EntriesVec::new();
+        let mut transports = game_engine::common::partition_solver::SpacesVec::new();
+
+        for member_id in members {
+            let Some(obj) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_kind_of(crate::common::KindOf::Transport) {
+                let capacity = guard
+                    .get_contain()
+                    .and_then(|contain| contain.lock().ok())
+                    .map(|contain| contain.get_contain_max().max(0) as u32)
+                    .unwrap_or(0);
+                transports.push((member_id, capacity));
+            } else {
+                let slots = guard.get_transport_slot_count() as u32;
+                units.push((member_id, slots));
+            }
+
+
+        }
+
+        let mut solver = game_engine::common::partition_solver::BinPartitionSolver::new(
+            units,
+            transports,
+            game_engine::common::partition_solver::SolutionType::PreferFastSolution,
+        );
+        solver.solve();
+
+        for (unit_id, transport_id) in solver.get_solution() {
+            let Some(unit) = TheGameLogic::find_object_by_id(*unit_id) else {
+                continue;
+            };
+            if let Ok(unit_guard) = unit.read() {
+                if let Some(ai) = unit_guard.get_ai_update_interface() {
+                    ai.ai_enter(*transport_id, crate::ai::CommandSourceType::FromScript);
+                }
+            }
         }
 
         Ok(ScriptActionResult::Success)
     }
+
 
     /// C++ Reference: ScriptActions::doTeamEnterNamed()
     /// Team enters a specific named object (building/transport)

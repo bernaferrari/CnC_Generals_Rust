@@ -69,6 +69,8 @@ pub struct W3DModelDraw {
     terrain_decal_size: Option<(Real, Real)>,
     /// Optional terrain decal opacity override.
     terrain_decal_opacity: Option<Real>,
+    /// Bound terrain-track handle from `TheTerrainTracksRenderObjClassSystem`.
+    track_handle: Option<u32>,
 
     /// Particle systems currently active for state bone attachments.
     particle_systems: Vec<ParticleSysTracker>,
@@ -111,6 +113,7 @@ impl W3DModelDraw {
             terrain_decal: TerrainDecalType::None,
             terrain_decal_size: None,
             terrain_decal_opacity: None,
+            track_handle: None,
             particle_systems: Vec::new(),
             animation_override: AnimationOverride::new(),
             last_model_conditions: ModelConditionFlags::empty(),
@@ -560,5 +563,281 @@ impl W3DModelDraw {
     pub fn update_sub_objects(&mut self) {
         self.normalize_sub_object_entries();
         self.sub_objects_dirty = false;
+    }
+
+    fn set_pause_animation(&mut self, pause: bool) {
+        if self.pause_animation == pause {
+            return;
+        }
+        self.pause_animation = pause;
+        if pause {
+            self.animation_mode = 0;
+        }
+    }
+
+    fn hide_all_headlights(&mut self) {
+        let hide = self.hide_headlights;
+        let mut found = false;
+        for entry in &mut self.sub_object_vec {
+            if entry
+                .sub_obj_name
+                .as_str()
+                .to_ascii_uppercase()
+                .contains("HEADLIGHT")
+            {
+                entry.hide = hide;
+                found = true;
+            }
+        }
+        if hide && !found {
+            self.sub_object_vec.push(HideShowSubObjInfo {
+                sub_obj_name: AsciiString::from("HEADLIGHT"),
+                hide: true,
+            });
+        }
+        if !hide {
+            self.sub_object_vec
+                .retain(|entry| !entry.sub_obj_name.as_str().eq_ignore_ascii_case("HEADLIGHT"));
+        }
+        self.sub_objects_dirty = true;
+    }
+
+    fn adjust_transform_mtx(&self, transform_mtx: &Matrix3D) -> Matrix3D {
+        let mut mtx = *transform_mtx;
+        if !self.data.attach_to_drawable_bone.is_empty() {
+            if let Some(bone) = self.with_owner_drawable(|drawable| {
+                drawable.get_current_worldspace_client_bone_positions(
+                    self.data.attach_to_drawable_bone.as_str(),
+                )
+            }) {
+                if let Some(bone) = bone {
+                    mtx = bone;
+                }
+            }
+        }
+
+        let adjust_height = self
+            .current_state()
+            .map(|state| test_flag_bit(state.flags, ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT))
+            .unwrap_or(false);
+        if adjust_height {
+            if let Some(owner_id) = self.owner_id {
+                if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
+                    if let Ok(obj) = object.read() {
+                        if obj.is_under_construction() {
+                            let pct = obj.get_construction_percent() as Real;
+                            let height = obj.get_geometry_info().get_max_height_above_position();
+                            let dz = -height + (height * pct / 100.0);
+                            mtx *= Matrix3D::from_translation(glam::Vec3::new(0.0, 0.0, dz));
+                        }
+                    }
+                }
+            }
+        }
+        mtx
+    }
+
+    fn bind_terrain_track_if_needed(&mut self) {
+        if self.track_handle.is_some() {
+            return;
+        }
+        if self.data.track_file.is_empty() {
+            return;
+        }
+        if !game_engine::common::global_data::read().make_track_marks {
+            return;
+        }
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = terrain_track_client() else {
+            return;
+        };
+        self.track_handle = client.bind_track(
+            owner_id,
+            MAP_XY_FACTOR,
+            self.data.track_file.as_str(),
+        );
+    }
+
+    fn update_terrain_track(&mut self) {
+        let Some(handle) = self.track_handle else {
+            return;
+        };
+        let Some(client) = terrain_track_client() else {
+            return;
+        };
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let pos = *obj.get_position();
+        let now = TheGameLogic::get_frame();
+        if self.fully_obscured_by_shroud || obj.test_status(ObjectStatusTypes::Stealthed) {
+            client.add_cap(handle, pos.x, pos.y, now);
+        } else {
+            if obj.is_significantly_above_terrain() {
+                client.set_airborne(handle);
+            }
+            client.add_edge(handle, pos.x, pos.y, now);
+        }
+    }
+
+    fn cap_terrain_track(&mut self) {
+        let Some(handle) = self.track_handle else {
+            return;
+        };
+        let Some(client) = terrain_track_client() else {
+            return;
+        };
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let pos = *obj.get_position();
+        client.add_cap(handle, pos.x, pos.y, TheGameLogic::get_frame());
+    }
+
+    fn unbind_terrain_track(&mut self) {
+        if let Some(handle) = self.track_handle.take() {
+            if let Some(client) = terrain_track_client() {
+                client.unbind_track(handle);
+            }
+        }
+    }
+
+    fn apply_terrain_decal(&mut self, decal_type: TerrainDecalType) {
+        self.terrain_decal = decal_type;
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = terrain_decal_client() else {
+            return;
+        };
+        if decal_type == TerrainDecalType::None {
+            client.release(owner_id);
+            return;
+        }
+
+        let mut texture = terrain_decal_texture_name(decal_type).to_string();
+        if texture.is_empty() {
+            // TERRAIN_DECAL_SHADOW_TEXTURE uses the unit's shadow texture in C++.
+            // Without a public template getter, keep a non-empty name so add_decal
+            // still creates a projected blob at the authored size.
+            texture = "shadow".to_string();
+        }
+
+        let mut size = self.terrain_decal_size.unwrap_or((0.0, 0.0));
+        let mut position = Coord3D::new(0.0, 0.0, 0.0);
+        let mut angle = 0.0;
+        if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
+            if let Ok(obj) = object.read() {
+                position = *obj.get_position();
+                angle = obj.get_orientation();
+                if size.0 <= 0.0 || size.1 <= 0.0 {
+                    let radius = obj.get_geometry_info().get_major_radius().max(8.0);
+                    size = (radius * 2.0, radius * 2.0);
+                }
+            }
+        }
+        if size.0 <= 0.0 || size.1 <= 0.0 {
+            size = (40.0, 40.0);
+        }
+
+        client.set_decal(&TerrainDecalDesc {
+            object_id: owner_id,
+            texture_name: texture,
+            size_x: size.0,
+            size_y: size.1,
+            opacity: self.terrain_decal_opacity.unwrap_or(1.0),
+            position,
+            angle,
+            hidden: self.hidden,
+            shrouded: self.fully_obscured_by_shroud,
+            shadow_enabled: self.shadow_enabled,
+        });
+    }
+
+    fn sync_terrain_decal_pose(&self) {
+        if self.terrain_decal == TerrainDecalType::None {
+            return;
+        }
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = terrain_decal_client() else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let position = *obj.get_position();
+        client.set_pose(owner_id, position, obj.get_orientation());
+    }
+
+    fn logic_fire_fx_fallback(&self) -> (Coord3D, Matrix3D) {
+        if let Some(owner_id) = self.owner_id {
+            if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
+                if let Ok(obj) = object.read() {
+                    return (*obj.get_position(), obj.get_transform_matrix());
+                }
+            }
+        }
+        (Coord3D::new(0.0, 0.0, 0.0), Matrix3D::IDENTITY)
+    }
+
+    fn fire_owner_weapon_fx(&self, weapon_slot: usize, pos: &Coord3D) {
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let slot = match weapon_slot {
+            0 => WeaponSlotType::Primary,
+            1 => WeaponSlotType::Secondary,
+            _ => WeaponSlotType::Tertiary,
+        };
+        let Some(weapon) = obj.get_weapon_in_slot(slot) else {
+            return;
+        };
+        let veterancy = obj.get_veterancy_level();
+        if let Some(fx) = weapon.get_template().get_fire_fx(veterancy) {
+            let _ = fx.do_fx_at_position(pos);
+        }
+    }
+
+    fn owner_should_animate(&self) -> bool {
+        if let Some(should) = self.with_owner_drawable(|drawable| {
+            drawable.get_should_animate(self.data.animations_require_power)
+        }) {
+            return should;
+        }
+        let Some(owner_id) = self.owner_id else {
+            return true;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return true;
+        };
+        let Ok(obj) = object.read() else {
+            return true;
+        };
+        object_should_animate(&obj, self.data.animations_require_power)
     }
 }

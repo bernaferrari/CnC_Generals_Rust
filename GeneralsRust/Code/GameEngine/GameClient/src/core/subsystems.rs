@@ -230,6 +230,54 @@ fn default_tree_bounds() -> TreeSphere {
     }
 }
 
+/// C++ `TheTerrainRenderObject->m_treeBuffer` — the W3DTreeBuffer the GPU draw reads.
+fn with_live_tree_buffer(mut f: impl FnMut(&mut W3DTreeBuffer)) {
+    if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+        if let Some(visual) = visual.as_mut() {
+            f(visual.tree_buffer_mut());
+        }
+    }
+}
+
+fn add_tree_to_buffer(buffer: &mut W3DTreeBuffer, tree: &TerrainTreeRegistration) {
+    let data = tree_module_data_from_w3d(&tree.module_data);
+    if !buffer.update_tree_position(tree.drawable_id, tree.location, tree.angle) {
+        buffer.add_tree(
+            tree.drawable_id,
+            tree.location,
+            tree.scale,
+            tree.angle,
+            tree.random_scale_amount,
+            data,
+            default_tree_bounds(),
+        );
+    }
+}
+
+fn apply_tree_records_to_buffer(buffer: &mut W3DTreeBuffer, records: &[TreeSaveRecord]) {
+    for record in records {
+        if record.model_name.is_empty() {
+            continue;
+        }
+        if !buffer.tree_types().iter().any(|tree_type| {
+            tree_type
+                .data
+                .model_name
+                .eq_ignore_ascii_case(&record.model_name)
+                && tree_type
+                    .data
+                    .texture_name
+                    .eq_ignore_ascii_case(&record.model_texture)
+        }) {
+            let mut data = TreeModuleData::default();
+            data.model_name = record.model_name.clone();
+            data.texture_name = record.model_texture.clone();
+            buffer.add_tree_type(data, default_tree_bounds());
+        }
+    }
+    buffer.load_records(records);
+}
+
 fn registration_to_tree_save_record(tree: &TerrainTreeRegistration) -> TreeSaveRecord {
     TreeSaveRecord {
         model_name: tree.module_data.model_name.to_string(),
@@ -332,29 +380,8 @@ fn xfer_tree_save_record_cpp(
 
 fn apply_loaded_tree_records(terrain: &mut TerrainVisualStub, records: Vec<TreeSaveRecord>) {
     terrain.clear_tree_state();
-    for record in &records {
-        if record.model_name.is_empty() {
-            continue;
-        }
-        if !terrain.tree_buffer.tree_types().iter().any(|tree_type| {
-            tree_type
-                .data
-                .model_name
-                .eq_ignore_ascii_case(&record.model_name)
-                && tree_type
-                    .data
-                    .texture_name
-                    .eq_ignore_ascii_case(&record.model_texture)
-        }) {
-            let mut data = TreeModuleData::default();
-            data.model_name = record.model_name.clone();
-            data.texture_name = record.model_texture.clone();
-            terrain
-                .tree_buffer
-                .add_tree_type(data, default_tree_bounds());
-        }
-    }
-    terrain.tree_buffer.load_records(&records);
+    apply_tree_records_to_buffer(&mut terrain.tree_buffer, &records);
+    with_live_tree_buffer(|live| apply_tree_records_to_buffer(live, &records));
     terrain.registered_trees.clear();
     for record in records {
         if !record.model_name.is_empty() {
@@ -566,6 +593,7 @@ fn xfer_terrain_tree_buffer_v4(
             }
         }
         terrain.tree_buffer.load_records(&records);
+        with_live_tree_buffer(|live| apply_tree_records_to_buffer(live, &records));
         terrain.registered_trees.clear();
         for record in records {
             if !record.model_name.is_empty() {
@@ -2523,27 +2551,16 @@ pub struct TerrainVisualStub {
 
 impl TerrainVisualStub {
     pub fn add_tree_registration(&mut self, tree: TerrainTreeRegistration) {
-        let data = tree_module_data_from_w3d(&tree.module_data);
-        if !self
-            .tree_buffer
-            .update_tree_position(tree.drawable_id, tree.location, tree.angle)
-        {
-            self.tree_buffer.add_tree(
-                tree.drawable_id,
-                tree.location,
-                tree.scale,
-                tree.angle,
-                tree.random_scale_amount,
-                data,
-                default_tree_bounds(),
-            );
-        }
+        add_tree_to_buffer(&mut self.tree_buffer, &tree);
+        // C++ TheTerrainRenderObject is one object; GPU reads TerrainVisualImpl.
+        with_live_tree_buffer(|live| add_tree_to_buffer(live, &tree));
         self.registered_trees.insert(tree.drawable_id, tree);
     }
 
     pub fn remove_tree_registration(&mut self, drawable_id: u32) {
         self.registered_trees.remove(&drawable_id);
         self.tree_buffer.remove_tree(drawable_id);
+        with_live_tree_buffer(|live| live.remove_tree(drawable_id));
     }
 
     pub fn tree_registrations(&self) -> Vec<TerrainTreeRegistration> {
@@ -2570,6 +2587,7 @@ impl TerrainVisualStub {
     fn clear_tree_state(&mut self) {
         self.registered_trees.clear();
         self.tree_buffer.clear_all_trees();
+        with_live_tree_buffer(|live| live.clear_all_trees());
     }
 
     fn drain_tree_fx_events_with(&mut self, mut dispatch: impl FnMut(&str, &Vec3)) -> usize {
@@ -3167,6 +3185,72 @@ mod tests {
                 "MainMenu.wnd:ButtonSinglePlayer must survive WindowManagerSubsystem::reset"
             );
         });
+    }
+
+    #[test]
+    fn stub_add_tree_registration_appears_in_impl_buffer() {
+        // C++ TheTerrainRenderObject is one object (BaseHeightMap.h:308).
+        // TerrainVisualStub must forward add/remove into TerrainVisualImpl
+        // W3DTreeBuffer that impl_gpu.rs record_tree_draws already reads.
+        const DRAWABLE_ID: u32 = 0x00C0_FFEE;
+        if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if visual.is_none() {
+                *visual = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+            }
+        }
+
+        let mut module_data = W3DTreeDrawModuleData::new();
+        module_data.model_name = AsciiString::from("AlpineTree");
+        module_data.texture_name = AsciiString::from("AlpineTree.tga");
+
+        let mut stub = TerrainVisualStub::default();
+        stub.add_tree_registration(TerrainTreeRegistration {
+            drawable_id: DRAWABLE_ID,
+            location: Vec3::new(11.0, 22.0, 3.0),
+            scale: 1.25,
+            angle: 0.4,
+            random_scale_amount: 0.0,
+            module_data,
+        });
+
+        assert!(
+            stub.tree_buffer_mut()
+                .trees()
+                .iter()
+                .any(|tree| tree.drawable_id == DRAWABLE_ID),
+            "stub buffer must keep the registration"
+        );
+
+        let in_impl = if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+            visual.as_mut().is_some_and(|live| {
+                live.tree_buffer_mut()
+                    .trees()
+                    .iter()
+                    .any(|tree| tree.drawable_id == DRAWABLE_ID)
+            })
+        } else {
+            false
+        };
+        assert!(
+            in_impl,
+            "stub add_tree_registration must appear in TerrainVisualImpl W3DTreeBuffer"
+        );
+
+        stub.remove_tree_registration(DRAWABLE_ID);
+        let removed_from_impl =
+            if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
+                visual.as_mut().is_some_and(|live| {
+                    live.tree_buffer_mut().trees().iter().all(|tree| {
+                        tree.drawable_id != DRAWABLE_ID || tree.location == Vec3::ZERO
+                    })
+                })
+            } else {
+                false
+            };
+        assert!(
+            removed_from_impl,
+            "stub remove_tree_registration must clear the Impl buffer entry"
+        );
     }
 
 }

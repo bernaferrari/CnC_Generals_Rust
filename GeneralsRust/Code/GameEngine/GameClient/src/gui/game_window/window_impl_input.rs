@@ -11,6 +11,15 @@ impl GameWindow {
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
         self.sync_listbox_content_top_inset();
+        if matches!(self.widget, Some(WindowWidget::ComboBox(_)))
+            && msg == WindowMessage::LeftUp
+            && self.combobox_links.is_some()
+        {
+            Self::play_gui_click();
+            self.toggle_combobox_dropdown();
+            return WindowMsgHandled::Handled;
+        }
+
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -78,8 +87,46 @@ impl GameWindow {
                 button: MouseButton::Right,
             }),
             WindowMessage::Char => char_input_event(data1, data2),
+            WindowMessage::ImeChar => None,
             _ => None,
         };
+
+        if msg == WindowMessage::ImeChar {
+            if let WindowWidget::TextEntry(entry) = widget {
+                if let Some(ch) = char::from_u32((data1 as u32) & 0xffff) {
+                    entry.apply_ime_char(ch);
+                    if ch == '\r' || ch == '\n' {
+                        if !self.owner_is_self {
+                            if let Some(owner) = self.get_owner() {
+                                let _ = owner.borrow_mut().send_system_message(
+                                    WindowMessage::User(GEM_EDIT_DONE),
+                                    self.id as WindowMsgData,
+                                    0,
+                                );
+                            }
+                        }
+                    } else if ch != '\0' {
+                        if !self.owner_is_self {
+                            if let Some(owner) = self.get_owner() {
+                                let _ = owner.borrow_mut().send_system_message(
+                                    WindowMessage::User(GEM_UPDATE_TEXT),
+                                    self.id as WindowMsgData,
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
+                return WindowMsgHandled::Handled;
+            }
+            return WindowMsgHandled::Ignored;
+        }
+
+        if matches!(widget, WindowWidget::TextEntry(_))
+            && crate::gui::ime_manager::ime_should_swallow_input_for_window(self.id)
+        {
+            return WindowMsgHandled::Handled;
+        }
 
         let Some(event) = event else {
             return WindowMsgHandled::Ignored;
@@ -155,6 +202,11 @@ impl GameWindow {
             None
         };
         let is_listbox_message = matches!(self.widget, Some(WindowWidget::ListBox(_)));
+        let is_slider_message = matches!(
+            self.widget,
+            Some(WindowWidget::HorizontalSlider(_)) | Some(WindowWidget::VerticalSlider(_))
+        );
+
         let original_data1 = data1;
         for message in messages {
             let (msg, data1, data2) = match message {
@@ -170,21 +222,38 @@ impl GameWindow {
                     (WindowMessage::GadgetSelected, self.id as WindowMsgData, 0)
                 }
                 GadgetMessage::RightClicked { .. } if is_listbox_message => {
-                    let selected = match &self.widget {
+                    let (sx, sy) = self.get_screen_position();
+                    let payload = match &self.widget {
                         Some(WindowWidget::ListBox(listbox)) => listbox
                             .last_right_click()
-                            .map(|right_click| right_click.index)
-                            .unwrap_or(-1),
-                        _ => -1,
+                            .map(|right_click| RightClickStruct {
+                                pos: right_click.index,
+                                mouse_x: right_click.mouse_x + sx,
+                                mouse_y: right_click.mouse_y + sy,
+                            })
+                            .unwrap_or(RightClickStruct {
+                                pos: -1,
+                                mouse_x: sx,
+                                mouse_y: sy,
+                            }),
+                        _ => RightClickStruct {
+                            pos: -1,
+                            mouse_x: sx,
+                            mouse_y: sy,
+                        },
                     };
                     (
                         WindowMessage::User(GLM_RIGHT_CLICKED),
                         self.id as WindowMsgData,
-                        selected as WindowMsgData,
+                        push_payload(WindowMsgPayload::RightClick(payload)),
                     )
                 }
+
                 GadgetMessage::RightClicked { .. } => {
-                    if !self.status.contains(WindowStatus::RIGHT_CLICK) {
+                    // C++ GadgetCheckBox GWM_RIGHT_UP always sends GBM_SELECTED_RIGHT
+                    // when the box was right-pressed. Push buttons still require
+                    // WIN_STATUS_RIGHT_CLICK.
+                    if !is_checkbox_message && !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
                     (
@@ -202,7 +271,12 @@ impl GameWindow {
                     self.id as WindowMsgData,
                     original_data1,
                 ),
-                GadgetMessage::LeftDrag { .. } => (WindowMessage::User(GGM_LEFT_DRAG), data1, 0),
+                GadgetMessage::LeftDrag { .. } => (
+                    WindowMessage::User(GGM_LEFT_DRAG),
+                    self.id as WindowMsgData,
+                    original_data1,
+                ),
+
                 GadgetMessage::ValueChanged { value, .. } if is_listbox_message => {
                     let selected = match value {
                         GadgetValue::Integer(row) => row,
@@ -221,11 +295,23 @@ impl GameWindow {
                         selected as WindowMsgData,
                     )
                 }
+                GadgetMessage::ValueChanged { value, .. } if is_slider_message => {
+                    let position = match value {
+                        GadgetValue::Integer(position) => position,
+                        _ => self.slider_value().unwrap_or(0),
+                    };
+                    (
+                        WindowMessage::User(GSM_SLIDER_TRACK),
+                        self.id as WindowMsgData,
+                        position as WindowMsgData,
+                    )
+                }
                 GadgetMessage::ValueChanged { .. } => (
                     WindowMessage::GadgetValueChanged,
                     self.id as WindowMsgData,
                     0,
                 ),
+
                 GadgetMessage::EditingComplete { .. } => {
                     (WindowMessage::GadgetEditDone, self.id as WindowMsgData, 0)
                 }
@@ -357,6 +443,7 @@ impl GameWindow {
             msg,
             WindowMessage::RightDown | WindowMessage::RightUp | WindowMessage::RightDrag
         ) && !self.status.contains(WindowStatus::RIGHT_CLICK)
+            && !matches!(self.widget, Some(WindowWidget::CheckBox(_)))
         {
             return WindowMsgHandled::Ignored;
         }
@@ -375,13 +462,13 @@ impl GameWindow {
 
         if let WindowMessage::User(code) = msg {
             match code {
-                GGM_SET_LABEL => {
+                GGM_SET_LABEL | GEM_SET_TEXT => {
                     if let Some(text) = payload_text(data1) {
                         let _ = self.set_text(&text);
                     }
                     return WindowMsgHandled::Handled;
                 }
-                GGM_GET_LABEL => {
+                GGM_GET_LABEL | GEM_GET_TEXT => {
                     let _ =
                         replace_payload(data2, WindowMsgPayload::Text(self.get_text().to_string()));
                     return WindowMsgHandled::Handled;
@@ -391,6 +478,11 @@ impl GameWindow {
         }
 
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
+            if msg == WindowMessage::Destroy {
+                queue_window_manager_op(|manager| manager.set_lone_window(None));
+                return WindowMsgHandled::Handled;
+            }
+
             if let WindowMessage::User(code) = msg {
                 match code {
                     GCM_GET_TEXT => {
@@ -540,28 +632,9 @@ impl GameWindow {
             if let Some(links) = self.combobox_links {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as WindowMsgData
                 {
-                    if let Some(list_box) = self.find_child_by_id(links.list_box) {
-                        let is_hidden = list_box.borrow().is_hidden();
-                        if is_hidden {
-                            self.sync_combobox_listbox(&list_box);
-                            self.resize_combobox_listbox(&list_box);
-                            let list_height = list_box.borrow().get_size().1;
-                            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                                let base_height = edit_box.borrow().get_size().1;
-                                let (width, _) = self.get_size();
-                                let _ = self.set_size(width, base_height + list_height);
-                            }
-                            let _ = list_box.borrow_mut().hide(false);
-                        } else {
-                            let _ = list_box.borrow_mut().hide(true);
-                            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                                let base_height = edit_box.borrow().get_size().1;
-                                let (width, _) = self.get_size();
-                                let _ = self.set_size(width, base_height);
-                            }
-                        }
-                        return WindowMsgHandled::Handled;
-                    }
+                    Self::play_gui_click();
+                    self.toggle_combobox_dropdown();
+                    return WindowMsgHandled::Handled;
                 }
 
                 if msg == WindowMessage::GadgetValueChanged
@@ -885,6 +958,10 @@ impl GameWindow {
         ) {
             if let WindowMessage::User(code) = msg {
                 match code {
+                    GGM_LEFT_DRAG => {
+                        return self.handle_slider_left_drag(data2);
+                    }
+
                     GSM_SET_SLIDER => {
                         let new_pos = data1 as i32;
                         let mut update_thumb = false;
@@ -1042,6 +1119,29 @@ impl GameWindow {
             }
         }
 
+        if matches!(self.widget, Some(WindowWidget::TabPane))
+            && matches!(
+                msg,
+                WindowMessage::GadgetSelected
+                    | WindowMessage::GadgetRightClick
+                    | WindowMessage::GadgetMouseEntering
+                    | WindowMessage::GadgetMouseLeaving
+                    | WindowMessage::GadgetEditDone
+            )
+        {
+            if let Some(parent) = self.get_parent() {
+                return parent.borrow_mut().send_system_message(msg, data1, data2);
+            }
+        }
+
+        if matches!(self.widget, Some(WindowWidget::TabControl(_)))
+            && msg == WindowMessage::GadgetSelected
+        {
+            if let Some(parent) = self.get_parent() {
+                return parent.borrow_mut().send_system_message(msg, data1, data2);
+            }
+        }
+
         if msg == WindowMessage::InputFocus {
             let focused = data1 != 0;
             let _ = write_bool_payload(data2, focused);
@@ -1065,6 +1165,12 @@ impl GameWindow {
                         .state
                         .remove(WindowState::SELECTED | WindowState::HILITED);
                 }
+                let window_id = self.id;
+                with_window_manager(|manager| {
+                    if let Some(window) = manager.get_window_by_id(window_id) {
+                        crate::gui::ime_manager::attach_or_detach_for_focus(window, focused);
+                    }
+                });
             } else if focused {
                 if !matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
                     self.set_hilite_state(true);
@@ -1072,6 +1178,32 @@ impl GameWindow {
             } else {
                 self.set_hilite_state(false);
             }
+            if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
+                if !self.owner_is_self {
+                    if let Some(owner) = self.get_owner() {
+                        let _ = owner.borrow_mut().send_system_message(
+                            WindowMessage::User(GGM_FOCUS_CHANGE),
+                            data1,
+                            self.id as WindowMsgData,
+                        );
+                    }
+                }
+                if let Some(links) = self.combobox_links {
+                    if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                        let _ = with_payload(WindowMsgPayload::Bool(false), |token| {
+                            edit_box.borrow_mut().send_system_message(
+                                WindowMessage::InputFocus,
+                                data1,
+                                token,
+                            )
+                        });
+                    }
+                }
+                let _ = write_bool_payload(data2, true);
+                return WindowMsgHandled::Handled;
+            }
+
+
             if !self.owner_is_self {
                 if let Some(owner) = self.get_owner() {
                     let _ = owner.borrow_mut().send_system_message(
@@ -1091,3 +1223,4 @@ impl GameWindow {
         WindowMsgHandled::Ignored
     }
 }
+

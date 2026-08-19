@@ -30,6 +30,26 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
+fn play_behavior_stealth_sound(object_id: ObjectID, stealth_on: bool) {
+    let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
+        .or_else(|| OBJECT_REGISTRY.get_object(object_id))
+    else {
+        return;
+    };
+    let Ok(obj) = object.read() else {
+        return;
+    };
+    let mut event = if stealth_on {
+        obj.get_template().get_sound_stealth_on()
+    } else {
+        obj.get_template().get_sound_stealth_off()
+    };
+    event.set_object_id(object_id);
+    if let Some(audio) = crate::helpers::TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+}
+
 // ObjectStatusMaskType constants
 const OBJECT_STATUS_IS_FIRING_WEAPON: ObjectStatusMaskType =
     ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon);
@@ -138,25 +158,25 @@ pub struct StealthUpdateModuleData {
     pub use_rider_stealth: Bool,
     pub granted_by_special_power: Bool,
 }
-
 impl Default for StealthUpdateModuleData {
     fn default() -> Self {
+        // Matches C++ StealthUpdateModuleData::StealthUpdateModuleData() lines 45-68.
         Self {
             module_tag_name_key: 0,
             hint_detectable_states: ObjectStatusMaskType::none(),
             required_status: ObjectStatusMaskType::none(),
             forbidden_status: ObjectStatusMaskType::none(),
             stealth_speed: 0.0,
-            friendly_opacity_min: 0.0,
+            friendly_opacity_min: 0.5,
             friendly_opacity_max: 1.0,
-            reveal_distance_from_target: DEFAULT_REVEAL_DISTANCE,
-            disguise_transition_frames: 30,
-            disguise_reveal_transition_frames: 15,
-            pulse_frames: 0,
-            stealth_delay: 0,
+            reveal_distance_from_target: 0.0,
+            disguise_transition_frames: 0,
+            disguise_reveal_transition_frames: 0,
+            pulse_frames: 30,
+            stealth_delay: u32::MAX,
             stealth_level: 0,
-            black_market_check_frames: 30,
-            innate_stealth: false,
+            black_market_check_frames: 0,
+            innate_stealth: true,
             order_idle_enemies_to_attack_me_upon_reveal: false,
             team_disguised: false,
             use_rider_stealth: false,
@@ -245,6 +265,13 @@ impl StealthUpdate {
         let reveal_distance_config =
             RevealDistanceConfig::new(specific_data.reveal_distance_from_target);
 
+        // C++ StealthUpdate.cpp:132-136 — innate units receive CAN_STEALTH at construction.
+        if specific_data.innate_stealth {
+            if let Ok(mut obj) = object.write() {
+                obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
+            }
+        }
+
         Ok(Self {
             object_id: object
                 .read()
@@ -253,11 +280,12 @@ impl StealthUpdate {
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
-            stealth_allowed_frame: 0,
+            stealth_allowed_frame: crate::helpers::TheGameLogic::get_frame()
+                .saturating_add(specific_data.stealth_delay),
             detection_expires_frame: 0,
             next_black_market_check_frame: 0,
-            enabled: true,
-            pulse_phase_rate: 0.0,
+            enabled: !specific_data.team_disguised,
+            pulse_phase_rate: 0.2,
             pulse_phase: 0.0,
             disguise_as_player_index: -1,
             disguise_transition_frames: 0,
@@ -293,23 +321,137 @@ impl StealthUpdate {
             return;
         }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(_obj) = object.read() {
-                // Frame counter is managed externally by game logic
-                // Use module_data.stealth_delay as default if num_frames is 0
-                let current_frame = self.last_distance_check_frame; // Track via last update
+        let stealth_owner_id = self.calc_stealth_owner();
+        let stealth_delay = self.stealth_delay_for(stealth_owner_id);
+        let order_idles = self.order_idles_for(stealth_owner_id);
 
-                if num_frames == 0 {
-                    self.detection_expires_frame = current_frame + self.module_data.stealth_delay;
-                } else {
-                    self.detection_expires_frame = current_frame + num_frames;
+        // C++ StealthUpdate.cpp:875-878 — permanently strip an active disguise.
+        if self.disguised {
+            self.disguised = false;
+            self.disguise_as_player_index = -1;
+            self.transitioning_to_disguise = false;
+            self.disguise_transition_frames = self.module_data.disguise_reveal_transition_frames;
+            self.disguise_halfpoint_reached = false;
+        }
+
+        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        if num_frames == 0 {
+            self.detection_expires_frame = current_frame.saturating_add(stealth_delay);
+        } else if self.detection_expires_frame < current_frame.saturating_add(num_frames) {
+            self.detection_expires_frame = current_frame.saturating_add(num_frames);
+        }
+
+        if order_idles {
+            self.order_idle_enemies_to_attack();
+        }
+    }
+
+    fn calc_stealth_owner(&self) -> ObjectID {
+        if !self.module_data.use_rider_stealth {
+            return self.object_id;
+        }
+        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+        {
+            if let Ok(obj) = object.read() {
+                if let Some(contain) = obj.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        if let Some(&rider_id) = contain_guard.get_contained_objects().first() {
+                            return rider_id;
+                        }
+                    }
                 }
             }
+        }
+        self.object_id
+    }
+
+    fn stealth_delay_for(&self, owner_id: ObjectID) -> UnsignedInt {
+        if owner_id == self.object_id {
+            return self.module_data.stealth_delay;
+        }
+        OBJECT_REGISTRY
+            .with_object(owner_id, |owner| {
+                owner.get_stealth().and_then(|handle| {
+                    handle.lock().ok().map(|guard| guard.get_stealth_delay())
+                })
+            })
+            .flatten()
+            .unwrap_or(self.module_data.stealth_delay)
+    }
+
+    fn stealth_level_for(&self, owner_id: ObjectID) -> UnsignedInt {
+        if owner_id == self.object_id {
+            return self.module_data.stealth_level;
+        }
+        OBJECT_REGISTRY
+            .with_object(owner_id, |owner| {
+                owner.get_stealth().and_then(|handle| {
+                    handle.lock().ok().map(|guard| guard.get_stealth_level())
+                })
+            })
+            .flatten()
+            .unwrap_or(self.module_data.stealth_level)
+    }
+
+    fn order_idles_for(&self, owner_id: ObjectID) -> bool {
+        if owner_id == self.object_id {
+            return self.module_data.order_idle_enemies_to_attack_me_upon_reveal;
+        }
+        OBJECT_REGISTRY
+            .with_object(owner_id, |owner| {
+                owner.get_stealth().and_then(|handle| {
+                    handle.lock().ok().map(|guard| {
+                        guard.get_order_idle_enemies_to_attack_me_upon_reveal()
+                    })
+                })
+            })
+            .flatten()
+            .unwrap_or(self.module_data.order_idle_enemies_to_attack_me_upon_reveal)
+    }
+
+    fn order_idle_enemies_to_attack(&self) {
+        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let self_pos = *obj.get_position();
+        let Some(self_player) = obj.get_controlling_player() else {
+            return;
+        };
+        let Ok(list) = crate::player::player_list().read() else {
+            return;
+        };
+        for player in list.iter() {
+            let is_enemy = match (player.read(), self_player.read()) {
+                (Ok(other), Ok(mine)) => {
+                    other.get_relationship(&mine) == crate::common::Relationship::Enemies
+                }
+                _ => false,
+            };
+            if !is_enemy {
+                continue;
+            }
+            use crate::player::PlayerArcExt;
+            let _ = player.iterate_objects(|enemy| {
+                if let Ok(enemy_guard) = enemy.read() {
+                    if enemy_guard.get_ai().is_some() {
+                        let vision = enemy_guard.get_vision_range();
+                        let delta = *enemy_guard.get_position() - self_pos;
+                        if delta.length() <= vision {
+                            crate::helpers::TheGameLogic::set_wake_frame(
+                                enemy_guard.get_id(),
+                                crate::modules::UPDATE_SLEEP_NONE,
+                            );
+                        }
+                    }
+                }
+                Ok(())
+            });
         }
     }
 
@@ -698,12 +840,21 @@ impl StealthUpdate {
                     return false;
                 }
 
-                // Check if unit has CAN_STEALTH status bit
-                if !obj.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH) {
+                let stealth_owner_id = self.calc_stealth_owner();
+                let can_stealth = if stealth_owner_id == self.object_id {
+                    obj.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH)
+                } else {
+                    OBJECT_REGISTRY
+                        .with_object(stealth_owner_id, |owner| {
+                            owner.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH)
+                        })
+                        .unwrap_or(false)
+                };
+                if !can_stealth {
                     return false;
                 }
 
-                let level = self.module_data.stealth_level;
+                let level = self.stealth_level_for(stealth_owner_id);
 
                 // Check STEALTH_NOT_WHILE_ATTACKING condition
                 if (level & STEALTH_NOT_WHILE_ATTACKING) != 0 {
@@ -895,15 +1046,31 @@ impl UpdateModuleInterface for StealthUpdate {
 
                 // Check if can stealth and apply status
                 if self.allowed_to_stealth() {
-                    // Apply stealth to object (C++ StealthUpdate.cpp:735)
+                    // Apply stealth to object (C++ StealthUpdate.cpp:727-735)
                     if !obj.get_status_bits().contains(OBJECT_STATUS_STEALTHED) {
+                        play_behavior_stealth_sound(self.object_id, true);
                         obj.set_status(OBJECT_STATUS_STEALTHED, true);
                     }
                 } else {
-                    // Remove stealth status (C++ StealthUpdate.cpp:749)
+                    // Remove stealth status (C++ StealthUpdate.cpp:742-749)
                     if obj.get_status_bits().contains(OBJECT_STATUS_STEALTHED) {
+                        play_behavior_stealth_sound(self.object_id, true);
                         obj.set_status(OBJECT_STATUS_STEALTHED, false);
                     }
+                }
+
+                let now = crate::helpers::TheGameLogic::get_frame();
+                let was_detected = obj.get_status_bits().contains(OBJECT_STATUS_DETECTED);
+                if self.detection_expires_frame > now {
+                    if !was_detected {
+                        play_behavior_stealth_sound(self.object_id, false);
+                    }
+                    obj.set_status(OBJECT_STATUS_DETECTED, true);
+                } else if was_detected {
+                    if obj.is_locally_controlled() {
+                        play_behavior_stealth_sound(self.object_id, true);
+                    }
+                    obj.set_status(OBJECT_STATUS_DETECTED, false);
                 }
 
                 return self.calc_sleep_time();
@@ -995,6 +1162,7 @@ impl Snapshotable for StealthUpdate {
         // disguised -- C++ StealthUpdate.cpp line 1177
         xfer.xfer_bool(&mut self.disguised)
             .map_err(|e| format!("StealthUpdate disguised xfer failed: {:?}", e))?;
+
 
         // version 2 fields -- C++ StealthUpdate.cpp line 1179-1182
         if version >= 2 {
@@ -1113,10 +1281,12 @@ mod tests {
     #[test]
     fn test_stealth_update_module_data_default() {
         let data = StealthUpdateModuleData::default();
-        assert_eq!(data.reveal_distance_from_target, DEFAULT_REVEAL_DISTANCE);
-        assert_eq!(data.friendly_opacity_min, 0.0);
+        assert_eq!(data.reveal_distance_from_target, 0.0);
+        assert_eq!(data.friendly_opacity_min, 0.5);
         assert_eq!(data.friendly_opacity_max, 1.0);
-        assert!(!data.innate_stealth);
+        assert_eq!(data.stealth_delay, u32::MAX);
+        assert_eq!(data.pulse_frames, 30);
+        assert!(data.innate_stealth);
     }
 
     #[test]

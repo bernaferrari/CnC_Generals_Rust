@@ -10,6 +10,11 @@ pub mod service;
 pub mod stun;
 pub mod upnp;
 
+pub use crate::nat_traversal::{
+    the_nat_establish, the_nat_failed_reason, the_nat_state, the_nat_update, reset_the_nat,
+    NatBehavior, NatState, TheNat,
+};
+
 // Re-export service types (existing NAT functionality)
 pub use service::{NatBinding, NatConfig, NatService};
 

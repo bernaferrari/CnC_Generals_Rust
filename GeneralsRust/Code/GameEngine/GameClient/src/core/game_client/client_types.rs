@@ -31,6 +31,14 @@ pub struct GameClient {
     last_applied_military_caption: Option<String>,
     /// Last presentation cinematic text applied (avoid per-frame re-push).
     last_applied_cinematic_text: Option<String>,
+    /// C++ `Display::m_cinematicFont` residual (script font name).
+    cinematic_overlay_font: Option<String>,
+    /// C++ `Display::m_cinematicTextFrames` — decremented per rendered frame.
+    cinematic_overlay_frames: u32,
+    /// Live letterbox enable residual (mirrors Display, for overlay fade).
+    letterbox_overlay_enabled: bool,
+    /// Instant letterbox enable/disable flipped (C++ `m_letterBoxFadeStartTime`).
+    letterbox_overlay_fade_start: Option<Instant>,
     /// Last live InGameUI postDraw / icon-UI submit residual (present path).
     last_live_ingame_hud_draw: LiveInGameHudDrawCounts,
 

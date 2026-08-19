@@ -256,7 +256,32 @@ impl WorkerAIUpdate {
         }
     }
 
-    /// Update the worker supply state machine.
+    /// True when a dozer build/repair/fortify task is active (C++ AS_DOZER).
+    fn is_acting_as_dozer(&self) -> bool {
+        self.dozer_task.is_some() || self.current_task.is_some()
+    }
+
+    /// C++ WorkerAIUpdate::update: `getObject()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL)`.
+    /// Gathering workers can be diverted to clear mines while ferrying.
+    fn set_harvest_mine_clearing_weapon_set(&self) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        if self.object_id == INVALID_ID {
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        if let Ok(mut owner_guard) = owner.write() {
+            owner_guard.set_weapon_set_flag(crate::weapon::WeaponSetType::MineClearingDetail);
+        }
+    }
+
+    /// Update the worker: dozer machine or supply-truck harvest machine.
+    /// Matches C++ WorkerAIUpdate::update.
     pub fn update(&mut self) -> StateReturnType {
         if self.state_machine.is_none() {
             if self.object_id != INVALID_ID {
@@ -266,12 +291,22 @@ impl WorkerAIUpdate {
             }
         }
 
+        // C++: if m_workerMachine == AS_DOZER run the dozer machine; else harvest.
+        if self.is_acting_as_dozer() {
+            self.update_dozer_task();
+            return StateReturnType::Continue;
+        }
+
         let status = if let Some(machine) = &mut self.state_machine {
             machine.update()
         } else {
             StateReturnType::Failure
         };
         self.sync_state_from_machine();
+
+        // If we are harvesting, we can be diverted to clear mines.  jba.
+        self.set_harvest_mine_clearing_weapon_set();
+
         status
     }
 

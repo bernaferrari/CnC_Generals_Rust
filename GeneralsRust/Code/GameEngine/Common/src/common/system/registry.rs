@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
 use thiserror::Error;
 
 /// Default qualifier used when creating application specific storage paths.
@@ -230,6 +232,85 @@ impl Default for Registry {
         Self::new()
     }
 }
+
+/// C++ `SOFTWARE\\Electronic Arts\\EA Games\\Command and Conquer Generals Zero Hour`.
+pub const ZH_REGISTRY_ROOT: &str =
+    r"SOFTWARE\Electronic Arts\EA Games\Command and Conquer Generals Zero Hour";
+
+const DEFAULT_REGISTRY_LANGUAGE: &str = "english";
+const DEFAULT_REGISTRY_SKU: &str = "GeneralsMPTest";
+const DEFAULT_REGISTRY_VERSION: u32 = 65536;
+
+static ZH_REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
+
+/// Process-wide ZH config store (JSON-backed, with C++ key names).
+pub fn zh_registry() -> &'static Registry {
+    &ZH_REGISTRY
+}
+
+fn registry_lookup_keys(path: &str, key: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let trimmed_path = path.trim_matches('\\');
+    if trimmed_path.is_empty() {
+        keys.push(key.to_string());
+        keys.push(format!("{}\\{}", ZH_REGISTRY_ROOT, key));
+    } else {
+        keys.push(format!("{}\\{}", trimmed_path, key));
+        keys.push(format!("{}\\{}\\{}", ZH_REGISTRY_ROOT, trimmed_path, key));
+        keys.push(key.to_string());
+    }
+    keys
+}
+
+/// C++ `GetStringFromRegistry`. Looks up `path+key` then bare `key`.
+pub fn get_string_from_registry(path: &str, key: &str) -> Option<String> {
+    let registry = zh_registry();
+    for candidate in registry_lookup_keys(path, key) {
+        if let Ok(value) = registry.read_string(&candidate) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// C++ `GetUnsignedIntFromRegistry`.
+pub fn get_unsigned_int_from_registry(path: &str, key: &str) -> Option<u32> {
+    let registry = zh_registry();
+    for candidate in registry_lookup_keys(path, key) {
+        if let Ok(value) = registry.read_dword(&candidate) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// C++ `GetRegistryLanguage` — default `"english"`.
+pub fn get_registry_language() -> String {
+    get_string_from_registry("", "Language")
+        .unwrap_or_else(|| DEFAULT_REGISTRY_LANGUAGE.to_string())
+}
+
+/// C++ `GetRegistryGameName` — SKU, default `"GeneralsMPTest"`.
+pub fn get_registry_game_name() -> String {
+    get_string_from_registry("", "SKU").unwrap_or_else(|| DEFAULT_REGISTRY_SKU.to_string())
+}
+
+/// C++ `GetRegistryVersion` — default `65536`.
+pub fn get_registry_version() -> u32 {
+    get_unsigned_int_from_registry("", "Version").unwrap_or(DEFAULT_REGISTRY_VERSION)
+}
+
+/// C++ `GetRegistryMapPackVersion` — default `65536`.
+pub fn get_registry_map_pack_version() -> u32 {
+    get_unsigned_int_from_registry("", "MapPackVersion").unwrap_or(DEFAULT_REGISTRY_VERSION)
+}
+
+/// `UserData` / `UserDataLeafName` leaf used by GlobalData user-data path.
+pub fn get_registry_user_data() -> Option<String> {
+    get_string_from_registry("", "UserData")
+        .or_else(|| get_string_from_registry("", "UserDataLeafName"))
+}
+
 
 #[cfg(test)]
 mod tests {

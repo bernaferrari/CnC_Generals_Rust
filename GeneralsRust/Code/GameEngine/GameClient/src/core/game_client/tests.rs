@@ -1357,7 +1357,12 @@ mod tests {
         client.subsystem_manager.in_game_ui =
             Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
 
-        client.apply_presentation_cinematic_text(Some("Hold the ridge"));
+        if let Some(ui) = &client.subsystem_manager.in_game_ui {
+            if let Ok(mut ui) = ui.lock() {
+                ui.push_hud_message("Hold the ridge".to_string());
+            }
+        }
+        client.apply_presentation_cinematic_text(Some("Hold the ridge"), Some(2500), Some("Arial"));
         client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500));
         client.apply_presentation_floating_texts(&[(
             "+$100".to_string(),

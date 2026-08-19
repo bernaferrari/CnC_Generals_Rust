@@ -413,29 +413,91 @@ fn resolve_window_mode(cmd_args: &command_line::CommandLineArgs) -> (bool, bool)
     }
 }
 
-fn centered_startup_position(
+pub fn centered_startup_position(
     _event_loop: &EventLoop<()>,
-    _width: u32,
-    _height: u32,
+    width: u32,
+    height: u32,
 ) -> Option<PhysicalPosition<i32>> {
-    // winit 0.30 does not expose monitor geometry from EventLoop at bootstrap time.
-    // Window centering is handled after creation via Window::primary_monitor().
-    Some(PhysicalPosition::new(100, 100))
+    let (origin_x, origin_y, screen_w, screen_h) = primary_screen_geometry();
+    Some(centered_startup_position_from_monitor(
+        PhysicalPosition::new(origin_x, origin_y),
+        winit::dpi::PhysicalSize::new(screen_w, screen_h),
+        width,
+        height,
+    ))
 }
 
-fn startup_window_attributes(
+fn primary_screen_geometry() -> (i32, i32, u32, u32) {
+    #[cfg(target_os = "macos")]
+    {
+        #[repr(C)]
+        struct CGPoint {
+            x: f64,
+            y: f64,
+        }
+        #[repr(C)]
+        struct CGSize {
+            width: f64,
+            height: f64,
+        }
+        #[repr(C)]
+        struct CGRect {
+            origin: CGPoint,
+            size: CGSize,
+        }
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGMainDisplayID() -> u32;
+            fn CGDisplayBounds(display: u32) -> CGRect;
+        }
+        unsafe {
+            let bounds = CGDisplayBounds(CGMainDisplayID());
+            return (
+                bounds.origin.x as i32,
+                bounds.origin.y as i32,
+                bounds.size.width.max(1.0) as u32,
+                bounds.size.height.max(1.0) as u32,
+            );
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetrics(index: i32) -> i32;
+        }
+        const SM_CXSCREEN: i32 = 0;
+        const SM_CYSCREEN: i32 = 1;
+        unsafe {
+            return (
+                0,
+                0,
+                GetSystemMetrics(SM_CXSCREEN).max(1) as u32,
+                GetSystemMetrics(SM_CYSCREEN).max(1) as u32,
+            );
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        (0, 0, 1920, 1080)
+    }
+}
+
+pub fn startup_window_attributes(
     width: u32,
     height: u32,
     is_windowed: bool,
     is_fullscreen: bool,
     startup_position: Option<PhysicalPosition<i32>>,
 ) -> WindowAttributes {
+    // C++ initializeAppWindows: WS_POPUP (not resizable). Decorated caption
+    // only with -win. Fullscreen is HWND_TOPMOST popup.
     let mut attributes = Window::default_attributes()
         .with_title(STARTUP_WINDOW_TITLE)
         .with_inner_size(LogicalSize::new(width as f64, height as f64))
-        .with_resizable(true)
+        .with_resizable(false)
         .with_maximized(false)
-        .with_decorations(true)
+        .with_decorations(is_windowed)
         .with_visible(true)
         .with_window_level(if is_fullscreen {
             WindowLevel::AlwaysOnTop
@@ -614,7 +676,7 @@ mod tests {
         assert!(attributes.fullscreen.is_none());
         assert!(attributes.visible);
         assert!(attributes.decorations);
-        assert!(attributes.resizable);
+        assert!(!attributes.resizable);
         assert!(!attributes.maximized);
 
         let fullscreen_attributes = startup_window_attributes(

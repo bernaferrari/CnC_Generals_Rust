@@ -35,19 +35,16 @@ impl ControlBar {
 
         // C++ ControlBar.cpp:2177-2188 CB_CONTEXT_COMMAND: show CommandWindow,
         // hide UnderConstruction / OCLTimer / Observer list / Beacon.
+        // populateCommand (ControlBarCommand.cpp:317) winHide(FALSE) ButtonCommand01-14.
         if new_state == ControlBarState::Command {
-            with_window_manager(|manager| {
-                let set_hidden = |name: &str, hidden: bool| {
-                    if let Some(win) = manager.find_window_by_name(name) {
-                        let _ = win.borrow_mut().hide(hidden);
-                    }
-                };
-                set_hidden("ControlBar.wnd:CommandWindow", false);
-                set_hidden("ControlBar.wnd:UnderConstructionWindow", true);
-                set_hidden("ControlBar.wnd:OCLTimerWindow", true);
-                set_hidden("ControlBar.wnd:ObserverPlayerListWindow", true);
-                set_hidden("ControlBar.wnd:BeaconWindow", true);
-            });
+            reveal_ingame_command_window();
+        }
+        if new_state == ControlBarState::Observer {
+            super::control_bar_observer::init_observer_controls();
+            super::control_bar_observer::reveal_observer_list_window();
+        }
+        if new_state == ControlBarState::StructureInventory {
+            reveal_ingame_command_window();
         }
 
         self.rebuild_command_buttons(&mut context)?;

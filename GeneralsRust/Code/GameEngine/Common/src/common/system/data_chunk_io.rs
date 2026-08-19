@@ -29,6 +29,7 @@ struct DataChunkTableOfContents {
     list: Vec<Mapping>,
     by_id: HashMap<u32, String>,
     opened: bool,
+    next_id: u32,
 }
 
 impl DataChunkTableOfContents {
@@ -53,15 +54,22 @@ impl DataChunkTableOfContents {
         self.by_id.clear();
 
         let mut max_id = 0u32;
+        let mut truncated = false;
         for _ in 0..count {
-            let len = stream.read_u8().unwrap_or(0) as usize;
+            let Some(len) = stream.read_u8() else {
+                truncated = true;
+                break;
+            };
+            let len = len as usize;
             let mut buf = vec![0u8; len];
-            if len > 0 {
-                if !stream.read_exact(&mut buf) {
-                    break;
-                }
+            if len > 0 && !stream.read_exact(&mut buf) {
+                truncated = true;
+                break;
             }
-            let id = stream.read_u32().unwrap_or(0);
+            let Some(id) = stream.read_u32() else {
+                truncated = true;
+                break;
+            };
             let name = String::from_utf8_lossy(&buf).to_string();
             self.list.push(Mapping {
                 _id: id,
@@ -71,7 +79,9 @@ impl DataChunkTableOfContents {
             max_id = max_id.max(id);
         }
 
-        self.opened = max_id > 0;
+        // C++ DataChunk.cpp:551-554 — opened iff count>0 and the stream is not at EOF.
+        self.opened = count > 0 && !truncated && !stream.eof();
+        self.next_id = self.next_id.max(max_id.saturating_add(1));
     }
 
     fn get_name(&self, id: u32) -> String {

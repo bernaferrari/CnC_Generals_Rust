@@ -9,11 +9,7 @@ use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
 
-/// Wave 442: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
+
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DOverlordAircraftDrawModuleData {
@@ -113,46 +109,8 @@ impl Module for W3DOverlordAircraftDraw {
 impl DrawModule for W3DOverlordAircraftDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
-
-        // Wave 442: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        let Some(owner_id) = self.owner_id else {
-            return;
-        };
-        let Some(((tint, tint_status), rider_id)) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(owner_id, |owner_guard| {
-                let tint = owner_guard
-                    .get_drawable()
-                    .as_ref()
-                    .and_then(|d| d.read().ok())
-                    .map(|g| (g.get_tint_color(), g.get_tint_status()))
-                    .unwrap_or((Color::white(), TintStatus::NONE));
-                let rider_id = owner_guard
-                    .get_contain()
-                    .and_then(|contain| contain.lock().ok().and_then(|cg| cg.friend_get_rider()))?;
-                Some((tint, rider_id))
-            })
-            .flatten()
-        else {
-            return;
-        };
-        let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
-            .flatten()
-        else {
-            return;
-        };
-        let drawable = drawable.clone();
-        {
-            let Ok(mut drawable_guard) = drawable.write() else {
-                return;
-            };
-            drawable_guard.set_color_tint(tint);
-            drawable_guard.set_tint_status_exact(tint_status);
-            drawable_guard.notify_drawable_dependency_cleared();
-            drawable_guard.draw(None);
+        if let Some(owner_id) = self.owner_id {
+            super::overlord_rider::draw_overlord_rider(owner_id);
         }
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -169,27 +127,8 @@ impl DrawModule for W3DOverlordAircraftDraw {
     }
     fn set_hidden(&mut self, hidden: bool) {
         DrawModule::set_hidden(&mut self.base, hidden);
-
-        // Wave 442: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        let Some(rider_id) = self.owner_id.and_then(|id| {
-            crate::object::registry::OBJECT_REGISTRY
-                .with_object(id, |owner_guard| {
-                    owner_guard.get_contain().and_then(|contain| {
-                        contain.lock().ok().and_then(|cg| cg.friend_get_rider())
-                    })
-                })
-                .flatten()
-        }) else {
-            return;
-        };
-        if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(rider_id, |rider_guard| rider_guard.get_drawable())
-            .flatten()
-        {
-            let _ = drawable.set_drawable_hidden(hidden);
+        if let Some(owner_id) = self.owner_id {
+            super::overlord_rider::set_overlord_rider_hidden(owner_id, hidden);
         }
     }
     fn is_visible(&self) -> bool {

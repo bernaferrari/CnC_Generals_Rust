@@ -10,6 +10,26 @@ impl Module for W3DModelDraw {
 
     fn on_delete(&mut self) {
         self.stop_client_particle_systems();
+        self.unbind_terrain_track();
+        if let Some(owner_id) = self.owner_id {
+            if let Some(client) = terrain_decal_client() {
+                client.release(owner_id);
+            }
+        }
+    }
+
+    fn preload_assets(&mut self, _time_of_day: TimeOfDay) {
+        for state in self
+            .data
+            .condition_states
+            .iter()
+            .chain(self.data.transition_states.iter())
+        {
+            preload_draw_asset(state.model_name.as_str());
+            for anim in &state.animations {
+                preload_draw_asset(anim.name.as_str());
+            }
+        }
     }
 
     fn get_module_name_key(&self) -> NameKeyType {
@@ -27,6 +47,9 @@ impl Module for W3DModelDraw {
 
 impl DrawModule for W3DModelDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
+        self.set_pause_animation(!self.owner_should_animate());
+
         if self.fully_obscured_by_shroud || self.hidden {
             return;
         }
@@ -57,27 +80,22 @@ impl DrawModule for W3DModelDraw {
         }
 
         self.adjust_anim_speed_to_movement_speed();
-
-        // Update client-side effects
-        // Reference: C++ W3DModelDraw.cpp:2075-2088
-
-        // Update turret rotations (for tanks, etc.)
         self.handle_client_turret_positioning();
 
         if self.sub_objects_dirty {
             self.update_sub_objects();
         }
 
-        // C++ parity: recalc bone particle systems every draw, then update animated-bone systems.
         self.recalc_bones_for_client_particle_systems();
         if self.data.particles_attached_to_animated_bones {
             let _ = self.update_bones_for_client_particle_systems();
         }
 
-        // Update weapon recoil animations
         self.handle_client_recoil();
 
-        self.submit_draw_to_bridge(transform_mtx);
+        let adjusted = self.adjust_transform_mtx(transform_mtx);
+        self.submit_draw_to_bridge(&adjusted);
+        self.sync_terrain_decal_pose();
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -99,22 +117,34 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
-        self.terrain_decal = decal_type;
-        // When terrain decal rendering is implemented, this will update the render state.
+        self.apply_terrain_decal(decal_type);
     }
 
     fn set_terrain_decal_size(&mut self, x: Real, y: Real) {
         self.terrain_decal_size = Some((x, y));
+        if let Some(owner_id) = self.owner_id {
+            if let Some(client) = terrain_decal_client() {
+                client.set_size(owner_id, x, y);
+            }
+        }
     }
 
     fn set_terrain_decal_opacity(&mut self, opacity: Real) {
         self.terrain_decal_opacity = Some(opacity);
+        if let Some(owner_id) = self.owner_id {
+            if let Some(client) = terrain_decal_client() {
+                client.set_opacity(owner_id, opacity);
+            }
+        }
     }
 
     fn set_hidden(&mut self, hidden: bool) {
         if self.hidden != hidden {
             self.hidden = hidden;
             self.do_start_or_stop_particle_sys();
+            if hidden {
+                self.cap_terrain_track();
+            }
         }
     }
 
@@ -126,6 +156,11 @@ impl DrawModule for W3DModelDraw {
         if self.fully_obscured_by_shroud != fully_obscured {
             self.fully_obscured_by_shroud = fully_obscured;
             self.do_start_or_stop_particle_sys();
+            if let Some(owner_id) = self.owner_id {
+                if let Some(client) = terrain_decal_client() {
+                    client.set_shrouded(owner_id, fully_obscured);
+                }
+            }
         }
     }
 
@@ -139,8 +174,8 @@ impl DrawModule for W3DModelDraw {
         _old_pos: &Coord3D,
         _old_angle: Real,
     ) {
-        // C++ updates render-object and track-object transforms here; those runtime systems
-        // are still client-side only in this port.
+        self.update_terrain_track();
+        self.sync_terrain_decal_pose();
     }
 
     fn react_to_geometry_change(&mut self) {
@@ -519,19 +554,20 @@ impl ObjectDrawInterface for W3DModelDraw {
         if let Some(state_index) = self.find_best_state_index(condition) {
             self.set_model_state(state_index);
         }
+        self.hide_all_headlights();
     }
 
     fn handle_weapon_fire_fx(
         &mut self,
         weapon_slot: usize,
         barrel_index: i32,
-        _victim_pos: &Coord3D,
+        victim_pos: &Coord3D,
     ) -> bool {
         if weapon_slot >= WEAPONSLOT_COUNT {
             return false;
         }
 
-        let (selected_barrel, barrel_info) = {
+        let (selected_barrel, barrel_info, fx_bone_name, muzzle_name) = {
             let Some(state) = self.current_state() else {
                 return false;
             };
@@ -548,27 +584,60 @@ impl ObjectDrawInterface for W3DModelDraw {
             (
                 selected_barrel as usize,
                 barrels[selected_barrel as usize].clone(),
+                state.weapon_fire_fx_bone[weapon_slot].to_string(),
+                state.weapon_muzzle_flash[weapon_slot].to_string(),
             )
         };
 
-        // Start recoil animation.
         if selected_barrel < self.weapon_recoil_info[weapon_slot].len() {
             self.weapon_recoil_info[weapon_slot][selected_barrel].state = RecoilState::RecoilStart;
             self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate =
                 self.data.initial_recoil;
         }
 
-        if barrel_info.muzzle_flash_bone != 0 {
-            // Muzzle-flash sub-object visibility depends on the render-object path.
-            // Keep recoil behavior active while render object integration is pending.
+        if barrel_info.muzzle_flash_bone != 0 && !muzzle_name.is_empty() {
+            let index = selected_barrel + 1;
+            let named = format!("{muzzle_name}{index:02}");
+            self.show_sub_object(&named, true);
+            self.show_sub_object(&muzzle_name, true);
         }
 
+        let mut handled = false;
         if barrel_info.fx_bone != 0 {
-            // Weapon fire FX attachment to FX bone depends on render-object transform lookups.
-            // C++ only reports handled after actually invoking FXList::doFXPos from this path.
+            let (pos, mtx) = if !self.hidden {
+                let bone_name = if fx_bone_name.is_empty() {
+                    None
+                } else {
+                    let index = selected_barrel + 1;
+                    Some(format!("{fx_bone_name}{index:02}"))
+                };
+                let world = bone_name.and_then(|name| {
+                    self.with_owner_drawable(|drawable| drawable.get_bone_transform(&name))
+                        .flatten()
+                        .or_else(|| {
+                            self.with_owner_drawable(|drawable| {
+                                drawable.get_current_worldspace_client_bone_positions(
+                                    &fx_bone_name,
+                                )
+                            })
+                            .flatten()
+                        })
+                });
+                if let Some(world) = world {
+                    let pos = Coord3D::new(world.w_axis.x, world.w_axis.y, world.w_axis.z);
+                    (pos, world)
+                } else {
+                    self.logic_fire_fx_fallback()
+                }
+            } else {
+                self.logic_fire_fx_fallback()
+            };
+            let _ = (mtx, victim_pos);
+            self.fire_owner_weapon_fx(weapon_slot, &pos);
+            handled = true;
         }
 
-        false
+        handled
     }
 
     fn get_barrel_count(&self, weapon_slot: usize) -> i32 {

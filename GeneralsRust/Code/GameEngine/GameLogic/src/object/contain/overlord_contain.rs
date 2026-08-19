@@ -1057,6 +1057,10 @@ impl ContainModuleInterface for OverlordContain {
         OverlordContain::kill_all_contained(self).map_err(|e| e.into())
     }
 
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
     fn is_displayed_on_control_bar(&self) -> bool {
         OverlordContain::is_displayed_on_control_bar(self)
     }

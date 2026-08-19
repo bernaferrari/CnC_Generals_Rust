@@ -3,14 +3,29 @@
 //! Ported from `ControlBarStructureInventory.cpp`.
 
 use super::control_bar::ControlBar;
-use super::ControlBarContext;
+use super::{CommandButton, ControlBarContext};
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
+/// C++ `MAX_STRUCTURE_INVENTORY_BUTTONS` (ControlBar.h:389).
+pub const MAX_STRUCTURE_INVENTORY_BUTTONS: usize = 10;
+/// C++ `STOP_ID` / `EVACUATE_ID` (ControlBarStructureInventory.cpp:29-30).
+pub const STRUCTURE_INVENTORY_STOP_ID: usize = 10;
+pub const STRUCTURE_INVENTORY_EVACUATE_ID: usize = 11;
+
+/// Occupant portrait assigned to an inventory exit slot.
+#[derive(Debug, Clone, Default)]
+pub struct StructureInventoryOccupant {
+    pub object_id: u32,
+    pub button_image: String,
+    pub overlay_image: Option<String>,
+}
+
 /// Append inventory commands for garrison/contain structures.
 ///
-/// C++ renders one button per contained unit; this pass preserves command availability parity by
-/// exposing exit/evacuate/stop controls through the command list model.
+/// C++ `populateStructureInventory` / `populateButtonProc`: one `Command_StructureExit`
+/// slot per contained unit with that unit's `getButtonImage()`, veterancy overlay,
+/// Evacuate/Stop enabled when count > 0.
 pub(super) fn append_structure_inventory_commands(
     context: &mut ControlBarContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -29,7 +44,7 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     }
 
     let mut max_capacity = 0usize;
-    let mut contained_count = 0usize;
+    let mut occupants: Vec<StructureInventoryOccupant> = Vec::new();
     let mut used_registry = false;
 
     if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
@@ -40,10 +55,11 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
                         && contain_guard.get_max_capacity() > 0
                     {
                         max_capacity = contain_guard.get_max_capacity();
-                        contained_count = contain_guard.get_contained_count();
+                        for &occupant_id in contain_guard.get_contained_objects() {
+                            occupants.push(occupant_from_registry(occupant_id));
+                        }
                         used_registry = true;
                     } else {
-                        // Dual-world object says not shown — do not fall back.
                         return Ok(());
                     }
                 }
@@ -52,12 +68,14 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     }
 
     if !used_registry {
-        // Host presentation residual — no dual-world contain modules.
         if presentation_max_garrison == 0 {
             return Ok(());
         }
         max_capacity = presentation_max_garrison;
-        contained_count = presentation_garrisoned_count;
+        let count = presentation_garrisoned_count.min(max_capacity);
+        for _ in 0..count {
+            occupants.push(StructureInventoryOccupant::default());
+        }
     }
 
     if max_capacity == 0 {
@@ -68,29 +86,121 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
         return Ok(());
     };
 
-    if let Some(button) = common_bar.find_command_button_resolved("Command_StructureExit") {
-        ControlBar::push_command_if_missing(context, ControlBar::command_from_definition(button));
+    let exit_def = common_bar.find_command_button_resolved("Command_StructureExit");
+    let evacuate_def = common_bar.find_command_button_resolved("Command_Evacuate");
+    let stop_def = common_bar.find_command_button_resolved("Command_Stop");
+    let exit_image = exit_def
+        .map(|button| button.button_image.clone())
+        .unwrap_or_default();
+
+    let contained_count = occupants.len();
+    let slot_count = max_capacity.min(MAX_STRUCTURE_INVENTORY_BUTTONS);
+
+    // C++ hides every command window first, then rebuilds inventory slots 0..9
+    // plus Stop (10) / Evacuate (11).
+    context.available_commands.clear();
+    context.contain_data.clear();
+    context.contain_data.resize(14, None);
+
+    for i in 0..14 {
+        if i < MAX_STRUCTURE_INVENTORY_BUTTONS {
+            let mut button = exit_def
+                .map(ControlBar::command_from_definition)
+                .unwrap_or_else(|| CommandButton {
+                    command_name: STRUCTURE_INVENTORY_EXIT_COMMAND_NAME.to_string(),
+                    ..CommandButton::default()
+                });
+            if i < slot_count {
+                if let Some(occupant) = occupants.get(i) {
+                    if occupant.object_id != 0 {
+                        button.exit_object_id = Some(occupant.object_id);
+                        context.contain_data[i] = Some(occupant.object_id);
+                    }
+                    if !occupant.button_image.is_empty() {
+                        button.button_image = occupant.button_image.clone();
+                    } else if button.button_image.is_empty() {
+                        button.button_image = exit_image.clone();
+                    }
+                    button.overlay_image = occupant.overlay_image.clone();
+                    button.button_enabled = occupant.object_id != 0 || !used_registry;
+                } else {
+                    button.button_enabled = false;
+                    if button.button_image.is_empty() {
+                        button.button_image = exit_image.clone();
+                    }
+                }
+                button.button_hidden = false;
+            } else {
+                button.button_hidden = true;
+                button.button_enabled = false;
+            }
+            context.available_commands.push(button);
+        } else if i == STRUCTURE_INVENTORY_STOP_ID {
+            let mut button = stop_def
+                .map(ControlBar::command_from_definition)
+                .unwrap_or_else(|| CommandButton {
+                    command_name: STRUCTURE_INVENTORY_STOP_COMMAND_NAME.to_string(),
+                    ..CommandButton::default()
+                });
+            button.button_enabled = contained_count > 0;
+            button.button_hidden = false;
+            context.available_commands.push(button);
+        } else if i == STRUCTURE_INVENTORY_EVACUATE_ID {
+            let mut button = evacuate_def
+                .map(ControlBar::command_from_definition)
+                .unwrap_or_else(|| CommandButton {
+                    command_name: STRUCTURE_INVENTORY_EVACUATE_COMMAND_NAME.to_string(),
+                    ..CommandButton::default()
+                });
+            button.button_enabled = contained_count > 0;
+            button.button_hidden = false;
+            context.available_commands.push(button);
+        } else {
+            context.available_commands.push(CommandButton {
+                button_hidden: true,
+                button_enabled: false,
+                ..CommandButton::default()
+            });
+        }
     }
 
-    if contained_count > 0 {
-        if let Some(button) = common_bar.find_command_button_resolved("Command_Evacuate") {
-            ControlBar::push_command_if_missing(
-                context,
-                ControlBar::command_from_definition(button),
-            );
-        }
-        if let Some(button) = common_bar.find_command_button_resolved("Command_Stop") {
-            ControlBar::push_command_if_missing(
-                context,
-                ControlBar::command_from_definition(button),
-            );
-        }
-    }
-
-    // Keep inventory count residual coherent for UI consumers.
     context.last_recorded_inventory_count = contained_count as u32;
+    RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_COUNT.store(contained_count, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EXIT.store(true, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EVACUATE.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_STOP.store(contained_count > 0, std::sync::atomic::Ordering::Relaxed);
+    residual_si_action_store(ResidualStructureInventoryAction::Populate);
 
     Ok(())
+}
+
+fn occupant_from_registry(occupant_id: impl Into<u32>) -> StructureInventoryOccupant {
+    let object_id = occupant_id.into();
+    let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        return StructureInventoryOccupant {
+            object_id,
+            ..StructureInventoryOccupant::default()
+        };
+    };
+    let Ok(object) = object_arc.read() else {
+        return StructureInventoryOccupant {
+            object_id,
+            ..StructureInventoryOccupant::default()
+        };
+    };
+    let template_name = object.get_template_name().to_string();
+    let overlay_image = match object.get_veterancy_level() {
+        gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
+        _ => None,
+    };
+    StructureInventoryOccupant {
+        object_id,
+        button_image: template_name,
+        overlay_image,
+    }
 }
 
 /// Residual: last structure-inventory action requested by residual peels.

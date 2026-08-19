@@ -668,7 +668,6 @@ impl InGameUI {
 
     /// Wave 967: host empty dual-world select-matching via presentation unit catalog.
     fn select_matching_from_presentation_catalog(&mut self, region: Option<&IRegion2D>) -> i32 {
-        // Seed templates from selection manager, else presentation selection residual.
         let selection_manager = get_selection_manager();
         let mut selected_ids: Vec<ObjectID> = if let Ok(manager) = selection_manager.read() {
             manager
@@ -691,13 +690,13 @@ impl InGameUI {
 
         let mut templates: Vec<String> = Vec::new();
         let mut local_team: Option<String> = None;
+        let mut is_car_bomb = false;
         for &object_id in &selected_ids {
             let Some(entry) = self
                 .presentation_unit_catalog
                 .iter()
                 .find(|u| u.object_id == object_id)
             else {
-                // Fall back to presentation_selected residual for template name.
                 if let Some(sel) = self
                     .presentation_selected
                     .iter()
@@ -712,7 +711,6 @@ impl InGameUI {
             if !entry.selectable {
                 continue;
             }
-            // Wave 1089: select-matching seed residual fail-closed on unusable.
             if entry.destroyed || entry.sold || entry.masked || entry.disabled || entry.unselectable
             {
                 continue;
@@ -722,6 +720,11 @@ impl InGameUI {
             }
             if local_team.as_deref() != Some(entry.team_name.as_str()) {
                 continue;
+            }
+            if entry.kind_names.iter().any(|k| k.eq_ignore_ascii_case("CARBOMB"))
+                || entry.disguised
+            {
+                is_car_bomb = true;
             }
             if !entry.template_name.is_empty() && !templates.contains(&entry.template_name) {
                 templates.push(entry.template_name.clone());
@@ -739,8 +742,6 @@ impl InGameUI {
                 if !u.selectable {
                     return false;
                 }
-                // Wave 1089: select-matching candidate residual fail-closed on
-                // unusable / non-local stealth/FOW.
                 if u.destroyed || u.sold || u.unselectable || u.masked || u.disabled {
                     return false;
                 }
@@ -774,7 +775,11 @@ impl InGameUI {
                         return false;
                     }
                 }
-                templates.iter().any(|t| t == &u.template_name)
+                let equivalent = templates.iter().any(|t| Self::templates_equivalent(t, &u.template_name));
+                equivalent
+                    || (is_car_bomb
+                        && (u.disguised
+                            || u.kind_names.iter().any(|k| k.eq_ignore_ascii_case("CARBOMB"))))
             })
             .map(|u| u.object_id)
             .collect();
@@ -783,7 +788,59 @@ impl InGameUI {
         }
         matching.sort_unstable();
         matching.dedup();
+        self.commit_matching_selection(matching)
+    }
+
+    fn templates_equivalent(a: &str, b: &str) -> bool {
+        if a.eq_ignore_ascii_case(b) {
+            return true;
+        }
+        let Ok(factory_guard) = get_thing_factory() else {
+            return false;
+        };
+        let Some(factory) = factory_guard.as_ref() else {
+            return false;
+        };
+        let Some(ta) = factory.find_template(a, false) else {
+            return false;
+        };
+        let Some(tb) = factory.find_template(b, false) else {
+            return false;
+        };
+        ta.is_equivalent_to(&*tb)
+    }
+
+    fn commit_matching_selection(&mut self, mut matching: Vec<ObjectID>) -> i32 {
+        let already: Vec<ObjectID> = self.get_selection();
+        matching.retain(|id| !already.contains(id));
+        if matching.is_empty() {
+            return 0;
+        }
+
+        let max = TheInGameUI::get_max_select_count();
+        let current = already.len() as i32;
+        if max > 0 {
+            let room = (max - current).max(0) as usize;
+            if matching.len() > room {
+                if !self.displayed_max_warning {
+                    self.displayed_max_warning = true;
+                    let label = GameText::fetch("GUI:MaxSelectionSize");
+                    self.message(&label.replace("%d", &max.to_string()).replace("%i", &max.to_string()));
+                }
+                matching.truncate(room);
+            } else {
+                self.displayed_max_warning = false;
+            }
+        }
+        if matching.is_empty() {
+            return 0;
+        }
         let count = matching.len() as i32;
+        let _ = append_message_to_stream(GameMessageType::CreateSelectedGroupNoSound(
+            false,
+            matching.clone(),
+        ));
+        let selection_manager = get_selection_manager();
         if let Ok(mut manager) = selection_manager.write() {
             if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
                 selection.select_objects(matching, SelectionType::Add);
@@ -794,8 +851,24 @@ impl InGameUI {
         count
     }
 
+    fn object_is_car_bomb(object: &Object) -> bool {
+        object.test_status(gamelogic::common::ObjectStatusTypes::IsCarBomb)
+    }
+
+    fn similar_object_matches(object: &Object, templates: &[String], is_car_bomb: bool) -> bool {
+        if !object.is_locally_controlled()
+            || object.is_contained()
+            || !object.is_mass_selectable()
+            || object.is_off_map()
+        {
+            return false;
+        }
+        let name = object.get_template_name();
+        let equivalent = templates.iter().any(|t| Self::templates_equivalent(t, name));
+        equivalent || (is_car_bomb && Self::object_is_car_bomb(object))
+    }
+
     fn select_matching_across_region(&mut self, region: &IRegion2D) -> i32 {
-        // Wave 967: host empty dual-world → presentation unit catalog residual.
         if dual_world_registry_unavailable() {
             return self.select_matching_from_presentation_catalog(Some(region));
         }
@@ -811,6 +884,7 @@ impl InGameUI {
         };
 
         let mut templates: Vec<String> = Vec::new();
+        let mut is_car_bomb = false;
         for &object_id in &selected_ids {
             if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
                 if let Ok(guard) = obj.read() {
@@ -818,6 +892,9 @@ impl InGameUI {
                         let name = guard.get_template_name().to_string();
                         if !templates.contains(&name) {
                             templates.push(name);
+                        }
+                        if Self::object_is_car_bomb(&guard) {
+                            is_car_bomb = true;
                         }
                     }
                 }
@@ -827,7 +904,6 @@ impl InGameUI {
         if templates.is_empty() {
             return -1;
         }
-        // Host/presentation path: no dual-world objects.
         if OBJECT_REGISTRY.is_empty() {
             return -1;
         }
@@ -837,7 +913,7 @@ impl InGameUI {
             let Ok(guard) = obj.read() else {
                 continue;
             };
-            if !guard.is_selectable() || !guard.is_locally_controlled() {
+            if !guard.is_selectable() {
                 continue;
             }
             let pos = guard.get_position();
@@ -848,7 +924,7 @@ impl InGameUI {
             {
                 continue;
             }
-            if templates.iter().any(|t| t == guard.get_template_name()) {
+            if Self::similar_object_matches(&guard, &templates, is_car_bomb) {
                 matching.push(guard.get_id());
             }
         }
@@ -856,27 +932,14 @@ impl InGameUI {
         if matching.is_empty() {
             return 0;
         }
-
-        let count = matching.len() as i32;
-        let selection_manager = get_selection_manager();
-        if let Ok(mut manager) = selection_manager.write() {
-            if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
-                selection.select_objects(matching, SelectionType::Add);
-            }
-        }
-        self.frame_selection_changed = self.current_frame;
-        self.sync_selection_state();
-        count
+        self.commit_matching_selection(matching)
     }
 
     pub fn select_matching_across_map(&mut self) -> i32 {
-        // Wave 967: host empty dual-world → presentation unit catalog residual.
         if dual_world_registry_unavailable() {
             return self.select_matching_from_presentation_catalog(None);
         }
 
-        // C++: InGameUI.cpp:4671 (selectMatchingAcrossRegion with NULL region)
-        // Gets templates from current selection, iterates all objects, selects matching
         let selection_manager = get_selection_manager();
         let selected_ids = if let Ok(manager) = selection_manager.read() {
             manager
@@ -887,8 +950,8 @@ impl InGameUI {
             return -1;
         };
 
-        // Collect unique template names from locally-controlled selected objects
         let mut templates: Vec<String> = Vec::new();
+        let mut is_car_bomb = false;
         for &object_id in &selected_ids {
             if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
                 if let Ok(guard) = obj.read() {
@@ -896,6 +959,9 @@ impl InGameUI {
                         let name = guard.get_template_name().to_string();
                         if !templates.contains(&name) {
                             templates.push(name);
+                        }
+                        if Self::object_is_car_bomb(&guard) {
+                            is_car_bomb = true;
                         }
                     }
                 }
@@ -905,12 +971,10 @@ impl InGameUI {
         if templates.is_empty() {
             return -1;
         }
-        // Host/presentation path: no dual-world objects.
         if OBJECT_REGISTRY.is_empty() {
             return -1;
         }
 
-        // Select all matching objects across the map
         let mut matching: Vec<ObjectID> = Vec::new();
         for obj in OBJECT_REGISTRY.get_all_objects() {
             let Ok(guard) = obj.read() else {
@@ -919,11 +983,7 @@ impl InGameUI {
             if !guard.is_selectable() {
                 continue;
             }
-            if !guard.is_locally_controlled() {
-                continue;
-            }
-            let obj_template = guard.get_template_name();
-            if templates.iter().any(|t| t == obj_template) {
+            if Self::similar_object_matches(&guard, &templates, is_car_bomb) {
                 matching.push(guard.get_id());
             }
         }
@@ -931,17 +991,7 @@ impl InGameUI {
         if matching.is_empty() {
             return 0;
         }
-
-        let count = matching.len() as i32;
-        let selection_manager = get_selection_manager();
-        if let Ok(mut manager) = selection_manager.write() {
-            if let Some(selection) = manager.get_player_selection(self.player_id as i32) {
-                selection.select_objects(matching, SelectionType::Add);
-            }
-        }
-        self.frame_selection_changed = self.current_frame;
-        self.sync_selection_state();
-        count
+        self.commit_matching_selection(matching)
     }
 
     // ── Drawable lifecycle ─────────────────────────────────────────────

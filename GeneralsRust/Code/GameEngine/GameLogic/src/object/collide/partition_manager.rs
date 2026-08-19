@@ -134,9 +134,9 @@ struct TerrainExtremeAccum {
     is_valid: bool,
 }
 
-/// Size of each partition cell in world units
-/// Matches C++ PARTITION_CELL_SIZE
-const PARTITION_CELL_SIZE: f32 = 100.0;
+/// Size of each partition cell in world units.
+/// Matches C++ `TheGlobalData->m_partitionCellSize` from GameData.ini (`PartitionCellSize = 40.0`).
+const PARTITION_CELL_SIZE: f32 = 40.0;
 
 /// Maximum number of players in the game.
 /// Matches C++ `MAX_PLAYER_COUNT` from GameCommon.h.
@@ -1042,6 +1042,51 @@ impl PartitionManager {
     //     (C++ PartitionManager::iterateCellsBreadthFirst)
     // ------------------------------------------------------------------
 
+    /// Fixed map-grid extent used to terminate BFS at the map edge.
+    /// Matches C++ `m_cellCountX` / `m_cellCountY` plus `curX-1>=0` /
+    /// `curX+1<m_cellCountX` checks. Returns `(min_x, min_y, max_x_excl, max_y_excl)`.
+    fn cell_grid_limits(&self) -> (i32, i32, i32, i32) {
+        if let Ok(terrain) = get_terrain_logic().try_read() {
+            let extent = terrain.get_extent();
+            if extent.hi.x > extent.lo.x && extent.hi.y > extent.lo.y {
+                let min_x = (extent.lo.x / PARTITION_CELL_SIZE).floor() as i32;
+                let min_y = (extent.lo.y / PARTITION_CELL_SIZE).floor() as i32;
+                let max_x = (extent.hi.x / PARTITION_CELL_SIZE).ceil() as i32;
+                let max_y = (extent.hi.y / PARTITION_CELL_SIZE).ceil() as i32;
+                if max_x > min_x && max_y > min_y {
+                    return (min_x, min_y, max_x, max_y);
+                }
+            }
+        }
+        if self.cells.is_empty() {
+            return (0, 0, 1, 1);
+        }
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        for c in self.cells.keys() {
+            min_x = min_x.min(c.x);
+            min_y = min_y.min(c.y);
+            max_x = max_x.max(c.x + 1);
+            max_y = max_y.max(c.y + 1);
+        }
+        (min_x, min_y, max_x, max_y)
+    }
+
+    fn cell_in_grid(coord: CellCoord, min_x: i32, min_y: i32, max_x: i32, max_y: i32) -> bool {
+        coord.x >= min_x && coord.x < max_x && coord.y >= min_y && coord.y < max_y
+    }
+
+    /// C++ `getCellX() * m_partitionCellSize` — cell corner, not center.
+    fn cell_corner_world(coord: CellCoord) -> Coord3D {
+        Coord3D::new(
+            coord.x as f32 * PARTITION_CELL_SIZE,
+            coord.y as f32 * PARTITION_CELL_SIZE,
+            0.0,
+        )
+    }
+
     /// Walk cells outward from `pos` in expanding rings using a breadth-
     /// first search (left, up, right, down).  Calls `callback` for each
     /// cell.  Returns the linear cell index of the first cell whose
@@ -1052,7 +1097,13 @@ impl PartitionManager {
     where
         F: FnMut(CellCoord) -> i32,
     {
-        let start = CellCoord::from_world_pos(pos);
+        let (min_x, min_y, max_x, max_y) = self.cell_grid_limits();
+        let count_x = (max_x - min_x).max(1);
+
+        let mut start = CellCoord::from_world_pos(pos);
+        start.x = start.x.clamp(min_x, max_x - 1);
+        start.y = start.y.clamp(min_y, max_y - 1);
+
         let mut visited: HashSet<CellCoord> = HashSet::new();
         let mut queue: VecDeque<CellCoord> = VecDeque::new();
 
@@ -1060,7 +1111,7 @@ impl PartitionManager {
         queue.push_back(start);
 
         while let Some(cur) = queue.pop_front() {
-            // Enqueue unvisited neighbors (left, up, right, down)
+            // Enqueue unvisited in-grid neighbors (left, up, right, down)
             let neighbors = [
                 CellCoord {
                     x: cur.x - 1,
@@ -1080,21 +1131,15 @@ impl PartitionManager {
                 },
             ];
             for n in &neighbors {
-                if !visited.contains(n) {
+                if Self::cell_in_grid(*n, min_x, min_y, max_x, max_y) && !visited.contains(n) {
                     visited.insert(*n);
                     queue.push_back(*n);
                 }
             }
 
-            // Process the current cell.
             if callback(cur) != 0 {
-                // Return a stable linear index derived from cell coordinates.
-                // This matches the C++ `cellY * m_cellCountX + cellX` but
-                // we don't have fixed grid dimensions; use a hash-like
-                // encoding that preserves uniqueness.
-                return (cur.y as i32)
-                    .wrapping_mul(1_000_003)
-                    .wrapping_add(cur.x as i32);
+                // C++ `cellY * m_cellCountX + cellX`
+                return (cur.y - min_y) * count_x + (cur.x - min_x);
             }
         }
 
@@ -1106,7 +1151,7 @@ impl PartitionManager {
     //     (C++ PartitionManager::getMostValuableLocation)
     // ------------------------------------------------------------------
 
-    /// Scan all partition cells and return the center of the cell with the
+    /// Scan all partition cells and return the corner of the cell with the
     /// highest aggregate threat or cash value belonging to
     /// `allowed_player_mask`.  Returns `None` if no cells carry value.
     ///
@@ -1117,11 +1162,6 @@ impl PartitionManager {
         allowed_player_mask: u32,
         val_type: ValueOrThreat,
     ) -> Option<Coord3D> {
-        // The full C++ implementation iterates a fixed-size cell grid and
-        // aggregates per-player threat/cash values stored on each cell.
-        // Our partition manager uses a sparse HashMap, so we approximate
-        // by looking at the objects in each cell and tallying value.
-
         let mut best_cell: Option<CellCoord> = None;
         let mut best_value: i32 = -1;
 
@@ -1146,13 +1186,7 @@ impl PartitionManager {
             }
         }
 
-        best_cell.map(|c| {
-            Coord3D::new(
-                c.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
-                c.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
-                0.0,
-            )
-        })
+        best_cell.map(Self::cell_corner_world)
     }
 
     // ------------------------------------------------------------------
@@ -1161,11 +1195,12 @@ impl PartitionManager {
     // ------------------------------------------------------------------
 
     /// Starting from `source_pos`, search outward using breadth-first cell
-    /// iteration and return the center of the first cell whose aggregate
-    /// value exceeds (or is below, when `greater_than` is false)
-    /// `value_required`.
+    /// iteration and return the corner of the first cell whose aggregate
+    /// value exceeds (or is below) `value_required`.
     ///
-    /// Matches C++ `PartitionManager::getNearestGroupWithValue`.
+    /// Retail aliases `greaterThan = valueRequired` (nonzero Int → true),
+    /// discarding the script's greaterThan argument. Matches C++
+    /// `PartitionManager::getNearestGroupWithValue`.
     pub fn get_nearest_group_with_value(
         &self,
         _player_index: i32,
@@ -1173,17 +1208,17 @@ impl PartitionManager {
         val_type: ValueOrThreat,
         source_pos: &Coord3D,
         value_required: i32,
-        greater_than: bool,
+        _greater_than: bool,
     ) -> Option<Coord3D> {
+        // C++: parms.greaterThan = valueRequired; (Bool from Int)
         let query = CellValueQuery {
             value_required,
-            greater_than,
+            greater_than: value_required != 0,
             value_type: val_type,
             allowed_player_mask,
         };
 
-        // We need to pass cell-value data through the BFS callback.
-        // Capture `self` and `query` in the closure.
+        let mut result_coord: Option<CellCoord> = None;
         let result_index = self.iterate_cells_breadth_first(source_pos, |cell_coord| {
             let mut value: i32 = 0;
 
@@ -1193,7 +1228,9 @@ impl PartitionManager {
                     if (mask & query.allowed_player_mask) != 0 {
                         let contrib = match query.value_type {
                             ValueOrThreat::CashValue => cell.get_cash_value(player_idx) as i32,
-                            ValueOrThreat::ThreatValue => cell.get_threat_value(player_idx) as i32,
+                            ValueOrThreat::ThreatValue => {
+                                cell.get_threat_value(player_idx) as i32
+                            }
                         };
                         value += contrib;
                     }
@@ -1207,6 +1244,7 @@ impl PartitionManager {
             };
 
             if passes {
+                result_coord = Some(cell_coord);
                 1
             } else {
                 0
@@ -1217,31 +1255,7 @@ impl PartitionManager {
             return None;
         }
 
-        // Decode the linear index back to a cell center position.
-        // We re-do the BFS search to find which cell matched (the
-        // callback returns on the first match, so we can reconstruct).
-        // For a cleaner approach, we could store the CellCoord in a
-        // thread-local, but instead we perform a lightweight second pass
-        // using the same BFS that stops at the matching index.
-        let mut result_coord: Option<CellCoord> = None;
-        self.iterate_cells_breadth_first(source_pos, |cell_coord| {
-            let encoded = (cell_coord.y as i32)
-                .wrapping_mul(1_000_003)
-                .wrapping_add(cell_coord.x as i32);
-            if encoded == result_index {
-                result_coord = Some(cell_coord);
-                return 1; // stop
-            }
-            0
-        });
-
-        result_coord.map(|c| {
-            Coord3D::new(
-                c.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
-                c.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5,
-                0.0,
-            )
-        })
+        result_coord.map(Self::cell_corner_world)
     }
 
     // ------------------------------------------------------------------

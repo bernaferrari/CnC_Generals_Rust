@@ -193,12 +193,15 @@ impl CameraClass {
         (self.zbuffer_min, self.zbuffer_max)
     }
 
-    /// Set view plane by min/max points
+    /// Set view plane by min/max points.
+    ///
+    /// C++ `CameraClass::Set_View_Plane(vmin,vmax)` stores the rectangle as-is
+    /// (asymmetric planes stay asymmetric) and derives aspect from the extents.
     pub fn set_view_plane(&mut self, min: Vec2, max: Vec2) {
         self.view_plane_min = min;
         self.view_plane_max = max;
-        self.update_fov_from_view_plane();
         self.update_aspect_ratio();
+        self.update_fov_from_view_plane();
         self.matrices_dirty = true;
         self.update_frustum();
     }
@@ -216,10 +219,18 @@ impl CameraClass {
         self.update_frustum();
     }
 
-    /// Set aspect ratio
+    /// Set aspect ratio.
+    ///
+    /// C++ `Set_Aspect_Ratio` rewrites `ViewPlane.Min.Y/Max.Y = X / AspectRatio`
+    /// so the view plane remains the single source of truth for projection,
+    /// frustum, FOV, and `Get_Screen_Size`.
     pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {
         self.aspect_ratio = aspect_ratio;
-        self.update_view_plane_from_fov();
+        if aspect_ratio.abs() > f32::EPSILON {
+            self.view_plane_min.y = self.view_plane_min.x / aspect_ratio;
+            self.view_plane_max.y = self.view_plane_max.x / aspect_ratio;
+        }
+        self.update_fov_from_view_plane();
         self.matrices_dirty = true;
         self.update_frustum();
     }
@@ -229,14 +240,16 @@ impl CameraClass {
         self.aspect_ratio
     }
 
-    /// Get horizontal FOV
+    /// Get horizontal FOV — C++ `Get_Horizontal_FOV` is `2*atan2(width, 2)`.
     pub fn get_horizontal_fov(&self) -> f32 {
-        self.hfov
+        let width = self.view_plane_max.x - self.view_plane_min.x;
+        2.0 * width.atan2(2.0)
     }
 
-    /// Get vertical FOV
+    /// Get vertical FOV — C++ `Get_Vertical_FOV` is `2*atan2(height, 2)`.
     pub fn get_vertical_fov(&self) -> f32 {
-        self.vfov
+        let height = self.view_plane_max.y - self.view_plane_min.y;
+        2.0 * height.atan2(2.0)
     }
 
     /// Get view plane
@@ -392,9 +405,32 @@ impl CameraClass {
         &self.frustum
     }
 
+    /// C++ `CameraClass::Cull_Sphere` — true when the sphere is outside.
+    pub fn cull_sphere(&self, center: Vec3, radius: f32) -> bool {
+        !self.frustum.intersects_sphere(&center, radius)
+    }
+
+    /// C++ `RenderObjClass::Get_Screen_Size` using this camera's viewport/view-plane.
+    pub fn get_screen_size(&self, sphere_center: Vec3, sphere_radius: f32) -> f32 {
+        let view_plane_w = self.view_plane_max.x - self.view_plane_min.x;
+        let view_plane_h = self.view_plane_max.y - self.view_plane_min.y;
+        if view_plane_w <= 0.0 || view_plane_h <= 0.0 {
+            return 0.0;
+        }
+        let width_factor = self.viewport.width() / view_plane_w;
+        let height_factor = self.viewport.height() / view_plane_h;
+        let dist = (sphere_center - self.get_position()).length();
+        let radius = if dist != 0.0 {
+            sphere_radius / dist
+        } else {
+            0.0
+        };
+        std::f32::consts::PI * radius * radius * width_factor * height_factor
+    }
+
     /// Get camera position
     pub fn get_position(&self) -> Vec3 {
-        self.transform.row(3).truncate()
+        self.transform.w_axis.truncate()
     }
 
     /// Get camera forward direction
@@ -460,21 +496,24 @@ impl CameraClass {
         self.update_frustum();
     }
 
-    /// Get depth (distance from near to far clip)
+    /// C++ `CameraClass::Get_Depth` returns `ZFar`, not `ZFar - ZNear`.
     pub fn get_depth(&self) -> f32 {
-        self.far_clip - self.near_clip
+        self.far_clip
+    }
+
+    /// World transform of the camera (C++ `Get_Transform`).
+    pub fn transform_matrix(&self) -> Mat4 {
+        self.transform
     }
 
     // Private helper methods
 
-    /// Update FOV from view plane
+    /// Update FOV from view plane (does not rewrite the plane).
     fn update_fov_from_view_plane(&mut self) {
         let width = self.view_plane_max.x - self.view_plane_min.x;
         let height = self.view_plane_max.y - self.view_plane_min.y;
-
-        // Assuming view plane is at distance 1.0
-        self.hfov = 2.0 * (width * 0.5).atan();
-        self.vfov = 2.0 * (height * 0.5).atan();
+        self.hfov = 2.0 * width.atan2(2.0);
+        self.vfov = 2.0 * height.atan2(2.0);
     }
 
     /// Update view plane from FOV
@@ -491,23 +530,24 @@ impl CameraClass {
     fn update_aspect_ratio(&mut self) {
         let width = self.view_plane_max.x - self.view_plane_min.x;
         let height = self.view_plane_max.y - self.view_plane_min.y;
-        self.aspect_ratio = width / height;
+        if height.abs() > f32::EPSILON {
+            self.aspect_ratio = width / height;
+        }
     }
 
-    /// Update matrices
+    /// Update matrices from the view plane (C++ `Update_Frustum` projection).
     fn update_matrices(&mut self) {
-        // Update view matrix
         self.view_matrix = self.transform.inverse();
 
-        // Update projection matrix
         match self.projection_type {
             ProjectionType::Perspective => {
-                self.projection_matrix = Mat4::perspective_rh(
-                    self.vfov,
-                    self.aspect_ratio,
-                    self.near_clip,
-                    self.far_clip,
-                );
+                let znear = self.near_clip.max(1.0e-6);
+                let left = self.view_plane_min.x * znear;
+                let right = self.view_plane_max.x * znear;
+                let bottom = self.view_plane_min.y * znear;
+                let top = self.view_plane_max.y * znear;
+                self.projection_matrix =
+                    Mat4::frustum_rh(left, right, bottom, top, znear, self.far_clip.max(znear + 1.0e-4));
             }
             ProjectionType::Ortho => {
                 self.projection_matrix = Mat4::orthographic_rh(
@@ -521,7 +561,6 @@ impl CameraClass {
             }
         }
 
-        // Update view-projection matrix
         self.view_projection_matrix = self.projection_matrix * self.view_matrix;
         self.matrices_dirty = false;
     }

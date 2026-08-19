@@ -66,7 +66,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, watch, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
@@ -1468,6 +1468,39 @@ impl LanApi {
         info!("LAN API shut down successfully");
         Ok(())
     }
+}
+
+static THE_LAN: LazyLock<tokio::sync::Mutex<Option<LanApi>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(None));
+
+/// C++ `TheLAN` singleton.
+pub fn the_lan() -> &'static tokio::sync::Mutex<Option<LanApi>> {
+    &THE_LAN
+}
+
+/// Create or reuse `TheLAN` with the given player name (C++ LANAPI::init).
+pub async fn ensure_the_lan(player_name: &str) -> NetworkResult<()> {
+    let mut guard = the_lan().lock().await;
+    if guard.is_none() {
+        let mut config = LanConfig::default();
+        config.player_name = player_name.to_string();
+        config.login_name = player_name.to_string();
+        config.host_name = player_name.to_string();
+        config.enable_broadcast = true;
+        let mut api = LanApi::new(config).await?;
+        api.init().await?;
+        *guard = Some(api);
+    }
+    Ok(())
+}
+
+/// Reset `TheLAN` (C++ delete TheLAN).
+pub async fn reset_the_lan() {
+    let mut guard = the_lan().lock().await;
+    if let Some(api) = guard.as_mut() {
+        let _ = api.shutdown().await;
+    }
+    *guard = None;
 }
 
 impl LanApi {

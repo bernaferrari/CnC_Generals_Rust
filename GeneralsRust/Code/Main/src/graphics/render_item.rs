@@ -403,11 +403,19 @@ pub struct FrozenObjectlessDrawableShroudRenderState {
 /// independently constructed HMODEL `HLodClass`; it must sample that exact
 /// HMODEL's named/default bind-pose HTree instead of a parent Drawable or a
 /// whole-file convenience hierarchy.
+///
+/// Generic HLOD SKIN meshes (influences / `GEOMETRY_TYPE_SKIN`) stamp
+/// [`Self::HierarchyBindPose`] so a missing HAnim still uploads the resolved
+/// HTree bind pose instead of the renderer's identity 64-mat pad.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderItemBonePaletteSource {
     /// Existing Draw-state binding, animation frame, and capture controls on
     /// this item provide the palette when one is explicitly selected.
     FrozenDrawState,
+    /// The constructor-selected HLOD's named HTree in bind pose (or the
+    /// item's frozen HAnim when that sample is available). Stamped only for
+    /// SKIN meshes on the generic collect path.
+    HierarchyBindPose,
     /// The strict private graphics-cache source model and exact HMODEL
     /// definition that own this skin's bind-pose palette.
     HmodelBindPose {

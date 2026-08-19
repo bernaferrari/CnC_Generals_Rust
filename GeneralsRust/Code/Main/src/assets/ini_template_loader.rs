@@ -652,6 +652,195 @@ fn parse_ini_bool(val: &str) -> Option<bool> {
     }
 }
 
+/// C++ `ConvertVelocityInSecsToFrames` (`GameCommon.h`): dist/sec → dist/frame.
+fn secs_to_frames_velocity(speed: f32) -> f32 {
+    speed / 30.0
+}
+
+/// C++ `INI::parseAngleReal`: authored degrees → radians.
+fn parse_angle_real(token: &str) -> Option<f32> {
+    token
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .map(|degrees| degrees * std::f32::consts::PI / 180.0)
+}
+
+/// C++ `WeaponTemplate::parseShotDelay`: one msec value, or `Min:N Max:M`.
+/// Always overwrites both min and max, then converts msec → frames with ceil.
+fn parse_shot_delay_msec(value: &str) -> Option<(i32, i32)> {
+    let tokens: Vec<&str> = value
+        .split(|c: char| c.is_whitespace() || c == ':')
+        .filter(|token| !token.is_empty())
+        .collect();
+    let first = *tokens.first()?;
+    if first.eq_ignore_ascii_case("Min") {
+        let min = tokens.get(1)?.parse::<i32>().ok()?;
+        let max = if tokens
+            .get(2)
+            .is_some_and(|token| token.eq_ignore_ascii_case("Max"))
+        {
+            tokens.get(3)?.parse::<i32>().ok()?
+        } else {
+            min
+        };
+        Some((min, max))
+    } else {
+        let msec = first.parse::<i32>().ok()?;
+        Some((msec, msec))
+    }
+}
+
+/// C++ `INI::parseBitString32`: `NONE`, bare tokens, or `+/-` (not mixed).
+fn parse_bit_string_32(value: &str, names: &[&str]) -> Option<u32> {
+    let tokens: Vec<&str> = value.split_whitespace().collect();
+    if tokens.is_empty() {
+        return Some(0);
+    }
+    let mut bits = 0u32;
+    let mut found_normal = false;
+    let mut found_add_or_sub = false;
+    for token in tokens {
+        if token.eq_ignore_ascii_case("NONE") {
+            if found_normal || found_add_or_sub {
+                return None;
+            }
+            return Some(0);
+        }
+        let (name, set) = if let Some(rest) = token.strip_prefix('+') {
+            if found_normal {
+                return None;
+            }
+            found_add_or_sub = true;
+            (rest, true)
+        } else if let Some(rest) = token.strip_prefix('-') {
+            if found_normal {
+                return None;
+            }
+            found_add_or_sub = true;
+            (rest, false)
+        } else {
+            if found_add_or_sub {
+                return None;
+            }
+            if !found_normal {
+                bits = 0;
+            }
+            found_normal = true;
+            (token, true)
+        };
+        let index = names
+            .iter()
+            .position(|candidate| candidate.eq_ignore_ascii_case(name))?;
+        let mask = 1u32 << index;
+        if set {
+            bits |= mask;
+        } else {
+            bits &= !mask;
+        }
+    }
+    Some(bits)
+}
+
+fn parse_percent_to_real(token: &str) -> Option<f32> {
+    let trimmed = token.trim();
+    if let Some(stripped) = trimmed.strip_suffix('%') {
+        stripped.parse::<f32>().ok().map(|value| value / 100.0)
+    } else {
+        trimmed.parse::<f32>().ok()
+    }
+}
+
+fn parse_weapon_bonus_condition(
+    token: &str,
+) -> Option<gamelogic::weapon::WeaponBonusConditionType> {
+    use gamelogic::weapon::WeaponBonusConditionType::*;
+    match token.trim().to_ascii_uppercase().as_str() {
+        "GARRISONED" => Some(Garrisoned),
+        "HORDE" => Some(Horde),
+        "CONTINUOUS_FIRE_MEAN" => Some(ContinuousFireMean),
+        "CONTINUOUS_FIRE_FAST" => Some(ContinuousFireFast),
+        "NATIONALISM" => Some(Nationalism),
+        "PLAYER_UPGRADE" => Some(PlayerUpgrade),
+        "DRONE_SPOTTING" => Some(DroneSpotting),
+        "DEMORALIZED" => Some(Demoralized),
+        "ENTHUSIASTIC" => Some(Enthusiastic),
+        "VETERAN" => Some(Veteran),
+        "ELITE" => Some(Elite),
+        "HERO" => Some(Hero),
+        "BATTLEPLAN_BOMBARDMENT" => Some(BattleplanBombardment),
+        "BATTLEPLAN_HOLDTHELINE" => Some(BattleplanHoldtheLine),
+        "BATTLEPLAN_SEARCHANDDESTROY" => Some(BattleplanSearchAndDestroy),
+        "SUBLIMINAL" => Some(Subliminal),
+        "SOLO_HUMAN_EASY" => Some(SoloHumanEasy),
+        "SOLO_HUMAN_NORMAL" => Some(SoloHumanNormal),
+        "SOLO_HUMAN_HARD" => Some(SoloHumanHard),
+        "SOLO_AI_EASY" => Some(SoloAiEasy),
+        "SOLO_AI_NORMAL" => Some(SoloAiNormal),
+        "SOLO_AI_HARD" => Some(SoloAiHard),
+        "TARGET_FAERIE_FIRE" => Some(TargetFaerieFire),
+        "FANATICISM" => Some(Fanaticism),
+        "FRENZY_ONE" => Some(FrenzyOne),
+        "FRENZY_TWO" => Some(FrenzyTwo),
+        "FRENZY_THREE" => Some(FrenzyThree),
+        _ => None,
+    }
+}
+
+fn parse_weapon_bonus_field(token: &str) -> Option<gamelogic::weapon::WeaponBonusField> {
+    use gamelogic::weapon::WeaponBonusField::*;
+    match token.trim().to_ascii_uppercase().as_str() {
+        "DAMAGE" => Some(Damage),
+        "RADIUS" => Some(Radius),
+        "RANGE" => Some(Range),
+        "RATE_OF_FIRE" => Some(RateOfFire),
+        "PRE_ATTACK" => Some(PreAttack),
+        _ => None,
+    }
+}
+
+fn apply_weapon_bonus_line(template: &mut gamelogic::WeaponTemplate, value: &str) {
+    let tokens: Vec<&str> = value.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return;
+    }
+    let Some(condition) = parse_weapon_bonus_condition(tokens[0]) else {
+        return;
+    };
+    let Some(field) = parse_weapon_bonus_field(tokens[1]) else {
+        return;
+    };
+    let Some(percent) = parse_percent_to_real(tokens[2]) else {
+        return;
+    };
+    let set = template
+        .extra_bonus
+        .get_or_insert_with(gamelogic::WeaponBonusSet::new);
+    let mut bonus = set
+        .get_bonus(condition)
+        .cloned()
+        .unwrap_or_else(gamelogic::WeaponBonus::new);
+    bonus.set_field(field, percent);
+    set.set_bonus(condition, bonus);
+}
+
+fn apply_scatter_target_line(template: &mut gamelogic::WeaponTemplate, value: &str) {
+    let tokens: Vec<&str> = value
+        .split(|c: char| c.is_whitespace() || c == ':')
+        .filter(|token| !token.is_empty())
+        .filter(|token| !token.eq_ignore_ascii_case("X") && !token.eq_ignore_ascii_case("Y"))
+        .collect();
+    if tokens.len() < 2 {
+        return;
+    }
+    if let (Ok(x), Ok(y)) = (tokens[0].parse::<f32>(), tokens[1].parse::<f32>()) {
+        template
+            .scatter_targets
+            .push(gamelogic::weapon::Coord2D::new(x, y));
+    }
+}
+
+
 /// Register a weapon template from the historical last-assignment-wins view.
 ///
 /// This stays available for focused callers/tests. Real Weapon.ini loading uses
@@ -689,13 +878,13 @@ fn register_weapon_template_from_properties(
 
     if let Some(val) = properties.get("WeaponSpeed") {
         if let Ok(speed) = val.parse::<f32>() {
-            template.weapon_speed = speed;
+            template.weapon_speed = secs_to_frames_velocity(speed);
         }
     }
 
     if let Some(val) = properties.get("MinWeaponSpeed") {
         if let Ok(speed) = val.parse::<f32>() {
-            template.min_weapon_speed = speed;
+            template.min_weapon_speed = secs_to_frames_velocity(speed);
         }
     }
 
@@ -758,41 +947,12 @@ fn register_weapon_template_from_properties(
         }
     }
 
-    if let Some(val) = properties.get("MinDelayBetweenShots") {
-        if let Ok(delay) = val.parse::<i32>() {
-            template.min_delay_between_shots = delay;
-        }
-    }
-
-    if let Some(val) = properties.get("MaxDelayBetweenShots") {
-        if let Ok(delay) = val.parse::<i32>() {
-            template.max_delay_between_shots = delay;
-        }
-    }
-
-    // C++ Weapon.ini uses DelayBetweenShots in milliseconds (single value or min max).
-    // Convert to logic frames (30 FPS) to match WeaponTemplate::parseShotDelay /
-    // ConvertDurationFromMsecsToFrames. Prefer explicit Min/Max when already set above.
+    // C++ only authors DelayBetweenShots (parseShotDelay). Always overwrite
+    // both min/max, including the labeled `Min:N Max:M` retail form.
     if let Some(val) = properties.get("DelayBetweenShots") {
-        let tokens: Vec<&str> = val.split_whitespace().collect();
-        if let Some(first) = tokens.first() {
-            if let Ok(msec) = first.parse::<i32>() {
-                let frames = msec_to_logic_frames(msec);
-                if template.min_delay_between_shots == 0 {
-                    template.min_delay_between_shots = frames;
-                }
-                if let Some(second) = tokens.get(1) {
-                    if let Ok(msec2) = second.parse::<i32>() {
-                        if template.max_delay_between_shots == 0 {
-                            template.max_delay_between_shots = msec_to_logic_frames(msec2);
-                        }
-                    } else if template.max_delay_between_shots == 0 {
-                        template.max_delay_between_shots = frames;
-                    }
-                } else if template.max_delay_between_shots == 0 {
-                    template.max_delay_between_shots = frames;
-                }
-            }
+        if let Some((min_msec, max_msec)) = parse_shot_delay_msec(val) {
+            template.min_delay_between_shots = msec_to_logic_frames(min_msec);
+            template.max_delay_between_shots = msec_to_logic_frames(max_msec);
         }
     }
 
@@ -852,8 +1012,8 @@ fn register_weapon_template_from_properties(
         }
     }
 
-    if let Some(val) = properties.get("AimDelta") {
-        if let Ok(delta) = val.parse::<f32>() {
+    if let Some(val) = properties.get("AcceptableAimDelta") {
+        if let Some(delta) = parse_angle_real(val) {
             template.aim_delta = delta;
         }
     }
@@ -865,8 +1025,35 @@ fn register_weapon_template_from_properties(
     }
 
     if let Some(val) = properties.get("WeaponRecoil") {
-        if let Ok(recoil) = val.parse::<f32>() {
+        if let Some(recoil) = parse_angle_real(val) {
             template.weapon_recoil = recoil;
+        }
+    }
+
+    if let Some(val) = properties.get("MinTargetPitch") {
+        if let Some(pitch) = parse_angle_real(val) {
+            template.min_target_pitch = pitch;
+        }
+    }
+    if let Some(val) = properties.get("MaxTargetPitch") {
+        if let Some(pitch) = parse_angle_real(val) {
+            template.max_target_pitch = pitch;
+        }
+    }
+    if let Some(val) = properties.get("RadiusDamageAngle") {
+        if let Some(angle) = parse_angle_real(val) {
+            template.radius_damage_angle = angle;
+        }
+    }
+
+    if let Some(val) = properties.get("ScatterTargetScalar") {
+        if let Ok(scalar) = val.parse::<f32>() {
+            template.scatter_target_scalar = scalar;
+        }
+    }
+    if let Some(val) = properties.get("ScatterRadiusVsInfantry") {
+        if let Ok(dist) = val.parse::<f32>() {
+            template.infantry_inaccuracy_dist = dist;
         }
     }
 
@@ -973,10 +1160,117 @@ fn register_weapon_template_from_properties(
         }
     }
 
+    if let Some(val) = properties.get("LaserName") {
+        template.laser_name = val.trim().to_string();
+    }
+    if let Some(val) = properties.get("LaserBoneName") {
+        template.laser_bone_name = val.trim().to_string();
+    }
+
+    if let Some(val) = properties.get("ContinuousFireOne") {
+        if let Ok(shots) = val.parse::<i32>() {
+            template.continuous_fire_one_shots_needed = shots;
+        }
+    }
+    if let Some(val) = properties.get("ContinuousFireTwo") {
+        if let Ok(shots) = val.parse::<i32>() {
+            template.continuous_fire_two_shots_needed = shots;
+        }
+    }
+    if let Some(val) = properties.get("ContinuousFireCoast") {
+        if let Ok(msec) = val.parse::<i32>() {
+            template.continuous_fire_coast_frames = msec_to_logic_frames(msec) as u32;
+        }
+    }
+
+    if let Some(val) = properties.get("FireSoundLoopTime") {
+        if let Ok(msec) = val.parse::<i32>() {
+            template.fire_sound_loop_time = msec_to_logic_frames(msec) as u32;
+        }
+    }
+
+    if let Some(val) = properties.get("AutoReloadsClip") {
+        if let Some(reload) = gamelogic::WeaponReloadType::from_ini(val.trim()) {
+            template.reload_type = reload;
+        }
+    }
+    if let Some(val) = properties.get("PreAttackType") {
+        if let Some(prefire) = gamelogic::WeaponPrefireType::from_ini(val.trim()) {
+            template.prefire_type = prefire;
+        }
+    }
+
+    if let Some(val) = properties.get("RadiusDamageAffects") {
+        if let Some(bits) = parse_bit_string_32(
+            val,
+            &[
+                "SELF",
+                "ALLIES",
+                "ENEMIES",
+                "NEUTRALS",
+                "SUICIDE",
+                "NOT_SIMILAR",
+                "NOT_AIRBORNE",
+            ],
+        ) {
+            template.affects_mask = gamelogic::WeaponAffectsMask::new(bits);
+        }
+    }
+    if let Some(val) = properties.get("ProjectileCollidesWith") {
+        if let Some(bits) = parse_bit_string_32(
+            val,
+            &[
+                "ALLIES",
+                "ENEMIES",
+                "STRUCTURES",
+                "SHRUBBERY",
+                "PROJECTILES",
+                "WALLS",
+                "SMALL_MISSILES",
+                "BALLISTIC_MISSILES",
+                "CONTROLLED_STRUCTURES",
+            ],
+        ) {
+            template.collide_mask = gamelogic::WeaponCollideMask::new(bits);
+        }
+    }
+
+    if let Some(val) = properties.get("DamageDealtAtSelfPosition") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.damage_dealt_at_self_position = b;
+        }
+    }
+    if let Some(val) = properties.get("LeechRangeWeapon") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.leech_range_weapon = b;
+        }
+    }
+    if let Some(val) = properties.get("CapableOfFollowingWaypoints") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.capable_of_following_waypoint = b;
+        }
+    }
+    if let Some(val) = properties.get("ShowsAmmoPips") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.is_shows_ammo_pips = b;
+        }
+    }
+    if let Some(val) = properties.get("AllowAttackGarrisonedBldgs") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.allow_attack_garrisoned_bldgs = b;
+        }
+    }
+    if let Some(val) = properties.get("MissileCallsOnDie") {
+        if let Some(b) = parse_ini_bool(val) {
+            template.die_on_detonate = b;
+        }
+    }
+
     // `Weapon.cpp` applies these fields in file order. Keep this separate from
     // scalar-property parsing above because a HashMap has already discarded
-    // repeated `Veterancy…` assignments by this point.
+    // repeated `Veterancy…` / `WeaponBonus` / `ScatterTarget` assignments.
     apply_weapon_effect_references(&mut template, ordered);
+
 
     // Register the template into the GameLogic WeaponStore
     match gamelogic::with_weapon_store_mut(|store| {
@@ -1146,7 +1440,18 @@ fn apply_weapon_effect_references(
                     template.name, value
                 );
             }
+            continue;
         }
+
+        if key.eq_ignore_ascii_case("WeaponBonus") {
+            apply_weapon_bonus_line(template, value);
+            continue;
+        }
+
+        if key.eq_ignore_ascii_case("ScatterTarget") {
+            apply_scatter_target_line(template, value);
+        }
+
     }
 }
 
@@ -1384,6 +1689,17 @@ End
             "AmericaVehicleHumveeBullet"
         );
     }
+
+    #[test]
+    fn parse_shot_delay_accepts_min_max_colon_form() {
+        assert_eq!(parse_shot_delay_msec("500"), Some((500, 500)));
+        assert_eq!(parse_shot_delay_msec("Min:200 Max:800"), Some((200, 800)));
+        assert_eq!(msec_to_logic_frames(500), 15);
+        assert_eq!(secs_to_frames_velocity(600.0), 20.0);
+        let delta = parse_angle_real("30").unwrap();
+        assert!((delta - std::f32::consts::PI / 6.0).abs() < 1e-5);
+    }
+
 
     #[test]
     fn weapon_anti_mask_honors_no_and_every_cxx_target_category() {

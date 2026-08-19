@@ -345,6 +345,8 @@ pub struct TransportContain {
     extra_slots_in_use: i32,
     /// Frame when exit will not be busy
     frame_exit_not_busy: u32,
+    /// C++ RailedTransportContain::isSpecificRiderFreeToExit — dock must be open.
+    require_open_dock_to_exit: bool,
 }
 
 impl TransportContain {
@@ -365,6 +367,7 @@ impl TransportContain {
             payload_created: false,
             extra_slots_in_use: 0,
             frame_exit_not_busy: 0,
+            require_open_dock_to_exit: false,
         })
     }
 
@@ -411,29 +414,12 @@ impl TransportContain {
             return false;
         }
 
-        // Check if object is contained in a zero-slot container (parachute)
-        let actual_obj = if let Some(container_id) = obj.get_container_id() {
-            let is_zero_slot = crate::object::registry::OBJECT_REGISTRY
-                .with_object(container_id, |container| {
-                    if let Some(contain) = container.get_contain() {
-                        if let Ok(contain_guard) = contain.lock() {
-                            return contain_guard.get_max_capacity() == 0;
-                        }
-                    }
-                    false
-                })
-                .unwrap_or(false);
-            if is_zero_slot {
-                // Get first object inside the zero-slot container
-                // For now, just use the original object since we can't easily
-                // get a reference to the contained object
-                obj
-            } else {
-                obj
-            }
-        } else {
-            obj
-        };
+        // C++ TransportContain::isValidContainerFor: if the rider is a special
+        // zero-slot container (parachute), replace the check target with the
+        // first contained infantry so a plane can accept a paratrooper.
+        let unwrapped = super::unwrap_special_zero_slot_rider(obj);
+        let unwrapped_guard = unwrapped.as_ref().and_then(|arc| arc.read().ok());
+        let actual_obj = unwrapped_guard.as_deref().unwrap_or(obj);
 
         // Call base validation
         if !self.base.is_valid_container_for(actual_obj, check_capacity) {
@@ -469,6 +455,15 @@ impl TransportContain {
         }
 
         true
+    }
+
+    /// C++ OpenContain::processDamageToContained — Battle Bus / contain death rules.
+    pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
+        self.base.process_damage_to_contained(percent_damage)
+    }
+
+    pub fn set_require_open_dock_to_exit(&mut self, require: bool) {
+        self.require_open_dock_to_exit = require;
     }
 
     /// Handle capture event
@@ -829,6 +824,17 @@ impl TransportContain {
 
     /// Check if specific rider is free to exit
     fn is_specific_rider_free_to_exit(&self, obj: &Object) -> bool {
+        if self.require_open_dock_to_exit {
+            let dock_open = self
+                .with_owner_object(|owner| {
+                    owner
+                        .with_dock_update_interface(|dock| dock.is_dock_open().unwrap_or(true))
+                        .unwrap_or(true)
+                })
+                .unwrap_or(true);
+            // C++ RailedTransportContain does not extend TransportContain here.
+            return dock_open;
+        }
         if let Some(ai) = self
             .with_owner_object(|owner_guard| owner_guard.get_ai_update_interface())
             .flatten()
@@ -1458,6 +1464,10 @@ impl ContainModuleInterface for TransportContain {
 
     fn is_displayed_on_control_bar(&self) -> bool {
         TransportContain::is_displayed_on_control_bar(self)
+    }
+
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = TransportContain::process_damage_to_contained(self, percent_damage);
     }
 }
 

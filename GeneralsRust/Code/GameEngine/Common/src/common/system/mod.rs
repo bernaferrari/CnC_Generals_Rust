@@ -58,7 +58,8 @@ pub mod save_game;
 // Re-export commonly used types
 pub use data_chunk_io::{DataChunkInfo, DataChunkInput, DataChunkOutput, DataChunkVersionType};
 pub use geometry::{
-    BoundingBox, Coord3D, GeometryInfo, GeometryType, Matrix3D, Point2D, Point3D, Rectangle,
+    BoundingBox, Coord3D, GeometryInfo, GeometryRegion2D, GeometryType, Matrix3D, Point2D, Point3D,
+    Rectangle,
 };
 pub use scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
 pub use snapshot::Snapshotable;
@@ -70,6 +71,15 @@ pub use xfer::{
     RealRange, Region2D, Region3D, Xfer, XferBlockSize, XferMode, XferOptions, XferStatus,
     XferVersion, Xferable,
 };
+pub use radar::{
+    register_radar_event_feedback, RadarEventFeedback, RadarVictimInfo,
+};
+pub use registry::{
+    get_registry_game_name, get_registry_language, get_registry_map_pack_version,
+    get_registry_user_data, get_registry_version, get_string_from_registry,
+    get_unsigned_int_from_registry, zh_registry,
+};
+
 
 // Trait for overridable objects
 pub trait Overridable {

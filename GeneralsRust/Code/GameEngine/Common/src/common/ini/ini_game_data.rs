@@ -1532,9 +1532,12 @@ fn parse_game_data_block(ini: &mut INI, data: &mut GlobalData) -> INIResult<()> 
             "MOVEMENTPENALTYDAMAGESTATE" => {
                 data.movement_penalty_damage_state = parse_body_damage_type(&args)?;
             }
-            "HEALTHBONUS_VETERAN" => data.health_bonus[0] = parse_percent(&args)?,
-            "HEALTHBONUS_ELITE" => data.health_bonus[1] = parse_percent(&args)?,
-            "HEALTHBONUS_HEROIC" => data.health_bonus[2] = parse_percent(&args)?,
+            // C++ GlobalData.cpp writes HealthBonus_Veteran → m_healthBonus[LEVEL_VETERAN]
+            // (LEVEL_REGULAR=0, LEVEL_VETERAN=1, LEVEL_ELITE=2, LEVEL_HEROIC=3).
+            // Regular is not INI-set and stays 100%.
+            "HEALTHBONUS_VETERAN" => data.health_bonus[1] = parse_percent(&args)?,
+            "HEALTHBONUS_ELITE" => data.health_bonus[2] = parse_percent(&args)?,
+            "HEALTHBONUS_HEROIC" => data.health_bonus[3] = parse_percent(&args)?,
             "HUMANSOLOPLAYERHEALTHBONUS_EASY" => {
                 data.solo_player_health_bonus_for_difficulty[0][0] = parse_percent(&args)?;
             }
@@ -1797,9 +1800,10 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
         BodyDamageType::ReallyDamaged => 2,
         BodyDamageType::Rubble => 3,
     };
-    runtime.health_bonus[0] = data.health_bonus[0];
-    runtime.health_bonus[1] = data.health_bonus[1];
-    runtime.health_bonus[2] = data.health_bonus[2];
+    // Copy every veterancy slot. Regular ([0]) stays 1.0 unless an override wrote it.
+    for i in 0..LEVEL_COUNT.min(runtime_global_data::LEVEL_COUNT) {
+        runtime.health_bonus[i] = data.health_bonus[i];
+    }
     for player in 0..runtime_global_data::PLAYERTYPE_COUNT {
         for difficulty in 0..runtime_global_data::DIFFICULTY_COUNT {
             runtime.solo_player_health_bonus_for_difficulty[player][difficulty] =

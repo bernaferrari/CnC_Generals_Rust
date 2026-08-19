@@ -162,6 +162,8 @@ pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
             }
         }
     }
+    crate::display::shadow_pass::rebuild_shadows();
+
 
     Some(clamped)
 }

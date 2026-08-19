@@ -54,7 +54,10 @@ impl InGameUI {
 
         let mut i = 0;
         while i < self.world_animations.len() {
-            let expired = if !paused {
+            // C++ expire check sits inside isGamePaused()==FALSE (InGameUI.cpp:5323).
+            let expired = if paused {
+                false
+            } else {
                 current_frame >= self.world_animations[i].expire_frame
                     || (self.world_animations[i]
                         .options
@@ -64,8 +67,6 @@ impl InGameUI {
                             .lock()
                             .get_status()
                             .contains(crate::system::Anim2DStatus::COMPLETE))
-            } else {
-                current_frame >= self.world_animations[i].expire_frame
             };
 
             if expired {

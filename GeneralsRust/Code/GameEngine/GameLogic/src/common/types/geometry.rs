@@ -23,15 +23,29 @@ pub enum BodyDamageType {
     Rubble,
 }
 
-/// Bridge tower type (matching C++ BridgeTowerType)
+/// Bridge tower type (matching C++ BridgeTowerType / TerrainRoads.h)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BridgeTowerType {
-    From = 0,
-    To = 1,
+    FromLeft = 0,
+    FromRight = 1,
+    ToLeft = 2,
+    ToRight = 3,
 }
 
-/// Maximum number of bridge towers
-pub const BRIDGE_MAX_TOWERS: usize = 2;
+impl BridgeTowerType {
+    pub fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(Self::FromLeft),
+            1 => Some(Self::FromRight),
+            2 => Some(Self::ToLeft),
+            3 => Some(Self::ToRight),
+            _ => None,
+        }
+    }
+}
+
+/// Maximum number of bridge towers (C++ BRIDGE_MAX_TOWERS)
+pub const BRIDGE_MAX_TOWERS: usize = 4;
 
 /// 2D region (matching C++ Region2D)
 #[derive(Debug, Clone, Copy)]

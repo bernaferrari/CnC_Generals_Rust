@@ -31,19 +31,12 @@ impl Object {
         }
     }
 
-    /// Helper to extract special power interface from a module
     pub(super) fn get_special_power_from_module(
         module: &mut dyn Module,
     ) -> Option<&mut dyn SpecialPowerModuleInterface> {
-        // Try casting to specific module types that have special power interfaces
-        if let Some(sp_module) = module
-            .as_any_mut()
-            .downcast_mut::<crate::object::special_power_module::SpecialPowerModule>(
-        ) {
-            return Some(sp_module as &mut dyn SpecialPowerModuleInterface);
-        }
-        None
+        crate::object::special_power_interface_cast::module_special_power_interface(module)
     }
+
 
     /// Set creator id on SpecialPowerCompletionDie modules, if present.
     pub fn set_special_power_completion_creator(&mut self, creator_id: ObjectID) {

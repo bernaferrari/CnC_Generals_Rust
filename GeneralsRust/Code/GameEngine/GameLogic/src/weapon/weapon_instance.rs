@@ -216,8 +216,10 @@ impl Weapon {
             combined_flags |= container_flags;
         }
         let bonus = self.compute_bonus(source, map_common_bonus_flags(combined_flags));
-        self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)?;
-        Ok(self.apply_post_fire_state(source, current_frame, &bonus))
+        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)? {
+            return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
+        }
+        Ok(self.status == WeaponStatus::ReloadingClip)
     }
 
     /// Fire projectile detonation weapon
@@ -249,7 +251,8 @@ impl Weapon {
         bonus: &WeaponBonus,
         inflict_damage: bool,
     ) -> Result<(), WeaponError> {
-        self.private_fire_weapon(source, target, position, bonus, true, false, inflict_damage)
+        self.private_fire_weapon(source, target, position, bonus, true, false, inflict_damage)?;
+        Ok(())
     }
 
     /// Fire weapon with full bonus integration
@@ -293,8 +296,10 @@ impl Weapon {
         let internal_flags = map_common_bonus_flags(combined_flags);
 
         let bonus = self.compute_bonus(source_id, internal_flags);
-        self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)?;
-        Ok(self.apply_post_fire_state(source_id, current_frame, &bonus))
+        if !self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)? {
+            return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
+        }
+        Ok(self.status == WeaponStatus::ReloadingClip)
     }
 
     pub(crate) fn apply_post_fire_state(
@@ -338,13 +343,41 @@ impl Weapon {
         self.when_last_reload_started = current_frame;
         self.when_we_can_fire_again = current_frame + (delay as u32);
         self.status = WeaponStatus::BetweenFiringShots;
+        self.propagate_shared_timing(source, self.when_we_can_fire_again, WeaponStatus::BetweenFiringShots);
         false
+    }
+
+    fn source_shares_reload_time(source: ObjectId) -> bool {
+        TheGameLogic::find_object_by_id(source)
+            .and_then(|arc| arc.try_read().ok().map(|obj| obj.is_reload_time_shared()))
+            .unwrap_or(false)
+    }
+
+    fn propagate_shared_timing(&self, source: ObjectId, when: u32, status: WeaponStatus) {
+        if !Self::source_shares_reload_time(source) {
+            return;
+        }
+        let Some(source_arc) = TheGameLogic::find_object_by_id(source) else {
+            return;
+        };
+        let Ok(mut source_obj) = source_arc.try_write() else {
+            return;
+        };
+        for slot in [
+            WeaponSlotType::Primary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary,
+        ] {
+            if let Some(weapon) = source_obj.get_weapon_in_slot_mut(slot) {
+                weapon.set_possible_next_shot_frame(when);
+                weapon.set_status(status);
+            }
+        }
     }
 
     /// Pre-fire weapon (for weapons with pre-attack delay)
     pub fn pre_fire_weapon(&mut self, _source: ObjectId, _victim: ObjectId) -> GameLogicResult<()> {
-        let bonus = self.compute_bonus(_source, WeaponBonusConditionFlags::new());
-        let delay = self.template.get_pre_attack_delay(&bonus);
+        let delay = self.get_pre_attack_delay(_source, _victim);
         if delay > 0 {
             self.status = WeaponStatus::PreAttack;
             self.when_pre_attack_finished = TheGameLogic::get_frame() + (delay as u32);
@@ -363,9 +396,10 @@ impl Weapon {
     ) -> GameLogicResult<Option<ObjectId>> {
         let current_frame = TheGameLogic::get_frame();
         let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
+        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)? {
+            let _ = self.apply_post_fire_state(source, current_frame, &bonus);
+        }
 
-        self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)?;
-        let _ = self.apply_post_fire_state(source, current_frame, &bonus);
 
         Ok(None)
     }
@@ -386,7 +420,6 @@ impl Weapon {
         )
     }
 
-    /// Check if target is within attack range
     pub fn is_within_attack_range(
         &self,
         source_obj: ObjectId,
@@ -398,21 +431,32 @@ impl Weapon {
             return false;
         }
 
-        let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |guard| *guard.get_position())
+        let Some((source_pos, source_radius)) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |guard| {
+                (
+                    *guard.get_position(),
+                    guard.get_geometry_info().get_bounding_circle_radius(),
+                )
+            })
         else {
             return false;
         };
 
-        let target_pos = if let Some(pos) = target_pos {
-            *pos
+        let (target_pos, target_radius) = if let Some(pos) = target_pos {
+            (*pos, 0.0)
         } else if let Some(target_id) = target_obj {
-            let Some(pos) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_id, |guard| *guard.get_position())
-            else {
+            let Some(pair) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                target_id,
+                |guard| {
+                    (
+                        *guard.get_position(),
+                        guard.get_geometry_info().get_bounding_circle_radius(),
+                    )
+                },
+            ) else {
                 return false;
             };
-            pos
+            pair
         } else {
             return false;
         };
@@ -423,13 +467,15 @@ impl Weapon {
 
         let dx = source_pos.x - target_pos.x;
         let dy = source_pos.y - target_pos.y;
-        let dist_sqr = dx * dx + dy * dy;
-        let max_range_sqr = max_range * max_range;
-        let min_range_sqr = min_range * min_range;
+        let center_dist = (dx * dx + dy * dy).sqrt();
+        let boundary_dist = (center_dist - source_radius - target_radius).max(0.0);
+        let dist_sqr = boundary_dist * boundary_dist;
 
-        dist_sqr <= max_range_sqr && dist_sqr >= min_range_sqr
+        if dist_sqr < min_range * min_range - 0.5 {
+            return false;
+        }
+        dist_sqr <= max_range * max_range
     }
-
     /// Check if target is too close
     pub fn is_too_close(
         &self,
@@ -666,25 +712,22 @@ impl Weapon {
         }
     }
 
-    /// Get percent ready to fire (0.0 to 1.0)
     pub fn get_percent_ready_to_fire(&self) -> f32 {
-        match self.status {
+        // C++ Weapon.cpp:2291 uses getStatus(), not the stored field.
+        match self.get_status() {
             WeaponStatus::ReadyToFire => 1.0,
-            WeaponStatus::OutOfAmmo => 0.0,
-            WeaponStatus::PreAttack => 0.5, // Pre-attack is halfway ready
+            WeaponStatus::OutOfAmmo | WeaponStatus::PreAttack => 0.0,
             WeaponStatus::BetweenFiringShots | WeaponStatus::ReloadingClip => {
-                // Calculate based on remaining time
                 let current_frame = TheGameLogic::get_frame();
                 if current_frame >= self.when_we_can_fire_again {
                     1.0
                 } else {
                     let total_time = self.when_we_can_fire_again - self.when_last_reload_started;
-                    let elapsed_time = current_frame - self.when_last_reload_started;
-                    if total_time > 0 {
-                        (elapsed_time as f32) / (total_time as f32)
-                    } else {
-                        0.0
+                    if total_time == 0 {
+                        return 1.0;
                     }
+                    let elapsed_time = current_frame.saturating_sub(self.when_last_reload_started);
+                    (elapsed_time as f32) / (total_time as f32)
                 }
             }
         }
@@ -718,12 +761,28 @@ impl Weapon {
         self.template.get_primary_damage_radius(&bonus)
     }
 
-    /// Get pre-attack delay for this weapon
-    pub fn get_pre_attack_delay(&self, source: ObjectId, _victim: ObjectId) -> i32 {
+    pub fn get_pre_attack_delay(&self, source: ObjectId, victim: ObjectId) -> i32 {
+        match self.template.prefire_type {
+            WeaponPrefireType::PrefirePerClip => {
+                if self.template.clip_size > 0 && self.ammo_in_clip < self.template.clip_size as u32
+                {
+                    return 0;
+                }
+            }
+            WeaponPrefireType::PrefirePerAttack => {
+                let consecutive = TheGameLogic::find_object_by_id(source)
+                    .and_then(|arc| arc.read().ok())
+                    .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
+                    .unwrap_or(0);
+                if consecutive > 0 {
+                    return 0;
+                }
+            }
+            WeaponPrefireType::PrefirePerShot => {}
+        }
         let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
         self.template.get_pre_attack_delay(&bonus)
     }
-
     /// Check if this is a damage weapon.
     ///
     /// C++ Weapon::isDamageWeapon (Weapon.cpp:2789-2816): DEPLOY/DISARM are
@@ -818,11 +877,25 @@ impl Weapon {
     }
 
     /// Update weapon on bonus change
-    pub fn on_weapon_bonus_change(&mut self, _source: ObjectId) -> GameLogicResult<()> {
-        // Implementation would recalculate timing based on new bonuses
+    pub fn on_weapon_bonus_change(&mut self, source: ObjectId) -> GameLogicResult<()> {
+        // C++ Weapon.cpp:1935-1974 — rescale in-flight clip/shot delay.
+        let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
+        let new_delay = match self.get_status() {
+            WeaponStatus::ReloadingClip => self.template.get_clip_reload_time(&bonus),
+            WeaponStatus::BetweenFiringShots => self.template.get_delay_between_shots(&bonus),
+            _ => return Ok(()),
+        };
+        self.when_last_reload_started = TheGameLogic::get_frame();
+        self.when_we_can_fire_again = self.when_last_reload_started + (new_delay as u32);
+        if Self::source_shares_reload_time(source) {
+            self.propagate_shared_timing(
+                source,
+                self.when_we_can_fire_again,
+                WeaponStatus::ReloadingClip,
+            );
+        }
         Ok(())
     }
-
     /// Compute weapon bonus
     pub(crate) fn compute_bonus(
         &self,
@@ -1214,12 +1287,9 @@ impl Weapon {
     }
 
     /// Get pre-attack delay for a specific target.
-    /// C++ Reference: Weapon.h line 692
     pub fn get_pre_attack_delay_obj(&self, source_obj: ObjectId) -> i32 {
-        let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
-        self.template.get_pre_attack_delay(&bonus)
+        self.get_pre_attack_delay(source_obj, INVALID_OBJECT_ID)
     }
-
     /// Get primary damage radius for this weapon with source object context.
     /// C++ Reference: Weapon.h line 690
     pub fn get_primary_damage_radius_obj(&self, source_obj: ObjectId) -> f32 {
@@ -1256,17 +1326,17 @@ impl Weapon {
         let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
 
         // Call private fire weapon
-        self.private_fire_weapon(
+        if !self.private_fire_weapon(
             source_obj_id,
             Some(target_obj_id),
             None,
             &bonus,
-            false, // not projectile detonation
-            false, // don't ignore ranges
-            true,  // inflict damage
-        )?;
-
-        let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
+            false,
+            false,
+            true,
+        )? {
+            let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
+        }
 
         Ok(())
     }
@@ -1285,7 +1355,7 @@ impl Weapon {
         let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
 
         // Call private fire weapon
-        self.private_fire_weapon(
+        if !self.private_fire_weapon(
             source_obj_id,
             None,
             Some(target_pos),
@@ -1293,22 +1363,17 @@ impl Weapon {
             false,
             false,
             true,
-        )?;
-
-        let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
+        )? {
+            let _ = self.apply_post_fire_state(source_obj_id, current_frame, &bonus);
+        }
 
         Ok(())
     }
 
-    /// Check if weapon can fire at target
-    /// C++ Reference: Weapon.cpp various checks scattered throughout
+    /// Check if weapon can fire at target.
     ///
-    /// # Validates
-    /// - Ammunition available
-    /// - Weapon is ready (not on cooldown)
-    /// - Target is in range
-    /// - Line of sight is clear
-    /// - Target is valid and alive
+    /// C++ fireWeapon performs no relationship/vision/shroud check — legality
+    /// lives in WeaponSet::getAbleToAttackSpecificObject, not at fire time.
     pub fn check_can_fire(
         &self,
         source_obj_id: ObjectId,
@@ -1316,19 +1381,16 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
         current_frame: u32,
     ) -> Result<(), WeaponError> {
-        // Check ammunition - prevent firing if no ammo remaining
         if self.ammo_in_clip == 0 {
             return Err(WeaponError::NoAmmo);
         }
 
-        // Check weapon status (cooldown)
         if self.status != WeaponStatus::ReadyToFire && current_frame < self.when_we_can_fire_again {
             let frames_remaining = self.when_we_can_fire_again - current_frame;
             let time_remaining = (frames_remaining as f32) / LOGICFRAMES_PER_SECOND as f32;
             return Err(WeaponError::NotReady { time_remaining });
         }
 
-        // Get source and target positions (object manager integration)
         let source_pos = self.get_object_position(source_obj_id)?;
         let target_position = if let Some(target_id) = target_obj_id {
             self.get_object_position(target_id)?
@@ -1338,67 +1400,106 @@ impl Weapon {
             return Err(WeaponError::InvalidTarget);
         };
 
-        // Check range
-        let distance = source_pos.distance(target_position);
-        let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
-        let max_range = self.template.get_attack_range(&bonus);
-        let min_range = self.template.get_minimum_attack_range();
-
-        if distance > max_range {
+        if !self.is_within_attack_range(source_obj_id, target_obj_id, target_pos) {
+            let distance = source_pos.distance(target_position);
+            let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
             return Err(WeaponError::OutOfRange {
                 distance,
-                max_range,
+                max_range: self.template.get_attack_range(&bonus),
             });
         }
 
-        if distance < min_range {
-            return Err(WeaponError::OutOfRange {
-                distance,
-                max_range: min_range,
-            });
-        }
-
-        // Check line of sight (if weapon requires it)
-        if self.template.must_travel_pfx || !self.template.capable_of_following_waypoint {
-            let clear_line_of_sight = if let Some(target_id) = target_obj_id {
-                self.is_clear_firing_line_of_sight_terrain(source_obj_id, target_id)
-            } else {
-                self.is_clear_firing_line_of_sight_terrain_pos(source_obj_id, &target_position)
-            };
-            if !clear_line_of_sight {
-                return Err(WeaponError::TargetObstructed);
-            }
-        }
-
-        // Check if target object is valid and alive
         if let Some(target_id) = target_obj_id {
             if !self.is_target_valid(target_id) {
                 return Err(WeaponError::InvalidTarget);
-            }
-
-            // Check vision range - source must be able to see target
-            if !self.can_see_target(source_obj_id, target_id) {
-                return Err(WeaponError::TargetNotVisible);
-            }
-
-            // Check team relationships - can't fire on friendlies
-            if !self.is_enemy_target(source_obj_id, target_id) {
-                return Err(WeaponError::InvalidTarget); // Can't target friendlies
             }
         }
 
         Ok(())
     }
 
-    /// Private weapon firing implementation
-    /// C++ Reference: Weapon.cpp lines 1475-1550 (privateFireWeapon)
-    ///
-    /// # Behavior
-    /// - Determines fire mode (projectile vs instant)
-    /// - Applies scatter to target position
-    /// - Creates projectiles or applies instant damage
-    /// - Fires weapon events (sound, VFX)
-    /// - Handles scatter targets
+    fn begin_assault_if_present(&self, source_obj_id: ObjectId, target_obj_id: Option<ObjectId>) {
+        let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
+            return;
+        };
+        let Ok(source_guard) = source_arc.read() else {
+            return;
+        };
+        let Some(ai) = source_guard.get_ai() else {
+            return;
+        };
+        if let Ok(mut ai_guard) = ai.lock() {
+            if let Some(assault) = ai_guard.get_assault_transport_ai_update_interface() {
+                assault.begin_assault(target_obj_id);
+            }
+        }
+    }
+
+    fn disarm_target(&self, source_obj_id: ObjectId, victim_id: ObjectId) {
+        let play_disarm_fx = |pos: &Coord3D| {
+            let veterancy = TheGameLogic::find_object_by_id(source_obj_id)
+                .and_then(|arc| arc.read().ok().map(|g| g.get_veterancy_level()))
+                .unwrap_or(crate::common::VeterancyLevel::Regular);
+            if let Some(fx) = self.template.get_fire_fx(veterancy) {
+                let _ = fx.do_fx_at_position(pos);
+            }
+        };
+
+        let mut found = false;
+        if let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim_id, |obj| obj.get_behavior_modules())
+        {
+            for behavior in behaviors {
+                if let Ok(mut guard) = behavior.lock() {
+                    if let Some(land_mine) = guard.get_land_mine_interface() {
+                        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(victim_id, |obj| *obj.get_position())
+                        {
+                            play_disarm_fx(&pos);
+                        }
+                        land_mine.disarm();
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let kinds = crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim_id, |obj| {
+                (
+                    obj.is_kind_of(KindOf::Mine),
+                    obj.is_kind_of(KindOf::BoobyTrap),
+                    obj.is_kind_of(KindOf::Demotrap),
+                )
+            })
+            .unwrap_or((false, false, false));
+        // C++ Weapon.cpp:2528 — `!found && MINE || BOOBY_TRAP || DEMOTRAP`
+        if (!found && kinds.0) || kinds.1 || kinds.2 {
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(victim_id, |obj| *obj.get_position())
+            {
+                play_disarm_fx(&pos);
+            }
+            let _ = TheGameLogic::destroy_object_by_id(victim_id);
+            found = true;
+        }
+
+        if found {
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+                if let Ok(source) = source_arc.read() {
+                    if let Some(player) = source.get_controlling_player() {
+                        if let Ok(mut player_guard) = player.write() {
+                            player_guard.get_academy_stats_mut().record_mine_cleared();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Private weapon firing. Returns true when post-fire bookkeeping was
+    /// already applied (DAMAGE_DISARM).
     pub(crate) fn private_fire_weapon(
         &mut self,
         source_obj_id: ObjectId,
@@ -1406,12 +1507,43 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
-        ignore_ranges: bool,
+        _ignore_ranges: bool,
         inflict_damage: bool,
-    ) -> Result<(), WeaponError> {
-        // Get positions
+    ) -> Result<bool, WeaponError> {
+        if self.template.get_request_assist_range() > 0.0 {
+            if let Some(victim) = target_obj_id {
+                self.process_request_assistance(source_obj_id, victim);
+            }
+        }
+
+        if self.template.leech_range_weapon {
+            self.leech_weapon_range_active = true;
+        }
+
+        match self.template.get_damage_type() {
+            DamageType::Deploy => {
+                self.begin_assault_if_present(source_obj_id, target_obj_id);
+            }
+            DamageType::Disarm => {
+                if let Some(victim) = target_obj_id {
+                    self.disarm_target(source_obj_id, victim);
+                }
+                if self.ammo_in_clip > 0 {
+                    self.ammo_in_clip -= 1;
+                }
+                self.max_shot_count -= 1;
+                if self.ammo_in_clip == 0 && self.template.get_auto_reloads_clip() {
+                    let _ = self.reload_with_bonus(source_obj_id, bonus, false);
+                }
+                return Ok(true);
+            }
+            DamageType::Hack => {}
+            _ => {}
+        }
+
         let source_pos = self.get_object_position(source_obj_id)?;
-        let mut target_position = if let Some(target_id) = target_obj_id {
+        let mut victim_id = target_obj_id;
+        let mut target_position = if let Some(target_id) = victim_id {
             self.get_object_position(target_id)?
         } else if let Some(pos) = target_pos {
             *pos
@@ -1419,42 +1551,68 @@ impl Weapon {
             return Err(WeaponError::InvalidTarget);
         };
 
-        // Apply scatter
-        let distance = source_pos.distance(target_position);
-        let target_type = if let Some(target_id) = target_obj_id {
-            self.get_object_type(target_id)
-        } else {
-            ObjectType::Unknown
-        };
-        target_position = self.calculate_scatter(target_position, distance, target_type);
+        if let Some(scattered) = self.take_scatter_target_pos(&target_position) {
+            victim_id = None;
+            target_position = scattered;
+        }
+
+        if let Some(tid) = victim_id {
+            if let Some(arc) = TheGameLogic::find_object_by_id(tid) {
+                if let Ok(guard) = arc.read() {
+                    if guard.is_kind_of(KindOf::Structure) {
+                        target_position = guard
+                            .get_geometry_info()
+                            .get_center_position(guard.get_position());
+                    }
+                }
+            }
+        }
+
+        let target_type = victim_id
+            .map(|id| self.get_object_type(id))
+            .unwrap_or(ObjectType::Unknown);
+        let (scattered_pos, rolled_scatter) = self.scatter_aim_point(target_position, target_type);
+        target_position = scattered_pos;
+
+        let mut damage_victim = victim_id;
+        let mut laser_victim = victim_id;
+        if self.template.is_laser() {
+            let primary_r = self.template.get_primary_damage_radius(bonus);
+            let secondary_r = self.template.get_secondary_damage_radius(bonus);
+            if rolled_scatter <= primary_r || rolled_scatter <= secondary_r {
+                if let Some(tid) = victim_id {
+                    if let Some(arc) = TheGameLogic::find_object_by_id(tid) {
+                        if let Ok(guard) = arc.read() {
+                            target_position = *guard.get_position();
+                        }
+                    }
+                }
+            } else {
+                damage_victim = None;
+                laser_victim = None;
+            }
+        }
 
         if is_projectile_detonation {
             if inflict_damage {
                 self.deal_damage_internal(
                     source_obj_id,
-                    target_obj_id,
+                    damage_victim,
                     &target_position,
                     bonus,
                     true,
                 )?;
             }
-            self.fire_weapon_effects(source_obj_id, &source_pos)?;
-            if !self.template.scatter_targets.is_empty() {
-                self.fire_scatter_targets(source_obj_id, &target_position, bonus, inflict_damage)?;
-            }
-            return Ok(());
+            self.fire_weapon_effects(source_obj_id, &source_pos, &target_position, true)?;
+            return Ok(false);
         }
 
-        // Determine fire mode
-        let fire_mode = self.determine_fire_mode();
-
-        match fire_mode {
-            FireMode::InstantImpact { splash_radius } => {
-                // Instant damage weapon - deal damage immediately
+        match self.determine_fire_mode() {
+            FireMode::InstantImpact { splash_radius: _ } => {
                 if inflict_damage {
                     self.deal_damage_internal(
                         source_obj_id,
-                        target_obj_id,
+                        damage_victim,
                         &target_position,
                         bonus,
                         is_projectile_detonation,
@@ -1462,25 +1620,22 @@ impl Weapon {
                 }
             }
             FireMode::Projectile { speed, lifetime } => {
-                // C++ parity: weapons without a projectile object still use
-                // travel-time delayed damage instead of hard-failing template lookup.
                 if self.template.projectile_name.trim().is_empty() {
                     self.handle_projectileless_flight_damage(
                         source_obj_id,
                         &source_pos,
-                        target_obj_id,
+                        damage_victim,
                         &target_position,
                         speed,
                         bonus,
                         inflict_damage,
                     )?;
                 } else {
-                    // Projectile weapon - create projectile object
                     self.create_projectile(
                         source_obj_id,
                         &source_pos,
                         &target_position,
-                        target_obj_id,
+                        victim_id,
                         speed,
                         lifetime,
                         bonus,
@@ -1493,18 +1648,14 @@ impl Weapon {
             } => {
                 let _ = self.create_laser_object(
                     source_obj_id,
-                    target_obj_id,
+                    laser_victim,
                     &target_position,
                     damage_per_frame,
                     duration,
                 );
-
-                // C++ WeaponTemplate::fireWeaponTemplate laser branch
-                // (Weapon.cpp:1028-1031): createLaser then inflictDamage
-                // gates dealDamageInternal.
                 self.inflict_damage_if_requested(
                     source_obj_id,
-                    target_obj_id,
+                    damage_victim,
                     &target_position,
                     bonus,
                     is_projectile_detonation,
@@ -1513,15 +1664,8 @@ impl Weapon {
             }
         }
 
-        // Fire weapon effects (sound, visual FX)
-        self.fire_weapon_effects(source_obj_id, &source_pos)?;
-
-        // Handle scatter targets if configured
-        if !self.template.scatter_targets.is_empty() {
-            self.fire_scatter_targets(source_obj_id, &target_position, bonus, inflict_damage)?;
-        }
-
-        Ok(())
+        self.fire_weapon_effects(source_obj_id, &source_pos, &target_position, false)?;
+        Ok(false)
     }
 
     /// C++ Weapon.cpp:1028-1031 `if (inflictDamage) dealDamageInternal(...)`.

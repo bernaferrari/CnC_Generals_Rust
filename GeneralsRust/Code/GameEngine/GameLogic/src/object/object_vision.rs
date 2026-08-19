@@ -177,7 +177,13 @@ impl Object {
         if shroud_clearing_range > 0.0 {
             let mut looking_mask = PlayerMaskType::none();
 
-            if let (Ok(controller_guard), Ok(list)) = (controller.read(), player_list().read()) {
+            // C++ Object::look: KINDOF_REVEAL_TO_ALL uses PLAYERMASK_ALL so every
+            // player gets the unit's normal shroud-clearing range.
+            if self.is_kind_of(KindOf::RevealToAll) {
+                looking_mask = crate::common::PLAYERMASK_ALL;
+            } else if let (Ok(controller_guard), Ok(list)) =
+                (controller.read(), player_list().read())
+            {
                 let controller_team = controller_guard.get_default_team();
                 for current_player_arc in list.iter() {
                     let Ok(current_player) = current_player_arc.read() else {
@@ -200,9 +206,10 @@ impl Object {
                         looking_mask |= current_player.get_player_mask();
                     }
                 }
+                looking_mask |= self.vision_spied_mask;
+            } else {
+                looking_mask |= self.vision_spied_mask;
             }
-
-            looking_mask |= self.vision_spied_mask;
 
             if let Some(partition) = crate::helpers::ThePartitionManager::get() {
                 let pos = *self.get_position();

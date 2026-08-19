@@ -34,12 +34,13 @@ impl TerrainVisualImpl {
             self.ensure_default_textures();
         }
 
-        if let Some((world_width, world_height)) = world_size {
-            let sample_width = heightmap.width.saturating_sub(1).max(1) as f32;
-            let sample_height = heightmap.height.saturating_sub(1).max(1) as f32;
-            let scale_x = world_width / sample_width;
-            let scale_z = world_height / sample_height;
-            heightmap.scale = ((scale_x + scale_z) * 0.5).max(f32::EPSILON);
+        // C++ MapObject.h: MAP_XY_FACTOR = 10 is the cell size.
+        // Playable world_size / (full_grid-1) is not that scale — Alpine
+        // playable 1750 / 314 ≈ 5.6–6.4 and left border_size at 0.
+        // Live pipeline always passes world_size; tests pass None and keep
+        // the caller's HeightMap::new scale/border.
+        if world_size.is_some() {
+            apply_cpp_visual_heightmap_scale(&mut heightmap);
         }
 
         self.config.heightmap_resolution = (heightmap.width, heightmap.height);
@@ -53,6 +54,11 @@ impl TerrainVisualImpl {
         self.height_map = Some(heightmap);
         self.reset_draw_area_state();
         self.upload_extra_blend_overlay();
+        self.apply_tree_world_bounds();
+        self.load_water_tracks_from_map();
+        self.rebuild_shoreline();
+        self.overlay.overlays_dirty = true;
+        self.overlay.water_grid_dirty = true;
         Ok(())
     }
 
@@ -82,13 +88,9 @@ impl TerrainVisualImpl {
             )));
         };
 
-        if let Some((world_width, world_height)) = world_size {
-            let sample_width = heightmap.width.saturating_sub(1).max(1) as f32;
-            let sample_height = heightmap.height.saturating_sub(1).max(1) as f32;
-            let scale_x = world_width / sample_width;
-            let scale_z = world_height / sample_height;
-            heightmap.scale = ((scale_x + scale_z) * 0.5).max(f32::EPSILON);
-        }
+        // C++ MapObject.h MAP_XY_FACTOR=10. File loaders leave scale=1 /
+        // border=0; never derive playable_world/(full_grid-1) (~6.4).
+        apply_cpp_visual_heightmap_scale(&mut heightmap);
 
         // Update terrain configuration based on heightmap
         self.config.heightmap_resolution = (heightmap.width, heightmap.height);
@@ -106,6 +108,11 @@ impl TerrainVisualImpl {
         self.height_map = Some(heightmap);
         self.reset_draw_area_state();
         self.upload_extra_blend_overlay();
+        self.apply_tree_world_bounds();
+        self.load_water_tracks_from_map();
+        self.rebuild_shoreline();
+        self.overlay.overlays_dirty = true;
+        self.overlay.water_grid_dirty = true;
 
         log::info!("Terrain heightmap loaded successfully");
         Ok(())
@@ -244,6 +251,8 @@ impl TerrainVisualImpl {
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
         self.water_system.set_enabled(enable);
+        self.overlay.water_grid_dirty = true;
+        self.overlay.overlays_dirty = true;
     }
 
     /// Current C++ water-grid enabled flag.
@@ -526,6 +535,7 @@ impl TerrainVisualImpl {
                 highlight,
             });
         }
+        self.overlay.overlays_dirty = true;
         true
     }
 
@@ -533,11 +543,13 @@ impl TerrainVisualImpl {
     pub fn remove_faction_bib(&mut self, owner_id: u32, owner_kind: TerrainBibOwnerKind) {
         self.terrain_bibs
             .retain(|bib| bib.owner_id != owner_id || bib.owner_kind != owner_kind);
+        self.overlay.overlays_dirty = true;
     }
 
     /// C++ `removeAllBibs`.
     pub fn remove_all_bibs(&mut self) {
         self.terrain_bibs.clear();
+        self.overlay.overlays_dirty = true;
     }
 
     /// C++ `removeBibHighlighting`.
@@ -545,6 +557,7 @@ impl TerrainVisualImpl {
         for bib in &mut self.terrain_bibs {
             bib.highlight = false;
         }
+        self.overlay.overlays_dirty = true;
     }
 
     /// C++ `removeTreesAndPropsForConstruction`.
@@ -563,6 +576,20 @@ impl TerrainVisualImpl {
             geometry_is_box,
             angle,
         });
+        self.tree_buffer.remove_trees_for_construction(
+            crate::terrain::TreeConstructionGeometry {
+                position: Vec3::from_array(position),
+                major_radius,
+                minor_radius,
+                geometry_type: if geometry_is_box {
+                    crate::terrain::TreeGeometryType::Box
+                } else {
+                    crate::terrain::TreeGeometryType::Cylinder
+                },
+                angle,
+            },
+        );
+        self.tree_buffer.force_vertex_rebuild();
         self.terrain_props.retain(|prop| {
             !Self::point_inside_construction_footprint(
                 prop.position,
@@ -650,9 +677,7 @@ impl TerrainVisualImpl {
         for (i, new_name) in replacements {
             self.current_skybox_texture_names[i] = Some(new_name);
         }
-        for (i, texture) in loaded_textures {
-            self.skybox_textures[i] = Some(texture);
-        }
+        self.install_loaded_skybox_faces(loaded_textures);
 
         self.refresh_skybox_background_binding_if_ready()?;
         Ok(())
@@ -667,7 +692,7 @@ impl TerrainVisualImpl {
         &self.current_skybox_texture_names
     }
 
-    /// Last face name that produced a GPU bind, or the fog-color fallback tag.
+    /// Last face name that produced a GPU bind, or the horizon-gradient tag.
     pub fn last_skybox_face_bind(&self) -> Option<&str> {
         self.last_skybox_face_bind.as_deref()
     }
@@ -755,14 +780,15 @@ impl TerrainVisualImpl {
         else {
             return false;
         };
-        if name.eq_ignore_ascii_case("fog-fallback") {
+        if is_synthetic_skybox_bind(name) {
             return false;
         }
         if self.skybox_textures.get(index).is_none_or(Option::is_none) {
             return false;
         }
-        // Fog 1x1 is stuffed into slot 0 only when no face loaded.
-        if index == 0 && self.last_skybox_face_bind.as_deref() == Some("fog-fallback") {
+        // Synthetic 1×N gradient lives in slot 0 only when no real face loaded.
+        if index == 0 && is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or(""))
+        {
             return false;
         }
         true
@@ -849,9 +875,7 @@ impl TerrainVisualImpl {
         for (i, initial_name) in replacements {
             self.current_skybox_texture_names[i] = Some(initial_name);
         }
-        for (i, texture) in loaded_textures {
-            self.skybox_textures[i] = Some(texture);
-        }
+        self.install_loaded_skybox_faces(loaded_textures);
 
         self.refresh_skybox_background_binding_if_ready()
     }
@@ -874,31 +898,35 @@ impl TerrainVisualImpl {
             }));
         }
 
+        self.ensure_water_ini_skybox_faces_loaded();
+
         let (yaw, look_pitch) = Self::skybox_camera_yaw_and_look_pitch();
         let preferred = Self::skybox_face_from_yaw_pitch(yaw, look_pitch);
-        let mut used_fog = false;
+        let mut used_gradient = false;
         let selected_index = match self.resolve_skybox_face_index(preferred) {
             Some(index) => index,
             None => {
                 // Live path is a fullscreen triangle (no `new_skybox` W3D mesh).
-                // Bind fog only when no N/E/S/W/T face loaded (not peach).
-                if !self.ensure_skybox_fog_fallback_texture(device) {
+                // Horizon gradient when no N/E/S/W/T face loaded — never a fog card.
+                if !self.ensure_skybox_horizon_gradient_texture(device) {
                     self.skybox_background_view = None;
                     self.skybox_background_bind_group = None;
                     self.last_skybox_face_bind = None;
                     return Ok(());
                 }
-                used_fog = true;
+                used_gradient = true;
                 0
             }
         };
 
-        if self.last_skybox_face_bind.as_deref() == Some("fog-fallback") && selected_index != 0 {
+        if is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or(""))
+            && selected_index != 0
+        {
             self.skybox_textures[0] = None;
         }
 
-        let face_name = if used_fog {
-            "fog-fallback".to_string()
+        let face_name = if used_gradient {
+            HORIZON_GRADIENT_BIND.to_string()
         } else {
             self.current_skybox_texture_names[selected_index]
                 .clone()
@@ -941,24 +969,110 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    fn ensure_skybox_fog_fallback_texture(&mut self, device: &wgpu::Device) -> bool {
+    fn install_loaded_skybox_faces(&mut self, loaded_textures: Vec<(usize, Texture)>) {
+        if loaded_textures.is_empty() {
+            return;
+        }
+        if is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or("")) {
+            self.last_skybox_face_bind = None;
+            self.skybox_background_bind_group = None;
+            self.skybox_background_view = None;
+        }
+        for (i, texture) in loaded_textures {
+            self.skybox_textures[i] = Some(texture);
+        }
+    }
+
+    fn ensure_water_ini_skybox_faces_loaded(&mut self) {
+        if (0..5).any(|i| self.is_loaded_skybox_face(i)) {
+            return;
+        }
+        if is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or("")) {
+            return;
+        }
+
+        let water_names = water_ini_or_default_skybox_names();
+        let mut replacements = Vec::new();
+        for i in 0..5 {
+            let name = self
+                .current_skybox_texture_names
+                .get(i)
+                .and_then(|name| name.as_deref())
+                .filter(|name| !name.is_empty() && !is_synthetic_skybox_bind(name))
+                .map(str::to_string)
+                .unwrap_or_else(|| water_names[i].clone());
+            if name.is_empty() {
+                continue;
+            }
+            if self.initial_skybox_texture_names[i].is_none() {
+                self.initial_skybox_texture_names[i] = Some(name.clone());
+            }
+            self.current_skybox_texture_names[i] = Some(name.clone());
+            replacements.push((i, name));
+        }
+        if replacements.is_empty() {
+            return;
+        }
+        let loaded = self.load_skybox_replacement_textures(&replacements);
+        self.install_loaded_skybox_faces(loaded);
+
+        if (0..5).any(|i| self.is_loaded_skybox_face(i)) {
+            return;
+        }
+
+        let mut extra = Vec::new();
+        for i in 0..5 {
+            let water_name = &water_names[i];
+            if water_name.is_empty() {
+                continue;
+            }
+            if self.current_skybox_texture_names[i].as_deref() == Some(water_name.as_str()) {
+                continue;
+            }
+            extra.push((i, water_name.clone()));
+        }
+        if extra.is_empty() {
+            return;
+        }
+        let loaded = self.load_skybox_replacement_textures(&extra);
+        for (i, name) in &extra {
+            if loaded.iter().any(|(li, _)| li == i) {
+                self.current_skybox_texture_names[*i] = Some(name.clone());
+            }
+        }
+        self.install_loaded_skybox_faces(loaded);
+    }
+
+    fn ensure_skybox_horizon_gradient_texture(&mut self, device: &wgpu::Device) -> bool {
         if (0..5).any(|i| self.is_loaded_skybox_face(i)) {
             return false;
         }
         let Some(queue) = self.queue.as_ref() else {
             return false;
         };
-        let rgba = [
-            (self.fog_color[0].clamp(0.0, 1.0) * 255.0) as u8,
-            (self.fog_color[1].clamp(0.0, 1.0) * 255.0) as u8,
-            (self.fog_color[2].clamp(0.0, 1.0) * 255.0) as u8,
-            255,
-        ];
+        const WIDTH: u32 = 64;
+        const HEIGHT: u32 = 128;
+        let mut rgba = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        for y in 0..HEIGHT {
+            let t = y as f32 / (HEIGHT - 1) as f32;
+            let base = horizon_sky_color(t);
+            for x in 0..WIDTH {
+                let sun = (x as f32 / (WIDTH - 1) as f32 - 0.5) * 0.08;
+                let r = (base[0] + sun * 0.85).clamp(0.0, 1.0);
+                let g = (base[1] + sun * 0.35).clamp(0.0, 1.0);
+                let b = (base[2] - sun * 0.12).clamp(0.0, 1.0);
+                let i = ((y * WIDTH + x) * 4) as usize;
+                rgba[i] = (r * 255.0) as u8;
+                rgba[i + 1] = (g * 255.0) as u8;
+                rgba[i + 2] = (b * 255.0) as u8;
+                rgba[i + 3] = 255;
+            }
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Skybox Fog Fallback"),
+            label: Some("Skybox Horizon Gradient"),
             size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
+                width: WIDTH,
+                height: HEIGHT,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -978,17 +1092,17 @@ impl TerrainVisualImpl {
             &rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
+                bytes_per_row: Some(WIDTH * 4),
+                rows_per_image: Some(HEIGHT),
             },
             wgpu::Extent3d {
-                width: 1,
-                height: 1,
+                width: WIDTH,
+                height: HEIGHT,
                 depth_or_array_layers: 1,
             },
         );
         self.skybox_textures[0] = Some(texture);
-        self.last_skybox_face_bind = Some("fog-fallback".to_string());
+        self.last_skybox_face_bind = Some(HORIZON_GRADIENT_BIND.to_string());
         true
     }
 
@@ -1218,4 +1332,137 @@ fn swapped_skybox_texture_extension(path: &Path) -> Option<PathBuf> {
         Some(parent) if !parent.as_os_str().is_empty() => parent.join(format!("{stem}.{swapped}")),
         _ => PathBuf::from(format!("{stem}.{swapped}")),
     })
+}
+
+const HORIZON_GRADIENT_BIND: &str = "horizon-gradient";
+const FOG_FALLBACK_BIND: &str = "fog-fallback";
+
+fn is_synthetic_skybox_bind(name: &str) -> bool {
+    name.eq_ignore_ascii_case(HORIZON_GRADIENT_BIND) || name.eq_ignore_ascii_case(FOG_FALLBACK_BIND)
+}
+
+fn water_ini_or_default_skybox_names() -> [String; 5] {
+    const DEFAULT: [&str; 5] = [
+        "TSMorningN.tga",
+        "TSMorningE.tga",
+        "TSMorningS.tga",
+        "TSMorningW.tga",
+        "TSMorningT.tga",
+    ];
+    game_engine::common::ini::ini_water::initialize_water_settings();
+    if let Some(lock) = game_engine::common::ini::ini_water::get_water_transparency() {
+        if let Ok(guard) = lock.read() {
+            let setting = guard.get_final_override();
+            let names = [
+                setting.skybox_texture_n.as_str().to_string(),
+                setting.skybox_texture_e.as_str().to_string(),
+                setting.skybox_texture_s.as_str().to_string(),
+                setting.skybox_texture_w.as_str().to_string(),
+                setting.skybox_texture_t.as_str().to_string(),
+            ];
+            if names.iter().any(|name| !name.is_empty()) {
+                return names;
+            }
+        }
+    }
+    DEFAULT.map(str::to_string)
+}
+
+fn horizon_sky_color(t: f32) -> [f32; 3] {
+    let t = t.clamp(0.0, 1.0);
+    let zenith = [0.18, 0.38, 0.78];
+    let mid = [0.45, 0.66, 0.92];
+    let horizon = [0.93, 0.84, 0.68];
+    let haze = [0.62, 0.68, 0.74];
+    if t < 0.52 {
+        let u = t / 0.52;
+        [
+            zenith[0] + (mid[0] - zenith[0]) * u,
+            zenith[1] + (mid[1] - zenith[1]) * u,
+            zenith[2] + (mid[2] - zenith[2]) * u,
+        ]
+    } else if t < 0.78 {
+        let u = (t - 0.52) / 0.26;
+        [
+            mid[0] + (horizon[0] - mid[0]) * u,
+            mid[1] + (horizon[1] - mid[1]) * u,
+            mid[2] + (horizon[2] - mid[2]) * u,
+        ]
+    } else {
+        let u = (t - 0.78) / 0.22;
+        [
+            horizon[0] + (haze[0] - horizon[0]) * u,
+            horizon[1] + (haze[1] - horizon[1]) * u,
+            horizon[2] + (haze[2] - horizon[2]) * u,
+        ]
+    }
+}
+
+/// C++ `MapObject.h` `MAP_XY_FACTOR` (10) is the cell size.
+/// `WorldHeightMap::m_borderSize` is map-authored (`K_HEIGHT_MAP_VERSION_3+`);
+/// ZH Alpine is 70. Loaders that omit border stay at 0, so default 70.
+fn apply_cpp_visual_heightmap_scale(heightmap: &mut HeightMap) {
+    heightmap.scale = game_engine::map_object::MAP_XY_FACTOR;
+    if heightmap.border_size == 0 {
+        heightmap.border_size = 70;
+    }
+}
+
+#[cfg(test)]
+mod visual_heightmap_scale_tests {
+    use super::*;
+
+    #[test]
+    fn live_world_size_uses_map_xy_factor_not_playable_over_grid() {
+        // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap.cpp m_borderSize.
+        // Alpine-shaped 32 samples + playable 200 would derive 200/31 ≈ 6.45.
+        let mut heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+        heightmap.border_size = 70;
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(heightmap, None, Some((200.0, 200.0)))
+            .expect("runtime heightmap should load");
+        let loaded = visual.height_map.as_ref().expect("loaded");
+        assert_eq!(loaded.scale, game_engine::map_object::MAP_XY_FACTOR);
+        assert_eq!(loaded.border_size, 70);
+        assert!(
+            (loaded.scale - 200.0 / 31.0).abs() > 1.0,
+            "must not use playable_world/(full_grid-1)"
+        );
+    }
+
+    #[test]
+    fn live_world_size_defaults_zh_alpine_border_when_map_omits() {
+        let heightmap = HeightMap::new(32, 32, 255.0, 1.0);
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .load_heightmap_from_data(heightmap, None, Some((200.0, 200.0)))
+            .expect("runtime heightmap should load");
+        let loaded = visual.height_map.as_ref().expect("loaded");
+        assert_eq!(loaded.scale, 10.0);
+        assert_ne!(loaded.border_size, 0);
+        assert_eq!(loaded.border_size, 70);
+    }
+
+    #[test]
+    fn file_world_size_uses_map_xy_factor_not_derived_scale() {
+        let width: u32 = 32;
+        let height: u32 = 32;
+        let mut bytes = Vec::with_capacity(8 + (width * height * 2) as usize);
+        bytes.extend_from_slice(&width.to_le_bytes());
+        bytes.extend_from_slice(&height.to_le_bytes());
+        bytes.extend(std::iter::repeat_n(0u8, (width * height * 2) as usize));
+        let path = std::env::temp_dir().join("hq_zxgm_visual_heightmap.hmp");
+        std::fs::write(&path, bytes).expect("write temp hmp");
+        let mut visual = TerrainVisualImpl::new();
+        let load = visual.load_heightmap_with_world_size(
+            path.to_str().expect("utf8 path"),
+            Some((200.0, 200.0)),
+        );
+        let _ = std::fs::remove_file(&path);
+        load.expect("file heightmap should load");
+        let loaded = visual.height_map.as_ref().expect("loaded");
+        assert_eq!(loaded.scale, game_engine::map_object::MAP_XY_FACTOR);
+        assert_eq!(loaded.border_size, 70);
+    }
 }

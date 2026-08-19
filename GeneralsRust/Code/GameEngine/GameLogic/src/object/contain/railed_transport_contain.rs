@@ -1,6 +1,7 @@
 //! Railed Transport Contain Module
 //!
-//! Specialized container for rail-based transportation systems
+//! C++ `RailedTransportContain`: transit lock via dock open state, reopen the
+//! dock when empty, and unload through `RailedTransportDockUpdateInterface`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -9,9 +10,10 @@ use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{GameResult, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
-use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
-use crate::object::contain::TransportContain;
-use crate::object::{Object, ObjectId};
+use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
+use crate::object::contain::{ObjectTemplate, TransportContain};
+use crate::object::Object;
+use crate::player::Player;
 use game_engine::common::ini::{INIError, INI};
 
 /// Configuration data for RailedTransportContain module
@@ -19,7 +21,6 @@ use game_engine::common::ini::{INIError, INI};
 pub struct RailedTransportContainModuleData {
     /// Configuration from parent TransportContain
     pub base: super::TransportContainModuleData,
-    // Rail system parameters would go here
 }
 
 impl RailedTransportContainModuleData {
@@ -44,7 +45,6 @@ pub struct RailedTransportContain {
     /// Base functionality from TransportContain
     pub base: TransportContain,
     /// Reference to the owning object
-    #[allow(dead_code)]
     object_id: ObjectID,
 }
 
@@ -54,7 +54,9 @@ impl RailedTransportContain {
         object: Weak<RwLock<Object>>,
         module_data: &RailedTransportContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let mut base = TransportContain::new(object.clone(), &module_data.base)?;
+        // C++ RailedTransportContain::isSpecificRiderFreeToExit: dock closed = in transit.
+        base.set_require_open_dock_to_exit(true);
 
         Ok(Self {
             base,
@@ -63,6 +65,53 @@ impl RailedTransportContain {
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
                 .unwrap_or(crate::common::INVALID_ID),
         })
+    }
+
+    fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
+    }
+
+    fn with_owner_object_mut<R>(&self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+    }
+
+    /// C++ RailedTransportContain::onRemoving: reopen dock when empty.
+    pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        self.base.on_removing(obj_id)?;
+        if self.base.base.get_contain_count() == 0 {
+            let _ = self.with_owner_object_mut(|owner| {
+                owner.with_dock_update_interface(|dock| {
+                    dock.set_dock_open(true);
+                })
+            });
+        }
+        Ok(())
+    }
+
+    /// C++ RailedTransportContain::exitObjectViaDoor: unload via rail dock.
+    pub fn exit_object_via_door(
+        &mut self,
+        obj_id: ObjectID,
+        _exit_door: ExitDoorType,
+    ) -> GameResult<()> {
+        let unloaded = self
+            .with_owner_object_mut(|owner| {
+                owner.with_railed_transport_dock_update_interface(|rtdui| {
+                    rtdui.unload_single_object(obj_id);
+                })
+            })
+            .flatten()
+            .is_some();
+        if !unloaded {
+            return Ok(());
+        }
+        Ok(())
     }
 
     /// Serialize state for save/load
@@ -87,31 +136,14 @@ impl ContainModuleInterface for RailedTransportContain {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
         self.base
-            .add_to_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-            )
+            .add_to_contain(object_id)
             .map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
         self.base
-            .remove_from_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                false,
-            )
+            .remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
     }
 
@@ -186,12 +218,61 @@ impl ContainModuleInterface for RailedTransportContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<&Arc<RwLock<Player>>>,
+        new_owner: Option<&Arc<RwLock<Player>>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base
             .on_capture(owner, old_owner, new_owner)
             .map_err(|e| e.into())
+    }
+
+    fn can_exit(&self, object_id: ObjectID) -> bool {
+        if !self.get_contained_objects().contains(&object_id) {
+            return false;
+        }
+        let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        else {
+            return false;
+        };
+        obj.read()
+            .ok()
+            .and_then(|guard| {
+                self.base
+                    .reserve_door_for_exit(&ObjectTemplate {}, &*guard)
+                    .ok()
+            })
+            .map(|door| !matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable))
+            .unwrap_or(false)
+    }
+
+    fn reserve_door_for_exit(
+        &mut self,
+        _spawner: Option<&Object>,
+        spawn: Option<&Object>,
+    ) -> ExitDoorType {
+        let Some(obj) = spawn else {
+            return ExitDoorType::Primary;
+        };
+        match self.base.reserve_door_for_exit(&ObjectTemplate {}, obj) {
+            Ok(door) => door,
+            Err(_) => ExitDoorType::NoneAvailable,
+        }
+    }
+
+    fn exit_object_via_door(
+        &mut self,
+        obj_id: ObjectID,
+        door: ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        RailedTransportContain::exit_object_via_door(self, obj_id, door).map_err(|e| e.into())
+    }
+
+    fn on_removing(
+        &mut self,
+        obj_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        RailedTransportContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
 
     fn passes_weapon_bonus_to_passengers(&self) -> bool {
@@ -214,7 +295,12 @@ impl ContainModuleInterface for RailedTransportContain {
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
+
+    fn process_damage_to_contained(&mut self, percent_damage: f32) {
+        let _ = self.base.process_damage_to_contained(percent_damage);
+    }
 }
+
 
 impl ContainerInterface for RailedTransportContain {
     fn can_contain(&self, obj: &Object) -> bool {

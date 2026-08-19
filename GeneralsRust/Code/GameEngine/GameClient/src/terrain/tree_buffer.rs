@@ -477,8 +477,20 @@ impl W3DTreeBuffer {
         self.anything_changed
     }
 
+    /// Force `loadTreesInVertexAndIndexBuffers` to run. Used when the GPU
+    /// mesh cache is empty after a prior empty fill consumed `anything_changed`.
+    pub fn force_vertex_rebuild(&mut self) {
+        self.anything_changed = true;
+    }
+
     pub fn any_push_changed(&self) -> bool {
         self.any_push_changed
+    }
+
+    pub fn take_any_push_changed(&mut self) -> bool {
+        let changed = self.any_push_changed;
+        self.any_push_changed = false;
+        changed
     }
 
     pub fn update_all_keys(&self) -> bool {
@@ -1323,9 +1335,14 @@ impl W3DTreeBuffer {
                     cur_tree += 1;
                     continue;
                 };
-                let Some(mesh) = tree_type.mesh.as_ref() else {
-                    cur_tree += 1;
-                    continue;
+                let stand_in;
+                let mesh = if let Some(mesh) = tree_type.mesh.as_ref() {
+                    mesh
+                } else {
+                    // Live types often have no WW3D mesh snapshot yet. A crossed
+                    // card still consumes the atlas UVs so W3DTreeBuffer entries draw.
+                    stand_in = stand_in_tree_type_mesh(&tree_type.bounds);
+                    &stand_in
                 };
 
                 let scale = self.trees[cur_tree].scale;
@@ -1333,7 +1350,7 @@ impl W3DTreeBuffer {
                 let the_sin = self.trees[cur_tree].sin;
                 let the_cos = self.trees[cur_tree].cos;
                 let offset = tree_type.offset;
-                let tile_width = tree_type.tile_width;
+                let tile_width = tree_type.tile_width.max(1);
                 let half_tile = tree_type.half_tile;
                 let texture_origin = tree_type.texture_origin;
                 let darkening = tree_type.data.darkening;
@@ -1551,6 +1568,11 @@ impl W3DTreeBuffer {
         is_visible: impl FnMut(&TreeSphere) -> bool,
     ) -> (&[TreeVertexXyznduv1], &[u16]) {
         self.cull_trees(camera_look_at, is_visible);
+        if self.cpu_vertices.is_empty()
+            && self.trees.iter().any(|tree| tree.tree_type >= 0)
+        {
+            self.anything_changed = true;
+        }
         self.load_trees_in_vertex_and_index_buffers(object_lighting);
         (&self.cpu_vertices, &self.cpu_indices)
     }
@@ -2075,6 +2097,47 @@ pub fn do_lighting(
         | ((tree_real_to_int(shade_g) as u32) << 8)
         | ((tree_real_to_int(shade_r) as u32) << 16)
         | (255u32 << 24)
+}
+
+/// Crossed card used when `addTreeType` has no WW3D mesh snapshot.
+fn stand_in_tree_type_mesh(bounds: &TreeSphere) -> TreeTypeMesh {
+    let radius = bounds.radius.max(TREE_RADIUS_APPROX * 0.5);
+    let height = radius * 2.0;
+    TreeTypeMesh {
+        positions: vec![
+            [-radius, 0.0, 0.0],
+            [radius, 0.0, 0.0],
+            [radius, 0.0, height],
+            [-radius, 0.0, height],
+            [0.0, -radius, 0.0],
+            [0.0, radius, 0.0],
+            [0.0, radius, height],
+            [0.0, -radius, height],
+        ],
+        normals: Some(vec![
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]),
+        uvs: vec![
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 0.0],
+            [0.0, 0.0],
+        ],
+        colors: None,
+        polygons: vec![[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]],
+        emissive: [0.0, 0.0, 0.0],
+    }
 }
 
 /// Map C++ Z-up tree VB into the shipped wgpu Y-up upload layout.

@@ -6,11 +6,34 @@ use super::object_impl_imports::*;
 use super::*;
 
 fn xfer_matrix3d(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
-    let mut cols = matrix.to_cols_array();
-    for value in &mut cols {
+    // C++ Xfer::xferMatrix3D: version byte + 3 rows × 4 Reals (Object.cpp:4025, Xfer.cpp:818-843).
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
+    xfer_matrix3d_rows(xfer, matrix);
+}
+
+fn xfer_matrix3d_rows(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) {
+    let cols = matrix.to_cols_array();
+    let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
+    let mut row1 = [cols[1], cols[5], cols[9], cols[13]];
+    let mut row2 = [cols[2], cols[6], cols[10], cols[14]];
+
+    for value in &mut row0 {
         let _ = xfer.xfer_real(value);
     }
-    *matrix = Matrix3D::from_cols_array(&cols);
+    for value in &mut row1 {
+        let _ = xfer.xfer_real(value);
+    }
+    for value in &mut row2 {
+        let _ = xfer.xfer_real(value);
+    }
+
+    let rebuilt_cols = [
+        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2], row2[2],
+        0.0, row0[3], row1[3], row2[3], 1.0,
+    ];
+    *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
 }
 
 /// C++ `Object::crc` → `xferSnapshot(thisWeapon)` → `Weapon::crc`.
@@ -109,6 +132,10 @@ fn xfer_coord3d_values(xfer: &mut dyn Xfer, value: &mut Coord3D) {
 }
 
 fn xfer_sighting_info(xfer: &mut dyn Xfer, sighting: &mut SightingInfo) {
+    // C++ SightingInfo::xfer (PartitionManager.cpp:5786-5805): version + Coord3D + howFar + PlayerMask + data.
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
     xfer_coord3d_values(xfer, &mut sighting.where_pos);
     let _ = xfer.xfer_real(&mut sighting.how_far);
     let mut for_whom = sighting.for_whom.bits();
@@ -116,6 +143,238 @@ fn xfer_sighting_info(xfer: &mut dyn Xfer, sighting: &mut SightingInfo) {
     sighting.for_whom = PlayerMaskType::from_bits_retain(for_whom);
     let _ = xfer.xfer_unsigned_int(&mut sighting.data);
 }
+
+fn xfer_geometry_info(xfer: &mut dyn Xfer, geometry: &mut GeometryInfo) {
+    // C++ GeometryInfo::xfer (Geometry.cpp:544-572): version + GeometryType(4B) + isSmall + 5 Reals.
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
+
+    let mut geom_type = crate::common::types::geometry_type_to_u32(geometry.geometry_type);
+    let _ = xfer.xfer_unsigned_int(&mut geom_type);
+    let _ = xfer.xfer_bool(&mut geometry.is_small);
+
+    let mut height = geometry.get_max_height_above_position();
+    let mut major_radius = geometry.get_major_radius();
+    let mut minor_radius = geometry.get_minor_radius();
+    let mut bounding_circle = geometry.get_bounding_circle_radius();
+    let mut bounding_sphere = geometry.get_bounding_sphere_radius();
+    let _ = xfer.xfer_real(&mut height);
+    let _ = xfer.xfer_real(&mut major_radius);
+    let _ = xfer.xfer_real(&mut minor_radius);
+    let _ = xfer.xfer_real(&mut bounding_circle);
+    let _ = xfer.xfer_real(&mut bounding_sphere);
+
+    if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
+        geometry.geometry_type = crate::common::types::geometry_type_from_u32(geom_type);
+        let major_radius = major_radius.max(0.0);
+        let minor_radius = minor_radius.max(0.0);
+        geometry.bounds = crate::common::types::AABox {
+            min: Coord3D::new(-major_radius, -minor_radius, 0.0),
+            max: Coord3D::new(major_radius, minor_radius, height.max(0.0)),
+        };
+        let _ = (bounding_circle, bounding_sphere);
+    }
+}
+
+/// C++ `BitFlags<NUMBITS>::xfer` (BitFlagsIO.h:134-205): version + Int count + set-bit names.
+fn xfer_named_bits(xfer: &mut dyn Xfer, bits: &mut u128, names: &[&str]) {
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    let _ = xfer.xfer_version(&mut version, current_version);
+
+    match xfer.get_xfer_mode() {
+        game_engine::system::XferMode::Save => {
+            let mut count = 0i32;
+            for i in 0..names.len() {
+                if (*bits & (1u128 << i)) != 0 {
+                    count += 1;
+                }
+            }
+            let _ = xfer.xfer_int(&mut count);
+            for (i, name) in names.iter().enumerate() {
+                if (*bits & (1u128 << i)) != 0 {
+                    let mut token = (*name).to_string();
+                    let _ = xfer.xfer_ascii_string(&mut token);
+                }
+            }
+        }
+        game_engine::system::XferMode::Load => {
+            *bits = 0;
+            let mut count = 0i32;
+            let _ = xfer.xfer_int(&mut count);
+            for _ in 0..count.max(0) {
+                let mut token = String::new();
+                let _ = xfer.xfer_ascii_string(&mut token);
+                match names
+                    .iter()
+                    .position(|name| name.eq_ignore_ascii_case(&token))
+                {
+                    Some(index) => *bits |= 1u128 << index,
+                    None => panic!("Object::xfer invalid bit name '{}'", token),
+                }
+            }
+        }
+        game_engine::system::XferMode::Crc => {
+            xfer_u128_bits(xfer, bits);
+        }
+        _ => {}
+    }
+}
+
+const OBJECT_STATUS_XFER_NAMES: &[&str] = &[
+    "NONE",
+    "DESTROYED",
+    "CAN_ATTACK",
+    "UNDER_CONSTRUCTION",
+    "UNSELECTABLE",
+    "NO_COLLISIONS",
+    "NO_ATTACK",
+    "AIRBORNE_TARGET",
+    "PARACHUTING",
+    "REPULSOR",
+    "HIJACKED",
+    "AFLAME",
+    "BURNED",
+    "WET",
+    "IS_FIRING_WEAPON",
+    "IS_BRAKING",
+    "STEALTHED",
+    "DETECTED",
+    "CAN_STEALTH",
+    "SOLD",
+    "UNDERGOING_REPAIR",
+    "RECONSTRUCTING",
+    "MASKED",
+    "IS_ATTACKING",
+    "USING_ABILITY",
+    "IS_AIMING_WEAPON",
+    "NO_ATTACK_FROM_AI",
+    "IGNORING_STEALTH",
+    "IS_CARBOMB",
+    "DECK_HEIGHT_OFFSET",
+    "STATUS_RIDER1",
+    "STATUS_RIDER2",
+    "STATUS_RIDER3",
+    "STATUS_RIDER4",
+    "STATUS_RIDER5",
+    "STATUS_RIDER6",
+    "STATUS_RIDER7",
+    "STATUS_RIDER8",
+    "FAERIE_FIRE",
+    "KILLING_SELF",
+    "REASSIGN_PARKING",
+    "BOOBY_TRAPPED",
+    "IMMOBILE",
+    "DISGUISED",
+    "DEPLOYED",
+];
+
+const DISABLED_MASK_XFER_NAMES: &[&str] = &[
+    "DEFAULT",
+    "DISABLED_HACKED",
+    "DISABLED_EMP",
+    "DISABLED_HELD",
+    "DISABLED_PARALYZED",
+    "DISABLED_UNMANNED",
+    "DISABLED_UNDERPOWERED",
+    "DISABLED_FREEFALL",
+    "DISABLED_AWESTRUCK",
+    "DISABLED_BRAINWASHED",
+    "DISABLED_SUBDUED",
+    "DISABLED_SCRIPT_DISABLED",
+    "DISABLED_SCRIPT_UNDERPOWERED",
+];
+
+const WEAPON_SET_XFER_NAMES: &[&str] = &[
+    "VETERAN",
+    "ELITE",
+    "HERO",
+    "PLAYER_UPGRADE",
+    "CRATEUPGRADE_ONE",
+    "CRATEUPGRADE_TWO",
+    "VEHICLE_HIJACK",
+    "CARBOMB",
+    "MINE_CLEARING_DETAIL",
+    "WEAPON_RIDER1",
+    "WEAPON_RIDER2",
+    "WEAPON_RIDER3",
+    "WEAPON_RIDER4",
+    "WEAPON_RIDER5",
+    "WEAPON_RIDER6",
+    "WEAPON_RIDER7",
+    "WEAPON_RIDER8",
+];
+
+const SPECIAL_POWER_XFER_NAMES: &[&str] = &[
+    "SPECIAL_INVALID",
+    "SPECIAL_DAISY_CUTTER",
+    "SPECIAL_PARADROP_AMERICA",
+    "SPECIAL_CARPET_BOMB",
+    "SPECIAL_CLUSTER_MINES",
+    "SPECIAL_EMP_PULSE",
+    "SPECIAL_NAPALM_STRIKE",
+    "SPECIAL_CASH_HACK",
+    "SPECIAL_NEUTRON_MISSILE",
+    "SPECIAL_SPY_SATELLITE",
+    "SPECIAL_DEFECTOR",
+    "SPECIAL_TERROR_CELL",
+    "SPECIAL_AMBUSH",
+    "SPECIAL_BLACK_MARKET_NUKE",
+    "SPECIAL_ANTHRAX_BOMB",
+    "SPECIAL_SCUD_STORM",
+    "SPECIAL_DEMORALIZE_OBSOLETE",
+    "SPECIAL_CRATE_DROP",
+    "SPECIAL_A10_THUNDERBOLT_STRIKE",
+    "SPECIAL_DETONATE_DIRTY_NUKE",
+    "SPECIAL_ARTILLERY_BARRAGE",
+    "SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES",
+    "SPECIAL_REMOTE_CHARGES",
+    "SPECIAL_TIMED_CHARGES",
+    "SPECIAL_HELIX_NAPALM_BOMB",
+    "SPECIAL_HACKER_DISABLE_BUILDING",
+    "SPECIAL_TANKHUNTER_TNT_ATTACK",
+    "SPECIAL_BLACKLOTUS_CAPTURE_BUILDING",
+    "SPECIAL_BLACKLOTUS_DISABLE_VEHICLE_HACK",
+    "SPECIAL_BLACKLOTUS_STEAL_CASH_HACK",
+    "SPECIAL_INFANTRY_CAPTURE_BUILDING",
+    "SPECIAL_RADAR_VAN_SCAN",
+    "SPECIAL_SPY_DRONE",
+    "SPECIAL_DISGUISE_AS_VEHICLE",
+    "SPECIAL_BOOBY_TRAP",
+    "SPECIAL_REPAIR_VEHICLES",
+    "SPECIAL_PARTICLE_UPLINK_CANNON",
+    "SPECIAL_CASH_BOUNTY",
+    "SPECIAL_CHANGE_BATTLE_PLANS",
+    "SPECIAL_CIA_INTELLIGENCE",
+    "SPECIAL_CLEANUP_AREA",
+    "SPECIAL_LAUNCH_BAIKONUR_ROCKET",
+    "SPECIAL_SPECTRE_GUNSHIP",
+    "SPECIAL_GPS_SCRAMBLER",
+    "SPECIAL_FRENZY",
+    "SPECIAL_SNEAK_ATTACK",
+    "SPECIAL_CHINA_CARPET_BOMB",
+    "EARLY_SPECIAL_CHINA_CARPET_BOMB",
+    "SPECIAL_LEAFLET_DROP",
+    "EARLY_SPECIAL_LEAFLET_DROP",
+    "EARLY_SPECIAL_FRENZY",
+    "SPECIAL_COMMUNICATIONS_DOWNLOAD",
+    "EARLY_SPECIAL_REPAIR_VEHICLES",
+    "SPECIAL_TANK_PARADROP",
+    "SUPW_SPECIAL_PARTICLE_UPLINK_CANNON",
+    "AIRF_SPECIAL_DAISY_CUTTER",
+    "NUKE_SPECIAL_CLUSTER_MINES",
+    "NUKE_SPECIAL_NEUTRON_MISSILE",
+    "AIRF_SPECIAL_A10_THUNDERBOLT_STRIKE",
+    "AIRF_SPECIAL_SPECTRE_GUNSHIP",
+    "INFA_SPECIAL_PARADROP_AMERICA",
+    "SLTH_SPECIAL_GPS_SCRAMBLER",
+    "AIRF_SPECIAL_CARPET_BOMB",
+    "SUPR_SPECIAL_CRUISE_MISSILE",
+    "LAZR_SPECIAL_PARTICLE_UPLINK_CANNON",
+    "SUPW_SPECIAL_NEUTRON_MISSILE",
+    "SPECIAL_BATTLESHIP_BOMBARDMENT",
+];
 
 fn xfer_coord2d_values(xfer: &mut dyn Xfer, value: &mut Coord2D) {
     let _ = xfer.xfer_real(&mut value.x);
@@ -569,11 +828,10 @@ impl Snapshot for Object {
         if is_loading {
             self.name = AsciiString::from(name.as_str());
         }
-
         if version >= 8 {
-            let mut status_bits = self.status.bits();
-            let _ = xfer.xfer_u64(&mut status_bits);
-            self.status = ObjectStatusMaskType::from_bits_retain(status_bits);
+            let mut status_bits = self.status.bits() as u128;
+            xfer_named_bits(xfer, &mut status_bits, OBJECT_STATUS_XFER_NAMES);
+            self.status = ObjectStatusMaskType::from_bits_retain(status_bits as u64);
         } else {
             let mut old_status: u32 = self.status.bits() as u32;
             let _ = xfer.xfer_unsigned_int(&mut old_status);
@@ -597,11 +855,7 @@ impl Snapshot for Object {
             }
         }
 
-        xfer_coord3d_values(xfer, &mut self.geometry_info.position);
-        let _ = xfer.xfer_real(&mut self.geometry_info.angle);
-        xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.min);
-        xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.max);
-        let _ = xfer.xfer_real(&mut self.geometry_info.height_above_terrain);
+        xfer_geometry_info(xfer, &mut self.geometry_info);
 
         xfer_sighting_info(xfer, &mut self.partition_last_look);
         if version >= 9 {
@@ -622,9 +876,9 @@ impl Snapshot for Object {
         let _ = xfer.xfer_real(&mut self.shroud_clearing_range);
         let _ = xfer.xfer_real(&mut self.shroud_range);
 
-        let mut disabled_mask_bits = self.disabled_mask.bits();
-        let _ = xfer.xfer_unsigned_int(&mut disabled_mask_bits);
-        self.disabled_mask = DisabledMaskType::from_bits_retain(disabled_mask_bits);
+        let mut disabled_mask_bits = self.disabled_mask.bits() as u128;
+        xfer_named_bits(xfer, &mut disabled_mask_bits, DISABLED_MASK_XFER_NAMES);
+        self.disabled_mask = DisabledMaskType::from_bits_retain(disabled_mask_bits as u32);
 
         if is_saving || version >= 2 {
             let _ = xfer.xfer_bool(&mut self.single_use_command_used);
@@ -668,20 +922,15 @@ impl Snapshot for Object {
         let _ = xfer.xfer_unsigned_int(&mut self.contained_by_frame);
         let _ = xfer.xfer_real(&mut self.construction_percent);
 
-        // C++ Object::xfer → xferSnapshot(getBodyModule()). ActiveBody writes the payload.
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                if let Err(err) = body_guard.snapshot_xfer(xfer) {
-                    warn!(
-                        "Object::xfer body Snapshot failed for object {}: {}",
-                        self.id, err
-                    );
-                }
-            }
-        }
-
+        // C++ Object.cpp:4204 then 4207 — construction percent is followed by xferUpgradeMask.
+        // ActiveBody is a BehaviorModule and is framed inside the m_behaviors module list.
         let mut upgrade_mask_bits = self.object_upgrades_completed.bits();
-        xfer_u128_bits(xfer, &mut upgrade_mask_bits);
+        if let Err(err) = xfer.xfer_upgrade_mask(&mut upgrade_mask_bits) {
+            panic!(
+                "Object::xfer upgrade mask failed for object {}: {err}",
+                self.id
+            );
+        }
         self.object_upgrades_completed = UpgradeMaskType::from_bits_retain(upgrade_mask_bits);
 
         let mut original_team_name = self.original_team_name.to_string();
@@ -699,7 +948,13 @@ impl Snapshot for Object {
         let _ = xfer.xfer_int(&mut self.i_pos.y);
         let _ = xfer.xfer_int(&mut self.i_pos.z);
 
-        let trigger_count = (self.num_trigger_areas_active as usize).min(MAX_TRIGGER_AREA_INFOS);
+        if (self.num_trigger_areas_active as usize) > MAX_TRIGGER_AREA_INFOS {
+            panic!(
+                "Object::xfer - Invalid m_numTriggerAreasActive = {}, max is {}",
+                self.num_trigger_areas_active, MAX_TRIGGER_AREA_INFOS
+            );
+        }
+        let trigger_count = self.num_trigger_areas_active as usize;
         for i in 0..trigger_count {
             let mut trigger_name = self.trigger_info[i]
                 .trigger
@@ -766,9 +1021,10 @@ impl Snapshot for Object {
         }
 
         if version >= 4 {
-            let mut cur_weapon_set_flags = weapon_set_flags_to_bits(self.cur_weapon_set_flags);
-            let _ = xfer.xfer_unsigned_int(&mut cur_weapon_set_flags);
-            self.cur_weapon_set_flags = weapon_set_flags_from_bits(cur_weapon_set_flags);
+            let mut cur_weapon_set_flags = weapon_set_flags_to_bits(self.cur_weapon_set_flags) as u128;
+            xfer_named_bits(xfer, &mut cur_weapon_set_flags, WEAPON_SET_XFER_NAMES);
+            self.cur_weapon_set_flags =
+                weapon_set_flags_from_bits(cur_weapon_set_flags as u32);
 
             let mut weapon_bonus_condition = self.weapon_bonus_condition.bits();
             let _ = xfer.xfer_unsigned_int(&mut weapon_bonus_condition);
@@ -798,7 +1054,7 @@ impl Snapshot for Object {
             }
 
             let mut special_power_bits = self.special_power_bits.bits();
-            xfer_u128_bits(xfer, &mut special_power_bits);
+            xfer_named_bits(xfer, &mut special_power_bits, SPECIAL_POWER_XFER_NAMES);
             self.special_power_bits = SpecialPowerMask::from_bits_retain(special_power_bits);
 
             let mut command_override = self.command_set_string_override.to_string();

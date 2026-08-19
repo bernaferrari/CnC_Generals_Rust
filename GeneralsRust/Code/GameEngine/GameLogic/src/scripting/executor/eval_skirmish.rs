@@ -255,17 +255,25 @@ impl ScriptConditionEvaluator {
 
     pub(crate) fn eval_skirmish_tech_building_within_distance(
         &self,
-        condition: &Condition,
+        condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
-        let distance = self.get_condition_real_param(condition, 1)?;
-        let area_name = self.get_condition_string_param(condition, 2)?;
-
         let player_arc = player_list()
             .read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
+
+        // C++ latches the first evaluation in customData forever, after player exists.
+        if condition.custom_data == 1 {
+            return Ok(ScriptConditionResult::True);
+        }
+        if condition.custom_data == -1 {
+            return Ok(ScriptConditionResult::False);
+        }
+
+        let distance = self.get_condition_real_param(condition, 1)?;
+        let area_name = self.get_condition_string_param(condition, 2)?;
         let player_guard = player_arc
             .read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
@@ -314,6 +322,7 @@ impl ScriptConditionEvaluator {
             }
         }
 
+        condition.custom_data = if found { 1 } else { -1 };
         Ok(if found {
             ScriptConditionResult::True
         } else {

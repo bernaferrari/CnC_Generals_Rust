@@ -207,7 +207,7 @@ impl ScriptActionDispatcher {
         };
         let enemy_player_index = enemy_guard.get_player_index();
 
-        let (power_template, template_name, radius) = {
+        let (power_template, template_name, radius, is_sneak_attack) = {
             let Some(store) = get_special_power_store() else {
                 return Ok(ScriptActionResult::Success);
             };
@@ -219,6 +219,8 @@ impl ScriptActionDispatcher {
                 template.clone(),
                 template.get_name().to_string(),
                 template.get_radius_cursor_radius().max(50.0),
+                template.get_special_power_type()
+                    == crate::object::special_power_types::SpecialPowerType::SneakAttack,
             )
         };
 
@@ -235,83 +237,138 @@ impl ScriptActionDispatcher {
         };
         let player_id = player_guard.get_player_index() as u32;
 
-        let mut target_location: Option<Coord3D> = None;
-        let _ = with_ai_integration_mut(|manager| {
-            manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                IntegratedAiPlayer::Skirmish(skirmish_ai) => {
-                    let mut location = Coord3D::ZERO;
-                    if skirmish_ai.compute_superweapon_target(
-                        &power_template,
-                        &mut location,
-                        enemy_player_index,
-                        radius,
-                    ) {
-                        target_location = Some(location);
+        // C++ walks player team prototypes → instances → members, recomputing
+        // the superweapon target per ready module and legalizing Sneak Attack.
+        let mut team_member_lists: Vec<Vec<crate::common::ObjectID>> = Vec::new();
+        if let Ok(factory) = get_team_factory().lock() {
+            for prototype in player_guard.get_player_team_prototypes() {
+                for team in factory.find_team_instances(prototype.get_name().as_str()) {
+                    if let Ok(team_guard) = team.read() {
+                        team_member_lists.push(team_guard.get_members().to_vec());
                     }
                 }
-                IntegratedAiPlayer::Standard(standard_ai) => {
-                    if let Ok(Some(location)) = standard_ai.compute_superweapon_target(
-                        power_template.get_name(),
-                        radius,
-                        enemy_player_index,
-                    ) {
-                        target_location = Some(location);
-                    }
-                }
-            })
-        });
-
-        let Some(target_location) = target_location else {
-            return Ok(ScriptActionResult::Success);
-        };
-        if target_location.x == 0.0 && target_location.y == 0.0 && target_location.z == 0.0 {
-            return Ok(ScriptActionResult::Success);
-        }
-
-        // Host path: empty dual-world registry → no SP fire residual.
-        if OBJECT_REGISTRY.is_empty() {
-            return Ok(ScriptActionResult::Success);
-        }
-        let mut fired = false;
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let object_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if object_guard.is_destroyed() {
-                continue;
             }
-            let Some(owner_id) = object_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id as u32 != player_id {
-                continue;
-            }
+        }
+        drop(player_guard);
 
-            let is_ready = object_guard
-                .with_special_power_module_interface_by_name(&template_name, |sp_module| {
-                    sp_module.is_ready()
+        if team_member_lists.is_empty() {
+            if OBJECT_REGISTRY.is_empty() {
+                return Ok(ScriptActionResult::Success);
+            }
+            let fallback: Vec<crate::common::ObjectID> = OBJECT_REGISTRY
+                .get_all_object_ids()
+                .into_iter()
+                .filter(|&obj_id| {
+                    OBJECT_REGISTRY
+                        .with_object(obj_id, |object_guard| {
+                            !object_guard.is_destroyed()
+                                && object_guard.get_controlling_player_id()
+                                    == Some(player_id)
+                        })
+                        .unwrap_or(false)
                 })
-                .unwrap_or(false);
-            if !is_ready {
-                continue;
+                .collect();
+            if !fallback.is_empty() {
+                team_member_lists.push(fallback);
             }
+        }
 
-            let fired_here =
-                object_guard.with_special_power_module_mut_by_name(&template_name, |sp_module| {
-                    sp_module.do_special_power_at_location(
-                        &target_location,
-                        INVALID_ANGLE,
-                        SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
-                    );
-                    true
+        let mut fired = false;
+        for members in team_member_lists {
+            for obj_id in members {
+                let object_arc = match OBJECT_REGISTRY.get_object(obj_id) {
+                    Some(v) => v,
+                    None => continue,
+                };
+                let Ok(object_guard) = object_arc.read() else {
+                    continue;
+                };
+                if object_guard.is_destroyed() {
+                    continue;
+                }
+
+                let (is_ready, sneak_template) = object_guard
+                    .with_special_power_module_interface_by_name(&template_name, |sp_module| {
+                        (
+                            sp_module.is_ready(),
+                            sp_module.get_reference_thing_template(),
+                        )
+                    })
+                    .unwrap_or((false, None));
+                if !is_ready {
+                    continue;
+                }
+
+                let mut target_location: Option<Coord3D> = None;
+                let _ = with_ai_integration_mut(|manager| {
+                    manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                        IntegratedAiPlayer::Skirmish(skirmish_ai) => {
+                            let mut location = Coord3D::ZERO;
+                            if skirmish_ai.compute_superweapon_target(
+                                &power_template,
+                                &mut location,
+                                enemy_player_index,
+                                radius,
+                            ) {
+                                target_location = Some(location);
+                            }
+                        }
+                        IntegratedAiPlayer::Standard(standard_ai) => {
+                            if let Ok(Some(location)) = standard_ai.compute_superweapon_target(
+                                power_template.get_name(),
+                                radius,
+                                enemy_player_index,
+                            ) {
+                                target_location = Some(location);
+                            }
+                        }
+                    })
                 });
-            if fired_here.unwrap_or(false) {
-                fired = true;
-                break;
+
+                if is_sneak_attack {
+                    if let Some(template_name) = sneak_template.as_deref() {
+                        if let Some(seed) = target_location {
+                            let legalized = with_ai_integration_mut(|manager| {
+                                manager
+                                    .with_ai_player(player_id, |ai_player| {
+                                        ai_player.calc_closest_construction_zone_at(
+                                            template_name,
+                                            &seed,
+                                        )
+                                    })
+                                    .flatten()
+                            })
+                            .flatten();
+                            target_location = legalized;
+                        }
+                    }
+                }
+
+                let Some(target_location) = target_location else {
+                    continue;
+                };
+                if target_location.x == 0.0
+                    && target_location.y == 0.0
+                    && target_location.z == 0.0
+                {
+                    continue;
+                }
+
+                let fired_here = object_guard.with_special_power_module_mut_by_name(
+                    &template_name,
+                    |sp_module| {
+                        sp_module.do_special_power_at_location(
+                            &target_location,
+                            INVALID_ANGLE,
+                            SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
+                        );
+                        true
+                    },
+                );
+                if fired_here.unwrap_or(false) {
+                    fired = true;
+                    break;
+                }
             }
         }
 
@@ -363,6 +420,7 @@ impl ScriptActionDispatcher {
         let controlling_player_guard = controlling_player.read().map_err(|_| {
             ScriptError::ExecutionFailed("Failed to read skirmish player".to_string())
         })?;
+        let player_index = controlling_player_guard.get_player_index();
 
         let group_center = group_arc
             .read()
@@ -372,86 +430,44 @@ impl ScriptActionDispatcher {
                 ScriptError::ExecutionFailed("Failed to get group center".to_string())
             })?;
 
-        let comparison_type = match comparison {
-            0 => ComparisonType::LessThan,
-            1 => ComparisonType::LessEqual,
-            2 => ComparisonType::Equal,
-            3 => ComparisonType::GreaterEqual,
-            4 => ComparisonType::Greater,
-            5 => ComparisonType::NotEqual,
-            _ => ComparisonType::Equal,
-        };
-
-        let mut target_loc = group_center;
-        {
-            if let Ok(manager) = get_object_manager().read() {
-                let mut best_dist = f32::MAX;
-                let mut best_pos = None;
-
-                for obj_id in manager.all_object_ids() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_destroyed() {
-                        continue;
-                    }
-                    if obj_guard
-                        .get_status_bits()
-                        .test(crate::common::ObjectStatusTypes::UnderConstruction)
-                    {
-                        continue;
-                    }
-                    let Some(obj_player_id) = obj_guard.get_controlling_player_id() else {
-                        continue;
-                    };
-                    if obj_player_id == controlling_player_id {
-                        continue;
-                    }
-
-                    let Some(target_player_arc) =
-                        player_list_guard.get_player(obj_player_id as i32).cloned()
-                    else {
-                        continue;
-                    };
-                    let Ok(target_player_guard) = target_player_arc.read() else {
-                        continue;
-                    };
-                    if controlling_player_guard.get_relationship(&target_player_guard)
-                        != Relationship::Enemies
-                    {
-                        continue;
-                    }
-
-                    let build_cost = obj_guard.get_build_cost();
-                    let meets_value = match comparison_type {
-                        ComparisonType::LessThan => build_cost < value,
-                        ComparisonType::LessEqual => build_cost <= value,
-                        ComparisonType::Equal => build_cost == value,
-                        ComparisonType::GreaterEqual => build_cost >= value,
-                        ComparisonType::Greater => build_cost > value,
-                        ComparisonType::NotEqual => build_cost != value,
-                    };
-                    if !meets_value {
-                        continue;
-                    }
-
-                    let pos = obj_guard.get_position();
-                    let dx = pos.x - group_center.x;
-                    let dy = pos.y - group_center.y;
-                    let dist = dx * dx + dy * dy;
-                    if dist < best_dist {
-                        best_dist = dist;
-                        best_pos = Some(*pos);
-                    }
+        // C++ only queries for GREATER / GREATER_EQUAL; other comparisons
+        // leave loc uninitialized then still attack-move.
+        let mut target_loc = Coord3D::ZERO;
+        if matches!(
+            comparison,
+            3 | 4 // ComparisonType::GreaterEqual | ComparisonType::Greater
+        ) {
+            let mut enemy_mask = 0u32;
+            for other in player_list_guard.iter() {
+                let Ok(other_guard) = other.read() else {
+                    continue;
+                };
+                if other_guard.get_player_index() == player_index {
+                    continue;
                 }
-
-                if let Some(pos) = best_pos {
-                    target_loc = pos;
+                if controlling_player_guard.get_relationship(&other_guard)
+                    == Relationship::Enemies
+                {
+                    enemy_mask |= other_guard.get_player_mask().bits();
                 }
             }
+            drop(controlling_player_guard);
+            drop(player_list_guard);
+            if let Some(loc) = ThePartitionManager::get().and_then(|pm| {
+                pm.get_nearest_group_with_value(
+                    player_index,
+                    enemy_mask,
+                    crate::object::collide::partition_manager::ValueOrThreat::CashValue,
+                    &group_center,
+                    value,
+                    true,
+                )
+            }) {
+                target_loc = loc;
+            }
+        } else {
+            drop(controlling_player_guard);
+            drop(player_list_guard);
         }
 
         if let Ok(group) = group_arc.read() {

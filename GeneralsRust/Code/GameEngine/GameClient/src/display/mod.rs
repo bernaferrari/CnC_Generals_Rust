@@ -42,10 +42,13 @@ use std::error::Error;
 pub mod cinematic_camera;
 pub mod client_draw_schedule;
 pub mod display;
+pub mod display_fx;
+pub mod shadow_pass;
 pub mod image;
 pub mod movie_player;
 pub mod texture_system;
 pub mod video_texture;
+pub mod status_circle;
 pub mod view;
 
 /// Legacy Display interface for compatibility

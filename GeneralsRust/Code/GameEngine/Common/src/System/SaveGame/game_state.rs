@@ -7,7 +7,8 @@ use super::super::xfer_load::XferLoad;
 use super::super::xfer_save::XferSave;
 use super::game_state_map::GameStateMap;
 use super::{
-    notify_clear_game_data, notify_get_mission_start_args, notify_save_lock_ghost_objects,
+    notify_clear_game_data, notify_get_campaign_snapshot, notify_get_mission_start_args,
+    notify_save_lock_ghost_objects,
 };
 use crate::common::game_engine::get_game_engine;
 use crate::common::ini::ini_game_data::get_global_data;
@@ -29,6 +30,8 @@ const GAME_STATE_BLOCK_STRING: &str = "CHUNK_GameState";
 const CAMPAIGN_BLOCK_STRING: &str = "CHUNK_Campaign";
 const GAME_SINGLE_PLAYER: i32 = 0;
 const DIFFICULTY_NORMAL: i32 = 1;
+/// C++ CampaignManager.h:111 `INVALID_MISSION_NUMBER`.
+const INVALID_MISSION_NUMBER: i32 = -1;
 
 /// C++ `GameState::init` snapshot table (`GameState.cpp:289-305`).
 pub const SAVELOAD_BLOCK_NAMES: &[&str] = &[
@@ -609,9 +612,10 @@ impl GameState {
         // Set save file type
         self.game_info.save_file_type = save_type;
         if save_type == SaveFileType::Mission {
-            if self.game_info.mission_map_name.is_empty() {
-                self.game_info.mission_map_name = self.game_info.pristine_map_name.clone();
-            }
+            // C++ GameState.cpp:558-559 — TheCampaignManager->getCurrentMap(), not pristine.
+            self.game_info.mission_map_name = notify_get_campaign_snapshot()
+                .map(|(_, _, map)| map)
+                .unwrap_or_default();
         } else {
             self.game_info.mission_map_name.clear();
         }
@@ -1089,7 +1093,16 @@ impl Snapshot for GameState {
         }
         xfer.xfer_ascii_string(&mut self.game_info.map_label)?;
 
-        // Campaign info
+        // Campaign info — C++ GameState.cpp:1614-1638 refreshes from TheCampaignManager on save.
+        if xfer.get_xfer_mode() == XferMode::Save {
+            if let Some((side, number, _)) = notify_get_campaign_snapshot() {
+                self.game_info.campaign_side = side;
+                self.game_info.mission_number = number;
+            } else {
+                self.game_info.campaign_side.clear();
+                self.game_info.mission_number = INVALID_MISSION_NUMBER;
+            }
+        }
         xfer.xfer_ascii_string(&mut self.game_info.campaign_side)?;
         xfer.xfer_int(&mut self.game_info.mission_number)?;
 
@@ -1271,8 +1284,9 @@ mod tests {
         assert_eq!(info.save_file_type, SaveFileType::Mission);
         assert_eq!(info.mission_map_name, "Maps\\MissionTest.map");
         assert_eq!(info.map_label, "Mission Test");
-        assert_eq!(info.campaign_side, "GDI");
-        assert_eq!(info.mission_number, 7);
+        // C++ GameState.cpp:1629-1638 — no current campaign writes empty side + -1.
+        assert_eq!(info.campaign_side, "");
+        assert_eq!(info.mission_number, INVALID_MISSION_NUMBER);
 
         let _ = fs::remove_dir_all(save_dir);
     }

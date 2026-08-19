@@ -1227,14 +1227,34 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
         crate::game_logic::Team::GLA,
     );
     let _ = crate::game_logic::host_owner_log::drain();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
     let mut hud = crate::ui::GameHUD::new();
     let before = hud.message_count_for_test();
     frame.apply_events_to_game_hud(&mut hud);
+    assert_eq!(
+        hud.message_count_for_test(),
+        before,
+        "upgrade/owner must not print overlay text (C++ audio/radar only)"
+    );
+
+    frame.events.push(PresentationEvent::RadarMessage {
+        team: crate::game_logic::Team::Neutral,
+        text: "RADAR:UnitUnderAttack".into(),
+        position: glam::Vec3::ZERO,
+        kind: 1,
+    });
+    let mut radar_hud = crate::ui::GameHUD::new();
+    frame.apply_events_to_game_hud(&mut radar_hud);
+    let after_radar = radar_hud.message_count_for_test();
     assert!(
-        hud.message_count_for_test() > before,
-        "hud should receive presentation events (before={before}, after={})",
-        hud.message_count_for_test()
+        after_radar > 0,
+        "RadarMessage must still reach the HUD"
+    );
+    frame.apply_events_to_game_hud(&mut radar_hud);
+    assert_eq!(
+        radar_hud.message_count_for_test(),
+        after_radar,
+        "same freeze must not re-push radar every apply"
     );
 }
 

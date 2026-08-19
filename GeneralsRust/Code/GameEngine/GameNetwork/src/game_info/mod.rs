@@ -572,6 +572,7 @@ pub struct GameInfo {
     starting_cash: Money,
     superweapon_restriction: u16,
     old_factions_only: bool,
+    is_qm: bool,
 }
 
 impl GameInfo {
@@ -595,6 +596,7 @@ impl GameInfo {
             starting_cash: Money::default(),
             superweapon_restriction: 0,
             old_factions_only: false,
+            is_qm: false,
         };
         info.init();
         info
@@ -618,9 +620,10 @@ impl GameInfo {
         self.surrendered = false;
         self.old_factions_only = false;
         self.map_crc = 0;
-        self.map_size = 0;
         self.superweapon_restriction = 0;
         self.starting_cash = Money::default();
+        self.preorder_mask = 0;
+        self.is_qm = false;
         self.preorder_mask = 0;
 
         for slot in &mut self.slots {
@@ -679,12 +682,18 @@ impl GameInfo {
     pub fn leave_game(&mut self) {
         self.reset();
     }
-
-    /// Start the game with given ID
     pub fn start_game(&mut self, game_id: i32) {
         self.game_id = game_id;
         self.close_open_slots();
         self.in_progress = true;
+    }
+
+    pub fn mark_game_as_qm(&mut self) {
+        self.is_qm = true;
+    }
+
+    pub fn is_qm(&self) -> bool {
+        self.is_qm
     }
 
     /// End the game

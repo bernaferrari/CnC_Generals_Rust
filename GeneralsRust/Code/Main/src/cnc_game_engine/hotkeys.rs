@@ -1113,6 +1113,10 @@ impl CnCGameEngine {
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
     pub(super) fn toggle_camera_tracking_drawable_hotkey(&mut self) {
         self.camera_tracking_selection = !self.camera_tracking_selection;
+        #[cfg(feature = "game_client")]
+        game_client::helpers::TheInGameUI::set_camera_tracking_drawable(
+            self.camera_tracking_selection,
+        );
         let msg = if self.camera_tracking_selection {
             "Camera tracking selection: ON"
         } else {
@@ -1137,25 +1141,30 @@ impl CnCGameEngine {
         info!("{msg}");
     }
 
-    /// Follow selection centroid when camera tracking residual is armed.
+    /// Follow the first selected drawable (C++ GameClient.cpp:587-597).
     pub(super) fn update_camera_tracking_drawable(&mut self) {
         if !self.camera_tracking_selection {
             return;
         }
         // Wave 226: selection via presentation-first ui_selected_ids.
+        // C++ `getFirstSelectedDrawable()` is the first list entry, not centroid.
         let ids = self.ui_selected_ids(self.current_player_id);
-        if ids.is_empty() {
+        let Some(first) = ids.first().copied() else {
+            self.camera_tracking_selection = false;
+            #[cfg(feature = "game_client")]
+            game_client::helpers::TheInGameUI::set_camera_tracking_drawable(false);
             return;
-        }
-        // Presentation-only poses for InGame camera tracking.
+        };
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
-        if let Some(center) = frame.centroid_of_ids(&ids) {
-            let clamped = self.clamp_to_world_bounds(center);
-            self.camera_target.x = clamped.x;
-            self.camera_target.z = clamped.z;
-        }
+        let Some(obj) = frame.objects.iter().find(|o| o.id == first) else {
+            return;
+        };
+        let pos = glam::Vec3::new(obj.position.x, obj.position.y, obj.position.z);
+        let clamped = self.clamp_to_world_bounds(pos);
+        self.camera_target.x = clamped.x;
+        self.camera_target.z = clamped.z;
     }
 
     /// Retail TAKE_SCREENSHOT (KEY_F12) residual.

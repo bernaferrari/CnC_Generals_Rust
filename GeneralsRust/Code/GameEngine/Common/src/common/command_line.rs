@@ -18,6 +18,8 @@ use log::debug;
 #[cfg(feature = "debug_crc")]
 use crate::common::crc_debug;
 use crate::common::global_data;
+use crate::common::version;
+
 
 /// Global debug flags and settings
 #[derive(Debug, Clone, Copy)]
@@ -362,10 +364,25 @@ impl CommandLineParser {
         1
     }
 
-    /// Parse -fullVersion flag
+    /// Parse -fullVersion flag.
+    /// C++ `parseFullVersion` reads the next integer when present but always
+    /// consumes only the flag token (`return 1`).
     fn parse_full_version(&mut self, args: &[String]) -> usize {
         if args.len() > 1 {
-            // Would set version show setting here
+            let show = args[1].parse::<i32>().unwrap_or(0) != 0;
+            version::get_version_mut().set_show_full_version(show);
+        }
+        1
+    }
+
+    /// Parse -playStats flag.
+    /// C++ `parsePlayStats` writes `TheWritableGlobalData->m_playStats` from
+    /// the next integer and consumes both tokens.
+    fn parse_play_stats(&mut self, args: &[String]) -> usize {
+        if args.len() > 1 {
+            if let Ok(val) = args[1].parse::<i32>() {
+                self.global_data.play_stats = val;
+            }
             2
         } else {
             1
@@ -526,16 +543,25 @@ impl CommandLineParser {
         1
     }
 
-    /// Parse -mod flag
+    /// Parse -mod flag.
+    /// C++ `parseMod` prepends `TheGlobalData->getPath_UserData()` when the
+    /// argument is not a full path, then records `m_modDir` or `m_modBIG`.
     fn parse_mod(&mut self, args: &[String]) -> usize {
         if args.len() > 1 {
             let mut mod_path = args[1].clone();
 
-            // Check if it's a full path
-            if !mod_path.contains(':') && !mod_path.starts_with('/') && !mod_path.starts_with('\\')
+            if !mod_path.contains(':')
+                && !mod_path.starts_with('/')
+                && !mod_path.starts_with('\\')
             {
-                // Would append user data path here
-                // mod_path = format!("{}{}", get_user_data_path(), args[1]);
+                let user_data = global_data::read().get_user_data_dir().to_string();
+                if !user_data.is_empty() {
+                    let mut prefix = user_data;
+                    if !prefix.ends_with('/') && !prefix.ends_with('\\') {
+                        prefix.push('/');
+                    }
+                    mod_path = format!("{}{}", prefix, args[1]);
+                }
             }
 
             if Path::new(&mod_path).exists() {
@@ -572,6 +598,7 @@ impl CommandLineParser {
                 "-resolution" => self.parse_resolution(remaining_args),
                 "-fps" | "-maxfps" => self.parse_fps(remaining_args),
                 "-fullVersion" => self.parse_full_version(remaining_args),
+                "-playStats" => self.parse_play_stats(remaining_args),
                 "-particleEdit" => self.parse_particle_edit(remaining_args),
                 "-scriptDebug" => self.parse_script_debug(remaining_args),
                 "-mod" => self.parse_mod(remaining_args),

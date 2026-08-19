@@ -91,12 +91,24 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::DoCheer => self.execute_cheer(command, context),
             CommandType::ToggleOvercharge => self.execute_overcharge_toggle(command, context),
             CommandType::SwitchWeapons => self.execute_switch_weapons(command, context),
+
+            CommandType::PickUpPrisoner => self.execute_targeted_group_command(
+                command,
+                context,
+                crate::ai::AiCommandType::PickUpPrisoner,
+                "pick up prisoner",
+            ),
+            CommandType::ReturnToPrison => self.execute_selected_ai_command(
+                context,
+                crate::ai::AiCommandType::ReturnPrisoners,
+            ),
             CommandType::ConvertToCarbomb => self.execute_targeted_group_command(
                 command,
                 context,
                 crate::ai::AiCommandType::Enter,
                 "convert to carbomb",
             ),
+
             CommandType::CaptureBuilding => self.execute_capture_building(command, context),
             CommandType::DisableVehicleHack => self.execute_hack_special_power_at_object(
                 command,
@@ -218,7 +230,10 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoCheer
                 | CommandType::ToggleOvercharge
                 | CommandType::SwitchWeapons
+                | CommandType::PickUpPrisoner
+                | CommandType::ReturnToPrison
                 | CommandType::ConvertToCarbomb
+
                 | CommandType::CaptureBuilding
                 | CommandType::DisableVehicleHack
                 | CommandType::StealCashHack

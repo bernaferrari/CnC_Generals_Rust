@@ -59,6 +59,7 @@ pub struct SpecialAbility {
     module_name_key: NameKeyType,
     data: Arc<SpecialAbilityModuleData>,
     owner_object_id: ObjectID,
+    base_module: crate::object::special_power_module::SpecialPowerModule,
 }
 
 impl SpecialAbility {
@@ -69,8 +70,9 @@ impl SpecialAbility {
     ) -> Self {
         Self {
             module_name_key,
-            data,
             owner_object_id,
+            base_module: super::interface::make_base_module(owner_object_id, &data.base),
+            data,
         }
     }
 
@@ -110,14 +112,53 @@ impl SpecialAbility {
         Ok(())
     }
 
-    /// C++ parity: guards disabled, then proceeds with base flow.
     pub fn do_special_power(&self, _command_options: u32) -> Result<(), String> {
         if self.owner_is_disabled() {
             return Ok(());
         }
         Ok(())
     }
+
+    fn dispatch_do_special_power(
+        &mut self,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        if self.owner_is_disabled() {
+            return;
+        }
+        self.base_module.do_special_power(command_options);
+    }
+
+    fn dispatch_do_special_power_at_object(
+        &mut self,
+        object_id: crate::object::special_power_module::ObjectId,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        if self.owner_is_disabled() {
+            return;
+        }
+        self.base_module
+            .do_special_power_at_object(object_id, command_options);
+    }
+
+    fn dispatch_do_special_power_at_location(
+        &mut self,
+        location: &Coord3D,
+        angle: f32,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+    ) {
+        if self.owner_is_disabled() {
+            return;
+        }
+        self.base_module
+            .do_special_power_at_location(location, angle, command_options);
+    }
+
+    fn dispatch_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
+
 
 impl Module for SpecialAbility {
     fn as_any(&self) -> &dyn std::any::Any {
@@ -141,6 +182,24 @@ impl Module for SpecialAbility {
     }
 }
 
+impl BehaviorModuleInterface for SpecialAbility {
+    fn get_module_name(&self) -> &'static str {
+        "SpecialAbility"
+    }
+    fn get_special_power_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+    fn get_special_power_module_interface_const(
+        &self,
+    ) -> Option<&dyn crate::modules::SpecialPowerModuleInterface> {
+        Some(self)
+    }
+}
+super::interface::impl_special_power_subclass!(SpecialAbility);
+
+
 impl Snapshotable for SpecialAbility {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
@@ -161,11 +220,6 @@ impl Snapshotable for SpecialAbility {
     }
 }
 
-impl BehaviorModuleInterface for SpecialAbility {
-    fn get_module_name(&self) -> &'static str {
-        "SpecialAbility"
-    }
-}
 
 fn parse_special_power_template_field(
     _ini: &mut INI,

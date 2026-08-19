@@ -92,8 +92,8 @@ pub use module_factory::{
 };
 
 pub use thing::{
-    register_terrain_height_provider, register_underwater_provider, BaseThing, KindOfMaskType,
-    KindOfType,
+    register_align_on_terrain, register_terrain_height_provider, register_underwater_provider,
+    BaseThing, KindOfMaskType, KindOfType,
 };
 
 pub use thing_factory::{

@@ -5,7 +5,7 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use crate::transport::Transport;
+use crate::transport_unified::UnifiedTransport as Transport;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

@@ -6,13 +6,17 @@
 
 use crate::common::{
     AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType, ModuleData, NameKeyType,
-    ObjectShroudStatus, ObjectStatusTypes, ParticleSystemID, Real, UnsignedInt, XferVersion,
-    ALL_KIND_OF,
+    ObjectShroudStatus, ObjectStatusMaskType, ObjectStatusTypes, ParticleSystemID, Real,
+    UnsignedInt, XferVersion, ALL_KIND_OF,
 };
-use crate::helpers::{TheAudio, TheParticleSystemManager, ThePartitionManager};
+use crate::helpers::{
+    EvaEvent, TheAudio, TheEva, TheGameText, TheInGameUI, TheParticleSystemManager,
+    ThePartitionManager,
+};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{Object as GameObject, ObjectID, INVALID_ID as OBJECT_INVALID_ID};
+use crate::stealth_update::StealthUpdateHandle;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -28,6 +32,120 @@ use std::sync::{Arc, RwLock, Weak};
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
+fn eva_event_from_name(name: &str) -> Option<EvaEvent> {
+    match name {
+        "EnemyBlackLotusDetected" => Some(EvaEvent::EnemyBlackLotusDetected),
+        "EnemyJarmenKellDetected" => Some(EvaEvent::EnemyJarmenKellDetected),
+        "EnemyColonelBurtonDetected" => Some(EvaEvent::EnemyColonelBurtonDetected),
+        "OwnBlackLotusDetected" => Some(EvaEvent::OwnBlackLotusDetected),
+        "OwnJarmenKellDetected" => Some(EvaEvent::OwnJarmenKellDetected),
+        "OwnColonelBurtonDetected" => Some(EvaEvent::OwnColonelBurtonDetected),
+        _ => None,
+    }
+}
+
+fn play_misc_stealth_sound(discovered: bool, player_index: i32) {
+    let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
+        return;
+    };
+    let Ok(misc) = misc.read() else {
+        return;
+    };
+    let name = if discovered {
+        misc.stealth_discovered_sound.sound_file.as_str()
+    } else {
+        misc.stealth_neutralized_sound.sound_file.as_str()
+    };
+    if name.is_empty() {
+        return;
+    }
+    if let Some(audio) = TheAudio::get() {
+        let mut event = crate::common::audio::AudioEventRts::new(name);
+        event.set_player_index(player_index as u32);
+        audio.add_audio_event(&event);
+    }
+}
+
+fn emit_first_detection_feedback(
+    detector: &GameObject,
+    target: &GameObject,
+    stealth: &StealthUpdateHandle,
+) {
+    use crate::common::Relationship;
+    use crate::player::{player_list, PLAYER_INDEX_INVALID};
+    use game_engine::common::system::radar::{
+        get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+    };
+
+    if detector.relationship_to(target) == Relationship::Allies {
+        return;
+    }
+    let local_index = player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(PLAYER_INDEX_INVALID);
+    let pos = *target.get_position();
+    let radar_loc = RadarCoord3D::new(pos.x, pos.y, pos.z);
+    let is_mine = target.is_kind_of(KindOf::Mine)
+        || target.is_kind_of(KindOf::BoobyTrap)
+        || target.is_kind_of(KindOf::Demotrap);
+
+    let detector_local = detector
+        .get_controlling_player_id()
+        .map(|id| id as i32 == local_index)
+        .unwrap_or(false);
+    if detector_local {
+        let do_feedback = get_radar_system()
+            .write()
+            .map(|mut radar| radar.try_stealth_discovered_event(&radar_loc))
+            .unwrap_or(false);
+        if do_feedback {
+            if let Some(player_id) = detector.get_controlling_player_id() {
+                play_misc_stealth_sound(true, player_id);
+            }
+            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthDiscovered"));
+            if let Ok(stealth_guard) = stealth.lock() {
+                if let Some(name) = stealth_guard.enemy_detection_eva_event() {
+                    if let Some(event) = eva_event_from_name(name) {
+                        let _ = TheEva::set_should_play(event);
+                    }
+                }
+            }
+        }
+    }
+
+    let target_local = target
+        .get_controlling_player_id()
+        .map(|id| id as i32 == local_index)
+        .unwrap_or(false);
+    if target_local {
+        let do_feedback = if let Ok(mut radar) = get_radar_system().write() {
+            if is_mine {
+                radar.try_stealth_neutralized_event(&radar_loc)
+            } else {
+                radar.create_event(&radar_loc, RadarEventType::StealthNeutralized, 4.0);
+                true
+            }
+        } else {
+            false
+        };
+        if do_feedback {
+            if let Some(player_id) = target.get_controlling_player_id() {
+                play_misc_stealth_sound(false, player_id);
+            }
+            TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthNeutralized"));
+            if let Ok(stealth_guard) = stealth.lock() {
+                if let Some(name) = stealth_guard.own_detection_eva_event() {
+                    if let Some(event) = eva_event_from_name(name) {
+                        let _ = TheEva::set_should_play(event);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -561,13 +679,7 @@ impl StealthDetectorUpdate {
                                 return None;
                             }
 
-                            let target_contained = target.get_container_id().is_some();
-                            if target_contained
-                                && !(self.module_data.can_detect_while_garrisoned
-                                    || self.module_data.can_detect_while_transported)
-                            {
-                                return None;
-                            }
+                            // C++ applies CanDetectWhile* only to the detector (lines 139-162).
 
                             // Check if stealthed (C++ line 187)
                             if target.is_stealthed() {
@@ -575,12 +687,20 @@ impl StealthDetectorUpdate {
                                 if distance > vision_range {
                                     return None;
                                 }
-                                return Some((
-                                    true,
-                                    target.get_stealth_module(),
-                                    *target.get_position(),
-                                    None,
-                                ));
+                                let stealth = target.get_stealth_module();
+                                let was_detected = target
+                                    .get_status_bits()
+                                    .contains(ObjectStatusMaskType::DETECTED);
+                                if !was_detected {
+                                    if let Some(stealth_module) = &stealth {
+                                        emit_first_detection_feedback(
+                                            &obj,
+                                            target,
+                                            stealth_module,
+                                        );
+                                    }
+                                }
+                                return Some((true, stealth, *target.get_position(), None));
                             }
 
                             // Check if container holds stealthed units

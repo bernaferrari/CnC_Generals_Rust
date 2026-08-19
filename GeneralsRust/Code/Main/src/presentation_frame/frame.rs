@@ -251,6 +251,9 @@ pub struct PresentationFrame {
     /// Fail-closed: packed through the existing LaserSegmentUpload line path.
     #[serde(default)]
     pub scene_lines: Vec<PresentationSceneLine>,
+    /// C++ `W3DStatusCircle` fullscreen fade overlay.
+    #[serde(default)]
+    pub camera_fade: PresentationCameraFade,
     /// C++ ProjectileStreamUpdate residual trails.
     pub projectile_streams: Vec<PresentationProjectileStream>,
     /// In-flight combat projectiles frozen from host CombatSystem.

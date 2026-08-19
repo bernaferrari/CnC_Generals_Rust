@@ -2433,8 +2433,8 @@ mod runtime_host_windowed_bridge_tests {
             "windowed RedrawRequested must present (render_frame=true)"
         );
         assert!(
-            src.contains("next_redraw_at = now + FRAME_INTERVAL"),
-            "windowed AboutToWait must pace GPU presents"
+            src.contains("live_present_interval()"),
+            "windowed AboutToWait must pace GPU presents from use_fps_limit + draw limiter"
         );
         assert!(
             src.contains("HEADLESS_PRESENT_INTERVAL"),

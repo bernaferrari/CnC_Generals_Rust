@@ -14,6 +14,8 @@ pub mod linux_device;
 #[cfg(target_os = "macos")]
 pub mod macos_device;
 
+pub mod cd;
+pub mod os_display;
 // Re-exports
 pub use device_interface::{DeviceInterface, PlatformCapabilities, SystemInfo};
 

@@ -1,4 +1,5 @@
-// W3DTreeBuffer wgpu draw: vertex color is unpacked doLighting BGRA.
+// W3DTreeBuffer wgpu draw: C++ Set_Texture(0, m_treeTexture) + detailAlphaShader.
+// Group 0 = camera (shared). Group 1 = tree atlas only — not the road/terrain groups.
 struct Camera {
     view_proj: mat4x4<f32>,
     view: mat4x4<f32>,
@@ -22,6 +23,11 @@ struct VertexOutput {
 @group(0) @binding(0)
 var<uniform> camera: Camera;
 
+@group(1) @binding(0)
+var tree_atlas: texture_2d<f32>;
+@group(1) @binding(1)
+var tree_sampler: sampler;
+
 @vertex
 fn vs_main(vertex: TreeVertex) -> VertexOutput {
     var out: VertexOutput;
@@ -33,5 +39,11 @@ fn vs_main(vertex: TreeVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    let tex = textureSample(tree_atlas, tree_sampler, in.tex_coords);
+    // C++ detailAlphaShader alpha-test leaves; keep a floor so unlit verts are visible.
+    if (tex.a < 0.25) {
+        discard;
+    }
+    let lit = max(in.color, vec3<f32>(0.28));
+    return vec4<f32>(lit * tex.rgb, tex.a);
 }

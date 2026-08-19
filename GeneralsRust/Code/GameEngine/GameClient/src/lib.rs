@@ -77,6 +77,7 @@ pub mod water;
 // Complete asset loading system
 pub mod assets;
 pub mod bink;
+pub mod bink_audio;
 pub mod color;
 pub mod credits;
 pub mod display_string;
@@ -139,6 +140,14 @@ pub mod matchmaking {
 #[cfg(feature = "network")]
 pub mod rank_point_value {
     pub use crate::game_network_crate::rank_point_value::*;
+}
+#[cfg(feature = "network")]
+pub mod nat {
+    pub use crate::game_network_crate::nat::*;
+}
+#[cfg(feature = "network")]
+pub mod firewall_helper {
+    pub use crate::game_network_crate::firewall_helper::*;
 }
 #[cfg(feature = "network")]
 pub fn get_favorite_side(

@@ -29,7 +29,7 @@ use crate::common::system::{
 };
 use crate::common::thing::{get_thing_factory, BuildableStatus, ThingTemplate};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 /// Object ID type used throughout the game engine
 pub type ObjectID = u32;
@@ -140,6 +140,103 @@ pub trait BuildLimitWorld {
     fn build_limit_objects_for_player(&self, player_index: i32) -> Vec<BuildLimitObjectInfo>;
 }
 
+/// Snapshot of a live object the Common Player can act on.
+#[derive(Debug, Clone, Default)]
+pub struct PlayerObjectSnapshot {
+    pub id: ObjectID,
+    pub template_name: String,
+    pub kind_of: u128,
+    pub is_dead: bool,
+    pub has_ai: bool,
+    pub is_idle: bool,
+    pub is_structure: bool,
+    pub is_powered: bool,
+    pub is_faction_structure: bool,
+    pub is_beacon: bool,
+    pub has_contain: bool,
+    pub is_disguiser: bool,
+    pub contain_player_mask: u32,
+    pub position: Coord3D,
+}
+
+impl PlayerObjectSnapshot {
+    pub fn is_kind(&self, mask: KindOfMask) -> bool {
+        (self.kind_of & mask.bits()) != 0 || self.kind_matches_bit(mask)
+    }
+
+    fn kind_matches_bit(&self, mask: KindOfMask) -> bool {
+        if mask.contains(KindOfMask::POWERED) {
+            return self.is_powered;
+        }
+        if mask.contains(KindOfMask::STRUCTURE) {
+            return self.is_structure;
+        }
+        false
+    }
+}
+
+/// GameLogic-facing world so Player can iterate real objects.
+pub trait PlayerObjectWorld: Send + Sync + std::fmt::Debug {
+    fn snapshot(&self, id: ObjectID) -> Option<PlayerObjectSnapshot>;
+    fn object_ids_for_player(&self, player_index: i32) -> Vec<ObjectID>;
+    fn all_object_ids(&self) -> Vec<ObjectID> {
+        Vec::new()
+    }
+
+    fn set_disabled_underpowered(&self, id: ObjectID, disable: bool);
+    fn set_script_disabled(&self, id: ObjectID, disabled: bool);
+    fn set_team(&self, id: ObjectID, team_id: TeamID);
+    fn evacuate_container(&self, id: ObjectID);
+    fn kill_object(&self, id: ObjectID);
+    fn sell_object(&self, id: ObjectID);
+    fn ai_enter(&self, unit_id: ObjectID, building_id: ObjectID);
+    fn ai_evacuate(&self, id: ObjectID);
+    fn ai_move_to(&self, id: ObjectID, pos: Coord3D);
+    fn ai_force_want_supplies(&self, id: ObjectID) {
+        let _ = (id,);
+    }
+    fn can_enter(&self, unit_id: ObjectID, building_id: ObjectID) -> bool {
+        let _ = (unit_id, building_id);
+        false
+    }
+    fn recalc_contain_and_radar(&self, id: ObjectID) {
+        let _ = id;
+    }
+    fn refresh_disguise_for_local(&self, id: ObjectID, local_player_index: i32) {
+        let _ = (id, local_player_index);
+    }
+    fn mark_ui_dirty(&self) {}
+    fn set_observer_control_bar(&self) {}
+    fn set_player_control_bar(&self, _player_index: i32) {}
+    fn set_team_color(&self, _r: i32, _g: i32, _b: i32) {}
+    fn is_single_player_game(&self) -> bool {
+        false
+    }
+    fn is_shell_game(&self) -> bool {
+        false
+    }
+}
+
+static PLAYER_OBJECT_WORLD: LazyLock<Mutex<Option<Arc<dyn PlayerObjectWorld>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+pub fn set_player_object_world(world: Arc<dyn PlayerObjectWorld>) {
+    if let Ok(mut guard) = PLAYER_OBJECT_WORLD.lock() {
+        *guard = Some(world);
+    }
+}
+
+pub fn clear_player_object_world() {
+    if let Ok(mut guard) = PLAYER_OBJECT_WORLD.lock() {
+        *guard = None;
+    }
+}
+
+pub fn get_player_object_world() -> Option<Arc<dyn PlayerObjectWorld>> {
+    PLAYER_OBJECT_WORLD.lock().ok().and_then(|g| g.clone())
+}
+
+
 // =========================================================
 // Forward Declarations / Trait Definitions
 // These are placeholder traits for AI and related systems
@@ -174,10 +271,12 @@ pub trait SkillPointObject {
 /// This trait allows Player to reference AI functionality without direct dependency
 pub trait AIPlayerInterface: std::fmt::Debug + Send + Sync {
     /// Update the AI player
-    fn update(&mut self) -> Result<(), String>;
+    fn update(&self) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Called when a new map is loaded
-    fn new_map(&mut self);
+    fn new_map(&self) {}
 
     /// Check if this is a skirmish AI
     fn is_skirmish_ai(&self) -> bool;
@@ -191,7 +290,7 @@ pub trait AIPlayerInterface: std::fmt::Debug + Send + Sync {
     }
 
     /// Repair a structure
-    fn repair_structure(&mut self, _structure_id: ObjectID) {}
+    fn repair_structure(&self, _structure_id: ObjectID) {}
 
     /// Get base center position
     fn get_base_center(&self) -> Option<Coord3D> {
@@ -199,16 +298,28 @@ pub trait AIPlayerInterface: std::fmt::Debug + Send + Sync {
     }
 
     /// Called when a unit is produced
-    fn on_unit_produced(&mut self, _factory_id: ObjectID, _unit_id: ObjectID) {}
+    fn on_unit_produced(&self, _factory_id: ObjectID, _unit_id: ObjectID) {}
 
     /// Called when a structure is produced
-    fn on_structure_produced(&mut self, _factory_id: ObjectID, _structure_id: ObjectID) {}
+    fn on_structure_produced(&self, _factory_id: ObjectID, _structure_id: ObjectID) {}
 
     /// Set the AI difficulty
-    fn set_ai_difficulty(&mut self, _difficulty: GameDifficulty);
+    fn set_ai_difficulty(&self, _difficulty: GameDifficulty) {}
 
     /// Get the AI difficulty
     fn get_ai_difficulty(&self) -> GameDifficulty;
+
+    fn build_specific_ai_team(&self, _team_name: &str, _priority: bool) {}
+    fn build_ai_base_defense(&self, _flank: bool) {}
+    fn build_ai_base_defense_structure(&self, _thing_name: &str, _flank: bool) {}
+    fn build_specific_ai_building(&self, _thing_name: &str) {}
+    fn build_by_supplies(&self, _minimum_cash: i32, _thing_name: &str) {}
+    fn build_specific_building_nearest_team(&self, _thing_name: &str, _team_id: i32) {}
+    fn build_upgrade(&self, _upgrade_name: &str) {}
+    fn recruit_specific_ai_team(&self, _team_name: &str, _recruit_radius: f32) {}
+    fn calc_closest_construction_zone(&self, _template_name: &str) -> Option<Coord3D> {
+        None
+    }
 }
 
 /// Game difficulty enumeration
@@ -1188,6 +1299,7 @@ pub struct Player {
     /// Whether player preordered
     /// C++: m_isPreorder (Player.h line 360)
     is_preorder: bool,
+
     /// Whether player should be listed in score screen
     /// C++: m_listInScoreScreen (Player.h line 364)
     list_in_score_screen: bool,
@@ -1298,6 +1410,10 @@ pub struct Player {
     /// Special power ready timers for shared cooldowns
     /// C++: m_specialPowerReadyTimerList (Player.h line 392)
     special_power_timers: HashMap<u32, u32>, // template_id -> ready_frame
+    /// Object IDs owned by this player (C++ getFirstOwnedObject list).
+    owned_objects: Vec<ObjectID>,
+    /// True while this slot is the local player.
+    is_local: bool,
 }
 
 impl Player {
@@ -1430,7 +1546,10 @@ impl Player {
 
             // Special Power Timers
             special_power_timers: HashMap::new(),
+            owned_objects: Vec::new(),
+            is_local: false,
         };
+
         player
     }
 
@@ -1738,7 +1857,11 @@ impl Player {
         }
 
         // C++ line 571: Update academy stats
-        self.academy_stats.update();
+        if crate::common::rts::money::take_pending_income(self.index) {
+            self.academy_stats.record_income();
+        }
+        self.academy_stats
+            .update_from_player(self.money.count_money(), self.energy.has_sufficient_power());
 
         // C++ lines 573-590: Retaliation mode sync would happen here
         // (requires access to ThePlayerList and TheGlobalData)
@@ -1752,8 +1875,18 @@ impl Player {
         } else {
             self.enable_radar();
         }
-        // C++ lines 3238-3240: Would iterate all objects and call doPowerDisable
+        // C++ iterateObjects(doPowerDisable, &brownOut)
+        if let Some(world) = get_player_object_world() {
+            for id in self.collect_owned_object_ids(&world) {
+                if let Some(snap) = world.snapshot(id) {
+                    if snap.is_kind(KindOfMask::POWERED) || snap.is_powered {
+                        world.set_disabled_underpowered(id, brown_out);
+                    }
+                }
+            }
+        }
     }
+
 
     // =========================================================
     // Radar System (C++ Player.h lines 299-301)
@@ -1973,34 +2106,55 @@ impl Player {
     // Kill Player and Related (C++ Player.cpp lines 1597-1650)
     // =========================================================
 
-    /// Kill this player - remove all units and mark as dead
-    /// C++ Reference: Player::killPlayer() (Player.cpp lines 1597-1650)
+    /// Kill this player - evacuate, destroy units, then zero money.
+    /// C++ Reference: Player::killPlayer() (Player.cpp lines 2023-2071)
     pub fn kill_player(&mut self) {
-        // Mark player as dead first (so OCLs don't spawn useful units)
-        self.is_player_dead = true;
+        let world = get_player_object_world();
+        let ids = if let Some(world) = world.as_ref() {
+            self.collect_owned_object_ids(world)
+        } else {
+            self.owned_objects.clone()
+        };
 
-        // Clear all team prototypes (would evacuate containers in full impl)
-        self.team_prototypes.clear();
-
-        // Clear all hotkey squads
-        for squad in &mut self.hotkey_squads {
-            squad.clear();
+        // C++ first pass: evacuateTeam on every instance
+        if let Some(world) = world.as_ref() {
+            for id in &ids {
+                world.evacuate_container(*id);
+            }
         }
 
-        // Clear current selection
-        self.current_selection.clear();
+        // Mark dead so OCLs don't spawn useful units
+        self.is_player_dead = true;
 
-        // Clear build list
-        self.build_list = None;
+        // C++ second pass: killTeam
+        if let Some(world) = world.as_ref() {
+            for id in &ids {
+                world.kill_object(*id);
+            }
+        }
+        self.owned_objects.clear();
 
-        // Clear supply centers and warehouses
-        self.supply_centers.clear();
-        self.supply_warehouses.clear();
+        // C++: single-player computer players are resurrected so scripts can reuse the slot
+        let resurrect_sp_ai = world
+            .as_ref()
+            .map(|w| w.is_single_player_game() && self.player_type == PlayerType::Computer)
+            .unwrap_or(false);
+        if resurrect_sp_ai {
+            self.is_player_dead = false;
+            return;
+        }
 
-        // Clear tunnel entrances
-        self.tunnel_entrances.clear();
+        if self.is_local {
+            self.becoming_local_player(true);
+            if let Some(world) = world.as_ref() {
+                if self.is_player_active() {
+                    world.set_player_control_bar(self.index);
+                } else {
+                    world.set_observer_control_bar();
+                }
+            }
+        }
 
-        // Force money to 0
         let all_money = self.money.count_money();
         if all_money > 0 {
             self.money.withdraw(all_money, false);
@@ -2008,55 +2162,148 @@ impl Player {
     }
 
     /// Transfer all assets from another player to this one
-    /// C++ Reference: Player::transferAssetsFromThat() (Player.cpp lines 1666-1701)
+    /// C++ Reference: Player::transferAssetsFromThat() (Player.cpp lines 2100-2144)
     pub fn transfer_assets_from(&mut self, other: &mut Player) {
-        // Transfer all money
+        let dest_team = self.default_team;
+        let beacon = other
+            .current_player_template()
+            .map(|t| t.get_beacon_template().to_string())
+            .unwrap_or_default();
+
+        if let Some(world) = get_player_object_world() {
+            let mut to_transfer = Vec::new();
+            for id in other.collect_owned_object_ids(&world) {
+                if let Some(snap) = world.snapshot(id) {
+                    if snap.is_beacon || (!beacon.is_empty() && snap.template_name == beacon) {
+                        continue;
+                    }
+                    to_transfer.push(id);
+                } else {
+                    to_transfer.push(id);
+                }
+            }
+            if let Some(team_id) = dest_team {
+                for id in &to_transfer {
+                    world.set_team(*id, team_id);
+                    self.add_owned_object(*id);
+                    other.remove_owned_object(*id);
+                }
+            }
+        }
+
         let all_money = other.get_money().count_money();
         if all_money > 0 {
             other.get_money_mut().withdraw(all_money, false);
             self.money.deposit(all_money, false);
         }
-
-        // In full implementation, would also transfer all objects
-        // to this player's default team
     }
 
     /// Garrison all units
-    /// C++ Reference: Player::garrisonAllUnits() (Player.cpp lines 1704-1751)
+    /// C++ Reference: Player::garrisonAllUnits() (Player.cpp lines 2147-2197)
     pub fn garrison_all_units(&mut self) {
-        // Would iterate all units and find garrisonable structures
-        // Simplified: just mark intent
+        let Some(world) = get_player_object_world() else {
+            return;
+        };
+        let units = self.collect_owned_object_ids(&world);
+        let mut buildings = world.all_object_ids();
+        if buildings.is_empty() {
+            buildings = units.clone();
+        }
+        let my_mask = self.get_player_mask();
+        for unit_id in units {
+            let Some(unit) = world.snapshot(unit_id) else {
+                continue;
+            };
+            if !unit.has_ai || unit.is_structure || unit.is_dead {
+                continue;
+            }
+            for building_id in &buildings {
+                let Some(building) = world.snapshot(*building_id) else {
+                    continue;
+                };
+                if !building.is_structure || !building.has_contain {
+                    continue;
+                }
+                if !(building.contain_player_mask == 0 || building.contain_player_mask == my_mask) {
+                    continue;
+                }
+                if !world.can_enter(unit_id, *building_id) {
+                    continue;
+                }
+                world.ai_enter(unit_id, *building_id);
+            }
+        }
     }
 
     /// Ungarrison all units
-    /// C++ Reference: Player::ungarrisonAllUnits() (Player.cpp lines 1754-1784)
+    /// C++ Reference: Player::ungarrisonAllUnits() (Player.cpp lines 2200-2230)
     pub fn ungarrison_all_units(&mut self) {
-        // Would iterate all structures and tell them to evacuate
-        // Simplified: just mark intent
+        let Some(world) = get_player_object_world() else {
+            return;
+        };
+        for id in self.collect_owned_object_ids(&world) {
+            if let Some(snap) = world.snapshot(id) {
+                if snap.is_structure && snap.has_ai {
+                    world.ai_evacuate(id);
+                }
+            }
+        }
     }
 
     /// Set units to idle or resume
-    /// C++ Reference: Player::setUnitsShouldIdleOrResume() (Player.cpp lines 1788-1827)
+    /// C++ Reference: Player::setUnitsShouldIdleOrResume() (Player.cpp lines 2234-2276)
     pub fn set_units_should_idle_or_resume(&mut self, idle: bool) {
-        // Would iterate all units and set their idle state
-        // Simplified: no-op
-        let _ = idle;
+        let Some(world) = get_player_object_world() else {
+            return;
+        };
+        for id in self.collect_owned_object_ids(&world) {
+            let Some(snap) = world.snapshot(id) else {
+                continue;
+            };
+            if snap.is_structure || !snap.has_ai {
+                continue;
+            }
+            if idle {
+                world.ai_move_to(id, snap.position);
+            } else if snap.is_idle {
+                world.ai_force_want_supplies(id);
+            }
+        }
     }
 
     /// Sell everything under the sun
-    /// C++ Reference: Player::sellEverythingUnderTheSun() (Player.cpp lines 1832-1839)
+    /// C++ Reference: Player::sellEverythingUnderTheSun() (Player.cpp lines 2288-2291)
     pub fn sell_everything(&mut self) {
-        // Would iterate and sell all faction structures
-        // Simplified: just clear build list
+        if let Some(world) = get_player_object_world() {
+            for id in self.collect_owned_object_ids(&world) {
+                if let Some(snap) = world.snapshot(id) {
+                    if snap.is_faction_structure
+                        || snap.is_kind(KindOfMask::COMMANDCENTER)
+                        || snap.is_kind(KindOfMask::FS_POWER)
+                    {
+                        world.sell_object(id);
+                    }
+                }
+            }
+        }
         self.build_list = None;
     }
 
     /// Set objects enabled/disabled by template
-    /// C++ Reference: Player::setObjectsEnabled() (Player.cpp lines 1653-1663)
-    pub fn set_objects_enabled(&mut self, _template_name: &str, _enable: bool) {
-        // Would iterate all objects matching template and enable/disable them
-        // Simplified: no-op
+    /// C++ Reference: Player::setObjectsEnabled() (Player.cpp lines 2074-2097)
+    pub fn set_objects_enabled(&mut self, template_name: &str, enable: bool) {
+        let Some(world) = get_player_object_world() else {
+            return;
+        };
+        for id in self.collect_owned_object_ids(&world) {
+            if let Some(snap) = world.snapshot(id) {
+                if snap.template_name == template_name {
+                    world.set_script_disabled(id, !enable);
+                }
+            }
+        }
     }
+
 
     // =========================================================
     // Build Prerequisites and Permissions (C++ Player.cpp lines 1842-2061)
@@ -2228,78 +2475,77 @@ impl Player {
 
     // =========================================================
     // AI Build Commands (C++ Player.cpp lines 1858-1960)
-    // =========================================================
-
     /// Build specific team (AI command)
-    /// C++ Reference: Player::buildSpecificTeam() (Player.cpp lines 1858-1864)
+    /// C++ Reference: Player::buildSpecificTeam() (Player.cpp lines 2309-2316)
     pub fn build_specific_team(&mut self, team_name: &str) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, team_name); // Would call AI build method
+            ai.build_specific_ai_team(team_name, true);
         }
     }
 
     /// Build base defense (AI command)
-    /// C++ Reference: Player::buildBaseDefense() (Player.cpp lines 1867-1873)
+    /// C++ Reference: Player::buildBaseDefense() (Player.cpp lines 2319-2326)
     pub fn build_base_defense(&mut self, flank: bool) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, flank); // Would call AI build method
+            ai.build_ai_base_defense(flank);
         }
     }
 
     /// Build base defense structure (AI command)
-    /// C++ Reference: Player::buildBaseDefenseStructure() (Player.cpp lines 1876-1882)
+    /// C++ Reference: Player::buildBaseDefenseStructure() (Player.cpp lines 2329-2336)
     pub fn build_base_defense_structure(&mut self, thing_name: &str, flank: bool) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, thing_name, flank); // Would call AI build method
+            ai.build_ai_base_defense_structure(thing_name, flank);
         }
     }
 
     /// Build specific building (AI command)
-    /// C++ Reference: Player::buildSpecificBuilding() (Player.cpp lines 1885-1891)
+    /// C++ Reference: Player::buildSpecificBuilding() (Player.cpp lines 2339-2346)
     pub fn build_specific_building(&mut self, thing_name: &str) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, thing_name); // Would call AI build method
+            ai.build_specific_ai_building(thing_name);
         }
     }
 
     /// Build by supplies (AI command)
-    /// C++ Reference: Player::buildBySupplies() (Player.cpp lines 1894-1900)
+    /// C++ Reference: Player::buildBySupplies() (Player.cpp lines 2349-2355)
     pub fn build_by_supplies(&mut self, minimum_cash: i32, thing_name: &str) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, minimum_cash, thing_name); // Would call AI build method
+            ai.build_by_supplies(minimum_cash, thing_name);
         }
     }
 
     /// Build specific building nearest team (AI command)
-    /// C++ Reference: Player::buildSpecificBuildingNearestTeam() (Player.cpp lines 1903-1907)
-    pub fn build_specific_building_nearest_team(&mut self, thing_name: &str, _team_id: i32) {
+    /// C++ Reference: Player::buildSpecificBuildingNearestTeam() (Player.cpp lines 2358-2364)
+    pub fn build_specific_building_nearest_team(&mut self, thing_name: &str, team_id: i32) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, thing_name); // Would call AI build method
+            ai.build_specific_building_nearest_team(thing_name, team_id);
         }
     }
 
     /// Build upgrade (AI command)
-    /// C++ Reference: Player::buildUpgrade() (Player.cpp lines 1910-1916)
+    /// C++ Reference: Player::buildUpgrade() (Player.cpp lines 2367-2373)
     pub fn build_upgrade(&mut self, upgrade_name: &str) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, upgrade_name); // Would call AI build method
+            ai.build_upgrade(upgrade_name);
         }
     }
 
     /// Recruit specific team (AI command)
-    /// C++ Reference: Player::recruitSpecificTeam() (Player.cpp lines 1919-1925)
+    /// C++ Reference: Player::recruitSpecificTeam() (Player.cpp lines 2376-2383)
     pub fn recruit_specific_team(&mut self, team_name: &str, recruit_radius: f32) {
         if let Some(ai) = self.get_ai() {
-            let _ = (ai, team_name, recruit_radius); // Would call AI recruit method
+            ai.recruit_specific_ai_team(team_name, recruit_radius);
         }
     }
 
     /// Calculate closest construction zone location
-    /// C++ Reference: Player::calcClosestConstructionZoneLocation() (Player.cpp lines 1929-1939)
-    pub fn calc_closest_construction_zone(&self, _template_name: &str) -> Option<Coord3D> {
-        // Would query AI for construction zone
-        self.get_ai().and_then(|_| None)
+    /// C++ Reference: Player::calcClosestConstructionZoneLocation() (Player.cpp lines 2389-2397)
+    pub fn calc_closest_construction_zone(&self, template_name: &str) -> Option<Coord3D> {
+        self.get_ai()
+            .and_then(|ai| ai.calc_closest_construction_zone(template_name))
     }
+
 
     // =========================================================
     // Relationship System (C++ Player.cpp lines 540-590)
@@ -2872,12 +3118,11 @@ impl Player {
     /// Set player difficulty
     pub fn set_player_difficulty(&mut self, difficulty: GameDifficulty) {
         self.difficulty = difficulty;
-        // Also update AI if present
         if let Some(ai) = self.get_ai() {
-            // AI would be updated via write access - skipped here for simplicity
-            let _ = ai;
+            ai.set_ai_difficulty(difficulty);
         }
     }
+
 
     /// Check if this is a skirmish AI player
     /// C++ Reference: Player::isSkirmishAIPlayer() (Player.cpp lines 1491-1494)
@@ -3221,10 +3466,16 @@ impl Player {
     // =========================================================
 
     /// Add a team prototype to the player's list
+    /// Add a team prototype to the player's list
     /// C++ Reference: Player::addTeamToList() (Player.cpp lines 974-982)
     pub fn add_team_prototype(&mut self, team_name: String) {
         if !self.team_prototypes.contains(&team_name) {
-            self.team_prototypes.push(team_name);
+            self.team_prototypes.push(team_name.clone());
+        }
+        if let Ok(mut factory) = crate::common::rts::team::get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype_mut(&team_name) {
+                proto.set_controlling_player(Some(self.index as usize));
+            }
         }
     }
 
@@ -3237,6 +3488,86 @@ impl Player {
     /// Get all team prototypes
     pub fn get_team_prototypes(&self) -> &[String] {
         &self.team_prototypes
+    }
+
+    pub fn add_owned_object(&mut self, id: ObjectID) {
+        if id != INVALID_OBJECT_ID && !self.owned_objects.contains(&id) {
+            self.owned_objects.push(id);
+        }
+    }
+
+    pub fn remove_owned_object(&mut self, id: ObjectID) {
+        self.owned_objects.retain(|existing| *existing != id);
+    }
+
+    pub fn owned_object_ids(&self) -> &[ObjectID] {
+        &self.owned_objects
+    }
+
+    fn collect_owned_object_ids(&self, world: &Arc<dyn PlayerObjectWorld>) -> Vec<ObjectID> {
+        let mut ids = world.object_ids_for_player(self.index);
+        ids.extend(self.owned_objects.iter().copied());
+        if let Ok(factory) = crate::common::rts::team::get_team_factory().lock() {
+            for name in &self.team_prototypes {
+                if let Some(proto) = factory.find_team_prototype(name) {
+                    for team in proto.iter_team_instances() {
+                        ids.extend(team.iter_members().copied());
+                    }
+                }
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// C++ Player::updateTeamStates
+    pub fn update_team_states(&mut self) {
+        if let Ok(mut factory) = crate::common::rts::team::get_team_factory().lock() {
+            for name in &self.team_prototypes {
+                if let Some(proto) = factory.find_team_prototype_mut(name) {
+                    proto.update_state();
+                }
+            }
+        }
+    }
+
+    pub fn is_local_player(&self) -> bool {
+        self.is_local
+    }
+
+    /// C++ Player::becomingLocalPlayer
+    pub fn becoming_local_player(&mut self, yes: bool) {
+        self.is_local = yes;
+        if !yes {
+            return;
+        }
+        if let Some(world) = get_player_object_world() {
+            if let Some(color) = self.current_player_template().map(|t| t.preferred_color) {
+                let r = ((color >> 16) & 0xFF) as i32;
+                let g = ((color >> 8) & 0xFF) as i32;
+                let b = (color & 0xFF) as i32;
+                world.set_team_color(r, g, b);
+            }
+
+            let mut ids = world.all_object_ids();
+            if ids.is_empty() {
+                ids = self.collect_owned_object_ids(&world);
+            }
+            for id in ids {
+                if let Some(snap) = world.snapshot(id) {
+                    if snap.has_contain {
+                        world.recalc_contain_and_radar(id);
+                    }
+                    if snap.is_disguiser {
+                        world.refresh_disguise_for_local(id, self.index);
+                    }
+                } else {
+                    world.recalc_contain_and_radar(id);
+                }
+            }
+            world.mark_ui_dirty();
+        }
     }
 
     // =========================================================
@@ -3496,9 +3827,10 @@ impl Player {
     /// C++ Reference: Player::newMap() (Player.cpp lines 592-595)
     pub fn new_map(&mut self) {
         if let Some(ai) = self.get_ai() {
-            let _ = ai; // Would call ai.new_map()
+            ai.new_map();
         }
     }
+
 }
 
 impl Default for Player {

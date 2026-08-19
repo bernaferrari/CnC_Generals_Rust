@@ -45,7 +45,7 @@ fn dual_world_registry_unavailable() -> bool {
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
 const INVALID_DRAWABLE_ID: DrawableID = 0;
 const MAX_OUTER_NODES: usize = 16;
-const SCORCH_1: i32 = 1;
+const SCORCH_1: i32 = 0;
 const SCORCH_4: i32 = 4;
 
 /// Status for the Particle Uplink Cannon

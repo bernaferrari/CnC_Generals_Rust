@@ -10,7 +10,7 @@ use crate::rendering::texture_decode::{
 };
 use crate::rendering::texture_quality;
 use crate::rendering::texture_system::texture_base::{
-    PoolType, TextureBaseClass, TextureUsagePolicy,
+    PoolType, TextureBaseClass, TextureUsagePolicy, MISSING_TEXTURE_NAME,
 };
 use log::warn;
 use std::collections::HashMap;
@@ -375,49 +375,85 @@ impl TextureLoader {
         paths
     }
 
-    /// Create a checkerboard fallback texture.
+    /// Create the shared missing-texture fallback.
+    ///
+    /// C++ binds `MissingTexture::_Get_Missing_Texture()` (`w3d_missing_texture.tga`).
+    /// Every failed load shares this identity so `is_missing_texture()` is true.
     pub fn create_missing_texture(
         &self,
-        filename: &str,
+        _filename: &str,
         pool: PoolType,
     ) -> RendererResult<TextureBaseClass> {
-        let width = 2;
-        let height = 2;
-        let data = vec![
-            255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255,
-        ];
-
-        let texture_data = TextureData {
-            width,
-            height,
-            depth: 1,
-            mip_levels: 1,
-            format: WW3DFormat::A8R8G8B8,
-            kind: TextureDataKind::Texture2D,
-            data,
-            mip_layout: vec![TextureMipLevel {
-                offset: 0,
-                size: 4 * width as usize * height as usize,
+        let mut texture_base = if let Some(data) = Self::load_retail_missing_texture() {
+            let mut texture_base = TextureBaseClass::new(
+                data.width,
+                data.height,
+                1,
+                pool,
+                crate::rendering::texture_system::texture_base::TexAssetType::Regular,
+            );
+            texture_base.apply_texture_data(&data);
+            texture_base
+        } else {
+            // Magenta/black 2x2 matches the retail TGA palette if the file is absent.
+            let width = 2;
+            let height = 2;
+            let data = vec![
+                255, 0, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 0, 255, 255,
+            ];
+            let texture_data = TextureData {
                 width,
                 height,
-                depth_or_layers: 1,
-                slice_stride: 4 * width as usize * height as usize,
-            }],
-            format_decision: None,
+                depth: 1,
+                mip_levels: 1,
+                format: WW3DFormat::A8R8G8B8,
+                kind: TextureDataKind::Texture2D,
+                data,
+                mip_layout: vec![TextureMipLevel {
+                    offset: 0,
+                    size: 4 * width as usize * height as usize,
+                    width,
+                    height,
+                    depth_or_layers: 1,
+                    slice_stride: 4 * width as usize * height as usize,
+                }],
+                format_decision: None,
+            };
+            let mut texture_base = TextureBaseClass::new(
+                width,
+                height,
+                1,
+                pool,
+                crate::rendering::texture_system::texture_base::TexAssetType::Regular,
+            );
+            texture_base.apply_texture_data(&texture_data);
+            texture_base
         };
 
-        let mut texture_base = TextureBaseClass::new(
-            width,
-            height,
-            1,
-            pool,
-            crate::rendering::texture_system::texture_base::TexAssetType::Regular,
-        );
-        texture_base.apply_texture_data(&texture_data);
-        texture_base.ensure_gpu_texture(&self.device, &self.queue)?;
-        texture_base.set_name(filename);
-        texture_base.set_full_path(filename);
+        let _ = texture_base.ensure_gpu_texture(&self.device, &self.queue);
+        texture_base.set_name(MISSING_TEXTURE_NAME);
+        texture_base.set_full_path(MISSING_TEXTURE_NAME);
         Ok(texture_base)
+    }
+
+    fn load_retail_missing_texture() -> Option<TextureData> {
+        let mut candidates = Vec::new();
+        if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
+            candidates.push(
+                PathBuf::from(manifest).join("assets").join(MISSING_TEXTURE_NAME),
+            );
+        }
+        candidates.push(PathBuf::from("assets").join(MISSING_TEXTURE_NAME));
+        candidates.push(
+            PathBuf::from("GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/RequiredAssets")
+                .join(MISSING_TEXTURE_NAME),
+        );
+        for path in candidates {
+            if let Ok(data) = decode_texture_file(&path) {
+                return Some(data);
+            }
+        }
+        None
     }
 }
 

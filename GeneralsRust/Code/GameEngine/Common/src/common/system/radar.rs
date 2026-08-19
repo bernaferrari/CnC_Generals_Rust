@@ -11,6 +11,39 @@
 
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::{Arc, RwLock};
+use std::sync::OnceLock;
+
+/// Victim kind flags used by `tryUnderAttackEvent` / `tryInfiltrationEvent`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RadarVictimInfo {
+    pub is_infantry: bool,
+    pub is_vehicle: bool,
+    pub is_harvester: bool,
+    pub is_structure: bool,
+    pub is_mp_count_for_victory: bool,
+    pub is_local_player: bool,
+    pub is_ally: bool,
+    pub player_index: i32,
+}
+
+/// Client/W3D render EVA, UI, and audio for radar events.
+pub trait RadarEventFeedback: Send + Sync {
+    fn trigger_radar_attack_glow(&self);
+    fn show_radar_message(&self, message_key: &str);
+    fn play_radar_audio(&self, event_name: &str, player_index: i32);
+    fn set_eva_should_play(&self, eva_name: &str);
+}
+
+static RADAR_FEEDBACK: OnceLock<Arc<dyn RadarEventFeedback>> = OnceLock::new();
+
+pub fn register_radar_event_feedback(hook: Arc<dyn RadarEventFeedback>) -> bool {
+    RADAR_FEEDBACK.set(hook).is_ok()
+}
+
+fn radar_feedback() -> Option<&'static dyn RadarEventFeedback> {
+    RADAR_FEEDBACK.get().map(|hook| hook.as_ref())
+}
+
 
 /// Radar cell dimensions (matches C++ RADAR_CELL_WIDTH/HEIGHT)
 /// Must be power of 2 for WW3D texture requirements
@@ -1281,34 +1314,89 @@ impl RadarSystem {
         self.next_free_event = (self.next_free_event + 1) % MAX_RADAR_EVENTS;
     }
 
-    /// Try to create under attack event (matches C++ Radar::tryUnderAttackEvent)
+    /// Try to create under attack event (matches C++ Radar::tryUnderAttackEvent).
     pub fn try_under_attack_event(&mut self, world_loc: &Coord3D) -> bool {
+        self.try_under_attack_event_for(world_loc, None)
+    }
+
+    /// Object-aware under-attack event: ping + ControlBar glow + UI/audio/EVA.
+    pub fn try_under_attack_event_for(
+        &mut self,
+        world_loc: &Coord3D,
+        victim: Option<&RadarVictimInfo>,
+    ) -> bool {
         const CLOSE_ENOUGH_DISTANCE_SQ: f32 = 250.0 * 250.0;
         const FRAMES_BETWEEN_EVENTS: u32 = 300; // 10 seconds at 30 FPS
 
-        // Check if there's a recent attack event nearby
         for event in &self.events {
             if event.event_type == RadarEventType::UnderAttack && event.active {
                 let dx = event.world_loc.x - world_loc.x;
                 let dy = event.world_loc.y - world_loc.y;
                 let dist_sq = dx * dx + dy * dy;
 
-                if dist_sq <= CLOSE_ENOUGH_DISTANCE_SQ {
-                    if self.current_frame - event.create_frame < FRAMES_BETWEEN_EVENTS {
-                        return false; // Too soon, reject
-                    }
+                if dist_sq <= CLOSE_ENOUGH_DISTANCE_SQ
+                    && self.current_frame - event.create_frame < FRAMES_BETWEEN_EVENTS
+                {
+                    return false;
                 }
             }
         }
 
-        // Create new event
         self.create_event(world_loc, RadarEventType::UnderAttack, 4.0);
+
+        if let Some(fb) = radar_feedback() {
+            fb.trigger_radar_attack_glow();
+            let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
+            match victim {
+                Some(v) if v.is_infantry || v.is_vehicle => {
+                    if v.is_harvester {
+                        fb.show_radar_message("RADAR:HarvesterUnderAttack");
+                        fb.play_radar_audio("RadarHarvesterUnderAttackSound", player_index);
+                    } else {
+                        fb.show_radar_message("RADAR:UnitUnderAttack");
+                        fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
+                    }
+                }
+                Some(v) if v.is_structure && v.is_mp_count_for_victory => {
+                    if v.is_local_player {
+                        fb.set_eva_should_play("EVA_BaseUnderAttack");
+                    } else if v.is_ally {
+                        fb.set_eva_should_play("EVA_AllyUnderAttack");
+                    }
+                    fb.show_radar_message("RADAR:StructureUnderAttack");
+                    fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
+                }
+                _ => {
+                    fb.show_radar_message("RADAR:UnderAttack");
+                    fb.play_radar_audio("RadarStructureUnderAttackSound", player_index);
+                }
+            }
+        }
         true
     }
 
-    /// Try to create infiltration event (matches C++ Radar::tryInfiltrationEvent)
+    /// Try to create infiltration event (matches C++ Radar::tryInfiltrationEvent).
     pub fn try_infiltration_event(&mut self, world_loc: &Coord3D) {
+        self.try_infiltration_event_for(world_loc, None);
+    }
+
+    /// Object-aware infiltration: only the local victim gets ping + UI + audio.
+    pub fn try_infiltration_event_for(
+        &mut self,
+        world_loc: &Coord3D,
+        victim: Option<&RadarVictimInfo>,
+    ) {
+        if let Some(v) = victim {
+            if !v.is_local_player {
+                return;
+            }
+        }
         self.create_event(world_loc, RadarEventType::Infiltration, 4.0);
+        if let Some(fb) = radar_feedback() {
+            let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
+            fb.show_radar_message("RADAR:Infiltration");
+            fb.play_radar_audio("RadarInfiltrationSound", player_index);
+        }
     }
 
     /// Get last event location (matches C++ Radar::getLastEventLoc)

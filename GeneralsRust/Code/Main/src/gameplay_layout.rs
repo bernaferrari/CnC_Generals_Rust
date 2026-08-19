@@ -29,48 +29,36 @@ pub fn control_bar_parent_is_live() -> bool {
     false
 }
 
-/// Load ControlBar.wnd into TheWindowManager if the parent is missing, then
-/// `begin_frame` + `draw_all` and require a real tree + draw commands from
-/// that pass. Local honesty parse counts do not count.
+/// Load ControlBar.wnd into TheWindowManager if the parent is missing.
+///
+/// C++ `ShowControlBar` (ControlBarCallback.cpp:477-507) only looks up
+/// `ControlBar.wnd:ControlBarParent` and `winHide(FALSE)` — it does not
+/// `winRepaint`. Do not `begin_frame`/`draw_all` here: an open UI frame
+/// is classified as abandoned by the next overlay flush and discarded.
 pub fn materialise_live_control_bar() -> bool {
     #[cfg(feature = "game_client")]
     {
         if !control_bar_parent_is_live() {
             if let Some(path) = resolve_control_bar_path() {
-                let _ = game_client::gui::with_window_manager(|wm| {
-                    wm.load_window(path.to_str().unwrap_or("ControlBar.wnd"))
-                });
+                let _ = try_load_control_bar_via_window_manager(&path.display().to_string());
             }
             // C++ winCreateFromScript("ControlBar.wnd") uses the archive/ancestor
             // resolver. A cwd-limited disk probe must not skip the live load.
             if !control_bar_parent_is_live() {
-                let _ = game_client::gui::with_window_manager(|wm| wm.load_window("ControlBar.wnd"));
+                let _ = try_load_control_bar_via_window_manager("ControlBar.wnd");
             }
         }
-
-        let wm_count = game_client::gui::with_window_manager_ref(|wm| wm.window_count());
-        if wm_count == 0 {
-            return false;
-        }
-        game_client::gui::with_ui_renderer(|arc| {
-            if let Ok(mut renderer) = arc.write() {
-                renderer.begin_frame();
-            }
-        });
-        game_client::gui::with_window_manager(|wm| wm.draw_all());
-        let draw_cmds = game_client::gui::with_ui_renderer(|arc| {
-            arc.read()
-                .ok()
-                .map(|r| r.queued_draw_command_count())
-                .unwrap_or(0)
-        })
-        .unwrap_or(0);
-        control_bar_parent_is_live() && wm_count > 0 && draw_cmds > 0
+        control_bar_parent_is_live() && live_window_count() > 0
     }
     #[cfg(not(feature = "game_client"))]
     {
         false
     }
+}
+
+#[cfg(feature = "game_client")]
+fn live_window_count() -> usize {
+    game_client::gui::with_window_manager_ref(|wm| wm.window_count())
 }
 
 /// Candidate locations for ControlBar.wnd (extracted BIG / WindowZH trees).
@@ -407,8 +395,8 @@ impl ControlBarLayoutHonesty {
 
 /// Resolve + validate ControlBar and return host-testable honesty flags.
 ///
-/// When `attempt_window_load` is true and assets exist, prefers a real
-/// `WindowManager` parse (`window_loaded=true`, non-zero `window_count`).
+/// When `attempt_window_load` is true and assets exist, loads into the live
+/// `TheWindowManager` (`window_loaded=true` only when `ControlBarParent` is live).
 pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayoutHonesty {
     let (status, window_count) = ensure_control_bar_layout_with_count(attempt_window_load);
     ControlBarLayoutHonesty::from_status_with_count(status, window_count)
@@ -416,22 +404,34 @@ pub fn control_bar_layout_honesty(attempt_window_load: bool) -> ControlBarLayout
 
 /// Residual: ControlBar.wnd materialisation honesty (Wave 165).
 ///
-/// When retail assets resolve, require headless WindowManager load with
+/// When retail assets resolve, require a throwaway WindowManager parse with
 /// `window_count == CONTROL_BAR_RETAIL_WINDOW_COUNT` (98). Soft-ok only if
-/// assets are unavailable (CI without WindowZH).
+/// assets are unavailable (CI without WindowZH). The shipped Ready-gate uses
+/// the live `TheWindowManager` instead — leftover shell windows must not
+/// block this residual peel.
 pub fn simulate_control_bar_materialise_honesty() -> bool {
-    let h = control_bar_layout_honesty(true);
-    if !h.shell_residual_ok() {
+    let Some(path) = resolve_control_bar_path() else {
+        return true;
+    };
+    if validate_control_bar_file(&path).is_err() {
         return false;
     }
-    if !h.path_resolved {
-        return true;
+    #[cfg(feature = "game_client")]
+    {
+        match try_load_control_bar_via_throwaway_window_manager(&path.display().to_string()) {
+            Ok(count) => {
+                count == CONTROL_BAR_RETAIL_WINDOW_COUNT
+                    && honesty_control_bar_residual_pack_wave76_ok(true, count)
+            }
+            Err(_) => false,
+        }
     }
-    h.wnd_validated
-        && h.window_loaded
-        && h.window_count == CONTROL_BAR_RETAIL_WINDOW_COUNT
-        && honesty_control_bar_residual_pack_wave76_ok(h.window_loaded, h.window_count)
+    #[cfg(not(feature = "game_client"))]
+    {
+        true
+    }
 }
+
 
 /// Shipped ensure path: resolve ControlBar.wnd, validate, and attempt load.
 ///
@@ -441,8 +441,9 @@ pub fn ensure_control_bar_layout(attempt_window_load: bool) -> GameplayLayoutSta
     ensure_control_bar_layout_with_count(attempt_window_load).0
 }
 
-/// Like [`ensure_control_bar_layout`] but also returns WindowManager window count
-/// when a headless parse succeeds (0 otherwise).
+/// Like [`ensure_control_bar_layout`] but also returns the **live**
+/// `TheWindowManager` window count when a load succeeds (0 otherwise).
+
 pub fn ensure_control_bar_layout_with_count(
     attempt_window_load: bool,
 ) -> (GameplayLayoutStatus, usize) {
@@ -490,8 +491,9 @@ pub fn ensure_control_bar_layout_with_count(
             ),
             Err(e) => {
                 // Assets resolved and validated: load failure is not soft-ok.
-                // Matches MainMenu materialise honesty (Wave 162) — host must not
-                // claim Ready when WindowManager did not materialise windows.
+                // Host must not claim Ready when the live WindowManager did
+                // not materialise ControlBarParent.
+
                 log::warn!(
                     "ControlBar.wnd validated at {} but window load failed: {}",
                     path_str,
@@ -520,17 +522,54 @@ pub fn ensure_control_bar_layout_with_count(
     }
 }
 
-/// Headless WindowManager parse of ControlBar.wnd (C++ ShowControlBar residual).
+/// Load ControlBar.wnd into the live `TheWindowManager` (C++ `TheWindowManager`).
 ///
-/// Returns the number of GameWindow instances materialised. Does **not** require
-/// a display/GPU — pure layout script → window tree construction.
+/// Ready-gate window_count is measured here — never on a throwaway instance.
+/// Returns the live window count only when `ControlBarParent` exists.
 #[cfg(feature = "game_client")]
 fn try_load_control_bar_via_window_manager(path: &str) -> Result<usize, String> {
+    if control_bar_parent_is_live() {
+        let count = live_window_count();
+        if count == 0 {
+            return Err("ControlBarParent live but window_count=0".into());
+        }
+        return Ok(count);
+    }
+    // Prefer absolute/resolved path first (reliable in tests/CI cwd), then retail names
+    // C++ winCreateFromScript uses via the file system search path.
+    let names = [path, "ControlBar.wnd", "Window/ControlBar.wnd"];
+    let mut last_err = String::from("no load attempted");
+    for name in names {
+        match game_client::gui::with_window_manager(|wm| wm.load_window(name)) {
+            Ok(_) => {
+                if !control_bar_parent_is_live() {
+                    return Err(format!(
+                        "{name}: loaded but ControlBarParent missing on live WindowManager"
+                    ));
+                }
+                let count = live_window_count();
+                if count == 0 {
+                    return Err(format!(
+                        "{name}: load returned window but live window_count=0"
+                    ));
+                }
+                return Ok(count);
+            }
+            Err(e) => last_err = format!("{name}: {e:?}"),
+        }
+    }
+    Err(last_err)
+}
+
+/// Headless throwaway WindowManager parse of ControlBar.wnd.
+///
+/// Residual honesty only (Wave 165 / 98-window peel). The shipped Ready-gate
+/// and InGame materialise use [`try_load_control_bar_via_window_manager`].
+#[cfg(feature = "game_client")]
+fn try_load_control_bar_via_throwaway_window_manager(path: &str) -> Result<usize, String> {
     use game_client::gui::window_manager::WindowManager;
     let mut wm = WindowManager::new();
     wm.init();
-    // Prefer absolute/resolved path first (reliable in tests/CI cwd), then retail names
-    // C++ ShowControlBar uses via the file system search path.
     let names = [path, "ControlBar.wnd", "Window/ControlBar.wnd"];
     let mut last_err = String::from("no load attempted");
     for name in names {
@@ -547,6 +586,7 @@ fn try_load_control_bar_via_window_manager(path: &str) -> Result<usize, String> 
     }
     Err(last_err)
 }
+
 
 /// Format status for logs/gates.
 pub fn format_gameplay_layout_status(s: &GameplayLayoutStatus) -> String {
@@ -1095,8 +1135,8 @@ mod tests {
     #[test]
     #[cfg(feature = "game_client")]
     fn control_bar_window_manager_load_when_assets_present() {
-        // Residual close: headless WindowManager parse of ControlBar.wnd without
-        // display/GPU. Fail-closed honesty when WindowZH is not checked out.
+        // Shipped Ready-gate: load into the live TheWindowManager. Exact 98
+        // is the throwaway residual peel (`simulate_control_bar_materialise_honesty`).
         let h = control_bar_layout_honesty(true);
         assert!(
             h.shell_residual_ok(),
@@ -1105,21 +1145,17 @@ mod tests {
         );
         if h.path_resolved {
             assert!(h.wnd_validated, "path must structurally validate");
-            // When retail assets resolve, require materialisation (no soft-ok).
+            // When retail assets resolve, require live ControlBarParent (no soft-ok).
             assert!(
                 h.window_loaded && h.window_count > 0,
-                "resolved ControlBar.wnd must materialise windows: {:?}",
+                "resolved ControlBar.wnd must materialise on live WindowManager: {:?}",
                 h
             );
-            assert_eq!(
-                h.window_count, CONTROL_BAR_RETAIL_WINDOW_COUNT,
-                "retail ControlBar.wnd window_count residual: {:?}",
+            assert!(
+                control_bar_parent_is_live(),
+                "Ready-gate must leave ControlBarParent on the live WindowManager: {:?}",
                 h
             );
-            assert!(honesty_control_bar_residual_pack_wave76_ok(
-                h.window_loaded,
-                h.window_count
-            ));
             assert!(
                 simulate_control_bar_materialise_honesty(),
                 "ControlBar materialise honesty must latch"
