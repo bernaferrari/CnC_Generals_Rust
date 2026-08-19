@@ -51,6 +51,63 @@ pub(super) fn apply_runtime_host_window_placement(window: &Window) {
     let y = (80.0 * scale).round() as i32;
     window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
     window.focus_window();
+    make_host_window_key_and_accept_mouse(window);
+}
+
+/// C++ Win32 host is a foreground HWND. On macOS the winit NSWindow must be
+/// key and must accept mouse, or HID clicks never become WindowEvent::MouseInput.
+pub(super) fn make_host_window_key_and_accept_mouse(window: &Window) {
+    window.focus_window();
+    #[cfg(target_os = "macos")]
+    macos_make_key_and_accept_mouse(window);
+}
+
+#[cfg(target_os = "macos")]
+fn macos_make_key_and_accept_mouse(window: &Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = window.window_handle() else {
+        log::warn!("macos key-window: no window handle");
+        return;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return;
+    };
+    let ns_view = appkit.ns_view.as_ptr();
+    unsafe {
+        macos_nsapp_key_window(ns_view);
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn macos_nsapp_key_window(ns_view: *mut std::ffi::c_void) {
+    use objc::runtime::{Object, Sel, YES};
+    use objc::{class, msg_send, sel, sel_impl};
+
+    if ns_view.is_null() {
+        return;
+    }
+    let view: *mut Object = ns_view.cast();
+    let ns_window: *mut Object = msg_send![view, window];
+    if ns_window.is_null() {
+        log::warn!("macos key-window: NSView has no NSWindow");
+        return;
+    }
+    let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+    // 0 = NSApplicationActivationPolicyRegular
+    let _: isize = msg_send![app, setActivationPolicy: 0isize];
+    let no: objc::runtime::BOOL = objc::runtime::NO;
+    let _: () = msg_send![ns_window, setIgnoresMouseEvents: no];
+    let _: () = msg_send![ns_window, setAcceptsMouseMovedEvents: YES];
+    let _: () = msg_send![ns_window, orderFrontRegardless];
+    let nil: *mut Object = std::ptr::null_mut();
+    let _: () = msg_send![ns_window, makeKeyAndOrderFront: nil];
+    let _: () = msg_send![app, activateIgnoringOtherApps: YES];
+    let activate: Sel = sel!(activate);
+    let responds: objc::runtime::BOOL = msg_send![app, respondsToSelector: activate];
+    if responds == YES {
+        let _: () = msg_send![app, activate];
+    }
+    log::info!("macos key-window: orderFrontRegardless + makeKeyAndOrderFront + activate");
 }
 
 
