@@ -268,6 +268,18 @@ impl WW3DAssetManager {
         if !child.weapon_sets.is_empty() {
             parent.weapon_sets = child.weapon_sets;
         }
+        if !child.armor_sets.is_empty() {
+            parent.armor_sets = child.armor_sets;
+        }
+        if child.subdual_damage_cap.is_some() {
+            parent.subdual_damage_cap = child.subdual_damage_cap;
+        }
+        if child.subdual_heal_rate_frames.is_some() {
+            parent.subdual_heal_rate_frames = child.subdual_heal_rate_frames;
+        }
+        if child.subdual_heal_amount.is_some() {
+            parent.subdual_heal_amount = child.subdual_heal_amount;
+        }
 
         // A ChildObject/ObjectReskin overrides the parent set it names, but
         // every row authored by the child stays in source order.  In

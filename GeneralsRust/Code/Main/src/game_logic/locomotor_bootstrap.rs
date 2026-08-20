@@ -236,6 +236,10 @@ pub struct HostLocomotorBinding {
     pub preferred_height_damping: f32,
     pub circling_radius: f32,
     pub turn_pivot_offset: f32,
+    /// C++ LocomotorTemplate::m_wanderWidthFactor (0 = weave off).
+    pub wander_width_factor: f32,
+    /// C++ LocomotorTemplate::m_wanderLengthFactor (phase increment divisor).
+    pub wander_length_factor: f32,
     pub stick_to_ground: bool,
     pub locomotor_surfaces: u32,
 }
@@ -727,10 +731,15 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         },
         acceleration_damaged: acceleration(t.acceleration_damaged),
         turn_rate_damaged: turn_rate(t.max_turn_rate_damaged),
-        braking: if t.braking > 0.0 {
-            t.braking * FPS * FPS
-        } else {
-            0.0
+        braking: {
+            // C++ omitted Braking stays BIGNUM (Locomotor.cpp:270). Common
+            // store uses 0.0 for that case; convert authored values only.
+            const LOCO_BIGNUM: f32 = 99999.0;
+            if t.braking <= 0.0 || t.braking >= LOCO_BIGNUM {
+                LOCO_BIGNUM
+            } else {
+                t.braking * FPS * FPS
+            }
         },
         min_speed: t.min_speed,
         min_turn_speed: t.min_turn_speed,
@@ -765,10 +774,71 @@ fn host_locomotor_binding_from_template(t: &LocomotorTemplate) -> Option<HostLoc
         preferred_height_damping: t.preferred_height_damping,
         circling_radius: t.circling_radius,
         turn_pivot_offset: t.turn_pivot_offset,
+        wander_width_factor: t.wander_width_factor,
+        wander_length_factor: if t.wander_length_factor.abs() < 1.0e-6 {
+            1.0
+        } else {
+            t.wander_length_factor
+        },
         stick_to_ground: t.stick_to_ground,
         locomotor_surfaces: surface_mask,
     })
 }
+
+/// Apply every live Object field this binding owns, including damaged
+/// speed/accel, INI Braking, and unique legs-wander phase
+/// (C++ Locomotor.cpp:647-649).
+pub fn apply_host_locomotor_binding(
+    object: &mut crate::game_logic::object::Object,
+    binding: &HostLocomotorBinding,
+) {
+    object.movement.max_speed = binding.movement.max_speed;
+    object.movement.max_speed_damaged = binding.max_speed_damaged;
+    object.movement.acceleration = binding.movement.acceleration;
+    object.movement.acceleration_damaged = binding.acceleration_damaged;
+    object.movement.turn_rate = binding.movement.turn_rate;
+    object.movement.turn_rate_damaged = binding.turn_rate_damaged;
+    object.braking = binding.braking;
+    object.min_speed = binding.min_speed;
+    object.min_turn_speed = binding.min_turn_speed;
+    object.loco_behavior_z = binding.behavior_z;
+    object.loco_appearance = binding.appearance;
+    object.loco_extra_2d_friction = binding.extra_2d_friction;
+    object.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
+    object.can_move_backward = binding.can_move_backward;
+    object.downhill_only = binding.downhill_only;
+    object.max_lift = binding.max_lift;
+    object.max_lift_damaged = binding.max_lift_damaged;
+    object.speed_limit_z = binding.speed_limit_z;
+    object.loco_preferred_height = binding.preferred_height;
+    object.loco_preferred_height_damping = binding.preferred_height_damping;
+    object.circling_radius = binding.circling_radius;
+    object.turn_pivot_offset = binding.turn_pivot_offset;
+    object.stick_to_ground = binding.stick_to_ground;
+    object.locomotor_surfaces = binding.locomotor_surfaces;
+    object.wander_width_factor = binding.wander_width_factor;
+    seed_wander_phase(object, binding.wander_length_factor);
+    object.set_locomotor_physics_options();
+    object.record_host_locomotor();
+    object.record_host_movement();
+}
+
+/// C++ Locomotor ctor: random angle offset + increment / wanderLengthFactor.
+fn seed_wander_phase(object: &mut crate::game_logic::object::Object, wander_length_factor: f32) {
+    use crate::game_logic::host_rng_residual::{pure_logic_random_int, pure_logic_random_real};
+    let seed = object.id.0;
+    let pi = std::f32::consts::PI;
+    object.wander_angle_offset = pure_logic_random_real(seed, 20, -pi / 6.0, pi / 6.0);
+    let wander_len = if wander_length_factor.abs() < 1.0e-6 {
+        1.0
+    } else {
+        wander_length_factor
+    };
+    object.wander_offset_increment =
+        (pi / 40.0) * (pure_logic_random_real(seed, 21, 0.8, 1.2) / wander_len);
+    object.wander_offset_increasing = pure_logic_random_int(seed, 22, 0, 1) != 0;
+}
+
 
 fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomotorBinding) -> bool {
     left.movement == right.movement
@@ -792,6 +862,8 @@ fn same_host_locomotor_behavior(left: &HostLocomotorBinding, right: &HostLocomot
         && left.preferred_height_damping == right.preferred_height_damping
         && left.circling_radius == right.circling_radius
         && left.turn_pivot_offset == right.turn_pivot_offset
+        && left.wander_width_factor == right.wander_width_factor
+        && left.wander_length_factor == right.wander_length_factor
         && left.stick_to_ground == right.stick_to_ground
 }
 
@@ -892,6 +964,27 @@ fn seed_known_host_locomotors() -> usize {
             "GROUND"
         };
         props.insert("Surfaces".to_string(), surfaces.to_string());
+        if matches!(
+            name,
+            BASIC_HUMAN_LOCOMOTOR
+                | REDGUARD_LOCOMOTOR
+                | COLONEL_BURTON_GROUND_LOCOMOTOR
+                | JARMEN_KELL_LOCOMOTOR
+                | BLACK_LOTUS_LOCOMOTOR
+                | SABOTEUR_GROUND_LOCOMOTOR
+                | MISSILE_DEFENDER_LOCOMOTOR
+        ) {
+            // Retail infantry locos: TWO_LEGS + wander weave + SpeedDamaged ~half.
+            props.insert("Appearance".to_string(), "TWO_LEGS".to_string());
+            props.insert("WanderWidthFactor".to_string(), "1.0".to_string());
+            props.insert("WanderLengthFactor".to_string(), "1.0".to_string());
+            props.insert("SpeedDamaged".to_string(), format!("{}", speed * 0.5));
+            props.insert(
+                "AccelerationDamaged".to_string(),
+                format!("{}", accel * 0.5),
+            );
+        }
+
         match parse_locomotor_template_definition(name, &props) {
             Ok(template) => match get_locomotor_store_mut().add_template(template) {
                 Ok(()) => {
@@ -1018,6 +1111,29 @@ mod tests {
             (obj.movement.acceleration - 100.0).abs() < 0.5,
             "expected retail accel 100, got {}",
             obj.movement.acceleration
+        );
+        assert!(
+            (obj.movement.max_speed_damaged - 10.0).abs() < 0.05
+                || (obj.movement.max_speed_damaged - 20.0).abs() < 0.05,
+            "SpeedDamaged must come from INI/seed, not Movement::default 5: {}",
+            obj.movement.max_speed_damaged
+        );
+        assert!(
+            (obj.braking - 50.0).abs() > 0.5,
+            "INI/omitted Braking must not stay hardcoded 50, got {}",
+            obj.braking
+        );
+        assert!(
+            obj.wander_width_factor > 0.0,
+            "BasicHuman wander weave must be bound"
+        );
+        assert!(
+            obj.wander_offset_increment > 0.0,
+            "wander phase increment must be unique-seeded"
+        );
+        assert_eq!(
+            obj.loco_appearance,
+            crate::game_logic::LocomotorAppearance::LegsTwo
         );
     }
 

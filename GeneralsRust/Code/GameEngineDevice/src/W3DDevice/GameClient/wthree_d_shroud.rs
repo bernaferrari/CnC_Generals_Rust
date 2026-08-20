@@ -29,8 +29,8 @@ use std::sync::Arc;
 const MAX_PLAYER_COUNT: usize = 8;
 
 /// Shroud cell size in world units
-/// Matches C++ SHROUD_GRID_CELL_SIZE from PartitionManager
-pub const SHROUD_CELL_SIZE: f32 = 50.0;
+/// Matches C++ PartitionManager m_cellSize (GameData PartitionCellSize = 40).
+pub const SHROUD_CELL_SIZE: f32 = 40.0;
 
 /// Shroud texture size (powers of 2 for optimal GPU performance)
 /// Typical values: 256x256, 512x512, 1024x1024

@@ -47,6 +47,13 @@ impl AIPlayer {
             }
         }
 
+        // C++ AIPlayer::AIPlayer: m_difficulty = TheScriptEngine->getGlobalDifficulty().
+        let difficulty = get_script_engine()
+            .read()
+            .ok()
+            .and_then(|eng| eng.as_ref().map(|e| e.get_global_difficulty()))
+            .unwrap_or(GameDifficulty::Normal);
+
         Self {
             player_id,
             team_build_queue: VecDeque::new(),
@@ -60,7 +67,7 @@ impl AIPlayer {
             build_delay: 0,
             team_delay: 0,
             frame_last_building_built: TheGameLogic::get_frame(),
-            difficulty: GameDifficulty::Normal,
+            difficulty,
             skillset_selector: INVALID_SKILLSET_SELECTION,
             base_center: Coord3D::new(0.0, 0.0, 0.0),
             base_center_set: false,
@@ -81,10 +88,7 @@ impl AIPlayer {
             construction_priorities: Vec::new(),
             threat_assessment: ThreatAssessment::default(),
             strategic_decision_maker: StrategicDecisionMaker::new(),
-            difficulty_handler: DifficultyHandler::new(
-                to_ai_difficulty(GameDifficulty::Normal),
-                "USA",
-            ),
+            difficulty_handler: DifficultyHandler::new(to_ai_difficulty(difficulty), "USA"),
             build_order_optimizer: BuildOrderOptimizer::new(),
             threat_system: ThreatAssessmentSystem::new(),
         }

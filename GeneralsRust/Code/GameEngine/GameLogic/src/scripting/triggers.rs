@@ -508,7 +508,7 @@ impl TriggerSystem {
         })?;
 
         let counter_name = counter_param.get_string();
-        engine.increment_counter(counter_name)?;
+        engine.increment_counter(counter_name, 1)?;
         log::debug!("Incremented counter '{}'", counter_name);
         Ok(())
     }
@@ -526,7 +526,7 @@ impl TriggerSystem {
         })?;
 
         let counter_name = counter_param.get_string();
-        engine.decrement_counter(counter_name)?;
+        engine.decrement_counter(counter_name, 1)?;
         log::debug!("Decremented counter '{}'", counter_name);
         Ok(())
     }

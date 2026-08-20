@@ -18,11 +18,12 @@ use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
 
 const MAX_OBSERVER_BUTTONS: usize = 8;
 
-/// KindOf bits matching C++ KindOf.h used by `populateObserverInfoWindow`.
-const KINDOF_SCORE: u64 = 1u64 << 45;
-const KINDOF_STRUCTURE: u64 = 1u64 << 8;
-const KINDOF_SCORE_CREATE: u64 = 1u64 << 46;
-const KINDOF_SCORE_DESTROY: u64 = 1u64 << 47;
+/// KindOf bits matching C++ KindOf.h (`ALLOW_SURRENDER` off) used by
+/// `populateObserverInfoWindow`.
+const KINDOF_SCORE: u128 = 1u128 << 35;
+const KINDOF_STRUCTURE: u128 = 1u128 << 7;
+const KINDOF_SCORE_CREATE: u128 = 1u128 << 36;
+const KINDOF_SCORE_DESTROY: u128 = 1u128 << 37;
 
 static OBSERVER_LOOK_AT: AtomicI32 = AtomicI32::new(-1);
 static OBSERVER_CONTROLS_READY: AtomicU32 = AtomicU32::new(0);

@@ -119,6 +119,10 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_pitch_roll_yaw_factor() -> f32 {
+    2.0
+}
+
 /// C++ DEFAULT_TURN_RATE residual (radians/frame).
 pub(crate) fn default_turret_turn_rate() -> f32 {
     0.01
@@ -147,7 +151,8 @@ fn default_max_shots() -> i32 {
 }
 
 fn default_braking() -> f32 {
-    50.0
+    // C++ LocomotorTemplate::m_braking = BIGNUM (Locomotor.cpp:270).
+    99999.0
 }
 
 pub(crate) fn actual_speed_is_zero(o: &Object) -> bool {
@@ -509,6 +514,9 @@ pub struct Object {
     /// C++ PhysicsBehavior m_mass residual.
     #[serde(default = "default_physics_mass")]
     pub physics_mass: f32,
+    /// C++ PhysicsBehaviorModuleData::m_shockResistance residual.
+    #[serde(default)]
+    pub shock_resistance: f32,
     /// C++ PhysicsBehavior m_accel residual (integrated each frame).
     #[serde(default)]
     pub physics_accel: glam::Vec3,
@@ -566,8 +574,8 @@ pub struct Object {
     /// C++ PhysicsBehaviorModuleData m_centerOfMassOffset residual.
     #[serde(default)]
     pub center_of_mass_offset: f32,
-    /// C++ m_pitchRollYawFactor residual (default 1.0).
-    #[serde(default = "default_one_f32")]
+    /// C++ m_pitchRollYawFactor residual (default 2.0).
+    #[serde(default = "default_pitch_roll_yaw_factor")]
     pub pitch_roll_yaw_factor: f32,
     /// C++ Locomotor IS_BRAKING flag residual.
     #[serde(default)]
@@ -716,6 +724,10 @@ pub struct Object {
 
     /// Experience system
     pub experience: Experience,
+    /// C++ ExperienceTracker::m_experienceSink — forward kill XP to this object.
+    #[serde(default)]
+    pub experience_sink: Option<ObjectId>,
+
 
     /// Primary weapon
     pub weapon: Option<Weapon>,
@@ -882,6 +894,15 @@ pub struct Object {
     /// C++ ARMORSET_PLAYER_UPGRADE residual (ArmorUpgrade).
     #[serde(default)]
     pub armor_set_player_upgrade: bool,
+    /// C++ ARMORSET_VETERAN residual.
+    #[serde(default)]
+    pub armor_set_veteran: bool,
+    /// C++ ARMORSET_ELITE residual.
+    #[serde(default)]
+    pub armor_set_elite: bool,
+    /// C++ ARMORSET_HERO residual.
+    #[serde(default)]
+    pub armor_set_hero: bool,
     /// C++ AIUpdate::m_locomotorUpgrade residual (LocomotorSetUpgrade).
     #[serde(default)]
     pub locomotor_upgrade: bool,
@@ -1022,6 +1043,14 @@ pub struct Object {
     /// muzzle/FX state.
     #[serde(default)]
     pub weapon_barrel_states: [WeaponBarrelState; 3],
+    /// C++ `Weapon::m_scatterTargetsUnused` per WeaponSet slot. Rebuilt on
+    /// clip reload; exhausted mid-clip falls back to ScatterRadius.
+    #[serde(default)]
+    pub weapon_scatter_targets_unused: [Vec<i32>; 3],
+    /// Whether this slot has rebuilt its unused scatter table this clip.
+    #[serde(default)]
+    pub weapon_scatter_targets_inited: [bool; 3],
+
 
     /// C++ Weapon PRE_ATTACK residual: target being wound up against.
     #[serde(default)]
@@ -2011,6 +2040,9 @@ pub struct Object {
     /// C++ ActiveBody m_currentSubdualDamage residual.
     #[serde(default)]
     pub subdual_damage: f32,
+    /// C++ ActiveBodyModuleData::m_subdualDamageCap. 0 = canBeSubdued false.
+    #[serde(default)]
+    pub subdual_damage_cap: f32,
     /// C++ SubdualDamageHealRate residual (frames between heal steps; 0 = no auto-heal).
     #[serde(default)]
     pub subdual_heal_rate_frames: u32,
@@ -2184,6 +2216,17 @@ pub struct Object {
     /// C++ Object::m_shroudRange residual (active enemy fogging radius).
     #[serde(default)]
     pub shroud_range: f32,
+    /// C++ ThingTemplate::friend_getBuildCost residual for value-map stamp.
+    #[serde(default)]
+    pub partition_cash_value: u32,
+    /// C++ ThingTemplate::getThreatValue residual for threat-map stamp.
+    #[serde(default)]
+    pub partition_threat_value: u32,
+    /// Last live doValueAffect/doThreatAffect payload (C++ SightingInfo).
+    #[serde(default)]
+    pub partition_last_affect:
+        Option<crate::game_logic::partition_manager::HostPartitionAffectStamp>,
+
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default = "default_true_for_auto_acquire")]
     pub auto_acquire_when_idle: bool,

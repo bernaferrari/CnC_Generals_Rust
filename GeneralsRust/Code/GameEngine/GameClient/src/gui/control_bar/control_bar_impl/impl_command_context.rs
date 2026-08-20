@@ -14,6 +14,30 @@ impl ControlBar {
             return Ok(());
         };
 
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                if let Some(contain) = obj.get_contain() {
+                    if let Ok(contain_guard) = contain.lock() {
+                        if contain_guard.get_max_capacity() > 0 {
+                            let count = contain_guard.get_contain_count();
+                            let last = self
+                                .context
+                                .read()
+                                .ok()
+                                .map(|ctx| ctx.last_recorded_inventory_count)
+                                .unwrap_or(0);
+                            if last != count {
+                                if let Ok(mut ctx) = self.context.write() {
+                                    ctx.last_recorded_inventory_count = count;
+                                }
+                                self.evaluate_context_ui()?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let has_production = self.get_object_has_production(obj_id);
         let registry_producer = OBJECT_REGISTRY.get_object(obj_id).is_some();
 
@@ -56,6 +80,43 @@ impl ControlBar {
                 }
             }
         }
+
+        // C++ updateContextCommand: CP_BUILD_QUEUE vs setPortraitByObject.
+        let queue_visible = has_production || !self.build_queue_data.is_empty();
+        if queue_visible {
+            self.set_portrait_by_object_id(None);
+            with_window_manager(|wm| {
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:BuildQueue") {
+                    let _ = win.borrow_mut().hide(false);
+                }
+                if let Some(percent) = first_progress {
+                    if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ButtonQueue01") {
+                        if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                            win.borrow_mut().widget_mut()
+                        {
+                            button.set_inverse_clock(
+                                (percent * 100.0).clamp(0.0, 100.0) as u8,
+                                crate::gui::gadgets::Color {
+                                    r: 0,
+                                    g: 0,
+                                    b: 0,
+                                    a: 255,
+                                },
+                            );
+
+                        }
+                    }
+                }
+            });
+        } else {
+            with_window_manager(|wm| {
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:BuildQueue") {
+                    let _ = win.borrow_mut().hide(true);
+                }
+            });
+            self.set_portrait_by_object_id(Some(obj_id));
+        }
+
 
         let context = self
             .context
@@ -174,12 +235,37 @@ impl ControlBar {
             }
             return Ok(CommandAvailability::Hidden);
         };
+        if obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptDisabled)
+            || obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered)
+        {
+            return Ok(CommandAvailability::Hidden);
+        }
+        if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnmanned) {
+            return Ok(CommandAvailability::Hidden);
+        }
+        if obj.has_single_use_command_been_used() {
+            return Ok(CommandAvailability::Restricted);
+        }
+        if (command.options & CommandOption::MustBeStopped as u32) != 0 && obj.is_moving() {
+            return Ok(CommandAvailability::Restricted);
+        }
 
-        if obj.is_disabled() && !self.force_disabled_evaluation(command) {
+        let mut disabled = obj.is_disabled();
+        if disabled
+            && (command.options & CommandOption::IgnoresUnderpowered as u32) != 0
+            && obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnderpowered)
+            && !obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnmanned)
+            && !obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+        {
+            disabled = false;
+        }
+        if disabled && !self.force_disabled_evaluation(command) {
             let cmd_type = command.command_type;
             if cmd_type != CommandType::Sell
                 && cmd_type != CommandType::Evacuate
+                && cmd_type != CommandType::Exit
                 && cmd_type != CommandType::DoStop
+                && cmd_type != CommandType::SwitchWeapons
             {
                 return Ok(CommandAvailability::Restricted);
             }
@@ -195,7 +281,7 @@ impl ControlBar {
                 if let Ok(player) = player_arc.read() {
                     let upgrade = with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
                     if let Some(template) = upgrade {
-                        if !player.has_upgrade_complete(&template) {
+                        if !player.has_upgrade_complete(&template) && !obj.has_upgrade(&template) {
                             return Ok(CommandAvailability::Restricted);
                         }
                     }
@@ -203,15 +289,44 @@ impl ControlBar {
             }
         }
 
-        let queue_count = self.build_queue_data.len();
-        let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
-
-        if queue_maxed && (command.options & CommandOption::NotQueueable as u32) != 0 {
+        let has_production = obj.has_production_in_queue();
+        if has_production && (command.options & CommandOption::NotQueueable as u32) != 0 {
             return Ok(CommandAvailability::Restricted);
         }
 
+        let queue_count = self.build_queue_data.len();
+        let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
+
         match command.command_type {
             CommandType::DozerConstruct => {
+                if !obj.is_kind_of(KindOf::Dozer) {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                if obj.is_dozer_task_pending() {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        if !command.purchase_cost.is_empty() {
+                            for (resource, cost) in &command.purchase_cost {
+                                if *cost > 0
+                                    && (resource.eq_ignore_ascii_case("cash")
+                                        || resource.eq_ignore_ascii_case("money"))
+                                    && !player.get_money().can_afford(*cost)
+                                {
+                                    return Ok(CommandAvailability::Restricted);
+                                }
+                            }
+                        }
+                    }
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::QueueUnitCreate => {
                 if queue_maxed {
                     return Ok(CommandAvailability::Restricted);
                 }
@@ -251,6 +366,7 @@ impl ControlBar {
                         if let Some(template) = upgrade {
                             if player.has_upgrade_complete(&template)
                                 || player.has_upgrade_in_production(&template)
+                                || obj.has_upgrade(&template)
                             {
                                 return Ok(CommandAvailability::CantAfford);
                             }
@@ -258,6 +374,11 @@ impl ControlBar {
                                 c.can_afford_upgrade(&player, &template, false)
                             }) {
                                 return Ok(CommandAvailability::Restricted);
+                            }
+                            for science in &command.sciences_ids {
+                                if !player.has_science(*science) {
+                                    return Ok(CommandAvailability::Restricted);
+                                }
                             }
                         } else {
                             return Ok(CommandAvailability::Restricted);
@@ -270,18 +391,71 @@ impl ControlBar {
             CommandType::DoGuardPosition | CommandType::DoGuardObject => {
                 Ok(CommandAvailability::Available)
             }
-            CommandType::Sell => Ok(CommandAvailability::Available),
-            CommandType::Evacuate => Ok(CommandAvailability::Available),
-            CommandType::SpecialPower => Ok(CommandAvailability::Available),
+            CommandType::Sell => {
+                if obj.is_script_unsellable() {
+                    return Ok(CommandAvailability::Hidden);
+                }
+                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::Evacuate => {
+                if !obj.has_contained_objects() {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::Exit => {
+                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::FireWeapon => {
+                if obj.get_ai_update_interface().is_none() {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::DoSpecialPower => {
+                if command.special_power.is_empty() {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::ToggleOvercharge => Ok(CommandAvailability::Available),
+            CommandType::SwitchWeapons => Ok(CommandAvailability::Available),
+            CommandType::InternetHack => {
+                if obj.is_moving() {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
             CommandType::MetaSelectMatchingUnits => Ok(CommandAvailability::Available),
             CommandType::PurchaseScience => Ok(CommandAvailability::Available),
+            CommandType::ExecuteRailedTransport => Ok(CommandAvailability::Available),
             _ => Ok(CommandAvailability::Available),
         }
     }
 
-    fn force_disabled_evaluation(&self, _command: &CommandButton) -> bool {
-        false
+    fn force_disabled_evaluation(&self, command: &CommandButton) -> bool {
+        matches!(
+            command.command_type,
+            CommandType::Sell
+                | CommandType::Evacuate
+                | CommandType::Exit
+                | CommandType::DoStop
+                | CommandType::SwitchWeapons
+        )
     }
+
 
     // ---------------------------------------------------------------------------
     // populateBuildQueue - fill build queue from producer object
@@ -434,26 +608,47 @@ impl ControlBar {
             if command_name.is_empty() {
                 return;
             }
-            if command_name.eq_ignore_ascii_case("Command_StructureExit") {
-                let mut slot = None;
-                with_window_manager(|wm| {
-                    for i in 0..14 {
-                        let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
-                        if let Some(win) = wm.find_window_by_name(&name) {
-                            if win.borrow().get_id() as u32 == control_id {
-                                slot = Some(i);
-                                return;
-                            }
+            let mut slot = None;
+            with_window_manager(|wm| {
+                for i in 0..14 {
+                    let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                    if let Some(win) = wm.find_window_by_name(&name) {
+                        if win.borrow().get_id() as u32 == control_id {
+                            slot = Some(i);
+                            return;
                         }
                     }
-                });
-                if let Some(slot) = slot {
-                    let occupant = self
-                        .context
+                }
+            });
+            let slot_button = self
+                .context
+                .read()
+                .ok()
+                .and_then(|ctx| slot.and_then(|i| ctx.available_commands.get(i).cloned()));
+            if command_name.eq_ignore_ascii_case("Command_StructureExit")
+                || slot_button
+                    .as_ref()
+                    .is_some_and(|button| button.command_type == CommandType::Exit)
+            {
+                let occupant = slot.and_then(|i| {
+                    self.context
                         .read()
                         .ok()
-                        .and_then(|ctx| ctx.contain_data.get(slot).copied().flatten());
-                    if occupant.is_none() {
+                        .and_then(|ctx| ctx.contain_data.get(i).copied().flatten())
+                });
+                if occupant.is_none() {
+                    return;
+                }
+                if let Some(i) = slot {
+                    let button = self.context.read().ok().and_then(|ctx| {
+                        ctx.available_commands.get(i).cloned()
+                    });
+                    if let Some(mut button) = button {
+                        button.exit_object_id = occupant;
+                        let source = CommandSourceType::FromUser;
+                        if let Ok(ctx) = self.context.read() {
+                            let _ = self.execute_command(&button, source, &ctx);
+                        }
                         return;
                     }
                 }

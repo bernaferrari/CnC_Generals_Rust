@@ -76,12 +76,10 @@ impl Object {
                 if let Some(a) = weapon.ammo.as_mut() {
                     *a = a.saturating_sub(1);
                     if *a == 0 {
-                        let clip_rt = if weapon.clip_reload_time > 0.0 {
-                            weapon.clip_reload_time
-                        } else {
-                            weapon.reload_time
-                        };
-                        weapon.last_fire_time = current_time - weapon.reload_time + clip_rt;
+                        // Ready check uses ClipReloadTime / RATE_OF_FIRE while
+                        // ammo is empty. Keep last_fire_time at the shot so
+                        // that interval is measured from this frame.
+                        weapon.last_fire_time = current_time;
                     }
                 }
             }

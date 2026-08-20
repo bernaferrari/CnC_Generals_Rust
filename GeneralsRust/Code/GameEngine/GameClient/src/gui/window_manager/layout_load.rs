@@ -180,9 +180,14 @@ impl WindowManager {
             data.enabled_text = window_def.enabled_text.clone();
             data.disabled_text = window_def.disabled_text.clone();
             data.hilite_text = window_def.hilite_text.clone();
-            if data.enabled_text.color == 0
-                && data.disabled_text.color == 0
-                && data.hilite_text.color == 0
+            // C++ parseImageOffset writes instData->m_imageOffset (GameWindowManagerScript.cpp:545-556).
+            data.image_offset = crate::gui::game_window::Point2D {
+                x: window_def.image_offset.0,
+                y: window_def.image_offset.1,
+            };
+            if data.enabled_text.color == WIN_COLOR_UNDEFINED
+                && data.disabled_text.color == WIN_COLOR_UNDEFINED
+                && data.hilite_text.color == WIN_COLOR_UNDEFINED
             {
                 if let Some(default_color) = layout.borrow().default_text_color {
                     data.enabled_text.color = default_color;
@@ -332,7 +337,7 @@ impl WindowManager {
         if (window.borrow().get_style() & GWS_SCROLL_LISTBOX) != 0 {
             if let Some(listbox_data) = window_def.listbox_data.as_ref() {
                 if listbox_data.scrollbar {
-                    self.create_listbox_scrollbar_children(&window, layout_def)
+                    self.create_listbox_scrollbar_children(&window, layout_def, Some(window_def))
                         .map_err(|err| {
                             log::error!(
                                 "Failed creating listbox scrollbar children for '{}': {:?}",

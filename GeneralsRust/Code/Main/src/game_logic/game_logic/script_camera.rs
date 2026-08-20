@@ -342,6 +342,17 @@ impl ScriptCameraPathMove {
         self.freeze_angle
     }
 
+    pub(super) fn travel_look_toward(&self) -> Option<Vec3> {
+        let i = self.cur_segment.max(1);
+        let a = self.points.get(i)?;
+        let b = self.points.get(i + 1)?;
+        let dir = *b - *a;
+        if dir.length_squared() <= f32::EPSILON {
+            return None;
+        }
+        Some(*a + dir)
+    }
+
     pub(super) fn set_rolling_average_frames(&mut self, frames: i32) {
         self.rolling_average_frames = frames.max(1);
     }

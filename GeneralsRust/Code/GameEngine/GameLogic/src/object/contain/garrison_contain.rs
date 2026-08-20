@@ -7,10 +7,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
+use crate::ai::THE_AI;
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, ModelConditionFlags,
-    ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType,
-    Relationship, UnsignedInt, WeaponBonusConditionType, INVALID_ID,
+    ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PathfindLayerEnum,
+    PlayerMaskType, Relationship, UnsignedInt, WeaponBonusConditionType, INVALID_ID,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -19,6 +20,7 @@ use crate::helpers::{
     TheGlobalData, TheInGameUI, ThePartitionManager, TheTerrainLogic, TheThingFactory,
     FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS,
 };
+use crate::locomotor::LocomotorSet;
 use crate::modules::{
     AIUpdateInterfaceExt, BodyModuleGuardExt, ContainModuleInterface, ContainWant, ExitDoorType,
     UpdateSleepTime,
@@ -89,7 +91,7 @@ pub struct GarrisonContainModuleData {
 impl Default for GarrisonContainModuleData {
     fn default() -> Self {
         let mut base = super::OpenContainModuleData::default();
-        base.allow_inside_kind_of = 1u64 << (KindOf::Infantry as u32);
+        base.allow_inside_kind_of = KindOf::Infantry.cpp_mask();
 
         Self {
             base,
@@ -694,7 +696,6 @@ impl GarrisonContain {
         exit_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
-        // Wave 260: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
@@ -703,89 +704,152 @@ impl GarrisonContain {
         let exit_obj = TheGameLogic::find_object_by_id(exit_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(exit_id))
             .ok_or("exit object not found")?;
-        self.remove_from_contain(exit_id, true)?;
+        // C++ removeFromContain defaults exposeStealthUnits = FALSE.
+        self.remove_from_contain(exit_id, false)?;
 
         let owner_id = self.get_object_id();
-        if owner_id != crate::common::INVALID_ID {
-            let Some((mut start_pos, mut end_pos, exit_angle, place_enclosing_early)) = self
-                .with_owner_object(|owner| {
-                    let mut start_pos = *owner.get_position();
-                    let mut end_pos = start_pos;
-                    let exit_angle = owner.get_orientation();
-                    let mut place_enclosing_early = false;
+        if owner_id == crate::common::INVALID_ID {
+            self.recalc_apparent_controlling_player()?;
+            return Ok(());
+        }
 
-                    if matches!(
-                        self.evac_disposition,
-                        EvacDisposition::ToLeft | EvacDisposition::ToRight
-                    ) {
-                        let scalar = if matches!(self.evac_disposition, EvacDisposition::ToLeft) {
-                            1.0
-                        } else {
-                            -1.0
-                        };
+        let evac = self.evac_disposition;
+        let enclosing = exit_obj
+            .read()
+            .ok()
+            .map(|g| self.is_enclosing_container_for(&*g))
+            .unwrap_or(false);
 
-                        let geom = owner.get_geometry_info();
-                        let half_length = geom.get_major_radius();
-                        let half_width = geom.get_minor_radius();
+        let Some((mut start_pos, mut end_pos, exit_angle, left_or_right)) = self
+            .with_owner_object(|owner| {
+                let mut start_pos = *owner.get_position();
+                let exit_angle = owner.get_orientation();
 
-                        let door_offset = Coord3D::new(
-                            get_game_logic_random_value_real(-half_length / 4.0, half_length / 4.0),
-                            get_game_logic_random_value_real(half_width / 2.0, half_width * 2.0)
-                                * scalar,
-                            0.0,
-                        );
-                        let walk_offset = Coord3D::new(
-                            get_game_logic_random_value_real(-half_length, half_length),
-                            half_width * 10.0 * scalar,
-                            0.0,
-                        );
-
-                        let cos = exit_angle.cos();
-                        let sin = exit_angle.sin();
-                        start_pos.x += door_offset.x * cos - door_offset.y * sin;
-                        start_pos.y += door_offset.x * sin + door_offset.y * cos;
-                        end_pos.x += walk_offset.x * cos - walk_offset.y * sin;
-                        end_pos.y += walk_offset.x * sin + walk_offset.y * cos;
-                    } else if self.is_enclosing_container_for_any() {
-                        place_enclosing_early = true;
-                    }
-
-                    (start_pos, end_pos, exit_angle, place_enclosing_early)
-                })
-            else {
-                self.recalc_apparent_controlling_player()?;
-                return Ok(());
-            };
-
-            if place_enclosing_early {
-                if let Ok(mut exit_guard) = exit_obj.write() {
-                    if let Err(err) = exit_guard.set_position(&start_pos) {
-                        log::debug!("GarrisonContain::exit_object set_position failed: {err}");
+                // C++ cliff-bunker walk: if the rider cannot stand at the
+                // building origin, try front then back along facing.
+                if let Ok(exit_guard) = exit_obj.read() {
+                    if let Some(ai) = exit_guard.get_ai_update_interface() {
+                        if let Some(loco) = ai.get_cur_locomotor() {
+                            if !Self::valid_ground_terrain(&loco, &start_pos) {
+                                let offset = owner.get_geometry_info().get_major_radius();
+                                start_pos.x -= offset * exit_angle.cos();
+                                start_pos.y -= offset * exit_angle.sin();
+                                if !Self::valid_ground_terrain(&loco, &start_pos) {
+                                    start_pos.x += 2.0 * offset * exit_angle.cos();
+                                    start_pos.y += 2.0 * offset * exit_angle.sin();
+                                    if !Self::valid_ground_terrain(&loco, &start_pos) {
+                                        start_pos = *owner.get_position();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            if let Some(terrain) = TheTerrainLogic::get() {
-                start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
-                end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
-            }
+                let left_or_right = matches!(
+                    evac,
+                    EvacDisposition::ToLeft | EvacDisposition::ToRight
+                );
+                let mut end_pos = start_pos;
+                if left_or_right {
+                    let scalar = if matches!(evac, EvacDisposition::ToLeft) {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let geom = owner.get_geometry_info();
+                    let half_length = geom.get_major_radius();
+                    let half_width = geom.get_minor_radius();
+                    let door_offset = Coord3D::new(
+                        get_game_logic_random_value_real(-half_length / 4.0, half_length / 4.0),
+                        get_game_logic_random_value_real(half_width / 2.0, half_width * 2.0)
+                            * scalar,
+                        0.0,
+                    );
+                    let walk_offset = Coord3D::new(
+                        get_game_logic_random_value_real(-half_length, half_length),
+                        half_width * 10.0 * scalar,
+                        0.0,
+                    );
+                    start_pos = Self::transform_local(owner, door_offset);
+                    end_pos = Self::transform_local(owner, walk_offset);
+                }
 
+                (start_pos, end_pos, exit_angle, left_or_right)
+            })
+        else {
+            self.recalc_apparent_controlling_player()?;
+            return Ok(());
+        };
+
+        if left_or_right {
             if let Ok(mut exit_guard) = exit_obj.write() {
-                if let Err(err) = exit_guard.set_position(&start_pos) {
-                    log::debug!("GarrisonContain::exit_object set_position failed: {err}");
-                }
+                let _ = exit_guard.set_position(&start_pos);
                 let _ = exit_guard.set_orientation(exit_angle);
             }
-
-            if let Ok(exit_guard) = exit_obj.read() {
-                if let Some(ai) = exit_guard.get_ai_update_interface() {
-                    ai.ai_follow_path(&[end_pos], Some(owner_id), CommandSourceType::FromAi);
+        } else {
+            // Burst-from-center: only enclosing occupants are snapped.
+            if enclosing {
+                if let Some(terrain) = TheTerrainLogic::get() {
+                    start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
                 }
+                if let Ok(mut exit_guard) = exit_obj.write() {
+                    let _ = exit_guard.set_position(&start_pos);
+                }
+            }
+            if let Ok(mut exit_guard) = exit_obj.write() {
+                let _ = exit_guard.set_orientation(exit_angle);
+            }
+            end_pos = start_pos;
+        }
+
+        if let Ok(exit_guard) = exit_obj.read() {
+            if let Some(ai) = exit_guard.get_ai_update_interface() {
+                ai.ai_follow_path(&[end_pos], Some(owner_id), CommandSourceType::FromAi);
             }
         }
 
         self.recalc_apparent_controlling_player()?;
         Ok(())
+    }
+
+    fn valid_ground_terrain(
+        loco: &Arc<std::sync::Mutex<crate::locomotor::Locomotor>>,
+        pos: &Coord3D,
+    ) -> bool {
+        let mut set = LocomotorSet::new();
+        set.add_locomotor("cur".to_string(), loco.clone());
+        THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pf| {
+                pf.read().ok().map(|pf| {
+                    pf.valid_movement_terrain(
+                        crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        &set,
+                        pos,
+                    )
+                })
+            })
+            .unwrap_or(true)
+    }
+
+    fn transform_local(owner: &Object, local: Coord3D) -> Coord3D {
+        if let Some(draw) = owner.get_drawable() {
+            if let Ok(draw_guard) = draw.read() {
+                return draw_guard.get_transform_matrix().transform_point3(local);
+            }
+        }
+        let angle = owner.get_orientation();
+        let pos = owner.get_position();
+        let cos = angle.cos();
+        let sin = angle.sin();
+        Coord3D::new(
+            pos.x + local.x * cos - local.y * sin,
+            pos.y + local.x * sin + local.y * cos,
+            pos.z + local.z,
+        )
     }
 
     /// Exit object by budding (no-op for garrison)
@@ -947,8 +1011,9 @@ impl GarrisonContain {
 
     /// Called when selling this container
     pub fn on_selling(&mut self) -> GameResult<()> {
-        // Eject all contained objects
+        // C++ GarrisonContain::onSelling: force-empty, then OpenContain evac.
         self.remove_all_contained(false)?;
+        self.base.on_selling()?;
         Ok(())
     }
 
@@ -1524,22 +1589,13 @@ impl GarrisonContain {
 
             let mut set_flags = ModelConditionFlags::empty();
             set_flags.set(ModelConditionFlags::GARRISONED, true);
-
             let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_flags);
-            let pristine = if let Ok(draw_guard) = drawable.read() {
-                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-            } else {
-                Vec::new()
-            };
+            let pristine = owner.get_multi_logical_bone_position("FIREPOINT", MAX_GARRISON_POINTS);
 
             let mut set_damaged = ModelConditionFlags::empty();
             set_damaged.set(ModelConditionFlags::DAMAGED, true);
             let _ = owner.clear_and_set_model_condition_flags(clear_flags, set_damaged);
-            let damaged = if let Ok(draw_guard) = drawable.read() {
-                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-            } else {
-                Vec::new()
-            };
+            let damaged = owner.get_multi_logical_bone_position("FIREPOINT", MAX_GARRISON_POINTS);
 
             let mut clear_really = ModelConditionFlags::empty();
             clear_really.set(ModelConditionFlags::RUBBLE, true);
@@ -1548,11 +1604,7 @@ impl GarrisonContain {
             let mut set_really = ModelConditionFlags::empty();
             set_really.set(ModelConditionFlags::REALLY_DAMAGED, true);
             let _ = owner.clear_and_set_model_condition_flags(clear_really, set_really);
-            let really = if let Ok(draw_guard) = drawable.read() {
-                draw_guard.get_pristine_bone_positions("FIREPOINT", 0, MAX_GARRISON_POINTS)
-            } else {
-                Vec::new()
-            };
+            let really = owner.get_multi_logical_bone_position("FIREPOINT", MAX_GARRISON_POINTS);
 
             let _ = owner
                 .clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
@@ -1597,9 +1649,31 @@ impl GarrisonContain {
         target_id: Option<ObjectID>,
         target_pos: Option<&Coord3D>,
     ) -> GameResult<()> {
+        // C++ putObjectAtBestGarrisonPoint: already-placed occupants stay put.
+        if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        {
+            if let Ok(obj_guard) = obj.read() {
+                if self.get_object_garrison_point_index(&obj_guard).is_some() {
+                    return Ok(());
+                }
+            }
+        }
+
+        let mut resolved_target = target_pos.cloned();
+        if let Some(tid) = target_id {
+            if let Some(target_obj) = TheGameLogic::find_object_by_id(tid)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(tid))
+            {
+                if let Ok(target_guard) = target_obj.read() {
+                    resolved_target = Some(*target_guard.get_position());
+                }
+            }
+        }
+
         let condition_index = self.find_condition_index();
 
-        if let Some(pos) = target_pos {
+        if let Some(pos) = resolved_target.as_ref() {
             let point_index = self.find_closest_free_garrison_point_index(condition_index, pos);
             if point_index != -1 {
                 self.put_object_at_garrison_point(
@@ -2057,11 +2131,7 @@ impl GarrisonContain {
                 contain_max.min(MAX_GARRISON_POINTS as i32) as usize
             };
 
-            let positions = if let Ok(draw_guard) = drawable.read() {
-                draw_guard.get_pristine_bone_positions("STATION", 0, max_points)
-            } else {
-                Vec::new()
-            };
+            let positions = owner.get_multi_logical_bone_position("STATION", max_points);
 
             let _ = owner
                 .clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
@@ -2883,6 +2953,10 @@ impl ContainModuleInterface for GarrisonContain {
         expose_stealth: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         GarrisonContain::remove_all_contained(self, expose_stealth).map_err(|e| e.into())
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        GarrisonContain::on_selling(self).map_err(|e| e.into())
     }
 
     fn harm_and_force_exit_all_contained(

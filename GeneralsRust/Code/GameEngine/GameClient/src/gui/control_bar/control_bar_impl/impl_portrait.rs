@@ -445,34 +445,24 @@ impl ControlBar {
             .collect();
         context.available_commands.clear();
         context.current_state = ControlBarState::Command;
-        for button_opt in &command_set.buttons {
-            let Some(button) = button_opt.as_ref() else {
-                continue;
-            };
-            if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
-                continue;
-            }
-            if button.get_command_type() == CommandType::Evacuate {
-                continue;
-            }
-            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
-            {
-                context
-                    .available_commands
-                    .push(Self::command_from_definition(common_button));
-            } else {
-                context
-                    .available_commands
-                    .push(Self::command_from_logic_button(button));
-            }
+        const WND_SLOTS: usize = 14;
+        for slot in 0..WND_SLOTS {
+            let button = command_set.buttons.get(slot).and_then(|b| b.as_ref());
+            context
+                .available_commands
+                .push(Self::command_from_set_slot(&common_bar, button));
         }
         for b in keep {
-            if !context
+            if let Some(existing) = context
                 .available_commands
-                .iter()
-                .any(|x| x.command_name.eq_ignore_ascii_case(&b.command_name))
+                .iter_mut()
+                .find(|x| x.command_name.eq_ignore_ascii_case(&b.command_name))
             {
-                context.available_commands.push(b);
+                if existing.exit_object_id.is_none() {
+                    existing.exit_object_id = b.exit_object_id;
+                    existing.button_image = b.button_image;
+                    existing.overlay_image = b.overlay_image;
+                }
             }
         }
         context.ui_dirty = true;
@@ -584,17 +574,11 @@ impl ControlBar {
         };
         context.current_state = ControlBarState::MultiSelect;
         context.available_commands.clear();
-        for button in common_slots.into_iter().flatten() {
-            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
-            {
-                context
-                    .available_commands
-                    .push(Self::command_from_definition(common_button));
-            } else {
-                context
-                    .available_commands
-                    .push(Self::command_from_logic_button(&button));
-            }
+        for slot in 0..14 {
+            let button = common_slots.get(slot).and_then(|b| b.as_ref());
+            context
+                .available_commands
+                .push(Self::command_from_set_slot(&common_bar, button));
         }
         context.ui_dirty = true;
         drop(context);
@@ -631,32 +615,25 @@ impl ControlBar {
                 }
             }
             if max_garrison > 0 {
-                let exit = CommandButton {
-                    command_name: "Command_StructureExit".into(),
-                    ..CommandButton::default()
-                };
-                if !context
-                    .available_commands
-                    .iter()
-                    .any(|b| b.command_name.eq_ignore_ascii_case(&exit.command_name))
-                {
-                    context.available_commands.push(exit);
-                }
-                if garrisoned_count > 0 {
-                    for name in ["Command_Evacuate", "Command_Stop"] {
-                        let btn = CommandButton {
-                            command_name: name.into(),
-                            ..CommandButton::default()
-                        };
-                        if !context
-                            .available_commands
-                            .iter()
-                            .any(|b| b.command_name.eq_ignore_ascii_case(&btn.command_name))
-                        {
-                            context.available_commands.push(btn);
-                        }
+                drop(context);
+                if let Ok(mut ctx) = self.context.write() {
+                    if ctx.current_state == ControlBarState::StructureInventory {
+                        let _ = super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
+                            &mut ctx,
+                            max_garrison,
+                            garrisoned_count,
+                        );
+                    } else {
+                        let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(
+                            &mut ctx,
+                            max_garrison,
+                            garrisoned_count,
+                        );
                     }
+                    ctx.ui_dirty = true;
                 }
+                self.mark_ui_dirty();
+                return;
             }
             context.ui_dirty = true;
         }

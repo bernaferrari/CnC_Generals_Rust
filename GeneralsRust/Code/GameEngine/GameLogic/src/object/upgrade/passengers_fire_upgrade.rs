@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -19,12 +20,14 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct PassengersFireUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
 
 impl Default for PassengersFireUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
@@ -261,14 +264,15 @@ impl Snapshotable for PassengersFireUpgrade {
 }
 
 impl UpgradeModuleInterface for PassengersFireUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let _ = upgrade_mask;
         let applied = apply_passengers_fire(self.object_id);
         if applied {
@@ -282,4 +286,8 @@ impl UpgradeModuleInterface for PassengersFireUpgrade {
     }
 }
 
-const PASSENGERS_FIRE_UPGRADE_FIELDS: &[FieldParse<PassengersFireUpgradeModuleData>] = &[];
+crate::impl_upgrade_mux_field_parsers!(PassengersFireUpgradeModuleData);
+
+const PASSENGERS_FIRE_UPGRADE_FIELDS: &[FieldParse<PassengersFireUpgradeModuleData>] =
+    crate::upgrade_mux_field_table!();
+

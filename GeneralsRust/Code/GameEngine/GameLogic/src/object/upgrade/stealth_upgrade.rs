@@ -8,10 +8,14 @@
 
 use std::sync::Arc;
 
-use crate::common::{KindOf, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType};
+use crate::common::{
+    AsciiString, KindOf, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
+};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::Object;
+use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
+use crate::upgrade::UpgradeMask;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::debug;
@@ -23,19 +27,28 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 /// Stealth upgrade module data
-/// Matches C++ StealthUpgrade (no custom data fields, uses base UpgradeModule)
+/// Matches C++ StealthUpgrade (UpgradeModuleData parses TriggeredBy/ConflictsWith).
 #[derive(Debug, Clone)]
 pub struct StealthUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
 
 impl Default for StealthUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
+
+impl StealthUpgradeModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, STEALTH_UPGRADE_FIELDS)
+    }
+}
+
 
 impl ModuleData for StealthUpgradeModuleData {
     fn set_module_tag_name_key(&mut self, key: NameKeyType) {
@@ -86,6 +99,7 @@ impl Snapshotable for StealthUpgradeModuleData {
 pub struct StealthUpgrade {
     module_name_key: NameKeyType,
     data: Arc<StealthUpgradeModuleData>,
+    mux: UpgradeMux,
     object_id: ObjectID,
     applied: bool,
 }
@@ -96,9 +110,11 @@ impl StealthUpgrade {
         data: Arc<StealthUpgradeModuleData>,
         object_id: ObjectID,
     ) -> Self {
+        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
         Self {
             module_name_key,
             data,
+            mux,
             object_id,
             applied: false,
         }
@@ -107,6 +123,11 @@ impl StealthUpgrade {
     /// Apply the upgrade
     /// Matches C++ upgradeImplementation lines 27-42
     pub fn upgrade_implementation(&mut self) -> Result<(), String> {
+        // C++ UpgradeMux::wouldUpgrade refuses if m_upgradeExecuted.
+        if self.applied || self.mux.is_already_upgraded() {
+            return Ok(());
+        }
+
         // Wave 448: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -128,6 +149,7 @@ impl StealthUpgrade {
         };
 
         self.applied = true;
+        self.mux.set_upgrade_executed(true);
         debug!("Stealth upgrade applied to object {}", self.object_id);
 
         Ok(())
@@ -165,11 +187,18 @@ impl Module for StealthUpgrade {
 }
 
 impl UpgradeModuleInterface for StealthUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        true
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        if self.applied || self.mux.is_already_upgraded() {
+            return false;
+        }
+        let mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
+        self.mux.would_upgrade(mask)
     }
 
-    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
+    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+        if !self.can_upgrade(upgrade_mask) {
+            return false;
+        }
         self.upgrade_implementation().is_ok()
     }
 
@@ -177,6 +206,7 @@ impl UpgradeModuleInterface for StealthUpgrade {
         // C++ does not remove stealth status once applied; keep parity.
     }
 }
+
 
 impl Snapshotable for StealthUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -198,9 +228,88 @@ impl Snapshotable for StealthUpgrade {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        self.mux.set_upgrade_executed(self.applied);
         Ok(())
     }
 }
+
+fn parse_triggered_by(
+    _ini: &mut INI,
+    data: &mut StealthUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .activation_upgrade_names
+                .push(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_conflicts_with(
+    _ini: &mut INI,
+    data: &mut StealthUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .conflicting_upgrade_names
+                .push(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_removes_upgrades(
+    _ini: &mut INI,
+    data: &mut StealthUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .removal_upgrade_names
+                .push(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_requires_all_triggers(
+    _ini: &mut INI,
+    data: &mut StealthUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .skip_while(|t| **t == "=")
+        .next()
+        .ok_or(INIError::InvalidData)?;
+    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
+    Ok(())
+}
+
+const STEALTH_UPGRADE_FIELDS: &[FieldParse<StealthUpgradeModuleData>] = &[
+    FieldParse {
+        token: "TriggeredBy",
+        parse: parse_triggered_by,
+    },
+    FieldParse {
+        token: "ConflictsWith",
+        parse: parse_conflicts_with,
+    },
+    FieldParse {
+        token: "RemovesUpgrades",
+        parse: parse_removes_upgrades,
+    },
+    FieldParse {
+        token: "RequiresAllTriggers",
+        parse: parse_requires_all_triggers,
+    },
+];
 
 #[cfg(test)]
 mod tests {

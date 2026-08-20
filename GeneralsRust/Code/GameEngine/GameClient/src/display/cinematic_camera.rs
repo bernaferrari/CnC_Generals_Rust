@@ -541,8 +541,14 @@ impl CameraPath {
 
         let start_angle = self.waypoints[segment_index].angle;
         let end_angle = self.waypoints[segment_index + 1].angle;
-
-        start_angle + (end_angle - start_angle) * segment_t
+        let mut delta = end_angle - start_angle;
+        while delta > PI {
+            delta -= 2.0 * PI;
+        }
+        while delta < -PI {
+            delta += 2.0 * PI;
+        }
+        start_angle + delta * segment_t
     }
 
     /// Check if path is complete

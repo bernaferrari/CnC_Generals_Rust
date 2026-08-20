@@ -313,9 +313,58 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ `InGameUI::setRadiusCursor` radius: weapon primary/scatter/continue,
+    /// `AIGuardMachine` vision, else SpecialPower.ini `RadiusCursorRadius`.
+    pub(super) fn resolve_radius_cursor_radius(&self, cursor_type: &str) -> f32 {
+        let from_ini = crate::ui::construction_panel::RadiusCursorOverlay::radius_for_type(cursor_type);
+        let seed = self.ui_selection_seed_id();
+        let selected = seed.and_then(|id| {
+            self.last_presentation_frame
+                .as_ref()
+                .and_then(|frame| frame.objects.iter().find(|o| o.id == id))
+        });
+        match cursor_type {
+            "ATTACK_DAMAGE_AREA" => {
+                let template = selected.map(|o| o.template_name.as_str()).unwrap_or("");
+                let from_weapon = if let Some(weapon) =
+                    crate::game_logic::primary_weapon_name_for_unit(template)
+                {
+                    crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(
+                        weapon,
+                    )
+                } else {
+                    crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(
+                        template,
+                    )
+                };
+                if from_weapon > 0.0 {
+                    from_weapon
+                } else {
+                    from_ini
+                }
+            }
+            "ATTACK_SCATTER_AREA" => selected
+                .map(|o| o.weapon_range)
+                .filter(|r| *r > 0.0)
+                .unwrap_or(from_ini),
+            "ATTACK_CONTINUE_AREA" | "CLEARMINES" => selected
+                .map(|o| o.weapon_range)
+                .filter(|r| *r > 0.0)
+                .unwrap_or(from_ini),
+            "GUARD_AREA" => selected
+                .map(|o| o.vision_range)
+                .filter(|r| *r > 0.0)
+                .unwrap_or(from_ini),
+            _ => from_ini,
+        }
+    }
+
     pub(super) fn arm_radius_cursor_for_pending(&mut self, cursor_type: &str) {
         use crate::ui::construction_panel::RadiusCursorOverlay;
-        let r = RadiusCursorOverlay::radius_for_type(cursor_type);
+        let r = self.resolve_radius_cursor_radius(cursor_type);
+        if r <= 0.0 {
+            return;
+        }
         let mut ov = RadiusCursorOverlay::new(cursor_type, r);
         let loc = self.mouse_world_position;
         ov.centre = (loc.x, loc.z);
@@ -511,7 +560,6 @@ impl CnCGameEngine {
 
     /// Wave 580: host cancel-production residual — GameLogic cancel + construction
     /// panel queue head sync (presentation HUD residual).
-    #[inline]
     pub(super) fn host_cancel_production_and_sync_hud(
         &mut self,
         id: crate::game_logic::ObjectId,
@@ -566,6 +614,33 @@ impl CnCGameEngine {
         ok
     }
 
+    fn live_max_select_count() -> i32 {
+        #[cfg(feature = "game_client")]
+        {
+            let v = game_client::helpers::TheInGameUI::get_max_select_count();
+            if v != 0 {
+                return v;
+            }
+        }
+        game_engine::common::ini::ini_in_game_ui::get_in_game_ui_settings()
+            .map(|s| s.max_selection_size)
+            .unwrap_or(-1)
+    }
+
+    fn cap_selection_ids(
+        &mut self,
+        mut ids: Vec<crate::game_logic::ObjectId>,
+    ) -> Vec<crate::game_logic::ObjectId> {
+        let max = Self::live_max_select_count();
+        if max > 0 && ids.len() > max as usize {
+            ids.truncate(max as usize);
+            let msg = format!("GUI:MaxSelectionSize {max}");
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+        ids
+    }
+
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
@@ -574,6 +649,7 @@ impl CnCGameEngine {
         player_id: u32,
         ids: Vec<crate::game_logic::ObjectId>,
     ) {
+        let ids = self.cap_selection_ids(ids);
         // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.
         let already =

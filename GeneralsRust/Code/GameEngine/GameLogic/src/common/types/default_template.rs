@@ -265,7 +265,7 @@ impl DefaultThingTemplate {
         let mut mask: KindOfMaskType = KIND_OF_MASK_NONE;
         for &kind in ALL_KIND_OF {
             if self.is_kind_of(kind) {
-                mask |= 1u64 << (kind as u32);
+                mask |= kind.cpp_mask();
             }
         }
         mask
@@ -506,7 +506,9 @@ impl ThingTemplate for DefaultThingTemplate {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player.get_handicap().get_cost_multiplier();
+        mods.handicap_cost_multiplier = player
+            .get_handicap()
+            .get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kind_of_mask());
 
@@ -529,7 +531,9 @@ impl ThingTemplate for DefaultThingTemplate {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_time_change_percent =
             player.get_production_time_change_percent(self.get_name().as_str());
-        mods.handicap_time_multiplier = player.get_handicap().get_build_time_multiplier();
+        mods.handicap_time_multiplier = player
+            .get_handicap()
+            .get_build_time_multiplier_for_template(self);
         mods.energy_supply_ratio = player.get_energy().supply_ratio();
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kind_of_mask());

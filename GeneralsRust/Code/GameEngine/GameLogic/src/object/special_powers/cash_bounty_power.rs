@@ -19,7 +19,7 @@ use crate::common::{ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
-use crate::player::player_list;
+
 
 /// Module data for CashBountyPower.
 /// Matches C++ CashBountyPowerModuleData.
@@ -107,8 +107,27 @@ impl CashBountyPower {
         self.data.default_bounty
     }
 
-    /// Apply the bounty to the controlling player.
-    /// Matches C++ CashBountyPower::onObjectCreated() and onSpecialPowerCreation().
+    /// Apply bounty with no science gate (C++ onSpecialPowerCreation).
+    fn apply_bounty(&self) {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        let Some(player) = owner_guard.get_controlling_player() else {
+            return;
+        };
+        let bounty = self.find_bounty();
+        if let Ok(mut player_write) = player.write() {
+            if bounty > player_write.get_cash_bounty() {
+                player_write.set_cash_bounty(bounty);
+            }
+        }
+    }
+
+    /// Apply the bounty if the player already has the required science.
+    /// Matches C++ CashBountyPower::onObjectCreated().
     fn apply_bounty_if_applicable(&self) {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return;
@@ -123,7 +142,6 @@ impl CashBountyPower {
             return;
         };
 
-        // Check if the player has the required science
         let required_science = self
             .data
             .base
@@ -132,13 +150,8 @@ impl CashBountyPower {
             .map(|t| t.get_required_science())
             .unwrap_or(ScienceType::default());
         if player_guard.has_science(required_science) {
-            let bounty = self.find_bounty();
             drop(player_guard);
-            if let Ok(mut player_write) = player.write() {
-                if bounty > player_write.get_cash_bounty() {
-                    player_write.set_cash_bounty(bounty);
-                }
-            }
+            self.apply_bounty();
         }
     }
 
@@ -174,6 +187,10 @@ impl CashBountyPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {
+        self.apply_bounty();
+    }
 }
 
 
@@ -199,6 +216,7 @@ impl Module for CashBountyPower {
     }
 
     fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
         self.apply_bounty_if_applicable();
     }
 }
@@ -230,18 +248,15 @@ impl Snapshotable for CashBountyPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("CashBountyPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "CashBountyPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ CashBountyPower::loadPostProcess()
-        // After loading, reapply bounty for the loaded player
-        self.apply_bounty_if_applicable();
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

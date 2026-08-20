@@ -7,14 +7,19 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
+use crate::ai::THE_AI;
 use crate::common::{
     CommandSourceType, DisabledType, GameResult, KindOf, ModelConditionState, ObjectID,
-    PlayerMaskType, WeaponSlotType, SECONDS_PER_LOGICFRAME_REAL,
+    PathfindLayerEnum, PlayerMaskType, WeaponSlotType, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::helpers::TheThingFactory;
-use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
+use crate::locomotor::LocomotorSet;
+use crate::modules::{
+    AIAttitudeType, AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType,
+    PhysicsBehaviorExt, UpdateSleepTime,
+};
 use crate::object::{Object, ObjectArcExt};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
@@ -86,7 +91,7 @@ pub struct TransportContainModuleData {
 impl Default for TransportContainModuleData {
     fn default() -> Self {
         let mut base = super::OpenContainModuleData::default();
-        base.allow_inside_kind_of = 1u64 << (KindOf::Infantry as u32);
+        base.allow_inside_kind_of = KindOf::Infantry.cpp_mask();
 
         Self {
             base,
@@ -662,6 +667,86 @@ impl TransportContain {
             }
         }
 
+        // C++ TransportContain::onRemoving after OpenContain + bone + orient:
+        // velocity inheritance, airborne fall, scatter, mood, Kell timer.
+        let owner_state = self.with_owner_object(|owner| {
+            let physics = owner.get_physics();
+            let velocity = physics.as_ref().map(|p| p.get_velocity());
+            let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
+                owner
+                    .get_weapon_in_slot(WeaponSlotType::Secondary)
+                    .cloned()
+            } else {
+                None
+            };
+            (
+                owner.is_above_terrain(),
+                owner.is_effectively_dead(),
+                owner.is_kind_of(KindOf::CliffJumper),
+                velocity,
+                bike_secondary,
+            )
+        });
+
+        if let Some((above_terrain, owner_dead, owner_is_bike, velocity, bike_secondary)) =
+            owner_state
+        {
+            if let Ok(mut rider) = obj.write() {
+                if self.module_data.keep_container_velocity_on_exit {
+                    if let (Some(vel), Some(child)) = (velocity, rider.get_physics()) {
+                        let mass = child.get_mass();
+                        let starting_force = crate::common::Coord3D::new(
+                            vel.x * mass,
+                            vel.y * mass,
+                            vel.z * mass,
+                        );
+                        child.apply_motive_force(&starting_force);
+                        let pitch_rate =
+                            child.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
+                        child.set_pitch_rate(pitch_rate);
+                    }
+                }
+
+                if above_terrain {
+                    if let Some(physics) = rider.get_physics() {
+                        physics.set_allow_to_fall(true);
+                    }
+                }
+
+                if self.module_data.go_aggressive_on_exit {
+                    if let Some(ai) = rider.get_ai() {
+                        ai.set_attitude(AIAttitudeType::Aggressive);
+                    }
+                }
+
+                if owner_dead {
+                    let _ = self.base.scatter_to_nearby_position(&mut rider);
+                }
+
+                if self.module_data.reset_mood_check_time_on_exit {
+                    if let Some(ai) = rider.get_ai() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.reset_next_mood_check_time();
+                        }
+                    }
+                }
+
+                // Patch 1.01: Jarmen Kell leaving a combat bike transfers
+                // secondary-weapon shot timers from the bike to the rider.
+                if owner_is_bike
+                    && rider.is_kind_of(KindOf::Hero)
+                    && rider.is_kind_of(KindOf::Salvager)
+                {
+                    if let (Some(bike_weapon), Some(rider_weapon)) = (
+                        bike_secondary.as_ref(),
+                        rider.get_weapon_in_slot_mut(WeaponSlotType::Secondary),
+                    ) {
+                        rider_weapon.transfer_next_shot_stats_from(bike_weapon);
+                    }
+                }
+            }
+        }
+
         // Let riders upgrade weapon set if configured
         self.let_riders_upgrade_weapon_set()?;
 
@@ -835,22 +920,88 @@ impl TransportContain {
             // C++ RailedTransportContain does not extend TransportContain here.
             return dock_open;
         }
-        if let Some(ai) = self
-            .with_owner_object(|owner_guard| owner_guard.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(ai_guard) = ai.lock() {
-                return matches!(
-                    ai_guard.get_ai_free_to_exit(obj),
-                    crate::object::production::AIFreeToExitType::FreeToExit
-                );
+
+        let Some((airborne, layer, pos)) = self.with_owner_object(|owner| {
+            if let Some(ai) = owner.get_ai_update_interface() {
+                if let Ok(ai_guard) = ai.lock() {
+                    if !matches!(
+                        ai_guard.get_ai_free_to_exit(obj),
+                        crate::object::production::AIFreeToExitType::FreeToExit
+                    ) {
+                        return None;
+                    }
+                }
             }
+            Some((
+                owner.is_using_airborne_locomotor(),
+                owner.get_layer(),
+                *owner.get_position(),
+            ))
+        })
+        .flatten() else {
+            return false;
+        };
+
+        // C++: airborne transports can always kick people out.
+        if airborne {
+            return true;
         }
-        true
+
+        let Some(rider_ai) = obj.get_ai_update_interface() else {
+            return false;
+        };
+        let Some(his_loco) = rider_ai.get_cur_locomotor() else {
+            return false;
+        };
+
+        let mut loco_set = LocomotorSet::new();
+        loco_set.add_locomotor("cur".to_string(), his_loco);
+        let layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pf| {
+                pf.read()
+                    .ok()
+                    .map(|pf| pf.valid_movement_terrain(layer, &loco_set, &pos))
+            })
+            .unwrap_or(true)
     }
 
     /// Check if passenger is allowed to fire
     pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
+        // C++ TransportContain::isPassengerAllowedToFire: infantry only,
+        // then Overlord-style parent nest, else OpenContain.
+        if let Some(obj_id) = id {
+            if let Some(passenger) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            {
+                if let Ok(passenger_guard) = passenger.read() {
+                    if !passenger_guard.is_kind_of(KindOf::Infantry) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        if let Some(parent_id) = self
+            .with_owner_object(|owner| owner.get_contained_by())
+            .flatten()
+        {
+            if let Some(parent) = TheGameLogic::find_object_by_id(parent_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(parent_id))
+            {
+                if let Ok(parent_guard) = parent.read() {
+                    if let Some(contain) = parent_guard.get_contain() {
+                        if contain.is_special_overlord_style_container() {
+                            return contain.is_passenger_allowed_to_fire(id);
+                        }
+                    }
+                }
+            }
+        }
+
         self.base.is_passenger_allowed_to_fire(id)
     }
 
@@ -1368,6 +1519,10 @@ impl ContainModuleInterface for TransportContain {
 
     fn is_rider_change_contain(&self) -> bool {
         TransportContain::is_rider_change_contain(self)
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
     }
 
 

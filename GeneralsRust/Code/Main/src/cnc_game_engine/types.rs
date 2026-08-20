@@ -1037,6 +1037,8 @@ pub struct CnCGameEngine {
     pub(crate) host_match_camera_follow_position: Option<[f32; 3]>,
     /// Wave 913: last camera-follow object residual (skip redundant authority writes).
     pub(crate) host_match_camera_follow_id: Option<Option<crate::game_logic::ObjectId>>,
+    /// C++ W3DView followFactor; -1 when unlocked.
+    pub(crate) camera_follow_factor: f32,
     /// Wave 848: host-owned local train producers residual (barracks / other).
     pub(crate) host_match_local_barracks_ids: Option<Vec<crate::game_logic::ObjectId>>,
     pub(crate) host_match_local_producer_ids: Option<Vec<crate::game_logic::ObjectId>>,

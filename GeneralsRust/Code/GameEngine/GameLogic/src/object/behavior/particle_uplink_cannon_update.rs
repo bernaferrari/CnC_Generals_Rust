@@ -6,14 +6,14 @@ use crate::common::audio::AudioEventRts;
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, DisabledType, DrawableID, Matrix3D, ModelConditionFlags,
-    ModuleData, ObjectID, ObjectShroudStatus, ParticleSystemID, PlayerMaskType, Real, UnsignedInt,
-    LOGICFRAMES_PER_SECOND,
+    ModuleData, ObjectID, ObjectShroudStatus, ObjectStatusTypes, ParticleSystemID, PlayerMaskType,
+    Real, UnsignedInt, LOGICFRAMES_PER_SECOND,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheParticleSystemManager;
 use crate::helpers::{
-    game_client_random_value, TheAudio, TheFXListStore, TheGameClient, TheGameLogic,
-    ThePartitionManager, TheTerrainLogic, TheThingFactory,
+    game_client_random_value, game_logic_random_value, TheAudio, TheFXListStore, TheGameClient,
+    TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
@@ -643,7 +643,6 @@ pub struct ParticleUplinkCannonUpdate {
     // Steering control
     manual_target_mode: Bool,
     scripted_waypoint_mode: Bool,
-    #[allow(dead_code)]
     next_dest_waypoint_id: UnsignedInt,
 
     last_driving_click_frame: UnsignedInt,
@@ -766,10 +765,28 @@ impl ParticleUplinkCannonUpdate {
     }
 
     fn remove_all_effects(&mut self) {
-        let client = TheGameClient::get();
-        for id in self.outer_system_ids.iter_mut() {
-            *id = INVALID_PARTICLE_SYSTEM_ID;
+        if let Some(manager) = TheParticleSystemManager::get() {
+            for id in self.outer_system_ids.iter_mut() {
+                if *id != INVALID_PARTICLE_SYSTEM_ID {
+                    manager.destroy_particle_system(*id);
+                }
+                *id = INVALID_PARTICLE_SYSTEM_ID;
+            }
+            if self.connector_system_id != INVALID_PARTICLE_SYSTEM_ID {
+                manager.destroy_particle_system(self.connector_system_id);
+            }
+            if self.laser_base_system_id != INVALID_PARTICLE_SYSTEM_ID {
+                manager.destroy_particle_system(self.laser_base_system_id);
+            }
+        } else {
+            for id in self.outer_system_ids.iter_mut() {
+                *id = INVALID_PARTICLE_SYSTEM_ID;
+            }
         }
+        self.connector_system_id = INVALID_PARTICLE_SYSTEM_ID;
+        self.laser_base_system_id = INVALID_PARTICLE_SYSTEM_ID;
+
+        let client = TheGameClient::get();
         for id in self.laser_beam_ids.iter_mut() {
             if let Some(client) = client {
                 if *id != INVALID_DRAWABLE_ID {
@@ -778,8 +795,6 @@ impl ParticleUplinkCannonUpdate {
             }
             *id = INVALID_DRAWABLE_ID;
         }
-        self.connector_system_id = INVALID_PARTICLE_SYSTEM_ID;
-        self.laser_base_system_id = INVALID_PARTICLE_SYSTEM_ID;
         if let Some(client) = client {
             if self.ground_to_orbit_beam_id != INVALID_DRAWABLE_ID {
                 client.destroy_drawable(self.ground_to_orbit_beam_id);
@@ -796,7 +811,6 @@ impl ParticleUplinkCannonUpdate {
         Self::stop_audio_event(&mut self.firing_to_idle_sound);
         Self::stop_audio_event(&mut self.annihilation_sound);
     }
-
     fn set_logical_status(&mut self, status: PUCStatus) {
         // Wave 299: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -812,13 +826,32 @@ impl ParticleUplinkCannonUpdate {
             }) {
                 if let Ok(obj_guard) = object_arc.read() {
                     if let Some(drawable) = obj_guard.get_drawable() {
-                        let clear = ModelConditionFlags::Packing | ModelConditionFlags::Unpacking;
-                        let set = match status {
-                            PUCStatus::Preparing => ModelConditionFlags::Unpacking,
-                            PUCStatus::Packing => ModelConditionFlags::Packing,
-                            _ => ModelConditionFlags::empty(),
+                        let (clear, set) = match status {
+                            PUCStatus::Idle => (
+                                ModelConditionFlags::Packing
+                                    | ModelConditionFlags::Unpacking
+                                    | ModelConditionFlags::DEPLOYED,
+                                ModelConditionFlags::empty(),
+                            ),
+                            PUCStatus::Preparing => (
+                                ModelConditionFlags::Packing | ModelConditionFlags::DEPLOYED,
+                                ModelConditionFlags::Unpacking,
+                            ),
+                            PUCStatus::AlmostReady
+                            | PUCStatus::ReadyToFire
+                            | PUCStatus::Firing => (
+                                ModelConditionFlags::Packing | ModelConditionFlags::Unpacking,
+                                ModelConditionFlags::DEPLOYED,
+                            ),
+                            PUCStatus::Packing => (
+                                ModelConditionFlags::Unpacking | ModelConditionFlags::DEPLOYED,
+                                ModelConditionFlags::Packing,
+                            ),
+                            _ => (ModelConditionFlags::empty(), ModelConditionFlags::empty()),
                         };
-                        drawable.clear_and_set_model_condition_state(clear, set);
+                        if !clear.is_empty() || !set.is_empty() {
+                            drawable.clear_and_set_model_condition_state(clear, set);
+                        }
                     }
                 }
             }
@@ -920,6 +953,49 @@ impl ParticleUplinkCannonUpdate {
         if self.laser_beam_ids.len() != count {
             self.laser_beam_ids.resize(count, INVALID_DRAWABLE_ID);
         }
+
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
+            self.invalid_settings = true;
+            return false;
+        };
+        let Ok(obj_guard) = object_arc.read() else {
+            return false;
+        };
+        let Some(draw) = obj_guard.get_drawable() else {
+            self.invalid_settings = true;
+            return false;
+        };
+        let Ok(draw_guard) = draw.read() else {
+            return false;
+        };
+
+        let prefix = self.module_data.outer_effect_base_bone_name.as_str();
+        let positions = draw_guard.get_pristine_bone_positions(prefix, 1, count);
+        let transforms = draw_guard.get_pristine_bone_transforms(prefix, 1, count);
+        let num_bones = positions.len().min(transforms.len());
+        if num_bones != count {
+            self.invalid_settings = true;
+            return false;
+        }
+
+        for i in 0..count {
+            self.laser_beam_ids[i] = INVALID_DRAWABLE_ID;
+            self.outer_system_ids[i] = INVALID_PARTICLE_SYSTEM_ID;
+            let world =
+                obj_guard.convert_bone_pos_to_world_pos(Some(&positions[i]), Some(&transforms[i]));
+            let (_, _, translation) = world.to_scale_rotation_translation();
+            self.outer_node_positions[i] = translation;
+            self.outer_node_orientations[i] = world;
+        }
         true
     }
 
@@ -1000,7 +1076,7 @@ impl ParticleUplinkCannonUpdate {
             let new_id = client.create_drawable(template.as_ref());
             *id = new_id;
             if let Some(start) = self.outer_node_positions.get(idx) {
-                client.set_drawable_beam(new_id, start, &self.connector_node_position);
+                client.init_drawable_laser(new_id, start, &self.connector_node_position, 0);
             }
         }
     }
@@ -1103,7 +1179,7 @@ impl ParticleUplinkCannonUpdate {
         }
     }
 
-    fn create_ground_to_orbit_laser(&mut self, _growth_frames: UnsignedInt) {
+    fn create_ground_to_orbit_laser(&mut self, growth_frames: UnsignedInt) {
         let Some(client) = TheGameClient::get() else {
             return;
         };
@@ -1123,10 +1199,15 @@ impl ParticleUplinkCannonUpdate {
         self.ground_to_orbit_beam_id = new_id;
         let mut orbit = self.laser_origin_position;
         orbit.z += 500.0;
-        client.set_drawable_beam(new_id, &self.laser_origin_position, &orbit);
+        client.init_drawable_laser(
+            new_id,
+            &self.laser_origin_position,
+            &orbit,
+            growth_frames as i32,
+        );
     }
 
-    fn create_orbit_to_target_laser(&mut self, _growth_frames: UnsignedInt) {
+    fn create_orbit_to_target_laser(&mut self, growth_frames: UnsignedInt) {
         let Some(client) = TheGameClient::get() else {
             return;
         };
@@ -1147,7 +1228,12 @@ impl ParticleUplinkCannonUpdate {
         self.orbit_to_target_beam_id = new_id;
         let mut orbit = self.initial_target_position;
         orbit.z += 500.0;
-        client.set_drawable_beam(new_id, &orbit, &self.initial_target_position);
+        client.init_drawable_laser(
+            new_id,
+            &orbit,
+            &self.initial_target_position,
+            growth_frames as i32,
+        );
     }
 
     fn set_client_status(&mut self, status: PUCStatus, reveal_this_frame: Bool) {
@@ -1221,9 +1307,29 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             return UpdateSleepTime::None; // C++ checks this first
         }
 
-        // Logic parity check: Object status checks (Sold, UnderConstruction, EffectivelyDead)
-        // are typically handled by the BehaviorModule wrapper or the game engine in Rust port,
-        // but we mimic C++ structure for fidelity where possible.
+        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
+            if let Ok(obj_guard) = object_arc.read() {
+                if obj_guard.test_status(ObjectStatusTypes::Sold) {
+                    drop(obj_guard);
+                    if self.status != PUCStatus::Idle {
+                        self.set_logical_status(PUCStatus::Idle);
+                        self.remove_all_effects();
+                    }
+                    return UpdateSleepTime::None;
+                }
+                if obj_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                    return UpdateSleepTime::None;
+                }
+                if obj_guard.is_effectively_dead() {
+                    return UpdateSleepTime::None;
+                }
+            }
+        }
 
         // Get current frame
         let now = TheGameLogic::get_frame();
@@ -1423,7 +1529,16 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
 
                     if dist < speed {
                         speed = dist;
-                        // Handle waypoint advance if scripted here...
+                        if self.scripted_waypoint_mode {
+                            if let Some(terrain) = TheTerrainLogic::get() {
+                                if let Some((next_id, next_pos)) =
+                                    terrain.random_outgoing_waypoint_link(self.next_dest_waypoint_id)
+                                {
+                                    self.next_dest_waypoint_id = next_id;
+                                    self.override_target_destination = next_pos;
+                                }
+                            }
+                        }
                     }
 
                     if dist > 0.001 {
@@ -1446,24 +1561,12 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                     if let Some(client) = TheGameClient::get() {
                         let mut orbit = self.current_target_position;
                         orbit.z += 500.0;
-                        client.set_drawable_beam(
+                        client.init_drawable_laser(
                             self.orbit_to_target_beam_id,
                             &orbit,
                             &self.current_target_position,
+                            0,
                         );
-                    }
-                }
-
-                let mut width_scalar = 1.0;
-                if data.width_grow_frames > 0 {
-                    if now < orbital_birth_frame.saturating_add(data.width_grow_frames) {
-                        let span = data.width_grow_frames as Real;
-                        let elapsed = now.saturating_sub(orbital_birth_frame) as Real;
-                        width_scalar = (elapsed / span).clamp(0.0, 1.0);
-                    } else if now >= orbital_decay_start {
-                        let span = data.width_grow_frames as Real;
-                        let elapsed = now.saturating_sub(orbital_decay_start) as Real;
-                        width_scalar = (1.0 - (elapsed / span)).clamp(0.0, 1.0);
                     }
                 }
 
@@ -1471,9 +1574,9 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                 if self.orbit_to_target_beam_id != INVALID_DRAWABLE_ID {
                     if let Some(client) = TheGameClient::get() {
                         if let Some(width) =
-                            client.get_drawable_beam_width(self.orbit_to_target_beam_id)
+                            client.get_current_laser_radius(self.orbit_to_target_beam_id)
                         {
-                            base_laser_radius = width * width_scalar;
+                            base_laser_radius = width;
                         }
                     }
                 }
@@ -1589,6 +1692,42 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         }
                     }
 
+                    if !data.damage_pulse_remnant_object_name.is_empty() {
+                        if let Some(template) = TheThingFactory::find_template(
+                            data.damage_pulse_remnant_object_name.as_str(),
+                        ) {
+                            if let Some(object_arc) =
+                                (if self.object_id == crate::common::INVALID_ID {
+                                    None
+                                } else {
+                                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                                        .or_else(|| {
+                                            crate::object::registry::OBJECT_REGISTRY
+                                                .get_object(self.object_id)
+                                        })
+                                })
+                            {
+                                if let Ok(obj_guard) = object_arc.read() {
+                                    if let Some(team_arc) = obj_guard.get_team() {
+                                        if let Ok(team) = team_arc.read() {
+                                            if let Ok(factory) = TheThingFactory::get() {
+                                                if let Ok(remnant) =
+                                                    factory.new_object(template, &*team)
+                                                {
+                                                    if let Ok(mut remnant_obj) = remnant.write() {
+                                                        let _ = remnant_obj.set_position(
+                                                            &self.current_target_position,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if data.total_damage_pulses > 0 {
                         let next_factor =
                             self.damage_pulses_made as Real / data.total_damage_pulses as Real;
@@ -1617,6 +1756,10 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             self.set_logical_status(PUCStatus::Preparing);
         } else if begin_charge_frame <= now {
             self.set_logical_status(PUCStatus::Charging);
+        } else if self.status == PUCStatus::AlmostReady {
+        } else if self.status == PUCStatus::ReadyToFire {
+            // The particle cannon timer has been reset (sabotaged?)
+            self.set_logical_status(PUCStatus::Packing);
         }
 
         // Firing Effects
@@ -1704,6 +1847,19 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
             self.initial_target_position = pos;
             self.current_target_position = pos;
             self.override_target_destination = pos;
+            self.next_dest_waypoint_id = way.id;
+            let link_count = way.get_num_links();
+            if link_count > 0 {
+                let which = game_logic_random_value(0, (link_count as u32) - 1) as usize;
+                if let Some(next_id) = way.get_link(which) {
+                    self.next_dest_waypoint_id = next_id;
+                    if let Some(terrain) = TheTerrainLogic::get() {
+                        if let Some(next_pos) = terrain.get_waypoint_location(next_id) {
+                            self.override_target_destination = next_pos;
+                        }
+                    }
+                }
+            }
         } else {
             let mut pos = Coord3D::ZERO;
             if let Some(pos_ref) = target_pos {

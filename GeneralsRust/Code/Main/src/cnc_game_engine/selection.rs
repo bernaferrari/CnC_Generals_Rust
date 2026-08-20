@@ -1480,53 +1480,71 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
+    /// C++ `InGameUI::selectAllUnitsByType`: screen pass then map fallback
+    /// (`InGameUI.cpp:4877`). CommandXlat excludes DOZER/HARVESTER/IGNORES_SELECT_ALL
+    /// and 1.03-incompatible current selection.
     pub(super) fn select_all_friendly_units(&mut self) {
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return;
-        };
-        let team = frame.local_team();
-        let selection: Vec<ObjectId> = frame
-            .objects
-            .iter()
-            .filter(|o| {
-                !o.destroyed
-                    && o.team == team
-                    && crate::presentation_frame::PresentationFrame::presentation_is_mass_selectable(
-                        o,
-                    )
-                    && o.contained_by.is_none()
-                    && !crate::presentation_frame::PresentationFrame::object_has_kind(
-                        o,
-                        crate::game_logic::KindOf::Dozer,
-                    )
-                    && !crate::presentation_frame::PresentationFrame::object_has_kind(
-                        o,
-                        crate::game_logic::KindOf::Harvester,
-                    )
-            })
-            .map(|o| o.id)
-            .collect();
-
-        self.host_set_selection(self.current_player_id, selection);
-        self.play_sound_effect(SoundType::Select);
+        self.select_all_units_by_type(false);
     }
 
-    /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
-    pub(super) fn select_all_friendly_aircraft(&mut self) {
-        // Presentation-only: InGame always has last_presentation_frame.
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return;
+    fn select_all_units_by_type(&mut self, aircraft_only: bool) {
+        let (team, incompatible, candidates, on_screen) = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
+            };
+            let team = frame.local_team();
+            let current = self.ui_selected_ids(self.current_player_id);
+            let incompatible = current.iter().any(|id| {
+                frame.objects.iter().any(|o| {
+                    o.id == *id
+                        && (crate::presentation_frame::PresentationFrame::is_select_all_disqualified(
+                            o,
+                        ) || (aircraft_only
+                            && !crate::presentation_frame::PresentationFrame::object_has_kind(
+                                o,
+                                crate::game_logic::KindOf::Aircraft,
+                            )))
+                })
+            });
+            let candidates = frame.alive_select_all_unit_ids(team, aircraft_only);
+            let window_size = self.window.inner_size();
+            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let on_screen = frame.filter_ids_on_screen(
+                &candidates,
+                self.view_matrix,
+                self.projection_matrix,
+                viewport,
+            );
+            (team, incompatible, candidates, on_screen)
         };
-        let team = frame.local_team();
-        let selection = frame.alive_selectable_friendly_aircraft_ids(team);
-
-        // Wave 583: selection residual via host_set_selection.
+        let _ = team;
+        if incompatible {
+            self.host_set_selection(self.current_player_id, Vec::new());
+        }
+        let (selection, msg) = if !on_screen.is_empty() {
+            (on_screen, "GUI:SelectedAcrossScreen")
+        } else if !candidates.is_empty() {
+            (candidates, "GUI:SelectedAcrossMap")
+        } else {
+            (Vec::new(), "GUI:NothingSelected")
+        };
+        if selection.is_empty() && msg == "GUI:NothingSelected" {
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+            return;
+        }
         self.host_set_selection(self.current_player_id, selection);
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
     }
 
+    /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
+    pub(super) fn select_all_friendly_aircraft(&mut self) {
+        self.select_all_units_by_type(true);
+    }
     /// Retail SELECT_HERO (Ctrl+H) residual.
     pub(super) fn select_hero_units_hotkey(&mut self) {
         // Presentation-only: InGame always has last_presentation_frame.

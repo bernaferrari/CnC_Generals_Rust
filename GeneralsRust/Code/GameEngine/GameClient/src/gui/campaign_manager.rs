@@ -18,12 +18,13 @@ pub const MAX_OBJECTIVE_LINES: usize = 5;
 pub const MAX_DISPLAYED_UNITS: usize = 3;
 pub const INVALID_MISSION_NUMBER: i32 = -1;
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GameDifficulty {
-    Easy,
+    Easy = 0,
     #[default]
-    Normal,
-    Hard,
+    Normal = 1,
+    Hard = 2,
 }
 
 #[derive(Debug, Clone)]
@@ -295,23 +296,26 @@ impl CampaignManager {
         let campaign_idx = self.current_campaign.unwrap();
         let current_mission_idx = self.current_mission.unwrap();
 
-        if let Some(campaign) = self.campaign_list.get(campaign_idx) {
-            if let Some(current_mission) = campaign.missions.get(current_mission_idx) {
-                let next_name = &current_mission.next_mission;
-                if next_name.is_empty() {
-                    return None;
-                }
-
-                for (idx, mission) in campaign.missions.iter().enumerate() {
-                    if mission.name == next_name.to_lowercase() {
-                        self.current_mission = Some(idx);
-                        return Some(mission);
-                    }
-                }
+        let next_idx = self.campaign_list.get(campaign_idx).and_then(|campaign| {
+            let current_mission = campaign.missions.get(current_mission_idx)?;
+            let next_name = &current_mission.next_mission;
+            if next_name.is_empty() {
+                return None;
             }
-        }
+            let next_lower = next_name.to_lowercase();
+            campaign
+                .missions
+                .iter()
+                .position(|mission| mission.name == next_lower)
+        });
 
-        None
+        // C++ always assigns `m_currentMission = getNextMission(...)`, including NULL.
+        self.current_mission = next_idx;
+        next_idx.and_then(|idx| {
+            self.campaign_list
+                .get(campaign_idx)
+                .and_then(|campaign| campaign.missions.get(idx))
+        })
     }
 
     /// Set campaign and optionally a specific mission.
@@ -327,14 +331,13 @@ impl CampaignManager {
         for (camp_idx, campaign) in self.campaign_list.iter().enumerate() {
             if campaign.name == campaign_name_lower {
                 self.current_campaign = Some(camp_idx);
-
                 let mission_name_lower = mission_name.to_lowercase();
-                for (miss_idx, mission) in campaign.missions.iter().enumerate() {
-                    if mission.name == mission_name_lower {
-                        self.current_mission = Some(miss_idx);
-                        return;
-                    }
-                }
+                // C++ always assigns `m_currentMission = camp->getMission(mission)`
+                // (NULL when the name is missing).
+                self.current_mission = campaign
+                    .missions
+                    .iter()
+                    .position(|mission| mission.name == mission_name_lower);
                 return;
             }
         }
@@ -500,20 +503,24 @@ impl CampaignManager {
             .get_current_campaign()
             .map(|campaign| campaign.is_challenge_campaign)
             .unwrap_or(false);
-        let (challenge_map, challenge_template) = if is_challenge {
-            crate::gui::challenge_game_info::snapshot_map_and_template()
+        let challenge_info = if is_challenge {
+            Some(crate::gui::challenge_game_info::snapshot_challenge_game_info())
         } else {
-            (String::new(), 0)
+            None
         };
+        // C++ v5 always reads the live ChallengeGenerals singleton.
+        let generals_template = crate::gui::challenge_generals::get_challenge_generals()
+            .and_then(|m| m.lock().ok())
+            .map(|g| g.current_player_template_num())
+            .unwrap_or(self.xfer_challenge_generals_player_template_num);
         game_engine::System::CampaignManagerXferState {
             campaign,
             mission,
             rank_points: self.current_rank_points,
             difficulty: self.difficulty as i32,
             is_challenge,
-            challenge_map,
-            challenge_template,
-            generals_template: self.xfer_challenge_generals_player_template_num,
+            challenge_info,
+            generals_template,
         }
     }
 
@@ -530,16 +537,17 @@ impl CampaignManager {
             _ => GameDifficulty::Normal,
         };
         if state.is_challenge {
-            crate::gui::challenge_game_info::restore_map_and_template(
-                state.challenge_map,
-                state.challenge_template,
-            );
+            if let Some(info) = state.challenge_info {
+                crate::gui::challenge_game_info::restore_challenge_game_info(info);
+            } else {
+                crate::gui::challenge_game_info::ensure_challenge_game_info();
+            }
         } else {
             crate::gui::challenge_game_info::clear_challenge_game_info();
         }
         self.xfer_challenge_generals_player_template_num = state.generals_template;
+        self.load_post_process();
     }
-
 
     /// Xfer (save/load) method.
     /// Matches C++ CampaignManager::xfer() version 5.
@@ -566,6 +574,7 @@ impl CampaignManager {
         }
 
         if version >= 3 {
+            // C++ `xferUser(&m_difficulty, sizeof(m_difficulty))` — 4-byte enum.
             xfer.xfer_user(&mut self.difficulty)?;
         }
 
@@ -580,13 +589,13 @@ impl CampaignManager {
                 .unwrap_or(false);
             xfer.xfer_bool(&mut is_challenge)?;
             if is_challenge {
-                // C++ xferSnapshot(TheChallengeGameInfo) — map + slot0 template.
-                let (mut map, mut template) =
-                    crate::gui::challenge_game_info::snapshot_map_and_template();
-                xfer.xfer_ascii_string(&mut map)?;
-                xfer.xfer_int(&mut template)?;
                 if xfer.is_loading() {
-                    crate::gui::challenge_game_info::restore_map_and_template(map, template);
+                    crate::gui::challenge_game_info::ensure_challenge_game_info();
+                }
+                let mut info = crate::gui::challenge_game_info::snapshot_challenge_game_info();
+                xfer.xfer_challenge_game_info(&mut info)?;
+                if xfer.is_loading() {
+                    crate::gui::challenge_game_info::restore_challenge_game_info(info);
                 }
             } else if xfer.is_loading() {
                 crate::gui::challenge_game_info::clear_challenge_game_info();
@@ -594,7 +603,13 @@ impl CampaignManager {
         }
 
         if version >= 5 {
-            xfer.xfer_int(&mut self.xfer_challenge_generals_player_template_num)?;
+            // C++ always reads the live singleton, then stores into the xfer field.
+            let mut player_template_num = crate::gui::challenge_generals::get_challenge_generals()
+                .and_then(|m| m.lock().ok())
+                .map(|g| g.current_player_template_num())
+                .unwrap_or(self.xfer_challenge_generals_player_template_num);
+            xfer.xfer_int(&mut player_template_num)?;
+            self.xfer_challenge_generals_player_template_num = player_template_num;
         }
 
         Ok(())
@@ -616,6 +631,70 @@ pub trait XferHelper {
     fn xfer_bool(&mut self, value: &mut bool) -> std::io::Result<()>;
     fn xfer_user<T>(&mut self, value: &mut T) -> std::io::Result<()>;
     fn is_loading(&self) -> bool;
+
+    fn xfer_unsigned_int(&mut self, value: &mut u32) -> std::io::Result<()> {
+        let mut as_i32 = *value as i32;
+        self.xfer_int(&mut as_i32)?;
+        *value = as_i32 as u32;
+        Ok(())
+    }
+
+    fn xfer_unsigned_short(&mut self, value: &mut u16) -> std::io::Result<()> {
+        let mut as_i32 = i32::from(*value);
+        self.xfer_int(&mut as_i32)?;
+        *value = as_i32 as u16;
+        Ok(())
+    }
+
+    fn xfer_unicode_string(&mut self, s: &mut String) -> std::io::Result<()> {
+        self.xfer_ascii_string(s)
+    }
+
+    fn xfer_challenge_game_info(
+        &mut self,
+        info: &mut game_engine::System::ChallengeGameInfoXfer,
+    ) -> std::io::Result<()> {
+        let mut version: u16 = 4;
+        self.xfer_version(&mut version, 4)?;
+        self.xfer_int(&mut info.preorder_mask)?;
+        self.xfer_int(&mut info.crc_interval)?;
+        self.xfer_bool(&mut info.in_game)?;
+        self.xfer_bool(&mut info.in_progress)?;
+        self.xfer_bool(&mut info.surrendered)?;
+        self.xfer_int(&mut info.game_id)?;
+        let mut slot_count = game_engine::System::CHALLENGE_MAX_SLOTS as i32;
+        self.xfer_int(&mut slot_count)?;
+        let slots_to_xfer = slot_count.clamp(0, game_engine::System::CHALLENGE_MAX_SLOTS as i32)
+            as usize;
+        for slot in info.slots.iter_mut().take(slots_to_xfer) {
+            self.xfer_int(&mut slot.state)?;
+            if version >= 2 {
+                self.xfer_unicode_string(&mut slot.name)?;
+            }
+            self.xfer_bool(&mut slot.is_accepted)?;
+            self.xfer_bool(&mut slot.is_muted)?;
+            self.xfer_int(&mut slot.color)?;
+            self.xfer_int(&mut slot.start_pos)?;
+            self.xfer_int(&mut slot.player_template)?;
+            self.xfer_int(&mut slot.team_number)?;
+            self.xfer_int(&mut slot.orig_color)?;
+            self.xfer_int(&mut slot.orig_start_pos)?;
+            self.xfer_int(&mut slot.orig_player_template)?;
+        }
+        self.xfer_unsigned_int(&mut info.local_ip)?;
+        self.xfer_ascii_string(&mut info.map_name)?;
+        self.xfer_unsigned_int(&mut info.map_crc)?;
+        self.xfer_unsigned_int(&mut info.map_size)?;
+        self.xfer_int(&mut info.map_mask)?;
+        self.xfer_int(&mut info.seed)?;
+        if version >= 3 {
+            self.xfer_unsigned_short(&mut info.superweapon_restriction)?;
+            let mut money_version: u16 = 1;
+            self.xfer_version(&mut money_version, 1)?;
+            self.xfer_unsigned_int(&mut info.starting_cash)?;
+        }
+        Ok(())
+    }
 }
 
 fn discover_campaign_ini_files() -> Vec<PathBuf> {
@@ -814,6 +893,12 @@ mod tests {
         manager.set_campaign_and_mission("Test", "");
         let mission = manager.get_current_mission().unwrap();
         assert_eq!(mission.name, "mission1");
+
+        // Missing mission name clears current mission (C++ getMission returns NULL).
+        manager.set_campaign_and_mission("Test", "NoSuchMission");
+        assert!(manager.get_current_campaign().is_some());
+        assert!(manager.get_current_mission().is_none());
+        assert!(manager.get_current_map().unwrap_or_default().is_empty());
     }
 
     #[test]
@@ -840,9 +925,10 @@ mod tests {
         assert!(manager.goto_next_mission().is_some());
         assert_eq!(manager.get_current_mission().unwrap().name, "mission3");
 
-        // End of campaign - no next mission
+        // End of campaign — C++ assigns NULL so getCurrentMap() is empty.
         assert!(manager.goto_next_mission().is_none());
-        assert_eq!(manager.get_current_mission().unwrap().name, "mission3");
+        assert!(manager.get_current_mission().is_none());
+        assert!(manager.get_current_map().unwrap_or_default().is_empty());
     }
 
     #[test]

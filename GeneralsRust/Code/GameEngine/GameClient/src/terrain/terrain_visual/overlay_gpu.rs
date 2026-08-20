@@ -796,10 +796,9 @@ impl TerrainVisualImpl {
     }
 
     fn record_overlay_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(road_pipeline), Some(camera_bg), Some(road_bg)) = (
+        let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
-            self.road_texture_bind_group.as_ref(),
         ) else {
             return;
         };
@@ -809,19 +808,29 @@ impl TerrainVisualImpl {
             .chain(self.tank_track_meshes.iter())
             .chain(self.custom_edge_meshes.iter())
             .chain(self.flat_lod_meshes.iter())
-            .chain(self.snow_mesh.iter())
             .chain(self.smudge_mesh.iter())
             .collect();
-        if extra.is_empty() {
-            return;
+        if let Some(road_bg) = self.road_texture_bind_group.as_ref() {
+            if !extra.is_empty() {
+                pass.set_pipeline(road_pipeline);
+                pass.set_bind_group(0, camera_bg, &[]);
+                pass.set_bind_group(1, road_bg, &[]);
+                for mesh in extra {
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
+            }
         }
-        pass.set_pipeline(road_pipeline);
-        pass.set_bind_group(0, camera_bg, &[]);
-        pass.set_bind_group(1, road_bg, &[]);
-        for mesh in extra {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        if let (Some(snow), Some(snow_bg)) =
+            (self.snow_mesh.as_ref(), self.snow_texture_bind_group.as_ref())
+        {
+            pass.set_pipeline(road_pipeline);
+            pass.set_bind_group(0, camera_bg, &[]);
+            pass.set_bind_group(1, snow_bg, &[]);
+            pass.set_vertex_buffer(0, snow.vertex_buffer.slice(..));
+            pass.set_index_buffer(snow.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..snow.index_count, 0, 0..1);
         }
     }
 
@@ -848,10 +857,16 @@ impl TerrainVisualImpl {
             }
         }
 
-        let (Some(water_pipeline), Some(water_bg)) = (
-            self.water_pipeline.as_ref(),
-            self.water_texture_bind_group.as_ref(),
-        ) else {
+        let water_pipeline = if self.water_additive_blend {
+            self.water_additive_pipeline
+                .as_ref()
+                .or(self.water_pipeline.as_ref())
+        } else {
+            self.water_pipeline.as_ref()
+        };
+        let (Some(water_pipeline), Some(water_bg)) =
+            (water_pipeline, self.water_texture_bind_group.as_ref())
+        else {
             return;
         };
         pass.set_pipeline(water_pipeline);

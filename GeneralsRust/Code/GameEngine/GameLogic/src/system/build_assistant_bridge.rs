@@ -176,6 +176,20 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             .map(|terrain| terrain.get_ground_height(x, y, None))
             .unwrap_or(0.0)
     }
+
+    fn on_selling(&self, id: ObjectID) {
+        let Some(obj) = TheGameLogic::find_object_by_id(id) else {
+            return;
+        };
+        let contain = match obj.read() {
+            Ok(guard) => guard.get_contain(),
+            Err(_) => return,
+        };
+        if let Some(contain) = contain {
+            use crate::modules::ContainModuleInterfaceExt;
+            let _ = contain.on_selling();
+        }
+    }
 }
 
 pub fn install_build_assistant_backend() {

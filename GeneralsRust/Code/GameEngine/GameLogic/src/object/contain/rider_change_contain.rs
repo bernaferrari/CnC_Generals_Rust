@@ -1769,6 +1769,10 @@ impl ContainModuleInterface for RiderChangeContain {
         let _ = self.base.process_damage_to_contained(percent_damage);
     }
 
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
+    }
+
     fn friend_get_rider(&self) -> Option<ObjectID> {
         RiderChangeContain::friend_get_rider(self)
     }

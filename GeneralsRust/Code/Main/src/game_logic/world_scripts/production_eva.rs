@@ -1150,6 +1150,7 @@ impl GameLogic {
         // C++ ProductionUpdate CONSTRUCTION_COMPLETE + duration residual.
         let now = self.frame.max(1);
         obj.set_construction_complete_condition_at(now);
+        obj.stamp_partition_value_threat();
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();

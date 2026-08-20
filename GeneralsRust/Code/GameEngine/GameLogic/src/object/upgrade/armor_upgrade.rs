@@ -8,11 +8,12 @@ use crate::object::body::body_module::ArmorSetType;
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade, UpgradeMuxData};
 use crate::object::INVALID_ID;
-use crate::upgrade::upgrade_mask_for_name;
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+
 
 /// Wave 319: host-only path has no dual-world factory objects.
 #[inline]
@@ -24,22 +25,25 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct ArmorUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
+
 
 impl Default for ArmorUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
 
 impl ArmorUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        let _ = ini;
-        Ok(())
+        self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
+
 
 crate::impl_legacy_module_data_with_key_field!(ArmorUpgradeModuleData, module_tag_name_key);
 
@@ -228,20 +232,19 @@ impl ArmorUpgradeInner {
 
     /// Apply armor upgrade to object
     /// Matches C++ ArmorUpgrade::upgradeImplementation from ArmorUpgrade.cpp lines 63-81
-    fn apply_armor(&self, upgrade_mask: UpgradeMaskType) -> Result<(), String> {
+    fn apply_armor(&self, _upgrade_mask: UpgradeMaskType) -> Result<(), String> {
         // Wave 319: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        let chemical_suits_mask = UpgradeMaskType::from_bits_retain(
-            upgrade_mask_for_name("Upgrade_AmericaChemicalSuits").bits(),
-        );
-        let apply_chem = upgrade_mask.intersects(chemical_suits_mask);
+        let apply_chem = self
+            .data
+            .upgrade_mux_data
+            .is_triggered_by("Upgrade_AmericaChemicalSuits");
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-            // C++ code: BodyModuleInterface* body = obj->getBodyModule();
-            // if ( body ) body->setArmorSetFlag( ARMORSET_PLAYER_UPGRADE );
-            // (lines 72-74)
+            mux_give_self_upgrade(&self.data.upgrade_mux_data, object);
+            // C++ ArmorUpgrade::upgradeImplementation (ArmorUpgrade.cpp:63-81)
             if let Some(body) = &object.get_body_module() {
                 let mut body_guard = body
                     .lock()
@@ -347,30 +350,7 @@ impl UpgradeModuleInterface for ArmorUpgrade {
     /// Check if upgrade can be applied
     /// Matches C++ UpgradeMux::wouldUpgrade logic from UpgradeModule.cpp lines 105-137
     fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied {
-            return false;
-        }
-        // If no upgrade mask provided, cannot upgrade
-        // Note: UpgradeMaskType is a bitflags type, use is_empty() to check
-        if upgrade_mask.is_empty() {
-            return false;
-        }
-
-        // For ArmorUpgrade, we don't have activation conditions in the base C++ implementation.
-        // C++ ArmorUpgrade extends UpgradeModule which contains UpgradeMux, but the actual
-        // activation/conflicting masks are configured via INI (TriggeredBy, ConflictsWith).
-        // Since the C++ ArmorUpgrade.cpp doesn't define custom ModuleData fields, it relies
-        // on the base UpgradeModuleData's UpgradeMuxData for validation.
-        //
-        // In this simplified Rust implementation, we accept any valid upgrade mask.
-        // For full C++ compatibility, this would need to check:
-        // 1. activation_mask.any() && upgrade_mask matches activation
-        // 2. !upgrade_mask.testForAny(conflicting_mask)
-        // 3. requires_all_triggers ? testForAll : testForAny
-        //
-        // However, the base C++ ArmorUpgrade has no activation conditions, so it upgrades
-        // whenever the upgrade system calls it (controlled by the parent UpgradeModule).
-        true
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
@@ -485,4 +465,26 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(object_id);
         clear_registry_for_test();
     }
+
+    #[test]
+    fn chem_suit_decal_uses_module_triggered_by() {
+        let mut chem = ArmorUpgradeModuleData::default();
+        chem.upgrade_mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("Upgrade_AmericaChemicalSuits"));
+        assert!(chem
+            .upgrade_mux_data
+            .is_triggered_by("Upgrade_AmericaChemicalSuits"));
+
+        let other = ArmorUpgradeModuleData::default();
+        assert!(!other
+            .upgrade_mux_data
+            .is_triggered_by("Upgrade_AmericaChemicalSuits"));
+        assert!(!mux_can_upgrade(
+            &other.upgrade_mux_data,
+            false,
+            UpgradeMaskType::from_bits_retain(1)
+        ));
+    }
+
 }

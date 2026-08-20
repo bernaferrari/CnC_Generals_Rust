@@ -1,6 +1,7 @@
 //! Snow manager and weather settings (ported from GameClient/Snow.cpp).
 
-use game_engine::common::ini::ini::{register_block_parser, INIError, INILoadType, INIResult, INI};
+use game_engine::common::ini::ini::{register_block_parser, INIError, INIResult, INI};
+use game_engine::common::ini::ini_weather;
 use once_cell::sync::OnceCell;
 use rand::Rng;
 use std::sync::{Arc, Mutex, RwLock};
@@ -46,6 +47,24 @@ impl Default for WeatherSetting {
 }
 
 impl WeatherSetting {
+    fn from_common(common: &ini_weather::WeatherSetting) -> Self {
+        Self {
+            snow_texture: common.snow_texture.clone(),
+            snow_frequency_scale_x: common.snow_frequency_scale_x,
+            snow_frequency_scale_y: common.snow_frequency_scale_y,
+            snow_amplitude: common.snow_amplitude,
+            snow_point_size: common.snow_point_size,
+            snow_max_point_size: common.snow_max_point_size,
+            snow_min_point_size: common.snow_min_point_size,
+            snow_quad_size: common.snow_quad_size,
+            snow_box_dimensions: common.snow_box_dimensions,
+            snow_box_density: common.snow_box_density,
+            snow_velocity: common.snow_velocity,
+            use_point_sprites: common.use_point_sprites,
+            snow_enabled: common.snow_enabled,
+        }
+    }
+
     fn apply_field(&mut self, key: &str, args: &[&str]) -> INIResult<()> {
         let mut tokens: Vec<&str> = args.iter().copied().filter(|t| *t != "=").collect();
         if tokens.is_empty() {
@@ -74,8 +93,18 @@ impl WeatherSetting {
 static WEATHER_SETTING: OnceCell<Arc<RwLock<WeatherSetting>>> = OnceCell::new();
 static SNOW_MANAGER: OnceCell<Arc<Mutex<SnowManager>>> = OnceCell::new();
 
+fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
+    if let Some(common) = ini_weather::get_weather_setting() {
+        if let Ok(mut guard) = dest.write() {
+            *guard = WeatherSetting::from_common(&common);
+        }
+    }
+}
+
 pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
-    WEATHER_SETTING.get().cloned()
+    let settings = ensure_weather_setting();
+    sync_weather_from_common(&settings);
+    Some(settings)
 }
 
 pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
@@ -83,12 +112,20 @@ pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
 }
 
 pub fn ensure_weather_setting() -> Arc<RwLock<WeatherSetting>> {
-    WEATHER_SETTING
-        .get_or_init(|| Arc::new(RwLock::new(WeatherSetting::default())))
-        .clone()
+    let settings = WEATHER_SETTING
+        .get_or_init(|| {
+            let initial = ini_weather::get_weather_setting()
+                .map(|common| WeatherSetting::from_common(&common))
+                .unwrap_or_default();
+            Arc::new(RwLock::new(initial))
+        })
+        .clone();
+    sync_weather_from_common(&settings);
+    settings
 }
 
 pub fn initialize_snow_manager() -> Arc<Mutex<SnowManager>> {
+    let _ = ensure_weather_setting();
     let manager = SNOW_MANAGER.get_or_init(|| Arc::new(Mutex::new(SnowManager::new())));
     if let Ok(mut guard) = manager.lock() {
         guard.init();
@@ -101,30 +138,10 @@ pub fn register_weather_definition_parser() {
 }
 
 fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
+    // Single TheWeatherSetting store (C++ Snow.cpp). Common owns the override chain.
+    ini_weather::parse_weather_definition(ini)?;
     let settings = ensure_weather_setting();
-    {
-        let mut guard = settings.write().map_err(|_| INIError::InvalidData)?;
-        if ini.get_load_type() == INILoadType::Overwrite {
-            *guard = WeatherSetting::default();
-        }
-
-        loop {
-            ini.read_line()?;
-            if ini.is_eof() {
-                return Err(INIError::EndOfFile);
-            }
-            let tokens = ini.get_line_tokens();
-            if tokens.is_empty() {
-                continue;
-            }
-            let key = tokens[0];
-            if key.eq_ignore_ascii_case("End") {
-                break;
-            }
-            let args: Vec<&str> = tokens[1..].to_vec();
-            guard.apply_field(key, &args)?;
-        }
-    }
+    sync_weather_from_common(&settings);
 
     if let Some(manager) = get_snow_manager() {
         if let Ok(mut guard) = manager.lock() {

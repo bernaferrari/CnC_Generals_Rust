@@ -143,7 +143,7 @@ impl RhaiScriptExecutor {
             log::debug!("Rhai: increment_counter({})", name);
             if let Ok(mut engine_guard) = get_script_engine().write() {
                 if let Some(ref mut script_engine) = *engine_guard {
-                    if let Err(e) = script_engine.increment_counter(name) {
+                    if let Err(e) = script_engine.increment_counter(name, 1) {
                         log::error!("Failed to increment counter {}: {}", name, e);
                     }
                 }
@@ -154,7 +154,7 @@ impl RhaiScriptExecutor {
             log::debug!("Rhai: decrement_counter({})", name);
             if let Ok(mut engine_guard) = get_script_engine().write() {
                 if let Some(ref mut script_engine) = *engine_guard {
-                    if let Err(e) = script_engine.decrement_counter(name) {
+                    if let Err(e) = script_engine.decrement_counter(name, 1) {
                         log::error!("Failed to decrement counter {}: {}", name, e);
                     }
                 }

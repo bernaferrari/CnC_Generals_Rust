@@ -2381,7 +2381,8 @@ impl TerrainLogic {
             );
             let handle = WaterHandle::new(trigger_name_ascii.clone(), water_height, water_bounds);
             self.water_handles_by_trigger_id
-                .insert(trigger_id, handle.clone());
+                .entry(trigger_id)
+                .or_insert(handle.clone());
             self.water_handles
                 .entry(trigger_name_ascii.clone())
                 .or_insert(handle);
@@ -2403,6 +2404,20 @@ impl TerrainLogic {
     pub fn get_first_bridge(&self) -> Option<&Bridge> {
         self.bridge_list_head.as_ref().map(|b| b.as_ref())
     }
+
+    /// Visit every live bridge (C++ TerrainLogic bridge list walk).
+    pub fn for_each_bridge<F: FnMut(&Bridge)>(&self, mut f: F) {
+        let mut current = self.bridge_list_head.as_deref();
+        while let Some(bridge) = current {
+            f(bridge);
+            current = bridge.next.as_deref();
+        }
+    }
+
+    pub fn bridge_damage_states_changed(&self) -> bool {
+        self.bridge_damage_states_changed
+    }
+
 
     /// Find bridge at location
     pub fn find_bridge_at(&self, location: &Coord3D) -> Option<&Bridge> {

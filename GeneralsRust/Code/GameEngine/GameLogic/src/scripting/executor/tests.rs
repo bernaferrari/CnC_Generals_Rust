@@ -34,7 +34,7 @@ impl ReentrantWorldActionHandler {
     fn record(&self, call: impl Into<String>) {
         self.calls.lock().unwrap().push(call.into());
         let reentered = with_script_engine_mut(|engine| {
-            engine.increment_counter("WorldHandlerImmediateReentry")
+            engine.increment_counter("WorldHandlerImmediateReentry", 1)
         });
         assert!(
             matches!(reentered, Some(Ok(()))),

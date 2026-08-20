@@ -175,17 +175,22 @@ impl ControlBarCommandProcessor {
                 true
             }
 
-            // C++ parity: GUI_COMMAND_EXIT_CONTAINER -> MSG_EXIT
+            // C++ parity: GUI_COMMAND_EXIT_CONTAINER -> MSG_EXIT occupant ID
             CommandType::Exit => {
-                let obj_id = selected_objects_for_local_player()
-                    .first()
-                    .copied()
+                let obj_id = button
+                    .exit_object_id
+                    .or_else(|| {
+                        selected_objects_for_local_player()
+                            .first()
+                            .copied()
+                    })
                     .unwrap_or(0);
                 if let Ok(mut stream) = get_message_stream().write() {
                     stream.append_message(GameMessageType::Exit(obj_id));
                 }
                 true
             }
+
 
             // C++ parity: GUI_COMMAND_EVACUATE -> MSG_EVACUATE
             CommandType::Evacuate => {

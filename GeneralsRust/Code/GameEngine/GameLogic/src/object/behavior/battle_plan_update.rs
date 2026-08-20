@@ -156,8 +156,8 @@ impl Default for BattlePlanUpdateModuleData {
             strategy_center_hold_the_line_max_health_scalar: 1.0,
             strategy_center_hold_the_line_max_health_change_type:
                 MaxHealthChangeType::PreserveRatio,
-            valid_member_kind_of: 0u64,
-            invalid_member_kind_of: 0u64,
+            valid_member_kind_of: 0,
+            invalid_member_kind_of: 0,
             vision_object_name: String::new(),
             bombardment_unpack_name: String::new(),
             bombardment_pack_name: String::new(),
@@ -1395,6 +1395,7 @@ fn kindof_name(kind: KindOf) -> Option<&'static str> {
         KindOf::WaveEffect => Some("WAVE_EFFECT"),
         KindOf::ClearedByBuild => Some("CLEARED_BY_BUILD"),
         KindOf::Parachute => Some("PARACHUTE"),
+        KindOf::Inert => Some("INERT"),
     }
 }
 
@@ -1461,7 +1462,12 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
 }
 
 fn kindof_bit(kind: KindOf) -> Option<KindOfMask> {
-    1u64.checked_shl(kind as u32)
+    let mask = kind.cpp_mask();
+    if mask == 0 {
+        None
+    } else {
+        Some(mask)
+    }
 }
 
 impl Snapshotable for BattlePlanUpdateModule {

@@ -74,17 +74,18 @@ impl std::error::Error for WaterError {}
 /// Time of day enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TimeOfDay {
+    Invalid,
     Morning,
     Noon,
     Afternoon,
     Evening,
     Night,
-    Invalid,
 }
 
 impl TimeOfDay {
     pub fn from_string(s: &str) -> Self {
         match s.to_lowercase().as_str() {
+            "none" | "invalid" => Self::Invalid,
             "morning" => Self::Morning,
             "noon" => Self::Noon,
             "afternoon" => Self::Afternoon,
@@ -96,30 +97,30 @@ impl TimeOfDay {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Morning => "Morning",
-            Self::Noon => "Noon",
-            Self::Afternoon => "Afternoon",
-            Self::Evening => "Evening",
-            Self::Night => "Night",
-            Self::Invalid => "Invalid",
+            Self::Invalid => "NONE",
+            Self::Morning => "MORNING",
+            Self::Noon => "NOON",
+            Self::Afternoon => "AFTERNOON",
+            Self::Evening => "EVENING",
+            Self::Night => "NIGHT",
         }
     }
 
+    /// C++ `TimeOfDay` / `TimeOfDayNames` index: NONE=0, MORNING=1, AFTERNOON=2, EVENING=3, NIGHT=4.
     pub fn as_index(&self) -> usize {
         match self {
-            Self::Morning => 0,
-            Self::Noon => 1,
-            Self::Afternoon => 2,
+            Self::Invalid => 0,
+            Self::Morning => 1,
+            Self::Noon | Self::Afternoon => 2,
             Self::Evening => 3,
             Self::Night => 4,
-            Self::Invalid => usize::MAX,
         }
     }
 
     pub fn from_index(index: usize) -> Self {
         match index {
-            0 => Self::Morning,
-            1 => Self::Noon,
+            0 => Self::Invalid,
+            1 => Self::Morning,
             2 => Self::Afternoon,
             3 => Self::Evening,
             4 => Self::Night,
@@ -128,8 +129,9 @@ impl TimeOfDay {
     }
 }
 
-/// Time of day names for parsing
-pub const TIME_OF_DAY_NAMES: &[&str] = &["Morning", "Noon", "Afternoon", "Evening", "Night"];
+/// Time of day names for parsing (`GameType.cpp` TimeOfDayNames).
+pub const TIME_OF_DAY_NAMES: &[&str] = &["NONE", "MORNING", "AFTERNOON", "EVENING", "NIGHT"];
+pub const TIME_OF_DAY_COUNT: usize = 5;
 
 /// Water rendering settings for different times of day
 #[derive(Debug, Clone)]
@@ -387,19 +389,15 @@ pub fn initialize_water_settings() {
 
 /// Get water setting for a specific time of day
 pub fn get_water_setting(time_of_day: TimeOfDay) -> Option<Arc<RwLock<WaterSetting>>> {
-    if time_of_day == TimeOfDay::Invalid {
-        return None;
-    }
-
     let settings = WATER_SETTINGS.get()?;
-    Some(Arc::clone(&settings[time_of_day.as_index()]))
+    settings.get(time_of_day.as_index()).cloned()
 }
+
 
 /// Get the water transparency setting
 pub fn get_water_transparency() -> Option<Arc<RwLock<WaterTransparencySetting>>> {
     WATER_TRANSPARENCY.get().cloned()
 }
-
 /// Clear any map-generated water transparency overrides.
 ///
 /// Matches C++ GameLogic::reset() lines 465-466:
@@ -412,6 +410,112 @@ pub fn clear_water_transparency_overrides() {
         }
     }
 }
+
+static PENDING_SKYBOX_REPLACE: std::sync::Mutex<Option<([String; 5], [String; 5])>> =
+    std::sync::Mutex::new(None);
+
+/// C++ `TheTerrainVisual->replaceSkyboxTextures` queued from WaterTransparency overrides.
+pub fn take_pending_skybox_replace() -> Option<([String; 5], [String; 5])> {
+    PENDING_SKYBOX_REPLACE.lock().ok()?.take()
+}
+
+fn queue_skybox_replace(old: [String; 5], new: [String; 5]) {
+    if let Ok(mut guard) = PENDING_SKYBOX_REPLACE.lock() {
+        *guard = Some((old, new));
+    }
+}
+
+fn skybox_names(setting: &WaterTransparencySetting) -> [String; 5] {
+    [
+        setting.skybox_texture_n.to_string(),
+        setting.skybox_texture_e.to_string(),
+        setting.skybox_texture_s.to_string(),
+        setting.skybox_texture_w.to_string(),
+        setting.skybox_texture_t.to_string(),
+    ]
+}
+
+fn apply_transparency_properties(
+    setting: &mut WaterTransparencySetting,
+    properties: &HashMap<String, String>,
+) -> WaterResult<()> {
+    for (key, value) in properties {
+        match key.as_str() {
+            "TransparentWaterDepth" => {
+                setting.transparent_water_depth = parse_f32_field(key, value)?;
+            }
+            "TransparentWaterMinOpacity" => {
+                setting.min_water_opacity = parse_f32_field(key, value)?;
+            }
+            "StandingWaterColor" => {
+                setting.standing_water_color = parse_color_rgb_for_water(key, value)?;
+            }
+            "StandingWaterTexture" => {
+                setting.standing_water_texture = AsciiString::from(value.as_str());
+            }
+            "AdditiveBlending" => {
+                setting.additive_blending = parse_bool_field(key, value)?;
+            }
+            "RadarWaterColor" => {
+                setting.radar_water_color = parse_color_rgb_for_water(key, value)?;
+            }
+            "SkyboxTextureN" => {
+                setting.skybox_texture_n = AsciiString::from(value.as_str());
+            }
+            "SkyboxTextureE" => {
+                setting.skybox_texture_e = AsciiString::from(value.as_str());
+            }
+            "SkyboxTextureS" => {
+                setting.skybox_texture_s = AsciiString::from(value.as_str());
+            }
+            "SkyboxTextureW" => {
+                setting.skybox_texture_w = AsciiString::from(value.as_str());
+            }
+            "SkyboxTextureT" => {
+                setting.skybox_texture_t = AsciiString::from(value.as_str());
+            }
+            _ => {
+                return Err(WaterError::ParseError(format!(
+                    "Unknown water transparency field '{}'",
+                    key
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Live `WaterTransparency` store: first load constructs, CreateOverrides copies the base.
+pub fn apply_parsed_water_transparency(
+    load_type: crate::common::ini::ini::INILoadType,
+    properties: HashMap<String, String>,
+) -> WaterResult<()> {
+    use crate::common::ini::ini::INILoadType;
+    initialize_water_settings();
+    let lock = get_water_transparency().ok_or(WaterError::NotFound)?;
+    let mut transparency = lock.write().expect("WaterTransparency poisoned");
+
+    if load_type == INILoadType::CreateOverrides {
+        let old = skybox_names(&transparency);
+        let mut override_setting = transparency.clone();
+        override_setting.next_override = None;
+        override_setting.is_override = false;
+        apply_transparency_properties(&mut override_setting, &properties)?;
+        override_setting.mark_as_override();
+        let new = skybox_names(&override_setting);
+        if let Some(next) = transparency.next_override.as_mut() {
+            next.get_final_override_mut()
+                .set_next_override(override_setting);
+        } else {
+            transparency.set_next_override(override_setting);
+        }
+        queue_skybox_replace(old, new);
+        return Ok(());
+    }
+
+    apply_transparency_properties(&mut transparency, &properties)
+}
+
 
 /// Parse RGBA color from string (format: R G B A or R,G,B,A)
 pub fn parse_color_rgba(value: &str) -> Result<(f32, f32, f32, f32), String> {
@@ -500,6 +604,16 @@ pub fn parse_color_rgb(value: &str) -> Result<(f32, f32, f32), String> {
     Ok((r, g, b))
 }
 
+/// C++ `INI::parseRGBColor`: labelled R/G/B tokens are 0-255, stored 0-1.
+pub fn parse_rgb_color_normalized(value: &str) -> Result<(f32, f32, f32), String> {
+    let (r, g, b) = parse_color_rgb(value)?;
+    if value.contains(':') || r > 1.0 || g > 1.0 || b > 1.0 {
+        Ok((r / 255.0, g / 255.0, b / 255.0))
+    } else {
+        Ok((r, g, b))
+    }
+}
+
 fn parse_cpp_water_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
     Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
 }
@@ -511,7 +625,7 @@ fn parse_color_rgba_for_water(field_name: &str, value: &str) -> WaterResult<(f32
 }
 
 fn parse_color_rgb_for_water(field_name: &str, value: &str) -> WaterResult<(f32, f32, f32)> {
-    parse_color_rgb(value).map_err(|e| {
+    parse_rgb_color_normalized(value).map_err(|e| {
         WaterError::ParseError(format!("Invalid {} color '{}': {}", field_name, value, e))
     })
 }
@@ -660,54 +774,7 @@ impl IniWater {
         properties: HashMap<String, String>,
     ) -> WaterResult<WaterTransparencySetting> {
         let mut transparency_setting = WaterTransparencySetting::new();
-
-        // Update setting from properties
-        for (key, value) in properties {
-            match key.as_str() {
-                "TransparentWaterDepth" => {
-                    transparency_setting.transparent_water_depth = parse_f32_field(&key, &value)?;
-                }
-                "TransparentWaterMinOpacity" => {
-                    transparency_setting.min_water_opacity = parse_f32_field(&key, &value)?;
-                }
-                "StandingWaterColor" => {
-                    transparency_setting.standing_water_color =
-                        parse_color_rgb_for_water(&key, &value)?;
-                }
-                "StandingWaterTexture" => {
-                    transparency_setting.standing_water_texture = AsciiString::from(&value);
-                }
-                "AdditiveBlending" => {
-                    transparency_setting.additive_blending = parse_bool_field(&key, &value)?;
-                }
-                "RadarWaterColor" => {
-                    transparency_setting.radar_water_color =
-                        parse_color_rgb_for_water(&key, &value)?;
-                }
-                "SkyboxTextureN" => {
-                    transparency_setting.skybox_texture_n = AsciiString::from(&value);
-                }
-                "SkyboxTextureE" => {
-                    transparency_setting.skybox_texture_e = AsciiString::from(&value);
-                }
-                "SkyboxTextureS" => {
-                    transparency_setting.skybox_texture_s = AsciiString::from(&value);
-                }
-                "SkyboxTextureW" => {
-                    transparency_setting.skybox_texture_w = AsciiString::from(&value);
-                }
-                "SkyboxTextureT" => {
-                    transparency_setting.skybox_texture_t = AsciiString::from(&value);
-                }
-                _ => {
-                    return Err(WaterError::ParseError(format!(
-                        "Unknown water transparency field '{}'",
-                        key
-                    )));
-                }
-            }
-        }
-
+        apply_transparency_properties(&mut transparency_setting, &properties)?;
         Ok(transparency_setting)
     }
 
@@ -746,9 +813,10 @@ mod tests {
 
     #[test]
     fn test_time_of_day_indexing() {
-        assert_eq!(TimeOfDay::Morning.as_index(), 0);
+        assert_eq!(TimeOfDay::Morning.as_index(), 1);
         assert_eq!(TimeOfDay::Night.as_index(), 4);
         assert_eq!(TimeOfDay::from_index(2), TimeOfDay::Afternoon);
+        assert_eq!(TimeOfDay::from_index(0), TimeOfDay::Invalid);
         assert_eq!(TimeOfDay::from_index(999), TimeOfDay::Invalid);
     }
 
@@ -797,6 +865,7 @@ mod tests {
         assert_eq!(setting.surface_color, (0.1, 0.3, 0.7, 0.8));
         assert_eq!(setting.water_repeat_count, 12);
     }
+
 
     #[test]
     fn water_setting_accepts_cpp_field_table_fields() {
@@ -907,7 +976,7 @@ mod tests {
         assert_eq!(setting.standing_water_color, (0.2, 0.3, 0.4));
         assert_eq!(setting.standing_water_texture.as_str(), "Standing.tga");
         assert!(setting.additive_blending);
-        assert_eq!(setting.radar_water_color, (10.0, 20.0, 30.0));
+        assert_eq!(setting.radar_water_color, (10.0 / 255.0, 20.0 / 255.0, 30.0 / 255.0));
         assert_eq!(setting.skybox_texture_n.as_str(), "North.tga");
         assert_eq!(setting.skybox_texture_e.as_str(), "East.tga");
         assert_eq!(setting.skybox_texture_s.as_str(), "South.tga");
@@ -996,8 +1065,44 @@ mod tests {
     #[test]
     fn test_time_of_day_names() {
         let names = IniWater::get_time_of_day_names();
-        assert_eq!(names.len(), 5);
-        assert!(names.contains(&"Morning"));
-        assert!(names.contains(&"Night"));
+        assert_eq!(names, vec!["NONE", "MORNING", "AFTERNOON", "EVENING", "NIGHT"]);
+    }
+
+    #[test]
+    fn create_overrides_copies_base_then_applies_only_present_keys() {
+        initialize_water_settings();
+        clear_water_transparency_overrides();
+        let lock = get_water_transparency().expect("transparency");
+        {
+            let mut base = lock.write().expect("lock");
+            base.next_override = None;
+            base.standing_water_texture = AsciiString::from("TWWater01.tga");
+            base.transparent_water_depth = 3.0;
+            base.standing_water_color = (1.0, 1.0, 1.0);
+            base.skybox_texture_n = AsciiString::from("TSMorningN.tga");
+        }
+
+        let mut properties = HashMap::new();
+        properties.insert(
+            "StandingWaterTexture".to_string(),
+            "MapWater.tga".to_string(),
+        );
+        apply_parsed_water_transparency(
+            crate::common::ini::ini::INILoadType::CreateOverrides,
+            properties,
+        )
+        .expect("override");
+
+        let guard = lock.read().expect("read");
+        assert_eq!(guard.standing_water_texture.as_str(), "TWWater01.tga");
+        let r#override = guard.get_final_override();
+        assert!(r#override.is_override);
+        assert_eq!(r#override.standing_water_texture.as_str(), "MapWater.tga");
+        assert_eq!(r#override.transparent_water_depth, 3.0);
+        assert_eq!(r#override.standing_water_color, (1.0, 1.0, 1.0));
+        assert_eq!(r#override.skybox_texture_n.as_str(), "TSMorningN.tga");
+        let pending = take_pending_skybox_replace().expect("skybox replace queued");
+        assert_eq!(pending.0[0], "TSMorningN.tga");
+        assert_eq!(pending.1[0], "TSMorningN.tga");
     }
 }

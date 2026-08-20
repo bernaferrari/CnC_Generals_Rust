@@ -40,12 +40,12 @@ impl Default for HealCrateCollideModuleData {
     }
 }
 
-fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u128, INIError> {
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
 
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for token in tokens
         .iter()
         .filter(|token| **token != "=")
@@ -58,7 +58,7 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
         let Some(kind) = kindof_from_name(token) else {
             return Err(INIError::InvalidData);
         };
-        mask |= 1u64 << (kind as u32);
+        mask |= kind.cpp_mask();
     }
     Ok(mask)
 }
@@ -381,15 +381,15 @@ mod tests {
         .expect("heal crate ini parses");
 
         assert_ne!(
-            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
             0
         );
         assert_ne!(
-            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
         );
         assert_ne!(
-            data.base.forbidden_kind_of & (1u64 << (KindOf::Drone as u32)),
+            data.base.forbidden_kind_of & (KindOf::Drone.cpp_mask()),
             0
         );
         assert!(data.base.is_forbid_owner_player);

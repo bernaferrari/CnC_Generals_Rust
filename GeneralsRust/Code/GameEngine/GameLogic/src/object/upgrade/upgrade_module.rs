@@ -4,6 +4,112 @@ pub use crate::upgrade::modules::upgrade_mux::{
     UpgradeModuleInterface, UpgradeMux, UpgradeMuxData,
 };
 
+
+use crate::common::{ObjectID, UpgradeMaskType};
+use crate::object::Object;
+use crate::upgrade::UpgradeMask;
+
+/// Gate a live upgrade module the same way C++ `UpgradeMux::wouldUpgrade` does.
+pub fn mux_can_upgrade(
+    data: &UpgradeMuxData,
+    applied: bool,
+    upgrade_mask: UpgradeMaskType,
+) -> bool {
+    if applied || upgrade_mask.is_empty() {
+        return false;
+    }
+    let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
+    let mut mux = UpgradeMux::new(data.clone());
+    mux.set_upgrade_executed(applied);
+    mux.would_upgrade(key_mask)
+}
+
+/// C++ `UpgradeMux::giveSelfUpgrade` FX + RemovesUpgrades, before implementation.
+pub fn mux_give_self_upgrade(data: &UpgradeMuxData, object: &mut Object) {
+    data.perform_upgrade_fx(object);
+    data.process_upgrade_removal(object);
+}
+
+/// Look up the owning object and run `giveSelfUpgrade` bookkeeping.
+pub fn mux_give_self_upgrade_for_object(data: &UpgradeMuxData, object_id: ObjectID) {
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+        mux_give_self_upgrade(data, object);
+    });
+}
+
+/// INI parsers that write mux keys into `$data_ty.upgrade_mux_data`.
+#[macro_export]
+macro_rules! impl_upgrade_mux_field_parsers {
+    ($data_ty:ty) => {
+        fn parse_mux_triggered_by(
+            _ini: &mut game_engine::common::ini::INI,
+            data: &mut $data_ty,
+            tokens: &[&str],
+        ) -> Result<(), game_engine::common::ini::INIError> {
+            data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
+        }
+        fn parse_mux_conflicts_with(
+            _ini: &mut game_engine::common::ini::INI,
+            data: &mut $data_ty,
+            tokens: &[&str],
+        ) -> Result<(), game_engine::common::ini::INIError> {
+            data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
+        }
+        fn parse_mux_removes_upgrades(
+            _ini: &mut game_engine::common::ini::INI,
+            data: &mut $data_ty,
+            tokens: &[&str],
+        ) -> Result<(), game_engine::common::ini::INIError> {
+            data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
+        }
+        fn parse_mux_requires_all_triggers(
+            _ini: &mut game_engine::common::ini::INI,
+            data: &mut $data_ty,
+            tokens: &[&str],
+        ) -> Result<(), game_engine::common::ini::INIError> {
+            data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+        }
+        fn parse_mux_fx_list_upgrade(
+            _ini: &mut game_engine::common::ini::INI,
+            data: &mut $data_ty,
+            tokens: &[&str],
+        ) -> Result<(), game_engine::common::ini::INIError> {
+            data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
+        }
+    };
+}
+
+/// Complete field table: mux keys plus any module-specific `FieldParse`s.
+#[macro_export]
+macro_rules! upgrade_mux_field_table {
+    ($($extra:expr),* $(,)?) => {
+        &[
+            game_engine::common::ini::FieldParse {
+                token: "TriggeredBy",
+                parse: parse_mux_triggered_by,
+            },
+            game_engine::common::ini::FieldParse {
+                token: "ConflictsWith",
+                parse: parse_mux_conflicts_with,
+            },
+            game_engine::common::ini::FieldParse {
+                token: "RemovesUpgrades",
+                parse: parse_mux_removes_upgrades,
+            },
+            game_engine::common::ini::FieldParse {
+                token: "RequiresAllTriggers",
+                parse: parse_mux_requires_all_triggers,
+            },
+            game_engine::common::ini::FieldParse {
+                token: "FXListUpgrade",
+                parse: parse_mux_fx_list_upgrade,
+            },
+            $($extra,)*
+        ]
+    };
+}
+
+
 pub(crate) fn xfer_upgrade_module_state(
     xfer: &mut dyn Xfer,
     upgrade_executed: &mut bool,

@@ -1321,6 +1321,11 @@ impl CnCGameEngine {
             self.apply_camera_orbit_transform();
             return;
         }
+        if self.camera_yaw_target.is_some() && self.camera_yaw_duration > 0.0 {
+            self.camera_yaw_target = Some(target_yaw);
+            self.camera_yaw_duration = request.duration_seconds.max(self.camera_yaw_duration);
+            return;
+        }
 
         self.camera_yaw_start = self.camera_yaw_radians;
         self.camera_yaw_target = Some(target_yaw);

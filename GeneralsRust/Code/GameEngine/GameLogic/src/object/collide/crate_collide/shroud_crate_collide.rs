@@ -41,8 +41,8 @@ impl ShroudCrateCollideModuleData {
 
     fn to_config(&self) -> ShroudCrateCollideConfig {
         ShroudCrateCollideConfig {
-            required_kind_of: self.crate_data.required_kind_of,
-            forbidden_kind_of: self.crate_data.forbidden_kind_of,
+            required_kind_of: self.crate_data.required_kind_of as u64,
+            forbidden_kind_of: self.crate_data.forbidden_kind_of as u64,
             is_forbid_owner_player: self.crate_data.is_forbid_owner_player,
             is_building_pickup: self.crate_data.is_building_pickup,
             is_human_only_pickup: self.crate_data.is_human_only_pickup,
@@ -61,8 +61,8 @@ impl ShroudCrateCollideModuleData {
 
     pub fn from_config(config: ShroudCrateCollideConfig, module_tag_name_key: NameKeyType) -> Self {
         let mut crate_data = CrateCollideModuleData::default();
-        crate_data.required_kind_of = config.required_kind_of;
-        crate_data.forbidden_kind_of = config.forbidden_kind_of;
+        crate_data.required_kind_of = config.required_kind_of as KindOfMaskType;
+        crate_data.forbidden_kind_of = config.forbidden_kind_of as KindOfMaskType;
         crate_data.is_forbid_owner_player = config.is_forbid_owner_player;
         crate_data.is_building_pickup = config.is_building_pickup;
         crate_data.is_human_only_pickup = config.is_human_only_pickup;
@@ -247,12 +247,12 @@ impl game_engine::common::system::Snapshotable for ShroudCrateCollide {
     }
 }
 
-fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u128, INIError> {
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
 
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for token in tokens
         .iter()
         .filter(|token| **token != "=")
@@ -265,7 +265,7 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
         let Some(kind) = kindof_from_name(token) else {
             return Err(INIError::InvalidData);
         };
-        mask |= 1u64 << (kind as u32);
+        mask |= kind.cpp_mask();
     }
     Ok(mask)
 }
@@ -432,8 +432,8 @@ mod tests {
     fn shroud_crate_config_preserves_base_crate_fields() {
         let mut data = ShroudCrateCollideModuleData::default();
         LegacyModuleData::set_module_tag_name_key(&mut data, 0xCAFE);
-        data.crate_data.required_kind_of = 1u64 << (KindOf::Vehicle as u32);
-        data.crate_data.forbidden_kind_of = 1u64 << (KindOf::Aircraft as u32);
+        data.crate_data.required_kind_of = KindOf::Vehicle.cpp_mask();
+        data.crate_data.forbidden_kind_of = KindOf::Aircraft.cpp_mask();
         data.crate_data.is_forbid_owner_player = true;
         data.crate_data.is_building_pickup = true;
         data.crate_data.is_human_only_pickup = true;
@@ -473,9 +473,9 @@ mod tests {
     fn shroud_crate_kindof_parser_accepts_pipe_and_space_tokens() {
         let mask = parse_kind_of_mask(&["=", "VEHICLE|INFANTRY", "STRUCTURE"]).expect("kind mask");
 
-        assert_ne!(mask & (1u64 << (KindOf::Vehicle as u32)), 0);
-        assert_ne!(mask & (1u64 << (KindOf::Infantry as u32)), 0);
-        assert_ne!(mask & (1u64 << (KindOf::Structure as u32)), 0);
+        assert_ne!(mask & (KindOf::Vehicle.cpp_mask()), 0);
+        assert_ne!(mask & (KindOf::Infantry.cpp_mask()), 0);
+        assert_ne!(mask & (KindOf::Structure.cpp_mask()), 0);
     }
 
     #[test]
@@ -495,7 +495,7 @@ mod tests {
         .expect("shroud crate ini parses");
 
         assert_ne!(
-            data.crate_data.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            data.crate_data.required_kind_of & (KindOf::Vehicle.cpp_mask()),
             0
         );
         assert!(data.crate_data.is_human_only_pickup);

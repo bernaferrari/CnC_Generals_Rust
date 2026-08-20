@@ -276,39 +276,42 @@ impl RadiusCursorOverlay {
         }
     }
 
-    /// Pre-defined radius values matching the INI `RadiusCursorNames` table.
+    /// Retail `SpecialPower.ini` `RadiusCursorRadius` / weapon+guard fallbacks.
+    /// C++ `InGameUI::setRadiusCursor` (InGameUI.cpp:1210-1258).
     pub fn radius_for_type(cursor_type: &str) -> f32 {
         match cursor_type {
-            "ATTACK_DAMAGE_AREA" => 50.0,
-            "ATTACK_SCATTER_AREA" => 30.0,
-            "ATTACK_CONTINUE_AREA" => 60.0,
-            "GUARD_AREA" => 100.0,
-            "EMERGENCY_REPAIR" => 80.0,
-            "FRIENDLY_SPECIALPOWER" => 100.0,
-            "OFFENSIVE_SPECIALPOWER" => 80.0,
-            "SUPERWEAPON_SCATTER_AREA" => 150.0,
-            "PARTICLECANNON" => 200.0,
-            "A10STRIKE" => 100.0,
-            "CARPETBOMB" => 120.0,
-            "DAISYCUTTER" => 100.0,
-            "PARADROP" => 150.0,
+            // Weapon/guard rings are resolved from the selected object when armed;
+            // these values are the C++ 0-or-fallback when no object/weapon exists.
+            "ATTACK_DAMAGE_AREA" => 0.0,
+            "ATTACK_SCATTER_AREA" => 0.0,
+            "ATTACK_CONTINUE_AREA" => 0.0,
+            "CLEARMINES" => 0.0,
+            "GUARD_AREA" => 100.0, // AIGuardMachine fallback when vision is unknown
+            "EMERGENCY_REPAIR" => 100.0,
+            "FRIENDLY_SPECIALPOWER" => 0.0,
+            "OFFENSIVE_SPECIALPOWER" => 0.0,
+            "SUPERWEAPON_SCATTER_AREA" => 0.0,
+            "PARTICLECANNON" => 0.0, // SuperweaponParticleUplinkCannon omits / 0
+            "A10STRIKE" => 50.0,
+            "CARPETBOMB" => 100.0,
+            "DAISYCUTTER" => 170.0,
+            "PARADROP" => 50.0,
             "SPYSATELLITE" => 300.0,
-            "SPECTREGUNSHIP" => 80.0,
-            "HELIX_NAPALM_BOMB" => 60.0,
-            "NUCLEARMISSILE" => 200.0,
-            "EMPPULSE" => 150.0,
-            "ARTILLERYBARRAGE" => 120.0,
+            "SPECTREGUNSHIP" => 200.0,
+            "HELIX_NAPALM_BOMB" => 100.0,
+            "NUCLEARMISSILE" => 210.0,
+            "EMPPULSE" => 200.0,
+            "ARTILLERYBARRAGE" => 125.0,
             "NAPALMSTRIKE" => 80.0,
-            "CLUSTERMINES" => 60.0,
-            "SCUDSTORM" => 150.0,
+            "CLUSTERMINES" => 100.0,
+            "SCUDSTORM" => 200.0,
             "ANTHRAXBOMB" => 100.0,
-            "AMBUSH" => 80.0,
-            "RADAR" => 300.0,
-            "SPYDRONE" => 0.0,
-            "FRENZY" => 100.0,
-            "CLEARMINES" => 80.0,
+            "AMBUSH" => 50.0,
+            "RADAR" => 150.0,
+            "SPYDRONE" => 250.0,
+            "FRENZY" => 200.0,
             "AMBULANCE" => 50.0,
-            _ => 100.0,
+            _ => 0.0,
         }
     }
 
@@ -979,12 +982,11 @@ mod tests {
 
     #[test]
     fn test_radius_for_type() {
-        assert_eq!(
-            RadiusCursorOverlay::radius_for_type("PARTICLECANNON"),
-            200.0
-        );
-        assert_eq!(RadiusCursorOverlay::radius_for_type("A10STRIKE"), 100.0);
-        assert_eq!(RadiusCursorOverlay::radius_for_type("UNKNOWN"), 100.0);
+        assert_eq!(RadiusCursorOverlay::radius_for_type("NUCLEARMISSILE"), 210.0);
+        assert_eq!(RadiusCursorOverlay::radius_for_type("SCUDSTORM"), 200.0);
+        assert_eq!(RadiusCursorOverlay::radius_for_type("A10STRIKE"), 50.0);
+        assert_eq!(RadiusCursorOverlay::radius_for_type("DAISYCUTTER"), 170.0);
+        assert_eq!(RadiusCursorOverlay::radius_for_type("UNKNOWN"), 0.0);
     }
 
     #[test]

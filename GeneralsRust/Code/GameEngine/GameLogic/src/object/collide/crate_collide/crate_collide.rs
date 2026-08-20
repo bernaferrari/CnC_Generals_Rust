@@ -27,7 +27,7 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 /// Kind-of mask type for object classification
-pub type KindOfMaskType = u64;
+pub type KindOfMaskType = u128;
 
 /// Configuration data for crate collision modules
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,8 +266,8 @@ impl CrateCollide {
         // Must match our kindof flags (if any)
         if !self.is_kind_of_multi(
             other,
-            self.module_data.required_kind_of,
-            self.module_data.forbidden_kind_of,
+            self.module_data.required_kind_of as u64,
+            self.module_data.forbidden_kind_of as u64,
         ) {
             return false;
         }
@@ -450,7 +450,7 @@ impl CrateCollide {
         let Ok(guard) = handle.read() else {
             return _required == 0 && _forbidden == 0;
         };
-        guard.is_kind_of_multi(_required, _forbidden)
+        guard.is_kind_of_multi(_required as KindOfMaskType, _forbidden as KindOfMaskType)
     }
 
     fn has_ai_update_interface(&self, _other: &dyn GameObject) -> bool {

@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::cell::UnsafeCell;
 
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{Coord3D, GameResult, PlayerMaskType};
@@ -32,6 +33,50 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
+}
+
+/// Tracker-backed occupant list returned as `&[ObjectID]` from `&self`.
+/// C++ `getContainedItemsList` returns the shared TunnelTracker list.
+#[derive(Debug)]
+struct SharedContainIdCache {
+    ids: UnsafeCell<Vec<ObjectID>>,
+}
+
+// SAFETY: TunnelContain is only accessed through Mutex<dyn ContainModuleInterface>
+// or exclusive `&mut self` in tests. Cache refresh is therefore exclusive.
+unsafe impl Sync for SharedContainIdCache {}
+
+impl SharedContainIdCache {
+    fn new() -> Self {
+        Self {
+            ids: UnsafeCell::new(Vec::new()),
+        }
+    }
+
+    fn contains(&self, id: &ObjectID) -> bool {
+        unsafe { (*self.ids.get()).contains(id) }
+    }
+
+    fn push(&self, id: ObjectID) {
+        let cache = unsafe { &mut *self.ids.get() };
+        if !cache.contains(&id) {
+            cache.push(id);
+        }
+    }
+
+    fn retain(&self, mut pred: impl FnMut(&ObjectID) -> bool) {
+        unsafe { (*self.ids.get()).retain(|id| pred(id)) }
+    }
+
+    fn clear(&self) {
+        unsafe { (*self.ids.get()).clear() }
+    }
+
+    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        let cache = unsafe { &mut *self.ids.get() };
+        *cache = ids;
+        unsafe { &*self.ids.get() }
+    }
 }
 
 /// Configuration data for TunnelContain module
@@ -64,7 +109,7 @@ impl ContainerIniParse for TunnelContainModuleData {
 impl Default for TunnelContainModuleData {
     fn default() -> Self {
         let mut base = super::OpenContainModuleData::default();
-        base.allow_inside_kind_of = 1u64 << (crate::common::KindOf::Infantry as u32);
+        base.allow_inside_kind_of = crate::common::KindOf::Infantry.cpp_mask();
 
         Self {
             base,
@@ -101,7 +146,7 @@ pub struct TunnelContain {
     /// Whether this tunnel is currently registered with the TunnelTracker
     is_currently_registered: bool,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
-    contained_object_ids: Vec<ObjectID>,
+    contained_object_ids: SharedContainIdCache,
 }
 
 impl TunnelContain {
@@ -118,7 +163,7 @@ impl TunnelContain {
             module_data: module_data.clone(),
             need_to_run_on_build_complete: true,
             is_currently_registered: false,
-            contained_object_ids: Vec::new(),
+            contained_object_ids: SharedContainIdCache::new(),
         })
     }
 
@@ -150,9 +195,7 @@ impl TunnelContain {
             }
         }
 
-        if !self.contained_object_ids.contains(&obj_id) {
-            self.contained_object_ids.push(obj_id);
-        }
+        self.contained_object_ids.push(obj_id);
 
         Ok(())
     }
@@ -212,10 +255,6 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 280: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
@@ -749,6 +788,21 @@ impl TunnelContain {
         }
     }
 
+    /// C++ TunnelContain::getContainedItemsList — always the player tracker list.
+    fn tracker_contained_ids(&self) -> Vec<ObjectID> {
+        self.with_owner_object(|owner_read| owner_read.get_controlling_player())
+            .ok()
+            .flatten()
+            .and_then(|player| {
+                player.read().ok().and_then(|player_read| {
+                    player_read
+                        .get_tunnel_system()
+                        .map(|tunnel| tunnel.get_contained_item_ids().to_vec())
+                })
+            })
+            .unwrap_or_default()
+    }
+
     /// Borrow the owning object for one operation via ObjectID.
     fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> GameResult<R> {
         let id = self.owner_object_id()?;
@@ -829,7 +883,9 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        &self.contained_object_ids
+        // C++ TunnelContain::getContainedItemsList redirects to the player tracker.
+        self.contained_object_ids
+            .refresh(self.tracker_contained_ids())
     }
 
     fn get_contained_count(&self) -> usize {
@@ -842,11 +898,8 @@ impl ContainModuleInterface for TunnelContain {
 
     fn get_max_capacity(&self) -> usize {
         let (_, max) = self.get_usage();
-        if max == 0 || max == u32::MAX {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        // C++ getContainMax is TheGlobalData->m_maxTunnelCapacity (0 admits nobody).
+        max as usize
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -887,6 +940,10 @@ impl ContainModuleInterface for TunnelContain {
 
     fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         TunnelContain::on_delete(self).map_err(|e| e.into())
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::on_selling(self).map_err(|e| e.into())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -1120,11 +1177,12 @@ mod tests {
         assert_eq!(
             tunnel.get_usage(),
             (2, 0),
-            "C++ reports TheGlobalData->m_maxTunnelCapacity; default 0 means unlimited"
+            "C++ reports TheGlobalData->m_maxTunnelCapacity; default 0 admits nobody"
         );
         assert_eq!(
             ContainModuleInterface::get_max_capacity(&tunnel),
-            usize::MAX
+            0,
+            "MaxTunnelCapacity 0 is not unlimited"
         );
 
         ContainModuleInterface::remove_all_contained(&mut tunnel, false).expect("remove all");
@@ -1147,6 +1205,56 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(94002);
         OBJECT_REGISTRY.unregister_object(94003);
         OBJECT_REGISTRY.unregister_object(94004);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn other_entrance_sees_shared_tracker_occupants_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let entrance_a = owned_object("TunnelA", 94101, 0);
+        let entrance_b = owned_object("TunnelB", 94102, 0);
+        let passenger = test_object("TunnelSharedPax", 94103);
+        let mut tunnel_a = tunnel_for(&entrance_a);
+        let mut tunnel_b = tunnel_for(&entrance_b);
+        ContainModuleInterface::on_owner_created(&mut tunnel_a).expect("a created");
+        ContainModuleInterface::on_owner_created(&mut tunnel_b).expect("b created");
+
+        ContainModuleInterface::contain_object(&mut tunnel_a, 94103).expect("enter a");
+        assert_eq!(
+            ContainModuleInterface::get_contained_objects(&tunnel_b),
+            &[94103],
+            "C++ getContainedItemsList is the shared tracker, not a per-entrance cache"
+        );
+        assert_eq!(ContainModuleInterface::get_contained_count(&tunnel_b), 1);
+
+        let _ = passenger;
+        OBJECT_REGISTRY.unregister_object(94101);
+        OBJECT_REGISTRY.unregister_object(94102);
+        OBJECT_REGISTRY.unregister_object(94103);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn last_tunnel_on_selling_ejects_instead_of_cave_in() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TunnelSellOwner", 94110, 0);
+        let passenger = test_object("TunnelSellPax", 94111);
+        let mut tunnel = tunnel_for(&owner);
+        ContainModuleInterface::on_owner_created(&mut tunnel).expect("owner created");
+        ContainModuleInterface::contain_object(&mut tunnel, 94111).expect("contain");
+
+        ContainModuleInterface::on_selling(&mut tunnel).expect("sell");
+        assert_eq!(ContainModuleInterface::get_contained_count(&tunnel), 0);
+        assert_eq!(
+            passenger.read().expect("pax").get_contained_by(),
+            None,
+            "C++ last-tunnel onSelling ejects occupants instead of cave-in kill"
+        );
+
+        OBJECT_REGISTRY.unregister_object(94110);
+        OBJECT_REGISTRY.unregister_object(94111);
         ThePlayerList().write().expect("player list write").clear();
     }
 

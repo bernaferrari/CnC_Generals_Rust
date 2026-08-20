@@ -531,7 +531,7 @@ impl ScriptEvaluator {
         };
 
         let mask =
-            (1u64 << (KindOf::Structure as u32)) | (1u64 << (KindOf::CountsForVictory as u32));
+            (KindOf::Structure.cpp_mask()) | (KindOf::CountsForVictory.cpp_mask());
         let count = player_guard.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
 
         Ok(max_buildings >= count)

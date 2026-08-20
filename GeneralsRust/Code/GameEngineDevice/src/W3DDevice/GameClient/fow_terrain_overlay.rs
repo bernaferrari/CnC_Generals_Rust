@@ -40,8 +40,8 @@ pub const FOW_COLOR_FOGGED: [f32; 4] = [0.0, 0.0, 0.0, 0.6]; // 60% black (darke
 pub const FOW_COLOR_VISIBLE: [f32; 4] = [0.0, 0.0, 0.0, 0.0]; // Transparent (no overlay)
 
 /// Matches C++ PartitionCell shroud grid dimensions
-/// Cell size is configurable, typically 50 world units per cell
-pub const DEFAULT_FOW_CELL_SIZE: f32 = 50.0;
+/// Cell size is GameData PartitionCellSize (retail 40 world units).
+pub const DEFAULT_FOW_CELL_SIZE: f32 = 40.0;
 
 /// GPU uniform buffer for FOW rendering parameters
 #[repr(C)]

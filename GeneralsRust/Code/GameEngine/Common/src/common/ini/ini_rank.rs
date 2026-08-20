@@ -93,6 +93,8 @@ pub struct RankInfo {
 
     /// Flag indicating this is an override definition
     is_override: bool,
+    /// Next map.ini override (`Overridable::setNextOverride`).
+    next_override: Option<Box<RankInfo>>,
 }
 
 impl RankInfo {
@@ -105,6 +107,7 @@ impl RankInfo {
             science_purchase_points_granted: 0,
             sciences_granted: Vec::new(),
             is_override: false,
+            next_override: None,
         }
     }
 
@@ -116,6 +119,30 @@ impl RankInfo {
     /// Check if this is an override
     pub fn is_override(&self) -> bool {
         self.is_override
+    }
+
+    /// C++ `Overridable::getFinalOverride`.
+    pub fn get_final_override(&self) -> &RankInfo {
+        match &self.next_override {
+            Some(next) => next.get_final_override(),
+            None => self,
+        }
+    }
+
+    fn get_final_override_mut(&mut self) -> &mut RankInfo {
+        if self.next_override.is_some() {
+            self.next_override
+                .as_mut()
+                .unwrap()
+                .get_final_override_mut()
+        } else {
+            self
+        }
+    }
+
+    /// C++ `Overridable::deleteOverrides`.
+    pub fn delete_overrides(&mut self) {
+        self.next_override = None;
     }
 }
 
@@ -165,16 +192,10 @@ impl RankInfoStore {
     }
 
     /// Reset the store (clear overrides, keep base definitions)
-    /// Matches C++ RankInfoStore::reset() from RankInfo.cpp lines 59-77
-    ///
-    /// In C++, this removes override instances while preserving base definitions.
-    /// The Rust implementation is simplified since we don't use the Overridable pattern.
+    /// Matches C++ RankInfoStore::reset() from RankInfo.cpp lines 50-72
     pub fn reset(&mut self) {
-        // In the C++ version, this calls deleteOverrides() on each RankInfo
-        // and removes entries that become null. Since Rust doesn't have the
-        // same override pattern, we just clear the override flags.
         for info in &mut self.rank_infos {
-            info.is_override = false;
+            info.delete_overrides();
         }
     }
 
@@ -195,7 +216,7 @@ impl RankInfoStore {
     /// * `None` if level < 1 or level > count
     pub fn get_rank_info(&self, level: i32) -> Option<&RankInfo> {
         if level >= 1 && level as usize <= self.rank_infos.len() {
-            Some(&self.rank_infos[(level - 1) as usize])
+            Some(self.rank_infos[(level - 1) as usize].get_final_override())
         } else {
             None
         }
@@ -235,22 +256,20 @@ impl RankInfoStore {
 
         if is_override {
             // In override mode, can only override existing ranks
-            // Matches C++ RankInfo.cpp lines 114-128
+            // Matches C++ RankInfo.cpp lines 114-137 — stack, do not replace.
             if rank_level < 1 || rank_level as usize > self.rank_infos.len() {
                 // Rank not found in map.ini - this is an error in C++
                 return Err(INIError::InvalidData);
             }
 
-            // Get existing info and copy it
-            let existing = &self.rank_infos[(rank_level - 1) as usize];
-            let mut new_info = existing.clone();
-            new_info.mark_as_override();
-
-            // Parse fields from INI
+            let idx = (rank_level - 1) as usize;
+            let mut new_info = self.rank_infos[idx].get_final_override().clone();
+            new_info.next_override = None;
             self.parse_rank_fields(ini, &mut new_info)?;
-
-            // Update the existing entry
-            self.rank_infos[(rank_level - 1) as usize] = new_info;
+            new_info.mark_as_override();
+            self.rank_infos[idx]
+                .get_final_override_mut()
+                .next_override = Some(Box::new(new_info));
         } else {
             // In normal mode, ranks must increase monotonically
             // Matches C++ RankInfo.cpp lines 130-147
@@ -297,8 +316,8 @@ impl RankInfoStore {
             // Matches C++ field parse table from RankInfo.cpp lines 66-71
             match key.to_ascii_lowercase().as_str() {
                 "rankname" => {
-                    // parseAndTranslateLabel - store as string (would translate from STR file)
-                    info.rank_name = value;
+                    // C++ INI::parseAndTranslateLabel
+                    info.rank_name = INI::translate_label(&value)?;
                 }
                 "skillpointsneeded" => {
                     // parseInt
@@ -348,6 +367,7 @@ impl RankInfoStore {
         let mut level = 1;
 
         for (idx, info) in self.rank_infos.iter().enumerate() {
+            let info = info.get_final_override();
             if skill_points >= info.skill_points_needed {
                 level = (idx + 1) as i32;
             } else {
@@ -363,7 +383,9 @@ impl RankInfoStore {
         let mut total = 0u32;
 
         for i in 0..level.min(self.rank_infos.len() as i32) {
-            total += self.rank_infos[i as usize].science_purchase_points_granted;
+            total += self.rank_infos[i as usize]
+                .get_final_override()
+                .science_purchase_points_granted;
         }
 
         total
@@ -374,7 +396,13 @@ impl RankInfoStore {
         let mut sciences = Vec::new();
 
         for i in 0..level.min(self.rank_infos.len() as i32) {
-            sciences.extend(self.rank_infos[i as usize].sciences_granted.iter().copied());
+            sciences.extend(
+                self.rank_infos[i as usize]
+                    .get_final_override()
+                    .sciences_granted
+                    .iter()
+                    .copied(),
+            );
         }
 
         sciences

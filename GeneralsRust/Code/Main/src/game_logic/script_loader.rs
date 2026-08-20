@@ -596,7 +596,11 @@ pub struct SideBuildEntry {
     pub side_index: u32,
     pub script_name: Option<String>,
     pub health: Option<i32>,
+    pub whiner: Option<bool>,
+    pub unsellable: Option<bool>,
+    pub repairable: Option<bool>,
 }
+
 
 /// Top-level metadata parsed from a map file.
 #[derive(Debug, Clone, Default)]
@@ -1516,11 +1520,11 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
         if !points_ok {
             break;
         }
-        if points.len() < 2 {
-            continue;
-        }
         if trigger_id > max_trigger_id {
             max_trigger_id = trigger_id;
+        }
+        if points.len() < 2 {
+            continue;
         }
         let mut trigger = PolygonTrigger::new(
             trigger_id,
@@ -1536,17 +1540,33 @@ pub fn parse_runtime_polygon_triggers_from_chunky(
 
     // C++ PolygonTrigger.cpp version-1 maps auto-add a full-extent water table.
     if version == 1 {
+        // C++ `pTrig->m_triggerID = maxTriggerId++` reuses the current max.
+        let water_id = max_trigger_id;
         let mut trigger = PolygonTrigger::new(
-            max_trigger_id + 1,
+            water_id,
             AsciiString::from("AutoAddedWaterAreaTrigger"),
             Vec::new(),
         );
         trigger.set_water_area(true);
-        let border = (30.0 * MAP_XY_FACTOR) as i32;
-        trigger.add_point(ICoord3D::new(-border, -border, 7));
-        trigger.add_point(ICoord3D::new(border, -border, 7));
-        trigger.add_point(ICoord3D::new(border, border, 7));
-        trigger.add_point(ICoord3D::new(-border, border, 7));
+        let (water_extent_x, water_extent_y) = game_engine::common::ini::get_global_data()
+            .map(|data| {
+                let data = data.read();
+                (data.water_extent_x, data.water_extent_y)
+            })
+            .unwrap_or((0.0, 0.0));
+        let border = 30.0 * MAP_XY_FACTOR;
+        trigger.add_point(ICoord3D::new((-border) as i32, (-border) as i32, 7));
+        trigger.add_point(ICoord3D::new(
+            (border + water_extent_x) as i32,
+            (-border) as i32,
+            7,
+        ));
+        trigger.add_point(ICoord3D::new(
+            (border + water_extent_x) as i32,
+            (border + water_extent_y) as i32,
+            7,
+        ));
+        trigger.add_point(ICoord3D::new((-border) as i32, (border + water_extent_y) as i32, 7));
         triggers.push(trigger);
     }
 
@@ -2403,15 +2423,18 @@ fn parse_side_build_entry(
 
     let mut script_name = None;
     let mut health = None;
+    let mut whiner = None;
+    let mut unsellable = None;
+    let mut repairable = None;
     if version >= 3 {
         let s = reader.read_ascii_string()?;
         if !s.is_empty() {
             script_name = Some(s);
         }
         health = Some(reader.read_i32()?);
-        let _whiner = reader.read_u8()?;
-        let _unsellable = reader.read_u8()?;
-        let _repairable = reader.read_u8()?;
+        whiner = Some(reader.read_u8()? != 0);
+        unsellable = Some(reader.read_u8()? != 0);
+        repairable = Some(reader.read_u8()? != 0);
     }
 
     Ok(SideBuildEntry {
@@ -2424,6 +2447,9 @@ fn parse_side_build_entry(
         side_index,
         script_name,
         health,
+        whiner,
+        unsellable,
+        repairable,
     })
 }
 

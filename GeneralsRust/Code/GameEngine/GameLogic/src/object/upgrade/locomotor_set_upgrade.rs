@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -11,20 +12,21 @@ use crate::helpers::TheGameLogic;
 #[derive(Debug, Clone)]
 pub struct LocomotorSetUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
 
 impl Default for LocomotorSetUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
 
 impl LocomotorSetUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        let _ = ini;
-        Ok(())
+        self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
 
@@ -117,14 +119,15 @@ impl Snapshotable for LocomotorSetUpgrade {
 }
 
 impl UpgradeModuleInterface for LocomotorSetUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
 
         // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
         // Live host objects live on TheGameLogic (registry may be empty).

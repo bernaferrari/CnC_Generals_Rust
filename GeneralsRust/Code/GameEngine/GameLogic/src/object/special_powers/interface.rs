@@ -56,7 +56,8 @@ macro_rules! impl_special_power_subclass {
             fn on_special_power_creation(&mut self) {
                 $crate::object::special_power_module::SpecialPowerModuleInterface::on_special_power_creation(
                     &mut self.base_module,
-                )
+                );
+                self.dispatch_on_special_power_creation();
             }
 
             fn set_ready_frame(
@@ -309,6 +310,25 @@ pub(crate) fn make_base_module(
     data: &crate::object::special_power_module::SpecialPowerModuleData,
 ) -> SpecialPowerModule {
     SpecialPowerModule::new(owner_object_id, data.clone())
+}
+
+/// C++ subclass `xfer`: version then `SpecialPowerModule::xfer`.
+pub(crate) fn xfer_special_power_subclass(
+    base_module: &mut SpecialPowerModule,
+    xfer: &mut dyn game_engine::common::system::Xfer,
+    name: &str,
+) -> Result<(), String> {
+    let mut version: crate::common::XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| format!("{name} xfer version failed: {:?}", e))?;
+    game_engine::common::system::Snapshotable::xfer(base_module, xfer)
+}
+
+/// C++ subclass `loadPostProcess` extends `SpecialPowerModule::loadPostProcess`.
+pub(crate) fn load_post_process_special_power_subclass(
+    base_module: &mut SpecialPowerModule,
+) -> Result<(), String> {
+    game_engine::common::system::Snapshotable::load_post_process(base_module)
 }
 
 pub(crate) fn _unused_trait_tokens(

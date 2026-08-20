@@ -292,7 +292,7 @@ impl GameLogic {
             {
                 let _ = self.apply_fire_weapon_when_damaged_named(object_id, &wname);
             }
-            // C++ TransitionDamageFX + FXListDie residuals → audio queue.
+            // C++ TransitionDamageFX + FXListDie → FXList::doFXObj / doFXPos.
             {
                 let pos = self
                     .objects
@@ -316,14 +316,17 @@ impl GameLogic {
                                 .with_priority(140),
                         );
                     }
-                    // FX name residual: store as high-priority audio-tagged event for client peel.
                     if let Some(fx) = ev.fx_name {
-                        self.queue_audio_event(
-                            AudioEventRequest::new(&format!("FX:{fx}"))
-                                .with_object(object_id)
-                                .with_position(pos)
-                                .with_priority(130),
-                        );
+                        if !crate::game_logic::dispatch_fx_list_at_pos(&fx, pos) {
+                            for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
+                                self.queue_audio_event(
+                                    AudioEventRequest::new(&sound)
+                                        .with_object(object_id)
+                                        .with_position(pos)
+                                        .with_priority(130),
+                                );
+                            }
+                        }
                     }
                 }
                 if let Some(a) = death_audio {
@@ -335,12 +338,16 @@ impl GameLogic {
                     );
                 }
                 if let Some(fx) = death_fx {
-                    self.queue_audio_event(
-                        AudioEventRequest::new(&format!("FX:{fx}"))
-                            .with_object(object_id)
-                            .with_position(pos)
-                            .with_priority(190),
-                    );
+                    if !crate::game_logic::dispatch_fx_list_at_pos(&fx, pos) {
+                        for sound in crate::game_logic::sound_names_for_fx_list(&fx) {
+                            self.queue_audio_event(
+                                AudioEventRequest::new(&sound)
+                                    .with_object(object_id)
+                                    .with_position(pos)
+                                    .with_priority(190),
+                            );
+                        }
+                    }
                 }
             }
             // C++ CreateObjectDie residual (spawn after death FX).

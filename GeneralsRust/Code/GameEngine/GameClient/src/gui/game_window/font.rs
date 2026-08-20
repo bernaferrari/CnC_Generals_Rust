@@ -10,7 +10,7 @@ use crate::gui::font::FontDesc;
 use crate::gui::MAX_DRAW_DATA;
 use crate::video_buffer::VideoBufferHandle;
 
-use super::messages::{WindowStatus, WINDOW_ID_INVALID};
+use super::messages::{WindowStatus, WINDOW_ID_INVALID, WIN_COLOR_UNDEFINED};
 use super::payload::WindowId;
 
 /// 2D coordinate point
@@ -77,19 +77,40 @@ pub struct Image {
     // Image data would be here
 }
 
-/// Draw data for different window states
-#[derive(Debug, Clone, Default)]
+/// Draw data for different window states.
+/// C++ `WinInstanceData::init` sets every slot's color/border to `WIN_COLOR_UNDEFINED`.
+#[derive(Debug, Clone)]
 pub struct WindowDrawData {
     pub image: Option<Image>,
     pub color: Color,
     pub border_color: Color,
 }
 
-/// Text colors for different window states
-#[derive(Debug, Clone, Default)]
+impl Default for WindowDrawData {
+    fn default() -> Self {
+        Self {
+            image: None,
+            color: WIN_COLOR_UNDEFINED,
+            border_color: WIN_COLOR_UNDEFINED,
+        }
+    }
+}
+
+/// Text colors for different window states.
+/// C++ `WinInstanceData::init` uses `WIN_COLOR_UNDEFINED` for enabled/disabled/hilite text.
+#[derive(Debug, Clone)]
 pub struct WindowTextColors {
     pub color: Color,
     pub border_color: Color,
+}
+
+impl Default for WindowTextColors {
+    fn default() -> Self {
+        Self {
+            color: WIN_COLOR_UNDEFINED,
+            border_color: WIN_COLOR_UNDEFINED,
+        }
+    }
 }
 
 /// Window state flags for visual appearance
@@ -155,7 +176,8 @@ impl Default for WindowInstanceData {
             hilite_text: Default::default(),
             ime_composite_text: Default::default(),
             image_offset: Point2D { x: 0, y: 0 },
-            tooltip_delay: crate::gui::TOOLTIP_DELAY,
+            // C++ `WinInstanceData::init`: m_tooltipDelay = -1 (use Mouse.ini).
+            tooltip_delay: -1,
             owner: None,
             video_buffer: None,
         }

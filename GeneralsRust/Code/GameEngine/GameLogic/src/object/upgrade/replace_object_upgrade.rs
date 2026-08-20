@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::ai::THE_AI;
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::OBJECT_REGISTRY;
 use crate::{helpers::TheThingFactory, object_manager::get_object_manager};
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -19,6 +20,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct ReplaceObjectUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     replace_object_name: AsciiString,
 }
 
@@ -26,6 +28,7 @@ impl Default for ReplaceObjectUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             replace_object_name: AsciiString::new(),
         }
     }
@@ -130,8 +133,8 @@ impl Snapshotable for ReplaceObjectUpgrade {
 }
 
 impl UpgradeModuleInterface for ReplaceObjectUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -143,6 +146,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let replace_name = self.data.replace_object_name();
         if replace_name.is_empty() {
             log::warn!(
@@ -308,8 +312,11 @@ fn parse_replace_object_field(
     Ok(())
 }
 
-const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData>] =
-    &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(ReplaceObjectUpgradeModuleData);
+
+const REPLACE_OBJECT_UPGRADE_FIELDS: &[FieldParse<ReplaceObjectUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
         token: "ReplaceObject",
         parse: parse_replace_object_field,
-    }];
+    },
+);

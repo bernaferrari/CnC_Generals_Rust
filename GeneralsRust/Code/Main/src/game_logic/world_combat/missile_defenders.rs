@@ -1350,13 +1350,13 @@ impl GameLogic {
                 attacker.break_stealth();
             }
             if destroyed {
-                attacker.gain_experience(kill_xp);
                 self.stop_attack_decision_aware(sentry_id);
             }
         }
         let _ = self.record_accepted_weapon_discharge(sentry_id, 0);
 
         if destroyed {
+            self.award_experience(sentry_id, kill_xp);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
@@ -1555,7 +1555,6 @@ impl GameLogic {
                 attacker.break_stealth();
             }
             if destroyed {
-                attacker.gain_experience(kill_xp);
                 self.stop_attack_decision_aware(hellfire_id);
             }
         }
@@ -1564,6 +1563,7 @@ impl GameLogic {
         let _ = self.record_accepted_weapon_discharge(hellfire_id, 0);
 
         if destroyed {
+            self.award_experience(hellfire_id, kill_xp);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 

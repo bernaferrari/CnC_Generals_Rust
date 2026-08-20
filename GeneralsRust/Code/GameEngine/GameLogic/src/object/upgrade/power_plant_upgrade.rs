@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -17,20 +18,21 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct PowerPlantUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
 
 impl Default for PowerPlantUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
 
 impl PowerPlantUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        let _ = ini;
-        Ok(())
+        self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
 
@@ -147,8 +149,8 @@ impl Snapshotable for PowerPlantUpgrade {
 }
 
 impl UpgradeModuleInterface for PowerPlantUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -160,6 +162,7 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let object_id = self.object_id;
         let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             if let Some(player) = object_guard.get_controlling_player() {

@@ -403,6 +403,7 @@ impl CnCGameEngine {
             host_match_camera_follow_active: None,
             host_match_camera_follow_position: None,
             host_match_camera_follow_id: None,
+            camera_follow_factor: -1.0,
             host_match_local_barracks_ids: None,
             host_match_local_producer_ids: None,
             host_match_local_unfinished_producer_ids: None,

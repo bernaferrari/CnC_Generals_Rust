@@ -584,9 +584,15 @@ impl ObjectDrawInterface for W3DModelDraw {
             } else {
                 self.logic_fire_fx_fallback()
             };
-            let _ = (mtx, victim_pos);
-            self.fire_owner_weapon_fx(weapon_slot, &pos);
-            handled = true;
+            let (weapon_speed, damage_radius) = self.owner_weapon_fx_params(weapon_slot);
+            handled = self.fire_owner_weapon_fx(
+                weapon_slot,
+                &pos,
+                Some(&mtx),
+                Some(victim_pos),
+                weapon_speed,
+                damage_radius,
+            );
         }
 
         handled

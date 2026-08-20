@@ -6,33 +6,29 @@
 // Utility functions
 
 const SELECTABLE_KIND_INDICES: &[u32] = &[1];
-const UNIT_KIND_INDICES: &[u32] = &[8, 9, 10, 11, 12, 13, 19, 20, 72, 81, 89];
+const UNIT_KIND_INDICES: &[u32] = &[8, 9, 10, 11, 12, 13, 16, 17, 68, 77, 85];
 const STRUCTURE_KIND_INDICES: &[u32] = &[
-    7, 22, 23, 24, 37, 61, 62, 63, 64, 93, 94, 95, 96, 97, 102, 103, 108, 109, 110, 111,
+    7, 19, 20, 21, 34, 57, 58, 59, 60, 89, 90, 91, 92, 93, 98, 99, 104, 105, 106, 107,
 ];
-const VEHICLE_KIND_INDICES: &[u32] = &[9, 11, 12, 13, 21];
+const VEHICLE_KIND_INDICES: &[u32] = &[9, 11, 12, 13, 18];
 const HARVESTER_KIND_INDICES: &[u32] = &[13];
-const AIRCRAFT_KIND_INDICES: &[u32] = &[10, 110, 111];
-const DRONE_KIND_INDICES: &[u32] = &[72];
-const CRATE_KIND_INDICES: &[u32] = &[48];
-const RESOURCE_NODE_KIND_INDICES: &[u32] = &[85];
-const SUPPLY_SOURCE_ON_PREVIEW_KIND_INDICES: &[u32] = &[76];
-const SUPPLY_SOURCE_KIND_INDICES: &[u32] = &[85];
-const DISGUISER_KIND_INDICES: &[u32] = &[87];
-const TECH_BUILDING_KIND_INDICES: &[u32] = &[69];
-const BRIDGE_KIND_INDICES: &[u32] = &[22, 23, 24];
-const WALL_KIND_INDICES: &[u32] = &[60];
-const SALVAGER_KIND_INDICES: &[u32] = &[19];
-const WEAPON_SALVAGER_KIND_INDICES: &[u32] = &[20];
-const ARMOR_SALVAGER_KIND_INDICES: &[u32] = &[99];
-const ALWAYS_SELECTABLE_INDICES: &[u32] = &[57];
+const AIRCRAFT_KIND_INDICES: &[u32] = &[10, 106, 107];
+const DRONE_KIND_INDICES: &[u32] = &[68];
+const CRATE_KIND_INDICES: &[u32] = &[44];
+const RESOURCE_NODE_KIND_INDICES: &[u32] = &[81];
+const SUPPLY_SOURCE_ON_PREVIEW_KIND_INDICES: &[u32] = &[72];
+const SUPPLY_SOURCE_KIND_INDICES: &[u32] = &[81];
+const DISGUISER_KIND_INDICES: &[u32] = &[83];
+const TECH_BUILDING_KIND_INDICES: &[u32] = &[65];
+const BRIDGE_KIND_INDICES: &[u32] = &[19, 20, 21];
+const WALL_KIND_INDICES: &[u32] = &[56];
+const SALVAGER_KIND_INDICES: &[u32] = &[16];
+const WEAPON_SALVAGER_KIND_INDICES: &[u32] = &[17];
+const ARMOR_SALVAGER_KIND_INDICES: &[u32] = &[95];
+const ALWAYS_SELECTABLE_INDICES: &[u32] = &[53];
 const CAN_ATTACK_KIND_INDICES: &[u32] = &[3];
-const PROJECTILE_KIND_INDICES: &[u32] = &[25];
-const CLIFF_JUMPER_INDICES: &[u32] = &[92];
-const PRISON_KIND_INDICES: &[u32] = &[15];
-const COLLECTS_PRISON_BOUNTY_INDICES: &[u32] = &[16];
-const POW_TRUCK_KIND_INDICES: &[u32] = &[17];
-const CAN_SURRENDER_KIND_INDICES: &[u32] = &[44];
+const PROJECTILE_KIND_INDICES: &[u32] = &[22];
+const CLIFF_JUMPER_INDICES: &[u32] = &[88];
 
 fn engine_kind_indices(kind: KindOf) -> &'static [u32] {
     match kind {
@@ -52,97 +48,116 @@ fn engine_kind_indices(kind: KindOf) -> &'static [u32] {
         KindOf::Crate => CRATE_KIND_INDICES,
         KindOf::ResourceNode => RESOURCE_NODE_KIND_INDICES,
         KindOf::SupplySourceOnPreview => SUPPLY_SOURCE_ON_PREVIEW_KIND_INDICES,
+        KindOf::Transport => &[18],
         KindOf::SupplySource => SUPPLY_SOURCE_KIND_INDICES,
         KindOf::Disguiser => DISGUISER_KIND_INDICES,
         KindOf::TechBuilding => TECH_BUILDING_KIND_INDICES,
         KindOf::Bridge => BRIDGE_KIND_INDICES,
         KindOf::Barrier => WALL_KIND_INDICES,
         KindOf::Shrubbery => &[6],
-        KindOf::CanSeeThrough => &[73],
+        KindOf::CanSeeThrough => &[69],
         KindOf::CanCrossBridges => BRIDGE_KIND_INDICES,
         KindOf::BridgeTower => BRIDGE_KIND_INDICES,
-        KindOf::WaveGuide => &[],
-        KindOf::Boat => &[79],
+        KindOf::WaveGuide => &[25],
+        KindOf::Boat => &[75],
         KindOf::Salvager => SALVAGER_KIND_INDICES,
         KindOf::WeaponSalvager => WEAPON_SALVAGER_KIND_INDICES,
         KindOf::ArmorSalvager => ARMOR_SALVAGER_KIND_INDICES,
-        KindOf::FSBarracks => &[108],
-        KindOf::FSWarfactory => &[109],
-        KindOf::FSAirfield => &[110],
-        KindOf::FSInternetCenter => &[103],
-        KindOf::FSPower | KindOf::PowerPlant => &[61],
-        KindOf::FSBaseDefense => &[63],
-        KindOf::FSSupplyDropzone => &[93],
-        KindOf::FSSupplyCenter | KindOf::Refinery => &[96],
-        KindOf::FSSuperweapon => &[94],
-        KindOf::FSStrategyCenter => &[97],
-        KindOf::FSFake => &[102],
-        KindOf::Defense => &[63, 115],
-        KindOf::Factory => &[62],
-        KindOf::Mine => &[],
-        KindOf::Prison => PRISON_KIND_INDICES,
-        KindOf::CollectsPrisonBounty => COLLECTS_PRISON_BOUNTY_INDICES,
-        KindOf::PowTruck => POW_TRUCK_KIND_INDICES,
-        KindOf::CanSurrender => CAN_SURRENDER_KIND_INDICES,
+        KindOf::FSBarracks => &[104],
+        KindOf::FSWarfactory => &[105],
+        KindOf::FSAirfield => &[106],
+        KindOf::FSInternetCenter => &[99],
+        KindOf::FSPower | KindOf::PowerPlant => &[57],
+        KindOf::FSBaseDefense => &[59],
+        KindOf::FSSupplyDropzone => &[89],
+        KindOf::FSSupplyCenter | KindOf::Refinery => &[92],
+        KindOf::FSSuperweapon => &[90],
+        KindOf::FSStrategyCenter => &[93],
+        KindOf::FSFake => &[98],
+        KindOf::Defense => &[59, 111],
+        KindOf::Factory => &[58],
+        KindOf::Mine => &[50],
+        KindOf::Prison | KindOf::CollectsPrisonBounty | KindOf::PowTruck | KindOf::CanSurrender => {
+            &[]
+        }
         KindOf::Civilian
         | KindOf::Destructible
         | KindOf::Amphibious
         | KindOf::AmphibiousTransport
-        | KindOf::CanCapture
-        | KindOf::Hero
-        | KindOf::CountsForVictory
-        | KindOf::CleanupHazard
-        | KindOf::Immobile
-        | KindOf::BoobyTrap
-        | KindOf::CanBeRepulsed
-        | KindOf::EmpHardened
-        | KindOf::SpawnsAreTheWeapons => &[],
+        | KindOf::CanCapture => &[],
+        KindOf::Hero => &[85],
+        KindOf::CountsForVictory => &[33],
+        KindOf::CleanupHazard => &[51],
+        KindOf::Immobile => &[2],
+        KindOf::Inert => &[84],
+        KindOf::BoobyTrap => &[97],
+        KindOf::CanBeRepulsed => &[41],
+        KindOf::EmpHardened => &[112],
+        KindOf::SpawnsAreTheWeapons => &[79],
         KindOf::Obstacle => &[0],
         KindOf::CanAttack => &[3],
-        KindOf::StickToTerrainSlope
-        | KindOf::CanCastReflections
-        | KindOf::Preload
-        | KindOf::NoCollide
-        | KindOf::StealthGarrison
-        | KindOf::DrawableOnly
-        | KindOf::Score
-        | KindOf::ScoreCreate
-        | KindOf::ScoreDestroy
-        | KindOf::NoHealIcon
-        | KindOf::Parachutable
-        | KindOf::AlwaysVisible
-        | KindOf::Unattackable
-        | KindOf::AircraftPathAround
-        | KindOf::LowOverlappable
-        | KindOf::ForceAttackable
-        | KindOf::AutoRallypoint
-        | KindOf::ClickThrough
-        | KindOf::ShowPortraitWhenControlled
-        | KindOf::CannotBuildNearSupplies
-        | KindOf::RevealToAll
-        | KindOf::IgnoresSelectAll
-        | KindOf::DontAutoCrushInfantry
-        | KindOf::FsBlackMarket
-        | KindOf::FsAdvancedTech
-        | KindOf::RevealsEnemyPaths
-        | KindOf::NoSelect
-        | KindOf::CannotRetaliate
-        | KindOf::Demotrap
-        | KindOf::ConservativeBuilding
-        | KindOf::BlastCrater
-        | KindOf::Prop
-        | KindOf::OptimizedTree
-        | KindOf::WaveEffect
-        | KindOf::ClearedByBuild => &[],
+        KindOf::StickToTerrainSlope => &[4],
+        KindOf::CanCastReflections => &[5],
+        KindOf::Preload => &[23],
+        KindOf::NoCollide => &[27],
+        KindOf::StealthGarrison => &[30],
+        KindOf::DrawableOnly => &[32],
+        KindOf::Score => &[35],
+        KindOf::ScoreCreate => &[36],
+        KindOf::ScoreDestroy => &[37],
+        KindOf::NoHealIcon => &[38],
+        KindOf::Parachutable => &[40],
+        KindOf::AlwaysVisible => &[48],
+        KindOf::Unattackable => &[49],
+        KindOf::AircraftPathAround => &[61],
+        KindOf::LowOverlappable => &[62],
+        KindOf::ForceAttackable => &[63],
+        KindOf::AutoRallypoint => &[64],
+        KindOf::ClickThrough => &[71],
+        KindOf::ShowPortraitWhenControlled => &[78],
+        KindOf::CannotBuildNearSupplies => &[80],
+        KindOf::RevealToAll => &[82],
+        KindOf::IgnoresSelectAll => &[86],
+        KindOf::DontAutoCrushInfantry => &[87],
+        KindOf::FsBlackMarket => &[91],
+        KindOf::FsAdvancedTech => &[103],
+        KindOf::RevealsEnemyPaths => &[96],
+        KindOf::NoSelect => &[108],
+        KindOf::CannotRetaliate => &[110],
+        KindOf::Demotrap => &[113],
+        KindOf::ConservativeBuilding => &[114],
+        KindOf::BlastCrater => &[100],
+        KindOf::Prop => &[101],
+        KindOf::OptimizedTree => &[102],
+        KindOf::WaveEffect => &[26],
+        KindOf::ClearedByBuild => &[46],
         KindOf::HugeVehicle => &[11],
-        KindOf::LineBuild => &[60],
-        KindOf::SmallMissile | KindOf::BallisticMissile => &[25],
-        KindOf::AttackNeedsLineOfSight => &[3],
-        KindOf::WalkOnTopOfWall | KindOf::DefensiveWall => &[60],
-        KindOf::MoneyHacker => &[87],
-        KindOf::TechBaseDefense => &[69],
-        KindOf::LandmarkBridge => &[22, 23, 24],
-        _ => &[],
+        KindOf::LineBuild => &[15],
+        KindOf::SmallMissile => &[47],
+        KindOf::BallisticMissile => &[70],
+        KindOf::AttackNeedsLineOfSight => &[54],
+        KindOf::WalkOnTopOfWall | KindOf::DefensiveWall => &[56],
+        KindOf::MoneyHacker => &[94],
+        KindOf::TechBaseDefense => &[111],
+        KindOf::LandmarkBridge => &[20],
+        KindOf::HealPad => &[29],
+        KindOf::PortableStructure => &[52],
+        KindOf::CanRappel => &[39],
+        KindOf::IgnoreDockingBones => &[115],
+        KindOf::RepairPad => &[28],
+        KindOf::RejectUnmanned => &[109],
+        KindOf::IgnoredInGui => &[43],
+        KindOf::MobNexus => &[42],
+        KindOf::Capturable => &[45],
+        KindOf::ImmuneToCapture => &[76],
+        KindOf::CashGenerator => &[31],
+        KindOf::RebuildHole => &[34],
+        KindOf::FSTechnology => &[60],
+        KindOf::NoGarrison => &[24],
+        KindOf::GarrisonableUntilDestroyed => &[74],
+        KindOf::Powered => &[66],
+        KindOf::ProducedAtHelipad => &[67],
+        KindOf::Parachute => &[73],
     }
 }
 

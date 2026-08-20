@@ -547,7 +547,7 @@ impl GameLogic {
             score_limit: None,
             time_limit: None,
             fog_of_war_enabled: true,
-            starting_resources: 0,
+            starting_resources: crate::system::game_initialization::default_starting_cash(),
             ai_script: "DefaultAI".to_string(),
         };
 

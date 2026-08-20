@@ -83,8 +83,8 @@ impl VeterancyGainCreate {
         }
     }
 }
-
 impl CreateInterface for VeterancyGainCreate {
+
     fn on_create(&self) {
         let object_id = self
             .base
@@ -99,29 +99,47 @@ impl CreateInterface for VeterancyGainCreate {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             return;
         };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-        let Some(player) = object_guard.get_controlling_player() else {
-            return;
-        };
-        let Ok(player_guard) = player.read() else {
-            return;
-        };
 
-        let science_required = self.module_data.science_required;
-        if science_required != SCIENCE_INVALID && !player_guard.has_science(science_required) {
-            return;
-        }
+        let promotion = {
+            let Ok(object_guard) = object_arc.read() else {
+                return;
+            };
+            let Some(player) = object_guard.get_controlling_player() else {
+                return;
+            };
+            let Ok(player_guard) = player.read() else {
+                return;
+            };
 
-        if let Some(exp_tracker) = object_guard.get_experience_tracker() {
-            if let Ok(mut tracker_guard) = exp_tracker.lock() {
-                if tracker_guard.is_trainable() {
-                    tracker_guard.set_min_veterancy_level(
-                        self.module_data.starting_level,
-                        &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                    );
+            let science_required = self.module_data.science_required;
+            if science_required != SCIENCE_INVALID && !player_guard.has_science(science_required) {
+                return;
+            }
+            drop(player_guard);
+
+            if let Some(exp_tracker) = object_guard.get_experience_tracker() {
+                if let Ok(mut tracker_guard) = exp_tracker.lock() {
+                    if tracker_guard.is_trainable() {
+                        tracker_guard
+                            .set_min_veterancy_level(
+                                self.module_data.starting_level,
+                                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+                            )
+                            .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
+            } else {
+                None
+            }
+        };
+
+        if let Some((old_level, new_level)) = promotion {
+            if let Ok(mut object_guard) = object_arc.write() {
+                object_guard.on_veterancy_level_changed(old_level, new_level, true);
             }
         }
     }

@@ -28,6 +28,7 @@ impl TerrainVisualImpl {
         // Create road render pipeline
         self.create_road_pipeline(device.as_ref())?;
         self.ensure_road_texture_bind_group(device.as_ref());
+        self.ensure_snow_texture_bind_group(device.as_ref());
         self.create_tree_pipeline(device.as_ref())?;
 
         self.sync_global_water_plane(device.as_ref())?;
@@ -898,8 +899,15 @@ impl TerrainVisualImpl {
     }
 
     pub fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        let pipeline = if self.water_additive_blend {
+            self.water_additive_pipeline
+                .as_ref()
+                .or(self.water_pipeline.as_ref())
+        } else {
+            self.water_pipeline.as_ref()
+        };
         let (Some(water_pipeline), Some(camera_bg), Some(water_bg)) = (
-            self.water_pipeline.as_ref(),
+            pipeline,
             self.terrain_camera_bind_group.as_ref(),
             self.water_texture_bind_group.as_ref(),
         ) else {
@@ -1023,6 +1031,135 @@ impl TerrainVisualImpl {
         self.road_texture = Some(texture);
         self.road_texture_bind_group = Some(bind_group);
         self.road_texture_is_fallback = used_fallback;
+    }
+
+    fn wanted_snow_texture_name() -> String {
+        crate::snow::get_weather_setting()
+            .and_then(|s| s.read().ok().map(|g| g.snow_texture.clone()))
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "EXSnowFlake.tga".to_string())
+    }
+
+    fn ensure_snow_texture_bind_group(&mut self, device: &wgpu::Device) {
+        let wanted = Self::wanted_snow_texture_name();
+        if self.snow_texture_bind_group.is_some()
+            && !self.snow_texture_is_fallback
+            && self.snow_texture_name.eq_ignore_ascii_case(&wanted)
+        {
+            return;
+        }
+        let Some(layout) = self.road_texture_bind_group_layout.clone() else {
+            return;
+        };
+        let Some(queue) = self.queue.clone() else {
+            return;
+        };
+
+        let (texture, used_fallback, source_name) =
+            match self.load_first_available_named_overlay_texture(device, &wanted) {
+                Some((texture, name)) => (texture, false, name),
+                None => (
+                    Self::create_fallback_snow_texture(device, queue.as_ref()),
+                    true,
+                    "fallback-snowflake-1x1".to_string(),
+                ),
+            };
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if self.snow_sampler.is_none() {
+            self.snow_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Snow Texture Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        let Some(sampler) = self.snow_sampler.as_ref() else {
+            return;
+        };
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Snow Texture Bind Group"),
+            layout: layout.as_ref(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        self.snow_texture = Some(texture);
+        self.snow_texture_bind_group = Some(bind_group);
+        self.snow_texture_name = wanted;
+        self.snow_texture_is_fallback = used_fallback;
+        if used_fallback {
+            warn!("Snow texture missing; using white 1x1 flake fallback ({source_name})");
+        }
+    }
+
+    fn load_first_available_named_overlay_texture(
+        &self,
+        device: &wgpu::Device,
+        name: &str,
+    ) -> Option<(wgpu::Texture, String)> {
+        for path in Self::water_texture_path_candidates(name) {
+            if TerrainTextures::is_available_terrain_texture_path(&path)
+                || TerrainTextures::can_resolve_texture_path(&path)
+            {
+                if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                    return Some((texture, path));
+                }
+            }
+            if let Ok(texture) = self.load_texture_from_path(device, &path) {
+                return Some((texture, path));
+            }
+        }
+        None
+    }
+
+    fn create_fallback_snow_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        const PIXELS: [u8; 4] = [255, 255, 255, 220];
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Snow Fallback White 1x1"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &PIXELS,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
     }
 
     fn load_first_available_road_texture(
@@ -1203,7 +1340,54 @@ impl TerrainVisualImpl {
         self.water_texture = Some(texture);
         self.water_texture_bind_group = Some(bind_group);
         self.water_texture_is_fallback = used_fallback;
+        self.bound_standing_water_texture = source_name;
     }
+
+    /// C++ `replaceSkyboxTextures` + `WaterRenderObjClass::updateMapOverrides`.
+    fn apply_water_transparency_map_overrides(&mut self, device: &wgpu::Device) {
+        if let Some((old, new)) = game_engine::common::ini::ini_water::take_pending_skybox_replace()
+        {
+            let old_refs = [
+                old[0].as_str(),
+                old[1].as_str(),
+                old[2].as_str(),
+                old[3].as_str(),
+                old[4].as_str(),
+            ];
+            let new_refs = [
+                new[0].as_str(),
+                new[1].as_str(),
+                new[2].as_str(),
+                new[3].as_str(),
+                new[4].as_str(),
+            ];
+            if let Err(err) = self.replace_skybox_textures(&old_refs, &new_refs) {
+                warn!("WaterTransparency skybox replace failed: {err}");
+            }
+        }
+
+        game_engine::common::ini::ini_water::initialize_water_settings();
+        let wanted = game_engine::common::ini::ini_water::get_water_transparency()
+            .and_then(|lock| {
+                lock.read().ok().map(|g| {
+                    g.get_final_override()
+                        .standing_water_texture
+                        .to_string()
+                })
+            })
+            .unwrap_or_default();
+        if !wanted.is_empty()
+            && !self
+                .bound_standing_water_texture
+                .to_ascii_lowercase()
+                .contains(&wanted.to_ascii_lowercase())
+        {
+            self.water_texture_bind_group = None;
+            self.water_texture_is_fallback = true;
+            self.ensure_water_texture_bind_group(device);
+        }
+    }
+
 
     fn load_first_available_water_texture(
         &self,
@@ -1241,11 +1425,21 @@ impl TerrainVisualImpl {
             }
         };
 
-        // C++ Water.h / Water.ini StandingWaterTexture default.
+        // C++ Water.h / Water.ini StandingWaterTexture default, then WaterSet WaterTexture.
         game_engine::common::ini::ini_water::initialize_water_settings();
         if let Some(lock) = game_engine::common::ini::ini_water::get_water_transparency() {
             if let Ok(guard) = lock.read() {
                 push_name(guard.get_final_override().standing_water_texture.as_str());
+            }
+        }
+        if let Some(global_data) = get_global_data() {
+            let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
+                global_data.read().time_of_day as usize,
+            );
+            if let Some(lock) = game_engine::common::ini::ini_water::get_water_setting(tod) {
+                if let Ok(guard) = lock.read() {
+                    push_name(guard.texture_name.as_str());
+                }
             }
         }
         for name in ["TWWater01.tga", "TWWater01.dds", "water01.dds", "Water01.tga"] {
@@ -1626,10 +1820,61 @@ impl TerrainVisualImpl {
         let min_z = global.water_position_y;
         let max_x = global.water_position_x + global.water_extent_x;
         let max_z = global.water_position_y + global.water_extent_y;
-
         // Tile 15×15 patches across GlobalData extents (do not stretch one sheet).
-        let (patch_vertices, list_indices) =
-            bake_water_tiles_world(min_x, min_z, max_x, max_z, water_y, 0xffff_ffff);
+        let (standing_color, additive, standing_tex) = {
+            game_engine::common::ini::ini_water::initialize_water_settings();
+            game_engine::common::ini::ini_water::get_water_transparency()
+                .and_then(|lock| lock.read().ok().map(|g| {
+                    let final_s = g.get_final_override();
+                    (
+                        [
+                            final_s.standing_water_color.0,
+                            final_s.standing_water_color.1,
+                            final_s.standing_water_color.2,
+                        ],
+                        final_s.additive_blending,
+                        final_s.standing_water_texture.to_string(),
+                    )
+                }))
+                .unwrap_or(([1.0, 1.0, 1.0], false, String::new()))
+        };
+        self.water_additive_blend = additive;
+
+        let tod = game_engine::common::ini::ini_water::TimeOfDay::from_index(
+            global.time_of_day as usize,
+        );
+        let water_set = game_engine::common::ini::ini_water::get_water_setting(tod)
+            .and_then(|lock| lock.read().ok().map(|g| g.clone()));
+        let water_diffuse = water_set
+            .as_ref()
+            .map(|s| pack_water_rgba_int(s.surface_color))
+            .unwrap_or(0xffff_ffff);
+        let packed = compute_standing_water_diffuse(
+            standing_color,
+            water_diffuse,
+            self.ambient_color,
+            &[WaterTerrainLight {
+                light_pos: [self.sun_direction.x, self.sun_direction.z, self.sun_direction.y],
+                diffuse: self.sun_color,
+            }],
+        );
+
+        let (mut patch_vertices, list_indices) =
+            bake_water_tiles_world(min_x, min_z, max_x, max_z, water_y, packed);
+        if let Some(setting) = water_set.as_ref() {
+            let time_ms = self.time * 1000.0;
+            let repeat = if setting.water_repeat_count > 0 {
+                setting.water_repeat_count as f32 / 16.0
+            } else {
+                1.0
+            };
+            let su = setting.u_scroll_per_ms * time_ms;
+            let sv = setting.v_scroll_per_ms * time_ms;
+            for vertex in &mut patch_vertices {
+                vertex.tu = vertex.tu * repeat + su;
+                vertex.tv = vertex.tv * repeat + sv;
+            }
+        }
         if patch_vertices.is_empty() || list_indices.is_empty() {
             self.water_plane = None;
             return Ok(());
@@ -1651,7 +1896,7 @@ impl TerrainVisualImpl {
             vertex_buffer,
             index_buffer,
             index_count: list_indices.len() as u32,
-            texture_name: String::new(),
+            texture_name: standing_tex,
             jba: false,
         });
 
@@ -1948,6 +2193,15 @@ fn bound_texture_id_for_source_tile(
 
     // Map the texture class onto the 4 bound slots via TextureId keys.
     Some(unique[class_idx % unique.len()])
+}
+
+/// C++ `loadSetting` packs `RGBAColorInt` as A<<24 | R<<16 | G<<8 | B.
+fn pack_water_rgba_int(color: (f32, f32, f32, f32)) -> u32 {
+    let r = color.0.round().clamp(0.0, 255.0) as u32;
+    let g = color.1.round().clamp(0.0, 255.0) as u32;
+    let b = color.2.round().clamp(0.0, 255.0) as u32;
+    let a = color.3.round().clamp(0.0, 255.0) as u32;
+    (a << 24) | (r << 16) | (g << 8) | b
 }
 
 #[cfg(test)]

@@ -310,7 +310,7 @@ upgrade_factories!(
     ReplaceObjectUpgrade,
     "ReplaceObjectUpgrade"
 );
-empty_upgrade_factories!(
+upgrade_factories!(
     stealth_upgrade_data_factory,
     stealth_upgrade_module_factory,
     StealthUpgradeModuleData,

@@ -74,33 +74,7 @@ fn apply_rider_change_locomotor_binding(
     container: &mut Object,
     binding: &crate::game_logic::locomotor_bootstrap::HostLocomotorBinding,
 ) {
-    container.movement.max_speed = binding.movement.max_speed;
-    container.movement.max_speed_damaged = binding.max_speed_damaged;
-    container.movement.acceleration = binding.movement.acceleration;
-    container.movement.acceleration_damaged = binding.acceleration_damaged;
-    container.movement.turn_rate = binding.movement.turn_rate;
-    container.movement.turn_rate_damaged = binding.turn_rate_damaged;
-    container.braking = binding.braking;
-    container.min_speed = binding.min_speed;
-    container.min_turn_speed = binding.min_turn_speed;
-    container.loco_behavior_z = binding.behavior_z;
-    container.loco_appearance = binding.appearance;
-    container.loco_extra_2d_friction = binding.extra_2d_friction;
-    container.loco_apply_2d_friction_airborne = binding.apply_2d_friction_when_airborne;
-    container.can_move_backward = binding.can_move_backward;
-    container.downhill_only = binding.downhill_only;
-    container.max_lift = binding.max_lift;
-    container.max_lift_damaged = binding.max_lift_damaged;
-    container.speed_limit_z = binding.speed_limit_z;
-    container.loco_preferred_height = binding.preferred_height;
-    container.loco_preferred_height_damping = binding.preferred_height_damping;
-    container.circling_radius = binding.circling_radius;
-    container.turn_pivot_offset = binding.turn_pivot_offset;
-    container.stick_to_ground = binding.stick_to_ground;
-    container.locomotor_surfaces = binding.locomotor_surfaces;
-    container.set_locomotor_physics_options();
-    container.record_host_locomotor();
-    container.record_host_movement();
+    crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(container, binding);
 }
 
 impl GameLogic {

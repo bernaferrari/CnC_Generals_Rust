@@ -1,7 +1,8 @@
 use super::*;
 
 fn make_test_object() -> Object {
-    let template = ThingTemplate::new("TestUnit");
+    let mut template = ThingTemplate::new("TestUnit");
+    template.is_trainable = true;
     let mut object = Object::new(template, ObjectId(1), Team::USA);
     object.weapon = Some(Weapon {
         damage: 100.0,
@@ -2580,12 +2581,12 @@ fn stunned_upside_down_bounce_kills_and_freefall_disables() {
     let mut o = Object::new(tmpl, ObjectId(21), Team::USA);
     o.health.current = 100.0;
     assert!(o.apply_shock_wave_impulse(glam::Vec3::new(5.0, 30.0, 0.0)));
-    // Force inverted residual (C++ Get_Z_Vector().Z < 0).
-    o.shock_up_z = -0.5;
     o.shock_allow_bounce = true;
     o.shock_stun_frames = 40;
     // Simulate bounce path with downward impact from above ground.
     o.set_position(glam::Vec3::new(0.0, 2.0, 0.0));
+    // Invert integrated pose (C++ Get_Z_Vector().Z < 0) after set_position.
+    o.apply_physics_ypr(0.0, 0.0, std::f32::consts::PI);
     o.movement.velocity = glam::Vec3::new(0.0, -4.0, 0.0);
     let bounced = o.handle_shock_ground_bounce(2.0, -0.1, 0.0);
     assert!(o.status.destroyed, "upside-down stunned must die on bounce");

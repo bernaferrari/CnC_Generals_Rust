@@ -69,6 +69,20 @@ impl GameLogic {
         });
         if let (Some(capture), Some(plan)) = (pending.as_ref(), visual_plan.as_ref()) {
             self.play_dispatch_fire_fx(source, capture, plan);
+        } else if let Some(capture) = pending.as_ref() {
+            // No frozen Drawable plan (missing modules / probe fail-closed).
+            // C++ still falls through to FXList::doFXPos when FireFX is non-null.
+            if !capture.selected_fx_name.is_empty() {
+                let pos = Vec3::new(
+                    capture.source_pos[0],
+                    capture.source_pos[1],
+                    capture.source_pos[2],
+                );
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    &capture.selected_fx_name,
+                    pos,
+                );
+            }
         }
         let marker = WeaponDischargeMarker {
             sequence,
@@ -159,6 +173,8 @@ impl GameLogic {
             "",
             "",
         );
+        // C++ Weapon.cpp:934-939: unhandled FireFX → FXList::doFXPos at `where`.
+        let _ = crate::game_logic::dispatch_fx_list_at_pos(&capture.selected_fx_name, where_pos);
     }
 
     pub fn take_weapon_discharges_for_presentation(

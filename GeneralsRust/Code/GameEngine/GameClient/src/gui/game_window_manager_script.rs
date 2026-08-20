@@ -2466,7 +2466,7 @@ impl WindowScriptEngine {
     /// This method replicates that behavior for the parsed definition layer.
     pub fn apply_defaults_to_definition(&self, window_def: &mut WindowDefinition) {
         let default = self.defaults.text_color;
-        if window_def.enabled_text.color == 0 {
+        if window_def.enabled_text.color == super::game_window::WIN_COLOR_UNDEFINED {
             window_def.enabled_text.color = default;
             window_def.enabled_text.border_color = default;
         }

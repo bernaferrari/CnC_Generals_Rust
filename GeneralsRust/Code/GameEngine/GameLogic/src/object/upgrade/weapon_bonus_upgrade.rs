@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType, WeaponBonusConditionType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -16,20 +17,21 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct WeaponBonusUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
 }
 
 impl Default for WeaponBonusUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
         }
     }
 }
 
 impl WeaponBonusUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        let _ = ini;
-        Ok(())
+        self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
 
@@ -122,8 +124,8 @@ impl Snapshotable for WeaponBonusUpgrade {
 }
 
 impl UpgradeModuleInterface for WeaponBonusUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -135,6 +137,7 @@ impl UpgradeModuleInterface for WeaponBonusUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         // Apply weapon damage bonus to object
         // Matches C++ WeaponBonusUpgrade::upgradeImplementation from WeaponBonusUpgrade.cpp lines 62-69
         use crate::object::registry::OBJECT_REGISTRY;

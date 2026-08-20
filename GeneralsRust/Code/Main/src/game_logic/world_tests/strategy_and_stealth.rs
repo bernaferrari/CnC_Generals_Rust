@@ -293,6 +293,7 @@ fn projectiles_step_inside_game_logic_update() {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
         projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
         scatter_radius: 0.0,
+        scatter_table_offset: None,
         min_weapon_speed: 0.0,
         scale_weapon_speed: false,
         attack_range: 0.0,

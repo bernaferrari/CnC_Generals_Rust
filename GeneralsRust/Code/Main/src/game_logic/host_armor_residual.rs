@@ -943,9 +943,111 @@ pub fn map_host_damage_type(dt: crate::game_logic::combat::DamageType) -> Damage
     dt.to_store()
 }
 
-/// Pick residual Armor.ini template by host object kind (fail-closed coarse matrix).
+/// C++ `ArmorSetType` bits (`ArmorSet.h`).
+pub const ARMORSET_VETERAN: u8 = 1 << 0;
+pub const ARMORSET_ELITE: u8 = 1 << 1;
+pub const ARMORSET_HERO: u8 = 1 << 2;
+pub const ARMORSET_PLAYER_UPGRADE: u8 = 1 << 3;
+pub const ARMORSET_WEAK_VERSUS_BASEDEFENSES: u8 = 1 << 4;
+pub const ARMORSET_SECOND_LIFE: u8 = 1 << 5;
+pub const ARMORSET_CRATE_UPGRADE_ONE: u8 = 1 << 6;
+pub const ARMORSET_CRATE_UPGRADE_TWO: u8 = 1 << 7;
+
+/// Parse one Object INI `ArmorSet Conditions` token into an `ArmorSetType` bit.
+pub fn armor_set_condition_bit(token: &str) -> Option<u8> {
+    match token
+        .trim()
+        .trim_matches(',')
+        .to_ascii_uppercase()
+        .replace('-', "_")
+        .as_str()
+    {
+        "" | "NONE" => None,
+        "VETERAN" => Some(ARMORSET_VETERAN),
+        "ELITE" => Some(ARMORSET_ELITE),
+        "HERO" | "HEROIC" => Some(ARMORSET_HERO),
+        "PLAYER_UPGRADE" => Some(ARMORSET_PLAYER_UPGRADE),
+        "WEAK_VERSUS_BASEDEFENSES" => Some(ARMORSET_WEAK_VERSUS_BASEDEFENSES),
+        "SECOND_LIFE" => Some(ARMORSET_SECOND_LIFE),
+        "CRATE_UPGRADE_ONE" | "CRATEUPGRADE_ONE" => Some(ARMORSET_CRATE_UPGRADE_ONE),
+        "CRATE_UPGRADE_TWO" | "CRATEUPGRADE_TWO" => Some(ARMORSET_CRATE_UPGRADE_TWO),
+        _ => None,
+    }
+}
+
+/// C++ `ActiveBody::m_curArmorSetFlags` from live host body flags.
+pub fn live_armor_set_flags(obj: &crate::game_logic::Object) -> u8 {
+    use crate::game_logic::VeterancyLevel;
+    let mut flags = 0u8;
+    if obj.armor_set_veteran {
+        flags |= ARMORSET_VETERAN;
+    } else if obj.armor_set_elite {
+        flags |= ARMORSET_ELITE;
+    } else if obj.armor_set_hero {
+        flags |= ARMORSET_HERO;
+    } else {
+        match obj.experience.level {
+            VeterancyLevel::Veteran => flags |= ARMORSET_VETERAN,
+            VeterancyLevel::Elite => flags |= ARMORSET_ELITE,
+            VeterancyLevel::Heroic => flags |= ARMORSET_HERO,
+            VeterancyLevel::Rookie => {}
+        }
+    }
+    if obj.armor_set_player_upgrade {
+        flags |= ARMORSET_PLAYER_UPGRADE;
+    }
+    if obj.armor_set_second_life {
+        flags |= ARMORSET_SECOND_LIFE;
+    }
+    match obj.armor_crate_upgrade {
+        1 => flags |= ARMORSET_CRATE_UPGRADE_ONE,
+        n if n >= 2 => flags |= ARMORSET_CRATE_UPGRADE_TWO,
+        _ => {}
+    }
+    flags
+}
+
+/// C++ SparseMatchFinder: most matching yes-bits, then fewest extras.
+pub fn find_best_armor_set_name(
+    sets: &[crate::game_logic::HostArmorSet],
+    flags: u8,
+) -> Option<String> {
+    if sets.is_empty() {
+        return None;
+    }
+    let mut best: Option<&crate::game_logic::HostArmorSet> = None;
+    let mut best_yes = 0u32;
+    let mut best_extra = u32::MAX;
+    for set in sets {
+        let yes = u32::from(set.conditions & flags).count_ones();
+        let extra = u32::from(set.conditions & !flags).count_ones();
+        if yes > best_yes || (yes >= best_yes && extra < best_extra) {
+            best = Some(set);
+            best_yes = yes;
+            best_extra = extra;
+        }
+    }
+    best.and_then(|set| set.armor.clone())
+}
+
+fn lookup_named_armor_template(name: &str) -> Option<ArmorTemplate> {
+    let name = name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let _ = ensure_host_armor_residual_seed();
+    TheArmorStore::find_template(&AsciiString::from(name)).map(|arc| (*arc).clone())
+}
+
+/// Pick residual Armor.ini template by live armor-set flags, then KindOf.
 pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTemplate {
     use crate::game_logic::KindOf;
+    let flags = live_armor_set_flags(obj);
+    if let Some(name) = find_best_armor_set_name(&obj.thing.template.armor_sets, flags) {
+        if let Some(armor) = lookup_named_armor_template(&name) {
+            return armor;
+        }
+    }
     if obj.is_kind_of(KindOf::Aircraft) {
         return build_airplane_armor_residual();
     }
@@ -966,6 +1068,10 @@ pub fn residual_armor_for_object(obj: &crate::game_logic::Object) -> ArmorTempla
         return build_human_armor_residual();
     }
     if obj.is_kind_of(KindOf::Vehicle) {
+        // Salvage crate with no authored ArmorSet still switches to crate armor.
+        if obj.armor_crate_upgrade > 0 {
+            return build_upgraded_tank_armor_residual();
+        }
         return build_tank_armor_residual();
     }
     let mut t = ArmorTemplate::new();

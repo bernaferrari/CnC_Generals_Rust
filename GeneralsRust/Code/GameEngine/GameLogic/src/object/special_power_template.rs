@@ -12,6 +12,12 @@ use game_engine::common::ini::ini_special_power::{
     SpecialPowerTemplate as IniSpecialPowerTemplate,
 };
 use game_engine::common::rts::get_science_store;
+use game_engine::common::rts::special_power::{
+    get_special_power_store as get_rts_special_power_store,
+    AcademyClassificationType as RtsAcademyClassificationType,
+    SpecialPowerTemplate as RtsSpecialPowerTemplate,
+    SpecialPowerType as RtsSpecialPowerType,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -299,6 +305,9 @@ impl SpecialPowerStore {
         if !self.templates_by_id.contains_key(&id) {
             self.template_order.push(id);
         }
+        if id >= self.next_id {
+            self.next_id = id + 1;
+        }
         self.templates_by_name.insert(name, template.clone());
         self.templates_by_id.insert(id, template);
     }
@@ -406,6 +415,19 @@ pub fn find_or_create_special_power_template(name: &AsciiString) -> Arc<SpecialP
         }
     }
 
+    // Boot parses SpecialPower.ini into the Common RTS store. Live modules must
+    // consume that table (C++ SpecialPowerStore::parseSpecialPowerDefinition).
+    let rts_store = get_rts_special_power_store();
+    if let Some(rts_template) = rts_store.find_template(name.as_str()) {
+        let template = convert_from_rts_special_power(rts_template);
+        drop(rts_store);
+        if let Some(mut store) = get_special_power_store_mut() {
+            store.add_template(template.clone());
+        }
+        return Arc::new(template);
+    }
+    drop(rts_store);
+
     let mut store =
         get_special_power_store_mut().expect("SpecialPowerStore missing during template creation");
     let id = store.get_next_id();
@@ -455,6 +477,117 @@ fn map_science_from_names(names: &[AsciiString]) -> ScienceType {
         return store.get_science_from_internal_name(first.as_str());
     }
     SCIENCE_INVALID
+}
+
+fn map_rts_power_type(power_type: RtsSpecialPowerType) -> SpecialPowerType {
+    match power_type {
+        RtsSpecialPowerType::Invalid => SpecialPowerType::Invalid,
+        RtsSpecialPowerType::DaisyCutter => SpecialPowerType::DaisyCutter,
+        RtsSpecialPowerType::ParadropAmerica => SpecialPowerType::ParadropAmerica,
+        RtsSpecialPowerType::CarpetBomb => SpecialPowerType::CarpetBomb,
+        RtsSpecialPowerType::ClusterMines => SpecialPowerType::ClusterMines,
+        RtsSpecialPowerType::EmpPulse => SpecialPowerType::EmpPulse,
+        RtsSpecialPowerType::NapalmStrike => SpecialPowerType::NapalmStrike,
+        RtsSpecialPowerType::CashHack => SpecialPowerType::CashHack,
+        RtsSpecialPowerType::NeutronMissile => SpecialPowerType::NeutronMissile,
+        RtsSpecialPowerType::SpySatellite => SpecialPowerType::SpySatellite,
+        RtsSpecialPowerType::Defector => SpecialPowerType::Defector,
+        RtsSpecialPowerType::TerrorCell => SpecialPowerType::TerrorCell,
+        RtsSpecialPowerType::Ambush => SpecialPowerType::Ambush,
+        RtsSpecialPowerType::BlackMarketNuke => SpecialPowerType::BlackMarketNuke,
+        RtsSpecialPowerType::AnthraxBomb => SpecialPowerType::AnthraxBomb,
+        RtsSpecialPowerType::ScudStorm => SpecialPowerType::ScudStorm,
+        RtsSpecialPowerType::Demoralize => SpecialPowerType::Demoralize,
+        RtsSpecialPowerType::CrateDrop => SpecialPowerType::CrateDrop,
+        RtsSpecialPowerType::A10ThunderboltStrike => SpecialPowerType::A10ThunderboltStrike,
+        RtsSpecialPowerType::DetonateDirtyNuke => SpecialPowerType::DetonateDirtyNuke,
+        RtsSpecialPowerType::ArtilleryBarrage => SpecialPowerType::ArtilleryBarrage,
+        RtsSpecialPowerType::MissileDefenderLaserGuidedMissiles => {
+            SpecialPowerType::MissileDefenderLaserGuidedMissiles
+        }
+        RtsSpecialPowerType::RemoteCharges => SpecialPowerType::RemoteCharges,
+        RtsSpecialPowerType::TimedCharges => SpecialPowerType::TimedCharges,
+        RtsSpecialPowerType::HelixNapalmBomb => SpecialPowerType::HelixNapalmBomb,
+        RtsSpecialPowerType::HackerDisableBuilding => SpecialPowerType::HackerDisableBuilding,
+        RtsSpecialPowerType::TankHunterTntAttack => SpecialPowerType::TankHunterTntAttack,
+        RtsSpecialPowerType::BlackLotusCaptureBuilding => {
+            SpecialPowerType::BlackLotusCaptureBuilding
+        }
+        RtsSpecialPowerType::BlackLotusDisableVehicleHack => {
+            SpecialPowerType::BlackLotusDisableVehicleHack
+        }
+        RtsSpecialPowerType::BlackLotusStealCashHack => SpecialPowerType::BlackLotusStealCashHack,
+        RtsSpecialPowerType::InfantryCaptureBuilding => SpecialPowerType::InfantryCaptureBuilding,
+        RtsSpecialPowerType::RadarVanScan => SpecialPowerType::RadarVanScan,
+        RtsSpecialPowerType::SpyDrone => SpecialPowerType::SpyDrone,
+        RtsSpecialPowerType::DisguiseAsVehicle => SpecialPowerType::DisguiseAsVehicle,
+        RtsSpecialPowerType::BoobyTrap => SpecialPowerType::BoobyTrap,
+        RtsSpecialPowerType::RepairVehicles => SpecialPowerType::RepairVehicles,
+        RtsSpecialPowerType::ParticleUplinkCannon => SpecialPowerType::ParticleUplinkCannon,
+        RtsSpecialPowerType::CashBounty => SpecialPowerType::CashBounty,
+        RtsSpecialPowerType::ChangeBattlePlans => SpecialPowerType::ChangeBattlePlans,
+        RtsSpecialPowerType::CiaIntelligence => SpecialPowerType::CiaIntelligence,
+        RtsSpecialPowerType::CleanupArea => SpecialPowerType::CleanupArea,
+        RtsSpecialPowerType::LaunchBaikonurRocket => SpecialPowerType::LaunchBaikonurRocket,
+        RtsSpecialPowerType::SpectreGunship => SpecialPowerType::SpectreGunship,
+        RtsSpecialPowerType::GpsScrambler => SpecialPowerType::GpsScrambler,
+        RtsSpecialPowerType::Frenzy => SpecialPowerType::Frenzy,
+        RtsSpecialPowerType::SneakAttack => SpecialPowerType::SneakAttack,
+        RtsSpecialPowerType::ChinaCarpetBomb => SpecialPowerType::ChinaCarpetBomb,
+        RtsSpecialPowerType::EarlyChinaCarpetBomb => SpecialPowerType::EarlyChinaCarpetBomb,
+        RtsSpecialPowerType::LeafletDrop => SpecialPowerType::LeafletDrop,
+        RtsSpecialPowerType::EarlyLeafletDrop => SpecialPowerType::EarlyLeafletDrop,
+        RtsSpecialPowerType::EarlyFrenzy => SpecialPowerType::EarlyFrenzy,
+        RtsSpecialPowerType::CommunicationsDownload => SpecialPowerType::CommunicationsDownload,
+        RtsSpecialPowerType::EarlyRepairVehicles => SpecialPowerType::EarlyRepairVehicles,
+        RtsSpecialPowerType::TankParadrop => SpecialPowerType::TankParadrop,
+        RtsSpecialPowerType::SupwParticleUplinkCannon => SpecialPowerType::SupwParticleUplinkCannon,
+        RtsSpecialPowerType::AirfDaisyCutter => SpecialPowerType::AirfDaisyCutter,
+        RtsSpecialPowerType::NukeClusterMines => SpecialPowerType::NukeClusterMines,
+        RtsSpecialPowerType::NukeNeutronMissile => SpecialPowerType::NukeNeutronMissile,
+        RtsSpecialPowerType::AirfA10ThunderboltStrike => SpecialPowerType::AirfA10ThunderboltStrike,
+        RtsSpecialPowerType::AirfSpectreGunship => SpecialPowerType::AirfSpectreGunship,
+        RtsSpecialPowerType::InfaParadropAmerica => SpecialPowerType::InfaParadropAmerica,
+        RtsSpecialPowerType::SlthGpsScrambler => SpecialPowerType::SlthGpsScrambler,
+        RtsSpecialPowerType::AirfCarpetBomb => SpecialPowerType::AirfCarpetBomb,
+        RtsSpecialPowerType::SuprCruiseMissile => SpecialPowerType::SuprCruiseMissile,
+        RtsSpecialPowerType::LazrParticleUplinkCannon => SpecialPowerType::LazrParticleUplinkCannon,
+        RtsSpecialPowerType::SupwNeutronMissile => SpecialPowerType::SupwNeutronMissile,
+        RtsSpecialPowerType::BattleshipBombardment => SpecialPowerType::BattleshipBombardment,
+    }
+}
+
+fn map_rts_academy(classification: RtsAcademyClassificationType) -> AcademyClassificationType {
+    match classification {
+        RtsAcademyClassificationType::Superpower => AcademyClassificationType::Superweapon,
+        RtsAcademyClassificationType::None
+        | RtsAcademyClassificationType::UpgradeRadar => AcademyClassificationType::Invalid,
+    }
+}
+
+fn convert_from_rts_special_power(src: &RtsSpecialPowerTemplate) -> SpecialPowerTemplate {
+    SpecialPowerTemplate::new(src.name.clone(), src.id)
+        .with_power_type(map_rts_power_type(src.power_type))
+        .with_reload_time(src.reload_time)
+        .with_required_science(src.required_science)
+        .with_initiate_sound(if src.initiate_sound.is_empty() {
+            AudioEventRts::default()
+        } else {
+            AudioEventRts::new(&src.initiate_sound)
+        })
+        .with_initiate_at_location_sound(if src.initiate_at_location_sound.is_empty() {
+            AudioEventRts::default()
+        } else {
+            AudioEventRts::new(&src.initiate_at_location_sound)
+        })
+        .with_academy_classification(map_rts_academy(src.academy_classification_type))
+        .with_detection_time(src.detection_time)
+        .with_view_object_duration(src.view_object_duration)
+        .with_view_object_range(src.view_object_range)
+        .with_radius_cursor_radius(src.radius_cursor_radius)
+        .with_public_timer(src.public_timer)
+        .with_shared_n_sync(src.shared_n_sync)
+        .with_shortcut_power(src.shortcut_power)
 }
 
 fn build_from_ini_special_power(

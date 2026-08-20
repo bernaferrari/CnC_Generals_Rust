@@ -432,6 +432,7 @@ impl HostMoneyCrateRegistry {
     }
 
     /// C++ VeterancyCrateCollide residual (Small/Medium LevelUp crates).
+    /// `levels == 0` is valid (AddsOwnerVeterancy Regular) and must stay 0.
     pub fn register_level_up_crate(&mut self, object_id: ObjectId, effect_range: f32, levels: u8) {
         self.crates.insert(
             object_id,
@@ -445,7 +446,7 @@ impl HostMoneyCrateRegistry {
                 expires_frame: 0,
                 is_veterancy: true,
                 veterancy_effect_range: effect_range.max(0.0),
-                veterancy_levels: levels.max(1),
+                veterancy_levels: levels,
                 is_unit_crate: false,
                 unit_crate_type: String::new(),
                 unit_crate_count: 0,

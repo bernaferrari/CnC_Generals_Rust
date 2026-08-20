@@ -510,14 +510,14 @@ impl Object {
         let mut mask: KindOfMask = 0;
         for kind in crate::common::ALL_KIND_OF {
             if self.is_kind_of(*kind) {
-                mask |= 1u64 << (*kind as u64);
+                mask |= kind.cpp_mask();
             }
         }
         mask
     }
 
     pub fn is_kind_of_mask(&self, mask: u32) -> bool {
-        (self.get_kind_of() & mask as u64) != 0
+        (self.get_kind_of() & mask as u128) != 0
     }
 
     /// Check required/forbidden KindOf masks (C++ isKindOfMulti).

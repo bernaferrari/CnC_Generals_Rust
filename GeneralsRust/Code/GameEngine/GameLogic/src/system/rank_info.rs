@@ -49,9 +49,7 @@ fn sync_rank_store_from_ini() {
     let Ok(mut dest) = store.write() else {
         return;
     };
-    if dest.get_rank_level_count() > 0 {
-        return;
-    }
+    dest.clear();
     let count = common.get_rank_level_count();
     for level in 1..=count {
         let Some(src) = common.get_rank_info(level) else {
@@ -82,6 +80,7 @@ pub struct RankInfo {
     pub science_purchase_points_granted: i32,
     pub sciences_granted: Vec<ScienceType>,
     is_override: bool,
+    next_override: Option<Box<RankInfo>>,
 }
 
 impl RankInfo {
@@ -93,10 +92,10 @@ impl RankInfo {
             science_purchase_points_granted: 0,
             sciences_granted: Vec::new(),
             is_override: false,
+            next_override: None,
         }
     }
 
-    /// Mark this descriptor as an override of an existing rank.
     pub fn mark_as_override(&mut self) {
         self.is_override = true;
     }
@@ -104,6 +103,28 @@ impl RankInfo {
     /// Whether this descriptor overrides a base rank definition.
     pub fn is_override(&self) -> bool {
         self.is_override
+    }
+
+    pub fn get_final_override(&self) -> &RankInfo {
+        match &self.next_override {
+            Some(next) => next.get_final_override(),
+            None => self,
+        }
+    }
+
+    fn get_final_override_mut(&mut self) -> &mut RankInfo {
+        if self.next_override.is_some() {
+            self.next_override
+                .as_mut()
+                .unwrap()
+                .get_final_override_mut()
+        } else {
+            self
+        }
+    }
+
+    pub fn delete_overrides(&mut self) {
+        self.next_override = None;
     }
 }
 
@@ -173,12 +194,13 @@ impl RankInfoStore {
         self.rank_infos.len()
     }
 
-    /// Retrieve the final rank definition for the specified rank (1-based).
     pub fn get_rank_info(&self, level: usize) -> Option<&RankInfo> {
         if level == 0 {
             return None;
         }
-        self.rank_infos.get(level - 1)
+        self.rank_infos
+            .get(level - 1)
+            .map(RankInfo::get_final_override)
     }
 
     /// Apply a rank definition generated from INI parsing.
@@ -207,6 +229,7 @@ impl RankInfoStore {
             science_purchase_points_granted: definition.science_purchase_points_granted,
             sciences_granted: definition.sciences_granted,
             is_override: false,
+            next_override: None,
         };
         info.is_override = false;
         self.rank_infos.push(info);
@@ -222,13 +245,16 @@ impl RankInfoStore {
         }
 
         let index = definition.rank - 1;
-        let mut base = self.rank_infos[index].clone();
-        base.rank_name = definition.rank_name;
-        base.skill_points_needed = definition.skill_points_needed;
-        base.science_purchase_points_granted = definition.science_purchase_points_granted;
-        base.sciences_granted = definition.sciences_granted;
-        base.mark_as_override();
-        self.rank_infos[index] = base;
+        let mut stacked = self.rank_infos[index].get_final_override().clone();
+        stacked.next_override = None;
+        stacked.rank_name = definition.rank_name;
+        stacked.skill_points_needed = definition.skill_points_needed;
+        stacked.science_purchase_points_granted = definition.science_purchase_points_granted;
+        stacked.sciences_granted = definition.sciences_granted;
+        stacked.mark_as_override();
+        self.rank_infos[index]
+            .get_final_override_mut()
+            .next_override = Some(Box::new(stacked));
         Ok(())
     }
 }
@@ -265,7 +291,9 @@ impl SubsystemInterface for RankInfoStore {
     }
 
     fn reset(&mut self) -> SubsystemResult<()> {
-        self.clear();
+        for info in &mut self.rank_infos {
+            info.delete_overrides();
+        }
         Ok(())
     }
 

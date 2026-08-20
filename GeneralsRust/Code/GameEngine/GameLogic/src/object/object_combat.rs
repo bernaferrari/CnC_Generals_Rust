@@ -343,7 +343,7 @@ impl Object {
         }
 
         // Now handle experience, if we can gain any
-        if let Some(tracker) = &self.experience_tracker {
+        let promotion = if let Some(tracker) = &self.experience_tracker {
             if let Ok(mut tracker_guard) = tracker.lock() {
                 if tracker_guard.is_accepting_experience_points() {
                     // srj sez: per dustin, no experience (et al) for killing things under construction.
@@ -352,14 +352,33 @@ impl Object {
                             if let Ok(victim_guard) = victim_tracker.lock() {
                                 let victim_cost = victim.get_build_cost();
                                 let killer_is_ally = relationship != Relationship::Enemies;
-                                let experience_value =
-                                    victim_guard.get_experience_value(victim_cost, killer_is_ally);
-                                tracker_guard.add_experience_points(experience_value, true, &[]);
+                                let experience_value = victim_guard
+                                    .get_experience_value(victim_cost, killer_is_ally);
+                                tracker_guard
+                                    .add_experience_points(experience_value, true, &[])
+                                    .map(|old_level| {
+                                        (old_level, tracker_guard.get_veterancy_level())
+                                    })
+                            } else {
+                                None
                             }
+                        } else {
+                            None
                         }
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some((old_level, new_level)) = promotion {
+            self.on_veterancy_level_changed(old_level, new_level, true);
         }
     }
 

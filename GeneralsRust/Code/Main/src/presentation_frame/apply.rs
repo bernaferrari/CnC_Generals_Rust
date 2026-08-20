@@ -763,31 +763,41 @@ impl PresentationFrame {
                 continue;
             };
             use crate::game_logic::combat_particles::CombatParticleKind;
-            let event_name = match kind {
+            let event_names: Vec<String> = match kind {
                 CombatParticleKind::DeathExplosion => {
-                    // Prefer concrete template when it looks like an explosion FX name.
+                    // Prefer Sound nugget names inside an authored FXList
+                    // (C++ SoundFXNugget m_soundName). Never play the FXList
+                    // template name as an audio event.
                     let t = template_name.as_str();
                     if t.is_empty() {
-                        "Explosion"
+                        vec!["Explosion".to_string()]
                     } else if t.starts_with("FX_") || t.starts_with("WeaponFX_") {
-                        t
+                        let sounds = crate::game_logic::sound_names_for_fx_list(t);
+                        if sounds.is_empty() {
+                            vec!["Explosion".to_string()]
+                        } else {
+                            sounds
+                        }
                     } else {
-                        "Explosion"
+                        vec!["Explosion".to_string()]
                     }
                 }
-                CombatParticleKind::DeathBurn => "FireBurn",
-                CombatParticleKind::DeathPoison => "PoisonDeath",
-                CombatParticleKind::DeathLaser => "LaserDeath",
-                CombatParticleKind::DeathSmoke => "DeathSmoke",
+                CombatParticleKind::DeathBurn => vec!["FireBurn".to_string()],
+                CombatParticleKind::DeathPoison => vec!["PoisonDeath".to_string()],
+                CombatParticleKind::DeathLaser => vec!["LaserDeath".to_string()],
+                CombatParticleKind::DeathSmoke => vec!["DeathSmoke".to_string()],
                 CombatParticleKind::WeaponMuzzleFlash
                 | CombatParticleKind::WeaponImpact
                 | CombatParticleKind::ProjectileExhaust => continue,
             };
-            let mut req = AudioEventRequest::new(event_name).with_priority(160);
-            if position.length_squared() > 0.01 {
-                req = req.with_position(*position);
+            for event_name in event_names {
+                let event_name = event_name.as_str();
+                let mut req = AudioEventRequest::new(event_name).with_priority(160);
+                if position.length_squared() > 0.01 {
+                    req = req.with_position(*position);
+                }
+                out.push(req);
             }
-            out.push(req);
         }
 
         // Wave 529: radar/EVA presentation audio residual (no GameLogic dual-write).

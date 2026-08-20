@@ -29,7 +29,6 @@ fn kind_of_from_cpp_bit(kind_of: u32) -> Option<KindOf> {
         kind_of_bit::AIRCRAFT => Some(KindOf::Aircraft),
         kind_of_bit::DOZER => Some(KindOf::Dozer),
         kind_of_bit::HARVESTER => Some(KindOf::Harvester),
-        kind_of_bit::POW_TRUCK => Some(KindOf::PowTruck),
         kind_of_bit::TRANSPORT => Some(KindOf::Transport),
         kind_of_bit::BRIDGE => Some(KindOf::Bridge),
         kind_of_bit::BRIDGE_TOWER => Some(KindOf::BridgeTower),

@@ -2539,11 +2539,11 @@ fn try_under_attack_event_base_eva_and_throttle() {
     );
     // Throttle: second event near same pos within 300 frames rejected.
     assert!(!logic.try_under_attack_event(id));
-    // Far away position should still fire.
+    // C++ precedence quirk: far-away same-type events still throttle for 10s.
     if let Some(o) = logic.host_object_mut(id) {
         o.set_position(glam::Vec3::new(1000.0, 0.0, 1000.0));
     }
-    assert!(logic.try_under_attack_event(id));
+    assert!(!logic.try_under_attack_event(id));
 }
 
 #[test]

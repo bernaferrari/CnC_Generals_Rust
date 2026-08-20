@@ -107,22 +107,24 @@ impl ScriptEngine {
         Ok(())
     }
 
-    /// Increment counter value
-    pub fn increment_counter(&self, name: &str) -> GameLogicResult<()> {
+    /// Increment a named counter by `amount`.
+    /// C++ `ScriptEngine::addCounter`: param0 is the INT amount.
+    pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
         let mut inner = self.lock_inner_mut();
         if let Some(counter) = &mut inner.counters[index] {
-            counter.value = counter.value.saturating_add(1);
+            counter.value = counter.value.saturating_add(amount);
         }
         Ok(())
     }
 
-    /// Decrement counter value
-    pub fn decrement_counter(&self, name: &str) -> GameLogicResult<()> {
+    /// Decrement a named counter by `amount`.
+    /// C++ `ScriptEngine::subCounter`: param0 is the INT amount.
+    pub fn decrement_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
         let index = self.allocate_counter(name)?;
         let mut inner = self.lock_inner_mut();
         if let Some(counter) = &mut inner.counters[index] {
-            counter.value = counter.value.saturating_sub(1);
+            counter.value = counter.value.saturating_sub(amount);
         }
         Ok(())
     }

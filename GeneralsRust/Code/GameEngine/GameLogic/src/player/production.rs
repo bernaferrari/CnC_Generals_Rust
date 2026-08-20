@@ -172,6 +172,16 @@ impl Player {
     pub fn set_units_should_hunt(&mut self, should_hunt: Bool, source: CommandSourceType) {
         self.units_should_hunt = should_hunt;
 
+        // C++ Player::setUnitsShouldHunt queries getMostValuableLocation first
+        // so hunt mood seeds the richest enemy cluster (Player.cpp:1983-1984).
+        let _hunt_seed = crate::helpers::ThePartitionManager::get().and_then(|pm| {
+            pm.get_most_valuable_location(
+                self.player_index,
+                !0u32,
+                crate::object::collide::partition_manager::ValueOrThreat::CashValue,
+            )
+        });
+
         // C++ Player::setUnitsShouldHunt: team prototypes → instances → members.
         let mut member_ids: Vec<ObjectID> = Vec::new();
         if let Ok(factory) = get_team_factory().lock() {
@@ -215,6 +225,100 @@ impl Player {
                     }
                 },
             );
+        }
+    }
+
+    /// Kill this player: evacuate, mark dead, kill with death FX, SP-AI resurrect.
+    /// C++ Reference: Player::killPlayer() (Player.cpp:2023-2071)
+    pub fn kill_player(&mut self) {
+        let mut teams: Vec<Arc<RwLock<Team>>> = Vec::new();
+        if let Ok(factory) = get_team_factory().lock() {
+            for prototype in &self.player_team_prototypes {
+                teams.extend(factory.find_team_instances(prototype.get_name().as_str()));
+            }
+        }
+        if teams.is_empty() {
+            if let Some(team) = &self.default_team {
+                teams.push(Arc::clone(team));
+            }
+        }
+
+        let mut member_ids: Vec<ObjectID> = Vec::new();
+        for team in &teams {
+            if let Ok(team_guard) = team.read() {
+                member_ids.extend_from_slice(team_guard.get_members());
+            }
+        }
+        if member_ids.is_empty() {
+            member_ids.extend_from_slice(&self.owned_objects);
+            if let Ok(manager) = get_object_manager().read() {
+                member_ids.extend(
+                    manager.get_objects_owned_by_player(self.player_index as UnsignedInt),
+                );
+            }
+            member_ids.sort_unstable();
+            member_ids.dedup();
+        }
+
+        // C++ first pass: evacuateTeam on every instance so dumped cargo exists before kill.
+        for object_id in &member_ids {
+            let Some(contain_arc) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(*object_id, |object_guard| {
+                    if object_guard.is_destroyed() || object_guard.is_effectively_dead() {
+                        return None;
+                    }
+                    object_guard.get_contain()
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            if let Ok(mut contain_guard) = contain_arc.lock() {
+                if contain_guard.get_contain_count() > 0 {
+                    let _ = contain_guard.remove_all_contained(false);
+                }
+            }
+        }
+
+        // Mark dead so OCLs don't spawn useful units.
+        self.is_player_dead = true;
+
+        if !teams.is_empty() {
+            for team in &teams {
+                if let Ok(mut team_guard) = team.write() {
+                    team_guard.kill_team();
+                }
+            }
+        } else {
+            for object_id in &member_ids {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    *object_id,
+                    |object_guard| {
+                        object_guard.kill(
+                            Some(crate::damage::DamageType::Unresistable),
+                            Some(crate::damage::DeathType::Normal),
+                        );
+                    },
+                );
+            }
+        }
+
+        self.owned_objects.clear();
+
+        // C++: single-player computer players are resurrected so scripts can reuse the slot.
+        let resurrect_sp_ai = crate::system::game_logic::get_game_logic()
+            .try_lock()
+            .map(|logic| logic.is_in_single_player_game())
+            .unwrap_or(false)
+            && self.player_type == PlayerType::Computer;
+        if resurrect_sp_ai {
+            self.is_player_dead = false;
+            return;
+        }
+
+        let all_money = self.money.count_money();
+        if all_money > 0 {
+            let _ = self.money.withdraw_with_sound(all_money, false);
         }
     }
 

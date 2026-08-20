@@ -108,9 +108,35 @@ pub struct DrawableState {
     pub beam_start: Option<Coord3D>,
     pub beam_end: Option<Coord3D>,
     pub beam_width: Option<Real>,
+    pub laser_growth_frames: Option<i32>,
+    pub laser_growth_start_frame: Option<UnsignedInt>,
     pub projectile_stream: Option<ProjectileStreamState>,
     pub drawable: Option<Arc<RwLock<Drawable>>>,
     pub expiration_frame: Option<UnsignedInt>,
+}
+
+fn laser_width_scalar(
+    growth_frames: Option<i32>,
+    growth_start: Option<UnsignedInt>,
+) -> Real {
+    let Some(frames) = growth_frames else {
+        return 1.0;
+    };
+    if frames == 0 {
+        return 1.0;
+    }
+    let start = growth_start.unwrap_or(0);
+    let now = TheGameLogic::get_frame();
+    let elapsed = now.saturating_sub(start) as Real;
+    let span = frames.unsigned_abs() as Real;
+    if span <= 0.0 {
+        return 1.0;
+    }
+    if frames > 0 {
+        (elapsed / span).clamp(0.0, 1.0)
+    } else {
+        (1.0 - (elapsed / span)).clamp(0.0, 1.0)
+    }
 }
 
 static DRAWABLE_STATE: Lazy<Mutex<HashMap<u32, DrawableState>>> =
@@ -483,6 +509,8 @@ impl TheGameClient {
                 beam_start: None,
                 beam_end: None,
                 beam_width,
+                laser_growth_frames: None,
+                laser_growth_start_frame: None,
                 projectile_stream: None,
                 drawable: Some(Arc::clone(&drawable)),
                 expiration_frame: None,
@@ -581,6 +609,82 @@ impl TheGameClient {
             state.beam_start = Some(*start);
             state.beam_end = Some(*end);
         }
+    }
+
+    /// C++ `LaserUpdate::initLaser` on the drawable ClientUpdate module.
+    pub fn init_drawable_laser(
+        &self,
+        id: u32,
+        start: &Coord3D,
+        end: &Coord3D,
+        growth_frames: i32,
+    ) {
+        {
+            let mut map = DRAWABLE_STATE.lock().unwrap();
+            if let Some(state) = map.get_mut(&id) {
+                state.beam_start = Some(*start);
+                state.beam_end = Some(*end);
+                if growth_frames != 0 {
+                    state.laser_growth_frames = Some(growth_frames);
+                    state.laser_growth_start_frame = Some(TheGameLogic::get_frame());
+                }
+            }
+        }
+
+        let Some(drawable) = self.get_drawable_arc(id) else {
+            return;
+        };
+        let Ok(guard) = drawable.read() else {
+            return;
+        };
+        for module in guard.modules() {
+            module.with_module(|module| {
+                if let Some(laser) = module.get_laser_update_interface() {
+                    laser.init_laser(
+                        None,
+                        None,
+                        Some(start.to_array()),
+                        Some(end.to_array()),
+                        String::new(),
+                        growth_frames,
+                    );
+                }
+            });
+        }
+    }
+
+    /// C++ `LaserUpdate::getCurrentLaserRadius`.
+    pub fn get_current_laser_radius(&self, id: u32) -> Option<Real> {
+        let (template_width, growth_frames, growth_start) = {
+            let map = DRAWABLE_STATE.lock().ok()?;
+            let state = map.get(&id)?;
+            (
+                state.beam_width.unwrap_or(1.0),
+                state.laser_growth_frames,
+                state.laser_growth_start_frame,
+            )
+        };
+
+        if let Some(drawable) = self.get_drawable_arc(id) {
+            if let Ok(guard) = drawable.read() {
+                for module in guard.modules() {
+                    let mut scale = None;
+                    module.with_module(|module| {
+                        if let Some(client_update) = module.get_client_update_interface() {
+                            client_update.client_update();
+                        }
+                        if let Some(laser) = module.get_laser_update_interface() {
+                            scale = Some(laser.get_width_scale());
+                        }
+                    });
+                    if let Some(scale) = scale {
+                        return Some(template_width * scale);
+                    }
+                }
+            }
+        }
+
+        Some(template_width * laser_width_scalar(growth_frames, growth_start))
     }
 
     pub fn set_drawable_projectile_stream(
@@ -835,6 +939,8 @@ impl TheGameClient {
                 beam_start: None,
                 beam_end: None,
                 beam_width: None,
+                laser_growth_frames: None,
+                laser_growth_start_frame: None,
                 projectile_stream: None,
                 drawable: Some(drawable),
                 expiration_frame: None,
@@ -893,6 +999,8 @@ impl TheGameClient {
                 beam_start: None,
                 beam_end: None,
                 beam_width: None,
+                laser_growth_frames: None,
+                laser_growth_start_frame: None,
                 projectile_stream: None,
                 drawable: None,
                 expiration_frame: None,

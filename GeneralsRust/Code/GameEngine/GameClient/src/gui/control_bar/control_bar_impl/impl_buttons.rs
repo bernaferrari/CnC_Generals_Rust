@@ -61,29 +61,32 @@ impl ControlBar {
             return Ok(());
         };
 
-        for button_opt in &command_set.buttons {
-            let Some(button) = button_opt.as_ref() else {
+        const WND_SLOTS: usize = 14;
+        context.available_commands.clear();
+        context.contain_data.clear();
+        context.contain_data.resize(WND_SLOTS, None);
+        for slot in 0..WND_SLOTS {
+            let button_opt = command_set.buttons.get(slot).and_then(|b| b.as_ref());
+            let Some(button) = button_opt else {
+                context.available_commands.push(Self::hidden_slot_button());
                 continue;
             };
             if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
+                context.available_commands.push(Self::hidden_slot_button());
                 continue;
             }
-            if button.get_command_type() == CommandType::Evacuate {
-                continue;
-            }
-            if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name())
+            let mut cmd = if let Some(common_button) =
+                common_bar.find_command_button_resolved(button.get_name())
             {
-                context
-                    .available_commands
-                    .push(Self::command_from_definition(common_button));
+                Self::command_from_definition(common_button)
             } else {
-                context
-                    .available_commands
-                    .push(Self::command_from_logic_button(button));
-            }
+                Self::command_from_logic_button(button)
+            };
+            Self::apply_need_special_power_science(&mut cmd, button);
+            context.available_commands.push(cmd);
         }
 
-        super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
+        super::control_bar_structure_inventory::do_transport_inventory_ui(
             context,
             self.presentation_max_garrison,
             self.presentation_garrisoned_count,
@@ -141,9 +144,7 @@ impl ControlBar {
             // Dual-world residual: OBJECT_REGISTRY intersection.
             super::control_bar_multi_select::populate_multi_select_commands(context)?;
         }
-        if context.available_commands.is_empty() {
-            self.add_object_commands(context)?;
-        }
+        // C++ populateMultiSelect never falls back to a single unit's full set.
         Ok(())
     }
 
@@ -280,6 +281,144 @@ impl ControlBar {
         }
         button
     }
+
+    pub(super) fn hidden_slot_button() -> CommandButton {
+        CommandButton {
+            button_hidden: true,
+            button_enabled: false,
+            ..CommandButton::default()
+        }
+    }
+
+    pub(super) fn command_from_set_slot(
+        common_bar: &game_engine::common::ini::ini_command_button::ControlBar,
+        button: Option<&gamelogic::command_button::CommandButton>,
+    ) -> CommandButton {
+        let Some(button) = button else {
+            return Self::hidden_slot_button();
+        };
+        if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
+            return Self::hidden_slot_button();
+        }
+        let mut cmd = if let Some(common_button) =
+            common_bar.find_command_button_resolved(button.get_name())
+        {
+            Self::command_from_definition(common_button)
+        } else {
+            Self::command_from_logic_button(button)
+        };
+        Self::apply_need_special_power_science(&mut cmd, button);
+        cmd
+    }
+
+    /// C++ populateCommand NEED_SPECIAL_POWER_SCIENCE hide + copyImagesFrom rank 1/3/8.
+    fn apply_need_special_power_science(
+        cmd: &mut CommandButton,
+        logic_button: &gamelogic::command_button::CommandButton,
+    ) {
+        if (cmd.options & CommandOption::NeedSpecialPowerScience as u32) == 0 {
+            return;
+        }
+        if matches!(
+            cmd.command_type,
+            CommandType::PurchaseScience | CommandType::QueueUpgrade
+        ) {
+            return;
+        }
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else {
+            return;
+        };
+        let Ok(player) = player_arc.read() else {
+            return;
+        };
+        let required = logic_button
+            .get_special_power_template()
+            .map(|sp| sp.get_required_science())
+            .unwrap_or(SCIENCE_INVALID);
+        let required = if required != SCIENCE_INVALID {
+            required
+        } else {
+            cmd.sciences_ids
+                .first()
+                .copied()
+                .unwrap_or(SCIENCE_INVALID)
+        };
+        if required != SCIENCE_INVALID && !player.has_science(required) {
+            cmd.button_hidden = true;
+            return;
+        }
+        let mut best_index: Option<usize> = None;
+        for (i, science) in cmd.sciences_ids.iter().copied().enumerate() {
+            if player.has_science(science) {
+                best_index = Some(i);
+            } else {
+                break;
+            }
+        }
+        let Some(best_index) = best_index else {
+            return;
+        };
+        let science = cmd.sciences_ids[best_index];
+        let Some(template) = player.get_player_template() else {
+            return;
+        };
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return;
+        };
+        let Some(common_bar) = get_ini_control_bar() else {
+            return;
+        };
+        let names = [
+            template.get_purchase_science_command_set_rank1().to_string(),
+            template.get_purchase_science_command_set_rank3().to_string(),
+            template.get_purchase_science_command_set_rank8().to_string(),
+        ];
+        if names.iter().any(|n| n.is_empty()) {
+            return;
+        }
+        let limits = [
+            MAX_PURCHASE_SCIENCE_RANK_1,
+            MAX_PURCHASE_SCIENCE_RANK_3,
+            MAX_PURCHASE_SCIENCE_RANK_8,
+        ];
+        for (name, limit) in names.iter().zip(limits) {
+            let Some(set) = control_bar
+                .find_command_set_by_name(name)
+                .or_else(|| control_bar.find_command_set_by_name(&name.to_ascii_uppercase()))
+            else {
+                return;
+            };
+            for slot in 0..limit {
+                let Some(purchase) = set.buttons.get(slot).and_then(|b| b.as_ref()) else {
+                    continue;
+                };
+                if purchase.get_command_type() != CommandType::PurchaseScience {
+                    continue;
+                }
+                let purchase_science = purchase.science_vec().first().copied();
+                if purchase_science != Some(science) {
+                    continue;
+                }
+                if let Some(def) = common_bar.find_command_button_resolved(purchase.get_name()) {
+                    if !def.button_image.is_empty() {
+                        cmd.button_image = def.button_image.clone();
+                    }
+                    if !def.text_label.is_empty() {
+                        cmd.text_label = def.text_label.clone();
+                    }
+                    if !def.descriptive_text.is_empty() {
+                        cmd.descriptive_text = def.descriptive_text.clone();
+                    }
+                }
+                return;
+            }
+        }
+    }
+
 
     pub(super) fn push_command_if_missing(context: &mut ControlBarContext, button: CommandButton) {
         if context.available_commands.iter().any(|existing| {

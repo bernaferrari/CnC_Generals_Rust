@@ -86,6 +86,7 @@ impl GameLogic {
             self.apply_fire_weapon_when_dead(event.id);
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                self.host_radar_remove_object(event.id);
                 crate::game_logic::host_destroy_log::record(event.id);
                 // Wave 681: mid-frame GameWorld Destroy while coupled shadow tick is live.
                 // End-of-tick host_destroy_log drain remains idempotent for unmapped IDs.

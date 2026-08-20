@@ -141,6 +141,66 @@ impl UpgradeMuxData {
                 .any(|n| n.as_str() == upgrade)
     }
 
+    /// Parse `TriggeredBy` tokens into activation names.
+    pub fn parse_triggered_by_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        for token in tokens.iter().skip_while(|t| **t == "=") {
+            if !token.is_empty() {
+                self.activation_upgrade_names
+                    .push(AsciiString::from(*token));
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse `ConflictsWith` tokens into conflicting names.
+    pub fn parse_conflicts_with_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        for token in tokens.iter().skip_while(|t| **t == "=") {
+            if !token.is_empty() {
+                self.conflicting_upgrade_names
+                    .push(AsciiString::from(*token));
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse `RemovesUpgrades` tokens into removal names.
+    pub fn parse_removes_upgrades_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        for token in tokens.iter().skip_while(|t| **t == "=") {
+            if !token.is_empty() {
+                self.removal_upgrade_names.push(AsciiString::from(*token));
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse `RequiresAllTriggers`.
+    pub fn parse_requires_all_triggers_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        let value = tokens
+            .iter()
+            .skip_while(|t| **t == "=")
+            .next()
+            .ok_or(INIError::InvalidData)?;
+        self.requires_all_triggers = INI::parse_bool(value)?;
+        Ok(())
+    }
+
+    /// Parse `FXListUpgrade` into a named FX list handle.
+    /// Matches C++ `INI::parseFXList` stored on `UpgradeMuxData::m_fxListUpgrade`.
+    pub fn parse_fx_list_upgrade_tokens(&mut self, tokens: &[&str]) -> Result<(), INIError> {
+        let value = tokens
+            .iter()
+            .skip_while(|t| **t == "=")
+            .next()
+            .ok_or(INIError::InvalidData)?;
+        if value.eq_ignore_ascii_case("None") {
+            self.fx_list_upgrade = None;
+            return Ok(());
+        }
+        self.fx_list_upgrade = Some(Arc::new(FXList::new(value)));
+        Ok(())
+    }
+
+
     /// Parse from INI
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, UPGRADE_MUX_DATA_FIELDS)
@@ -319,14 +379,7 @@ fn parse_triggered_by(
     data: &mut UpgradeMuxData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    // Parse list of upgrade names
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.activation_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.parse_triggered_by_tokens(tokens)
 }
 
 fn parse_conflicts_with(
@@ -334,13 +387,7 @@ fn parse_conflicts_with(
     data: &mut UpgradeMuxData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.conflicting_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.parse_conflicts_with_tokens(tokens)
 }
 
 fn parse_removes_upgrades(
@@ -348,12 +395,7 @@ fn parse_removes_upgrades(
     data: &mut UpgradeMuxData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.removal_upgrade_names.push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.parse_removes_upgrades_tokens(tokens)
 }
 
 fn parse_requires_all_triggers(
@@ -361,14 +403,17 @@ fn parse_requires_all_triggers(
     data: &mut UpgradeMuxData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.requires_all_triggers = INI::parse_bool(value)?;
-    Ok(())
+    data.parse_requires_all_triggers_tokens(tokens)
 }
+
+fn parse_fx_list_upgrade(
+    _ini: &mut INI,
+    data: &mut UpgradeMuxData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.parse_fx_list_upgrade_tokens(tokens)
+}
+
 
 const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxData>] = &[
     FieldParse {
@@ -386,6 +431,10 @@ const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxData>] = &[
     FieldParse {
         token: "RequiresAllTriggers",
         parse: parse_requires_all_triggers,
+    },
+    FieldParse {
+        token: "FXListUpgrade",
+        parse: parse_fx_list_upgrade,
     },
 ];
 
@@ -468,4 +517,19 @@ mod tests {
         let mask_a = upgrade_mask_for_name("UpgradeA");
         assert!(!mux.would_upgrade(mask_a));
     }
+
+    #[test]
+    fn parse_fx_list_upgrade_stores_named_list() {
+        let mut data = UpgradeMuxData::default();
+        data.parse_fx_list_upgrade_tokens(&["FX_UpgradeFlash"])
+            .expect("parse FXListUpgrade");
+        assert_eq!(
+            data.fx_list_upgrade.as_ref().map(|fx| fx.name()),
+            Some("FX_UpgradeFlash")
+        );
+        data.parse_fx_list_upgrade_tokens(&["None"])
+            .expect("parse None");
+        assert!(data.fx_list_upgrade.is_none());
+    }
+
 }

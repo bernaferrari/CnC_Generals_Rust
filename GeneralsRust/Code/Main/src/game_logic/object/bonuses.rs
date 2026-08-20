@@ -161,6 +161,13 @@ impl Object {
         use crate::game_logic::host_strategy_center::{
             BOMBARDMENT_DAMAGE_MULT, SEARCH_AND_DESTROY_RANGE_MULT,
         };
+        use crate::game_logic::host_unit_training::{
+            VETERANCY_DAMAGE_BONUS_ELITE, VETERANCY_DAMAGE_BONUS_HEROIC,
+            VETERANCY_DAMAGE_BONUS_VETERAN, VETERANCY_ROF_BONUS_ELITE, VETERANCY_ROF_BONUS_HEROIC,
+            VETERANCY_ROF_BONUS_VETERAN,
+        };
+        use crate::game_logic::VeterancyLevel;
+
 
         let mut damage = 1.0f32;
         let mut range = 1.0f32;
@@ -198,6 +205,26 @@ impl Object {
             2 => rof *= 3.0,
             _ => {}
         }
+        // C++ Object::setWeaponBonusCondition VETERAN/ELITE/HERO + computeBonus
+        // every fire (Weapon.cpp:1797-1816). GameData defaults: Vet 110%/120%,
+        // Elite 120%/140%, Hero 130%/160%. Live fire must recompute from these
+        // fields so secondary/tertiary and post-promotion weapons pick them up.
+        match self.experience.level {
+            VeterancyLevel::Veteran => {
+                damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
+                rof *= VETERANCY_ROF_BONUS_VETERAN;
+            }
+            VeterancyLevel::Elite => {
+                damage *= VETERANCY_DAMAGE_BONUS_ELITE;
+                rof *= VETERANCY_ROF_BONUS_ELITE;
+            }
+            VeterancyLevel::Heroic => {
+                damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
+                rof *= VETERANCY_ROF_BONUS_HEROIC;
+            }
+            VeterancyLevel::Rookie => {}
+        }
+
 
         (damage, range, rof.max(0.01), pre_attack.max(0.01))
     }

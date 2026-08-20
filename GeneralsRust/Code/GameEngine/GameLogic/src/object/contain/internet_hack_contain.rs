@@ -14,6 +14,7 @@ use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::contain::TransportContain;
 use crate::object::Object;
 use game_engine::common::ini::{INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for InternetHackContain module
 #[derive(Debug, Clone, Default)]
@@ -236,6 +237,39 @@ impl ContainModuleInterface for InternetHackContain {
 
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = self.base.process_damage_to_contained(percent_damage);
+    }
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
+    }
+}
+
+impl Snapshotable for InternetHackContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        Snapshotable::xfer(&mut self.base, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 

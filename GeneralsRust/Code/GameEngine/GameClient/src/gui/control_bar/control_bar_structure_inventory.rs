@@ -5,7 +5,11 @@
 use super::control_bar::ControlBar;
 use super::{CommandButton, ControlBarContext};
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
+use game_engine::common::thing::thing_factory::get_thing_factory;
+use gamelogic::commands::CommandType;
+use gamelogic::common::types::DisabledType;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+
 
 /// C++ `MAX_STRUCTURE_INVENTORY_BUTTONS` (ControlBar.h:389).
 pub const MAX_STRUCTURE_INVENTORY_BUTTONS: usize = 10;
@@ -20,6 +24,166 @@ pub struct StructureInventoryOccupant {
     pub button_image: String,
     pub overlay_image: Option<String>,
 }
+
+/// C++ `ThingTemplate::getButtonImage()` / `get_name()`.
+fn button_image_from_template_name(template_name: &str) -> String {
+    if template_name.is_empty() {
+        return String::new();
+    }
+    let Ok(factory) = get_thing_factory() else {
+        return String::new();
+    };
+    let Some(factory) = factory.as_ref() else {
+        return String::new();
+    };
+    factory
+        .find_template(template_name, false)
+        .and_then(|tmpl| tmpl.get_button_image().cloned())
+        .map(|image| image.name)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_default()
+}
+
+fn veterancy_overlay_for_level(
+    level: gamelogic::common::types::VeterancyLevel,
+) -> Option<String> {
+    match level {
+        gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
+        gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
+        _ => None,
+    }
+}
+
+/// C++ `ControlBar::doTransportInventoryUI` (ControlBarCommand.cpp:124-241).
+/// Overlay EXIT_CONTAINER slots onto the existing CommandSet. Do not wipe Move/Attack.
+pub(super) fn do_transport_inventory_ui(
+    context: &mut ControlBarContext,
+    presentation_max_garrison: usize,
+    presentation_garrisoned_count: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if context.selected_objects.len() != 1 {
+        return Ok(());
+    }
+
+    let mut max_capacity = 0usize;
+    let mut extra_slots = 0usize;
+    let mut occupants: Vec<StructureInventoryOccupant> = Vec::new();
+    let mut used_registry = false;
+    let mut unmanned = false;
+
+    if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
+        if let Ok(object) = object_arc.read() {
+            unmanned = object.is_disabled_by_type(DisabledType::DisabledUnmanned);
+            if let Some(contain) = object.get_contain() {
+                if let Ok(contain_guard) = contain.lock() {
+                    if !contain_guard.is_displayed_on_control_bar()
+                        || contain_guard.get_max_capacity() == 0
+                    {
+                        return Ok(());
+                    }
+                    max_capacity = contain_guard.get_max_capacity();
+                    let contained = contain_guard.get_contained_objects();
+                    let (pip_max, pip_full, _) = contain_guard.get_container_pips_to_show();
+                    extra_slots = (pip_full as usize).saturating_sub(contained.len());
+                    if pip_max > 0 {
+                        max_capacity = pip_max as usize;
+                    }
+                    for &occupant_id in contained {
+                        occupants.push(occupant_from_registry(occupant_id));
+                    }
+                    used_registry = true;
+                }
+            } else {
+                return Ok(());
+            }
+        }
+    }
+
+    if !used_registry {
+        if presentation_max_garrison == 0 {
+            return Ok(());
+        }
+        max_capacity = presentation_max_garrison;
+        let count = presentation_garrisoned_count.min(max_capacity);
+        for _ in 0..count {
+            occupants.push(StructureInventoryOccupant::default());
+        }
+    }
+
+    if max_capacity == 0 {
+        return Ok(());
+    }
+
+    let transport_max = max_capacity.saturating_sub(extra_slots);
+    let mut first_exit = None;
+    let mut inventory_command_count = 0usize;
+
+    for (i, button) in context.available_commands.iter_mut().enumerate() {
+        if button.command_type != CommandType::Exit
+            && !button
+                .command_name
+                .eq_ignore_ascii_case(STRUCTURE_INVENTORY_EXIT_COMMAND_NAME)
+        {
+            continue;
+        }
+        if first_exit.is_none() {
+            first_exit = Some(i);
+        }
+        inventory_command_count += 1;
+        button.button_hidden = unmanned || inventory_command_count > transport_max;
+        button.button_enabled = false;
+        button.exit_object_id = None;
+        button.overlay_image = None;
+    }
+
+    if context.contain_data.len() < context.available_commands.len() {
+        context
+            .contain_data
+            .resize(context.available_commands.len(), None);
+    }
+    for slot in context.contain_data.iter_mut() {
+        *slot = None;
+    }
+
+    if let Some(first) = first_exit {
+        for (offset, occupant) in occupants.iter().enumerate() {
+            let slot = first + offset;
+            let Some(button) = context.available_commands.get_mut(slot) else {
+                break;
+            };
+            if button.command_type != CommandType::Exit
+                && !button
+                    .command_name
+                    .eq_ignore_ascii_case(STRUCTURE_INVENTORY_EXIT_COMMAND_NAME)
+            {
+                break;
+            }
+            if occupant.object_id != 0 {
+                button.exit_object_id = Some(occupant.object_id);
+                if let Some(data) = context.contain_data.get_mut(slot) {
+                    *data = Some(occupant.object_id);
+                }
+            }
+            if !occupant.button_image.is_empty() {
+                button.button_image = occupant.button_image.clone();
+            }
+            button.overlay_image = occupant.overlay_image.clone();
+            button.button_enabled = occupant.object_id != 0 || !used_registry;
+            button.button_hidden = unmanned;
+        }
+    }
+
+    context.last_recorded_inventory_count = occupants.len() as u32;
+    RESIDUAL_SI_MAX.store(max_capacity, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_COUNT.store(occupants.len(), std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EXIT.store(first_exit.is_some(), std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_EVACUATE.store(occupants.len() > 0, std::sync::atomic::Ordering::Relaxed);
+    RESIDUAL_SI_STOP.store(occupants.len() > 0, std::sync::atomic::Ordering::Relaxed);
+    residual_si_action_store(ResidualStructureInventoryAction::Populate);
+    Ok(())
+}
+
 
 /// Append inventory commands for garrison/contain structures.
 ///
@@ -190,16 +354,10 @@ fn occupant_from_registry(occupant_id: impl Into<u32>) -> StructureInventoryOccu
         };
     };
     let template_name = object.get_template_name().to_string();
-    let overlay_image = match object.get_veterancy_level() {
-        gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
-        gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
-        gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
-        _ => None,
-    };
     StructureInventoryOccupant {
         object_id,
-        button_image: template_name,
-        overlay_image,
+        button_image: button_image_from_template_name(&template_name),
+        overlay_image: veterancy_overlay_for_level(object.get_veterancy_level()),
     }
 }
 

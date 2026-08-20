@@ -444,16 +444,16 @@ impl Default for ParticleSystemInfo {
 
             wind_motion: WindMotion::NotUsed,
             wind_angle: 0.0,
-            wind_angle_change: 0.0,
-            wind_angle_change_min: 0.0,
-            wind_angle_change_max: 0.0,
+            wind_angle_change: 0.15,
+            wind_angle_change_min: 0.15,
+            wind_angle_change_max: 0.45,
             wind_motion_start_angle: 0.0,
             wind_motion_start_angle_min: 0.0,
-            wind_motion_start_angle_max: 0.0,
-            wind_motion_end_angle: 0.0,
-            wind_motion_end_angle_min: 0.0,
-            wind_motion_end_angle_max: 0.0,
-            wind_motion_moving_to_end_angle: false,
+            wind_motion_start_angle_max: std::f32::consts::PI / 4.0,
+            wind_motion_end_angle: std::f32::consts::TAU - (std::f32::consts::PI / 4.0),
+            wind_motion_end_angle_min: std::f32::consts::TAU - (std::f32::consts::PI / 4.0),
+            wind_motion_end_angle_max: std::f32::consts::TAU,
+            wind_motion_moving_to_end_angle: true,
         }
     }
 }
@@ -589,9 +589,8 @@ impl ParticleSystemManager {
             last_logic_frame_update: 0,
             local_player_index: 0,
 
-            // Default LOD settings (matches C++ defaults)
             max_particle_count: 2500,
-            max_field_particle_count: 500,
+            max_field_particle_count: 30,
             min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
             min_dynamic_particle_skip_priority: ParticlePriorityType::Critical,
             particle_skip_mask: 0,
@@ -1116,24 +1115,58 @@ impl ParticleSystemManager {
     }
 
     /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
+    fn live_max_particle_count(&self) -> usize {
+        let runtime = game_engine::common::global_data::read().max_particle_count;
+        if runtime > 0 {
+            return runtime as usize;
+        }
+        game_engine::common::ini::ini_game_data::get_global_data()
+            .map(|data| data.read().max_particle_count)
+            .filter(|&count| count > 0)
+            .map(|count| count as usize)
+            .unwrap_or(self.max_particle_count)
+    }
+
+    fn live_max_field_particle_count(&self) -> usize {
+        let runtime = game_engine::common::global_data::read().max_field_particle_count;
+        if runtime > 0 {
+            return runtime as usize;
+        }
+        game_engine::common::ini::ini_game_data::get_global_data()
+            .map(|data| data.read().max_field_particle_count)
+            .filter(|&count| count > 0)
+            .map(|count| count as usize)
+            .unwrap_or(self.max_field_particle_count)
+    }
+
+    fn live_lod_priority(priority: game_engine::common::ini::ParticlePriorityType) -> ParticlePriorityType {
+        ParticlePriorityType::from_index(priority as usize)
+            .unwrap_or(ParticlePriorityType::WeaponExplosion)
+    }
+
+    /// Check if a particle with given priority should be skipped based on LOD (C++ GameLODManager::isParticleSkipped)
     pub fn should_skip_particle(&mut self, priority: ParticlePriorityType) -> bool {
         // ALWAYS_RENDER particles are never skipped (C++ line 1695)
         if priority == ParticlePriorityType::AlwaysRender {
             return false;
         }
 
+        let (min_priority, min_skip_priority) = {
+            let lod = game_engine::common::ini::get_game_lod_manager();
+            (
+                Self::live_lod_priority(lod.get_min_dynamic_particle_priority()),
+                Self::live_lod_priority(lod.get_min_dynamic_particle_skip_priority()),
+            )
+        };
+
         // Check if below minimum priority for current FPS (C++ lines 1680-1682)
-        if priority < self.min_dynamic_particle_priority {
+        if priority < min_priority {
             return true;
         }
 
         // Check skip mask for frame-skipping (C++ lines 1681-1682)
-        if priority < self.min_dynamic_particle_skip_priority {
-            self.particle_generation_count += 1;
-            if (self.particle_generation_count & self.particle_skip_mask) != self.particle_skip_mask
-            {
-                return true;
-            }
+        if priority < min_skip_priority && game_engine::common::ini::is_particle_skipped() {
+            return true;
         }
 
         false
@@ -1203,7 +1236,7 @@ impl ParticleSystemManager {
         if system_particle_count > 0
             && priority == ParticlePriorityType::AreaEffect
             && is_ground_aligned
-            && self.field_particle_count > self.max_field_particle_count
+            && self.field_particle_count > self.live_max_field_particle_count()
         {
             return false;
         }
@@ -1222,14 +1255,16 @@ impl ParticleSystemManager {
             return true;
         }
 
+        let max_particle_count = self.live_max_particle_count();
+
         // Check if particles are disabled entirely
-        if self.max_particle_count == 0 {
+        if max_particle_count == 0 {
             return false;
         }
 
         // Check particle count limit (C++ lines 1699-1704)
-        if self.particle_count >= self.max_particle_count {
-            let needed = self.particle_count - self.max_particle_count + 1;
+        if self.particle_count >= max_particle_count {
+            let needed = self.particle_count - max_particle_count + 1;
             if self.remove_oldest_particles(needed, priority) != needed {
                 return false;
             }
@@ -1237,7 +1272,6 @@ impl ParticleSystemManager {
 
         true
     }
-
     /// Set LOD parameters (typically from GameLODManager)
     pub fn set_lod_params(
         &mut self,
@@ -1359,7 +1393,7 @@ impl SubsystemInterface for ParticleSystemManager {
 
         // Reset LOD settings to defaults
         self.max_particle_count = 2500;
-        self.max_field_particle_count = 500;
+        self.max_field_particle_count = 30;
         self.min_dynamic_particle_priority = ParticlePriorityType::WeaponExplosion;
         self.min_dynamic_particle_skip_priority = ParticlePriorityType::Critical;
         self.particle_skip_mask = 0;

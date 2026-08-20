@@ -1780,7 +1780,7 @@ impl EntityStore {
             extra_friction: 0.0,
             apply_friction_2d_when_airborne: false,
             center_of_mass_offset: 0.0,
-            pitch_roll_yaw_factor: 1.0,
+            pitch_roll_yaw_factor: 2.0,
             move_away_destination: None,
             request_other_move_away_id: None,
             immune_to_falling_damage: false,

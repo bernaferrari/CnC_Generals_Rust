@@ -40,20 +40,19 @@ impl Object {
         let yaw_m = pure_logic_random_real(seed, 10, -1.0, 1.0);
         let pitch_m = pure_logic_random_real(seed, 11, -1.0, 1.0);
         let roll_m = pure_logic_random_real(seed, 12, -1.0, 1.0);
-        self.shock_yaw_rate += Self::SHOCK_MAX_YAW * yaw_m;
-        self.shock_pitch_rate += Self::SHOCK_MAX_PITCH * pitch_m;
-        self.shock_roll_rate += Self::SHOCK_MAX_ROLL * roll_m;
-        // Immediate yaw kick (presentation/tumble residual).
+        let dyaw = Self::SHOCK_MAX_YAW * yaw_m;
+        let dpitch = Self::SHOCK_MAX_PITCH * pitch_m;
+        let droll = Self::SHOCK_MAX_ROLL * roll_m;
+        self.shock_yaw_rate += dyaw;
+        self.shock_pitch_rate += dpitch;
+        self.shock_roll_rate += droll;
+        // Immediate yaw kick first (set_orientation rebuilds yaw-only).
         let ori = self.get_orientation() + self.shock_yaw_rate;
         self.set_orientation(ori);
-        // Tumble upright residual: strong pitch/roll can invert (Z-up < 0).
-        self.shock_up_z -= (pitch_m.abs() + roll_m.abs()) * 0.75;
-        if self.shock_up_z < -1.0 {
-            self.shock_up_z = -1.0;
-        }
-        if self.shock_up_z > 1.0 {
-            self.shock_up_z = 1.0;
-        }
+        // Then apply this increment of pitch/roll onto the transform so
+        // upside-down kill can see integrated up-Y, not a synthetic scalar.
+        let pryf = self.pitch_roll_yaw_factor;
+        self.apply_physics_ypr(0.0, dpitch * pryf, droll * pryf);
         self.record_host_shock_stun();
     }
 
@@ -67,15 +66,18 @@ impl Object {
         if self.is_kind_of(KindOf::Structure) {
             return false;
         }
-        // Scale residual: force is weapon units; convert to velocity nudge.
-        const FORCE_TO_VEL: f32 = 0.05;
-        let impulse = force * FORCE_TO_VEL;
-        self.movement.velocity += impulse;
-        // Cap residual velocity so MOAB doesn't fling units off-map instantly.
-        let speed = self.movement.velocity.length();
-        const MAX_SHOCK_SPEED: f32 = 80.0;
-        if speed > MAX_SHOCK_SPEED {
-            self.movement.velocity *= MAX_SHOCK_SPEED / speed;
+        // C++ applyShock: scale by (1 - clamp(shockResistance, 0, 1)), then
+        // applyForce divides by getMass(). Resistance >= 1 yields zero toss.
+        let resisted =
+            force * (1.0 - self.shock_resistance.clamp(0.0, 1.0));
+        if resisted.length_squared() > 0.0 {
+            self.movement.velocity += resisted / self.physics_get_mass();
+            // Cap residual velocity so MOAB doesn't fling units off-map instantly.
+            let speed = self.movement.velocity.length();
+            const MAX_SHOCK_SPEED: f32 = 80.0;
+            if speed > MAX_SHOCK_SPEED {
+                self.movement.velocity *= MAX_SHOCK_SPEED / speed;
+            }
         }
         // C++ applyRandomRotation residual (deterministic seed from id + force).
         let seed = self
@@ -88,7 +90,6 @@ impl Object {
         // C++ applyRandomRotation sets ALLOW_BOUNCE until bounce completes.
         self.shock_allow_bounce = true;
         self.shock_grounded_once = false;
-        self.shock_up_z = 1.0;
         self.ensure_locomotor_surfaces();
         // Strong upward impulse residual: freefall model bit while airborne from shock.
         if self.movement.velocity.y > 8.0 {

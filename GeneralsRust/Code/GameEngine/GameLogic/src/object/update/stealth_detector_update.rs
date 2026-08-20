@@ -40,7 +40,7 @@ fn dual_world_registry_unavailable() -> bool {
 const KIND_VARIANTS: &[KindOf] = ALL_KIND_OF;
 
 fn mask_contains_kind(mask: KindOfMaskType, kind: KindOf) -> bool {
-    (mask & (1u64 << (kind as u32))) != 0
+    (mask & (kind.cpp_mask())) != 0
 }
 
 fn passes_kindof_filters(
@@ -219,8 +219,8 @@ impl Default for StealthDetectorUpdateModuleData {
             ir_bright_particle_sys: None,
             ir_grid_particle_sys: None,
             ir_particle_sys_bone: String::new(),
-            extra_detect_kindof: 0u64,
-            extra_detect_kindof_not: 0u64,
+            extra_detect_kindof: 0,
+            extra_detect_kindof_not: 0,
             can_detect_while_garrisoned: false,
             can_detect_while_transported: false,
         }
@@ -265,10 +265,14 @@ impl Snapshotable for StealthDetectorUpdateModuleData {
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.initially_disabled)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_u64(&mut self.extra_detect_kindof)
+        let mut extra_detect_kindof = self.extra_detect_kindof as u64;
+        xfer.xfer_u64(&mut extra_detect_kindof)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_u64(&mut self.extra_detect_kindof_not)
+        self.extra_detect_kindof = extra_detect_kindof as KindOfMaskType;
+        let mut extra_detect_kindof_not = self.extra_detect_kindof_not as u64;
+        xfer.xfer_u64(&mut extra_detect_kindof_not)
             .map_err(|e| e.to_string())?;
+        self.extra_detect_kindof_not = extra_detect_kindof_not as KindOfMaskType;
         xfer.xfer_bool(&mut self.can_detect_while_garrisoned)
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.can_detect_while_transported)

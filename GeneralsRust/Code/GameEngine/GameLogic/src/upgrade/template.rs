@@ -323,6 +323,55 @@ fn parse_button_image(
     Ok(())
 }
 
+fn parse_research_sound(
+    _ini: &mut INI,
+    template: &mut UpgradeTemplate,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .skip_while(|t| **t == "=")
+        .next()
+        .ok_or(INIError::InvalidData)?;
+    template.research_sound = AudioEventRTS::from_event_name((*value).to_string());
+    Ok(())
+}
+
+fn parse_unit_specific_sound(
+    _ini: &mut INI,
+    template: &mut UpgradeTemplate,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .skip_while(|t| **t == "=")
+        .next()
+        .ok_or(INIError::InvalidData)?;
+    template.unit_specific_sound = AudioEventRTS::from_event_name((*value).to_string());
+    Ok(())
+}
+
+fn parse_academy_classify(
+    _ini: &mut INI,
+    template: &mut UpgradeTemplate,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .skip_while(|t| **t == "=")
+        .next()
+        .ok_or(INIError::InvalidData)?;
+    // C++ TheAcademyClassificationTypeNames: ACT_NONE, ACT_UPGRADE_RADAR, ACT_SUPERPOWER
+    template.academy_classification = match value.trim().to_ascii_uppercase().as_str() {
+        "ACT_NONE" => 0,
+        "ACT_UPGRADE_RADAR" => 1,
+        "ACT_SUPERPOWER" => 2,
+        _ => return Err(INIError::InvalidData),
+    };
+    Ok(())
+}
+
+
 const UPGRADE_TEMPLATE_FIELDS: &[FieldParse<UpgradeTemplate>] = &[
     FieldParse {
         token: "DisplayName",
@@ -344,6 +393,52 @@ const UPGRADE_TEMPLATE_FIELDS: &[FieldParse<UpgradeTemplate>] = &[
         token: "ButtonImage",
         parse: parse_button_image,
     },
+    FieldParse {
+        token: "ResearchSound",
+        parse: parse_research_sound,
+    },
+    FieldParse {
+        token: "UnitSpecificSound",
+        parse: parse_unit_specific_sound,
+    },
+    FieldParse {
+        token: "AcademyClassify",
+        parse: parse_academy_classify,
+    },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_research_sound_and_academy_classify() {
+        let mut template = UpgradeTemplate::new(AsciiString::from("Upgrade_AmericaRadar"));
+        let mut ini = INI::new();
+        let source = "Upgrade_AmericaRadar\n\
+            ResearchSound = RadarUpgradeComplete\n\
+            UnitSpecificSound = RadarVanVoiceUpgrade\n\
+            AcademyClassify = ACT_UPGRADE_RADAR\n\
+            End\n";
+        ini.with_inline_source(source, |ini| {
+            ini.read_line()?;
+            template.parse_from_ini(ini)
+        })
+        .expect("parse upgrade extra fields");
+
+        assert!(template.get_research_sound().is_valid());
+        assert_eq!(
+            template.get_research_sound().event_name,
+            "RadarUpgradeComplete"
+        );
+        assert_eq!(
+            template.get_unit_specific_sound().event_name,
+            "RadarVanVoiceUpgrade"
+        );
+        assert_eq!(template.get_academy_classification(), 1);
+
+    }
+}
+
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.

@@ -914,7 +914,18 @@ impl FOWRenderingBridge {
     }
 }
 
-/// Reveal the entire map for the specified player (used on defeat/observer transitions).
+/// Reveal the entire map as explored/fogged (addLooker+removeLooker).
+/// C++ PartitionManager::revealMapForPlayer — shroud crates and RevealMap scripts.
+pub fn reveal_entire_map_explored_for_player(player_id: u32) {
+    if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+        if let Err(err) = shroud_mgr.reveal_map_for_player(player_id) {
+            warn!("Failed to reveal map for player {player_id}: {err}");
+        }
+    }
+}
+
+/// Reveal the entire map permanently (add lookers only).
+/// C++ PartitionManager::revealMapForPlayerPermanently — observer/defeat only.
 pub fn reveal_entire_map_for_player(player_id: u32) {
     if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
         if let Err(err) = shroud_mgr.reveal_map_for_player_permanently(player_id) {
@@ -927,9 +938,8 @@ pub fn reveal_entire_map_for_player(player_id: u32) {
 
 /// Retail / SAGE shroud partition cell size residual (world units).
 ///
-/// Matches host `PresentationFowGrid::inactive` default and typical
-/// `ShroudGrid` cell size. Fail-closed: not full multi-layer streaming.
-pub const PRESENTATION_FOW_DEFAULT_CELL_SIZE: f32 = 50.0;
+/// C++ PartitionManager::m_cellSize = GlobalData PartitionCellSize (40).
+pub const PRESENTATION_FOW_DEFAULT_CELL_SIZE: f32 = 40.0;
 
 /// Honesty: FOW cell encoding / R8 terrain overlay / inactive fail-open residual.
 ///
@@ -950,8 +960,7 @@ pub fn honesty_fow_residual_pack_wave77() -> bool {
             == PresentationFowGrid::R8_FOGGED
         && PresentationFowGrid::cell_to_r8(PresentationFowGrid::CELL_VISIBLE)
             == PresentationFowGrid::R8_VISIBLE
-        // Default cell size residual.
-        && (PRESENTATION_FOW_DEFAULT_CELL_SIZE - 50.0).abs() < 0.01
+        && (PRESENTATION_FOW_DEFAULT_CELL_SIZE - 40.0).abs() < 0.01
         && {
             let inactive = PresentationFowGrid::inactive();
             !inactive.active
@@ -1371,7 +1380,7 @@ mod tests {
     #[test]
     fn fow_residual_pack_wave77_honesty() {
         assert!(honesty_fow_residual_pack_wave77());
-        assert_eq!(PRESENTATION_FOW_DEFAULT_CELL_SIZE, 50.0);
+        assert_eq!(PRESENTATION_FOW_DEFAULT_CELL_SIZE, 40.0);
         assert_eq!(PresentationFowGrid::CELL_HIDDEN, 0);
         assert_eq!(PresentationFowGrid::CELL_EXPLORED, 1);
         assert_eq!(PresentationFowGrid::CELL_VISIBLE, 2);

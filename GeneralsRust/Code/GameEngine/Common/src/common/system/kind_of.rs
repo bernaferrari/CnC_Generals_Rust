@@ -486,6 +486,19 @@ pub fn mask_to_kind_of_type(mask: KindOfMask) -> Option<i32> {
     Some(pos)
 }
 
+/// Look up the retail `KindOf.h` bit index for an INI / BitFlags name.
+///
+/// Names match `KIND_OF_BIT_NAMES` (`KindOf.cpp` with `ALLOW_SURRENDER` off).
+/// Returns `None` for invented tokens (UNIT, WEAPON, BARRIER, …) and surrender-only
+/// names (PRISON, POW_TRUCK, CAN_SURRENDER).
+pub fn kind_of_bit_from_name(name: &str) -> Option<u32> {
+    let upper = name.trim().to_ascii_uppercase();
+    KIND_OF_BIT_NAMES
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(&upper))
+        .map(|idx| idx as u32)
+}
+
 /// Initialize KindOf masks (corresponds to initKindOfMasks() in C++)
 pub fn init_kind_of_masks() {
     // This function was used to initialize global masks in C++

@@ -96,7 +96,9 @@ impl ControlBar {
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
-        let Some(player_arc) = player_arc else { return };
+        let Some(player_arc) = player_arc else {
+            return;
+        };
         let Ok(player) = player_arc.read() else {
             return;
         };
@@ -113,8 +115,118 @@ impl ControlBar {
         self.science_state.rank1_buttons.clear();
         self.science_state.rank3_buttons.clear();
         self.science_state.rank8_buttons.clear();
+
+        let Some(template) = player.get_player_template() else {
+            return;
+        };
+        let name1 = template.get_purchase_science_command_set_rank1();
+        let name3 = template.get_purchase_science_command_set_rank3();
+        let name8 = template.get_purchase_science_command_set_rank8();
+        if name1.is_empty() || name3.is_empty() || name8.is_empty() {
+            return;
+        }
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return;
+        };
+        let find_set = |name: &str| {
+            control_bar
+                .find_command_set_by_name(name)
+                .or_else(|| control_bar.find_command_set_by_name(&name.to_ascii_uppercase()))
+        };
+        let (Some(set1), Some(set3), Some(set8)) =
+            (find_set(name1), find_set(name3), find_set(name8))
+        else {
+            return;
+        };
+
+        self.science_state.rank1_buttons = Self::science_buttons_from_set(
+            &player,
+            &store,
+            &set1,
+            MAX_PURCHASE_SCIENCE_RANK_1,
+        );
+        self.science_state.rank3_buttons = Self::science_buttons_from_set(
+            &player,
+            &store,
+            &set3,
+            MAX_PURCHASE_SCIENCE_RANK_3,
+        );
+        self.science_state.rank8_buttons = Self::science_buttons_from_set(
+            &player,
+            &store,
+            &set8,
+            MAX_PURCHASE_SCIENCE_RANK_8,
+        );
+
         self.update_context_purchase_science();
     }
+
+    fn science_buttons_from_set(
+        player: &gamelogic::player::Player,
+        store: &game_engine::common::rts::ScienceStore,
+        command_set: &gamelogic::command_button::CommandSet,
+        limit: usize,
+    ) -> Vec<ScienceButtonState> {
+        let mut buttons = Vec::new();
+        for slot in 0..limit {
+            let Some(button) = command_set.buttons.get(slot).and_then(|b| b.as_ref()) else {
+                buttons.push(ScienceButtonState {
+                    command_name: String::new(),
+                    science_type: SCIENCE_INVALID,
+                    is_hidden: true,
+                    is_enabled: false,
+                    is_purchased: false,
+                });
+                continue;
+            };
+            if (button.get_options_bits() & CommandOption::ScriptOnly as u32) != 0 {
+                buttons.push(ScienceButtonState {
+                    command_name: String::new(),
+                    science_type: SCIENCE_INVALID,
+                    is_hidden: true,
+                    is_enabled: false,
+                    is_purchased: false,
+                });
+                continue;
+            }
+            let science = button
+                .science_vec()
+                .first()
+                .copied()
+                .unwrap_or(SCIENCE_INVALID);
+            let mut is_hidden = false;
+            let mut is_enabled = false;
+            let mut is_purchased = false;
+            if science != SCIENCE_INVALID {
+                if player.is_science_disabled(science) {
+                    is_enabled = false;
+                } else if player.is_science_hidden(science) {
+                    is_hidden = true;
+                } else {
+                    let cost = store.get_science_purchase_cost(science);
+                    if !player.has_science(science)
+                        && store.player_has_prereqs_for_science(player, science)
+                        && cost <= player.get_science_purchase_points()
+                    {
+                        is_enabled = true;
+                    }
+                    is_purchased = player.has_science(science);
+                    if !store.player_has_root_prereqs_for_science(player, science) {
+                        is_hidden = true;
+                    }
+                }
+            }
+            buttons.push(ScienceButtonState {
+                command_name: button.get_name().to_string(),
+                science_type: science,
+                is_hidden,
+                is_enabled,
+                is_purchased,
+            });
+        }
+        buttons
+    }
+
 
     fn update_context_purchase_science(&mut self) {
         let player_arc = logic_player_list()

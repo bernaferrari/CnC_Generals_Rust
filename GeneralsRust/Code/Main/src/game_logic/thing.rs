@@ -572,6 +572,15 @@ impl VeterancyCrateCollideMetadata {
     }
 }
 
+/// C++ `VeterancyGainCreateModuleData` — StartingLevel + optional ScienceRequired.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VeterancyGainCreateMetadata {
+    pub starting_level: VeterancyLevel,
+    /// `None` means SCIENCE_INVALID (always apply when trainable).
+    pub science_required: Option<String>,
+}
+
+
 /// The two retail ObjectCreationLists used by `EjectPilotDie`.
 ///
 /// C++ retains pointers to arbitrary OCLs.  The compact live bridge only
@@ -980,6 +989,21 @@ impl CapturePowerKind {
     }
 }
 
+/// C++ `ArmorTemplateSet` residual: one Object INI `ArmorSet` row.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct HostArmorSet {
+    /// C++ `ArmorSetFlags` mask (`ArmorSetType` bits).
+    #[serde(default)]
+    pub conditions: u8,
+    /// Armor.ini template name (`Armor = ...`).
+    #[serde(default)]
+    pub armor: Option<String>,
+    /// DamageFX.ini name (`DamageFX = ...`).
+    #[serde(default)]
+    pub damage_fx: Option<String>,
+}
+
+
 /// Thing Template - shared configuration data for Things
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThingTemplate {
@@ -1144,12 +1168,20 @@ pub struct ThingTemplate {
     pub capture_pack_time_ms: Option<u32>,
     pub special_power_cooldown: f32,
     /// C++ parity: XP awarded to the killer when this object is destroyed.
-    /// In C++ this is per-veterancy-level; here we store the Rookie-level
-    /// value and scale by veterancy level at kill time.
+    /// Rookie/Regular token; prefer `experience_values` when authored.
     pub experience_value: f32,
-    /// C++ parity (Object::ExperienceValues): per-template veterancy XP
-    /// thresholds [Veteran, Elite, Heroic].  Defaults to [60, 150, 300].
+    /// C++ `ExperienceValue` 4-int list [Regular, Veteran, Elite, Heroic].
+    #[serde(default)]
+    pub experience_values: [f32; 4],
+    /// C++ `ExperienceRequired` mapped to [Veteran, Elite, Heroic] thresholds.
+    /// Defaults to [60, 150, 300] for unparsed templates.
     pub veterancy_xp_thresholds: [f32; 3],
+    /// C++ ThingTemplate `IsTrainable` (default FALSE).
+    #[serde(default)]
+    pub is_trainable: bool,
+    /// Authored `VeterancyGainCreate` modules (StartingLevel / ScienceRequired).
+    #[serde(default)]
+    pub veterancy_gain_creates: Vec<VeterancyGainCreateMetadata>,
     /// Host primary weapon stats when the template defines combat capability.
     /// Prefer this over ad-hoc `Weapon::default()` injection at create time.
     pub primary_weapon: Option<Weapon>,
@@ -1215,6 +1247,27 @@ pub struct ThingTemplate {
     /// C++ CreateCrateDieModuleData::m_crateNameList residual (CrateData names).
     #[serde(default)]
     pub create_crate_data: Vec<String>,
+    /// C++ `ThingTemplate::m_armorTemplateSets` from Object INI `ArmorSet`.
+    #[serde(default)]
+    pub armor_sets: Vec<HostArmorSet>,
+    /// C++ `ActiveBodyModuleData::m_subdualDamageCap`. Default 0 = immune.
+    #[serde(default)]
+    pub subdual_damage_cap: f32,
+    /// C++ `SubdualDamageHealRate` converted to logic frames.
+    #[serde(default)]
+    pub subdual_heal_rate_frames: u32,
+    /// C++ `SubdualDamageHealAmount`.
+    #[serde(default)]
+    pub subdual_heal_amount: f32,
+    /// C++ PhysicsBehaviorModuleData::m_mass from Object INI `Mass`.
+    #[serde(default = "default_template_physics_mass")]
+    pub physics_mass: f32,
+    /// C++ PhysicsBehaviorModuleData::m_shockResistance from `ShockResistance`.
+    #[serde(default)]
+    pub shock_resistance: f32,
+    /// C++ PhysicsBehaviorModuleData::m_pitchRollYawFactor (default 2.0).
+    #[serde(default = "default_template_pitch_roll_yaw_factor")]
+    pub pitch_roll_yaw_factor: f32,
 }
 
 impl ThingTemplate {
@@ -1267,7 +1320,10 @@ impl ThingTemplate {
             capture_pack_time_ms: None,
             special_power_cooldown: 10.0,
             experience_value: 0.0,
+            experience_values: [0.0; 4],
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
+            is_trainable: false,
+            veterancy_gain_creates: Vec::new(),
             primary_weapon: None,
             primary_weapon_name: None,
             primary_weapon_explicitly_none: false,
@@ -1283,8 +1339,32 @@ impl ThingTemplate {
             fire_weapon_when_dead_behaviors: Vec::new(),
             locomotor_name: None,
             create_crate_data: Vec::new(),
+            armor_sets: Vec::new(),
+            subdual_damage_cap: 0.0,
+            subdual_heal_rate_frames: 0,
+            subdual_heal_amount: 0.0,
+            physics_mass: 1.0,
+            shock_resistance: 0.0,
+            pitch_roll_yaw_factor: 2.0,
         }
     }
+    /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored
+    /// 4-int table when any token is non-zero; otherwise the single
+    /// `experience_value` field (tests / unparsed templates).
+    pub fn experience_value_for_level(&self, level: VeterancyLevel) -> f32 {
+        let idx = match level {
+            VeterancyLevel::Rookie => 0,
+            VeterancyLevel::Veteran => 1,
+            VeterancyLevel::Elite => 2,
+            VeterancyLevel::Heroic => 3,
+        };
+        if self.experience_values.iter().any(|v| *v != 0.0) {
+            self.experience_values[idx]
+        } else {
+            self.experience_value
+        }
+    }
+
 
     /// Preserve a drawable authored C++ asset scale. Retail Object INIs use
     /// positive finite values; malformed values retain the default instead of
@@ -1582,9 +1662,15 @@ impl ThingTemplate {
                 None
             },
             clip_size: wt.clip_size.max(0) as u32,
-            // Clip reload residual: store often encodes clip reload as max delay.
+            // C++ ClipReloadTime is independent of DelayBetweenShots. Store
+            // already converted msec → frames; host Weapon uses seconds.
             clip_reload_time: if wt.clip_size > 0 {
-                (wt.max_delay_between_shots.max(0) as f32) / 30.0
+                let frames = if wt.clip_reload_time > 0 {
+                    wt.clip_reload_time as f32
+                } else {
+                    wt.max_delay_between_shots.max(0) as f32
+                };
+                frames / FPS
             } else {
                 0.0
             },
@@ -1652,6 +1738,14 @@ fn default_stealth_friendly_opacity_min() -> f32 {
 
 fn default_stealth_friendly_opacity_max() -> f32 {
     1.0
+}
+
+fn default_template_physics_mass() -> f32 {
+    1.0
+}
+
+fn default_template_pitch_roll_yaw_factor() -> f32 {
+    2.0
 }
 
 #[cfg(test)]

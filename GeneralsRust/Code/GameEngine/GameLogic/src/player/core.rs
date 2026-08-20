@@ -677,18 +677,21 @@ impl Player {
         }
         self.is_observer = template.is_observer;
 
-        // Apply starting money from the player template.
-        // In C++ this is set during Player::init() via the PlayerTemplate's
-        // StartingMoney field.  When the template has not been populated from
-        // INI yet (Money::count_money() == 0) we fall back to the standard
-        // skirmish default of $10,000 so that players always start with money.
+        // C++ Player.cpp:421-436 copies template money, then if empty uses
+        // TheGameInfo starting cash or TheGlobalData->m_defaultStartingCash.
+        // Lobby cash is applied after init so this cannot clobber it.
         let starting = template.starting_money.count_money();
-        let amount = if starting > 0 {
-            starting as i32
+        if starting > 0 {
+            self.money.set_money(starting as i32);
+        } else if let Some(default_cash) = global_data::read_safe()
+            .ok()
+            .map(|data| data.default_starting_cash)
+            .filter(|&cash| cash > 0)
+        {
+            self.money.set_money(default_cash);
         } else {
-            10_000
-        };
-        self.money.set_money(amount);
+            self.money.set_money(0);
+        }
 
         self.reset_rank_impl();
         self.sciences_disabled.clear();

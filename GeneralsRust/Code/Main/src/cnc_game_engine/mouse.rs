@@ -941,20 +941,19 @@ impl CnCGameEngine {
             );
         }
 
-
-        // Zoom camera with mouse wheel
-        let zoom_speed = 0.1;
-        let new_zoom = (self.camera_zoom - delta_y * zoom_speed).clamp(0.1, 5.0);
-
-        if (new_zoom - self.camera_zoom).abs() > 0.001 {
-            self.camera_zoom = new_zoom;
-            // `W3DView::setZoom` immediately rebuilds the camera transform.
-            self.apply_camera_orbit_transform();
+        // C++ LookAtXlat wheel -> View::zoomIn/Out: HAG +/- 10wu per detent,
+        // W3DView clamps to GameData Min/MaxCameraHeight when zoomLimited.
+        let detents = if delta_y.abs() < 0.5 {
+            delta_y.signum()
+        } else {
+            delta_y.round()
+        };
+        if detents.abs() >= 0.5 {
+            self.apply_player_height_zoom_steps(-detents);
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();
                 self.sync_context_mouse_cursor();
             }
-            debug!("Camera zoom changed to {:.2}", self.camera_zoom);
         }
     }
 
@@ -962,9 +961,7 @@ impl CnCGameEngine {
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
         let initial_yaw = self.camera_yaw_radians;
-        // Retail KP4/KP6 rotate and KP8/KP2 zoom hold residual.
         const ROTATE_RAD_PER_SEC: f32 = 1.2;
-        const ZOOM_PER_SEC: f32 = 0.85;
         if self.camera_rotate_left_held {
             self.camera_yaw_radians -= ROTATE_RAD_PER_SEC * dt;
         }
@@ -972,10 +969,14 @@ impl CnCGameEngine {
             self.camera_yaw_radians += ROTATE_RAD_PER_SEC * dt;
         }
         if self.camera_zoom_in_held {
-            self.camera_zoom = (self.camera_zoom - ZOOM_PER_SEC * dt).clamp(0.1, 5.0);
+            self.apply_player_height_zoom_steps(
+                -(game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32) * dt,
+            );
         }
         if self.camera_zoom_out_held {
-            self.camera_zoom = (self.camera_zoom + ZOOM_PER_SEC * dt).clamp(0.1, 5.0);
+            self.apply_player_height_zoom_steps(
+                game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32 * dt,
+            );
         }
 
         self.update_camera_tracking_drawable();
@@ -1279,6 +1280,31 @@ impl CnCGameEngine {
         (right * screen_scroll.x) + (forward * -screen_scroll.y)
     }
 
+    /// C++ View::zoomIn/Out: change height-above-ground by 10wu per detent
+    /// and clamp to GameData Min/MaxCameraHeight (W3DView::setHeightAboveGround).
+    fn apply_player_height_zoom_steps(&mut self, steps: f32) {
+        if !steps.is_finite() || steps.abs() < 1.0e-4 {
+            return;
+        }
+        let data = game_engine::common::global_data::read();
+        let min_h = data.min_camera_height;
+        let max_h = data.max_camera_height.max(min_h);
+        let pitch = self
+            .camera_pitch_radians
+            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
+        let basis = self.camera_orbit_distance.max(1.0) * pitch.sin();
+        if basis <= f32::EPSILON {
+            return;
+        }
+        let current_hag = self.camera_zoom * basis;
+        let new_hag = (current_hag + steps * 10.0).clamp(min_h, max_h);
+        let new_zoom = new_hag / basis;
+        if (new_zoom - self.camera_zoom).abs() > 0.0001 {
+            self.camera_zoom = new_zoom;
+            self.apply_camera_orbit_transform();
+        }
+    }
+
     /// C++ `W3DView::update` height follow (W3DView.cpp:1308-1339).
     /// Sample presentation height under the look-at, then ease the orbit so
     /// camera Y approaches terrain + the current height-above-ground.
@@ -1347,7 +1373,9 @@ impl CnCGameEngine {
                 let desired_zoom = desired_hag / basis;
                 let zoom_adj = (desired_zoom - self.camera_zoom) * adjust_speed;
                 if zoom_adj.abs() >= 0.0001 {
-                    self.camera_zoom = (self.camera_zoom + zoom_adj).clamp(0.1, 5.0);
+                    let min_zoom = min_height / basis;
+                    let max_zoom = max_height / basis;
+                    self.camera_zoom = (self.camera_zoom + zoom_adj).clamp(min_zoom, max_zoom);
                     changed = true;
                 }
             }

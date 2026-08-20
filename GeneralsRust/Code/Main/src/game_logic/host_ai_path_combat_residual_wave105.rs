@@ -1167,6 +1167,8 @@ pub struct ExperienceTrackerResidual {
     pub trainable: bool,
     pub experience_required: [i32; 4],
     pub experience_value: [i32; 4],
+    /// Last sink forward (sink_id, scaled_amount). C++ transfers, does not drop.
+    pub last_sink_forward: Option<(u32, i32)>,
 }
 
 impl ExperienceTrackerResidual {
@@ -1180,6 +1182,7 @@ impl ExperienceTrackerResidual {
             trainable,
             experience_required: required,
             experience_value: value,
+            last_sink_forward: None,
         }
     }
 
@@ -1198,10 +1201,13 @@ impl ExperienceTrackerResidual {
 
     /// C++ `addExperiencePoints` residual level-up loop.
     pub fn add_experience_points(&mut self, experience_gain: i32, can_scale_for_bonus: bool) {
-        if self.experience_sink.is_some() {
-            // Sink residual: points go elsewhere (fail-closed host: just return).
+        if let Some(sink) = self.experience_sink {
+            // C++ forwards `experienceGain * m_experienceScalar` to the sink tracker.
+            let forwarded = (experience_gain as f32 * self.experience_scalar) as i32;
+            self.last_sink_forward = Some((sink, forwarded));
             return;
         }
+        self.last_sink_forward = None;
         if !self.trainable {
             return;
         }
@@ -1351,7 +1357,15 @@ pub fn honesty_veterancy_residual_deepen_pack_wave105() -> bool {
     t4.add_experience_points(100, true);
     let untrainable_ok = t4.current_experience == 0 && t4.current_level == LEVEL_REGULAR;
 
-    enum_ok && table_ok && min_ok && scale_ok && untrainable_ok
+    // Sink residual forwards instead of dropping.
+    let mut t5 = ExperienceTrackerResidual::new([0, 40, 60, 120], [20, 20, 40, 60], true);
+    t5.experience_sink = Some(99);
+    t5.add_experience_points(40, true);
+    let sink_ok = t5.current_experience == 0
+        && t5.current_level == LEVEL_REGULAR
+        && t5.last_sink_forward == Some((99, 40));
+
+    enum_ok && table_ok && min_ok && scale_ok && untrainable_ok && sink_ok
 }
 
 // ---------------------------------------------------------------------------

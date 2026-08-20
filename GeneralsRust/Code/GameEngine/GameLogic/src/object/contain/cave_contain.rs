@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::cell::UnsafeCell;
 
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::common::{GameError, GameResult, ObjectID, PlayerMaskType};
@@ -28,6 +29,49 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
+}
+
+/// Tracker-backed occupant list returned as `&[ObjectID]` from `&self`.
+#[derive(Debug)]
+struct SharedContainIdCache {
+    ids: UnsafeCell<Vec<ObjectID>>,
+}
+
+// SAFETY: CaveContain is only accessed through Mutex<dyn ContainModuleInterface>
+// or exclusive `&mut self` in tests.
+unsafe impl Sync for SharedContainIdCache {}
+
+impl SharedContainIdCache {
+    fn new() -> Self {
+        Self {
+            ids: UnsafeCell::new(Vec::new()),
+        }
+    }
+
+    fn contains(&self, id: &ObjectID) -> bool {
+        unsafe { (*self.ids.get()).contains(id) }
+    }
+
+    fn push(&self, id: ObjectID) {
+        let cache = unsafe { &mut *self.ids.get() };
+        if !cache.contains(&id) {
+            cache.push(id);
+        }
+    }
+
+    fn retain(&self, mut pred: impl FnMut(&ObjectID) -> bool) {
+        unsafe { (*self.ids.get()).retain(|id| pred(id)) }
+    }
+
+    fn clear(&self) {
+        unsafe { (*self.ids.get()).clear() }
+    }
+
+    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        let cache = unsafe { &mut *self.ids.get() };
+        *cache = ids;
+        unsafe { &*self.ids.get() }
+    }
 }
 
 /// Configuration data for CaveContain module
@@ -86,6 +130,8 @@ const CAVE_CONTAIN_FIELDS: &[FieldParse<CaveContainModuleData>] = &[FieldParse {
 pub struct CaveContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
+    /// INI module data so onCreate can copy CaveIndex.
+    module_data: CaveContainModuleData,
     /// Whether we need to run onBuildComplete
     need_to_run_on_build_complete: bool,
     /// Cave index for this container
@@ -93,7 +139,7 @@ pub struct CaveContain {
     /// Original team before garrison
     original_team: Option<Weak<RwLock<Team>>>,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
-    contained_object_ids: Vec<ObjectID>,
+    contained_object_ids: SharedContainIdCache,
     /// Reference to the owning object
     object_id: ObjectID,
     /// Reference to cave system
@@ -111,10 +157,11 @@ impl CaveContain {
 
         Ok(Self {
             base,
+            module_data: module_data.clone(),
             need_to_run_on_build_complete: true,
-            cave_index: 0,
+            cave_index: module_data.cave_index_data,
             original_team: None,
-            contained_object_ids: Vec::new(),
+            contained_object_ids: SharedContainIdCache::new(),
             object_id: object
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
@@ -356,7 +403,6 @@ impl CaveContain {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
         )?;
-
         let is_enclosing = obj
             .read()
             .map(|obj_guard| self.base.is_enclosing_container_for(&obj_guard))
@@ -534,7 +580,6 @@ impl CaveContain {
         } else {
             return Ok(());
         };
-
         if let Ok(mut tunnel) = tracker.write() {
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
@@ -550,6 +595,7 @@ impl CaveContain {
 
     /// Handle creation event
     pub fn on_create(&mut self, module_data: &CaveContainModuleData) -> GameResult<()> {
+        self.module_data = module_data.clone();
         self.cave_index = module_data.cave_index_data;
         Ok(())
     }
@@ -578,6 +624,13 @@ impl CaveContain {
         }
 
         Ok(())
+    }
+
+    /// C++ CreateModule path: onCreate then onBuildComplete for map-placed caves.
+    pub fn on_owner_created(&mut self) -> GameResult<()> {
+        let data = self.module_data.clone();
+        self.on_create(&data)?;
+        self.on_build_complete()
     }
 
     /// Check if should run on build complete
@@ -934,7 +987,9 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        &self.contained_object_ids
+        // C++ CaveContain::getContainedItemsList redirects to the cave tracker.
+        self.contained_object_ids
+            .refresh(self.get_contained_item_ids().unwrap_or_default())
     }
 
     fn get_contained_count(&self) -> usize {
@@ -947,7 +1002,8 @@ impl ContainModuleInterface for CaveContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = CaveContain::get_contain_max(self).unwrap_or(self.base.get_contain_max());
-        if max <= 0 {
+        // C++ getContainMax is TheGlobalData->m_maxTunnelCapacity; 0 admits nobody.
+        if max < 0 {
             usize::MAX
         } else {
             max as usize
@@ -986,6 +1042,23 @@ impl ContainModuleInterface for CaveContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         CaveContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        CaveContain::on_owner_created(self).map_err(|e| e.into())
+    }
+
+    fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let data = self.module_data.clone();
+        CaveContain::on_create(self, &data).map_err(|e| e.into())
+    }
+
+    fn on_build_complete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        CaveContain::on_build_complete(self).map_err(|e| e.into())
+    }
+
+    fn should_do_on_build_complete(&self) -> bool {
+        CaveContain::should_do_on_build_complete(self)
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -1098,7 +1171,7 @@ impl ContainerInterface for CaveContain {
             .unwrap_or_else(|_| self.base.get_contain_max());
         let max = match max_raw {
             super::CONTAIN_MAX_UNKNOWN => u32::MAX,
-            value if value <= 0 => u32::MAX,
+            value if value < 0 => u32::MAX,
             value => value as u32,
         };
         (current, max)
@@ -1272,7 +1345,11 @@ mod tests {
         )
         .expect("add object");
 
-        assert_eq!(ContainerInterface::get_usage(&cave), (1, u32::MAX));
+        assert_eq!(
+            ContainerInterface::get_usage(&cave),
+            (1, 0),
+            "C++ MaxTunnelCapacity default 0 is not unlimited"
+        );
         ContainerInterface::remove_object(
             &mut cave,
             passenger
@@ -1282,7 +1359,7 @@ mod tests {
                 .unwrap_or(crate::common::INVALID_ID),
         )
         .expect("remove object");
-        assert_eq!(ContainerInterface::get_usage(&cave), (0, u32::MAX));
+        assert_eq!(ContainerInterface::get_usage(&cave), (0, 0));
         assert_eq!(
             passenger.read().expect("passenger read").get_contained_by(),
             None
@@ -1468,5 +1545,90 @@ mod tests {
 
         reset_players();
         OBJECT_REGISTRY.unregister_object(93008);
+    }
+
+    #[test]
+    fn constructor_copies_cave_index_from_module_data() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("CaveIndexOwner", 93101);
+        let mut data = CaveContainModuleData::default();
+        data.cave_index_data = 7;
+        let cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave");
+        assert_eq!(
+            cave.cave_index, 7,
+            "C++ onCreate copies INI CaveIndex; ctor must not hardcode 0"
+        );
+        OBJECT_REGISTRY.unregister_object(93101);
+    }
+
+    #[test]
+    fn owner_created_registers_cave_with_cave_system_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("CaveCreateOwner", 93102);
+        let cave_system = Arc::new(Mutex::new(CaveSystem::new()));
+        let mut data = CaveContainModuleData::default();
+        data.cave_index_data = 3;
+        let mut cave = CaveContain::new(
+            Arc::downgrade(&owner),
+            &data,
+            Some(Arc::clone(&cave_system)),
+        )
+        .expect("cave");
+        ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
+        assert!(!cave.should_do_on_build_complete());
+        let tracker = cave_system
+            .lock()
+            .expect("lock")
+            .get_tunnel_tracker_for_cave_index(3)
+            .expect("tracker");
+        assert_eq!(
+            tracker
+                .read()
+                .expect("read")
+                .get_container_list()
+                .expect("list"),
+            vec![93102]
+        );
+        OBJECT_REGISTRY.unregister_object(93102);
+    }
+
+    #[test]
+    fn other_cave_entrance_sees_shared_tracker_occupants() {
+        let _lock = crate::test_sync::lock();
+        let owner_a = test_object("CaveSharedA", 93110);
+        let owner_b = test_object("CaveSharedB", 93111);
+        let passenger = test_object("CaveSharedPax", 93112);
+        let (mut cave_a, cave_system) = cave_with_registered_tracker(&owner_a, 2);
+        let mut data = CaveContainModuleData::default();
+        data.base.allow_neutral_inside = true;
+        data.cave_index_data = 2;
+        let mut cave_b = CaveContain::new(
+            Arc::downgrade(&owner_b),
+            &data,
+            Some(Arc::clone(&cave_system)),
+        )
+        .expect("cave b");
+        cave_b.on_create(&data).expect("on create");
+        cave_system
+            .lock()
+            .expect("lock")
+            .get_tunnel_tracker_for_cave_index(2)
+            .expect("tracker")
+            .write()
+            .expect("write")
+            .on_tunnel_created(&*owner_b.read().expect("b"))
+            .expect("register b");
+
+        ContainModuleInterface::contain_object(&mut cave_a, 93112).expect("enter a");
+        assert_eq!(
+            ContainModuleInterface::get_contained_objects(&cave_b),
+            &[93112],
+            "C++ getContainedItemsList is the shared cave tracker"
+        );
+
+        let _ = passenger;
+        OBJECT_REGISTRY.unregister_object(93110);
+        OBJECT_REGISTRY.unregister_object(93111);
+        OBJECT_REGISTRY.unregister_object(93112);
     }
 }

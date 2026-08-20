@@ -494,15 +494,14 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_attack(passenger_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(passenger_id, 2);
             }
-            if destroyed {
-                attacker.gain_experience(kill_xp);
-            }
+            // Kill XP awarded after this borrow via award_experience.
         }
         // Contained fire changes where the shot originates, not which
         // concrete passenger WeaponSet slot discharged.
         let _ = self.record_accepted_weapon_discharge(passenger_id, 0);
 
         if destroyed {
+            self.award_experience(passenger_id, kill_xp);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 
@@ -634,15 +633,14 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(garrisoned_id, 2);
             }
-            if destroyed {
-                attacker.gain_experience(kill_xp);
-            }
+            // Kill XP awarded after this borrow via award_experience.
         }
         // One garrisoned infantry shot can use a container muzzle position,
         // but it retains the passenger's exact PRIMARY barrel identity.
         let _ = self.record_accepted_weapon_discharge(garrisoned_id, 0);
 
         if destroyed {
+            self.award_experience(garrisoned_id, kill_xp);
             self.mark_object_for_destruction(target_id, Some(team));
         }
 

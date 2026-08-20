@@ -756,7 +756,7 @@ fn parse_sides_list_chunk(
     let Ok(mut sides) = sides_list.write() else {
         return false;
     };
-    sides.parse_sides_data_chunk_without_scripts(input, info)
+    sides.parse_sides_data_chunk(input, info)
 }
 
 fn parse_polygon_triggers_chunk(

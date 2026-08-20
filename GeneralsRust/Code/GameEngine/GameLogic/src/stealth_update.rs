@@ -62,6 +62,44 @@ fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
     }
 }
 
+fn play_per_unit_sound(object_id: ObjectID, sound_name: &str) {
+    let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        obj.get_template().get_per_unit_sound(sound_name)
+    }) else {
+        return;
+    };
+    event.set_object_id(object_id);
+    if let Some(audio) = TheAudio::get() {
+        audio.add_audio_event(&event);
+    }
+}
+
+fn play_fx_at_object(object_id: ObjectID, fx_name: &str) {
+    let Some(pos) = OBJECT_REGISTRY.with_object(object_id, |obj| *obj.get_position()) else {
+        return;
+    };
+    if let Some(fx) = crate::helpers::TheFXListStore::find_fx_list(fx_name) {
+        let _ = fx.do_fx_at_position(&pos);
+    }
+}
+
+fn refresh_radar_for_object(object_id: ObjectID) {
+    use game_engine::common::system::radar::{
+        get_radar_system, Coord3D as RadarCoord3D, RadarObject, RadarPriorityType,
+    };
+    let Some(pos) = OBJECT_REGISTRY.with_object(object_id, |obj| *obj.get_position()) else {
+        return;
+    };
+    if let Ok(mut radar) = get_radar_system().write() {
+        radar.remove_object(object_id as u32);
+        let mut radar_obj = RadarObject::new(object_id as u32);
+        radar_obj.world_pos = RadarCoord3D::new(pos.x, pos.y, pos.z);
+        radar_obj.priority = RadarPriorityType::Unit;
+        radar.add_object(radar_obj);
+    }
+}
+
+
 /// Stealth configuration ported from the legacy StealthUpdateModuleData.
 #[derive(Debug, Clone)]
 pub struct StealthUpdateModuleData {
@@ -328,11 +366,35 @@ impl StealthController {
     }
 
     pub fn update_stealth(&mut self, _frame_time: f32) -> Result<(), StealthUpdateError> {
-        if !self.enabled {
-            return Ok(());
-        }
         // Wave 283: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
+            return Ok(());
+        }
+
+        // C++ StealthUpdate.cpp:572-589 — restore disguise visual after xfer
+        // before the enabled check (cannot swap drawables during load).
+        if self.xfer_restore_disguise {
+            let was_hidden = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| {
+                    obj.get_drawable()
+                        .and_then(|d| d.read().ok().map(|g| g.is_drawable_effectively_hidden()))
+                })
+                .flatten()
+                .unwrap_or(false);
+            self.change_visual_disguise();
+            if was_hidden {
+                if let Some(drawable) = OBJECT_REGISTRY
+                    .with_object(self.object_id, |obj| obj.get_drawable())
+                    .flatten()
+                {
+                    if let Ok(mut draw) = drawable.write() {
+                        let _ = draw.set_drawable_hidden(true);
+                    }
+                }
+            }
+        }
+
+        if !self.enabled {
             return Ok(());
         }
 
@@ -341,6 +403,12 @@ impl StealthController {
             .with_object(self.object_id, |_| ())
             .is_none()
         {
+            return Ok(());
+        }
+
+        // C++ StealthUpdate.cpp:622-671 — mines stay fully hidden; disguise
+        // transition swaps the drawable at halfway; otherwise pulse opacity.
+        if self.update_drawable_visuals()? {
             return Ok(());
         }
 
@@ -405,6 +473,7 @@ impl StealthController {
             }
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, false)?;
             self.is_stealthed = false;
+            self.hint_detectable_while_unstealthed();
         }
 
         let detected = self.detection_expires_frame > now;
@@ -421,6 +490,289 @@ impl StealthController {
 
         Ok(())
     }
+
+    /// C++ StealthUpdate.cpp:407-421 hintDetectableWhileUnstealthed.
+    fn hint_detectable_while_unstealthed(&self) {
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            if !self
+                .data
+                .hint_detectable_states
+                .intersects(obj.get_status_bits())
+            {
+                return;
+            }
+            if !obj.is_locally_controlled() {
+                return;
+            }
+            if let Some(drawable) = obj.get_drawable() {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.set_second_material_pass_opacity(1.0);
+                }
+            }
+        });
+    }
+
+    /// Returns true if disguise-reveal finished this frame (caller should sleep).
+    fn update_drawable_visuals(&mut self) -> Result<bool, StealthUpdateError> {
+        let is_mine = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| obj.is_kind_of(KindOf::Mine))
+            .unwrap_or(false);
+
+        if is_mine {
+            self.set_drawable_opacity(0.0, Some(0.0));
+            return Ok(false);
+        }
+
+        if self.disguise_transition_frames > 0 {
+            self.disguise_transition_frames -= 1;
+            let total_frames = if self.transitioning_to_disguise {
+                self.data.disguise_transition_frames
+            } else {
+                self.data.disguise_reveal_transition_frames
+            };
+            let factor = if total_frames == 0 {
+                1.0
+            } else {
+                1.0 - (self.disguise_transition_frames as f32 / total_frames as f32)
+            };
+            if factor >= 0.5 && !self.disguise_halfpoint_reached {
+                self.change_visual_disguise();
+                self.disguise_halfpoint_reached = true;
+            }
+            let opacity = (1.0 - (factor * 2.0)).abs();
+            let override_opacity = if opacity < 1.0 { 0.0 } else { 1.0 };
+            self.set_drawable_opacity(opacity, Some(override_opacity));
+            if self.disguise_transition_frames == 0 && !self.transitioning_to_disguise {
+                self.enabled = false;
+                self.set_status_flag(ObjectStatusMaskType::STEALTHED, false)?;
+                self.set_status_flag(ObjectStatusMaskType::DETECTED, false)?;
+                self.is_stealthed = false;
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+
+        let opacity = 0.5 + (self.pulse_phase.sin() * 0.5);
+        self.set_drawable_opacity(opacity, None);
+        self.pulse_phase += self.pulse_phase_rate;
+        Ok(false)
+    }
+
+    fn set_drawable_opacity(&self, pulse: Real, explicit: Option<Real>) {
+        if let Some(drawable) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| obj.get_drawable())
+            .flatten()
+        {
+            if let Ok(mut draw) = drawable.write() {
+                draw.set_effective_opacity(pulse, explicit);
+            }
+        }
+    }
+
+    /// C++ StealthUpdate.cpp:960-1097 changeVisualDisguise.
+    fn change_visual_disguise(&mut self) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
+        let applying = self.disguise_as_template_name.is_some();
+        let revealing = !applying && self.disguise_as_player_index != -1;
+        if !applying && !revealing {
+            self.xfer_restore_disguise = false;
+            return;
+        }
+
+        let snapshot = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            let selected = obj
+                .get_drawable()
+                .and_then(|d| d.read().ok().map(|g| g.is_selected()))
+                .unwrap_or(false);
+            let flags = obj
+                .get_drawable()
+                .and_then(|d| d.read().ok().map(|g| g.get_model_conditions()))
+                .unwrap_or_default();
+            let old_id = obj
+                .get_drawable()
+                .and_then(|d| d.read().ok().map(|g| g.get_drawable_id()));
+            let pos = *obj.get_position();
+            let orientation = obj.get_orientation();
+            let true_template = obj.get_template().get_name().to_string();
+            let own_color = obj.get_indicator_color();
+            let own_night = obj.get_night_indicator_color();
+            (
+                selected,
+                flags,
+                old_id,
+                pos,
+                orientation,
+                true_template,
+                own_color,
+                own_night,
+            )
+        });
+        let Some((
+            selected,
+            flags,
+            old_id,
+            pos,
+            orientation,
+            true_template,
+            own_color,
+            own_night,
+        )) = snapshot
+        else {
+            self.xfer_restore_disguise = false;
+            return;
+        };
+
+        let template_name = if applying {
+            self.disguise_as_template_name.clone()
+        } else {
+            Some(true_template)
+        };
+
+        if let (Some(name), Some(client)) = (template_name, crate::helpers::TheGameClient::get()) {
+            if let Some(template) = crate::helpers::TheThingFactory::find_template(&name) {
+                if let Some(old) = old_id {
+                    client.destroy_drawable(old);
+                }
+                let new_id = client.create_drawable(template.as_ref());
+                crate::system::game_logic::bind_object_and_drawable(self.object_id, new_id);
+                if let Some(drawable) = OBJECT_REGISTRY
+                    .with_object(self.object_id, |obj| obj.get_drawable())
+                    .flatten()
+                {
+                    if let Ok(mut draw) = drawable.write() {
+                        draw.set_orientation(orientation);
+                        draw.set_model_conditions(flags);
+                    }
+                }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                    if let Some(physics) = obj.get_physics() {
+                        crate::modules::PhysicsBehaviorExt::reset_dynamic_physics(&physics);
+                    }
+                    let _ = obj.set_position(&pos);
+                });
+
+                let night = crate::helpers::TheGlobalData::get()
+                    .map(|g| g.get_time_of_day() == crate::common::audio::TimeOfDay::Night)
+                    .unwrap_or(false);
+                let color = if applying {
+                    let disguise_player = player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(self.disguise_as_player_index).cloned());
+                    let local = player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_local_player().cloned());
+                    let allied_or_inactive = match local.as_ref() {
+                        Some(local) => OBJECT_REGISTRY
+                            .with_object(self.object_id, |obj| {
+                                let Some(owner) = obj.get_controlling_player() else {
+                                    return false;
+                                };
+                                match (owner.read(), local.read()) {
+                                    (Ok(mine), Ok(client_p)) => {
+                                        if !client_p.is_player_active() {
+                                            return true;
+                                        }
+                                        let Some(team) = client_p.get_default_team() else {
+                                            return false;
+                                        };
+                                        match team.read() {
+                                            Ok(team_guard) => {
+                                                mine.get_relationship_with_team(&team_guard)
+                                                    == Relationship::Allies
+                                            }
+                                            Err(_) => false,
+                                        }
+                                    }
+                                    _ => false,
+                                }
+                            })
+                            .unwrap_or(false),
+                        None => true,
+                    };
+                    if allied_or_inactive {
+                        if night {
+                            own_night
+                        } else {
+                            own_color
+                        }
+                    } else {
+                        disguise_player
+                            .and_then(|p| p.read().ok().map(|g| {
+                                if night {
+                                    g.get_player_night_color()
+                                } else {
+                                    g.get_player_color()
+                                }
+                            }))
+                            .unwrap_or(own_color)
+                    }
+                } else if night {
+                    own_night
+                } else {
+                    own_color
+                };
+                if let Some(drawable) = OBJECT_REGISTRY
+                    .with_object(self.object_id, |obj| obj.get_drawable())
+                    .flatten()
+                {
+                    if let Ok(mut draw) = drawable.write() {
+                        draw.set_indicator_color(color);
+                    }
+                }
+                let _ = selected;
+            }
+        }
+
+        if applying {
+            play_per_unit_sound(self.object_id, "DisguiseStarted");
+            if let Some(fx_name) = self.data.disguise_fx.as_ref() {
+                play_fx_at_object(self.object_id, fx_name);
+            }
+            self.disguised = true;
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                obj.set_status(ObjectStatusMaskType::DISGUISED, true);
+                obj.set_model_condition_state(crate::common::ModelConditionFlags::DISGUISED);
+                if let Some(player) = obj.get_controlling_player() {
+                    if let Ok(mut player_guard) = player.write() {
+                        player_guard
+                            .get_academy_stats_mut()
+                            .record_vehicle_disguised();
+                    }
+                }
+            });
+        } else {
+            self.disguise_as_player_index = -1;
+            let successful_reveal = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| obj.get_current_victim_id().is_some())
+                .unwrap_or(false);
+            play_per_unit_sound(
+                self.object_id,
+                if successful_reveal {
+                    "DisguiseRevealedSuccess"
+                } else {
+                    "DisguiseRevealedFailure"
+                },
+            );
+            if let Some(fx_name) = self.data.disguise_reveal_fx.as_ref() {
+                play_fx_at_object(self.object_id, fx_name);
+            }
+            self.disguised = false;
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                obj.set_status(ObjectStatusMaskType::DISGUISED, false);
+                obj.clear_model_condition_state(crate::common::ModelConditionFlags::DISGUISED);
+                obj.force_refresh_sub_object_upgrade_status();
+            });
+        }
+
+        refresh_radar_for_object(self.object_id);
+        self.xfer_restore_disguise = false;
+    }
+
 
     pub fn is_stealthed(&self) -> bool {
         self.is_stealthed
@@ -727,6 +1079,21 @@ impl StealthController {
         let flags = self.stealth_rules_for(stealth_owner_id).1;
         let status = object.get_status_bits();
 
+        // C++ StealthUpdate.cpp:253-266 — pack stealth: if any slave is visible,
+        // reveal everyone and refuse cloak.
+        if object.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            let mut all_stealthed = true;
+            let _ = object.with_spawn_behavior_full_interface(|spawn| {
+                if !spawn.are_all_slaves_stealthed() {
+                    let _ = spawn.reveal_slaves();
+                    all_stealthed = false;
+                }
+            });
+            if !all_stealthed {
+                return false;
+            }
+        }
+
         if (flags & STEALTH_NOT_WHILE_ATTACKING) != 0
             && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
         {
@@ -948,14 +1315,8 @@ impl StealthController {
                     return Ok(());
                 }
 
-                let template_name = object_guard.get_template_name().to_ascii_lowercase();
-                let matches_template = template_name.contains("blackmarket")
-                    || template_name.contains("black_market")
-                    || template_name.contains("black-market");
-                let matches_kind = object_guard.is_kind_of(KindOf::CashGenerator)
-                    && template_name.contains("market");
-
-                if matches_template || matches_kind {
+                // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
+                if object_guard.is_kind_of(KindOf::FsBlackMarket) {
                     has_black_market = true;
                 }
 

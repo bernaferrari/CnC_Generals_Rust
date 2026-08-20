@@ -9,6 +9,7 @@ impl GameLogic {
     pub fn add_object(&mut self, object: Object) -> ObjectId {
         let id = object.id;
         self.objects.insert(id, object);
+        self.host_radar_add_object(id);
         id
     }
 

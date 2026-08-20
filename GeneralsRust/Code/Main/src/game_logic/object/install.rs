@@ -69,9 +69,19 @@ impl Object {
         self.health.maximum > 0.0 && self.subdual_damage + 1e-3 >= self.health.maximum
     }
 
+    /// C++ ActiveBody::canBeSubdued (`SubdualDamageCap > 0`).
+    #[inline]
+    pub fn can_be_subdued(&self) -> bool {
+        self.subdual_damage_cap > 0.0
+    }
+
     /// C++ ActiveBody::internalAddSubdualDamage + onSubdualChange residual.
     pub fn apply_subdual_damage(&mut self, amount: f32) {
         if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        // C++ canBeSubdued: unauthored / zero cap is immune.
+        if !self.can_be_subdued() {
             return;
         }
         // Infantry residual: subdual rarely applies (microwave targets vehicles/structures).
@@ -79,13 +89,9 @@ impl Object {
             return;
         }
         let was = self.is_subdued();
-        let cap = self.health.maximum.max(1.0);
+        let cap = self.subdual_damage_cap.max(0.0);
         self.subdual_damage = (self.subdual_damage + amount).min(cap);
-        // Default heal rate residual when first hit (retail-ish 30f / 5 dmg step peel).
-        if self.subdual_heal_rate_frames == 0 {
-            self.subdual_heal_rate_frames = 30;
-            self.subdual_heal_amount = 5.0;
-        }
+        // Heal rate/amount come from INI module data (0 = no auto-heal).
         self.subdual_heal_countdown = self.subdual_heal_rate_frames;
         let now = self.is_subdued();
         if now != was {

@@ -261,7 +261,9 @@ impl W3DModelDraw {
                 .unwrap_or(0);
             let count = barrels.len().min(recoil_len);
             for i in 0..count {
-                // C++ hides muzzle unless RECOIL_START (one visible frame).
+                // C++ hides muzzle unless RECOIL_START. That state is never
+                // rewritten to RECOIL — flash stays visible for the whole
+                // recoil-back until SETTLE (W3DModelDraw.cpp:2505-2518).
                 if barrels[i].muzzle_flash_bone != 0 {
                     let hidden = !matches!(
                         self.weapon_recoil_info[wslot][i].state,
@@ -288,9 +290,8 @@ impl W3DModelDraw {
                             recoils[i].state = RecoilState::Settle;
                         } else if recoils[i].recoil_rate.abs() < TINY_RECOIL {
                             recoils[i].state = RecoilState::Settle;
-                        } else {
-                            recoils[i].state = RecoilState::Recoil;
                         }
+                        // C++ never assigns RECOIL; stay RECOIL_START until SETTLE.
                     }
                     RecoilState::Settle => {
                         recoils[i].shift -= self.data.recoil_settle;

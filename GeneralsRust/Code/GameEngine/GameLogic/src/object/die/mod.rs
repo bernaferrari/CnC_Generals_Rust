@@ -157,7 +157,7 @@ pub fn parse_veterancy_level_flags_tokens(
 pub fn parse_object_status_mask_tokens(tokens: &[&str]) -> Result<ObjectStatusMask, INIError> {
     let mask = ObjectStatusMaskType::parse_tokens(tokens.iter().copied())
         .map_err(|_| INIError::InvalidData)?;
-    Ok(ObjectStatusMask::from_bits_truncate(mask.bits() as u32))
+    Ok(ObjectStatusMask::from_bits_truncate(mask.bits()))
 }
 
 pub fn parse_die_mux_death_types(
@@ -193,11 +193,12 @@ pub fn parse_die_mux_required_status(
 }
 
 bitflags! {
-    /// Object status mask for die module filtering
+    /// Object status mask for die module filtering.
+    /// Full `ObjectStatusMaskType` width so RIDER3–DEPLOYED (bits 32–44) survive.
     #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub struct ObjectStatusMask: u32 {
+    pub struct ObjectStatusMask: u64 {
         const NONE = 0;
-        const ALL = 0xffff_ffff;
+        const ALL = u64::MAX;
     }
 }
 
@@ -231,8 +232,7 @@ impl DieMuxData {
     /// (matches C++ DieMuxData::isDieApplicable)
     pub fn is_die_applicable(&self, obj: &Object, damage_info: &DamageInfo) -> bool {
         let obj_veterancy_level = obj.get_veterancy_level();
-        let obj_status_bits =
-            ObjectStatusMask::from_bits_truncate(obj.get_status_bits().bits() as u32);
+        let obj_status_bits = ObjectStatusMask::from_bits_truncate(obj.get_status_bits().bits());
 
         // Check death type
         if !crate::damage::get_death_type_flag(self.death_types, damage_info.input.death_type) {
@@ -321,10 +321,10 @@ impl Snapshotable for DieModuleData {
         xfer.xfer_unsigned_int(&mut veterancy_levels)
             .map_err(|e| format!("DieModuleData crc veterancy_levels: {e:?}"))?;
         let mut exempt_status = self.die_mux_data.exempt_status.bits();
-        xfer.xfer_unsigned_int(&mut exempt_status)
+        xfer.xfer_u64(&mut exempt_status)
             .map_err(|e| format!("DieModuleData crc exempt_status: {e:?}"))?;
         let mut required_status = self.die_mux_data.required_status.bits();
-        xfer.xfer_unsigned_int(&mut required_status)
+        xfer.xfer_u64(&mut required_status)
             .map_err(|e| format!("DieModuleData crc required_status: {e:?}"))?;
         let mut module_tag_name_key = self.module_tag_name_key;
         xfer.xfer_unsigned_int(&mut module_tag_name_key)
@@ -348,12 +348,12 @@ impl Snapshotable for DieModuleData {
         self.die_mux_data.veterancy_levels = veterancy_levels;
 
         let mut exempt_status = self.die_mux_data.exempt_status.bits();
-        xfer.xfer_unsigned_int(&mut exempt_status)
+        xfer.xfer_u64(&mut exempt_status)
             .map_err(|e| format!("DieModuleData exempt_status: {e:?}"))?;
         self.die_mux_data.exempt_status = ObjectStatusMask::from_bits_truncate(exempt_status);
 
         let mut required_status = self.die_mux_data.required_status.bits();
-        xfer.xfer_unsigned_int(&mut required_status)
+        xfer.xfer_u64(&mut required_status)
             .map_err(|e| format!("DieModuleData required_status: {e:?}"))?;
         self.die_mux_data.required_status = ObjectStatusMask::from_bits_truncate(required_status);
 

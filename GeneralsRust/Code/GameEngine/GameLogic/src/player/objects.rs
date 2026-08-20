@@ -363,7 +363,7 @@ impl Player {
             }
 
             for &kind in ALL_KIND_OF {
-                let bit = 1u64 << (kind as u32);
+                let bit = kind.cpp_mask();
                 if (mask & bit) != 0 && object.is_kind_of(kind) {
                     return true;
                 }

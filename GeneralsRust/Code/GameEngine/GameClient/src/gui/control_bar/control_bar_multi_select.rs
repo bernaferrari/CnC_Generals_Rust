@@ -175,18 +175,15 @@ fn push_common_slots(
     common_bar: &game_engine::common::ini::ini_command_button::ControlBar,
     common_slots: Vec<Option<gamelogic::command_button::CommandButton>>,
 ) {
-    for button in common_slots.into_iter().flatten() {
-        if let Some(common_button) = common_bar.find_command_button_resolved(button.get_name()) {
-            context
-                .available_commands
-                .push(ControlBar::command_from_definition(common_button));
-        } else {
-            context
-                .available_commands
-                .push(ControlBar::command_from_logic_button(&button));
-        }
+    context.available_commands.clear();
+    for slot in 0..14 {
+        let button = common_slots.get(slot).and_then(|b| b.as_ref());
+        context
+            .available_commands
+            .push(ControlBar::command_from_set_slot(common_bar, button));
     }
 }
+
 
 /// Residual: last multi-select action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

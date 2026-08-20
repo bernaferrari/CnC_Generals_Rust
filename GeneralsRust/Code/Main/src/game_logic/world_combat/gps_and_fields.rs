@@ -821,11 +821,12 @@ impl GameLogic {
     /// C++ PropagandaTowerBehavior on ChinaSpeakerTower ModuleTag_06:
     /// Radius=150, HealPercentEachSecond=2% (4% upgraded), ENTHUSIASTIC / SUBLIMINAL.
     /// Fail-closed: continuous %max-health rate, same-team only (not full ally filter),
-    /// non-structure only, no sole-benefactor exclusivity, no PulseFX.
+    /// non-structure only, no sole-benefactor exclusivity.
     pub fn update_propaganda_tower_pulse(&mut self, dt: f32) {
         use crate::game_logic::host_propaganda::{
             in_propaganda_radius_2d, is_legal_propaganda_target, is_propaganda_tower,
-            propaganda_heal_amount, HOST_PROPAGANDA_TOWER_RADIUS,
+            propaganda_heal_amount, HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES,
+            HOST_PROPAGANDA_TOWER_RADIUS, PROPAGANDA_PULSE_FX, PROPAGANDA_UPGRADED_PULSE_FX,
             UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
         };
         use std::collections::{HashMap, HashSet};
@@ -1022,6 +1023,20 @@ impl GameLogic {
         }
         for _ in 0..buff_ticks {
             self.record_propaganda_residual_buff();
+        }
+        // C++ PropagandaTowerBehavior PulseFX each DelayBetweenUpdates (2000ms).
+        if self.frame > 0 && self.frame % HOST_PROPAGANDA_DELAY_BETWEEN_UPDATES_FRAMES == 0 {
+            for (tower_id, _, _, _, upgraded, _) in &towers {
+                let Some(obj) = self.objects.get(tower_id) else {
+                    continue;
+                };
+                let fx = if *upgraded {
+                    PROPAGANDA_UPGRADED_PULSE_FX
+                } else {
+                    PROPAGANDA_PULSE_FX
+                };
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(fx, obj.get_position());
+            }
         }
     }
 

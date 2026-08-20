@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{Bool, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -17,6 +18,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct RadarUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     is_disable_proof: Bool,
 }
 
@@ -24,6 +26,7 @@ impl Default for RadarUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             is_disable_proof: false,
         }
     }
@@ -47,6 +50,7 @@ impl RadarUpgradeModuleData {
     fn from_config(config: RadarUpgradeConfig, module_tag_name_key: NameKeyType) -> Self {
         Self {
             module_tag_name_key,
+            upgrade_mux_data: UpgradeMuxData::default(),
             is_disable_proof: config.is_disable_proof,
         }
     }
@@ -234,14 +238,15 @@ impl Snapshotable for RadarUpgrade {
 }
 
 impl UpgradeModuleInterface for RadarUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         if self.apply_radar_upgrade().is_ok() {
             self.applied = true;
             true
@@ -306,10 +311,14 @@ fn parse_disable_proof_field(
     Ok(())
 }
 
-const RADAR_UPGRADE_FIELDS: &[FieldParse<RadarUpgradeModuleData>] = &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(RadarUpgradeModuleData);
+
+const RADAR_UPGRADE_FIELDS: &[FieldParse<RadarUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
     token: "DisableProof",
     parse: parse_disable_proof_field,
-}];
+},
+);
 
 #[cfg(test)]
 mod tests {

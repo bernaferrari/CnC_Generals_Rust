@@ -19,7 +19,9 @@ pub use game_state::{
 };
 
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
-pub use campaign_xfer::CampaignManagerXferState;
+pub use campaign_xfer::{
+    CampaignManagerXferState, ChallengeGameInfoXfer, ChallengeSlotXfer, CHALLENGE_MAX_SLOTS,
+};
 
 
 static THE_GAME_STATE: OnceLock<Mutex<GameState>> = OnceLock::new();

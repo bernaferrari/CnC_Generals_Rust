@@ -13,8 +13,8 @@ use crate::ai::THE_AI;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags,
-    ObjectID, PathfindLayerEnum, PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND,
-    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+    ObjectID, PathfindLayerEnum, PlayerMaskType, ThingTemplate, TurretType, UnsignedInt,
+    LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -158,11 +158,11 @@ impl Snapshotable for OpenContainModuleData {
         let mut allow_inside_kind_of = self.allow_inside_kind_of as u32;
         xfer.xfer_unsigned_int(&mut allow_inside_kind_of)
             .map_err(|e| e.to_string())?;
-        self.allow_inside_kind_of = allow_inside_kind_of as u64;
+        self.allow_inside_kind_of = allow_inside_kind_of as KindOfMaskType;
         let mut forbid_inside_kind_of = self.forbid_inside_kind_of as u32;
         xfer.xfer_unsigned_int(&mut forbid_inside_kind_of)
             .map_err(|e| e.to_string())?;
-        self.forbid_inside_kind_of = forbid_inside_kind_of as u64;
+        self.forbid_inside_kind_of = forbid_inside_kind_of as KindOfMaskType;
         Ok(())
     }
 
@@ -1010,6 +1010,18 @@ impl OpenContain {
             }
         }
 
+
+        // C++ OpenContain::onContaining: template SoundEnter (gated by load-sounds-enabled).
+        if self.load_sounds_enabled {
+            if let Some((object_id, mut event)) = self.with_object(|owner| {
+                (owner.get_id(), owner.get_template().get_sound_enter())
+            }) {
+                event.set_object_id(object_id);
+                if let Some(audio) = TheAudio::get() {
+                    audio.add_audio_event(&event);
+                }
+            }
+        }
         // Play enter sound
         self.do_load_sound();
 
@@ -1038,6 +1050,24 @@ impl OpenContain {
             contained
                 .on_removed_from(container_id)
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
+        }
+
+        // C++ OpenContain::onRemoving: template SoundExit on the container
+        // plus the rider's SoundFalling.
+        if let Some((object_id, mut event)) = self.with_object(|owner| {
+            (owner.get_id(), owner.get_template().get_sound_exit())
+        }) {
+            event.set_object_id(object_id);
+            if let Some(audio) = TheAudio::get() {
+                audio.add_audio_event(&event);
+            }
+        }
+        if let Ok(obj_guard) = obj.read() {
+            let mut falling = obj_guard.get_template().get_sound_falling();
+            falling.set_object_id(obj_guard.get_id());
+            if let Some(audio) = TheAudio::get() {
+                audio.add_audio_event(&falling);
+            }
         }
 
         Ok(())
@@ -1160,14 +1190,24 @@ impl OpenContain {
     }
 
     /// Handle death event — C++ OpenContain::onDie (lines 833-851)
-    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        // C++: processDamageToContained(getDamagePercentageToUnits()) when non-zero.
-        if self.module_data.damage_percentage_to_units != 0.0 {
+    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        // C++ OpenContain::onDie: skip unless DieMux says this death applies.
+        if let Some(info) = damage_info {
+            let applicable = self
+                .with_object(|owner| self.is_die_applicable(owner, info))
+                .unwrap_or(true);
+            if !applicable {
+                return Ok(());
+            }
+        }
+
+        if self.module_data.damage_percentage_to_units > 0.0 {
             self.process_damage_to_contained(self.module_data.damage_percentage_to_units)?;
         }
 
         self.kill_riders_who_are_not_free_to_exit()?;
-        self.remove_all_contained(true)?;
+        // C++ removeAllContained() defaults exposeStealthUnits = FALSE.
+        self.remove_all_contained(false)?;
         Ok(())
     }
 
@@ -1283,7 +1323,29 @@ impl OpenContain {
 
     /// Check if passenger is allowed to fire
     pub fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectId>) -> bool {
-        self.module_data.passengers_allowed_to_fire
+        // C++ OpenContain::isPassengerAllowedToFire: instance flag first,
+        // then the parent container has veto if we ourselves are contained.
+        if !self.module_data.passengers_allowed_to_fire {
+            return false;
+        }
+        self.with_object(|owner| {
+            let Some(parent_id) = owner.get_contained_by() else {
+                return true;
+            };
+            let Some(parent) = TheGameLogic::find_object_by_id(parent_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(parent_id))
+            else {
+                return true;
+            };
+            let Ok(parent_guard) = parent.read() else {
+                return true;
+            };
+            let Some(contain) = parent_guard.get_contain() else {
+                return true;
+            };
+            contain.is_passenger_allowed_to_fire(None)
+        })
+        .unwrap_or(true)
     }
 
     /// Whether passengers inherit the container's weapon bonus flags.
@@ -1984,6 +2046,21 @@ impl OpenContain {
 
         self.last_unload_sound_frame = now;
     }
+
+    /// C++ OpenContain::markAllPassengersDetected.
+    pub fn mark_all_passengers_detected(&mut self) {
+        ContainModuleInterface::mark_all_passengers_detected(self);
+    }
+
+    /// C++ OpenContain::onSelling: order everyone out.
+    pub fn on_selling(&mut self) -> GameResult<()> {
+        ContainModuleInterface::order_all_passengers_to_exit(
+            self,
+            CommandSourceType::FromAi,
+            false,
+        )
+        .map_err(|e| GameError::ModuleError(e.to_string()).into())
+    }
 }
 
 impl ContainModuleInterface for OpenContain {
@@ -2239,6 +2316,36 @@ impl ContainModuleInterface for OpenContain {
 
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = OpenContain::process_damage_to_contained(self, percent_damage);
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_selling(self).map_err(|e| e.into())
+    }
+
+    fn mark_all_passengers_detected(&mut self) {
+        // Use the trait default body via Super? Inherent delegates to trait.
+        // Re-implement here so OpenContain callers hit the same path.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        for object_id in self.contained_object_ids.clone() {
+            let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+            else {
+                continue;
+            };
+            let Ok(obj_guard) = obj.read() else {
+                continue;
+            };
+            if !obj_guard.is_kind_of(KindOf::StealthGarrison) {
+                continue;
+            }
+            if let Some(stealth) = obj_guard.get_stealth() {
+                if let Ok(mut stealth_guard) = stealth.lock() {
+                    stealth_guard.mark_as_detected();
+                }
+            }
+        }
     }
 
     fn client_visible_contained_flash_as_selected(

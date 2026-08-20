@@ -578,6 +578,8 @@ pub struct View {
     camera_lock_type: CameraLockType,
     lock_distance: f32,
     snap_immediate: bool,
+    /// C++ W3DView::update static followFactor; -1 when unlocked.
+    follow_factor: f32,
 
     /// Mouse input state
     mouse_locked: bool,
@@ -703,6 +705,7 @@ impl View {
             camera_lock_type: CameraLockType::Follow,
             lock_distance: 0.0,
             snap_immediate: false,
+            follow_factor: -1.0,
             mouse_locked: false,
             ok_to_adjust_height: true,
             projection_mode: ProjectionMode::Perspective,
@@ -758,9 +761,20 @@ impl View {
         self.angle = 0.0;
         self.pitch_angle = 0.0;
         self.camera_lock_id = None;
+        self.follow_factor = -1.0;
         self.zoom_limited = true;
 
+        if let Some(global) = get_global_data() {
+            let data = global.read();
+            self.max_height_above_ground = data.max_camera_height;
+            self.min_height_above_ground = data.min_camera_height;
+            if self.min_height_above_ground > self.max_height_above_ground {
+                self.max_height_above_ground = self.min_height_above_ground;
+            }
+        }
+
         self.zoom = self.max_zoom;
+        self.height_above_ground = self.max_height_above_ground;
         self.ok_to_adjust_height = false;
         self.default_angle = 0.0;
         self.default_pitch_angle = 0.0;
@@ -963,15 +977,29 @@ impl View {
         self.height_above_ground
     }
     pub fn set_height_above_ground(&mut self, height: f32) {
-        self.height_above_ground =
-            height.clamp(self.min_height_above_ground, self.max_height_above_ground);
+        // C++ W3DView::setHeightAboveGround: clamp only when zoomLimited.
+        self.height_above_ground = if self.zoom_limited {
+            height.clamp(self.min_height_above_ground, self.max_height_above_ground)
+        } else {
+            height
+        };
+        self.camera_path = None;
+        self.camera_move = None;
+        self.camera_rotate = None;
+        self.camera_zoom = None;
+        self.camera_pitch = None;
+        self.rotate_camera_toward = None;
+        self.camera_constraint_valid = false;
+        self.camera_has_moved_since_request = true;
     }
 
     pub fn zoom_in(&mut self) {
+        self.ok_to_adjust_height = true;
         self.set_height_above_ground(self.height_above_ground - 10.0);
     }
 
     pub fn zoom_out(&mut self) {
+        self.ok_to_adjust_height = true;
         self.set_height_above_ground(self.height_above_ground + 10.0);
     }
 
@@ -1078,6 +1106,9 @@ impl View {
         self.camera_lock_id = id;
         self.lock_distance = 0.0;
         self.camera_lock_type = CameraLockType::Follow;
+        if id.is_none() {
+            self.follow_factor = -1.0;
+        }
     }
 
     pub fn snap_to_camera_lock(&mut self) {
@@ -1087,6 +1118,94 @@ impl View {
     pub fn set_snap_mode(&mut self, lock_type: CameraLockType, distance: f32) {
         self.camera_lock_type = lock_type;
         self.lock_distance = distance;
+    }
+
+    fn apply_camera_lock_one_frame(&mut self) {
+        let Some(object_id) = self.camera_lock_id else {
+            self.follow_factor = -1.0;
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+            self.camera_lock_id = None;
+            self.follow_factor = -1.0;
+            return;
+        };
+        let Ok(object_guard) = object.read() else {
+            return;
+        };
+
+        if self.follow_factor < 0.0 {
+            self.follow_factor = 0.05;
+        } else {
+            self.follow_factor = (self.follow_factor + 0.05).min(1.0);
+        }
+
+        let objpos = object_guard.get_position();
+        let mut cur_x = self.position.x;
+        let mut cur_y = self.position.y;
+        let dx = objpos.x - cur_x;
+        let dy = objpos.y - cur_y;
+        let cell = get_global_data()
+            .map(|g| g.read().partition_cell_size)
+            .unwrap_or(0.0);
+        let snap_thresh_sqr = cell * cell;
+        let cur_dist_sqr = dx * dx + dy * dy;
+
+        if self.snap_immediate {
+            cur_x = objpos.x;
+            cur_y = objpos.y;
+        } else if self.camera_lock_type == CameraLockType::Tether {
+            if cur_dist_sqr >= snap_thresh_sqr && cur_dist_sqr > 0.0 {
+                let ratio = 1.0 - snap_thresh_sqr / cur_dist_sqr;
+                cur_x += dx * ratio * 0.5;
+                cur_y += dy * ratio * 0.5;
+            } else {
+                let ratio = 0.01 * self.lock_distance;
+                cur_x += dx * ratio;
+                cur_y += dy * ratio;
+            }
+        } else {
+            cur_x += dx * self.follow_factor;
+            cur_y += dy * self.follow_factor;
+        }
+
+        self.position.x = cur_x;
+        self.position.y = cur_y;
+        self.position.z = 0.0;
+
+        if self.camera_lock_type == CameraLockType::Follow
+            && object_guard.is_using_airborne_locomotor()
+            && object_guard.is_above_terrain()
+        {
+            let ideal = normalize_angle(object_guard.get_orientation() - PI * 0.5);
+            if self.snap_immediate {
+                self.angle = ideal;
+            } else {
+                let diff = normalize_angle(ideal - self.angle);
+                self.angle = normalize_angle(self.angle + diff * 0.1);
+            }
+        }
+
+        if self.snap_immediate {
+            self.snap_immediate = false;
+        }
+        self.ground_level = objpos.z;
+        self.camera_has_moved_since_request = true;
+    }
+
+    fn settle_zoom_toward_height_above_ground(&mut self) {
+        if !self.ok_to_adjust_height || self.camera_offset.z.abs() < 1.0e-4 {
+            return;
+        }
+        let desired_height = self.terrain_height_under_camera + self.height_above_ground;
+        let desired_zoom = desired_height / self.camera_offset.z;
+        let adjust = get_global_data()
+            .map(|g| g.read().camera_adjust_speed)
+            .unwrap_or(0.1);
+        let zoom_adj = (desired_zoom - self.zoom) * adjust;
+        if zoom_adj.abs() >= 0.0001 {
+            self.set_zoom(self.zoom + zoom_adj);
+        }
     }
 
     // Mouse control
@@ -1770,50 +1889,10 @@ impl View {
 
         self.rotate_camera_toward_one_frame();
 
-        // Update camera following/tether logic if locked to an object.
-        if let Some(object_id) = self.camera_lock_id {
-            if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(object_guard) = object.read() {
-                    let target = object_guard.get_position();
-                    let target_center = Point3::new(target.x, target.y, target.z);
-                    let current_center = self.position;
+        // C++ W3DView::update LOCK_FOLLOW / LOCK_TETHER (1101-1254).
+        self.apply_camera_lock_one_frame();
+        self.settle_zoom_toward_height_above_ground();
 
-                    match self.camera_lock_type {
-                        CameraLockType::Follow => {
-                            if self.snap_immediate {
-                                self.look_at(&target_center);
-                                self.snap_immediate = false;
-                            } else {
-                                let blend = 0.25_f32;
-                                let next_center = Point3::new(
-                                    current_center.x + (target_center.x - current_center.x) * blend,
-                                    current_center.y + (target_center.y - current_center.y) * blend,
-                                    target_center.z,
-                                );
-                                self.look_at(&next_center);
-                            }
-                        }
-                        CameraLockType::Tether => {
-                            let dx = target_center.x - current_center.x;
-                            let dy = target_center.y - current_center.y;
-                            let distance = (dx * dx + dy * dy).sqrt();
-                            let allowed = self.lock_distance.max(0.0);
-
-                            if distance > allowed && distance > 0.001 {
-                                let step = (distance - allowed) / distance;
-                                let next_center = Point3::new(
-                                    current_center.x + dx * step,
-                                    current_center.y + dy * step,
-                                    target_center.z,
-                                );
-                                self.look_at(&next_center);
-                            }
-                            self.snap_immediate = false;
-                        }
-                    }
-                }
-            }
-        }
 
         // Process camera shake (position offsets)
         self.tick_impulse_shake();
@@ -2020,15 +2099,28 @@ impl View {
         &mut self,
         target: &Point3,
         milliseconds: i32,
-        _shutter: i32,
-        _orient: bool,
+        shutter: i32,
+        orient: bool,
         ease_in: f32,
         ease_out: f32,
     ) {
-        // C++ base behavior for zero-duration calls is immediate lookAt.
+        // C++ W3DView::moveCameraTo always builds a 2-node waypoint path.
         if milliseconds <= 0 {
             self.look_at(target);
             self.camera_move = None;
+            self.camera_path = None;
+            return;
+        }
+        if orient {
+            let start = self.position;
+            self.move_camera_along_waypoint_path(
+                &[start, *target],
+                milliseconds,
+                shutter,
+                true,
+                ease_in,
+                ease_out,
+            );
             return;
         }
 
@@ -2070,26 +2162,26 @@ impl View {
         }
 
         let mut path = Vec::with_capacity(waypoints.len());
+        let mut angle = self.angle;
         for index in 0..waypoints.len() {
             let point = waypoints[index];
-            let angle = if index + 1 < waypoints.len() {
+            if orient && index + 1 < waypoints.len() {
                 let next = waypoints[index + 1];
-                let dx = next.x - point.x;
-                let dy = next.y - point.y;
-                if dx.abs() < f32::EPSILON && dy.abs() < f32::EPSILON {
-                    self.angle
-                } else {
-                    dx.atan2(dy)
-                }
-            } else {
-                self.angle
-            };
-
+                angle = travel_camera_angle(next.x - point.x, next.y - point.y, angle);
+            }
             path.push(CameraWaypoint {
                 position: Vec3::new(point.x, point.y, 0.0),
                 angle,
                 time_multiplier: 1,
             });
+        }
+        if orient && path.len() >= 2 {
+            path[0].angle = self.angle;
+            let last = path.len() - 1;
+            path[last].angle = path[last - 1].angle;
+            for i in (2..last).rev() {
+                path[i].angle = (path[i].angle + path[i - 1].angle) * 0.5;
+            }
         }
 
         let (ease_in, ease_out) = ease_ratios(milliseconds, ease_in, ease_out);
@@ -2582,6 +2674,18 @@ fn normalize_angle(mut angle: f32) -> f32 {
         angle -= 2.0 * PI;
     }
     angle
+}
+
+fn travel_camera_angle(dx: f32, dy: f32, fallback: f32) -> f32 {
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 0.1 {
+        return fallback;
+    }
+    let mut angle = (dx / len).acos();
+    if dy < 0.0 {
+        angle = -angle;
+    }
+    normalize_angle(angle - PI * 0.5)
 }
 
 fn ease_ratios(milliseconds: i32, ease_in: f32, ease_out: f32) -> (f32, f32) {

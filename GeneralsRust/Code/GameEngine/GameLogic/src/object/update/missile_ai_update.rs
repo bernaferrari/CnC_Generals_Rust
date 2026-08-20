@@ -236,7 +236,7 @@ fn parse_kind_of_mask(label: &str, tokens: &[&str]) -> KindOfMaskType {
             .or_else(|| token.trim().trim_matches(',').strip_prefix("KINDOF"))
             .unwrap_or_else(|| token.trim().trim_matches(','));
         if let Some(kind) = kindof_from_name(normalized) {
-            mask |= 1u64 << (kind as u32);
+            mask |= kind.cpp_mask();
         } else {
             log::warn!("MissileAIUpdate.{} unknown KindOf token '{}'", label, token);
         }

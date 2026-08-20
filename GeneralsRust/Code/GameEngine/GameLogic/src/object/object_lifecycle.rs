@@ -343,9 +343,15 @@ impl Object {
 
         let mut modules = std::mem::take(&mut self.modules);
         for entry in modules.drain(..) {
-            entry.with_module(|module| module.on_delete());
+            entry.with_module(|module| {
+                if let Some(upgrade) = super::module_upgrade_kind(module) {
+                    upgrade.into_interface().on_delete(self);
+                }
+                module.on_delete();
+            });
         }
         self.modules = modules;
+
 
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable_guard) = drawable.write() {
