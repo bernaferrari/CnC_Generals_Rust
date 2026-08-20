@@ -318,14 +318,15 @@ impl UnitControlSystem {
     }
 
     /// Snapshot residual: selectable when alive, Selectable kind, not contained.
+    /// C++ `Object::isSelectable` / `CanSelectDrawable` have no disabled-type
+    /// gate — EMP / underpowered / unmanned units stay clickable.
     pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
         // Wave 1092: presentation selectable residual fail-closed on sold /
-        // unselectable/masked/disabled (catalog + pick peels match C++ status).
+        // unselectable/masked (catalog + pick peels match C++ status).
         !o.destroyed
             && !o.sold
             && !o.unselectable
             && !o.masked
-            && !o.disabled
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
             && o.contained_by.is_none()
     }
@@ -1565,4 +1566,34 @@ mod tests {
         assert_eq!(pick(glam::Vec3::new(80.0, 0.0, 0.0)), Some(enemy_id));
         assert_eq!(pick(glam::Vec3::new(120.0, 0.0, 0.0)), Some(civ_id));
     }
+
+    #[test]
+    fn presentation_is_selectable_allows_disabled_emp_units() {
+        // C++ Object.cpp:3001-3020 / SelectionXlat.cpp:104-189 — no disabled gate.
+        let (logic, id) = logic_with_selectable_unit();
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let obj = frame
+            .objects
+            .iter_mut()
+            .find(|o| o.id == id)
+            .expect("unit");
+        obj.disabled = true;
+        obj.disabled_emp = true;
+        assert!(
+            UnitControlSystem::presentation_is_selectable(obj),
+            "EMP / disabled units must stay clickable"
+        );
+        assert_eq!(
+            UnitControlSystem::pick_object_id_at_world_from_presentation(
+                &frame,
+                glam::Vec3::ZERO,
+                Some(Team::USA),
+                false,
+                20.0,
+            ),
+            Some(id)
+        );
+    }
+
+
 }

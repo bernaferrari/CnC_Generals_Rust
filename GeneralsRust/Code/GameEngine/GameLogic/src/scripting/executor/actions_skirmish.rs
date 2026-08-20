@@ -12,6 +12,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let building_type = self.get_string_param(action, 0)?;
         log::debug!("Skirmish building '{}'", building_type);
+        if dual_world_registry_unavailable() {
+            // C++ AISkirmishPlayer::buildSpecificAIBuilding marks priority on
+            // an existing build-list pad. Leftover AI is unused on the host
+            // path (empty OBJECT_REGISTRY); queue for live AIPlayer.
+            super::request_host_skirmish_build_building(&building_type);
+            return Ok(ScriptActionResult::Success);
+        }
         let building = building_type.clone();
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_specific_building(&building);
@@ -186,13 +193,15 @@ impl ScriptActionDispatcher {
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → no-op success.
+        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let power_name = self.get_string_param(action, 1)?;
+        // Wave 284: empty dual-world leftover cannot walk OBJECT_REGISTRY.
+        // C++ still fires the *named* SpecialPower; queue for live AIPlayer.
         if dual_world_registry_unavailable() {
+            super::request_host_skirmish_fire_special(&player_name, &power_name);
             return Ok(ScriptActionResult::Success);
         }
 
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let power_name = self.get_string_param(action, 1)?;
         log::debug!(
             "Skirmish player '{}' firing special power '{}' at most cost",
             player_name,

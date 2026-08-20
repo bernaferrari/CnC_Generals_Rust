@@ -221,13 +221,15 @@ impl ControlBar {
                     return Ok(CommandAvailability::Hidden);
                 }
                 if entry.disabled && !self.force_disabled_evaluation(command) {
-                    let cmd_type = command.command_type;
-                    if cmd_type != CommandType::Sell
-                        && cmd_type != CommandType::Evacuate
-                        && cmd_type != CommandType::DoStop
-                    {
+                    if !command_evaluable_when_disabled(command.command_type) {
                         return Ok(CommandAvailability::Restricted);
                     }
+                }
+                if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
+                    return Ok(hidden);
+                }
+                if leftover_presentation_queue_or_drop_restricted(self, command, Some(&entry)) {
+                    return Ok(CommandAvailability::Restricted);
                 }
                 if Self::command_uses_ready_clock(command) {
                     return Ok(self.presentation_typed_availability(command, Some(&entry)));
@@ -240,6 +242,12 @@ impl ControlBar {
                 || !self.presentation_primary_command_set.is_empty()
                 || !self.presentation_command_set_names.is_empty()
             {
+                if let Some(hidden) = leftover_buildable_hidden(command, player_id) {
+                    return Ok(hidden);
+                }
+                if leftover_presentation_queue_or_drop_restricted(self, command, None) {
+                    return Ok(CommandAvailability::Restricted);
+                }
                 if Self::command_uses_ready_clock(command) {
                     return Ok(self.presentation_typed_availability(command, None));
                 }
@@ -270,21 +278,21 @@ impl ControlBar {
 
         let mut disabled = obj.is_disabled();
         if disabled
-            && (command.options & CommandOption::IgnoresUnderpowered as u32) != 0
-            && obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnderpowered)
-            && !obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnmanned)
-            && !obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+            && leftover_ignores_underpowered_clears_disabled(
+                command.options,
+                obj.get_disabled_flags(),
+            )
         {
             disabled = false;
         }
         if disabled && !self.force_disabled_evaluation(command) {
-            let cmd_type = command.command_type;
-            if cmd_type != CommandType::Sell
-                && cmd_type != CommandType::Evacuate
-                && cmd_type != CommandType::Exit
-                && cmd_type != CommandType::DoStop
-                && cmd_type != CommandType::SwitchWeapons
-            {
+            if !command_evaluable_when_disabled(command.command_type) {
+                if self
+                    .get_command_availability_forced(command, obj_id, player_id)
+                    == CommandAvailability::Hidden
+                {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 return Ok(CommandAvailability::Restricted);
             }
         }
@@ -312,11 +320,16 @@ impl ControlBar {
             return Ok(CommandAvailability::Restricted);
         }
 
-        let queue_count = self.build_queue_data.len();
-        let queue_maxed = queue_count >= MAX_BUILD_QUEUE_BUTTONS;
+        let queue_count = leftover_production_count(&obj).unwrap_or(self.build_queue_data.len());
+        let queue_maxed = queue_count == MAX_BUILD_QUEUE_BUTTONS;
 
         match command.command_type {
             CommandType::DozerConstruct => {
+                if leftover_buildable_hidden(command, player_id)
+                    == Some(CommandAvailability::Hidden)
+                {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if !obj.is_kind_of(KindOf::Dozer) {
                     return Ok(CommandAvailability::Restricted);
                 }
@@ -345,6 +358,11 @@ impl ControlBar {
                 Ok(CommandAvailability::Available)
             }
             CommandType::QueueUnitCreate => {
+                if leftover_buildable_hidden(command, player_id)
+                    == Some(CommandAvailability::Hidden)
+                {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if queue_maxed {
                     return Ok(CommandAvailability::Restricted);
                 }
@@ -441,7 +459,13 @@ impl ControlBar {
             CommandType::ToggleOvercharge => Ok(self.toggle_overcharge_availability(&obj)),
             CommandType::SwitchWeapons => Ok(self.switch_weapon_availability(&obj, command)),
             CommandType::InternetHack => {
-                if obj.is_moving() {
+                if leftover_is_hacking_packing_or_unpacking(&obj) {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                Ok(CommandAvailability::Available)
+            }
+            CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
+                if leftover_rappeller_count(&obj) == 0 {
                     return Ok(CommandAvailability::Restricted);
                 }
                 Ok(CommandAvailability::Available)
@@ -454,14 +478,17 @@ impl ControlBar {
     }
 
     fn force_disabled_evaluation(&self, command: &CommandButton) -> bool {
-        matches!(
-            command.command_type,
-            CommandType::Sell
-                | CommandType::Evacuate
-                | CommandType::Exit
-                | CommandType::DoStop
-                | CommandType::SwitchWeapons
-        )
+        command_evaluable_when_disabled(command.command_type)
+    }
+
+    fn get_command_availability_forced(
+        &self,
+        command: &CommandButton,
+        _obj_id: u32,
+        player_id: u32,
+    ) -> CommandAvailability {
+        leftover_buildable_hidden(command, player_id)
+            .unwrap_or(CommandAvailability::Restricted)
     }
 
     fn command_uses_ready_clock(command: &CommandButton) -> bool {
@@ -989,6 +1016,133 @@ impl ControlBar {
     }
 }
 
+/// C++ ControlBarCommand.cpp:1064-1070 — these types stay evaluable while disabled.
+fn command_evaluable_when_disabled(cmd_type: CommandType) -> bool {
+    matches!(
+        cmd_type,
+        CommandType::Sell
+            | CommandType::Evacuate
+            | CommandType::Exit
+            | CommandType::RemoveBeacon
+            | CommandType::SetRallyPoint
+            | CommandType::DoStop
+            | CommandType::SwitchWeapons
+    )
+}
+
+/// C++ ControlBarCommand.cpp:1051-1058 — sole DISABLED_UNDERPOWERED + IGNORES_UNDERPOWERED.
+fn leftover_ignores_underpowered_clears_disabled(
+    options: u32,
+    flags: gamelogic::common::types::DisabledMaskType,
+) -> bool {
+    (options & CommandOption::IgnoresUnderpowered as u32) != 0
+        && flags.test(gamelogic::common::types::DisabledType::DisabledUnderpowered)
+        && flags.bits().count_ones() == 1
+}
+
+fn leftover_production_count(obj: &gamelogic::object::Object) -> Option<usize> {
+    let arc = obj.get_production_update_interface()?;
+    let mut guard = arc.lock().ok()?;
+    let pu = guard.get_production_update_interface()?;
+    Some(pu.get_queue_size())
+}
+
+fn leftover_rappeller_count(obj: &gamelogic::object::Object) -> usize {
+    let Some(contain) = obj.get_contain() else {
+        return 0;
+    };
+    let Ok(guard) = contain.lock() else {
+        return 0;
+    };
+    let ids: Vec<_> = guard.get_contained_objects().to_vec();
+    drop(guard);
+    ids.into_iter()
+        .filter(|&id| {
+            let Some(arc) = OBJECT_REGISTRY.get_object(id) else {
+                return false;
+            };
+            let Ok(inner) = arc.read() else {
+                return false;
+            };
+            inner.is_kind_of(KindOf::CanRappel)
+        })
+        .count()
+}
+
+fn leftover_is_hacking_packing_or_unpacking(obj: &gamelogic::object::Object) -> bool {
+    let Some(ai) = obj.get_ai() else {
+        return false;
+    };
+    let Ok(mut guard) = ai.lock() else {
+        return false;
+    };
+    let Some(hack) = guard.get_hack_internet_ai_update_interface() else {
+        return false;
+    };
+    hack.is_hacking_packing_or_unpacking()
+}
+
+/// C++ ControlBarCommand.cpp:1112-1122 / 1170-1178 — BSTATUS_NO / ONLY_BY_AI hide.
+fn leftover_buildable_hidden(command: &CommandButton, player_id: u32) -> Option<CommandAvailability> {
+    if !matches!(
+        command.command_type,
+        CommandType::DozerConstruct | CommandType::QueueUnitCreate
+    ) {
+        return None;
+    }
+    if command.object.is_empty() {
+        return None;
+    }
+    let template = TheThingFactory::find_template(command.object.as_str())?;
+    let status = template.get_buildable_status()?;
+    let hide = match status {
+        game_engine::common::thing::BuildableStatus::No => true,
+        game_engine::common::thing::BuildableStatus::OnlyByAi => {
+            !leftover_player_is_computer(player_id)
+        }
+        _ => false,
+    };
+    hide.then_some(CommandAvailability::Hidden)
+}
+
+fn leftover_player_is_computer(player_id: u32) -> bool {
+    let Some(list) = logic_player_list().read().ok() else {
+        return false;
+    };
+    let Some(arc) = list.get_player(player_id as PlayerIndex).cloned() else {
+        return false;
+    };
+    drop(list);
+    let Ok(player) = arc.read() else {
+        return false;
+    };
+    player.get_player_type() == gamelogic::player::PlayerType::Computer
+}
+
+fn leftover_presentation_queue_or_drop_restricted(
+    bar: &ControlBar,
+    command: &CommandButton,
+    entry: Option<&crate::presentation_translator_residual::TranslatorCatalogEntry>,
+) -> bool {
+    let queue_maxed = bar.build_queue_data.len() == MAX_BUILD_QUEUE_BUTTONS;
+    if queue_maxed
+        && matches!(
+            command.command_type,
+            CommandType::QueueUnitCreate | CommandType::QueueUpgrade
+        )
+    {
+        return true;
+    }
+    if matches!(
+        command.command_type,
+        CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject
+    ) && entry.is_some_and(|e| e.occupant_count == 0)
+    {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod command_availability_window_tests {
     use super::*;
@@ -1008,6 +1162,32 @@ mod command_availability_window_tests {
         assert!(ControlBar::command_uses_ready_clock(&button(CommandType::SwitchWeapons)));
         assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::Sell)));
         assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::DozerConstruct)));
+    }
+
+    #[test]
+    fn disabled_exceptions_include_beacon_delete_and_rally() {
+        assert!(command_evaluable_when_disabled(CommandType::Sell));
+        assert!(command_evaluable_when_disabled(CommandType::Evacuate));
+        assert!(command_evaluable_when_disabled(CommandType::Exit));
+        assert!(command_evaluable_when_disabled(CommandType::RemoveBeacon));
+        assert!(command_evaluable_when_disabled(CommandType::SetRallyPoint));
+        assert!(command_evaluable_when_disabled(CommandType::DoStop));
+        assert!(command_evaluable_when_disabled(CommandType::SwitchWeapons));
+        assert!(!command_evaluable_when_disabled(CommandType::DoSpecialPower));
+        assert!(!command_evaluable_when_disabled(CommandType::QueueUnitCreate));
+    }
+
+    #[test]
+    fn ignores_underpowered_requires_sole_flag() {
+        use gamelogic::common::types::{DisabledMaskType, DisabledType};
+        let opts = CommandOption::IgnoresUnderpowered as u32;
+        let mut sole = DisabledMaskType::none();
+        sole.set_disabled(DisabledType::DisabledUnderpowered);
+        assert!(leftover_ignores_underpowered_clears_disabled(opts, sole));
+        let mut stacked = sole;
+        stacked.set_disabled(DisabledType::DisabledEmp);
+        assert!(!leftover_ignores_underpowered_clears_disabled(opts, stacked));
+        assert!(!leftover_ignores_underpowered_clears_disabled(0, sole));
     }
 }
 

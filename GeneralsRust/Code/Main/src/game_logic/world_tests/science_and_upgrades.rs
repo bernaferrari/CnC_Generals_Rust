@@ -4556,6 +4556,187 @@ fn guarding_interrupts_to_last_attacker() {
 }
 
 #[test]
+fn attack_move_picks_up_created_crate() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut ut = ThingTemplate::new("AtkMove");
+    ut.add_kind_of(KindOf::Infantry);
+    let uid = ObjectId(4640);
+    let mut unit = Object::new(ut, uid, Team::China);
+    unit.set_ai_state(AIState::AttackMoving);
+    unit.movement.max_speed = 8.0;
+    unit.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(uid, unit);
+
+    let ct = ThingTemplate::new("SupplyDropZoneCrate");
+    let cid = ObjectId(4641);
+    let mut crate_obj = Object::new(ct, cid, Team::Neutral);
+    crate_obj.set_position(glam::Vec3::new(60.0, 0.0, 0.0));
+    logic.objects.insert(cid, crate_obj);
+    logic.host_money_crates.register_supply_drop_crate(cid);
+
+    assert!(logic.notify_unit_crate(uid, cid));
+    assert!(logic.try_idle_crate_pickup(uid));
+    let u = &logic.objects[&uid];
+    assert_eq!(
+        u.ai_state,
+        AIState::AttackMoving,
+        "Attack-Move crate pickup must keep parent AI"
+    );
+    assert_eq!(u.requested_victim_id, Some(cid));
+}
+
+#[test]
+fn enter_guard_does_not_shoot_enemies() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut ht = ThingTemplate::new("Terrorist");
+    ht.add_kind_of(KindOf::Infantry);
+    ht.add_kind_of(KindOf::Attackable);
+    ht.enter_guard = true;
+    let hid = ObjectId(4710);
+    let mut h = Object::new(ht, hid, Team::GLA);
+    h.set_position(glam::Vec3::ZERO);
+    h.guard_position = Some(glam::Vec3::ZERO);
+    h.vision_range = 150.0;
+    h.weapon = Some(Weapon {
+        range: 80.0,
+        ..Default::default()
+    });
+    h.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(hid, h);
+
+    let mut et = ThingTemplate::new("Ranger");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(4711);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    logic.update_support_states(&[hid, eid], 1.0 / 30.0);
+    let h = &logic.objects[&hid];
+    assert!(
+        h.target.is_none(),
+        "EnterGuard must not shoot; got target {:?}",
+        h.target
+    );
+    assert_eq!(h.ai_state, AIState::GuardingArea);
+}
+
+#[test]
+fn hijack_guard_boards_enemy_vehicle() {
+    use crate::game_logic::{
+        AIState, KindOf, Object, ObjectId, PendingSpecialAbility, Team, ThingTemplate, Weapon,
+    };
+    let mut logic = GameLogic::new();
+    let mut ht = ThingTemplate::new("Hijacker");
+    ht.add_kind_of(KindOf::Infantry);
+    ht.add_kind_of(KindOf::Attackable);
+    ht.enter_guard = true;
+    ht.hijack_guard = true;
+    let hid = ObjectId(4720);
+    let mut h = Object::new(ht, hid, Team::GLA);
+    h.set_position(glam::Vec3::ZERO);
+    h.guard_position = Some(glam::Vec3::ZERO);
+    h.vision_range = 150.0;
+    h.weapon = Some(Weapon {
+        range: 20.0,
+        ..Default::default()
+    });
+    h.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(hid, h);
+
+    let mut vt = ThingTemplate::new("Humvee");
+    vt.add_kind_of(KindOf::Vehicle);
+    vt.add_kind_of(KindOf::Attackable);
+    let vid = ObjectId(4721);
+    let mut v = Object::new(vt, vid, Team::USA);
+    v.set_position(glam::Vec3::new(30.0, 0.0, 0.0));
+    logic.objects.insert(vid, v);
+
+    logic.update_support_states(&[hid, vid], 1.0 / 30.0);
+    let h = &logic.objects[&hid];
+    assert_eq!(h.target, Some(vid), "HijackGuard must pick the vehicle");
+    assert_eq!(h.ai_state, AIState::SpecialAbility);
+    match logic.pending_special_abilities.get(&hid) {
+        Some(PendingSpecialAbility::Hijack { target_id }) => {
+            assert_eq!(*target_id, vid);
+        }
+        other => panic!("expected Hijack, got {other:?}"),
+    }
+}
+
+#[test]
+fn sleep_guard_range_is_zero_not_hardcoded_80() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("Sleeper");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(4730);
+    let mut g = Object::new(gt, gid, Team::China);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.guard_radius = 80.0;
+    g.vision_range = 100.0;
+    g.ai_attitude = -2;
+    g.weapon = Some(Weapon {
+        range: 80.0,
+        ..Default::default()
+    });
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    assert_eq!(logic.host_std_guard_ranges(gid), (0.0, 0.0));
+
+    let mut et = ThingTemplate::new("Intruder");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(4731);
+    let mut e = Object::new(et, eid, Team::USA);
+    e.set_position(glam::Vec3::new(40.0, 0.0, 0.0));
+    logic.objects.insert(eid, e);
+
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    let g = &logic.objects[&gid];
+    assert!(
+        g.target.is_none(),
+        "Sleep guard must not acquire inside leftover 80 bubble"
+    );
+}
+
+#[test]
+fn aggressive_guard_range_is_mood_widened() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut nt = ThingTemplate::new("NormalG");
+    nt.add_kind_of(KindOf::Infantry);
+    let nid = ObjectId(4740);
+    let mut n = Object::new(nt, nid, Team::China);
+    n.vision_range = 100.0;
+    n.ai_attitude = 0;
+    logic.objects.insert(nid, n);
+
+    let mut at = ThingTemplate::new("AggroG");
+    at.add_kind_of(KindOf::Infantry);
+    let aid = ObjectId(4741);
+    let mut a = Object::new(at, aid, Team::China);
+    a.vision_range = 100.0;
+    a.ai_attitude = 2;
+    logic.objects.insert(aid, a);
+
+    let (n_in, n_out) = logic.host_std_guard_ranges(nid);
+    let (a_in, a_out) = logic.host_std_guard_ranges(aid);
+    assert!(n_in > 0.0 && n_out > n_in, "normal inner/outer {n_in}/{n_out}");
+    assert!(
+        a_in > n_in && a_out > n_out,
+        "aggressive {a_in}/{a_out} must exceed normal {n_in}/{n_out}"
+    );
+}
+
+
+#[test]
 fn notify_computer_killer_only() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();

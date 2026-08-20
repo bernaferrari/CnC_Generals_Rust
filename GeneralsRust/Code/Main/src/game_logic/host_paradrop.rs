@@ -46,6 +46,12 @@ pub const PARADROP_RESIDUAL_TEMPLATE: &str = "TestInfantry";
 
 /// Preferred retail template name for America airborne residual.
 pub const AMERICA_RANGER_TEMPLATE: &str = "AmericaInfantryRanger";
+/// Infantry General paradrop payload (Infa_SUPERWEAPON_Paradrop*).
+pub const INFA_PARADROP_TEMPLATE: &str = "Infa_AmericaInfantryRanger";
+/// Tank General paradrop payload (Tank_SUPERWEAPON_TankParadrop*).
+pub const TANK_PARADROP_TEMPLATE: &str = "Tank_AmericaTankCrusader";
+/// Fallback when the Tank_ prefix template is not in the store.
+pub const TANK_PARADROP_FALLBACK_TEMPLATE: &str = "AmericaTankCrusader";
 
 /// Retail SuperweaponParadropAmerica template residual.
 pub const PARADROP_SPECIAL_POWER: &str = "SuperweaponParadropAmerica";
@@ -236,15 +242,19 @@ impl ParadropScienceTier {
 pub enum HostParadropKind {
     /// USA America Airborne / SuperweaponParadropAmerica residual.
     AmericaParadrop,
+    /// Infantry General Infa_SuperweaponInfantryParadrop.
+    InfantryParadrop,
+    /// Tank General Tank_SuperweaponTankParadrop.
+    TankParadrop,
 }
 
 impl HostParadropKind {
     /// Map a command-system power type to a host residual paradrop, if supported.
     pub fn from_command_power(power: &SpecialPowerType) -> Option<Self> {
         match power {
-            SpecialPowerType::Paradrop
-            | SpecialPowerType::InfantryParadrop
-            | SpecialPowerType::TankParadrop => Some(HostParadropKind::AmericaParadrop),
+            SpecialPowerType::Paradrop => Some(HostParadropKind::AmericaParadrop),
+            SpecialPowerType::InfantryParadrop => Some(HostParadropKind::InfantryParadrop),
+            SpecialPowerType::TankParadrop => Some(HostParadropKind::TankParadrop),
             _ => None,
         }
     }
@@ -252,49 +262,92 @@ impl HostParadropKind {
     pub fn label(self) -> &'static str {
         match self {
             HostParadropKind::AmericaParadrop => "AmericaParadrop",
+            HostParadropKind::InfantryParadrop => "InfantryParadrop",
+            HostParadropKind::TankParadrop => "TankParadrop",
         }
     }
 
     /// Flight / approach delay in logic frames before infantry spawn.
     /// Residual (not full cargo-plane OCL transit): ~3s @ 30 FPS.
     pub fn drop_delay_frames(self) -> u32 {
-        match self {
-            HostParadropKind::AmericaParadrop => 90,
-        }
+        PARADROP_APPROACH_DELAY_FRAMES
     }
 
-    /// Number of residual infantry to spawn at drop time.
+    /// Number of residual units to spawn at drop time (tier-1 default).
     pub fn unit_count(self) -> u32 {
         match self {
-            HostParadropKind::AmericaParadrop => AMERICA_PARADROP_UNIT_COUNT,
+            HostParadropKind::TankParadrop => 1,
+            HostParadropKind::AmericaParadrop | HostParadropKind::InfantryParadrop => {
+                AMERICA_PARADROP_UNIT_COUNT
+            }
         }
     }
 
     /// Horizontal spacing between drop points.
     pub fn drop_spacing(self) -> f32 {
-        match self {
-            HostParadropKind::AmericaParadrop => PARADROP_DROP_SPACING,
-        }
+        PARADROP_DROP_SPACING
     }
 
     /// Preferred unit template for this residual kind.
     pub fn unit_template(self) -> &'static str {
         match self {
             HostParadropKind::AmericaParadrop => AMERICA_RANGER_TEMPLATE,
+            HostParadropKind::InfantryParadrop => INFA_PARADROP_TEMPLATE,
+            HostParadropKind::TankParadrop => TANK_PARADROP_TEMPLATE,
+        }
+    }
+
+    /// Alternate store name when the faction-prefixed template is missing.
+    pub fn fallback_template(self) -> Option<&'static str> {
+        match self {
+            HostParadropKind::TankParadrop => Some(TANK_PARADROP_FALLBACK_TEMPLATE),
+            HostParadropKind::AmericaParadrop | HostParadropKind::InfantryParadrop => None,
         }
     }
 
     /// Audio event name queued on activation (host residual).
     pub fn activate_audio(self) -> &'static str {
-        match self {
-            HostParadropKind::AmericaParadrop => "SuperweaponParadrop",
-        }
+        "SuperweaponParadrop"
     }
 
     /// Audio event name queued when units land/spawn (host residual).
     pub fn drop_audio(self) -> &'static str {
+        "ParadropLanding"
+    }
+
+    /// Whether an unlocked science name belongs to this general's OCL ladder.
+    pub fn matches_science(self, name: &str) -> bool {
+        let n = name.to_ascii_lowercase();
         match self {
-            HostParadropKind::AmericaParadrop => "ParadropLanding",
+            HostParadropKind::TankParadrop => n.contains("tankparadrop"),
+            HostParadropKind::InfantryParadrop => {
+                n.contains("infantryparadrop") || n.contains("infa_science_infantryparadrop")
+            }
+            HostParadropKind::AmericaParadrop => {
+                n.contains("paradrop") && !n.contains("tank") && !n.contains("infantry")
+            }
+        }
+    }
+
+    /// Payload count for the highest matching science tier.
+    pub fn payload_count_from_sciences<'a, I>(self, sciences: I) -> u32
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let filtered: Vec<&str> = sciences
+            .into_iter()
+            .filter(|s| self.matches_science(s))
+            .collect();
+        let tier = ParadropScienceTier::highest_from_sciences(filtered);
+        match self {
+            HostParadropKind::TankParadrop => match tier {
+                ParadropScienceTier::Level1 => 1,
+                ParadropScienceTier::Level2 => 2,
+                ParadropScienceTier::Level3 => 3,
+            },
+            HostParadropKind::AmericaParadrop | HostParadropKind::InfantryParadrop => {
+                tier.ranger_count()
+            }
         }
     }
 }
@@ -747,6 +800,27 @@ mod tests {
             HostParadropKind::from_command_power(&SpecialPowerType::Paradrop),
             Some(HostParadropKind::AmericaParadrop)
         );
+        assert_eq!(
+            HostParadropKind::from_command_power(&SpecialPowerType::InfantryParadrop),
+            Some(HostParadropKind::InfantryParadrop)
+        );
+        assert_eq!(
+            HostParadropKind::from_command_power(&SpecialPowerType::TankParadrop),
+            Some(HostParadropKind::TankParadrop)
+        );
+        assert_eq!(
+            HostParadropKind::AmericaParadrop.unit_template(),
+            AMERICA_RANGER_TEMPLATE
+        );
+        assert_eq!(
+            HostParadropKind::InfantryParadrop.unit_template(),
+            INFA_PARADROP_TEMPLATE
+        );
+        assert_eq!(
+            HostParadropKind::TankParadrop.unit_template(),
+            TANK_PARADROP_TEMPLATE
+        );
+        assert_eq!(HostParadropKind::TankParadrop.unit_count(), 1);
         assert_eq!(
             HostParadropKind::from_command_power(&SpecialPowerType::Airstrike),
             None

@@ -1016,6 +1016,78 @@ impl PresentationFrame {
         self.finalize_box_selection(candidates)
     }
 
+    /// C++ `ActionManager::canPlayerGarrison` residual for `SelectionInfo.cpp:129-131`.
+    /// Used only by live box-select to leave infantry+one-garrisonable as enter.
+    pub fn garrisonable_building_ids_in_screen_rect(
+        &self,
+        view_matrix: Mat4,
+        projection_matrix: Mat4,
+        start: Vec2,
+        end: Vec2,
+        viewport_size: Vec2,
+    ) -> Vec<ObjectId> {
+        let viewport_width = viewport_size.x.max(1.0);
+        let viewport_height = viewport_size.y.max(1.0);
+        let view_projection = projection_matrix * view_matrix;
+        if !view_projection.is_finite() {
+            return Vec::new();
+        }
+        let min_x = start.x.min(end.x);
+        let max_x = start.x.max(end.x);
+        let min_y = start.y.min(end.y);
+        let max_y = start.y.max(end.y);
+
+        let mut ids = Vec::new();
+        for object in &self.objects {
+            if !self.presentation_can_player_garrison(object) {
+                continue;
+            }
+            let Some(screen_position) = project_position_to_screen(
+                view_projection,
+                object.position,
+                viewport_width,
+                viewport_height,
+            ) else {
+                continue;
+            };
+            if screen_position.x < min_x
+                || screen_position.x > max_x
+                || screen_position.y < min_y
+                || screen_position.y > max_y
+            {
+                continue;
+            }
+            if !ids.contains(&object.id) {
+                ids.push(object.id);
+            }
+        }
+        ids
+    }
+
+    fn presentation_can_player_garrison(&self, object: &RenderableObject) -> bool {
+        use crate::game_logic::KindOf;
+        if object.destroyed || object.sold {
+            return false;
+        }
+        if !object.capture_garrisonable && object.max_garrison == 0 {
+            return false;
+        }
+        let is_structure = Self::presentation_is_structure(object)
+            || object.capture_garrisonable
+            || Self::object_has_kind(object, KindOf::GarrisonableUntilDestroyed);
+        if !is_structure {
+            return false;
+        }
+        if self.is_owned_by_local(object) {
+            return true;
+        }
+        if self.is_enemy_of_local(object) {
+            return false;
+        }
+        object.occupant_count == 0 && object.garrisoned_units.is_empty()
+    }
+
+
     /// C++ `addDrawableToList` + FireBase non-enclosing container prop
     /// (`SelectionInfo.cpp:336-346`). Occupants that are not independently
     /// selectable promote their visible container.

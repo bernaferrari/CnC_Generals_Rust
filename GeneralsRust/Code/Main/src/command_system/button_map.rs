@@ -87,7 +87,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             location: glam::Vec3::ZERO, // filled by map click
             text: String::new(),
         }),
-        "removebeacon" | "deletebeacon" => Some(CommandType::RemoveBeacon),
+        "removebeacon" | "deletebeacon" | "beacondelete" => Some(CommandType::RemoveBeacon),
         "setbeacontext" | "beacontext" | "clearbeacontext" => Some(CommandType::SetBeaconText {
             text: String::new(),
         }),

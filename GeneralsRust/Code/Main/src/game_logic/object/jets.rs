@@ -154,4 +154,56 @@ impl Object {
         }
         false
     }
+
+    /// C++ `JetAIUpdate::getProducerLocation` — capture once.
+    pub fn capture_jet_producer_location(&mut self, airfield_pos: Option<Vec3>) {
+        if self.jet_producer_location.is_some() {
+            return;
+        }
+        let p = airfield_pos.unwrap_or_else(|| self.get_position());
+        self.jet_producer_location = Some([p.x, p.y, p.z]);
+    }
+
+    pub fn jet_producer_location_vec(&self) -> Option<Vec3> {
+        self.jet_producer_location
+            .map(|p| Vec3::new(p[0], p[1], p[2]))
+    }
+
+    /// 2D arrival at remembered producer / dead-airfield location.
+    pub fn is_at_jet_producer_location(&self, arrive_radius: f32) -> bool {
+        let Some(goal) = self.jet_producer_location_vec() else {
+            return true;
+        };
+        let p = self.get_position();
+        let dx = p.x - goal.x;
+        let dz = p.z - goal.z;
+        dx * dx + dz * dz <= arrive_radius * arrive_radius
+    }
+
+    /// C++ `JetOrHeliCirclingDeadAirfieldState::onEnter`.
+    /// Returns true when this call entered the state (play VoiceLowFuel).
+    pub fn enter_circling_dead_airfield(&mut self, now: u32) -> bool {
+        if self.jet_circling_dead_airfield {
+            return false;
+        }
+        // Map-placed idle jet with no producer and a full clip is not dying.
+        if !self.needs_return_to_base_rearm() && self.producer_id.is_none() {
+            return false;
+        }
+        self.jet_circling_dead_airfield = true;
+        self.jet_circling_airfield_check_frame = now.saturating_add(30);
+        self.target = None;
+        self.set_status_attacking(false);
+        self.set_status_moving(false);
+        self.movement.path.clear();
+        self.movement.current_path_index = 0;
+        self.movement.target_position = None;
+        self.set_ai_state(AIState::Idle);
+        true
+    }
+
+    pub fn leave_circling_dead_airfield(&mut self) {
+        self.jet_circling_dead_airfield = false;
+        self.jet_circling_airfield_check_frame = 0;
+    }
 }

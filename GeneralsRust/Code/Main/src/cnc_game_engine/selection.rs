@@ -1537,12 +1537,113 @@ impl CnCGameEngine {
     }
 
     /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
+    /// C++ `InGameUI::selectUnitsMatchingCurrentSelection` (`InGameUI.cpp:4900`):
+    /// screen pass first, then map; union every locally-controlled selected
+    /// template; add (`MSG_CREATE_SELECTED_GROUP_NO_SOUND`, createNewGroup=false).
     pub(super) fn select_matching_units_hotkey(&mut self) {
-        let seed = self.ui_selection_seed_id();
-        let Some(seed) = seed else {
-            return;
+        let current = self.ui_selected_ids(self.current_player_id);
+        let plan = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
+            };
+            let team = frame.local_team();
+            let mut map_matches: Vec<ObjectId> = Vec::new();
+            let mut had_local_template = false;
+            let mut first_selected_is_structure = false;
+            for (index, id) in current.iter().enumerate() {
+                let Some(obj) = frame.objects.iter().find(|object| object.id == *id) else {
+                    continue;
+                };
+                if index == 0 {
+                    first_selected_is_structure = obj.is_structure
+                        || crate::presentation_frame::PresentationFrame::object_has_kind(
+                            obj,
+                            crate::game_logic::KindOf::Structure,
+                        )
+                        || obj.object_type
+                            == crate::presentation_frame::PresentationObjectType::Building;
+                }
+                if !frame.is_owned_by_local(obj) {
+                    continue;
+                }
+                had_local_template = true;
+                for match_id in frame.similar_unit_ids(*id, team) {
+                    if !map_matches.contains(&match_id) {
+                        map_matches.push(match_id);
+                    }
+                }
+            }
+            let window_size = self.window.inner_size();
+            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let screen_matches = frame.filter_ids_on_screen(
+                &map_matches,
+                self.view_matrix,
+                self.projection_matrix,
+                viewport,
+            );
+            let screen_new: Vec<ObjectId> = screen_matches
+                .into_iter()
+                .filter(|id| !current.contains(id))
+                .collect();
+            let map_new: Vec<ObjectId> = map_matches
+                .into_iter()
+                .filter(|id| !current.contains(id))
+                .collect();
+            matching_units_hotkey_plan(
+                had_local_template,
+                &screen_new,
+                &map_new,
+                first_selected_is_structure,
+            )
         };
-        self.select_similar_units(seed);
+        if !plan.added.is_empty() {
+            let mut selection = current;
+            for id in plan.added {
+                if !selection.contains(&id) {
+                    selection.push(id);
+                }
+            }
+            self.host_set_selection(self.current_player_id, selection);
+        }
+        if let Some(msg) = plan.message {
+            self.game_hud.push_info_message(msg);
+            self.ui_manager.game_hud_mut().push_info_message(msg);
+        }
+    }
+}
+
+/// C++ `selectMatchingAcrossScreen` then `selectMatchingAcrossMap` HUD + add set.
+struct MatchingUnitsHotkeyPlan {
+    added: Vec<ObjectId>,
+    message: Option<&'static str>,
+}
+
+fn matching_units_hotkey_plan(
+    had_local_template: bool,
+    screen_new: &[ObjectId],
+    map_new: &[ObjectId],
+    first_selected_is_structure: bool,
+) -> MatchingUnitsHotkeyPlan {
+    if !had_local_template {
+        return MatchingUnitsHotkeyPlan {
+            added: Vec::new(),
+            message: Some("GUI:NothingSelected"),
+        };
+    }
+    if !screen_new.is_empty() {
+        return MatchingUnitsHotkeyPlan {
+            added: screen_new.to_vec(),
+            message: Some("GUI:SelectedAcrossScreen"),
+        };
+    }
+    let message = if !map_new.is_empty() || !first_selected_is_structure {
+        Some("GUI:SelectedAcrossMap")
+    } else {
+        None
+    };
+    MatchingUnitsHotkeyPlan {
+        added: map_new.to_vec(),
+        message,
     }
 }
 
@@ -1610,4 +1711,21 @@ mod idle_worker_selection_tests {
         assert_eq!(targets[1].focus_position, glam::Vec3::new(20.0, 0.0, 30.0));
         assert!(select_next_idle_worker_target(&[], &[]).is_none());
     }
+
+    #[test]
+    fn key_e_matching_plan_is_screen_then_map_add() {
+        // C++ InGameUI.cpp:4900-4916 selectUnitsMatchingCurrentSelection.
+        let screen = [ObjectId(2)];
+        let map = [ObjectId(2), ObjectId(3)];
+        let plan = matching_units_hotkey_plan(true, &screen, &map, false);
+        assert_eq!(plan.added, vec![ObjectId(2)]);
+        assert_eq!(plan.message, Some("GUI:SelectedAcrossScreen"));
+        let plan = matching_units_hotkey_plan(true, &[], &map, false);
+        assert_eq!(plan.added, vec![ObjectId(2), ObjectId(3)]);
+        assert_eq!(plan.message, Some("GUI:SelectedAcrossMap"));
+        let plan = matching_units_hotkey_plan(false, &[], &[], false);
+        assert!(plan.added.is_empty());
+        assert_eq!(plan.message, Some("GUI:NothingSelected"));
+    }
+
 }

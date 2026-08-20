@@ -660,6 +660,11 @@ impl<'a> CommandExecutor<'a> {
             if !is_chinook {
                 continue;
             }
+            if crate::command_executor::leftover::host_rappeller_count(self.game_logic, unit_id)
+                == 0
+            {
+                continue;
+            }
             if let Some(tid) = object_target {
                 let _ = self
                     .game_logic

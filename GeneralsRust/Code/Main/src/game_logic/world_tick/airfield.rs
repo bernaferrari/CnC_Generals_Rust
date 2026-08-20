@@ -40,13 +40,107 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
+            self.snapshot_jet_producer_location(id);
             if self.try_return_to_base_rearm(id) {
+                if let Some(jet) = self.objects.get_mut(&id) {
+                    jet.leave_circling_dead_airfield();
+                }
                 continue;
             }
-            if let Some(jet) = self.objects.get_mut(&id) {
-                if jet.needs_return_to_base_rearm() {
-                    let _ = jet.apply_out_of_ammo_damage_frame();
-                }
+            self.tick_return_or_circle_dead_airfield(id);
+        }
+    }
+
+    /// C++ `JetAIUpdate::getProducerLocation` — snapshot while the airfield lives.
+    fn snapshot_jet_producer_location(&mut self, jet_id: ObjectId) {
+        let producer_id = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return;
+            };
+            if jet.jet_producer_location.is_some() {
+                return;
+            }
+            jet.producer_id
+        };
+        let airfield_pos = producer_id.and_then(|pid| {
+            self.objects
+                .get(&pid)
+                .filter(|airfield| airfield.is_alive())
+                .map(|airfield| airfield.get_position())
+        });
+        if airfield_pos.is_none() && producer_id.is_some() {
+            // Producer id still set but the object is gone — do not overwrite
+            // with the jet's combat position; wait for a live snapshot or
+            // the C++ own-pos fallback after producer is cleared.
+            return;
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.capture_jet_producer_location(airfield_pos);
+        }
+    }
+
+    /// C++ RETURN_TO_DEAD_AIRFIELD then CIRCLING_DEAD_AIRFIELD.
+    /// Damage only after arriving at the remembered wreck and entering circle.
+    fn tick_return_or_circle_dead_airfield(&mut self, jet_id: ObjectId) {
+        {
+            let Some(jet) = self.objects.get_mut(&jet_id) else {
+                return;
+            };
+            if jet.jet_producer_location.is_none() {
+                jet.capture_jet_producer_location(None);
+            }
+        }
+        const DEAD_AIRFIELD_ARRIVE: f32 = 80.0;
+        let (needs, at_wreck, goal) = {
+            let Some(jet) = self.objects.get(&jet_id) else {
+                return;
+            };
+            (
+                jet.needs_return_to_base_rearm(),
+                jet.is_at_jet_producer_location(DEAD_AIRFIELD_ARRIVE),
+                jet.jet_producer_location_vec(),
+            )
+        };
+        if !needs {
+            return;
+        }
+        if !at_wreck {
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.leave_circling_dead_airfield();
+                jet.target = None;
+                jet.set_status_attacking(false);
+                jet.set_ai_state(AIState::Moving);
+            }
+            if let Some(goal) = goal {
+                let _ = self.assign_unit_path(jet_id, goal, &[]);
+            }
+            return;
+        }
+        let entered = self
+            .objects
+            .get_mut(&jet_id)
+            .is_some_and(|jet| jet.enter_circling_dead_airfield(self.frame));
+        if entered {
+            if let Some(jet) = self.objects.get(&jet_id) {
+                let pos = jet.get_position();
+                let event = format!("{}VoiceLowFuel", jet.template_name);
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new("VoiceLowFuel")
+                        .with_object(jet_id)
+                        .with_position(pos)
+                        .with_priority(90),
+                );
+                self.queue_audio_event(
+                    crate::game_logic::AudioEventRequest::new(&event)
+                        .with_object(jet_id)
+                        .with_position(pos)
+                        .with_priority(90),
+                );
+            }
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            if jet.jet_circling_dead_airfield {
+                let _ = jet.apply_out_of_ammo_damage_frame();
             }
         }
     }
@@ -637,12 +731,14 @@ impl GameLogic {
             }
         };
         let slot_index = u32::try_from(index).ok()?;
+        let airfield_pos = self.objects.get(&airfield_id).map(|a| a.get_position());
         let jet = self.objects.get_mut(&jet_id)?;
         if !Self::is_aircraft(jet) || !jet.is_alive() {
             return None;
         }
         jet.producer_id = Some(airfield_id);
         jet.airfield_parking_space_index = Some(slot_index);
+        jet.capture_jet_producer_location(airfield_pos);
         self.sync_airfield_hangar_doors(airfield_id);
         Some(index)
     }
@@ -1378,12 +1474,8 @@ impl GameLogic {
                 crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
                 jet.record_host_movement();
             }
-            if jet.needs_return_to_base_rearm() && jet.airfield_rearm_ready_frame.is_none() {
-                let frames = jet.airfield_rearm_clip_reload_frames();
-                if frames > 0 {
-                    jet.airfield_rearm_ready_frame = Some(self.frame.saturating_add(frames));
-                }
-            }
+            jet.begin_parked_airfield_rearm(self.frame);
+            let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
 
 
@@ -1391,15 +1483,8 @@ impl GameLogic {
         self.sync_airfield_hangar_doors(airfield_id);
 
         if let Some(jet) = self.objects.get_mut(&jet_id) {
-            if !jet.needs_return_to_base_rearm() {
-                jet.airfield_rearm_ready_frame = None;
-            } else if let Some(ready_frame) = jet.airfield_rearm_ready_frame {
-                if self.frame >= ready_frame && jet.rearm_return_to_base_weapons() {
-                    jet.airfield_rearm_ready_frame = None;
-                }
-            } else {
-                let _ = jet.rearm_return_to_base_weapons();
-            }
+            jet.begin_parked_airfield_rearm(self.frame);
+            let _ = jet.tick_parked_airfield_rearm(self.frame);
         }
         // A parked clip-reload in progress is still a successful RTB route.
         true
@@ -1427,6 +1512,7 @@ impl GameLogic {
                         || crate::gameworld_shadow::gameworld_ai_decision_authority_live())
                     && (o.health.current + 1e-3 < o.health.maximum
                         || o.needs_return_to_base_rearm()
+                        || o.airfield_rearm_ready_frame.is_some()
                         || aircraft_has_countermeasures_upgrade(&o.applied_upgrades))
             })
             .map(|(id, _)| *id)
@@ -1458,11 +1544,11 @@ impl GameLogic {
                 // when landing / docked at airfield (ReloadTime=0 residual).
                 self.countermeasures.reload_at_airfield(jid);
             }
+            self.snapshot_jet_producer_location(jid);
             if let Some(jet) = self.objects.get_mut(&jid) {
-                // Also top-up RTB ammo while parked (continuous rearm residual).
-                if jet.needs_return_to_base_rearm() {
-                    let _ = jet.rearm_return_to_base_weapons();
-                }
+                // C++ JetOrHeliReloadAmmoState::update — heal-tick progressive fill.
+                jet.begin_parked_airfield_rearm(self.frame);
+                let _ = jet.tick_parked_airfield_rearm(self.frame);
                 if heal > 0.0 && jet.health.current + 1e-3 < jet.health.maximum {
                     jet.heal(heal);
                 }

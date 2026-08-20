@@ -19,11 +19,9 @@
 //! - Slth_SuperweaponGPSScrambler ReloadTime **180000**ms → **5400**f
 //! - OCL SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker
 //!
-//! Fail-closed honesty:
-//! - GPSScrambler_InvisibleMarker spawn residual closed (particle GPU still fail-closed)
 //! - GrantStealthBehavior grow-radius pulse residual closed (Start 20 → Final 100)
-//! - Not full StealthUpdate module matrix (only units with getStealth in C++; host residual
-//!   grants to VEHICLE|INFANTRY KindOf, skips bomb-truck disguise residual by name)
+//! - C++ GrantStealthBehavior.cpp:170-179 only receiveGrant() when getStealth()
+//!   exists. Host proxy: innate_stealth / stealth module already present.
 //! - Not full ally relationship filter (uses same-team residual)
 //! - Not full particle / flashAsSelected drawable path
 //! - Not network GPS Scrambler replication (network deferred)
@@ -132,6 +130,7 @@ pub fn gps_scrambler_grow_is_final(update_index: u32) -> bool {
 /// - KindOf VEHICLE | INFANTRY
 /// - not under construction residual
 /// - not bomb-truck disguise residual (StealthUpdate::canDisguise skip)
+/// - already has a StealthUpdate module (host: innate_stealth / stealth flag)
 pub fn is_legal_gps_scrambler_target(
     is_vehicle: bool,
     is_infantry: bool,
@@ -139,8 +138,9 @@ pub fn is_legal_gps_scrambler_target(
     same_team: bool,
     under_construction: bool,
     is_disguise_unit: bool,
+    has_stealth_module: bool,
 ) -> bool {
-    if !is_alive || under_construction || is_disguise_unit {
+    if !is_alive || under_construction || is_disguise_unit || !has_stealth_module {
         return false;
     }
     if !same_team {
@@ -347,28 +347,32 @@ mod tests {
 
     #[test]
     fn legal_gps_scrambler_target_matrix() {
-        // vehicle, infantry, alive, same_team, under_construction, disguise
+        // vehicle, infantry, alive, same_team, under_construction, disguise, stealth_module
         assert!(is_legal_gps_scrambler_target(
-            true, false, true, true, false, false
+            true, false, true, true, false, false, true
         ));
         assert!(is_legal_gps_scrambler_target(
-            false, true, true, true, false, false
+            false, true, true, true, false, false, true
         ));
         assert!(!is_legal_gps_scrambler_target(
-            false, false, true, true, false, false
+            false, false, true, true, false, false, true
         )); // structure
         assert!(!is_legal_gps_scrambler_target(
-            true, false, false, true, false, false
+            true, false, false, true, false, false, true
         )); // dead
         assert!(!is_legal_gps_scrambler_target(
-            true, false, true, false, false, false
+            true, false, true, false, false, false, true
         )); // enemy
         assert!(!is_legal_gps_scrambler_target(
-            true, false, true, true, true, false
+            true, false, true, true, true, false, true
         )); // constructing
         assert!(!is_legal_gps_scrambler_target(
-            true, false, true, true, false, true
+            true, false, true, true, false, true, true
         )); // bombtruck
+        // C++ GrantStealthBehavior.cpp:170 — no getStealth() → stay visible.
+        assert!(!is_legal_gps_scrambler_target(
+            true, false, true, true, false, false, false
+        ));
     }
 
     #[test]

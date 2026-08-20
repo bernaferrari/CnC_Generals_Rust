@@ -3,9 +3,9 @@
 //! Residual slice (playability):
 //! - `DoSpecialPower(CiaIntelligence)` temporarily spies on all enemy units
 //!   (retail SuperweaponCIAIntelligence / SpyVisionUpdate setUnitsVisionSpied).
-//! - For each enemy unit: mark vision-spied, temporary FOW reveal at unit pos
-//!   using residual vision radius (unit sight_range), and mark stealthed units
-//!   DETECTED so they become visible/targetable.
+//! - For each enemy unit: mark vision-spied and temporarily reveal FOW at
+//!   the unit's current position using residual vision radius (sight_range).
+//!   Does **not** mark DETECTED / destalth (C++ setUnitsVisionSpied).
 //! - Fog returns after BaseDuration (undo lookers); vision-spied marks clear.
 //! - Honesty counters/flags for residual gates and tests.
 //!

@@ -210,23 +210,34 @@ impl Object {
             _ => {}
         }
         // C++ Object::setWeaponBonusCondition VETERAN/ELITE/HERO + computeBonus
-        // every fire (Weapon.cpp:1797-1816). GameData defaults: Vet 110%/120%,
-        // Elite 120%/140%, Hero 130%/160%. Live fire must recompute from these
-        // fields so secondary/tertiary and post-promotion weapons pick them up.
-        match self.experience.level {
-            VeterancyLevel::Veteran => {
-                damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
-                rof *= VETERANCY_ROF_BONUS_VETERAN;
+        // every fire (Weapon.cpp:1797-1816). Flags are exclusive; fall back to
+        // experience.level when a test assigns rank without going through
+        // apply_veterancy_bonuses.
+        if self.weapon_bonus_hero {
+            damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
+            rof *= VETERANCY_ROF_BONUS_HEROIC;
+        } else if self.weapon_bonus_elite {
+            damage *= VETERANCY_DAMAGE_BONUS_ELITE;
+            rof *= VETERANCY_ROF_BONUS_ELITE;
+        } else if self.weapon_bonus_veteran {
+            damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
+            rof *= VETERANCY_ROF_BONUS_VETERAN;
+        } else {
+            match self.experience.level {
+                VeterancyLevel::Veteran => {
+                    damage *= VETERANCY_DAMAGE_BONUS_VETERAN;
+                    rof *= VETERANCY_ROF_BONUS_VETERAN;
+                }
+                VeterancyLevel::Elite => {
+                    damage *= VETERANCY_DAMAGE_BONUS_ELITE;
+                    rof *= VETERANCY_ROF_BONUS_ELITE;
+                }
+                VeterancyLevel::Heroic => {
+                    damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
+                    rof *= VETERANCY_ROF_BONUS_HEROIC;
+                }
+                VeterancyLevel::Rookie => {}
             }
-            VeterancyLevel::Elite => {
-                damage *= VETERANCY_DAMAGE_BONUS_ELITE;
-                rof *= VETERANCY_ROF_BONUS_ELITE;
-            }
-            VeterancyLevel::Heroic => {
-                damage *= VETERANCY_DAMAGE_BONUS_HEROIC;
-                rof *= VETERANCY_ROF_BONUS_HEROIC;
-            }
-            VeterancyLevel::Rookie => {}
         }
 
 

@@ -3228,11 +3228,11 @@ fn napalm_strike_and_general_paradrop_terror_cell_map_host_residuals() {
     );
     assert_eq!(
         HostParadropKind::from_command_power(&SpecialPowerType::InfantryParadrop),
-        Some(HostParadropKind::AmericaParadrop)
+        Some(HostParadropKind::InfantryParadrop)
     );
     assert_eq!(
         HostParadropKind::from_command_power(&SpecialPowerType::TankParadrop),
-        Some(HostParadropKind::AmericaParadrop)
+        Some(HostParadropKind::TankParadrop)
     );
     assert_eq!(
         HostAmbushKind::from_command_power(&SpecialPowerType::TerrorCell),
@@ -3636,7 +3636,9 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
     let mut depot = ThingTemplate::new("AmericaSupplyCenter");
     depot
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSSupplyCenter)
         .set_health(2000.0);
+    depot.capturable = true;
     logic.templates.insert("AmericaSupplyCenter".into(), depot);
     let victim = logic
         .create_object(
@@ -3646,10 +3648,12 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
         )
         .expect("victim");
 
-    // Location-only fire is a C++ no-op.
-    assert_eq!(logic.activate_cash_hack(0, Some(src), None), 0);
+    // Location-only fire is a C++ no-op (CashHackSpecialPower.cpp:76-82).
+    assert_eq!(logic.activate_cash_hack(0, Some(src), None), None);
 
-    let stolen = logic.activate_cash_hack(0, Some(src), Some(victim));
+    let stolen = logic
+        .activate_cash_hack(0, Some(src), Some(victim))
+        .expect("valid cash-generator steal");
     assert_eq!(stolen, CASH_HACK_MONEY_AMOUNT_TIER3);
     assert_eq!(
         logic.last_cash_hack_request_amount(),
@@ -3666,7 +3670,9 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
     );
 
     // Object-target path residual (second steal from the same victim player).
-    let stolen2 = logic.activate_cash_hack(0, Some(src), Some(victim));
+    let stolen2 = logic
+        .activate_cash_hack(0, Some(src), Some(victim))
+        .expect("second valid steal");
     assert_eq!(stolen2, CASH_HACK_MONEY_AMOUNT_TIER3);
     let _ = SpecialPowerType::CashHack;
 }
@@ -3766,17 +3772,18 @@ fn carpet_bomb_faction_tier_from_team_and_airforce_science() {
 }
 
 #[test]
-fn a10_science_tier_selects_formation_size_damage_scale() {
+fn a10_science_tier_spawns_ocl_jets_from_map_edge() {
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::special_power_strikes::{
-        A10StrikeScienceTier, HostSpecialPowerStrikeRegistry, HostSuperweaponKind,
-        A10_FORMATIONION_SIZE_L3, A10_SCIENCE_TIER3,
+        A10StrikeScienceTier, HostSpecialPowerStrikeRegistry, HostSuperweaponKind, A10_SCIENCE_TIER3,
+        A10_TRANSPORT,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     assert_eq!(
         A10StrikeScienceTier::highest_from_sciences([A10_SCIENCE_TIER3]).formation_size(),
-        A10_FORMATIONION_SIZE_L3
+        3
     );
+    // Delayed circular blob is not retail — OCL jets apply missile/vulcan.
     let l1 =
         HostSpecialPowerStrikeRegistry::damage_at_distance(HostSuperweaponKind::A10Strike, 0.0);
     let l3 = HostSpecialPowerStrikeRegistry::damage_at_distance_with_tiers(
@@ -3785,7 +3792,7 @@ fn a10_science_tier_selects_formation_size_damage_scale() {
         crate::game_logic::special_power_strikes::ScudStormAnthraxTier::Base,
         A10StrikeScienceTier::Level3,
     );
-    assert!((l3 - l1 * 3.0).abs() < 0.1, "l1={l1} l3={l3}");
+    assert!(l1.abs() < 0.1 && l3.abs() < 0.1, "l1={l1} l3={l3}");
 
     let mut logic = GameLogic::new();
     logic
@@ -3820,6 +3827,84 @@ fn a10_science_tier_selects_formation_size_damage_scale() {
         logic.special_power_strike_a10_tier(id),
         Some(A10StrikeScienceTier::Level3)
     );
+    let jets: Vec<_> = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.a10_strike_transport.is_some())
+        .collect();
+    assert_eq!(jets.len(), 3, "science 3 must spawn FormationSize 3 jets");
+    assert!(jets.iter().all(|o| o.template_name == A10_TRANSPORT));
+    let (min, max) = logic.world_bounds();
+    for jet in &jets {
+        let p = jet.get_position();
+        let on_edge = (p.x - min.x).abs() < 1.0
+            || (p.x - max.x).abs() < 1.0
+            || (p.z - min.z).abs() < 1.0
+            || (p.z - max.z).abs() < 1.0;
+        assert!(on_edge, "A10 jet must spawn on map edge, pos={p:?}");
+    }
+}
+
+#[test]
+fn tank_and_infantry_paradrop_use_faction_templates() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::host_paradrop::{
+        HostParadropKind, INFA_PARADROP_TEMPLATE, TANK_PARADROP_TEMPLATE,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .unlocked_sciences
+        .insert("SCIENCE_TankParadrop2".into());
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .unlocked_sciences
+        .insert("Infa_SCIENCE_InfantryParadrop3".into());
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let src = logic
+        .create_object(
+            "AmericaCommandCenter",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("cc");
+
+    let tank_id = logic
+        .queue_paradrop(
+            &SpecialPowerType::TankParadrop,
+            src,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("tank drop");
+    let tank = logic.host_paradrops.get(tank_id).expect("tank mission");
+    assert_eq!(tank.kind, HostParadropKind::TankParadrop);
+    assert_eq!(tank.unit_template, TANK_PARADROP_TEMPLATE);
+    assert_eq!(tank.unit_count, 2);
+
+    let inf_id = logic
+        .queue_paradrop(
+            &SpecialPowerType::InfantryParadrop,
+            src,
+            glam::Vec3::new(120.0, 0.0, 0.0),
+        )
+        .expect("infa drop");
+    let inf = logic.host_paradrops.get(inf_id).expect("infa mission");
+    assert_eq!(inf.kind, HostParadropKind::InfantryParadrop);
+    assert_eq!(inf.unit_template, INFA_PARADROP_TEMPLATE);
+    assert_eq!(inf.unit_count, 20);
 }
 
 #[test]

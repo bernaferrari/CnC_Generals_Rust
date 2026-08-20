@@ -1091,28 +1091,20 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         );
     }
 
-    // Detectable residual: stealthed enemy becomes DETECTED / visible / targetable.
+    // C++ SpyVision does not destalth. Stealthed enemies stay cloaked;
+    // they become moving lookers (vision_spied), not DETECTED.
     let enemy_after = game_logic.host_object(enemy_id).unwrap();
     assert!(
-        enemy_after.status.detected,
-        "stealthed enemy must become DETECTED residual"
+        !enemy_after.status.detected,
+        "SpyVision must not mark DETECTED"
     );
     assert!(
-        !enemy_after.is_effectively_stealthed(),
-        "detected residual must clear effectively-stealthed"
+        enemy_after.is_effectively_stealthed(),
+        "SpyVision must not destalth"
     );
     assert!(
-        enemy_after.is_visible_to_team(Team::USA),
-        "enemy unit must be visible to spying team residual"
-    );
-    assert!(
-        enemy_after.is_targetable_by_enemy_of(Team::USA),
-        "enemy unit must be targetable residual after detect"
-    );
-    assert!(
-        game_logic.cia_intelligence().detects() >= 1
-            || game_logic.cia_intelligence().active_scans()[0].detect_ok,
-        "detect honesty residual"
+        enemy_after.is_vision_spied_by_player(0),
+        "stealthed enemy is still a looker for the spy"
     );
 
     // Charge consumed, not a superweapon strike.
@@ -1159,6 +1151,60 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         shroud.clear_all();
     }
 }
+
+#[test]
+fn cia_intelligence_looker_follows_moving_enemy() {
+    use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS;
+    use gamelogic::common::Coord3D;
+    use gamelogic::system::shroud_manager::get_shroud_manager;
+
+    {
+        let mut shroud = get_shroud_manager().lock().expect("shroud");
+        shroud.clear_all();
+        shroud.init_shroud_grid(1024.0, 1024.0);
+    }
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 1000;
+    logic.add_player(player);
+    ensure_test_tank_template(&mut logic);
+    let caster = logic
+        .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("caster");
+    let start = Vec3::new(400.0, 0.0, 400.0);
+    let enemy = logic
+        .create_object("TestTank", Team::China, start)
+        .expect("enemy");
+    assert!(logic.activate_cia_intelligence(0, Team::USA, Some(caster)));
+    let moved = Vec3::new(520.0, 0.0, 520.0);
+    {
+        let obj = logic.host_object_mut(enemy).unwrap();
+        obj.set_position(moved);
+    }
+    logic.frame = 5;
+    logic.update_cia_intelligence();
+    let new_center = Coord3D::new(moved.x, moved.z, moved.y);
+    {
+        let shroud = get_shroud_manager().lock().expect("shroud");
+        assert!(
+            shroud.is_position_visible(0, &new_center),
+            "CIA looker must share vision at the enemy's new position"
+        );
+    }
+    assert!(
+        logic
+            .cia_intelligence()
+            .is_position_in_active_spy(0, start)
+            || CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS > 0.0
+    );
+    if let Ok(mut shroud) = get_shroud_manager().lock() {
+        shroud.clear_all();
+        shroud.init_shroud_grid(1.0, 1.0);
+        shroud.clear_all();
+    }
+}
+
 
 /// Residual: China FireWall (Dragon Tank Firestorm) does not queue superweapon strikes.
 

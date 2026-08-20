@@ -1346,6 +1346,9 @@ pub struct ThingTemplate {
     pub shroud_clearing_range: f32,
     pub build_cost: Resources,
     pub build_time: f32,
+    /// C++ `ThingTemplate::m_buildable` (`BSTATUS_YES` = 0).
+    #[serde(default)]
+    pub buildable_status: u32,
     /// C++ `ThingTemplate::m_refundValue` from Object INI `RefundValue`.
     /// A zero value means "use BuildCost × GlobalData::SellPercentage";
     /// a non-zero value is an exact sale refund.
@@ -1698,6 +1701,7 @@ impl ThingTemplate {
             shroud_clearing_range: default_template_shroud_clearing_range(),
             build_cost: Resources::default(),
             build_time: 1.0,
+            buildable_status: 0,
             refund_value: 0,
             model_name: None,
             texture_name: None,
@@ -2259,6 +2263,13 @@ impl ThingTemplate {
     pub fn set_cost(&mut self, supplies: u32, power: i32) -> &mut Self {
         self.build_cost = Resources { supplies, power };
         self
+    }
+
+    /// C++ ControlBarCommand.cpp:1119-1121 / 1175-1177 — hide for humans.
+    pub fn human_control_bar_buildable_hidden(&self) -> bool {
+        !crate::game_logic::host_production_buildable_command_residual::buildable_status_allows_human_residual(
+            self.buildable_status,
+        )
     }
 
     pub fn set_model(&mut self, model: &str) -> &mut Self {

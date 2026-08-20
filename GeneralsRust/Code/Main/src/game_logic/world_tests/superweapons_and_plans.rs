@@ -1551,8 +1551,12 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     let barracks_id = game_logic
         .create_object("TestBarracks", Team::GLA, Vec3::new(25.0, 0.0, 0.0))
         .expect("barracks");
-
-    // Bind residual weapons so stealth break-on-attack is measurable.
+    // C++ GrantStealthBehavior.cpp:170 — only units with StealthUpdate cloak.
+    for id in [ally_vehicle_id, ally_infantry_id, far_ally_id] {
+        if let Some(o) = game_logic.host_object_mut(id) {
+            o.innate_stealth = true;
+        }
+    }
     for id in [ally_vehicle_id, enemy_id] {
         let unit = game_logic.host_object_mut(id).expect("unit");
         unit.weapon = Some(Weapon {
@@ -2052,6 +2056,61 @@ fn spy_satellite_spawns_ping_object() {
 }
 
 #[test]
+fn spy_satellite_destalths_units_in_scan() {
+    use crate::game_logic::KindOf;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let mut hero = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
+    hero.add_kind_of(KindOf::Infantry).set_health(120.0);
+    logic.templates.insert("GLAInfantryJarmenKell".into(), hero);
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let kell = logic
+        .create_object(
+            "GLAInfantryJarmenKell",
+            Team::GLA,
+            Vec3::new(100.0, 0.0, 100.0),
+        )
+        .unwrap();
+    {
+        let obj = logic.host_object_mut(kell).unwrap();
+        obj.set_status_stealthed(true);
+        obj.set_status_detected(false);
+    }
+    assert!(logic
+        .host_object(kell)
+        .unwrap()
+        .is_effectively_stealthed());
+    assert!(logic.activate_spy_satellite(
+        0,
+        Team::USA,
+        Vec3::new(100.0, 0.0, 100.0),
+        Some(cc_id),
+    ));
+    let ping = logic
+        .host_objects()
+        .values()
+        .find(|o| o.spy_satellite_ping)
+        .expect("ping");
+    assert!(ping.is_detector, "SpySatellitePing must be a stealth detector");
+    assert!(
+        (ping.detection_range - 300.0).abs() < 0.1,
+        "DetectionRange 0 → VisionRange 300"
+    );
+    let kell_after = logic.host_object(kell).unwrap();
+    assert!(
+        kell_after.status.detected,
+        "SpySat scan must destalth units in radius"
+    );
+    assert!(!kell_after.is_effectively_stealthed());
+}
+
+#[test]
 fn emergency_repair_spawns_invisible_marker() {
     use crate::game_logic::host_emergency_repair::{
         HostEmergencyRepairLevel, EMERGENCY_REPAIR_MARKER_LEVEL1,
@@ -2119,6 +2178,12 @@ fn gps_scrambler_grows_and_spawns_marker() {
     let far = logic
         .create_object("GLATankMarauder", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
         .unwrap();
+    // C++ GrantStealthBehavior.cpp:170 — receiveGrant only if getStealth().
+    for id in [near, far] {
+        if let Some(o) = logic.host_object_mut(id) {
+            o.innate_stealth = true;
+        }
+    }
     assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(near)));
     assert!(logic.gps_scramblers.markers_spawned >= 1);
     assert!(logic

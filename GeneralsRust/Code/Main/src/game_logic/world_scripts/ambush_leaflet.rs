@@ -31,18 +31,23 @@ impl GameLogic {
         };
         let frame = self.frame;
 
-        // Prefer retail ranger template when loaded; otherwise residual TestInfantry.
+        // Prefer the kind's authored template; Tank falls back to Crusader.
+        // Infantry General keeps Infa_AmericaInfantryRanger (not USA Rangers).
         let preferred = kind.unit_template();
         let unit_template = if self.templates.contains_key(preferred) {
             preferred.to_string()
+        } else if let Some(fallback) = kind
+            .fallback_template()
+            .filter(|name| self.templates.contains_key(*name))
+        {
+            fallback.to_string()
         } else {
-            self.ensure_residual_paradrop_infantry_template();
-            PARADROP_RESIDUAL_TEMPLATE.to_string()
+            self.ensure_paradrop_kind_template(kind);
+            preferred.to_string()
         };
 
-        // C++ SCIENCE_Paradrop1/2/3 residual payload size (5/10/20 Rangers).
+        // C++ findOCL science UpgradeOCL: Tank 1/2/3 Crusaders, USA/Infa 5/10/20.
         let unit_count = {
-            use crate::game_logic::host_paradrop::ParadropScienceTier;
             let sciences: Vec<&str> = source_owner_player_id
                 .and_then(|player_id| self.players.get(&player_id))
                 .filter(|player| player.team == source_team)
@@ -54,7 +59,7 @@ impl GameLogic {
                         .map(|science| science.as_str())
                 })
                 .collect();
-            ParadropScienceTier::highest_from_sciences(sciences).ranger_count()
+            kind.payload_count_from_sciences(sciences)
         };
         let id = self.host_paradrops.queue_with_unit_count_for_owner(
             kind,
@@ -67,15 +72,8 @@ impl GameLogic {
             unit_count,
         );
 
-        // C++ OCLSpecialPower DeliverPayload residual: cargo plane transport only;
-        // infantry drop remains host_paradrops-owned.
-        let _ = self.execute_ocl_special_power(
-            "SuperweaponParadropAmerica",
-            source_object,
-            target_position,
-        );
-
-        // DeliverPayload cargo residual bookkeeping (AmericaJetCargoPlane honesty).
+        // One DeliverPayload plane (hq-byyds). OCL TransportOnly plus
+        // spawn_paradrop_cargo_plane used to create two AmericaJetCargoPlanes.
         let _cargo_id = self.host_deliver_payloads.queue_for_owner(
             crate::game_logic::host_deliver_payload::HostDeliverPayloadKind::AmericaParadrop,
             source_object,
@@ -85,7 +83,6 @@ impl GameLogic {
             frame,
             String::new(),
         );
-        // Live AmericaJetCargoPlane + AmericaParachute residual (playability slice).
         let _ = self.spawn_paradrop_cargo_plane(source_object, target_position);
 
         self.queue_audio_event(
@@ -123,6 +120,35 @@ impl GameLogic {
             .insert(PARADROP_RESIDUAL_TEMPLATE.to_string(), t);
     }
 
+    /// Insert the kind's authored payload template when the store is empty.
+    pub(in super::super) fn ensure_paradrop_kind_template(
+        &mut self,
+        kind: crate::game_logic::host_paradrop::HostParadropKind,
+    ) {
+        use crate::game_logic::host_paradrop::HostParadropKind;
+        let name = kind.unit_template();
+        if self.templates.contains_key(name) {
+            return;
+        }
+        let mut t = ThingTemplate::new(name);
+        match kind {
+            HostParadropKind::TankParadrop => {
+                t.add_kind_of(KindOf::Vehicle)
+                    .add_kind_of(KindOf::Selectable)
+                    .add_kind_of(KindOf::Attackable)
+                    .set_health(400.0)
+                    .set_cost(800, 0);
+            }
+            HostParadropKind::AmericaParadrop | HostParadropKind::InfantryParadrop => {
+                t.add_kind_of(KindOf::Infantry)
+                    .add_kind_of(KindOf::Selectable)
+                    .add_kind_of(KindOf::Attackable)
+                    .set_health(100.0)
+                    .set_cost(100, 0);
+            }
+        }
+        self.templates.insert(name.to_string(), t);
+    }
     /// Advance pending host paradrops to drop frame and spawn infantry near target.
     pub fn update_paradrops(&mut self) {
         self.host_paradrops.clear_frame_events();
@@ -130,7 +156,7 @@ impl GameLogic {
         let plans = self.host_paradrops.plan_due_drops(self.frame);
         for plan in plans {
             if !self.templates.contains_key(&plan.unit_template) {
-                self.ensure_residual_paradrop_infantry_template();
+                self.ensure_paradrop_kind_template(plan.kind);
             }
             let template_name = if self.templates.contains_key(&plan.unit_template) {
                 plan.unit_template.clone()

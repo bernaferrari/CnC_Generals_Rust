@@ -270,12 +270,21 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ markSpecialPowerTriggered is startPreparation, after
             // unpack/face/range. Steal/disable leftover must not consume on click.
+            // C++ CashHackSpecialPower.cpp:76-82 / DefectorSpecialPower.cpp:69-76
+            // doSpecialPowerAtLocation returns after the disabled check and never
+            // calls triggerSpecialPower / startPowerRecharge. Consume only after
+            // a valid object-target activation.
+            let consume_after_valid_object = matches!(
+                *power_type,
+                SpecialPowerType::CashHack | SpecialPowerType::Defector
+            );
             let consume_at_prep = matches!(
                 *power_type,
                 SpecialPowerType::BlackLotusStealCash
                     | SpecialPowerType::BlackLotusDisableVehicle
             );
             if !consume_at_prep
+                && !consume_after_valid_object
                 && !self
                     .game_logic
                     .consume_special_power_charge_for(unit_id, power_type)
@@ -403,15 +412,37 @@ impl<'a> CommandExecutor<'a> {
                     continue;
                 }
             } else if *power_type == SpecialPowerType::CashHack {
-                // C++ CashHackSpecialPower::doSpecialPowerAtObject — location fire is a no-op.
+                // C++ CashHackSpecialPower::doSpecialPowerAtLocation is a no-op.
                 let PowerTarget::Object(tid) = target else {
                     continue;
                 };
-                let _stolen = self.game_logic.activate_cash_hack(
+                let Some(_stolen) = self.game_logic.activate_cash_hack(
                     self.current_player_id,
                     Some(unit_id),
                     Some(*tid),
-                );
+                ) else {
+                    continue;
+                };
+                if !self
+                    .game_logic
+                    .consume_special_power_charge_for(unit_id, power_type)
+                {
+                    continue;
+                }
+            } else if *power_type == SpecialPowerType::Defector {
+                // C++ DefectorSpecialPower::doSpecialPowerAtLocation is a no-op.
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                if !self.game_logic.activate_defector(unit_id, *tid) {
+                    continue;
+                }
+                if !self
+                    .game_logic
+                    .consume_special_power_charge_for(unit_id, power_type)
+                {
+                    continue;
+                }
             } else if let Some(pos) = target_position {
 
                 if *power_type == SpecialPowerType::ClusterMines
@@ -615,15 +646,6 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                     );
-                } else if *power_type == SpecialPowerType::Defector {
-
-                    // C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
-                    let PowerTarget::Object(tid) = target else {
-                        continue;
-                    };
-                    if !self.game_logic.activate_defector(unit_id, *tid) {
-                        continue;
-                    }
                 } else if *power_type == SpecialPowerType::BaikonurRocket {
                     // C++ BaikonurLaunchPower: no-loc → door; location → door + detonation.
                     match target {
@@ -946,6 +968,133 @@ mod can_use_special_power_caster_filter_tests {
             exec.special_power_source_object(&[tank_id, cc_id], &SpecialPowerType::Frenzy),
             Some(cc_id),
             "source must be the SpecialPowerModule owner, not the first selected tank"
+        );
+    }
+
+    /// C++ CashHackSpecialPower.cpp:76-82 / DefectorSpecialPower.cpp:69-76 —
+    /// location fire and illegal object targets must not start recharge.
+    #[test]
+    fn cash_hack_and_defector_consume_only_on_valid_object() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::China, "China", true));
+        logic.add_player(Player::new(1, Team::USA, "USA", false));
+        if let Some(p) = logic.players.get_mut(&1) {
+            p.resources.supplies = 8_000;
+        }
+
+        let mut cash_mod = test_module(SpecialPowerType::CashHack, "SuperweaponCashHack");
+        cash_mod.reload_time_frames = 7_200;
+        let mut def_mod = test_module(SpecialPowerType::Defector, "SpecialPowerDefector");
+        def_mod.reload_time_frames = 300;
+
+        let mut cc = ThingTemplate::new("HqPvymnChinaCC");
+        cc.set_health(5000.0);
+        cc.add_kind_of(crate::game_logic::KindOf::Structure);
+        cc.special_power_modules.push(cash_mod);
+        cc.special_power_modules.push(def_mod);
+        logic.templates.insert("HqPvymnChinaCC".into(), cc);
+
+        let mut tank = ThingTemplate::new("HqPvymnTank");
+        tank.set_health(200.0);
+        tank.add_kind_of(crate::game_logic::KindOf::Vehicle);
+        logic.templates.insert("HqPvymnTank".into(), tank);
+
+        let mut depot = ThingTemplate::new("HqPvymnDepot");
+        depot.set_health(2000.0);
+        depot
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSSupplyCenter);
+        depot.capturable = true;
+        logic.templates.insert("HqPvymnDepot".into(), depot);
+
+        let caster = logic
+            .create_object("HqPvymnChinaCC", Team::China, Vec3::ZERO)
+            .expect("cc");
+        let tank_id = logic
+            .create_object("HqPvymnTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("tank");
+        let depot_id = logic
+            .create_object("HqPvymnDepot", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+            .expect("depot");
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_location(
+                    &[caster],
+                    &SpecialPowerType::CashHack,
+                    Vec3::new(90.0, 0.0, 90.0),
+                ),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
+            "ground-click CashHack must not start recharge"
+        );
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_location(
+                    &[caster],
+                    &SpecialPowerType::Defector,
+                    Vec3::new(90.0, 0.0, 90.0),
+                ),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(caster, &SpecialPowerType::Defector),
+            "ground-click Defector must not start recharge"
+        );
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_object(
+                    &[caster],
+                    &SpecialPowerType::CashHack,
+                    tank_id,
+                ),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
+            "CashHack on a tank must not start recharge"
+        );
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_object(
+                    &[caster],
+                    &SpecialPowerType::Defector,
+                    depot_id,
+                ),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert!(
+            logic.is_special_power_ready_for(caster, &SpecialPowerType::Defector),
+            "Defector on a building must not start recharge"
+        );
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_object(
+                    &[caster],
+                    &SpecialPowerType::CashHack,
+                    depot_id,
+                ),
+                CommandResult::Success
+            );
+        }
+        assert!(
+            !logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
+            "valid CashHack object fire must consume the charge"
         );
     }
 }

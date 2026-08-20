@@ -813,6 +813,9 @@ impl GameLogic {
     /// C++ `hackInternet()` enters UNPACKING then HACK_INTERNET cash delay.
     pub fn start_hacker_internet_hack(&mut self, hacker_id: ObjectId) -> bool {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
+        if self.hacker_income.is_hacking(hacker_id) {
+            return false;
+        }
         let frame = self.frame;
         let Some(obj) = self.objects.get(&hacker_id) else {
             return false;

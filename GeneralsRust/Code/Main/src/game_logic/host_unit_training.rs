@@ -428,6 +428,71 @@ pub fn veterancy_bonus_multipliers(level: VeterancyLevel) -> (f32, f32, f32) {
     }
 }
 
+/// Exclusive C++ `WEAPONSET_VETERAN` / `ELITE` / `HERO` flags for a rank.
+///
+/// `Object::onVeterancyLevelChanged` sets one and clears the other two.
+/// Same triple drives `WEAPONBONUSCONDITION_VETERAN` / `ELITE` / `HERO`.
+pub fn veterancy_weapon_set_flags(level: VeterancyLevel) -> (bool, bool, bool) {
+    match level {
+        VeterancyLevel::Rookie => (false, false, false),
+        VeterancyLevel::Veteran => (true, false, false),
+        VeterancyLevel::Elite => (false, true, false),
+        VeterancyLevel::Heroic => (false, false, true),
+    }
+}
+
+/// C++ `TheWeaponSetNames` token for the exclusive veterancy WeaponSet flag.
+pub fn veterancy_weapon_set_condition(level: VeterancyLevel) -> Option<&'static str> {
+    match level {
+        VeterancyLevel::Rookie => None,
+        VeterancyLevel::Veteran => Some("VETERAN"),
+        VeterancyLevel::Elite => Some("ELITE"),
+        VeterancyLevel::Heroic => Some("HERO"),
+    }
+}
+
+/// Authored WeaponTemplateSet slots whose Conditions include this rank.
+///
+/// Fail-closed: missing asset manager / no matching row → None (keep current set).
+pub fn authored_veterancy_weapon_set(
+    template_name: &str,
+    level: VeterancyLevel,
+) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    let want = veterancy_weapon_set_condition(level)?;
+    let manager = crate::assets::get_asset_manager()?;
+    let guard = manager.lock().ok()?;
+    let definition = guard.get_object_definition(template_name)?;
+    definition.weapon_sets.iter().find_map(|set| {
+        let matches = set.conditions.iter().any(|condition| {
+            condition
+                .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+                .any(|token| {
+                    let token = token.trim().trim_start_matches("WEAPONSET_");
+                    token.eq_ignore_ascii_case(want)
+                })
+        });
+        matches.then(|| {
+            (
+                set.primary_weapon.clone().filter(|n| !n.is_empty()),
+                set.secondary_weapon.clone().filter(|n| !n.is_empty()),
+                set.tertiary_weapon.clone().filter(|n| !n.is_empty()),
+            )
+        })
+    })
+}
+
+/// Exclusive WEAPONSET / WEAPONBONUSCONDITION rank flags residual honesty.
+pub fn honesty_veterancy_weaponset_flags_ok() -> bool {
+    veterancy_weapon_set_flags(VeterancyLevel::Rookie) == (false, false, false)
+        && veterancy_weapon_set_flags(VeterancyLevel::Veteran) == (true, false, false)
+        && veterancy_weapon_set_flags(VeterancyLevel::Elite) == (false, true, false)
+        && veterancy_weapon_set_flags(VeterancyLevel::Heroic) == (false, false, true)
+        && veterancy_weapon_set_condition(VeterancyLevel::Veteran) == Some("VETERAN")
+        && veterancy_weapon_set_condition(VeterancyLevel::Elite) == Some("ELITE")
+        && veterancy_weapon_set_condition(VeterancyLevel::Heroic) == Some("HERO")
+        && veterancy_weapon_set_condition(VeterancyLevel::Rookie).is_none()
+}
+
 /// Whether an upgrade name is AdvancedTraining residual.
 pub fn is_advanced_training_upgrade(name: &str) -> bool {
     let n = normalize_identity(name);
@@ -706,5 +771,14 @@ mod tests {
         assert!(honesty_unit_training_veterancy_bonus_residual_wave79_ok());
         assert!(honesty_unit_training_residual_pack_wave79_ok());
         assert!((residual_xp_gain_with_advanced_training(25.0, true) - 50.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn veterancy_weaponset_flags_are_exclusive() {
+        assert!(honesty_veterancy_weaponset_flags_ok());
+        assert_eq!(
+            authored_veterancy_weapon_set("NoSuchTemplate", VeterancyLevel::Veteran),
+            None
+        );
     }
 }

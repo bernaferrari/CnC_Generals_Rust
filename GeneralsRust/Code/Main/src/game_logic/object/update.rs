@@ -420,6 +420,77 @@ impl Object {
         }
     }
 
+    /// C++ `Object::onVeterancyLevelChanged` exclusive WEAPONSET + WEAPONBONUSCONDITION.
+    fn set_veterancy_weapon_set_and_bonus_flags(&mut self, level: VeterancyLevel) {
+        let (vet, elite, hero) =
+            crate::game_logic::host_unit_training::veterancy_weapon_set_flags(level);
+        self.weapon_set_veteran = vet;
+        self.weapon_set_elite = elite;
+        self.weapon_set_hero = hero;
+        self.weapon_bonus_veteran = vet;
+        self.weapon_bonus_elite = elite;
+        self.weapon_bonus_hero = hero;
+        self.stamp_veterancy_weaponset_model_bits();
+        self.record_host_weapon_set();
+    }
+
+    /// C++ `TheWeaponSetTypeToModelConditionTypeMap` WEAPONSET_VETERAN/ELITE/HERO.
+    fn stamp_veterancy_weaponset_model_bits(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            weaponset_elite_model_bit, weaponset_hero_model_bit, weaponset_veteran_model_bit,
+        };
+        let vet_b = weaponset_veteran_model_bit();
+        let elite_b = weaponset_elite_model_bit();
+        let hero_b = weaponset_hero_model_bit();
+        self.model_condition_bits &= !(1u128 << vet_b);
+        self.model_condition_bits &= !(1u128 << elite_b);
+        self.model_condition_bits &= !(1u128 << hero_b);
+        if self.weapon_set_hero {
+            self.model_condition_bits |= 1u128 << hero_b;
+        } else if self.weapon_set_elite {
+            self.model_condition_bits |= 1u128 << elite_b;
+        } else if self.weapon_set_veteran {
+            self.model_condition_bits |= 1u128 << vet_b;
+        }
+        self.record_host_model_condition();
+    }
+
+    /// Bind authored WeaponTemplateSet for this rank when INI declares one.
+    /// Returns true when a slot was replaced (skip in-place damage/ROF scale).
+    fn try_bind_authored_veterancy_weapon_set(&mut self, level: VeterancyLevel) -> bool {
+        let Some((primary, secondary, tertiary)) =
+            crate::game_logic::host_unit_training::authored_veterancy_weapon_set(
+                &self.template_name,
+                level,
+            )
+        else {
+            return false;
+        };
+        let mut rebound = false;
+        if let Some(name) = primary {
+            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
+            {
+                let _ = self.replace_weapon_set_slot(0, Some(weapon));
+                rebound = true;
+            }
+        }
+        if let Some(name) = secondary {
+            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
+            {
+                let _ = self.replace_weapon_set_slot(1, Some(weapon));
+                rebound = true;
+            }
+        }
+        if let Some(name) = tertiary {
+            if let Some(weapon) = crate::game_logic::thing::ThingTemplate::weapon_from_store(&name)
+            {
+                let _ = self.replace_weapon_set_slot(2, Some(weapon));
+                rebound = true;
+            }
+        }
+        rebound
+    }
+
     /// C++ SalvageCrateCollide::doLevelGain residual.
     pub fn apply_salvage_level_gain(&mut self) {
         use crate::game_logic::VeterancyLevel;
@@ -623,6 +694,10 @@ impl Object {
             Self::veterancy_bonuses(previous_level);
         let (health_bonus, damage_bonus, rof_bonus) = Self::veterancy_bonuses(new_level);
 
+        // C++ Object::onVeterancyLevelChanged: exclusive WEAPONSET + WEAPONBONUSCONDITION.
+        self.set_veterancy_weapon_set_and_bonus_flags(new_level);
+        let rebound_authored = self.try_bind_authored_veterancy_weapon_set(new_level);
+
         // Apply health bonus
         let base_health = self.thing.template.max_health;
         let old_max_health = self.health.maximum.max(1.0);
@@ -630,18 +705,23 @@ impl Object {
         self.health.maximum = base_health * health_bonus;
         self.health.current = (self.health.maximum * health_ratio).clamp(0.0, self.health.maximum);
 
-        // Apply weapon damage and rate-of-fire bonuses
-        if let Some(weapon) = &mut self.weapon {
-            let dmg_scale = if old_damage_bonus > 0.0 {
-                damage_bonus / old_damage_bonus
-            } else {
-                1.0
-            };
-            weapon.damage *= dmg_scale;
-            // C++ parity: RoF bonus reduces reload time (faster firing).
-            // Scale relative to previous level so multi-level transitions work.
-            let rof_scale = rof_bonus / old_rof_bonus;
-            weapon.reload_time *= rof_scale;
+        // In-place damage/ROF scale is the host residual for units that keep
+        // the rookie WeaponSet. Authored VETERAN/ELITE/HERO sets already
+        // replace the Weapon instances; GameData WeaponBonus then stacks at
+        // fire time from the exclusive condition flags.
+        if !rebound_authored {
+            if let Some(weapon) = &mut self.weapon {
+                let dmg_scale = if old_damage_bonus > 0.0 {
+                    damage_bonus / old_damage_bonus
+                } else {
+                    1.0
+                };
+                weapon.damage *= dmg_scale;
+                // C++ parity: RoF bonus reduces reload time (faster firing).
+                // Scale relative to previous level so multi-level transitions work.
+                let rof_scale = rof_bonus / old_rof_bonus;
+                weapon.reload_time *= rof_scale;
+            }
         }
         self.record_host_veterancy_level();
         self.max_health = self.health.maximum.max(1.0);

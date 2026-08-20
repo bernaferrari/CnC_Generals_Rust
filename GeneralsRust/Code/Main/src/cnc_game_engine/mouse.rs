@@ -11,6 +11,9 @@ const LOOKAT_MMB_YAW_FACTOR: f32 = 0.01;
 /// C++ `View.cpp` / `W3DView` default pitch when GameData CameraPitch is ~0.
 const LOOKAT_DEFAULT_PITCH_DEG: f32 = 37.5;
 
+/// C++ `Mouse.cpp` `m_dragTolerance` default / leftover `selection_xlat.rs` `DRAG_TOLERANCE`.
+const DRAG_TOLERANCE_PX: f32 = 5.0;
+
 /// C++ `View.h` `ViewLocation`: pos + angle + pitch + zoom.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct CameraViewLocation {
@@ -20,12 +23,34 @@ struct CameraViewLocation {
     zoom: f32,
 }
 
+/// C++ `LookAtXlat.h` `ScrollType`: one active pan source at a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+enum LookAtScrollType {
+    #[default]
+    None,
+    Rmb,
+    Key,
+    ScreenEdge,
+}
+
+impl LookAtScrollType {
+    fn is_scrolling(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    fn blocks_key_start(self) -> bool {
+        matches!(self, Self::Rmb | Self::ScreenEdge)
+    }
+}
+
 struct LookAtHostModes {
     prev_cursor: Option<&'static str>,
     mouse_locked: bool,
     mmb_original_anchor: Option<(f32, f32)>,
     mmb_press_frame: u32,
     views: [Option<CameraViewLocation>; 8],
+    /// C++ `m_scrollType` — exclusive RMB / key / screen-edge.
+    scroll_type: LookAtScrollType,
 }
 
 fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
@@ -37,6 +62,7 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
                 mmb_original_anchor: None,
                 mmb_press_frame: 0,
                 views: [None; 8],
+                scroll_type: LookAtScrollType::None,
             })
         });
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -48,8 +74,63 @@ pub(crate) fn look_at_host_mouse_locked() -> bool {
 
 /// C++ `LookAtXlat.cpp:174-175`: arrow keys cannot start while box-selecting
 /// or while a non-key scroll (RMB / screen-edge) is already active.
-fn lookat_keyboard_scroll_blocked(is_selecting: bool, is_rmb_scrolling: bool) -> bool {
-    is_selecting || is_rmb_scrolling
+fn lookat_keyboard_scroll_blocked(is_selecting: bool, non_key_scrolling: bool) -> bool {
+    is_selecting || non_key_scrolling
+}
+
+/// C++ `LookAtXlat.cpp` exclusive `m_scrollType` start/stop.
+/// Key messages are processed before mouse-move, so idle+keys+edge starts Key.
+fn lookat_resolve_scroll_type(
+    current: LookAtScrollType,
+    input_enabled: bool,
+    is_selecting: bool,
+    is_rmb_scrolling: bool,
+    key_dirs: bool,
+    at_screen_edge: bool,
+) -> LookAtScrollType {
+    if !input_enabled {
+        return LookAtScrollType::None;
+    }
+    // RMB is started on button-down (`start_rmb_lookat_scroll`), not here.
+    if is_rmb_scrolling {
+        return LookAtScrollType::Rmb;
+    }
+    let current = if current == LookAtScrollType::Rmb {
+        LookAtScrollType::None
+    } else {
+        current
+    };
+    if !lookat_keyboard_scroll_blocked(is_selecting, current.blocks_key_start()) {
+        if key_dirs && current == LookAtScrollType::None {
+            return LookAtScrollType::Key;
+        }
+        if current == LookAtScrollType::Key {
+            return if key_dirs {
+                LookAtScrollType::Key
+            } else {
+                LookAtScrollType::None
+            };
+        }
+    } else if current == LookAtScrollType::Key {
+        // Frame tick still applies KEY while selecting; stop when arrows lift.
+        return if key_dirs {
+            LookAtScrollType::Key
+        } else {
+            LookAtScrollType::None
+        };
+    }
+    // C++ :286-291: edge starts only when `!m_isScrolling`.
+    if current == LookAtScrollType::None && at_screen_edge {
+        LookAtScrollType::ScreenEdge
+    } else if current == LookAtScrollType::ScreenEdge {
+        if at_screen_edge {
+            LookAtScrollType::ScreenEdge
+        } else {
+            LookAtScrollType::None
+        }
+    } else {
+        current
+    }
 }
 
 /// C++ `LookAtXlat.cpp:245-250`: move ≤5px and duration <5 GameClient frames.
@@ -121,6 +202,22 @@ fn lookat_bookmark_message(slot_one_based: usize) -> String {
     format!("GUI:BookmarkXSet {slot_one_based}")
 }
 
+/// C++ `Mouse.ini` `DragTolerance`. Leftover / documented default is 5px
+/// (`selection_xlat.rs` `DRAG_TOLERANCE`). Zero INI residual uses that default.
+fn host_mouse_drag_tolerance_px() -> f32 {
+    game_engine::common::ini::get_mouse_settings()
+        .map(|s| s.drag_tolerance)
+        .filter(|&v| v > 0)
+        .unwrap_or(5) as f32
+}
+
+/// C++ `SelectionXlat.cpp:399-400`: area select only when `|dx|` or `|dy|`
+/// exceeds `TheMouse->m_dragTolerance`.
+fn host_screen_drag_is_click(dx: f32, dy: f32) -> bool {
+    let tol = host_mouse_drag_tolerance_px();
+    dx.abs() <= tol && dy.abs() <= tol
+}
+
 /// Physical input metadata held only across the synchronous context-command
 /// execution boundary. `issued_at` is part of the command's own immutable
 /// fingerprint, so an unrelated queued/AI Gather event cannot be mistaken for
@@ -172,6 +269,106 @@ fn classic_left_context_action_allowed(
 ) -> bool {
     has_selection && (!shift_down || !target_is_locally_selectable)
 }
+
+fn is_point_click_drag(drag_distance_screen: f32) -> bool {
+    // C++ `TheMouse->m_dragTolerance` from Mouse.ini (default 5).
+    drag_distance_screen <= host_mouse_drag_tolerance_px()
+}
+
+/// C++ `SelectionXlat.cpp:930-937`: alternate-mouse blank LMB-up deselects.
+/// Classic empty LMB never clears (`SelectionXlat.cpp:575-597` empty region `break`).
+fn alternate_mouse_blank_click_deselects(
+    use_alternate_mouse: bool,
+    shift_down: bool,
+    ctrl_down: bool,
+    alt_down: bool,
+) -> bool {
+    use_alternate_mouse && !shift_down && !ctrl_down && !alt_down
+}
+
+/// C++ `SelectionXlat.cpp:617-626`: force a new group when the current
+/// selection already has any enemy / civilian / ally / mine-building.
+fn box_selection_must_replace(
+    current_has_enemy: bool,
+    current_has_civilian: bool,
+    current_has_ally: bool,
+    current_has_local_structure: bool,
+) -> bool {
+    current_has_enemy || current_has_civilian || current_has_ally || current_has_local_structure
+}
+
+/// C++ `SelectionInfo.cpp:203-205`: infantry + exactly one garrisonable
+/// is a context enter for both point and drag. Alternate mouse never
+/// context-selects (`:174-176`); enemy/civ/ally current groups also refuse.
+fn infantry_garrison_context_takes_region(
+    alternate_mouse: bool,
+    current_has_enemy_civilian_or_ally: bool,
+    current_has_local_infantry: bool,
+    garrisonable_in_region: usize,
+) -> bool {
+    !alternate_mouse
+        && !current_has_enemy_civilian_or_ally
+        && current_has_local_infantry
+        && garrisonable_in_region == 1
+}
+
+fn union_object_ids(mut base: Vec<ObjectId>, extra: impl IntoIterator<Item = ObjectId>) -> Vec<ObjectId> {
+    for id in extra {
+        if !base.contains(&id) {
+            base.push(id);
+        }
+    }
+    base
+}
+
+
+/// C++ `SelectionInfo.cpp:85-111` current-list counts used by box replace/garrison.
+fn current_selection_box_counts(
+    frame: &crate::presentation_frame::PresentationFrame,
+    selected: &[ObjectId],
+) -> (bool, bool, bool, bool, bool) {
+    use crate::game_logic::{KindOf, Team};
+    let mut has_enemy = false;
+    let mut has_civilian = false;
+    let mut has_ally = false;
+    let mut has_local_structure = false;
+    let mut has_local_infantry = false;
+    for id in selected {
+        let Some(object) = frame.objects.iter().find(|candidate| candidate.id == *id) else {
+            continue;
+        };
+        if frame.is_owned_by_local(object) {
+            if object.is_structure
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    object,
+                    KindOf::Structure,
+                )
+            {
+                has_local_structure = true;
+            }
+            if crate::presentation_frame::PresentationFrame::object_has_kind(
+                object,
+                KindOf::Infantry,
+            ) {
+                has_local_infantry = true;
+            }
+        } else if frame.is_enemy_of_local(object) {
+            has_enemy = true;
+        } else if object.team == Team::Neutral {
+            has_civilian = true;
+        } else if frame.is_allied_with_local(object) {
+            has_ally = true;
+        }
+    }
+    (
+        has_enemy,
+        has_civilian,
+        has_ally,
+        has_local_structure,
+        has_local_infantry,
+    )
+}
+
 
 // C++ `W3DView::deviceToWorld` equivalent for the active Main camera.  Input
 // must be projected through the same view/projection pair used by WGPU rather
@@ -342,18 +539,9 @@ impl CnCGameEngine {
         self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
 
         let mouse_pos = self.mouse_world_position;
-        let clicked_object = self.find_object_at_position(mouse_pos, false).or_else(|| {
-            let frame = self.last_presentation_frame.as_ref()?;
-            let o = frame.objects.iter().find(|o| {
-                frame.is_owned_by_local(o)
-                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
-            })?;
-            log::info!(
-                "left-click pick miss at {mouse_pos:?}; first selectable local {:?}",
-                o.id
-            );
-            Some(o.id)
-        });
+        // C++ `SelectionXlat.cpp:469` / `:431`: a pick miss is no drawable.
+        // Ground click never invents the first locally-owned selectable.
+        let clicked_object = self.find_object_at_position(mouse_pos, false);
 
         // C++ GameClient.cpp:276-280 attach order (lower number first):
         // PlaceEventTranslator 30, GUICommandTranslator 40, SelectionTranslator
@@ -395,15 +583,17 @@ impl CnCGameEngine {
         let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
         if is_double_click && !ctrl_down {
-            // C++ SelectionXlat.cpp:453-521 consumes LEFT_DOUBLE_CLICK when a
-            // mass-selectable unit is picked. CommandXlat.cpp:3698-3713 only
-            // sees leftover terrain clicks for DoGuardPosition.
-            if clicked_object.is_some() {
-                if let Some(object_id) = clicked_object {
+            // C++ SelectionXlat.cpp:453-521 DESTROYs LEFT_DOUBLE_CLICK only when
+            // the pick is mass-selectable and locally controlled. Otherwise
+            // KEEP_MESSAGE so CommandXlat.cpp:3698-3713 can issue DoGuardPosition
+            // (enemy, building, or terrain) when UseDoubleClickAttackMove is on.
+            let picked = self.find_object_at_position(mouse_pos, false);
+            if let Some(object_id) = picked {
+                if self.presentation_double_click_consumes(object_id) {
                     self.select_similar_units_for_double_click(object_id, alt_down);
+                    self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+                    return;
                 }
-                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
-                return;
             }
             if self.host_try_double_click_guard_command(false) {
                 self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
@@ -660,29 +850,84 @@ impl CnCGameEngine {
     }
 
     pub(super) fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
-        // KEY_E / runtime-host: C++ selectUnitsMatchingCurrentSelection
-        // (InGameUI.cpp:4900) falls through to selectMatchingAcrossMap when
-        // the screen pass adds nobody new. Host replace-selection is map-wide.
-        // Presentation-only: InGame always has last_presentation_frame.
+        // C++ `InGameUI::selectUnitsMatchingCurrentSelection` (`InGameUI.cpp:4900-4916`):
+        // screen first, then map. `selectMatchingAcrossRegion` (`:4671-4750`) unions
+        // every locally-controlled selected template (`isEquivalentTo` + carbomb)
+        // and ADDS (`MSG_CREATE_SELECTED_GROUP_NO_SOUND` createNewGroup=false).
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
         let player_team = frame.local_team();
-        let similar_units = frame.similar_unit_ids(clicked_object_id, player_team);
-        if !similar_units.is_empty() {
-            self.host_set_selection(self.current_player_id, similar_units);
-            self.play_sound_effect(SoundType::Select);
+        let current = self.ui_selected_ids(self.current_player_id);
+        let mut seeds: Vec<ObjectId> = current
+            .iter()
+            .copied()
+            .filter(|&id| {
+                frame
+                    .objects
+                    .iter()
+                    .any(|object| object.id == id && frame.is_owned_by_local(object))
+            })
+            .collect();
+        if seeds.is_empty() {
+            if frame.objects.iter().any(|object| {
+                object.id == clicked_object_id && frame.is_owned_by_local(object)
+            }) {
+                seeds.push(clicked_object_id);
+            } else {
+                return;
+            }
         }
+
+        let window_size = self.window.inner_size();
+        let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+        let mut screen = Vec::new();
+        for seed in &seeds {
+            screen = union_object_ids(
+                screen,
+                frame.similar_unit_ids_across_screen(
+                    *seed,
+                    player_team,
+                    self.view_matrix,
+                    self.projection_matrix,
+                    viewport,
+                ),
+            );
+        }
+        let screen_added = screen.iter().any(|id| !current.contains(id));
+        let matching = if screen_added {
+            screen
+        } else {
+            let mut map_wide = Vec::new();
+            for seed in &seeds {
+                map_wide = union_object_ids(map_wide, frame.similar_unit_ids(*seed, player_team));
+            }
+            map_wide
+        };
+
+        let added = matching.iter().any(|id| !current.contains(id));
+        if !added {
+            return;
+        }
+        let selection = union_object_ids(current, matching);
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
     }
 
-    /// C++ `MSG_MOUSE_LEFT_DOUBLE_CLICK` (`SelectionXlat.cpp:466,498-501`).
+    /// C++ `MSG_MOUSE_LEFT_DOUBLE_CLICK` (`SelectionXlat.cpp:466,486-517`).
     /// Structures are not mass-selectable; ALT selects the same template map-wide.
+    /// Shift snapshots the current group and re-adds it (`createNewGroup=false`).
     pub(super) fn select_similar_units_for_double_click(
         &mut self,
         clicked_object_id: ObjectId,
         across_map: bool,
     ) {
-        // Presentation-only: InGame always has last_presentation_frame.
+        let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+        let previous = if shift_down {
+            self.ui_selected_ids(self.current_player_id)
+        } else {
+            Vec::new()
+        };
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
@@ -703,16 +948,34 @@ impl CnCGameEngine {
             .map(|o| o.template_name.clone())
             .unwrap_or_default();
 
-        if !similar_units.is_empty() {
-            // Wave 583: selection residual via host_set_selection.
-            self.host_set_selection(self.current_player_id, similar_units);
-            self.play_sound_effect(SoundType::Select);
-            info!(
-                "Selected {} similar units ({})",
-                self.selected_objects.len(),
-                template_label
-            );
+        if similar_units.is_empty() {
+            return;
         }
+        let selection = if shift_down {
+            union_object_ids(similar_units, previous)
+        } else {
+            similar_units
+        };
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+        info!(
+            "Selected {} similar units ({})",
+            self.selected_objects.len(),
+            template_label
+        );
+    }
+
+    /// C++ `isMassSelectable` + `isLocallyControlled` (`SelectionXlat.cpp:475-484`).
+    fn presentation_double_click_consumes(&self, object_id: ObjectId) -> bool {
+        self.last_presentation_frame.as_ref().is_some_and(|frame| {
+            frame.objects.iter().any(|o| {
+                o.id == object_id
+                    && frame.is_owned_by_local(o)
+                    && crate::presentation_frame::PresentationFrame::presentation_is_mass_selectable(
+                        o,
+                    )
+            })
+        })
     }
 
     pub(super) fn handle_left_release(
@@ -752,7 +1015,7 @@ impl CnCGameEngine {
         }
 
         if release_behavior == LeftMouseReleaseBehavior::ContextCommand
-            && drag_distance_screen <= 2.0
+            && is_point_click_drag(drag_distance_screen)
         {
             let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty()
                 || !self.selected_objects.is_empty();
@@ -779,7 +1042,7 @@ impl CnCGameEngine {
         // C++ starts an area selection from a pixel delta and dispatches an
         // IRegion2D on release.  Terrain-ray distance changes with camera
         // pitch and must not decide whether a mouse drag was a click.
-        if drag_distance_screen <= 2.0 {
+        if is_point_click_drag(drag_distance_screen) {
             if let Some(template) = self.pending_structure_placement.clone() {
                 if Self::is_wall_structure_template(&template) {
                     self.place_structure_from_ui(&template, end);
@@ -804,7 +1067,9 @@ impl CnCGameEngine {
                     .rotate_structure_placement(angle);
                 game_client::helpers::TheInGameUI::set_placement_angle(angle);
             }
-            if Self::is_wall_structure_template(&template) && drag_distance_screen > 5.0 {
+            if Self::is_wall_structure_template(&template)
+                && drag_distance_screen > DRAG_TOLERANCE_PX
+            {
                 self.place_wall_line_from_ui(&template, start_world, end_world);
             } else {
                 self.place_structure_from_ui(&template, start_world);
@@ -813,41 +1078,133 @@ impl CnCGameEngine {
         }
 
         let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
+        let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
-        let mut selection: Vec<ObjectId> = if shift_down {
-            self.selected_objects.clone()
-        } else {
-            Vec::new()
-        };
-
-        // Presentation-only: InGame always has last_presentation_frame.
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return;
-        };
-        let player_team = frame.local_team();
-        let window_size = self.window.inner_size();
-        let boxed: Vec<ObjectId> = selection_start_screen
-            .map(|start_screen| {
-                frame.box_select_unit_ids_in_screen_rect(
-                    player_team,
-                    self.view_matrix,
-                    self.projection_matrix,
-                    glam::Vec2::new(start_screen.0, start_screen.1),
-                    selection_end_screen,
-                    glam::Vec2::new(window_size.width as f32, window_size.height as f32),
+        // Movement within DragTolerance is a POINT CLICK, not a box.
+        // Press already selected via `select_left_click_target` — do not
+        // `box_select` + `host_set_selection([])` (hq-r5dmm).
+        if is_point_click_drag(drag_distance_screen) {
+            let clicked = self.find_object_at_position(end, false);
+            if clicked.is_none()
+                && alternate_mouse_blank_click_deselects(
+                    self.use_alternate_mouse,
+                    shift_down,
+                    ctrl_down,
+                    alt_down,
                 )
-            })
-            .unwrap_or_default();
-        for id in boxed {
-            if !selection.contains(&id) {
-                selection.push(id);
+            {
+                // C++ `SelectionXlat.cpp:930-937` alternate-mouse blank LMB-up.
+                self.host_set_selection(self.current_player_id, Vec::new());
             }
+            return;
         }
 
-        // Wave 583: selection residual via host_set_selection.
+        // Box path (drag > Mouse DragTolerance).
+        let (garrison_target, boxed, add_to_group, current) = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
+            };
+            let current = self.ui_selected_ids(self.current_player_id);
+            let (has_enemy, has_civilian, has_ally, has_local_structure, has_local_infantry) =
+                current_selection_box_counts(frame, &current);
+            let add_to_group = shift_down
+                && !box_selection_must_replace(
+                    has_enemy,
+                    has_civilian,
+                    has_ally,
+                    has_local_structure,
+                );
+            let player_team = frame.local_team();
+            let window_size = self.window.inner_size();
+            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let start_screen = selection_start_screen
+                .map(|start_screen| glam::Vec2::new(start_screen.0, start_screen.1));
+            let garrison_target = if infantry_garrison_context_takes_region(
+                self.use_alternate_mouse,
+                has_enemy || has_civilian || has_ally,
+                has_local_infantry,
+                start_screen
+                    .map(|start_screen| {
+                        frame
+                            .garrisonable_building_ids_in_screen_rect(
+                                self.view_matrix,
+                                self.projection_matrix,
+                                start_screen,
+                                selection_end_screen,
+                                viewport,
+                            )
+                            .len()
+                    })
+                    .unwrap_or(0),
+            ) {
+                start_screen.and_then(|start_screen| {
+                    frame
+                        .garrisonable_building_ids_in_screen_rect(
+                            self.view_matrix,
+                            self.projection_matrix,
+                            start_screen,
+                            selection_end_screen,
+                            viewport,
+                        )
+                        .into_iter()
+                        .next()
+                })
+            } else {
+                None
+            };
+            let boxed: Vec<ObjectId> = start_screen
+                .map(|start_screen| {
+                    frame.box_select_unit_ids_in_screen_rect(
+                        player_team,
+                        self.view_matrix,
+                        self.projection_matrix,
+                        start_screen,
+                        selection_end_screen,
+                        viewport,
+                    )
+                })
+                .unwrap_or_default();
+            (garrison_target, boxed, add_to_group, current)
+        };
+
+        if let Some(target_id) = garrison_target {
+            // C++ `SelectionInfo.cpp:203-205` / `SelectionXlat.cpp:601-610`:
+            // leave the click as context garrison-enter instead of replacing
+            // the infantry selection with an empty box.
+            self.host_queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::Enter { target_id },
+                player_id: self.current_player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: current,
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+            self.host_process_commands_with_command_sound();
+            return;
+        }
+
+        if boxed.is_empty() && !add_to_group {
+            // C++ empty region `break` — classic empty drag keeps the army.
+            return;
+        }
+
+        let boxed_any = !boxed.is_empty();
+        let selection = if add_to_group {
+            union_object_ids(current, boxed)
+        } else {
+            boxed
+        };
+        if selection.is_empty() {
+            return;
+        }
         self.host_set_selection(self.current_player_id, selection);
-        self.play_sound_effect(SoundType::Select);
+        // C++ CommandXlat.cpp:296-330 — UnitSelect only on a real group-create.
+        if boxed_any {
+            self.play_sound_effect(SoundType::Select);
+        }
     }
+
 
     /// Issue a context-sensitive command through Alternate Mouse's RMB route.
     ///
@@ -1193,9 +1550,129 @@ impl CnCGameEngine {
         if game_client::core::script_action_handler::take_look_at_reset_modes() {
             self.apply_look_at_reset_modes();
         }
-        if !self.lookat_input_enabled() && self.is_rmb_scrolling {
+        if !self.lookat_input_enabled() {
             // C++ LookAtXlat.cpp:270-274: input disabled stops any scroll.
-            self.stop_rmb_lookat_scroll();
+            if self.is_rmb_scrolling {
+                self.stop_rmb_lookat_scroll();
+            }
+            look_at_host_modes().scroll_type = LookAtScrollType::None;
+        }
+        // C++ LookAt keyboard scroll uses arrows (not WASD). Tokens must stay
+        // near the top of update_camera for ENGINE_SRC residual scans.
+        let logic_frames_per_second =
+            game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+        let (
+            horizontal_scroll_speed_factor,
+            vertical_scroll_speed_factor,
+            keyboard_scroll_factor,
+        ) = {
+            let global_data = game_engine::common::global_data::read();
+            (
+                global_data.horizontal_scroll_speed_factor,
+                global_data.vertical_scroll_speed_factor,
+                global_data.keyboard_scroll_factor,
+            )
+        };
+        const SCROLL_AMT: f32 = 100.0;
+        const EDGE_SCROLL_SIZE: f32 = 5.0;
+        let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
+        let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
+        let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
+            || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
+            || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+        let ui_modal = self.chat_panel.is_open() || self.diplomacy_panel.is_active();
+        let key_up = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp));
+        let key_down = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown));
+        let key_left = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft));
+        let key_right = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowRight));
+        let key_dirs = !mods_down && !ui_modal && (key_up || key_down || key_left || key_right);
+        let (mut edge_dx, mut edge_dy) = (0.0f32, 0.0f32);
+        let edge_allowed = matches!(self.current_state, GameState::InGame | GameState::Paused)
+            && !self.runtime_host_headless
+            && self.mouse_cursor_seen
+            && !self.chat_panel.is_open()
+            && !self.diplomacy_panel.is_active();
+        if edge_allowed {
+            let (mx, my) = self.mouse_position;
+            let size = self.window.inner_size();
+            let win_w = size.width as f32;
+            let win_h = size.height as f32;
+            if mx < EDGE_SCROLL_SIZE {
+                edge_dx = -1.0;
+            } else if mx >= win_w - EDGE_SCROLL_SIZE {
+                edge_dx = 1.0;
+            }
+            if my < EDGE_SCROLL_SIZE {
+                edge_dy = -1.0;
+            } else if my >= win_h - EDGE_SCROLL_SIZE {
+                edge_dy = 1.0;
+            }
+        }
+        let at_screen_edge = edge_dx != 0.0 || edge_dy != 0.0;
+        let scroll_type = lookat_resolve_scroll_type(
+            look_at_host_modes().scroll_type,
+            self.lookat_input_enabled(),
+            self.is_dragging,
+            self.is_rmb_scrolling,
+            key_dirs,
+            at_screen_edge,
+        );
+        look_at_host_modes().scroll_type = scroll_type;
+        let mut screen_scroll = Vec2::ZERO;
+        if self.camera_slave_mode.is_none() {
+            match scroll_type {
+                LookAtScrollType::Key => {
+                    if key_up {
+                        screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
+                    }
+                    if key_down {
+                        screen_scroll.y += vertical_scroll_speed_factor * scroll_step;
+                    }
+                    if key_left {
+                        screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
+                    }
+                    if key_right {
+                        screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
+                    }
+                }
+                LookAtScrollType::ScreenEdge => {
+                    let edge_step = SCROLL_AMT
+                        * keyboard_scroll_factor
+                        * scroll_dt
+                        * logic_frames_per_second;
+                    screen_scroll.x += edge_dx * horizontal_scroll_speed_factor * edge_step;
+                    screen_scroll.y += edge_dy * vertical_scroll_speed_factor * edge_step;
+                }
+                LookAtScrollType::Rmb => {
+                    if let Some(mut anchor) = self.rmb_scroll_anchor {
+                        let size = self.window.inner_size();
+                        crate::cnc_game_engine::options_bridge::clamp_move_rmb_scroll_anchor(
+                            &mut anchor,
+                            self.mouse_position,
+                            (size.width as f32, size.height as f32),
+                            self.move_rmb_scroll_anchor,
+                        );
+                        self.rmb_scroll_anchor = Some(anchor);
+                        let dx = self.mouse_position.0 - anchor.0;
+                        let dy = self.mouse_position.1 - anchor.1;
+                        let mut offset = Vec2::new(
+                            horizontal_scroll_speed_factor * dx,
+                            vertical_scroll_speed_factor * dy,
+                        );
+                        if offset.length_squared() > f32::EPSILON {
+                            let direction = offset.normalize();
+                            offset.x += horizontal_scroll_speed_factor
+                                * direction.x
+                                * keyboard_scroll_factor.powi(2);
+                            offset.y += vertical_scroll_speed_factor
+                                * direction.y
+                                * keyboard_scroll_factor.powi(2);
+                            screen_scroll += offset * scroll_dt * logic_frames_per_second;
+                        }
+                    }
+                }
+                LookAtScrollType::None => {}
+            }
         }
         if should_apply_host_replay_camera() {
             if let Some(pose) = crate::command_system::take_pending_replay_camera() {
@@ -1216,8 +1693,6 @@ impl CnCGameEngine {
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
         let initial_yaw = self.camera_yaw_radians;
-        let logic_frames_per_second =
-            game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
         // C++ InGameUI.cpp:1836 TheGlobalData->m_keyboardCameraRotateSpeed per frame.
         let rotate_delta = lookat_keyboard_rotate_delta(
             game_engine::common::global_data::read().keyboard_camera_rotate_speed,
@@ -1246,130 +1721,6 @@ impl CnCGameEngine {
         let mut movement = Vec3::ZERO;
         let mut scroll_amount = 0.0f32;
         if self.camera_slave_mode.is_none() {
-            let logic_frames_per_second =
-                game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
-            let (
-                horizontal_scroll_speed_factor,
-                vertical_scroll_speed_factor,
-                keyboard_scroll_factor,
-            ) = {
-                let global_data = game_engine::common::global_data::read();
-                (
-                    global_data.horizontal_scroll_speed_factor,
-                    global_data.vertical_scroll_speed_factor,
-                    global_data.keyboard_scroll_factor,
-                )
-            };
-
-            // C++ parity (LookAtXlat.cpp): key scrolling uses SCROLL_AMT=100 in screen-space and
-            // applies horizontal/vertical/keyboard factors once per logic frame.
-            const SCROLL_AMT: f32 = 100.0;
-            // C++ applies SCROLL_AMT once per logic frame. A 0.7s hitch must not
-            // become ~23 frames of edge-scroll (camera flies hundreds of km).
-            let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
-            let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
-
-            let mut screen_scroll = Vec2::ZERO;
-            // C++ LookAt keyboard scroll uses arrows (not WASD).
-            // WASD are unit hotkeys: A attack-move, S stop, D deploy, etc.
-            let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
-                || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
-                || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
-            let ui_modal = self.chat_panel.is_open() || self.diplomacy_panel.is_active();
-            // C++ LookAtXlat.cpp:174-175 isSelecting() || (m_isScrolling && scrollType != KEY)
-            if !mods_down
-                && !ui_modal
-                && !lookat_keyboard_scroll_blocked(self.is_dragging, self.is_rmb_scrolling)
-            {
-                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp)) {
-                    screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
-                }
-                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown)) {
-                    screen_scroll.y += vertical_scroll_speed_factor * scroll_step;
-                }
-                if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft)) {
-                    screen_scroll.x -= horizontal_scroll_speed_factor * scroll_step;
-                }
-                if self
-                    .keys_pressed
-                    .contains(&Key::Named(NamedKey::ArrowRight))
-                {
-                    screen_scroll.x += horizontal_scroll_speed_factor * scroll_step;
-                }
-            }
-
-            // Edge scrolling (C++ LookAt.cpp: near screen edge).
-            // Enable for windowed + fullscreen so map-panning works without arrows.
-            // Headless runtime-host residual: mouse stays at (0,0) without OS cursor
-            // events, which would permanently edge-scroll the camera off the map.
-            if matches!(self.current_state, GameState::InGame | GameState::Paused)
-                && !self.runtime_host_headless
-                && self.mouse_cursor_seen
-                && !self.chat_panel.is_open()
-                && !self.diplomacy_panel.is_active()
-            {
-
-                const EDGE_SCROLL_SIZE: f32 = 5.0;
-                let (mx, my) = self.mouse_position;
-                let size = self.window.inner_size();
-                let win_w = size.width as f32;
-                let win_h = size.height as f32;
-
-                let mut edge_dx = 0.0f32;
-                let mut edge_dy = 0.0f32;
-
-                if mx < EDGE_SCROLL_SIZE {
-                    edge_dx = -1.0;
-                } else if mx >= win_w - EDGE_SCROLL_SIZE {
-                    edge_dx = 1.0;
-                }
-                if my < EDGE_SCROLL_SIZE {
-                    edge_dy = -1.0;
-                } else if my >= win_h - EDGE_SCROLL_SIZE {
-                    edge_dy = 1.0;
-                }
-
-                if edge_dx != 0.0 || edge_dy != 0.0 {
-                    let edge_step =
-                        SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
-
-                    screen_scroll.x += edge_dx * horizontal_scroll_speed_factor * edge_step;
-                    screen_scroll.y += edge_dy * vertical_scroll_speed_factor * edge_step;
-                }
-            }
-
-            // Right-mouse-button drag scrolling (C++ LookAtXlat.cpp:378-406)
-            if self.is_rmb_scrolling {
-                if let Some(mut anchor) = self.rmb_scroll_anchor {
-                    let size = self.window.inner_size();
-                    crate::cnc_game_engine::options_bridge::clamp_move_rmb_scroll_anchor(
-                        &mut anchor,
-                        self.mouse_position,
-                        (size.width as f32, size.height as f32),
-                        self.move_rmb_scroll_anchor,
-                    );
-                    self.rmb_scroll_anchor = Some(anchor);
-                    let dx = self.mouse_position.0 - anchor.0;
-                    let dy = self.mouse_position.1 - anchor.1;
-                    let mut offset = Vec2::new(
-                        horizontal_scroll_speed_factor * dx,
-                        vertical_scroll_speed_factor * dy,
-                    );
-
-                    if offset.length_squared() > f32::EPSILON {
-                        let direction = offset.normalize();
-                        offset.x += horizontal_scroll_speed_factor
-                            * direction.x
-                            * keyboard_scroll_factor.powi(2);
-                        offset.y += vertical_scroll_speed_factor
-                            * direction.y
-                            * keyboard_scroll_factor.powi(2);
-                        screen_scroll += offset * scroll_dt * logic_frames_per_second;
-
-                    }
-                }
-            }
-
             // Middle-mouse-button camera yaw rotation (C++ LookAtXlat.cpp:296-303)
             if self.is_mmb_rotating {
                 if let Some(anchor) = self.mmb_anchor {
@@ -1388,12 +1739,6 @@ impl CnCGameEngine {
         if movement.length() > 0.0 {
             self.camera_target += movement;
             self.camera_target = self.clamp_to_world_bounds(self.camera_target);
-            camera_changed = true;
-        }
-        if matches!(self.current_state, GameState::InGame)
-            && self.camera_is_unreasonably_far_from_local_units()
-        {
-            self.snap_camera_to_local_units_if_needed();
             camera_changed = true;
         }
 
@@ -2593,8 +2938,11 @@ impl CnCGameEngine {
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(super) fn start_rmb_lookat_scroll(&mut self) {
         self.rmb_scroll_anchor = Some(self.mouse_position);
-        // C++ does not start RMB scroll while box-selecting (`isSelecting`).
+        // C++ :204-206: start only when `!isSelecting() && !m_isScrolling`.
         if self.is_dragging || self.is_rmb_scrolling {
+            return;
+        }
+        if look_at_host_modes().scroll_type.is_scrolling() {
             return;
         }
         if !self.lookat_input_enabled() {
@@ -2603,6 +2951,7 @@ impl CnCGameEngine {
         let mut modes = look_at_host_modes();
         modes.prev_cursor = self.last_context_cursor;
         modes.mouse_locked = true;
+        modes.scroll_type = LookAtScrollType::Rmb;
         drop(modes);
         self.is_rmb_scrolling = true;
         #[cfg(feature = "game_client")]
@@ -2619,6 +2968,9 @@ impl CnCGameEngine {
         let prev = {
             let mut modes = look_at_host_modes();
             modes.mouse_locked = false;
+            if modes.scroll_type == LookAtScrollType::Rmb {
+                modes.scroll_type = LookAtScrollType::None;
+            }
             modes.prev_cursor.take()
         };
         self.is_rmb_scrolling = false;
@@ -2650,6 +3002,7 @@ impl CnCGameEngine {
         let mut modes = look_at_host_modes();
         modes.mmb_original_anchor = None;
         modes.mmb_press_frame = 0;
+        modes.scroll_type = LookAtScrollType::None;
     }
 
     /// C++ `LookAtXlat.cpp:224-233` middle-button down.
@@ -2925,6 +3278,112 @@ mod camera_pick_tests {
     }
 
     #[test]
+    fn lookat_scroll_types_are_exclusive() {
+        // C++ m_scrollType: frame tick applies only one of RMB / KEY / SCREENEDGE.
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::Rmb,
+                true,
+                false,
+                true,
+                true,
+                true
+            ),
+            LookAtScrollType::Rmb
+        );
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::ScreenEdge,
+                true,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::ScreenEdge
+        );
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::Key,
+                true,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::Key
+        );
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                true,
+                false,
+                false,
+                false,
+                true
+            ),
+            LookAtScrollType::ScreenEdge
+        );
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                true,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::Key
+        );
+        // Edge may start while box-selecting; keys may not.
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                true,
+                true,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::ScreenEdge
+        );
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::Key,
+                false,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::None
+        );
+    }
+
+    #[test]
+    fn update_camera_does_not_snap_scout_past_6000wu() {
+        // C++ LookAtXlat / W3DView::scrollBy have no distance-to-own-units snap.
+        let src = include_str!("mouse.rs");
+        let start = src.find("fn update_camera(&mut self, dt: f32)").expect("update_camera");
+        let end = src[start..]
+            .find("fn is_character_key_pressed")
+            .map(|i| start + i)
+            .unwrap_or(src.len());
+        let body = &src[start..end];
+        assert!(
+            !body.contains("camera_is_unreasonably_far_from_local_units")
+                && !body.contains("6_000.0 * 6_000.0")
+                && !body.contains("snap_camera_to_local_units_if_needed"),
+            "scouting past 6000wu must not yank the camera back to base"
+        );
+        assert!(
+            body.contains("lookat_resolve_scroll_type")
+                && body.contains("LookAtScrollType::ScreenEdge"),
+            "live LookAt must apply one exclusive scroll type"
+        );
+    }
+
+    #[test]
     fn lookat_mmb_short_click_matches_cpp_5px_5_frame_window() {
         // C++ LookAtXlat.cpp:241-250 CLICK_DURATION=5 PIXEL_OFFSET=5
         assert!(lookat_mmb_is_short_click(0.0, 0.0, 0));
@@ -3003,4 +3462,61 @@ mod camera_pick_tests {
             crate::game_logic::GameMode::Shell
         ));
     }
+
+    #[test]
+    fn drag_tolerance_and_empty_click_match_cpp_selection_xlat() {
+        // C++ Mouse.cpp DragTolerance default 5 / SelectionXlat.cpp:399-407, 575-597, 617-626, 930-937.
+        assert!(is_point_click_drag(0.0));
+        assert!(is_point_click_drag(5.0));
+        assert!(!is_point_click_drag(5.1));
+        assert!(!alternate_mouse_blank_click_deselects(false, false, false, false));
+        assert!(alternate_mouse_blank_click_deselects(true, false, false, false));
+        assert!(!alternate_mouse_blank_click_deselects(true, true, false, false));
+        assert!(box_selection_must_replace(true, false, false, false));
+        assert!(box_selection_must_replace(false, false, false, true));
+        assert!(!box_selection_must_replace(false, false, false, false));
+        assert!(infantry_garrison_context_takes_region(false, false, true, 1));
+        assert!(!infantry_garrison_context_takes_region(true, false, true, 1));
+        assert!(!infantry_garrison_context_takes_region(false, true, true, 1));
+        assert!(!infantry_garrison_context_takes_region(false, false, true, 0));
+
+    }
+
+    #[test]
+    fn left_release_point_click_does_not_box_wipe() {
+        // C++ MetaEvent.cpp:571-596 + SelectionXlat.cpp:575-597 / 905-950.
+        let src = include_str!("mouse.rs");
+        assert!(src.contains("const DRAG_TOLERANCE_PX: f32 = 5.0"));
+        assert!(src.contains("is_point_click_drag(drag_distance_screen)"));
+        assert!(!src.contains("drag_distance_screen <= 2.0"));
+        assert!(src.contains("alternate_mouse_blank_click_deselects"));
+        assert!(src.contains("garrisonable_building_ids_in_screen_rect"));
+        assert!(src.contains("box_selection_must_replace"));
+        assert!(src.contains("union_object_ids(similar_units, previous)"));
+        assert!(
+            !src.contains("first selectable local"),
+            "pick miss must not invent the first locally-owned unit"
+        );
+        assert!(src.contains("CommandType::Enter { target_id }"));
+    }
+
+    #[test]
+    fn select_p2_leftover_double_click_and_sound_match_cpp() {
+        // hq-kmgkv: 3–4px is still a click (Mouse.ini DragTolerance default 5).
+        assert!(host_screen_drag_is_click(4.0, 0.0));
+        assert!(host_screen_drag_is_click(0.0, 4.0));
+        assert!(host_screen_drag_is_click(5.0, 5.0));
+        assert!(!host_screen_drag_is_click(6.0, 0.0));
+        assert!((host_mouse_drag_tolerance_px() - 5.0).abs() < f32::EPSILON);
+
+        // hq-ht4gw / hq-myqqv / hq-gqwjy live-host markers.
+        let src = include_str!("mouse.rs");
+        assert!(src.contains("fn presentation_double_click_consumes"));
+        assert!(src.contains("KEEP_MESSAGE so CommandXlat.cpp:3698-3713"));
+        assert!(src.contains("union_object_ids(similar_units, previous)"));
+        assert!(src.contains("let boxed_any = !boxed.is_empty()"));
+        assert!(src.contains("if boxed_any"));
+        assert!(src.contains("host_mouse_drag_tolerance_px()"));
+    }
+
 }

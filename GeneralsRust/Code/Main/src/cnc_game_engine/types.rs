@@ -1161,6 +1161,8 @@ pub struct CnCGameEngine {
     pub(crate) last_right_click_time: Option<Instant>,
     pub(crate) last_right_click_position: Option<Vec3>,
     pub(crate) left_click_release_behavior: LeftMouseReleaseBehavior,
+    /// C++ `SelectionTranslator::m_displayedMaxWarning` / `setDisplayedMaxWarning`.
+    pub(crate) displayed_max_selection_warning: bool,
     /// Physical provenance for a classic-layout LMB context gesture.  Both
     /// edges must be physical before the existing gameplay evidence path may
     /// treat its resulting command as player input.

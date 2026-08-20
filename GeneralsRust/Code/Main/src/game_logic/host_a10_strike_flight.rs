@@ -42,22 +42,46 @@ pub struct PendingA10MissileDrop {
 pub struct HostA10StrikeFlightData {
     pub target: Vec3,
     pub launch: Vec3,
+    #[serde(default)]
+    pub exit: Vec3,
     pub tier: A10StrikeScienceTier,
     pub transport_alive: bool,
+    #[serde(default)]
+    pub passed_target: bool,
+    #[serde(default)]
+    pub last_vulcan_frame: u32,
 }
 
 impl HostA10StrikeFlightData {
     pub fn start(launch: Vec3, target: Vec3, tier: A10StrikeScienceTier) -> Self {
+        Self::start_with_exit(launch, target, Vec3::ZERO, tier)
+    }
+
+    pub fn start_with_exit(
+        launch: Vec3,
+        target: Vec3,
+        exit: Vec3,
+        tier: A10StrikeScienceTier,
+    ) -> Self {
         Self {
             target,
             launch,
+            exit,
             tier,
             transport_alive: true,
+            passed_target: false,
+            last_vulcan_frame: 0,
         }
     }
 
+    /// Fly launch → target, then continue off the opposite map edge.
+    /// Returns (new_pos, vel, at_exit).
     pub fn tick_transport(&mut self, pos: Vec3) -> (Vec3, Vec3, bool) {
-        let dest = self.target;
+        let dest = if self.passed_target && self.exit.length_squared() > 1.0 {
+            self.exit
+        } else {
+            self.target
+        };
         let dx = dest.x - pos.x;
         let dz = dest.z - pos.z;
         let dist = (dx * dx + dz * dz).sqrt();
@@ -65,14 +89,24 @@ impl HostA10StrikeFlightData {
         let mut new_pos = pos;
         new_pos.y = new_pos.y.max(140.0);
         if dist < 5.0 {
+            if !self.passed_target {
+                self.passed_target = true;
+                return (new_pos, Vec3::ZERO, false);
+            }
             return (new_pos, Vec3::ZERO, true);
         }
         let step = speed.min(dist);
         new_pos.x += dx / dist * step;
         new_pos.z += dz / dist * step;
         let vel = new_pos - pos;
-        let over = dist <= 60.0;
-        (new_pos, vel, over)
+        if !self.passed_target && dist <= 60.0 {
+            self.passed_target = true;
+        }
+        let at_exit = self.passed_target
+            && self.exit.length_squared() > 1.0
+            && (new_pos.x - self.exit.x).abs() < 8.0
+            && (new_pos.z - self.exit.z).abs() < 8.0;
+        (new_pos, vel, at_exit)
     }
 }
 

@@ -627,7 +627,7 @@ impl GameLogic {
         for (_aid, location, radius, team, caster_id) in work {
             self.gps_scramblers.record_grow_pulse();
             let center = (location.x, location.z);
-            let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool)> = self
+            let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool)> = self
                 .objects
                 .iter()
                 .filter_map(|(id, obj)| {
@@ -647,6 +647,7 @@ impl GameLogic {
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
+                    let has_stealth_module = obj.innate_stealth;
                     Some((
                         *id,
                         is_vehicle,
@@ -654,13 +655,21 @@ impl GameLogic {
                         same_team,
                         under_construction,
                         is_disguise,
+                        has_stealth_module,
                     ))
                 })
                 .collect();
 
             let mut grants = 0u32;
-            for (id, is_vehicle, is_infantry, same_team, under_construction, is_disguise) in
-                candidates
+            for (
+                id,
+                is_vehicle,
+                is_infantry,
+                same_team,
+                under_construction,
+                is_disguise,
+                has_stealth_module,
+            ) in candidates
             {
                 if !is_legal_gps_scrambler_target(
                     is_vehicle,
@@ -669,12 +678,16 @@ impl GameLogic {
                     same_team,
                     under_construction,
                     is_disguise,
+                    has_stealth_module,
                 ) {
                     continue;
                 }
                 let Some(target) = self.objects.get_mut(&id) else {
                     continue;
                 };
+                if !target.innate_stealth {
+                    continue;
+                }
                 let was = target.is_effectively_stealthed();
                 target.apply_grant_stealth();
                 if !was || target.is_effectively_stealthed() {
@@ -980,6 +993,9 @@ impl GameLogic {
     }
 
     /// C++ OCL SUPERWEAPON_SpySatellite CreateObject SpySatellitePing residual.
+    /// SpySatellitePing carries StealthDetectorUpdate (DetectionRate 500ms,
+    /// DetectionRange 0 → VisionRange 300) so stealthed units in the scan
+    /// are DETECTED while the ping lives.
     pub fn spawn_spy_satellite_ping(
         &mut self,
         team: Team,
@@ -988,7 +1004,9 @@ impl GameLogic {
     ) -> Option<ObjectId> {
         use crate::game_logic::host_spy_satellite::{
             SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_PING_TEMPLATE,
+            SPY_SATELLITE_STEALTH_DETECTION_RANGE, SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES,
         };
+        use crate::game_logic::host_strategy_center::stealth_detector_hold_frames;
         use crate::game_logic::{KindOf, ThingTemplate};
 
         if !self.templates.contains_key(SPY_SATELLITE_PING_TEMPLATE) {
@@ -1015,9 +1033,40 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&pid) {
             o.spy_satellite_ping = true;
             o.producer_id = caster_id;
+            o.set_detector_state(
+                true,
+                SPY_SATELLITE_STEALTH_DETECTION_RANGE,
+                SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES,
+            );
             // DeletionUpdate lifetime residual tracked via destroy at duration.
             o.spy_satellite_ping_expires_frame =
                 Some(self.frame.saturating_add(SPY_SATELLITE_DURATION_FRAMES));
+        }
+        // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
+        let hold = stealth_detector_hold_frames(SPY_SATELLITE_STEALTH_DETECTION_RATE_FRAMES);
+        let expires = self.frame.saturating_add(hold);
+        let range_sq = SPY_SATELLITE_STEALTH_DETECTION_RANGE * SPY_SATELLITE_STEALTH_DETECTION_RANGE;
+        let stealthed: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(id, o)| {
+                *id != pid
+                    && o.is_alive()
+                    && o.team != team
+                    && (o.status.stealthed || o.status.disguised)
+            })
+            .filter(|(_, o)| {
+                let p = o.get_position();
+                let dx = p.x - position.x;
+                let dz = p.z - position.z;
+                dx * dx + dz * dz <= range_sq
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for sid in stealthed {
+            if let Some(obj) = self.objects.get_mut(&sid) {
+                obj.mark_detected(expires);
+            }
         }
         self.spy_satellites.record_ping_spawn();
         Some(pid)

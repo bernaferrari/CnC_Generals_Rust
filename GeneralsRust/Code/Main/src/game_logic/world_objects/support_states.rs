@@ -1728,7 +1728,15 @@ impl GameLogic {
                 AIState::GuardingArea => {
                     let anchor = guard_position.unwrap_or(position);
                     let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
-                    let inner = if std_inner > 0.0 {
+                    let mood = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.ai_attitude)
+                        .unwrap_or(0);
+                    // C++ Sleep mood → getStdGuardRange 0. Do not fall back to 80.
+                    let inner = if mood <= -2 {
+                        0.0
+                    } else if std_inner > 0.0 {
                         std_inner
                     } else if guard_radius > 0.0 {
                         guard_radius
@@ -1839,6 +1847,7 @@ impl GameLogic {
 
                     if can_move
                         && !picking_crate
+                        && inner > 0.0
                         && position.distance(anchor) > inner
                     {
                         self.path_approach_with_state(object_id, anchor, AIState::GuardingArea);
@@ -1869,7 +1878,14 @@ impl GameLogic {
                     };
 
                     let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
-                    let inner = if std_inner > 0.0 {
+                    let mood = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.ai_attitude)
+                        .unwrap_or(0);
+                    let inner = if mood <= -2 {
+                        0.0
+                    } else if std_inner > 0.0 {
                         std_inner
                     } else if guard_radius > 0.0 {
                         guard_radius
@@ -1890,11 +1906,55 @@ impl GameLogic {
                         .get(&object_id)
                         .and_then(|o| o.requested_victim_id)
                         .is_some();
+                    let enter_guard = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.thing.template.enter_guard)
+                        .unwrap_or(false);
+                    let hijack_guard = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.thing.template.hijack_guard)
+                        .unwrap_or(false);
 
                     if can_attack && self.try_guard_last_attacker(object_id, team) {
                         continue;
                     }
-                    if can_attack {
+                    if can_attack && enter_guard {
+                        let mut best: Option<(ObjectId, f32)> = None;
+                        for (cand_id, cand) in self.objects.iter() {
+                            if *cand_id == object_id || !cand.is_alive() {
+                                continue;
+                            }
+                            let d = guard_anchor.distance(cand.get_position());
+                            if d > acquire_radius {
+                                continue;
+                            }
+                            if hijack_guard {
+                                if !cand.is_targetable_by_enemy_of(team)
+                                    || !cand.is_kind_of(KindOf::Vehicle)
+                                    || cand.is_hijacked()
+                                {
+                                    continue;
+                                }
+                            } else if cand.team != Team::Neutral {
+                                continue;
+                            }
+                            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                                best = Some((*cand_id, d));
+                            }
+                        }
+                        if let Some((enemy_id, _)) = best {
+                            if self.try_guard_enter_or_hijack(
+                                object_id,
+                                enemy_id,
+                                hijack_guard,
+                                team,
+                            ) {
+                                continue;
+                            }
+                        }
+                    } else if can_attack {
                         let tunnel_nemesis = {
                             let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
                                 |g| {
@@ -1932,6 +1992,7 @@ impl GameLogic {
 
                     if can_move
                         && !picking_crate
+                        && inner > 0.0
                         && position.distance(guard_anchor) > inner
                     {
                         self.path_approach_with_state(

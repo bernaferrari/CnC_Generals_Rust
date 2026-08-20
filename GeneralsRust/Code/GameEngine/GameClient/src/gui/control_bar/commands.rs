@@ -606,7 +606,26 @@ pub fn get_command_availability(
     };
 
     if obj.is_disabled() {
-        return CommandAvailability::Restricted;
+        let mut disabled = true;
+        if (button.options & CommandOption::IgnoresUnderpowered as u32) != 0
+            && obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnderpowered)
+            && obj.get_disabled_flags().bits().count_ones() == 1
+        {
+            disabled = false;
+        }
+        if disabled {
+            let cmd_type = button.command_type;
+            if cmd_type != CommandType::Sell
+                && cmd_type != CommandType::Evacuate
+                && cmd_type != CommandType::Exit
+                && cmd_type != CommandType::RemoveBeacon
+                && cmd_type != CommandType::SetRallyPoint
+                && cmd_type != CommandType::DoStop
+                && cmd_type != CommandType::SwitchWeapons
+            {
+                return CommandAvailability::Restricted;
+            }
+        }
     }
 
     if obj.has_single_use_command_been_used() {

@@ -27,8 +27,8 @@ impl HostSpecialPowerStrikeRegistry {
 
     /// Falloff residual with ScudStorm anthrax + A10 FormationSize science tiers.
     ///
-    /// A10 residual: scale host max damage by FormationSize (1/2/3 jets).
-    /// Fail-closed vs full multi-jet DeliverPayload flight Object.
+    /// A10 residual: OCL jets from the map edge apply missile/vulcan damage.
+    /// The delayed circular blob (500 × FormationSize) is not retail.
     pub fn damage_at_distance_with_tiers(
         kind: HostSuperweaponKind,
         distance: f32,
@@ -37,6 +37,11 @@ impl HostSpecialPowerStrikeRegistry {
     ) -> f32 {
         // Instant one-shot suppressed: multi-blast residual applies Blast6.
         if kind == HostSuperweaponKind::NuclearMissile {
+            return 0.0;
+        }
+        // C++ A10 is CREATE_AT_EDGE_NEAR_SOURCE jets, not a host circle blast.
+        if kind == HostSuperweaponKind::A10Strike {
+            let _ = (distance, a10_tier);
             return 0.0;
         }
         if kind == HostSuperweaponKind::ScudStorm {
@@ -50,10 +55,7 @@ impl HostSpecialPowerStrikeRegistry {
         }
         let radius = kind.damage_radius();
         let inner = kind.falloff_inner();
-        let mut max = kind.max_damage();
-        if kind == HostSuperweaponKind::A10Strike {
-            max *= a10_tier.formation_size().max(1) as f32;
-        }
+        let max = kind.max_damage();
         if distance <= inner {
             max
         } else if distance >= radius {

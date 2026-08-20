@@ -320,6 +320,18 @@ impl PresentationFrame {
                 obj.disabled_paralyzed = ent.disabled_paralyzed;
                 dirty = true;
             }
+            if obj.disabled_underpowered != ent.disabled_underpowered {
+                obj.disabled_underpowered = ent.disabled_underpowered;
+                dirty = true;
+            }
+            if obj.disabled_hacked != ent.disabled_hacked {
+                obj.disabled_hacked = ent.disabled_hacked;
+                dirty = true;
+            }
+            if obj.disabled_unmanned != ent.disabled_unmanned {
+                obj.disabled_unmanned = ent.disabled_unmanned;
+                dirty = true;
+            }
             if obj.weapons_jammed != ent.weapons_jammed {
                 obj.weapons_jammed = ent.weapons_jammed;
                 dirty = true;
@@ -1533,6 +1545,10 @@ impl PresentationFrame {
             // Wave 490: disable/status presentation from GW entity.
             disabled_emp: ent.disabled_emp,
             disabled_paralyzed: ent.disabled_paralyzed,
+            disabled_underpowered: ent.disabled_underpowered,
+            disabled_hacked: ent.disabled_hacked,
+            disabled_unmanned: ent.disabled_unmanned,
+            hacking_packing_or_unpacking: false,
             weapons_jammed: ent.weapons_jammed,
             masked: ent.masked,
             unattackable: ent.unattackable,

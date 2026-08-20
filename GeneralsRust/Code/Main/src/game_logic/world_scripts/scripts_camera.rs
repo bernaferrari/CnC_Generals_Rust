@@ -214,6 +214,24 @@ impl GameLogic {
         gamelogic::scripting::set_host_script_query_snapshot(snap);
     }
 
+    /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions
+    /// queue named SW / priority-build requests for host AIPlayer.
+    fn apply_host_skirmish_script_requests(&mut self) {
+        let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
+        let builds = gamelogic::scripting::take_host_skirmish_build_requests();
+        if fires.is_empty() && builds.is_empty() {
+            return;
+        }
+        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
+        for (player_token, power_name) in fires {
+            ai_mgr.fire_skirmish_special_power_at_most_cost(self, &player_token, &power_name);
+        }
+        for thing_name in builds {
+            let _ = ai_mgr.build_specific_ai_building_for_token(self, "", &thing_name);
+        }
+        self.ai_manager = ai_mgr;
+    }
+
     pub(in super::super) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
         if !self.scripts_loaded {
             return;
@@ -320,6 +338,7 @@ impl GameLogic {
                 *guard = Some(engine);
             }
         }
+        self.apply_host_skirmish_script_requests();
 
 
 
