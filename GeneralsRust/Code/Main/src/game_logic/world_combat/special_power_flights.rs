@@ -1050,7 +1050,7 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(id, o)| {
-                *id != pid
+                *id != &pid
                     && o.is_alive()
                     && o.team != team
                     && (o.status.stealthed || o.status.disguised)
