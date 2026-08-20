@@ -268,7 +268,7 @@ impl BridgeLayer {
                     crate::common::ICoord2D::new(self.end_cell.x, self.end_cell.y),
                     self.destroyed,
                 ) {
-                    self.cell_types.insert(c, ty);
+                    self.cell_types.insert(c, astar_cell_type(ty));
                 }
             }
         }
@@ -326,6 +326,21 @@ impl BridgeLayer {
         found1 && found2
     }
 }
+
+/// `classify_bridge_aabb_cell` returns `path::PathfindCellType`; A* cells use this crate's enum.
+/// Variants and C++ discriminants are identical (AIPathfind.h CellType).
+fn astar_cell_type(ty: crate::path::PathfindCellType) -> PathfindCellType {
+    match ty {
+        crate::path::PathfindCellType::Clear => PathfindCellType::Clear,
+        crate::path::PathfindCellType::Water => PathfindCellType::Water,
+        crate::path::PathfindCellType::Cliff => PathfindCellType::Cliff,
+        crate::path::PathfindCellType::Rubble => PathfindCellType::Rubble,
+        crate::path::PathfindCellType::Obstacle => PathfindCellType::Obstacle,
+        crate::path::PathfindCellType::BridgeImpassable => PathfindCellType::BridgeImpassable,
+        crate::path::PathfindCellType::Impassable => PathfindCellType::Impassable,
+    }
+}
+
 
 pub(crate) fn ignored_obstacle_cells(
     ignore_obstacle_id: Option<ObjectID>,

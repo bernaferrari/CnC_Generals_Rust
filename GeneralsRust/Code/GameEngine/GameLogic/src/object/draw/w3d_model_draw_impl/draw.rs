@@ -175,6 +175,11 @@ impl W3DModelDraw {
         self.fully_obscured_by_shroud
     }
 
+    /// C++ `isAnimationComplete` / `W3DModelDraw` cur-anim finished.
+    pub fn current_animation_complete(&self) -> bool {
+        self.current_anim_complete
+    }
+
     fn with_owner_drawable<R>(
         &self,
         func: impl FnOnce(&crate::object::drawable::Drawable) -> R,
@@ -873,7 +878,7 @@ impl W3DModelDraw {
             1 => WeaponSlotType::Secondary,
             _ => WeaponSlotType::Tertiary,
         };
-        let Some(weapon) = obj.get_weapon_in_slot(slot) else {
+        let Some(weapon) = obj.get_weapon_in_slot(slot.into()) else {
             return;
         };
         let veterancy = obj.get_veterancy_level();

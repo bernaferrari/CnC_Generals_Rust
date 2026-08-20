@@ -794,10 +794,11 @@ impl PartitionManager {
                 (pos.y / cell_size).floor() * cell_size,
                 pos.z,
             );
-            let cell_type = THE_AI
-                .read()
-                .ok()
-                .and_then(|ai| ai.get_cell_type_at(&snapped));
+            let snapped_pf = crate::common::Coord3D::new(snapped.x, snapped.y, snapped.z);
+            let cell_type = THE_AI.read().ok().and_then(|ai| {
+                ai.pathfinder()
+                    .and_then(|pf| pf.read().ok().and_then(|pf| pf.get_cell_type_at(&snapped_pf)))
+            });
             if cell_type == Some(PathfindCellType::Impassable) || cell_type.is_none() && options.flags.contains(FindPositionFlags::CLEAR_CELLS_ONLY) {
                 if cell_type == Some(PathfindCellType::Impassable) {
                     return None;
@@ -905,17 +906,27 @@ impl PartitionManager {
                 use crate::ai::THE_AI;
                 let src_pos = src.position;
                 let exists = THE_AI.read().ok().and_then(|ai| {
-                    OBJECT_REGISTRY.with_object(source_id, |obj| {
-                        let Some(ai_iface) = obj.get_ai_update_interface() else {
-                            return true;
-                        };
-                        let Ok(ai_guard) = ai_iface.lock() else {
-                            return true;
-                        };
-                        let Some(loco) = ai_guard.get_locomotor_set_clone() else {
-                            return true;
-                        };
-                        ai.client_safe_quick_does_path_exist(&loco, &src_pos, &pos)
+                    ai.pathfinder().and_then(|pf| {
+                        pf.read().ok().and_then(|pf| {
+                            OBJECT_REGISTRY.with_object(source_id, |obj| {
+                                let Some(ai_iface) = obj.get_ai_update_interface() else {
+                                    return true;
+                                };
+                                let Ok(ai_guard) = ai_iface.lock() else {
+                                    return true;
+                                };
+                                let Some(loco) = ai_guard.get_locomotor_set_clone() else {
+                                    return true;
+                                };
+                                pf.client_safe_quick_does_path_exist(
+                                    &loco,
+                                    &crate::common::Coord3D::new(
+                                        src_pos.x, src_pos.y, src_pos.z,
+                                    ),
+                                    &crate::common::Coord3D::new(pos.x, pos.y, pos.z),
+                                )
+                            })
+                        })
                     })
                 });
                 if exists == Some(false) {

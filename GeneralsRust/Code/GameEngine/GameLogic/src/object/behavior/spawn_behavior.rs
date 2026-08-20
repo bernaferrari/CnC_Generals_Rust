@@ -1756,6 +1756,14 @@ impl ModuleSpawnBehaviorInterface for SpawnBehavior {
     fn get_spawn_object(&self, index: u32) -> Option<ObjectID> {
         self.spawn_ids.get(index as usize).copied()
     }
+
+    fn order_slaves_disabled_until(
+        &mut self,
+        disabled_type: DisabledType,
+        frame: UnsignedInt,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        SpawnBehaviorInterface::order_slaves_disabled_until(self, disabled_type, frame)
+    }
 }
 
 // Handle cleanup on deletion

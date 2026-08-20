@@ -6,6 +6,7 @@
 
 use crate::common::*;
 use crate::object::draw::TerrainDecalType;
+use crate::object::ObjectScriptStatusBit;
 use parking_lot::RwLock;
 use std::sync::{Arc, OnceLock};
 

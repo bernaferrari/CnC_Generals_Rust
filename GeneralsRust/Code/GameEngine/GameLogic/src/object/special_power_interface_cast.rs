@@ -132,6 +132,44 @@ pub(crate) fn module_base_special_power_module(
         .and_then(SpecialPowerModuleKindMut::into_base_special_power_module)
 }
 
+pub(crate) enum SpecialPowerUpdateKindMut<'a> {
+    SpecialPowerUpdate(
+        &'a mut crate::object::update::special_power_update::SpecialPowerUpdateModule,
+    ),
+    SpecialAbilityUpdate(
+        &'a mut crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule,
+    ),
+    SpectreGunshipUpdate(
+        &'a mut crate::object::behavior::spectre_gunship_update::SpectreGunshipUpdateModule,
+    ),
+    SpectreGunshipDeploymentUpdate(
+        &'a mut crate::object::behavior::spectre_gunship_deployment_update::SpectreGunshipDeploymentUpdateModule,
+    ),
+    ParticleUplinkCannonUpdate(
+        &'a mut crate::object::behavior::particle_uplink_cannon_update::ParticleUplinkCannonUpdateModule,
+    ),
+    BattlePlanUpdate(
+        &'a mut crate::object::behavior::battle_plan_update::BattlePlanUpdateModule,
+    ),
+    MissileLauncherBuildingUpdate(
+        &'a mut crate::object::behavior::missile_launcher_building_update::MissileLauncherBuildingUpdateModule,
+    ),
+}
+
+impl<'a> SpecialPowerUpdateKindMut<'a> {
+    pub(crate) fn into_interface(self) -> &'a mut dyn SpecialPowerUpdateInterface {
+        match self {
+            Self::SpecialPowerUpdate(module) => module,
+            Self::SpecialAbilityUpdate(module) => module.behavior_mut(),
+            Self::SpectreGunshipUpdate(module) => module.behavior_mut(),
+            Self::SpectreGunshipDeploymentUpdate(module) => module.behavior_mut(),
+            Self::ParticleUplinkCannonUpdate(module) => module.behavior_mut(),
+            Self::BattlePlanUpdate(module) => module.behavior_mut(),
+            Self::MissileLauncherBuildingUpdate(module) => module.behavior_mut(),
+        }
+    }
+}
+
 pub(crate) fn module_special_power_update_kind(
     module: &mut dyn Module,
 ) -> Option<SpecialPowerUpdateKindMut<'_>> {

@@ -155,8 +155,8 @@ impl LightEnvironmentClass {
                         }
                     }
                 }
-                self.input_lights[light_index] = new_light;
-                self.lights[light_index] = keep_source;
+                self.input_lights[light_index] = new_light.clone();
+                self.lights[light_index] = Arc::clone(&keep_source);
                 if self.input_lights.len() > MAX_LIGHTS {
                     self.input_lights.truncate(MAX_LIGHTS);
                     self.lights.truncate(MAX_LIGHTS);
@@ -214,7 +214,7 @@ impl LightEnvironmentClass {
             hsv.x -= 360.0;
         }
         hsv.z *= self.fill_intensity;
-        let mut fill = average;
+        let mut fill = average.clone();
         fill.diffuse = hsv_to_rgb(hsv);
         fill.ambient = Vec3::ZERO;
         fill.direction = average.direction * -1.0;

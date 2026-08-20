@@ -559,6 +559,10 @@ impl TerrainVisualImpl {
         self.chunk_manager.total_chunk_count()
     }
 
+    pub fn debug_pending_visible_chunk_count(&self) -> usize {
+        self.chunk_manager.pending_visible_chunk_count()
+    }
+
     pub fn debug_visible_chunk_count(&self) -> usize {
         self.chunk_manager.get_visible_chunks().len()
     }

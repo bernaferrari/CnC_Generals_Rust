@@ -79,6 +79,7 @@ pub use object::{
     MIN_RECOMPUTE_TIME_RESIDUAL, MOTIVE_FRAMES_RESIDUAL, PATHFIND_CELL_SIZE_F_RESIDUAL,
 };
 pub mod partition_manager;
+pub mod partition_coi;
 pub mod pathfinding;
 pub mod radar_notifications;
 pub mod resources;

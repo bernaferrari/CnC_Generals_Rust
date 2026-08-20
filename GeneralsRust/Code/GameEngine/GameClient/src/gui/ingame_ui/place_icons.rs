@@ -161,7 +161,10 @@ impl InGameUI {
                             .map(|p| Coord3D::new(p.x, p.y, p.z))
                     });
                     if let (Some(s), Some(e)) = (start_world, end_world) {
-                        if let Some(drag_angle) = placement_angle_from_world_drag(&s, &e) {
+                        if let Some(drag_angle) = placement_angle_from_world_drag(
+                            &MsgCoord3D::new(s.x, s.y, s.z),
+                            &MsgCoord3D::new(e.x, e.y, e.z),
+                        ) {
                             angle = drag_angle;
                             TheInGameUI::set_placement_angle(angle);
                         }
@@ -170,10 +173,11 @@ impl InGameUI {
             }
         }
 
+        let legal = self.can_place_at(&world);
         if let Some(preview) = self.placement_preview.as_mut() {
             preview.position = glam::Vec3::new(world.x, world.y, world.z);
             preview.rotation = angle;
-            preview.is_legal = self.can_place_at(&world);
+            preview.is_legal = legal;
         }
 
         if self.place_icons.is_empty() {

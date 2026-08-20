@@ -829,7 +829,7 @@ impl CnCGameEngine {
     }
 
     /// Read a virtual INI path from extracted disk. Fail-open (None) — never hang.
-    pub(super) fn read_startup_ini_from_disk(virtual_path: &str) -> Option<String> {
+    pub(crate) fn read_startup_ini_from_disk(virtual_path: &str) -> Option<String> {
         let virtual_path = virtual_path.replace('\\', "/");
         for root in Self::startup_ini_disk_roots() {
             let candidate = if root == "." {

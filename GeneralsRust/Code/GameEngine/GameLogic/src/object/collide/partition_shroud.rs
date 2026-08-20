@@ -223,7 +223,11 @@ impl PartitionManager {
     }
 
     pub fn world_to_partition_cell(pos: &Coord3D) -> CellCoord {
-        CellCoord::from_world_pos(pos)
+        CellCoord::from_world_pos(&super::Coord3D {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        })
     }
 }
 

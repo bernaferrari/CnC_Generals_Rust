@@ -976,16 +976,6 @@ impl InGameUI {
         Ok(())
     }
 
-    /// Update UI state
-    pub fn update(&mut self, delta_time: Duration) {
-        self.last_update = Instant::now();
-        self.ui_time += delta_time.as_secs_f32();
-        if let Ok(mut renderer) = self.renderer.write() {
-            renderer.set_time(self.ui_time);
-        }
-        // C++ InGameUI::update calls handleRadiusCursor each frame.
-        self.handle_radius_cursor();
-    }
 
     /// Resize UI elements
     pub fn resize(&mut self, width: f32, height: f32) {
@@ -1009,24 +999,6 @@ impl InGameUI {
         self.enabled
     }
 
-    // ── Combat mode methods ────────────────────────────────────────────
-    // C++: InGameUI.h:506-519
-
-    pub fn pre_draw(&mut self, frame: u32) {
-        self.current_frame = frame;
-        self.expire_hints();
-        self.expire_messages();
-        self.update_floating_texts();
-        self.update_superweapon_timers(frame);
-        self.update_military_subtitle();
-        self.update_and_draw_world_animations();
-    }
-
-    pub fn post_draw(&mut self, _frame: u32) {
-        // C++: postDraw renders messages, military subtitles, superweapon timers
-        // Rendering is handled separately in the Rust architecture; this hook
-        // exists for any post-render cleanup logic needed later.
-    }
 
     // ── Input enable/disable with mode clearing ────────────────────────
     // C++: InGameUI.cpp:3382 (setInputEnabled)

@@ -19,5 +19,6 @@ mod production;
 mod shock;
 mod step;
 mod sleepy;
+mod presence;
 pub(in super::super) use sleepy::{HostSleepyHeap, HostSleepyKind};
 mod teams;

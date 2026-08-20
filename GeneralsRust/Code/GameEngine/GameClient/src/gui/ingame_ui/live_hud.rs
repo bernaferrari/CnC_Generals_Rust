@@ -106,19 +106,20 @@ pub fn add_named_timer(name: &str, text: &str, is_countdown: bool) {
     let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
     hud.named_timers.retain(|t| t.name != name);
     let remaining = script_counter_value(name).unwrap_or(0);
+    let color = hud.named_timer_normal_color;
     hud.named_timers.push(NamedTimerData {
         name: name.to_string(),
         text: text.to_string(),
         is_countdown,
         timestamp: -1,
-        color: hud.named_timer_normal_color,
+        color,
         display_text: String::new(),
         use_ready_font: false,
         remaining_frames: remaining,
         last_tick_frame: 0,
         draw_x: 0.0,
         draw_y: 0.0,
-        draw_color: hud.named_timer_normal_color,
+        draw_color: color,
     });
 }
 

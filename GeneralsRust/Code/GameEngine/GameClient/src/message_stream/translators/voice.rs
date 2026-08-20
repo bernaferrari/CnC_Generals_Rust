@@ -118,7 +118,7 @@ pub(super) fn pick_and_play_unit_voice_response(
     audio.add_audio_event(&event);
 }
 
-pub(super) fn play_voice_for_command(
+pub(crate) fn play_voice_for_command(
     selection: impl IntoIterator<Item = ObjectID>,
     msg: &GameMessageType,
 ) {
@@ -180,7 +180,7 @@ fn move_voice_name(
 }
 
 fn named_template_voice(
-    template: &dyn gamelogic::common::types::thing_template::ThingTemplate,
+    template: &dyn gamelogic::thing_template::ThingTemplate,
     name: &str,
 ) -> Option<AudioEventRts> {
     Some(match name {

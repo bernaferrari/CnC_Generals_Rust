@@ -59,8 +59,26 @@ impl Object {
             let radar = game_engine::common::system::radar::get_radar_system();
             if let Ok(mut radar_guard) = radar.write() {
                 let mut radar_obj = crate::object::RadarObject::new(self.id);
-                radar_obj.world_pos = *self.get_position();
-                radar_obj.priority = self.get_radar_priority();
+                let pos = self.get_position();
+                radar_obj.world_pos =
+                    game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z);
+                radar_obj.priority = match self.get_radar_priority() {
+                    crate::common::RadarPriorityType::Invalid => {
+                        game_engine::common::system::radar::RadarPriorityType::Invalid
+                    }
+                    crate::common::RadarPriorityType::NotOnRadar => {
+                        game_engine::common::system::radar::RadarPriorityType::NotOnRadar
+                    }
+                    crate::common::RadarPriorityType::Structure => {
+                        game_engine::common::system::radar::RadarPriorityType::Structure
+                    }
+                    crate::common::RadarPriorityType::Unit => {
+                        game_engine::common::system::radar::RadarPriorityType::Unit
+                    }
+                    crate::common::RadarPriorityType::LocalUnitOnly => {
+                        game_engine::common::system::radar::RadarPriorityType::LocalUnitOnly
+                    }
+                };
                 self.populate_radar_object_from_state(&mut radar_obj);
                 radar_guard.add_object(radar_obj);
             }

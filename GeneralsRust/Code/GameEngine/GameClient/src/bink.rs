@@ -278,6 +278,17 @@ impl BinkDecoder {
     }
 }
 
+/// Bink-backed [`VideoStreamInterface`] wrapping [`BinkDecoder`].
+/// Matches C++ `BinkVideoStream` (BinkVideoPlayer.h).
+pub struct BinkVideoStream {
+    decoder: BinkDecoder,
+    current_rgba: Vec<u8>,
+    frame_accumulator: Duration,
+    last_update: Instant,
+    state: PlaybackState,
+    volume: f32,
+}
+
 impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
         let _ = initialize_bink_with_miles();

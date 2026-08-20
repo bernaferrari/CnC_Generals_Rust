@@ -2531,7 +2531,7 @@ impl View {
 
     /// Apply camera shake impulse using the legacy damped-oscillation model.
     pub fn shake(&mut self, _epicenter: &Point3, _shake_type: CameraShakeType) {
-        let angle = random::<f32>() * 2.0 * PI;
+        let angle = crate::GameClientRandomValueReal!(0.0, 2.0 * PI);
         self.shake_angle_cos = angle.cos();
         self.shake_angle_sin = angle.sin();
 

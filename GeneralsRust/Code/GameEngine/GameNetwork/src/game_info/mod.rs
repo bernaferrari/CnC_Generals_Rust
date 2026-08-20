@@ -57,7 +57,7 @@ pub fn set_multiplayer_settings_provider(provider: MultiplayerSettingsProvider) 
     MULTIPLAYER_SETTINGS_PROVIDER.set(provider).is_ok()
 }
 
-fn lookup_multiplayer_settings() -> Option<MultiplayerSettingsView> {
+pub(crate) fn lookup_multiplayer_settings() -> Option<MultiplayerSettingsView> {
     MULTIPLAYER_SETTINGS_PROVIDER
         .get()
         .map(|provider| (provider)())
@@ -71,7 +71,7 @@ pub fn set_game_text_provider(provider: GameTextProvider) -> bool {
     GAME_TEXT_PROVIDER.set(provider).is_ok()
 }
 
-fn lookup_game_text(key: &str) -> String {
+pub(crate) fn lookup_game_text(key: &str) -> String {
     GAME_TEXT_PROVIDER
         .get()
         .map(|provider| (provider)(key))

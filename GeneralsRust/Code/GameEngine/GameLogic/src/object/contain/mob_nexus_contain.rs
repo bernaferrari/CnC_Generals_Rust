@@ -357,19 +357,26 @@ impl MobNexusContain {
                 if let Some((parent_vel, parent_ok)) = self.with_owner_object(|owner| {
                     owner
                         .get_physics()
-                        .map(|physics| (physics.get_velocity(), true))
+                        .and_then(|physics| {
+                            physics
+                                .lock()
+                                .ok()
+                                .map(|p| (p.get_velocity(), true))
+                        })
                         .unwrap_or_default()
                 }) {
                     let _ = parent_ok;
                     if let Some(child) = rider.get_physics() {
-                        let mass = child.get_mass();
-                        let force = crate::common::Coord3D::new(
-                            parent_vel.x * mass,
-                            parent_vel.y * mass,
-                            parent_vel.z * mass,
-                        );
-                        child.apply_motive_force(&force);
-                        child.set_pitch_rate(self.module_data.exit_pitch_rate);
+                        if let Ok(mut child) = child.lock() {
+                            let mass = child.get_mass();
+                            let force = crate::common::Coord3D::new(
+                                parent_vel.x * mass,
+                                parent_vel.y * mass,
+                                parent_vel.z * mass,
+                            );
+                            child.apply_motive_force(&force);
+                            child.set_pitch_rate(self.module_data.exit_pitch_rate);
+                        }
                     }
                 }
             }
@@ -386,7 +393,9 @@ impl MobNexusContain {
                 .unwrap_or(false)
             {
                 if let Some(physics) = rider.get_physics() {
-                    physics.set_allow_to_fall(true);
+                    if let Ok(mut physics) = physics.lock() {
+                        physics.set_allow_to_fall(true);
+                    }
                 }
             }
         }
@@ -611,25 +620,25 @@ impl MobNexusContain {
 
         let valid_terrain = self
             .with_owner_object(|me| {
+                let astar_layer = match me.get_layer() {
+                    crate::common::PathfindLayerEnum::Top => {
+                        crate::ai::pathfind_astar::PathfindLayerEnum::Top
+                    }
+                    _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                };
                 crate::ai::THE_AI
                     .read()
                     .ok()
-                    .and_then(|ai_sys| ai_sys.pathfinder())
-                    .and_then(|pf| pf.read().ok())
-                    .map(|pf_guard| {
-                        let astar_layer = match me.get_layer() {
-                            crate::common::PathfindLayerEnum::Top => {
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Top
-                            }
-                            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-                        };
-                        !matches!(
+                    .and_then(|ai_sys| {
+                        let pf = ai_sys.pathfinder()?;
+                        let pf_guard = pf.read().ok()?;
+                        Some(!matches!(
                             pf_guard.get_cell_type_at_layer(me.get_position(), astar_layer),
                             Some(crate::ai::pathfind_astar::PathfindCellType::Cliff)
                                 | Some(crate::ai::pathfind_astar::PathfindCellType::Water)
                                 | Some(crate::ai::pathfind_astar::PathfindCellType::Impassable)
                                 | None
-                        )
+                        ))
                     })
                     .unwrap_or(true)
             })
@@ -653,7 +662,7 @@ impl MobNexusContain {
             let door = obj
                 .read()
                 .ok()
-                .map(|guard| self.reserve_door_for_exit(&ObjectTemplate {}, Some(&*guard)))
+                .map(|guard| self.reserve_door_for_exit(None, Some(&*guard)))
                 .unwrap_or(ExitDoorType::NoneAvailable);
             if matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
                 continue;

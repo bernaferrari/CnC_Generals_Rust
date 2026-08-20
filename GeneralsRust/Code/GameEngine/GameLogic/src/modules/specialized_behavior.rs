@@ -26,6 +26,14 @@ pub trait SpawnBehaviorInterface: Send + Sync {
     fn get_spawn_count(&self) -> u32;
     /// Get spawn object by index
     fn get_spawn_object(&self, index: u32) -> Option<ObjectID>;
+    /// C++ `SpawnBehaviorInterface::orderSlavesDisabledUntil`.
+    fn order_slaves_disabled_until(
+        &mut self,
+        _disabled_type: DisabledType,
+        _frame: UnsignedInt,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
     /// Order slaves to clear the specified disabled type
     fn order_slaves_to_clear_disabled(
         &mut self,

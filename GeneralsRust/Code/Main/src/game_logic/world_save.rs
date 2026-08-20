@@ -2767,10 +2767,8 @@ impl GameLogic {
                         };
 
                         if let Some(mut heightmap) = loaded {
-                            apply_cpp_heightmap_xy_and_border(
-                                &mut heightmap,
-                                heightmap.border_size,
-                            );
+                            let border_size = heightmap.border_size;
+                            apply_cpp_heightmap_xy_and_border(&mut heightmap, border_size);
                             let border = heightmap.border_size.max(0) as u32;
                             let terrain = super::terrain::TerrainData::from_heightmap(
                                 heightmap,

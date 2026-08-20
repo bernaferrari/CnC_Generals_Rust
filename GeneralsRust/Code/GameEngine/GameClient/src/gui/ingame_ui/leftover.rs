@@ -2,6 +2,7 @@
 // Split from `gui/ingame_ui.rs` dump. Included by `ingame_ui/mod.rs`.
 
 use crate::video_buffer::VideoBuffer;
+use crate::video_player::VideoPlayerInterface;
 impl InGameUI {
     pub fn start_building_placement(&mut self, template_name: String, footprint: Vec2) {
         self.placement_preview = Some(PlacementPreview::new(template_name, footprint));
@@ -23,6 +24,16 @@ impl InGameUI {
     }
 
     /// Update resources display
+    pub fn update_resources(&mut self, credits: i32, power_available: i32, power_used: i32) {
+        self.resource_display.update(credits, power_available, power_used);
+    }
+
+    /// Set local player id used for selection and command routing.
+    pub fn set_player_id(&mut self, player_id: u32) {
+        self.player_id = player_id;
+    }
+
+    /// Create a move hint line.
     pub fn create_move_hint(&mut self, start: Coord3D, end: Coord3D, source_id: u32) {
         self.expire_hint_for_source(HintType::Move, source_id);
 

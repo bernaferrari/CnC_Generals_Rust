@@ -542,6 +542,8 @@ impl UpdateModuleInterface for EMPUpdate {
             return UpdateSleepTime::None;
         };
 
+        let now = TheGameLogic::get_frame();
+
         if let Ok(obj) = obj_arc.read() {
             self.current_scale += (self.target_scale - self.current_scale) * 0.05;
             if let Some(drawable) = obj.get_drawable() {

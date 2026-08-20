@@ -15,10 +15,8 @@ use crate::common::system::file_system::get_file_system;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::cell::Cell;
-
 use std::sync::{
-    atomic::{AtomicU32, Ordering},
+    atomic::{AtomicI32, AtomicU32, Ordering},
     Arc, OnceLock, RwLock,
 };
 use tokio::sync::mpsc;
@@ -496,7 +494,7 @@ pub struct AudioEventRts {
     pub volume_shift: Real,
     pub delay: Real,
     pub loop_count: Int,
-    pub playing_audio_index: Cell<Int>,
+    pub playing_audio_index: AtomicI32,
     pub all_count: Int,
     pub player_index: Int,
     pub portion_to_play_next: PortionToPlay,
@@ -585,7 +583,7 @@ impl Clone for AudioEventRts {
             volume_shift: self.volume_shift,
             delay: self.delay,
             loop_count: self.loop_count,
-            playing_audio_index: Cell::new(self.playing_audio_index.get()),
+            playing_audio_index: AtomicI32::new(self.playing_audio_index.load(Ordering::Relaxed)),
             all_count: self.all_count,
             player_index: self.player_index,
             portion_to_play_next: self.portion_to_play_next,
@@ -621,7 +619,7 @@ impl AudioEventRts {
             volume_shift: 0.0,
             delay: 0.0,
             loop_count: 1,
-            playing_audio_index: Cell::new(-1),
+            playing_audio_index: AtomicI32::new(-1),
             all_count: 0,
             player_index: -1,
             portion_to_play_next: PortionToPlay::Attack,
@@ -714,15 +712,19 @@ impl AudioEventRts {
                 get_game_audio_random_value(0, max_index) as usize
             };
 
-            if idx as i32 == self.playing_audio_index.get() && event_info.sounds.len() > 2 {
+            if idx as i32 == self.playing_audio_index.load(Ordering::Relaxed)
+                && event_info.sounds.len() > 2
+            {
                 idx = (idx + 1) % event_info.sounds.len();
             }
 
-            self.playing_audio_index.set(idx as i32);
+            self.playing_audio_index
+                .store(idx as i32, Ordering::Relaxed);
             idx
         } else {
-            let next = (self.playing_audio_index.get() + 1).rem_euclid(event_info.sounds.len() as i32);
-            self.playing_audio_index.set(next);
+            let next = (self.playing_audio_index.load(Ordering::Relaxed) + 1)
+                .rem_euclid(event_info.sounds.len() as i32);
+            self.playing_audio_index.store(next, Ordering::Relaxed);
             next as usize
         };
 
@@ -1143,7 +1145,7 @@ impl AudioEventRts {
         self.volume_shift = 0.0;
         self.delay = 0.0;
         self.loop_count = 1;
-        self.playing_audio_index.set(-1);
+        self.playing_audio_index.store(-1, Ordering::Relaxed);
         self.all_count = 0;
         self.player_index = -1;
         self.portion_to_play_next = PortionToPlay::Attack;
@@ -1348,11 +1350,11 @@ impl AudioEventRts {
     }
 
     pub fn get_playing_audio_index(&self) -> Int {
-        self.playing_audio_index.get()
+        self.playing_audio_index.load(Ordering::Relaxed)
     }
 
     pub fn set_playing_audio_index(&self, pai: Int) {
-        self.playing_audio_index.set(pai);
+        self.playing_audio_index.store(pai, Ordering::Relaxed);
     }
 
     pub fn set_handle_to_kill(&mut self, handle_to_kill: AudioHandle) {

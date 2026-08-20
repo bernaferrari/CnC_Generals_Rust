@@ -1260,11 +1260,13 @@ impl ParticleSystemManager {
             .iter()
             .filter_map(|id| self.active_systems.get(id).map(|system| system.as_ref()))
     }
-    pub fn all_particle_systems_mut(&mut self) -> impl Iterator<Item = &mut ParticleSystem> {
-        let systems = &mut self.active_systems;
-        self.active_system_order.iter().filter_map(|id| {
-            systems.get_mut(id).map(|system| system.as_mut())
-        })
+    pub fn for_each_particle_system_mut(&mut self, mut f: impl FnMut(&mut ParticleSystem)) {
+        let order = self.active_system_order.clone();
+        for id in order {
+            if let Some(system) = self.active_systems.get_mut(&id) {
+                f(system.as_mut());
+            }
+        }
     }
 
     /// C++ `doParticles` visible-box cull (AABB expanded by particle size).
@@ -1274,7 +1276,7 @@ impl ParticleSystemManager {
         extent: [f32; 3],
         max_per_system: usize,
     ) {
-        for system in self.all_particle_systems_mut() {
+        self.for_each_particle_system_mut(|system| {
             let mut kept = 0usize;
             for particle in system.particles_mut() {
                 if particle.lifetime_left == 0 {
@@ -1292,7 +1294,7 @@ impl ParticleSystemManager {
                     kept += 1;
                 }
             }
-        }
+        });
     }
 
 

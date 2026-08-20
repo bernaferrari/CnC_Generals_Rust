@@ -1054,8 +1054,8 @@ impl Snapshot for Object {
                     );
                 }
             }
-            self.weapon_set
-                .remember_thing_template_name(self.get_template_name());
+            let template_name = self.get_template_name().to_string();
+            self.weapon_set.remember_thing_template_name(&template_name);
             if let Err(err) = self.weapon_set.xfer_state(xfer) {
                 warn!(
                     "Object::xfer failed to serialize weapon set for object {}: {}",

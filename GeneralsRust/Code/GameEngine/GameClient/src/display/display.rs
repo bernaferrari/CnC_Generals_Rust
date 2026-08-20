@@ -537,7 +537,6 @@ impl Display {
         if self.movie_capture_enabled {
             display_fx::reset_movie_capture_counter();
         }
-        let _ = ww3d_engine::set_movie_capture_enabled(self.movie_capture_enabled);
     }
 
     pub fn is_movie_capture_enabled(&self) -> bool {
@@ -560,7 +559,6 @@ impl Display {
         if let Ok(mut pending) = self.pending_screenshot.lock() {
             *pending = Some(path.clone());
         }
-        let _ = ww3d_engine::make_screenshot(&path);
         crate::helpers::TheInGameUI::message(&format!(
             "{} {}",
             crate::game_text::GameText::fetch("GUI:ScreenCapture"),
@@ -631,7 +629,7 @@ impl Display {
         // startRenderToTexture / filterPostRender), not a UI color quad.
 
         let ((x, y), cursor) =
-            crate::input::with_mouse(|mouse| (mouse.position(), mouse.get_cursor()));
+            crate::input::with_mouse(|mouse| (mouse.state().position(), mouse.get_cursor()));
         if !matches!(
             cursor,
             crate::input::mouse::MouseCursor::None | crate::input::mouse::MouseCursor::Invalid

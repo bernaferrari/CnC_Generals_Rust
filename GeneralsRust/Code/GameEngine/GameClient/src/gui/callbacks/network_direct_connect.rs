@@ -44,6 +44,10 @@ struct NetworkDirectConnectState {
 thread_local! {
     static NETWORK_DIRECT_CONNECT_STATE: Rc<RefCell<NetworkDirectConnectState>> = Rc::new(RefCell::new(NetworkDirectConnectState::default()));
 }
+
+fn network_direct_connect_state() -> Rc<RefCell<NetworkDirectConnectState>> {
+    NETWORK_DIRECT_CONNECT_STATE.with(Rc::clone)
+}
 fn lan_api_cell() -> &'static tokio::sync::Mutex<Option<LanApi>> {
     the_lan()
 }

@@ -435,16 +435,17 @@ impl ControlBar {
                 return;
             }
             if command_name.eq_ignore_ascii_case("Command_StructureExit") {
-                let slot = with_window_manager(|wm| {
+                let mut slot = None;
+                with_window_manager(|wm| {
                     for i in 0..14 {
                         let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
                         if let Some(win) = wm.find_window_by_name(&name) {
                             if win.borrow().get_id() as u32 == control_id {
-                                return Some(i);
+                                slot = Some(i);
+                                return;
                             }
                         }
                     }
-                    None
                 });
                 if let Some(slot) = slot {
                     let occupant = self

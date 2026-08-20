@@ -182,9 +182,9 @@ impl DefaultFontData {
                 metrics.descent = line.descent.round() as i32;
                 metrics.line_gap = line.line_gap.round() as i32;
             }
-            let (metrics_x, _) = loaded.metrics('x', desc.size as f32);
+            let metrics_x = loaded.metrics('x', desc.size as f32);
             metrics.average_width = metrics_x.advance_width.round().max(1.0) as i32;
-            let (metrics_m, _) = loaded.metrics('M', desc.size as f32);
+            let metrics_m = loaded.metrics('M', desc.size as f32);
             metrics.max_width = metrics_m
                 .advance_width
                 .round()
@@ -214,7 +214,7 @@ impl FontData for DefaultFontData {
             let px = self.desc.size as f32;
             let width = text
                 .chars()
-                .map(|ch| font.metrics(ch, px).0.advance_width)
+                .map(|ch| font.metrics(ch, px).advance_width)
                 .sum::<f32>();
             return width.round().max(0.0) as i32;
         }

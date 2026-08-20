@@ -33,19 +33,14 @@ impl Object {
             .into_iter()
             .any(|other| self.is_disabled_by_type(other));
             if !already_power_disabled {
-                let sound = if self.is_kind_of(KindOf::Structure) {
-                    Some(|misc: &game_engine::common::ini::ini_misc_audio::MiscAudio| {
+                if self.is_kind_of(KindOf::Structure) {
+                    self.play_misc_audio_at_position(|misc| {
                         misc.building_disabled.sound_file.clone()
-                    })
+                    });
                 } else if self.is_kind_of(KindOf::Vehicle) {
-                    Some(|misc: &game_engine::common::ini::ini_misc_audio::MiscAudio| {
+                    self.play_misc_audio_at_position(|misc| {
                         misc.vehicle_disabled.sound_file.clone()
-                    })
-                } else {
-                    None
-                };
-                if let Some(pick) = sound {
-                    self.play_misc_audio_at_position(pick);
+                    });
                 }
             }
         }

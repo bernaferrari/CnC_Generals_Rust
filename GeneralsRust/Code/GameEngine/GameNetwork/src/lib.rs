@@ -93,7 +93,6 @@ use crate::nat::{NatBinding as NatBind, NatConfig as NatCfg, NatService as NatSv
 use crate::observability::telemetry;
 use crate::security::firewall::{FirewallConfig as FwConfig, FirewallHelper as FwHelper};
 use crate::security::SecurityManager as SecManager;
-use crate::transport::TransportProtocol;
 use crate::transport_unified::UnifiedTransport as NetTransport;
 use crate::utils::NetworkUtils;
 

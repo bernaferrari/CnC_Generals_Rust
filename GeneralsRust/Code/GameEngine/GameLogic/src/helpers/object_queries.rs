@@ -875,7 +875,7 @@ impl ThePartitionManager {
     /// C++ `ThePartitionManager->unRegisterObject`.
     pub fn unregister_object(&self, object_id: crate::common::ObjectID) {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {
-            logic.partition_manager().remove_object(object_id);
+            logic.partition_manager_mut().remove_object(object_id);
         }
     }
 
@@ -883,7 +883,7 @@ impl ThePartitionManager {
     pub fn register_object_at(&self, object_id: crate::common::ObjectID, pos: Coord3D) {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {
             logic
-                .partition_manager()
+                .partition_manager_mut()
                 .add_object(object_id, (pos.x, pos.y, pos.z));
         }
     }

@@ -9,6 +9,7 @@ use crate::radius_decal::{
 };
 use crate::terrain::terrain_tracks::TerrainTrackHeightProvider;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::TerrainVisual;
 use gamelogic::common::{Coord3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
@@ -139,7 +140,7 @@ impl TerrainTrackClient for TrackClient {
                     &TerrainHeight,
                     x,
                     y,
-                    sync_time,
+                    sync_time as i32,
                 );
             }
         }
@@ -153,7 +154,7 @@ impl TerrainTrackClient for TrackClient {
                     &TerrainHeight,
                     x,
                     y,
-                    sync_time,
+                    sync_time as i32,
                 );
             }
         }

@@ -259,7 +259,7 @@ impl ArchiveFileSystem {
 
     /// C++ ArchiveFileSystem::loadMods — overwrite only the user -mod BIG/dir.
     pub fn load_user_mods(&mut self, mod_dir: &str, mod_big: &str) -> Result<()> {
-        use game_engine::common::AsciiString;
+        use game_engine::common::ascii_string::AsciiString;
         if !mod_big.trim().is_empty() {
             let path = Path::new(mod_big);
             if path.exists() {

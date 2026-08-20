@@ -4,6 +4,8 @@
 // C++: InGameUI::setRadiusCursor / handleRadiusCursor (InGameUI.cpp:1172-1310).
 
 use crate::radius_decal::RadiusDecalTemplate;
+use game_engine::common::ini::get_global_data;
+
 use gamelogic::ai::guard::AIGuardMachine;
 use gamelogic::weapon::WeaponSlotType;
 
@@ -67,10 +69,15 @@ impl InGameUI {
             self.radius_cursor_templates[index].set_texture(DEFAULT_RADIUS_DECAL_TEXTURE);
         }
 
+        let Some(owner) = controller.read().ok().map(|player| {
+            Arc::new(parking_lot::RwLock::new(Player::new(player.get_player_index())))
+        }) else {
+            return;
+        };
         self.radius_cursor_templates[index].create_radius_decal(
-            &position,
+            &Self::radius_decal_pos(position),
             resolved_radius,
-            Some(controller),
+            Some(owner),
             &mut self.cur_radius_decal,
         );
 
@@ -125,9 +132,10 @@ impl InGameUI {
             self.cur_radius_decal
                 .set_opacity(self.double_click_attack_move_guard_timer as f32 * 0.1);
             self.cur_radius_decal
-                .set_position(&self.guard_hint_stashed_position);
+                .set_position(&Self::radius_decal_pos(self.guard_hint_stashed_position));
         } else {
-            self.cur_radius_decal.set_position(&pos);
+            self.cur_radius_decal
+                .set_position(&Self::radius_decal_pos(pos));
             self.cur_radius_decal.update();
         }
         self.radius_cursor.position = pos;
@@ -250,5 +258,9 @@ impl InGameUI {
         }
 
         requested
+    }
+
+    fn radius_decal_pos(pos: Coord3D) -> game_engine::common::system::Coord3D {
+        game_engine::common::system::Coord3D::new(pos.x, pos.y, pos.z)
     }
 }

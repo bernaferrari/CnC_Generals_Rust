@@ -140,7 +140,9 @@ pub fn visual_set_attenuation(a: f32, b: f32, c: f32, range: f32) {
 ///
 /// Returns `Some(z)` only when the point is inside the mesh (world-to-grid).
 pub fn get_water_grid_height(world_x: f32, world_y: f32) -> Option<f32> {
-    if let Some(Some(z)) = with_hooks(|h| h.get_water_grid_height.map(|f| f(world_x, world_y))) {
+    if let Some(z) =
+        with_hooks(|h| h.get_water_grid_height.and_then(|f| f(world_x, world_y))).flatten()
+    {
         return Some(z);
     }
     with_state(|s| sample_grid_height(s, world_x, world_y)).flatten()

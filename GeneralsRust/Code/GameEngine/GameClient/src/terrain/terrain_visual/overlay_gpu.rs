@@ -4,14 +4,10 @@
 use super::*;
 use crate::snow::{get_snow_manager, get_weather_setting};
 use crate::system::smudge::get_smudge_manager;
-use crate::terrain::{
-    decode_wak_records, water_track_wak_path, TerrainTrackHeightProvider,
-    TreeCollisionUnit, TreeRegion2D, W3DTerrainBackground, IRegion2D as BgRegion,
-    TerrainBackgroundHeightMap,
-};
+use super::water_tracks::{decode_wak_records, water_track_wak_path};
+use super::IRegion2D as BgRegion;
 use game_engine::common::ini::ini_water::get_water_transparency;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
-use glam::Vec2;
 
 const NUM_BUMP_FRAMES: i32 = 32;
 const WATER_GRID_GRAVITY: f32 = 0.08;

@@ -278,6 +278,8 @@ impl PresentationRuntimeHeightmap {
                 .iter()
                 .map(PresentationBlendTileInfo::to_game_client)
                 .collect(),
+            cliff_info: vec![game_client::terrain::height_map::TCliffInfo::default()],
+            cliff_info_ndxes: vec![0i16; self.heights.len()],
             draw_origin_x: self.draw_origin_x,
             draw_origin_y: self.draw_origin_y,
             draw_width: self.draw_width,

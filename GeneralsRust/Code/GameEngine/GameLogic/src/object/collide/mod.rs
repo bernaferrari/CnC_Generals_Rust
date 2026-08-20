@@ -25,7 +25,8 @@ pub mod squish_collide;
 
 // Re-export key collision types for convenience
 pub use collision_geometry::{
-    collision_test, CollideInfo, CollideLocAndNormal, GeometryInfo, GeometryType,
+    collide_test_dispatch, collision_test, CollideInfo, CollideLocAndNormal, GeometryInfo,
+    GeometryType,
 };
 pub use collision_response::{
     CollisionResponseConfig, CollisionResponseHandler, CollisionResponseType,
