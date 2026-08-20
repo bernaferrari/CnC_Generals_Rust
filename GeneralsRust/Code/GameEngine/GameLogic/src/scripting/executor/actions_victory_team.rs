@@ -379,11 +379,14 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let waypoint_path_name = self.get_string_param(action, 1)?;
+        // C++ ScriptActions.cpp:1767 doTeamFollowWaypoints(..., Bool asTeam)
+        let as_team = self.get_int_param(action, 2).unwrap_or(1) != 0;
 
         log::debug!(
-            "Team '{}' following waypoint path '{}'",
+            "Team '{}' following waypoint path '{}' as_team={}",
             team_name,
-            waypoint_path_name
+            waypoint_path_name,
+            as_team
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
@@ -396,24 +399,19 @@ impl ScriptActionDispatcher {
         let waypoint_id = self.resolve_follow_waypoint_id(&waypoint_path_name, team_center);
 
         if let Some(wid) = waypoint_id {
-            // Create AI group from team and issue follow waypoints command
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            // Use explicit scope to ensure proper lifetime
             {
                 if let Ok(mut group) = group_arc.write() {
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::FollowWaypointPath,
-                        CommandSourceType::FromScript,
-                    );
+                    let cmd = if as_team {
+                        AiCommandType::FollowWaypointPathAsTeam
+                    } else {
+                        AiCommandType::FollowWaypointPath
+                    };
+                    let mut params = AiCommandParams::new(cmd, CommandSourceType::FromScript);
                     params.waypoint = Some(wid);
                     let _ = group.ai_do_command(&params);
                 }
             }
-            log::debug!(
-                "Team '{}' following waypoints from '{}'",
-                team_name,
-                waypoint_path_name
-            );
         }
 
         Ok(ScriptActionResult::Success)
@@ -676,6 +674,8 @@ impl ScriptActionDispatcher {
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
+                // C++ ScriptActions.cpp:433-436 clearWaypointQueue first.
+                ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params = AiCommandParams::new(
                     AiCommandType::MoveToPosition,

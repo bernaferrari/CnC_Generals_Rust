@@ -43,9 +43,9 @@ use game_engine::common::well_known_keys::{
     key_team_unit_type4, key_team_unit_type5, key_team_unit_type6, key_team_unit_type7,
 };
 use std::any::Any;
-use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{
     Arc, LockResult, Mutex, MutexGuard, OnceLock, PoisonError, RwLock, TryLockError, TryLockResult,
     Weak,

@@ -1156,11 +1156,10 @@ impl GameLogic {
                 object.weapon = Some(burton_sniper_weapon());
             }
 
-            // `VeterancyGainCreate StartingLevel` for an explicitly parsed
-            // `VeterancyCrateCollide IsPilot` source.  A pilot-shaped
-            // basename alone must not grant veterancy: retail data owns this
-            // behavior, while ejection/parachute naming remains a separate
-            // residual path.
+            // C++ VeterancyGainCreate.cpp:68-71 — IsPilot companion StartingLevel
+            // still goes through ExperienceTracker::setMinVeterancyLevel (trainable
+            // gate + onVeterancyLevelChanged health/weaponset). Direct level writes
+            // leave HP/weapon at Rookie.
             if let Some(target) = object
                 .thing
                 .template
@@ -1168,26 +1167,8 @@ impl GameLogic {
                 .as_ref()
                 .and_then(|metadata| metadata.pilot_starting_level())
             {
-                use crate::game_logic::VeterancyLevel;
-                if object.experience.level != target {
-                    let prev = object.experience.level;
-                    object.experience.level = target;
-                    // Seed residual XP so level does not immediately drop on gain_experience.
-                    if matches!(target, VeterancyLevel::Veteran) {
-                        object.experience.current = object.experience.current.max(1.0);
-                    }
-                    let _ = prev;
-                    // Apply bonuses only if promoting from Rookie.
-                    if !matches!(
-                        prev,
-                        VeterancyLevel::Veteran | VeterancyLevel::Elite | VeterancyLevel::Heroic
-                    ) {
-                        // Direct level set; apply_veterancy_bonuses is private — call gain path
-                        // by using a public residual: re-apply via temporary if needed.
-                        // Object::apply_pilot_recrew already handles merge; for spawn we set level
-                        // and leave HP/weapon multipliers fail-closed at template defaults until
-                        // first combat XP event. Veterans still recrew-transfer as Veteran.
-                    }
+                if object.is_trainable() {
+                    let _ = object.set_min_veterancy_level(target);
                 }
             }
 
@@ -1284,11 +1265,13 @@ impl GameLogic {
             // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
 
-            // C++ GrantUpgradeCreate::onCreate / LockWeaponCreate::onBuildComplete
-            // for map-placed / instant-finished objects.
+            // C++ GrantUpgradeCreate::onCreate for map-placed / instant-finished
+            // objects (ExemptStatus=UNDER_CONSTRUCTION and not constructing).
             self.apply_grant_upgrade_create_on_create(id);
             if !starts_under_construction {
-                self.apply_lock_weapon_create(id);
+                // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
+                // onBuildComplete (SupplyCenter/GrantUpgrade/Preorder/LockWeapon/SP).
+                self.apply_create_modules_on_build_complete(id);
             }
 
             // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
@@ -1316,17 +1299,17 @@ impl GameLogic {
                 self.apply_troop_crawler_initial_payload(id, team, position);
             }
 
-            // C++ VeterancyGainCreate::onCreate, then PlayerTemplate fallback.
+            // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
+            // PlayerTemplate fallback. Ally training science must not veteran
+            // another same-team player's units.
             {
                 use crate::game_logic::host_unit_training::{
                     normalize_identity, unit_training_level_for_template, veterancy_rank,
                 };
-                let sciences: Vec<String> = self
-                    .players
-                    .values()
-                    .filter(|p| p.team == team)
-                    .flat_map(|p| p.unlocked_sciences.iter().cloned())
-                    .collect();
+                let sciences: Vec<String> = owner_player_id
+                    .and_then(|player_id| self.players.get(&player_id))
+                    .map(|player| player.unlocked_sciences.iter().cloned().collect())
+                    .unwrap_or_default();
                 if let Some(obj) = self.objects.get_mut(&id) {
                     let mut ini_level = None;
                     for module in &obj.thing.template.veterancy_gain_creates {
@@ -1396,8 +1379,6 @@ impl GameLogic {
                 self.record_structure_completion(team);
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
-                // Map-placed / instant SW: onSpecialPowerCreation residual.
-                self.on_structure_superweapon_creation(id);
             }
             log::debug!(
                 "Created object {} ({}) at {:?}",
@@ -1434,6 +1415,8 @@ impl GameLogic {
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
             self.host_radar_add_object(id);
+            // C++ Player::friend_applyDifficultyBonusesForObject (Player.cpp:3338).
+            self.apply_difficulty_bonuses_for_object(id);
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);
@@ -2551,18 +2534,84 @@ impl GameLogic {
             .filter(|grant| grant.exempt_under_construction)
             .cloned()
             .collect();
-        let team = obj.team;
+        self.apply_grant_upgrade_creates(object_id, &grants);
+    }
+
+    /// C++ GameLogic.cpp:1878-1885 / ProductionUpdate.cpp:819-825 — every
+    /// CreateModule `onBuildComplete` for map-placed and production-finished
+    /// objects.  Does not fire construction-complete EVA/radar.
+    pub(in super::super) fn apply_create_modules_on_build_complete(&mut self, object_id: ObjectId) {
+        self.apply_preorder_create(object_id);
+        let grants = self
+            .objects
+            .get(&object_id)
+            .map(|obj| obj.thing.template.grant_upgrade_creates.clone())
+            .unwrap_or_default();
+        self.apply_grant_upgrade_creates(object_id, &grants);
+        self.apply_lock_weapon_create(object_id);
+        // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
+        self.on_structure_superweapon_creation(object_id);
+        self.on_supply_center_build_complete(object_id);
+    }
+
+    /// C++ PreorderCreate::onBuildComplete — controlling player only.
+    pub(in super::super) fn apply_preorder_create(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if !crate::game_logic::host_preorder_create::is_preorder_create_module(
+            obj.thing.template.has_preorder_create,
+        ) {
+            return;
+        }
+        let did_preorder = self
+            .player_owner_for_host_object(obj)
+            .and_then(|id| self.players.get(&id).map(|p| p.did_preorder))
+            .unwrap_or(false);
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            o.model_condition_bits =
+                crate::game_logic::host_preorder_create::apply_preorder_model_bit(
+                    o.model_condition_bits,
+                    did_preorder,
+                );
+            o.refresh_model_condition_bits();
+        }
+        if did_preorder {
+            self.preorder_create_reg.record_set();
+        } else {
+            self.preorder_create_reg.record_clear();
+        }
+    }
+
+    /// C++ GrantUpgradeCreate.cpp:108-117 — PLAYER vs OBJECT, never both.
+    /// Missing upgrade template: C++ DEBUG_ASSERTCRASH + return (skip).
+    pub(in super::super) fn apply_grant_upgrade_creates(
+        &mut self,
+        object_id: ObjectId,
+        grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
+    ) {
         if grants.is_empty() {
             return;
         }
-        if let Some(o) = self.objects.get_mut(&object_id) {
-            for grant in &grants {
-                o.apply_upgrade_tag(&grant.upgrade_name);
-            }
-        }
-        if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive) {
-            for grant in &grants {
-                player.add_completed_upgrade(&grant.upgrade_name);
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        let player_id = self.player_owner_for_host_object(obj);
+        for grant in grants {
+            match host_grant_upgrade_kind(&grant.upgrade_name) {
+                Some(GrantUpgradeKind::Player) => {
+                    if let Some(pid) = player_id {
+                        if let Some(player) = self.players.get_mut(&pid) {
+                            player.add_completed_upgrade(&grant.upgrade_name);
+                        }
+                    }
+                }
+                Some(GrantUpgradeKind::Object) => {
+                    if let Some(o) = self.objects.get_mut(&object_id) {
+                        o.apply_upgrade_tag(&grant.upgrade_name);
+                    }
+                }
+                None => {}
             }
         }
     }
@@ -2580,4 +2629,95 @@ impl GameLogic {
             let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
         }
     }
+
+    /// C++ `Player::friend_applyDifficultyBonusesForObject` (Player.cpp:3338-3368).
+    /// Single-player only. Health uses GameData solo bonuses (human residual
+    /// Easy 1.50 / Normal 1.00 / Hard 0.80). Weapon bonus conditions are the
+    /// C++ SOLO_HUMAN_* / SOLO_AI_* flags; host fire applies INI multipliers
+    /// when present and otherwise leaves 1.0 (WeaponBonusSet default).
+    pub(in super::super) fn apply_difficulty_bonuses_for_object(&mut self, object_id: ObjectId) {
+        if self.game_mode != GameMode::SinglePlayer {
+            return;
+        }
+        let owner_player_id = match self.objects.get(&object_id) {
+            Some(object) => object.owner_player_id,
+            None => return,
+        };
+        let is_human = owner_player_id
+            .and_then(|player_id| self.players.get(&player_id))
+            .map(|player| player.is_local)
+            .unwrap_or(false);
+        let difficulty =
+            crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty()
+                .unwrap_or_else(|| self.get_difficulty());
+        let type_idx = if is_human { 0 } else { 1 };
+        let diff_idx = match difficulty {
+            crate::ai::AIDifficulty::Easy => 0,
+            crate::ai::AIDifficulty::Medium => 1,
+            crate::ai::AIDifficulty::Hard | crate::ai::AIDifficulty::Brutal => 2,
+        };
+        let from_ini = gamelogic::helpers::TheGlobalData::get()
+            .map(|data| data.solo_player_health_bonus(type_idx, diff_idx))
+            .filter(|factor| factor.is_finite() && *factor > 0.0);
+        let health_factor = match from_ini {
+            Some(factor) if (factor - 1.0).abs() > f32::EPSILON => factor,
+            _ if is_human => {
+                crate::game_logic::host_faction_skirmish_residual::human_solo_health_bonus_for_difficulty(
+                    difficulty,
+                )
+            }
+            Some(factor) => factor,
+            None => 1.0,
+        };
+        if (health_factor - 1.0).abs() <= f32::EPSILON {
+            return;
+        }
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            let old_max = object.health.maximum.max(object.max_health).max(1.0);
+            let ratio = (object.health.current / old_max).clamp(0.0, 1.0);
+            let new_max = old_max * health_factor;
+            object.health.maximum = new_max;
+            object.max_health = new_max;
+            object.health.current = new_max * ratio;
+            object.record_host_max_health();
+        }
+    }
+}
+
+/// C++ `UpgradeType` for GrantUpgradeCreate branching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrantUpgradeKind {
+    Player,
+    Object,
+}
+
+/// C++ `TheUpgradeCenter->findUpgrade` then `getUpgradeType()`.
+/// Residual store covers tests / unloaded INI. Missing template → None
+/// (C++ GrantUpgradeCreate.cpp:102-105 returns without granting).
+fn host_grant_upgrade_kind(name: &str) -> Option<GrantUpgradeKind> {
+    use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
+        upgrade_store_row_wave109, UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT,
+    };
+    if let Some(kind) = gamelogic::upgrade::center::with_upgrade_center(|center| {
+        center.find_upgrade(name).map(|template| template.get_upgrade_type())
+    }) {
+        return Some(match kind {
+            gamelogic::upgrade::UpgradeType::Object => GrantUpgradeKind::Object,
+            gamelogic::upgrade::UpgradeType::Player => GrantUpgradeKind::Player,
+        });
+    }
+    if let Some(row) = upgrade_store_row_wave109(name)
+        .or_else(|| {
+            UPGRADE_STORE_TABLE_WAVE109
+                .iter()
+                .find(|row| row.name.eq_ignore_ascii_case(name.trim()))
+        })
+    {
+        return Some(if row.upgrade_type == UPGRADE_TYPE_OBJECT {
+            GrantUpgradeKind::Object
+        } else {
+            GrantUpgradeKind::Player
+        });
+    }
+    None
 }

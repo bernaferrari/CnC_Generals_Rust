@@ -528,16 +528,175 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
         grantable: true,
     },
     ScienceStoreResidualRowWave109 {
-        name: "SCIENCE_CashBounty2",
+        name: "SCIENCE_CashBounty3",
         point_cost: 1,
-        prereq_a: "SCIENCE_CashBounty1",
+        prereq_a: "SCIENCE_CashBounty2",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    // Rank.ini SciencesGranted — cost 0 (not purchasable).
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Rank2",
+        point_cost: 0,
+        prereq_a: "",
+        prereq_b: "",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Rank3",
+        point_cost: 0,
+        prereq_a: "",
+        prereq_b: "",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Rank4",
+        point_cost: 0,
+        prereq_a: "",
+        prereq_b: "",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Rank5",
+        point_cost: 0,
+        prereq_a: "",
+        prereq_b: "",
+        grantable: true,
+    },
+    // America Rank1 purchasables (Science.ini + PlayerTemplate command set).
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_StealthFighter",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Pathfinder",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_SpyDrone",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    // America Rank3 purchasables.
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_A10ThunderboltMissileStrike1",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
         prereq_b: "SCIENCE_Rank3",
         grantable: true,
     },
     ScienceStoreResidualRowWave109 {
-        name: "SCIENCE_CashBounty3",
+        name: "SCIENCE_A10ThunderboltMissileStrike2",
         point_cost: 1,
-        prereq_a: "SCIENCE_CashBounty2",
+        prereq_a: "SCIENCE_A10ThunderboltMissileStrike1",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_A10ThunderboltMissileStrike3",
+        point_cost: 1,
+        prereq_a: "SCIENCE_A10ThunderboltMissileStrike2",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_EmergencyRepair1",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_Paradrop1",
+        point_cost: 1,
+        prereq_a: "SCIENCE_AMERICA",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    // China Rank1 / Rank3 purchasables.
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_RedGuardTraining",
+        point_cost: 1,
+        prereq_a: "SCIENCE_CHINA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_BattlemasterTraining",
+        point_cost: 1,
+        prereq_a: "SCIENCE_CHINA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_ArtilleryTraining",
+        point_cost: 1,
+        prereq_a: "SCIENCE_CHINA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_NukeCannon",
+        point_cost: 1,
+        prereq_a: "SCIENCE_CHINA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_ArtilleryBarrage2",
+        point_cost: 1,
+        prereq_a: "SCIENCE_ArtilleryBarrage1",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_ArtilleryBarrage3",
+        point_cost: 1,
+        prereq_a: "SCIENCE_ArtilleryBarrage2",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    // GLA Rank1 / Rank3 purchasables.
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_RebelAmbush1",
+        point_cost: 1,
+        prereq_a: "SCIENCE_GLA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_MarauderTank",
+        point_cost: 1,
+        prereq_a: "SCIENCE_GLA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_ScudLauncher",
+        point_cost: 1,
+        prereq_a: "SCIENCE_GLA",
+        prereq_b: "SCIENCE_Rank1",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_AnthraxBomb",
+        point_cost: 1,
+        prereq_a: "SCIENCE_GLA",
+        prereq_b: "SCIENCE_Rank3",
+        grantable: true,
+    },
+    ScienceStoreResidualRowWave109 {
+        name: "SCIENCE_SneakAttack",
+        point_cost: 1,
+        prereq_a: "SCIENCE_GLA",
         prereq_b: "SCIENCE_Rank3",
         grantable: true,
     },
@@ -546,10 +705,9 @@ pub const SCIENCE_STORE_TABLE_WAVE109: &[ScienceStoreResidualRowWave109] = &[
 /// C++ residual: cost **0** → cannot be purchased (not free).
 #[inline]
 
-/// C++ `ScienceStore::getSciencePurchaseCost` residual for host purchase path.
+/// C++ `ScienceStore::getSciencePurchaseCost` (Science.cpp:213-223).
 ///
-/// Returns `None` when unknown (caller may default to 1 for SCIENCE_* names).
-/// Cost **0** means not purchasable (C++ residual).
+/// Missing Science.ini / residual row → **0** (not purchasable). Never invent cost 1.
 
 /// Normalize host/UI science tokens to retail SCIENCE_* residual names when known.
 pub fn normalize_science_name_residual(science_name: &str) -> String {
@@ -628,20 +786,22 @@ pub fn science_purchase_point_cost_residual(science_name: &str) -> Option<i32> {
     if name.is_empty() {
         return None;
     }
+    if let Some(cost) = science_ini_purchase_cost(name) {
+        return Some(cost);
+    }
     if let Some(row) = science_store_row_wave109(name) {
         return Some(row.point_cost);
     }
-    // Known host residual constants (SciencePurchasePointCost = 1 typical).
-    use crate::game_logic::host_cash_bounty::CASH_BOUNTY_SCIENCE_POINT_COST;
-    use crate::game_logic::host_spy_drone::SPY_DRONE_REQUIRED_SCIENCE;
+    // C++ Science.cpp:220-222 — unknown science costs 0 (cannot purchase).
+    if is_science_token_name(name) {
+        return Some(SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL);
+    }
+    None
+}
+
+fn is_science_token_name(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    if n.contains("cashbounty") {
-        return Some(CASH_BOUNTY_SCIENCE_POINT_COST as i32);
-    }
-    if name == SPY_DRONE_REQUIRED_SCIENCE || n == "science_spydrone" {
-        return Some(1);
-    }
-    if n.starts_with("science_")
+    n.starts_with("science_")
         || n.starts_with("airf_science_")
         || n.starts_with("nuke_science_")
         || n.starts_with("early_science_")
@@ -650,25 +810,47 @@ pub fn science_purchase_point_cost_residual(science_name: &str) -> Option<i32> {
         || n.starts_with("slth_science_")
         || n.starts_with("infa_science_")
         || n.starts_with("tank_science_")
-    {
-        // Rank sciences and faction base sciences are not purchased for points.
-        if n.contains("science_rank")
-            || n == "science_america"
-            || n == "science_china"
-            || n == "science_gla"
-        {
-            return Some(0);
+}
+
+fn science_ini_purchase_cost(name: &str) -> Option<i32> {
+    if let Some(cost) = science_ini_store_cost(name) {
+        return Some(cost);
+    }
+    if let Some(store) = game_engine::common::rts::get_science_store() {
+        let science = store.get_science_from_internal_name(name);
+        if science != game_engine::common::rts::SCIENCE_INVALID {
+            return Some(store.get_science_purchase_cost(science));
         }
-        // Default purchasable residual cost 1 (Science.ini SciencePurchasePointCost).
-        return Some(1);
     }
     None
 }
 
-/// C++ `Player::hasPrereqsForScience` residual from Wave109 store + CashBounty chain.
+fn science_ini_store_cost(name: &str) -> Option<i32> {
+    let store = game_engine::common::ini::ini_science::get_science_store();
+    let science = store.get_science_from_internal_name(name)?;
+    Some(store.get_science_purchase_cost(science))
+}
+
+fn science_ini_prereq_names(name: &str) -> Option<Vec<String>> {
+    let rts = game_engine::common::rts::get_science_store()?;
+    let st = rts.get_science_from_internal_name(name);
+    if st == game_engine::common::rts::SCIENCE_INVALID {
+        return None;
+    }
+    let info = rts.find_science_info(st)?;
+    Some(
+        info.prereq_sciences
+            .iter()
+            .map(|&p| rts.get_internal_name_for_science(p).to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+    )
+}
+
+
+/// C++ `ScienceStore::playerHasPrereqsForScience` (Science.cpp:257-274).
 ///
-/// Missing table entry → prereqs considered satisfied (fail-open for unmapped names
-/// once cost gate passes). Empty prereq slots are ignored.
+/// Missing Science.ini / residual row → **false** (fail-closed).
 pub fn science_prereqs_met_residual(
     unlocked: &std::collections::HashSet<String>,
     science_name: &str,
@@ -682,25 +864,19 @@ pub fn science_prereqs_met_residual(
         let r = req.to_ascii_lowercase().replace('-', "_");
         unlocked.iter().any(|u| {
             let n = u.to_ascii_lowercase().replace('-', "_");
-            n == r || n.ends_with(&r) || r.ends_with(&n)
+            n == r
         })
     };
+    if let Some(prereqs) = science_ini_prereq_names(science_name) {
+        return prereqs.iter().all(|p| has(p));
+    }
     if let Some(row) = science_store_row_wave109(science_name.trim()) {
         return has(row.prereq_a) && has(row.prereq_b);
     }
-    // CashBounty chain residual without full table.
-    use crate::game_logic::host_cash_bounty::{
-        CASH_BOUNTY1_PREREQ_SCIENCES, CASH_BOUNTY2_PREREQ_SCIENCES, CASH_BOUNTY3_PREREQ_SCIENCES,
-        SCIENCE_CASH_BOUNTY1, SCIENCE_CASH_BOUNTY2, SCIENCE_CASH_BOUNTY3,
-    };
-    let prereqs: &[&str] = match science_name.trim() {
-        x if x == SCIENCE_CASH_BOUNTY1 => &CASH_BOUNTY1_PREREQ_SCIENCES,
-        x if x == SCIENCE_CASH_BOUNTY2 => &CASH_BOUNTY2_PREREQ_SCIENCES,
-        x if x == SCIENCE_CASH_BOUNTY3 => &CASH_BOUNTY3_PREREQ_SCIENCES,
-        _ => return true,
-    };
-    prereqs.iter().all(|p| has(p))
+    // C++ Science.cpp:271-273 — unknown science has no prereq info → false.
+    false
 }
+
 
 /// C++ `Player::isCapableOfPurchasingScience` residual.
 pub fn is_capable_of_purchasing_science_residual(
@@ -737,6 +913,88 @@ pub fn is_capable_of_purchasing_science_residual(
 pub fn science_is_purchasable_residual(point_cost: i32) -> bool {
     point_cost > SCIENCE_PURCHASE_COST_UNPURCHASABLE_RESIDUAL
 }
+
+/// C++ `ScienceStore::getPurchasableSciences` first capable (Science.cpp:301-328).
+/// Walks Science.ini residual table in definition order — not a hardcoded 5-name list.
+pub fn first_capable_purchase_science_residual(
+    unlocked: &std::collections::HashSet<String>,
+    science_purchase_points: i32,
+) -> Option<String> {
+    for row in SCIENCE_STORE_TABLE_WAVE109 {
+        if !science_is_purchasable_residual(row.point_cost) {
+            continue;
+        }
+        if is_capable_of_purchasing_science_residual(
+            unlocked,
+            science_purchase_points,
+            row.name,
+        ) {
+            return Some(row.name.to_string());
+        }
+    }
+    None
+}
+
+/// C++ ControlBarCommand.cpp:1219-1261 — COMMAND_RESTRICTED unless player owns ScienceVec.
+pub fn host_command_button_science_vec_met(
+    unlocked: &std::collections::HashSet<String>,
+    required: &[&str],
+) -> bool {
+    required.iter().all(|req| {
+        if req.trim().is_empty() {
+            return true;
+        }
+        let want = normalize_science_name_residual(req).to_ascii_lowercase();
+        unlocked.iter().any(|owned| {
+            normalize_science_name_residual(owned).to_ascii_lowercase() == want
+        })
+    })
+}
+
+/// Mirror host `Player::addScience` onto crate `Player` ScienceVec so
+/// ControlBar `sciences_ids` (impl_command_context.rs) sees the purchase.
+pub fn sync_host_science_to_crate_player(player_id: u32, science_name: &str) -> bool {
+    let canonical = normalize_science_name_residual(science_name);
+    if canonical.is_empty() {
+        return false;
+    }
+    let science = science_type_from_name(&canonical);
+    if science == game_engine::common::rts::SCIENCE_INVALID {
+        return false;
+    }
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return false;
+    };
+    let player_arc = list
+        .get_player(player_id as gamelogic::player::PlayerIndex)
+        .cloned()
+        .or_else(|| list.get_local_player().cloned());
+    let Some(player_arc) = player_arc else {
+        return false;
+    };
+    drop(list);
+    let Ok(mut player) = player_arc.write() else {
+        return false;
+    };
+    player.add_science(science)
+}
+
+fn science_type_from_name(name: &str) -> game_engine::common::rts::ScienceType {
+    if let Some(store) = game_engine::common::rts::get_science_store() {
+        let science = store.get_science_from_internal_name(name);
+        if science != game_engine::common::rts::SCIENCE_INVALID {
+            return science;
+        }
+    }
+    if let Some(science) = game_engine::common::ini::ini_science::get_science_store()
+        .get_science_from_internal_name(name)
+    {
+        return science.0;
+    }
+    game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(name)
+        as game_engine::common::rts::ScienceType
+}
+
 
 /// Lookup Science residual store row by name.
 pub fn science_store_row_wave109(name: &str) -> Option<&'static ScienceStoreResidualRowWave109> {
@@ -1653,6 +1911,73 @@ mod tests {
             Some(1)
         );
     }
+
+    #[test]
+    fn missing_science_ini_row_is_fail_closed() {
+        // C++ Science.cpp:220-222 + 271-273: unknown science cost 0, prereqs false.
+        assert_eq!(
+            science_purchase_point_cost_residual("SCIENCE_DefinitelyNotInIni"),
+            Some(0)
+        );
+        let unlocked = std::collections::HashSet::new();
+        assert!(!science_prereqs_met_residual(
+            &unlocked,
+            "SCIENCE_DefinitelyNotInIni"
+        ));
+        assert!(!is_capable_of_purchasing_science_residual(
+            &unlocked,
+            99,
+            "SCIENCE_DefinitelyNotInIni"
+        ));
+    }
+
+    #[test]
+    fn artillery_barrage3_requires_chain_not_rank1() {
+        // C++ Player.cpp:2611-2635 — ArtilleryBarrage3 needs Barrage2 + Rank3.
+        let mut unlocked = std::collections::HashSet::new();
+        unlocked.insert("SCIENCE_CHINA".into());
+        unlocked.insert("SCIENCE_Rank1".into());
+        assert!(!is_capable_of_purchasing_science_residual(
+            &unlocked,
+            5,
+            "SCIENCE_ArtilleryBarrage3"
+        ));
+        unlocked.insert("SCIENCE_ArtilleryBarrage1".into());
+        unlocked.insert("SCIENCE_ArtilleryBarrage2".into());
+        unlocked.insert("SCIENCE_Rank3".into());
+        assert!(is_capable_of_purchasing_science_residual(
+            &unlocked,
+            1,
+            "SCIENCE_ArtilleryBarrage3"
+        ));
+    }
+
+    #[test]
+    fn first_capable_is_ini_order_not_hardcoded_five() {
+        let mut unlocked = std::collections::HashSet::new();
+        unlocked.insert("SCIENCE_AMERICA".into());
+        unlocked.insert("SCIENCE_Rank1".into());
+        let first = first_capable_purchase_science_residual(&unlocked, 1)
+            .expect("rank1 America should have a purchasable science");
+        assert_eq!(first, "SCIENCE_PaladinTank");
+        assert_ne!(first, "SCIENCE_A10ThunderboltMissileStrike1");
+    }
+
+    #[test]
+    fn command_button_science_vec_requires_owned_science() {
+        // C++ ControlBarCommand.cpp:1219-1261
+        let mut unlocked = std::collections::HashSet::new();
+        assert!(!host_command_button_science_vec_met(
+            &unlocked,
+            &["SCIENCE_StealthFighter"]
+        ));
+        unlocked.insert("SCIENCE_StealthFighter".into());
+        assert!(host_command_button_science_vec_met(
+            &unlocked,
+            &["SCIENCE_StealthFighter"]
+        ));
+    }
+
 
     #[test]
     fn upgrade_store_residual_deepen_honesty_wave109() {

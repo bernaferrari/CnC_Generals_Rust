@@ -35,6 +35,39 @@ fn veterancy_preserves_health_ratio_when_max_health_changes() {
 }
 
 #[test]
+fn ally_or_own_kill_awards_zero_experience() {
+    let mut object = make_test_object();
+    object.thing.template.experience_value = 40.0;
+    object.thing.template.experience_values = [40.0, 40.0, 80.0, 120.0];
+    assert!((object.kill_experience_value() - 40.0).abs() < 0.01);
+    assert_eq!(object.kill_experience_value_from_killer(true), 0.0);
+    object.status.under_construction = true;
+    assert_eq!(object.kill_experience_value(), 0.0);
+}
+
+#[test]
+fn kill_skill_point_value_uses_experience_value() {
+    let mut object = make_test_object();
+    object.thing.template.experience_value = 20.0;
+    object.thing.template.experience_values = [20.0, 20.0, 40.0, 60.0];
+    assert_eq!(object.kill_skill_point_value(), 20);
+    object.experience.level = VeterancyLevel::Elite;
+    assert_eq!(object.kill_skill_point_value(), 40);
+    object.status.under_construction = true;
+    assert_eq!(object.kill_skill_point_value(), 0);
+}
+
+#[test]
+fn pilot_recrew_adds_pilot_levels_not_max() {
+    let mut vehicle = make_test_object();
+    vehicle.status.disabled_unmanned = true;
+    vehicle.experience.level = VeterancyLevel::Elite;
+    assert!(vehicle.apply_pilot_recrew(Team::USA, Some(0), VeterancyLevel::Veteran));
+    assert_eq!(vehicle.experience.level, VeterancyLevel::Heroic);
+}
+
+
+#[test]
 fn stop_attack_clears_force_attack_and_targets() {
     let mut object = make_test_object();
     object.set_target(Some(ObjectId(99)));
@@ -1638,6 +1671,65 @@ fn continuous_fire_mean_rof_after_threshold() {
         let (_, _, rof2, _) = a.weapon_bonus_fields();
         assert!((rof2 - 3.0).abs() < 0.01, "FAST ROF 300% got {rof2}");
     }
+}
+
+#[test]
+fn construct_binds_continuous_fire_and_auto_reload_from_store() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    // C++ FiringTracker.cpp:112-136 / 101-104 — thresholds come from the
+    // fired WeaponTemplate, bound onto the host Object at construct.
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    const NAME: &str = "Hunt4GattlingGun";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        template.primary_damage = 5.0;
+        template.attack_range = 150.0;
+        template.continuous_fire_one_shots_needed = 2;
+        template.continuous_fire_two_shots_needed = 6;
+        template.continuous_fire_coast_frames = 30;
+        template.auto_reload_when_idle_frames = 183;
+        store.add_weapon_template(template);
+    });
+    let mut tpl = ThingTemplate::new("Hunt4Gattling");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.set_primary_weapon_name(NAME);
+    let object = Object::new(tpl, ObjectId(1), Team::USA);
+    assert_eq!(object.continuous_fire_one_shots, 2);
+    assert_eq!(object.continuous_fire_two_shots, 6);
+    assert_eq!(object.continuous_fire_coast_frames, 30);
+    assert_eq!(object.auto_reload_when_idle_frames, 183);
+}
+
+#[test]
+fn take_scatter_table_offset_uses_store_pattern() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    // C++ Weapon.cpp:2584-2609 — fire picks an unused ScatterTarget.
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    const NAME: &str = "Hunt4ScatterFireWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+        template.primary_damage = 10.0;
+        template.attack_range = 100.0;
+        template.scatter_target_scalar = 10.0;
+        template.scatter_targets = vec![
+            gamelogic::weapon::Coord2D { x: 1.0, y: 0.0 },
+            gamelogic::weapon::Coord2D { x: 0.0, y: 1.0 },
+        ];
+        store.add_weapon_template(template);
+    });
+    let mut tpl = ThingTemplate::new("Hunt4ScatterUnit");
+    tpl.add_kind_of(KindOf::Vehicle);
+    tpl.set_primary_weapon_name(NAME);
+    let mut object = Object::new(tpl, ObjectId(9), Team::USA);
+    object.weapon = ThingTemplate::weapon_from_store(NAME);
+    let offset = object
+        .take_scatter_table_offset(0, Some(NAME))
+        .expect("scatter table must offset fire");
+    let mag = (offset.x * offset.x + offset.y * offset.y).sqrt();
+    assert!(
+        (mag - 10.0).abs() < 0.01,
+        "scatter table * scalar must move aim off center, got {offset:?}"
+    );
 }
 
 #[test]

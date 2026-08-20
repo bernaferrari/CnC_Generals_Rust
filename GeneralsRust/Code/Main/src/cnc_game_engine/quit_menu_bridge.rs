@@ -68,13 +68,12 @@ impl CnCGameEngine {
         self.quit_menu_host_active = false;
 
         // C++ `restartMissionMenu()` destroys QuitMenu and appends MSG_NEW_GAME
-        // without a ClearGameData message.  Its callback reads `TheGameLogic`,
-        // which is the compatibility singleton in this executable, so retain
-        // only the restart signal and rebuild from Main's authoritative
-        // presentation/host map and mode.
-        if Self::take_new_game_dispatch_from_common_stream().is_some() {
+        // with gameMode / difficulty / rankPoints (QuitMenu.cpp:211-216).
+        // Drain that payload into the host restart so Challenge general and
+        // selected difficulty survive.
+        if let Some(dispatch) = Self::take_new_game_dispatch_from_common_stream() {
             self.host_set_paused(false);
-            self.host_restart_mission_from_ui();
+            self.host_restart_mission_from_dispatch(dispatch);
             return;
         }
 

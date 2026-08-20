@@ -193,14 +193,38 @@ impl Object {
     }
 
     /// Mark this object as detected until `expires_frame` (logic frame exclusive).
-    /// C++ StealthUpdate::markAsDetected residual.
+    /// C++ StealthUpdate::markAsDetected residual (`StealthUpdate.cpp:846-912`).
+    /// Detection permanently starts disguise reveal (`disguiseAsObject(NULL)`).
     pub fn mark_detected(&mut self, expires_frame: u32) {
+        if self.status.disguised
+            || self.disguise_as_template.is_some()
+            || self.disguise_pending_template.is_some()
+        {
+            self.clear_disguise();
+        }
         self.set_status_detected(true);
         // Keep the later expiry if already detected by another scanner.
         if expires_frame > self.detection_expires_frame {
             self.detection_expires_frame = expires_frame;
             self.record_host_stealth_delay();
         }
+    }
+
+    /// C++ StealthUpdate innate mine cloak + `setEffectiveOpacity(0,0)` residual.
+    /// Land mines / demo traps / charges start stealthed and stay fully invisible.
+    pub fn apply_mine_innate_stealth(&mut self) {
+        use crate::game_logic::host_radar_stealth_vision_residual::MINE_STEALTH_OPACITY_RESIDUAL;
+        self.innate_stealth = true;
+        self.set_status_stealthed(true);
+        self.set_status_detected(false);
+        self.detection_expires_frame = 0;
+        self.stealth_delay_frames = 0;
+        self.stealth_allowed_frame = 0;
+        self.stealth_delay_pending = false;
+        self.camo_friendly_opacity = MINE_STEALTH_OPACITY_RESIDUAL;
+        self.record_host_stealth_flags();
+        self.record_host_stealth_delay();
+        self.record_host_vision_camo();
     }
 
     /// Clear DETECTED status (stealth may remain active).

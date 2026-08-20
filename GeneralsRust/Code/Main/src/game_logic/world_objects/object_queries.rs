@@ -292,9 +292,10 @@ impl GameLogic {
         true
     }
 
-    /// C++ `Player::getRelationship` foundation for host objects. Faction is
-    /// intentionally absent from this calculation: two USA slots can be
-    /// enemies, while differently skinned allies can share an alliance team.
+    /// C++ `Player::getRelationship` / `PlayerList` relationship pass.
+    /// Distinct players default Neutral (not Enemies). Map playerAllies /
+    /// playerEnemies win. Skirmish lobby `alliance_team` still allies a slot
+    /// team and treats two assigned-but-different teams as enemies.
     pub fn player_relationship(
         &self,
         source_player_id: u32,
@@ -315,10 +316,15 @@ impl GameLogic {
         if !source.is_alive || !target.is_alive {
             return Relationship::Neutral;
         }
+        if let Some(rel) = source.map_relationship(target_player_id) {
+            return rel;
+        }
         if source.alliance_team >= 0 && source.alliance_team == target.alliance_team {
             Relationship::Allies
-        } else {
+        } else if source.alliance_team >= 0 && target.alliance_team >= 0 {
             Relationship::Enemies
+        } else {
+            Relationship::Neutral
         }
     }
 
@@ -722,6 +728,14 @@ impl GameLogic {
             || unit.transport_slot_count() == 0
             || !target.can_contain()
             || !target.supports_normal_enter()
+        {
+            return false;
+        }
+
+        // C++ ActionManager.cpp:636-644 — HealContain is not a transport;
+        // a unit at max health cannot enter barracks/hospital.
+        if target.thing.template.contain_module.kind.is_heal_contain()
+            && unit.health.current >= unit.health.maximum
         {
             return false;
         }
@@ -1241,7 +1255,9 @@ impl GameLogic {
                 .flatten()
             });
         if let Some(required) = required_science {
-            match self.get_player_by_team(obj.team) {
+            // C++ SpecialPowerModule.cpp:278/323 getControllingPlayer, not first
+            // same-faction slot. Mirror 1v1 USA/USA must not share science.
+            match self.controlling_player_for_special_power(obj) {
                 Some(player) if player.has_unlocked_science(required) => {}
                 Some(_) => return false,
                 // Fail-closed: science-gated powers need a controlling player residual.
@@ -1257,7 +1273,7 @@ impl GameLogic {
             });
         if shared_n_sync {
             // C++ getReadyFrame via Player::getOrStartSpecialPowerReadyFrame.
-            if let Some(player) = self.get_player_by_team(obj.team) {
+            if let Some(player) = self.controlling_player_for_special_power(obj) {
                 if !player.is_shared_special_power_ready(power) {
                     return false;
                 }
@@ -1276,8 +1292,9 @@ impl GameLogic {
         if !self.is_special_power_ready_for(object_id, power) {
             return false;
         }
-        let (team, parsed_module) = match self.host_object(object_id) {
+        let (owner_id, team, parsed_module) = match self.host_object(object_id) {
             Some(o) => (
+                self.player_owner_for_host_object(o),
                 o.team,
                 o.thing
                     .template
@@ -1312,12 +1329,22 @@ impl GameLogic {
                 )
             });
         if shared_n_sync {
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                player.reset_shared_special_power_timer(power, reload);
+            if let Some(pid) = owner_id {
+                if let Some(player) = self.get_player_mut(pid) {
+                    player.reset_shared_special_power_timer(power, reload);
+                }
             }
-            // Mirror onto all living same-team objects for HUD/presentation residual.
+            // Mirror onto living objects owned by the same controlling player.
+            // C++ SharedNSync is per-Player, not per-faction.
             for obj in self.objects.values_mut() {
-                if obj.team != team || !obj.is_alive() {
+                let same_controller = match owner_id {
+                    Some(want) => {
+                        obj.owner_player_id == Some(want)
+                            || (obj.owner_player_id.is_none() && obj.team == team)
+                    }
+                    None => obj.team == team && obj.owner_player_id.is_none(),
+                };
+                if !same_controller || !obj.is_alive() {
                     continue;
                 }
                 if reload > 0.0 {
@@ -1337,6 +1364,146 @@ impl GameLogic {
         }
         true
     }
+
+    /// C++ `Object::getControllingPlayer` residual for science / SharedNSync.
+    fn controlling_player_for_special_power(&self, obj: &Object) -> Option<&Player> {
+        let owner_id = self.player_owner_for_host_object(obj)?;
+        self.players.get(&owner_id)
+    }
+
+    /// C++ `SpecialPowerModule::aboutToDoSpecialPower` /
+    /// `SpecialPowerCompletionDie::onDie` ScriptEngine notify residual.
+    pub fn notify_script_engine_special_power_event(
+        &self,
+        source_object: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+        triggered: bool,
+        completed: bool,
+    ) {
+        if !triggered && !completed {
+            return;
+        }
+        let player_index = self
+            .host_object(source_object)
+            .and_then(|obj| self.player_owner_for_host_object(obj))
+            .unwrap_or(0) as usize;
+        let power_name =
+            crate::game_logic::host_special_power_enum_residual::special_power_ini_template_name(
+                power,
+            );
+        let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+            if triggered {
+                engine.notify_of_triggered_special_power(
+                    player_index,
+                    power_name,
+                    source_object.0,
+                );
+            }
+            if completed {
+                engine.notify_of_completed_special_power(
+                    player_index,
+                    power_name,
+                    source_object.0,
+                );
+            }
+        });
+    }
+
+    /// C++ `ScriptActions::doNamedStopSpecialPowerCountdown` residual.
+    pub fn script_pause_special_power_countdown(
+        &mut self,
+        object_id: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+        pause: bool,
+    ) -> bool {
+        let Some(obj) = self.host_object_mut(object_id) else {
+            return false;
+        };
+        obj.pause_special_power_countdown(power, pause);
+        true
+    }
+
+    /// C++ `ScriptActions::doNamedSetSpecialPowerCountdown` residual.
+    pub fn script_set_special_power_countdown(
+        &mut self,
+        object_id: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+        seconds: i32,
+    ) -> bool {
+        let Some(obj) = self.host_object_mut(object_id) else {
+            return false;
+        };
+        obj.set_special_power_ready_seconds(power, seconds.max(0) as f32);
+        true
+    }
+
+    /// C++ `ScriptActions::doNamedAddSpecialPowerCountdown` residual.
+    pub fn script_add_special_power_countdown(
+        &mut self,
+        object_id: ObjectId,
+        power: &crate::command_system::SpecialPowerType,
+        seconds: i32,
+    ) -> bool {
+        let Some(obj) = self.host_object_mut(object_id) else {
+            return false;
+        };
+        let next = obj.special_power_countdown_seconds(power) + seconds as f32;
+        obj.set_special_power_ready_seconds(power, next.max(0.0));
+        true
+    }
+
+    /// Resolve a host object by script unit name (`Object::name` or tracker).
+    pub fn host_object_id_by_script_name(&self, unit_name: &str) -> Option<ObjectId> {
+        if unit_name.is_empty() {
+            return None;
+        }
+        if let Some((id, _)) = self
+            .objects
+            .iter()
+            .find(|(_, obj)| !obj.name.is_empty() && obj.name.eq_ignore_ascii_case(unit_name))
+        {
+            return Some(*id);
+        }
+        let tracker = gamelogic::scripting::engine::get_named_object_tracker();
+        tracker
+            .get_object_id(unit_name)
+            .ok()
+            .flatten()
+            .map(ObjectId)
+    }
+
+    /// Apply NAMED_STOP/START/SET/ADD_SPECIAL_POWER_COUNTDOWN to a named host object.
+    pub fn script_named_special_power_countdown(
+        &mut self,
+        unit_name: &str,
+        power_name: &str,
+        op: crate::game_logic::NamedSpecialPowerCountdownOp,
+        seconds: i32,
+    ) -> bool {
+        use crate::command_system::special_power_type_from_template_name;
+        use crate::game_logic::NamedSpecialPowerCountdownOp;
+        let Some(object_id) = self.host_object_id_by_script_name(unit_name) else {
+            return false;
+        };
+        let Some(power) = special_power_type_from_template_name(power_name) else {
+            return false;
+        };
+        match op {
+            NamedSpecialPowerCountdownOp::Stop => {
+                self.script_pause_special_power_countdown(object_id, &power, true)
+            }
+            NamedSpecialPowerCountdownOp::Start => {
+                self.script_pause_special_power_countdown(object_id, &power, false)
+            }
+            NamedSpecialPowerCountdownOp::Set => {
+                self.script_set_special_power_countdown(object_id, &power, seconds)
+            }
+            NamedSpecialPowerCountdownOp::Add => {
+                self.script_add_special_power_countdown(object_id, &power, seconds)
+            }
+        }
+    }
+
 
     /// Tick all players' SharedSyncedTimer residual cooldowns.
     ///
@@ -1901,6 +2068,21 @@ impl GameLogic {
 
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.apply_upgrade_tag(upgrade);
+            // C++ StatusBitsUpgrade::upgradeImplementation — INI StatusToSet/Clear.
+            {
+                let pairs = crate::game_logic::host_status_bits_upgrade::collect_status_bits_for_upgrade(
+                    upgrade,
+                    &obj.template_name,
+                );
+                for (set, clear) in &pairs {
+                    let set_refs: Vec<&str> = set.iter().map(String::as_str).collect();
+                    let clear_refs: Vec<&str> = clear.iter().map(String::as_str).collect();
+                    let (set_c, clear_c) =
+                        obj.apply_status_bits_upgrade_masks(&set_refs, &clear_refs);
+                    self.status_bits_upgrade_reg.record_apply(set_c, clear_c);
+                }
+            }
+
             // C++ SubObjectsUpgrade residual (BombTruck loads / Helix BombWing).
             {
                 let applied =
@@ -2099,5 +2281,48 @@ impl GameLogic {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod sides_relationship_tests {
+    use super::*;
+    use gamelogic::common::Relationship;
+
+    #[test]
+    fn distinct_players_default_neutral_not_enemies() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "A", true));
+        logic.add_player(Player::new(1, Team::GLA, "B", false));
+        assert_eq!(logic.player_relationship(0, 1), Relationship::Neutral);
+        assert_eq!(logic.player_relationship(1, 0), Relationship::Neutral);
+        assert_eq!(logic.player_relationship(0, 0), Relationship::Allies);
+    }
+
+    #[test]
+    fn map_allies_and_enemies_override_default() {
+        let mut logic = GameLogic::new();
+        let mut a = Player::new(0, Team::USA, "PlyrAmerica", true);
+        let mut b = Player::new(1, Team::China, "PlyrChina", false);
+        let mut c = Player::new(2, Team::GLA, "PlyrGLA", false);
+        a.set_map_relationship(1, Relationship::Allies);
+        a.set_map_relationship(2, Relationship::Enemies);
+        logic.add_player(a);
+        logic.add_player(b);
+        logic.add_player(c);
+        assert_eq!(logic.player_relationship(0, 1), Relationship::Allies);
+        assert_eq!(logic.player_relationship(0, 2), Relationship::Enemies);
+    }
+
+    #[test]
+    fn skirmish_alliance_teams_still_enemies_when_assigned() {
+        let mut logic = GameLogic::new();
+        let mut a = Player::new(0, Team::USA, "A", true);
+        let mut b = Player::new(1, Team::USA, "B", false);
+        a.alliance_team = 1;
+        b.alliance_team = 2;
+        logic.add_player(a);
+        logic.add_player(b);
+        assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
     }
 }

@@ -614,17 +614,12 @@ impl ScriptActionDispatcher {
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' guarding area '{}'", team_name, area_name);
 
-        let (area_center, trigger_id) = if let Ok(terrain) = get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) {
-                (trigger.get_center_point(), trigger.get_id())
-            } else {
+        let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
+            Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
+            Err(_) => {
                 log::warn!("Trigger area '{}' not found for guard", area_name);
                 return Ok(ScriptActionResult::Success);
             }
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to lock terrain logic".to_string(),
-            ));
         };
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;
@@ -940,10 +935,13 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path = self.get_string_param(action, 1)?;
+        // C++ ScriptActions.cpp:1814 doTeamFollowWaypointsExact(..., Bool asTeam)
+        let as_team = self.get_int_param(action, 2).unwrap_or(1) != 0;
         log::info!(
-            "Team '{}' following waypoints exact '{}'",
+            "Team '{}' following waypoints exact '{}' as_team={}",
             team_name,
-            waypoint_path
+            waypoint_path,
+            as_team
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
@@ -959,10 +957,12 @@ impl ScriptActionDispatcher {
             let group_arc = self.create_ai_group_from_team(&team_name)?;
             let write_result = group_arc.write();
             if let Ok(mut group) = write_result {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::FollowWaypointPathExact,
-                    CommandSourceType::FromScript,
-                );
+                let cmd = if as_team {
+                    AiCommandType::FollowWaypointPathAsTeamExact
+                } else {
+                    AiCommandType::FollowWaypointPathExact
+                };
+                let mut params = AiCommandParams::new(cmd, CommandSourceType::FromScript);
                 params.waypoint = Some(wid);
                 let _ = group.ai_do_command(&params);
             }
@@ -981,18 +981,12 @@ impl ScriptActionDispatcher {
         let area_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' attacking area '{}'", team_name, area_name);
 
-        // Get trigger area center position
-        let (area_center, trigger_id) = if let Ok(terrain) = get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) {
-                (trigger.get_center_point(), trigger.get_id())
-            } else {
+        let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
+            Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
+            Err(_) => {
                 log::warn!("Trigger area '{}' not found", area_name);
                 return Ok(ScriptActionResult::Success);
             }
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to lock terrain logic".to_string(),
-            ));
         };
 
         // Issue AttackArea command to team AI group
@@ -1112,23 +1106,17 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
-        let attitude_str = self.get_string_param(action, 1)?;
-        log::info!(
-            "Team '{}' setting attitude to '{}'",
-            team_name,
-            attitude_str
-        );
+        let mood = self.get_int_param(action, 1)?;
+        let attitude = self.group_attitude_from_script_int(mood);
+        let module_attitude = self.attitude_from_script_int(mood);
+        log::info!("Team '{}' setting attitude to {:?}", team_name, attitude);
 
-        // Parse attitude from string - using AIAttitudeType from modules
-        let attitude = match attitude_str.to_uppercase().as_str() {
-            "AGGRESSIVE" | "ATTACK" => crate::modules::AIAttitudeType::Aggressive,
-            "DEFENSIVE" | "GUARD" => crate::modules::AIAttitudeType::Defensive,
-            "PASSIVE" => crate::modules::AIAttitudeType::Passive,
-            "SLEEP" => crate::modules::AIAttitudeType::Sleep,
-            _ => crate::modules::AIAttitudeType::Normal,
-        };
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let _ = group.set_attitude(attitude);
+            }
+        }
 
-        // Get team and iterate members to set attitude via AI interface
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
@@ -1139,13 +1127,7 @@ impl ScriptActionDispatcher {
                                 if let Ok(obj_read) = obj.read() {
                                     if let Some(ai) = obj_read.get_ai_update_interface() {
                                         if let Ok(mut ai_write) = ai.lock() {
-                                            if let Err(err) = ai_write.set_attitude(attitude) {
-                                                log::debug!(
-                                                    "ScriptActions::do_team_set_attitude failed for object {}: {}",
-                                                    obj_id,
-                                                    err
-                                                );
-                                            }
+                                            let _ = ai_write.set_attitude(module_attitude);
                                         }
                                     }
                                 }
@@ -1153,8 +1135,6 @@ impl ScriptActionDispatcher {
                         }
                     };
                 }
-            } else {
-                log::warn!("Team '{}' not found for set attitude", team_name);
             }
         }
 

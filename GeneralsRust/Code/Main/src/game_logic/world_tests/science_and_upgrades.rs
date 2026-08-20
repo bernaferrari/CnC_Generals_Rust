@@ -2430,6 +2430,40 @@ fn eva_upgrade_complete_and_general_level_up() {
 }
 
 #[test]
+fn add_skill_points_modifier_cap_negative_and_reset_rank() {
+    use crate::game_logic::host_science_rank::{
+        RANK2_SKILL_POINTS_NEEDED, RANK3_SKILL_POINTS_NEEDED, RANK5_SKILL_POINTS_NEEDED,
+    };
+    use crate::game_logic::Team;
+    let mut p = crate::game_logic::Player::new(0, Team::USA, "U", true);
+    p.apply_faction_intrinsic_sciences();
+    p.skill_points_modifier = 2.0;
+    assert!(!p.add_skill_points(50));
+    assert_eq!(p.skill_points, 100);
+    assert_eq!(p.rank_level, 1);
+
+    p.skill_points_modifier = 1.0;
+    assert!(!p.add_skill_points(-40));
+    assert_eq!(p.skill_points, 60);
+
+    assert!(p.add_skill_points(RANK2_SKILL_POINTS_NEEDED - 60));
+    assert_eq!(p.rank_level, 2);
+    assert_eq!(p.skill_points, RANK2_SKILL_POINTS_NEEDED);
+
+    assert!(p.add_skill_points_limited(999_999, 3));
+    assert_eq!(p.rank_level, 3);
+    assert_eq!(p.skill_points, RANK3_SKILL_POINTS_NEEDED);
+
+    assert!(p.set_rank_level(5));
+    assert_eq!(p.rank_level, 5);
+    assert_eq!(p.skill_points, RANK5_SKILL_POINTS_NEEDED);
+    assert!(p.set_rank_level(1));
+    assert_eq!(p.rank_level, 1);
+    assert_eq!(p.skill_points, 0);
+}
+
+
+#[test]
 fn eva_low_power_fires_when_local_energy_negative() {
     use crate::game_logic::Team;
     use gamelogic::helpers::{EvaEvent, TheEva};
@@ -2520,6 +2554,7 @@ fn try_under_attack_event_base_eva_and_throttle() {
     let mut st = ThingTemplate::new("AmericaCommandCenter");
     st.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
+        .add_kind_of(KindOf::MpCountForVictory)
         .set_health(5000.0);
     logic.templates.insert("AmericaCommandCenter".into(), st);
     let id = logic
@@ -3987,6 +4022,7 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
 
     let mut t1 = ThingTemplate::new("R1");
     t1.add_kind_of(KindOf::Infantry);
+    t1.is_trainable = true;
     let a = ObjectId(5001);
     logic.objects.insert(a, {
         let mut o = Object::new(t1, a, Team::USA);
@@ -3995,6 +4031,7 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
     });
     let mut t2 = ThingTemplate::new("R2");
     t2.add_kind_of(KindOf::Infantry);
+    t2.is_trainable = true;
     let b = ObjectId(5002);
     logic.objects.insert(b, {
         let mut o = Object::new(t2, b, Team::USA);
@@ -4004,6 +4041,7 @@ fn veterancy_crate_levels_picker_and_ally_in_range() {
     // Far ally outside 100 range
     let mut t3 = ThingTemplate::new("R3");
     t3.add_kind_of(KindOf::Infantry);
+    t3.is_trainable = true;
     let c = ObjectId(5003);
     logic.objects.insert(c, {
         let mut o = Object::new(t3, c, Team::USA);
@@ -4028,6 +4066,7 @@ fn level_up_crate_collide_path() {
         .insert(0, Player::new(0, Team::USA, "U", true));
     let mut ut = ThingTemplate::new("Unit");
     ut.add_kind_of(KindOf::Infantry);
+    ut.is_trainable = true;
     let uid = ObjectId(5010);
     logic.objects.insert(uid, {
         let mut o = Object::new(ut, uid, Team::USA);
@@ -4050,6 +4089,43 @@ fn level_up_crate_collide_path() {
     assert_ne!(logic.objects[&uid].experience.level, VeterancyLevel::Rookie);
     assert!(!logic.host_money_crates.contains(cid));
 }
+
+#[test]
+fn heroic_unit_does_not_consume_promotion_crate() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "U", true));
+    let mut ut = ThingTemplate::new("Hero");
+    ut.add_kind_of(KindOf::Infantry);
+    ut.is_trainable = true;
+    let uid = ObjectId(5020);
+    logic.objects.insert(uid, {
+        let mut o = Object::new(ut, uid, Team::USA);
+        o.set_position(glam::Vec3::ZERO);
+        o.experience.level = VeterancyLevel::Heroic;
+        o
+    });
+    let cid = ObjectId(5021);
+    let ct = ThingTemplate::new("SmallLevelUpCrate");
+    logic
+        .templates
+        .insert("SmallLevelUpCrate".into(), ct.clone());
+    logic.objects.insert(cid, {
+        let mut o = Object::new(ct, cid, Team::Neutral);
+        o.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        o
+    });
+    logic.host_money_crates.register_level_up_crate(cid, 0.0, 1);
+    logic.update_money_crate_collides();
+    assert_eq!(logic.objects[&uid].experience.level, VeterancyLevel::Heroic);
+    assert!(
+        logic.host_money_crates.contains(cid),
+        "C++ isValidToExecute false must leave the crate"
+    );
+}
+
 
 #[test]
 fn crate_deletion_update_destroys_expired() {

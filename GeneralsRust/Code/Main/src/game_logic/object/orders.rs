@@ -117,6 +117,28 @@ impl Object {
         }
     }
 
+    /// C++ `SpecialPowerModule::setReadyFrame` residual.
+    ///
+    /// `seconds` is remaining countdown (`LOGICFRAMES_PER_SECOND * seconds` in
+    /// C++ ScriptActions.cpp:4094-4113). Zero or negative means ready now.
+    pub fn set_special_power_ready_seconds(&mut self, power: &SpecialPowerType, seconds: f32) {
+        if seconds <= 0.0 {
+            self.special_power_cooldowns.remove(power);
+        } else {
+            self.special_power_cooldowns.insert(power.clone(), seconds);
+        }
+        self.refresh_special_power_aggregate_cooldown();
+    }
+
+    /// Remaining per-power countdown seconds (0 = ready).
+    pub fn special_power_countdown_seconds(&self, power: &SpecialPowerType) -> f32 {
+        self.special_power_cooldowns
+            .get(power)
+            .copied()
+            .unwrap_or(0.0)
+    }
+
+
     /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
     pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
         self.weapon_bonus_player_upgrade = enabled;
@@ -223,6 +245,20 @@ impl Object {
             ),
         );
     }
+
+    /// C++ ObjectCreationList.cpp:386-393 / Weapon.cpp:1103-1113 setCreator.
+    /// Stamps the creator only when this template carries SpecialPowerCompletionDie.
+    pub fn bind_special_power_completion_creator(&mut self, creator_id: u32) {
+        let Some(power) =
+            crate::game_logic::host_special_power_completion_die::completion_die_power_for_template(
+                &self.template_name,
+            )
+        else {
+            return;
+        };
+        self.set_special_power_completion(power, creator_id);
+    }
+
 
     /// C++ SpecialPowerModule::startPowerRecharge residual (non-SharedNSync path).
     ///
@@ -513,8 +549,25 @@ impl Object {
             return self.overlord_bunker_slot_capacity() > 0;
         }
         // GLA Tunnel Network residual: TunnelContain entrance (shared team pool).
-        if self.is_tunnel_network_style_container() {
+        if self.is_tunnel_network_style_container()
+            || self.thing.template.contain_module.kind.is_tunnel_contain()
+            || self.thing.template.contain_module.kind.is_cave_contain()
+        {
             return self.is_kind_of(KindOf::Structure);
+        }
+        // C++ HealContain: barracks/hospital OpenContain, not a garrison.
+        if self.thing.template.contain_module.kind.is_heal_contain() {
+            return self
+                .thing
+                .template
+                .contain_module
+                .slots
+                .unwrap_or(0)
+                > 0
+                || self
+                    .building_data
+                    .as_ref()
+                    .is_some_and(|b| b.max_garrison > 0);
         }
         // `InternetHackContain` is a real structure-side transport
         // interface.  Its exact admission/controller checks remain in the
@@ -661,7 +714,10 @@ impl Object {
             | ContainModuleKind::RiderChange
             | ContainModuleKind::RailedTransport
             | ContainModuleKind::InternetHack => true,
-            ContainModuleKind::Garrison => false,
+            ContainModuleKind::Garrison
+            | ContainModuleKind::Heal
+            | ContainModuleKind::Cave
+            | ContainModuleKind::Tunnel => false,
             ContainModuleKind::None => {
                 self.is_helix_transport
                     || self.is_battle_bus_transport
@@ -1032,7 +1088,7 @@ impl Object {
 
     /// True when this structure is a GLA Tunnel Network residual entrance.
     pub fn is_tunnel_network_style_container(&self) -> bool {
-        self.is_tunnel_network
+        self.is_tunnel_network || self.thing.template.contain_module.kind.is_tunnel_contain()
     }
 
     /// Install residual GLA Technical transport:

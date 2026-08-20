@@ -76,8 +76,8 @@ pub mod ini_webpage_url;
 
 // Re-export main types from the batch 1 modules
 pub use ini::{
-    register_block_parser, FieldParse, INIError, INIFieldParseProc, INILoadType, INIResult,
-    LookupListRec, INI,
+    register_block_parser, register_particle_system_live_overlay, FieldParse, INIError,
+    INIFieldParseProc, INILoadType, INIResult, LookupListRec, ParticleSystemLiveOverlay, INI,
 };
 pub use ini_ai_data::{
     get_ai_data_store, get_ai_data_store_mut, parse_ai_data_definition, AIData, AiSideBuildList,

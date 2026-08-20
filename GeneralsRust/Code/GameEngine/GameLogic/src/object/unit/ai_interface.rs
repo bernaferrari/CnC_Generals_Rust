@@ -217,6 +217,10 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::execute_waypoint_queue(self)
     }
 
+    fn clear_waypoint_queue(&mut self) {
+        UnitAIUpdate::clear_waypoint_queue(self)
+    }
+
     fn append_goal_position_to_path(&mut self, goal: &Coord3D) -> Result<(), String> {
         UnitAIUpdate::append_goal_position_to_path(self, goal)
     }

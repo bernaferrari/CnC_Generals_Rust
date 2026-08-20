@@ -552,10 +552,20 @@ fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
     let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
     let previous_rank_points =
         gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
+    let previous_session = crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
     *game_engine::common::global_data::write() = global_snapshot;
     gamelogic::helpers::TheScriptEngine::set_global_difficulty(previous_difficulty);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(previous_rank_points);
+    crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
+        match previous_session {
+            Some(crate::ai::AIDifficulty::Easy) => 0,
+            Some(crate::ai::AIDifficulty::Medium) => 1,
+            Some(crate::ai::AIDifficulty::Hard) => 2,
+            Some(crate::ai::AIDifficulty::Brutal) => 3,
+            None => i32::MIN,
+        },
+    );
     if let Err(payload) = result {
         std::panic::resume_unwind(payload);
     }
@@ -819,11 +829,41 @@ fn startup_new_game_dispatch_applies_script_side_effects() {
             2
         );
         assert_eq!(
+            crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty(),
+            Some(crate::ai::AIDifficulty::Hard)
+        );
+        assert_eq!(
             gamelogic::helpers::TheGameLogic::get_rank_points_to_add_at_game_start(),
             77
         );
     });
 }
+
+#[test]
+fn restart_mission_reposts_new_game_payload_like_cpp() {
+    // C++ QuitMenu.cpp:211-216 appends MSG_NEW_GAME(mode, diff, rank, fps).
+    let quit = include_str!("quit_menu_bridge.rs");
+    let restart = include_str!("camera_drain.rs");
+    let dispatch = include_str!("dispatch.rs");
+    assert!(
+        quit.contains("host_restart_mission_from_dispatch(dispatch)"),
+        "QuitMenu restart must keep the NewGame dispatch payload"
+    );
+    assert!(
+        !quit.contains("host_restart_mission_from_ui()"),
+        "QuitMenu must not strip NewGame into without_player_template restart"
+    );
+    assert!(
+        restart.contains("host_restart_mission_from_dispatch(identity.dispatch)"),
+        "host restart must replay last NewGame difficulty/rank/template"
+    );
+    assert!(
+        dispatch.contains("record_last_new_game_identity")
+            && dispatch.contains("player_template: request.player_template.clone()"),
+        "NewGame drain must remember Challenge PlayerTemplate for restart"
+    );
+}
+
 
 #[test]
 fn startup_new_game_dispatch_requires_pending_file_for_startup_map_preparation() {

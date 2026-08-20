@@ -121,9 +121,9 @@ impl<'a> CommandExecutor<'a> {
                 }
                 return CommandResult::InvalidCommand;
             }
-
+            // C++ WorkerAIUpdate::newTask: leave supply-truck mode / drop dock.
+            self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
             let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
-
             debug!(
                 "Unit {} building {} at {:?}",
                 unit_id.0, template_name, location

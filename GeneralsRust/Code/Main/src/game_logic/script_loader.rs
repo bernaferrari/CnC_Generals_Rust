@@ -975,6 +975,72 @@ fn skip_extra_global_lights(reader: &mut BinaryReader<'_>) -> LoaderResult<()> {
 
 
 
+/// C++ GameLogic::loadMapINI — pull `ParticleSystem` blocks out of mixed map.ini.
+pub fn extract_map_ini_particle_system_blocks(contents: &str) -> String {
+    let mut out = String::new();
+    let mut in_block = false;
+    for raw in contents.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim_end();
+        let trimmed = line.trim();
+        if !in_block {
+            if trimmed
+                .split_whitespace()
+                .next()
+                .is_some_and(|token| token.eq_ignore_ascii_case("ParticleSystem"))
+            {
+                in_block = true;
+                out.push_str(line);
+                out.push('\n');
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if trimmed.eq_ignore_ascii_case("End") {
+            in_block = false;
+        }
+    }
+    out
+}
+
+/// Overlay map.ini ParticleSystem blocks onto the live GameClient manager
+/// (C++ INIParticleSys.cpp via INI::load CREATE_OVERRIDES).
+pub fn overlay_map_ini_particle_systems(contents: &str) -> usize {
+    let extracted = extract_map_ini_particle_system_blocks(contents);
+    if extracted.is_empty() {
+        return 0;
+    }
+    let count = extracted
+        .lines()
+        .filter(|line| {
+            line.trim()
+                .split_whitespace()
+                .next()
+                .is_some_and(|token| token.eq_ignore_ascii_case("ParticleSystem"))
+        })
+        .count();
+    // Common INI dispatch hits the live overlay hook when GameClient registered it.
+    let mut ini = INI::new();
+    if let Err(err) = ini.with_inline_source(&extracted, |ini| ini.parse_current_file()) {
+        warn!("map.ini ParticleSystem Common dispatch failed: {err}");
+    }
+    #[cfg(feature = "game_client")]
+    {
+        use game_client::effects::{
+            get_particle_system_manager_mut, ParticleSystemINIParser, ParticleSystemManager,
+        };
+        if let Ok(mut guard) = get_particle_system_manager_mut() {
+            let manager = guard.get_or_insert_with(ParticleSystemManager::new);
+            let parser = ParticleSystemINIParser::default();
+            if let Err(err) = parser.overlay_mixed_source(&extracted, manager) {
+                warn!("map.ini ParticleSystem live overlay failed: {err}");
+            }
+        }
+    }
+    count
+}
+
+
 /// Parse settings from an already-decompressed chunky map.
 pub fn parse_map_settings_from_chunky(chunky: &ChunkyMap) -> LoaderResult<MapMetadata> {
     let map_name = chunky.source.to_string_lossy();
@@ -1047,6 +1113,9 @@ fn parse_map_settings_from_loaded_chunky(
                 let Some(contents) = read_text_with_fallback(&ini_path) else {
                     continue;
                 };
+                // C++ GameLogic.cpp:2404-2408 loadMapINI — ParticleSystem overlays
+                // TheParticleSystemManager, not a dead Common-only registry.
+                let _ = overlay_map_ini_particle_systems(&contents);
                 let mut skybox_textures: [Option<String>; 5] = [None, None, None, None, None];
                 for raw_line in contents.lines() {
                     let line = raw_line.split(';').next().unwrap_or("").trim();
@@ -3346,6 +3415,31 @@ mod tests {
         assert_eq!(heightmap.border_size, 70);
         assert_eq!(heightmap.data.len(), 315 * 315);
     }
+
+    #[test]
+    fn map_ini_extracts_only_particle_system_blocks() {
+        // C++ GameLogic.cpp:2404-2408 loadMapINI dispatches ParticleSystem
+        // blocks; mixed Object/Weather content must not be treated as particles.
+        let mixed = "\
+Object SomeUnit\n\
+  KindOf = STRUCTURE\n\
+End\n\
+\n\
+ParticleSystem MapSmoke\n\
+  Priority = NONE\n\
+End\n\
+\n\
+Weather\n\
+  Snow = Yes\n\
+End\n";
+        let extracted = extract_map_ini_particle_system_blocks(mixed);
+        assert!(extracted.contains("ParticleSystem MapSmoke"));
+        assert!(extracted.contains("Priority = NONE"));
+        assert!(!extracted.contains("Object SomeUnit"));
+        assert!(!extracted.contains("Weather"));
+        assert_eq!(overlay_map_ini_particle_systems(mixed), 1);
+    }
+
 
     #[test]
     fn lone_eagle_fast_chunky_parses_in_under_five_seconds() {

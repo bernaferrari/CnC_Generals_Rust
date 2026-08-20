@@ -64,12 +64,34 @@ impl ScriptActionDispatcher {
         }
     }
 
+    /// C++ AttitudeType from ScriptAction int param (AI.h: Sleep=-2 .. Aggressive=2).
+    pub(crate) fn attitude_from_script_int(&self, attitude: i32) -> AIAttitudeType {
+        match attitude {
+            -2 => AIAttitudeType::Sleep,
+            -1 => AIAttitudeType::Passive,
+            1 => AIAttitudeType::Defensive,
+            2 => AIAttitudeType::Aggressive,
+            _ => AIAttitudeType::Normal,
+        }
+    }
+
+    pub(crate) fn group_attitude_from_script_int(&self, attitude: i32) -> AttitudeType {
+        match attitude {
+            -2 => AttitudeType::Sleep,
+            -1 => AttitudeType::Passive,
+            1 => AttitudeType::Alert,
+            2 => AttitudeType::Aggressive,
+            _ => AttitudeType::Normal,
+        }
+    }
+
     pub(crate) fn flash_object_by_id(
         &self,
         object_id: ObjectID,
         time_in_seconds: i32,
         color: Option<Color>,
     ) {
+        // C++ ScriptActions.cpp:2655-2666 doNamedFlash: frames / DRAWABLE_FRAMES_PER_FLASH.
         if time_in_seconds <= 0 {
             return;
         }
@@ -91,8 +113,17 @@ impl ScriptActionDispatcher {
             return;
         };
 
+        let frames = LOGICFRAMES_PER_SECOND as i32 * time_in_seconds;
+        let count = frames / ((LOGICFRAMES_PER_SECOND as i32) / 2).max(1);
+        if count <= 0 {
+            return;
+        }
+
         if let Ok(mut drawable_guard) = drawable_arc.write() {
-            drawable_guard.script_flash(flash_color, time_in_seconds as f32);
+            // First pulse so presentation samples the tint envelope this frame.
+            drawable_guard.color_flash(Some(flash_color), 8, 0, false);
+            drawable_guard.set_flash_color(flash_color);
+            drawable_guard.set_flash_count(count);
         };
     }
 
@@ -1460,15 +1491,29 @@ impl ScriptActionDispatcher {
         }
     }
 
-    /// Get trigger area by name
-    /// Returns a clone of the trigger area for use in script execution
-    #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
+    /// C++ ScriptEngine::getQualifiedTriggerAreaByName (ScriptEngine.cpp:5888).
     pub(crate) fn get_trigger_area(
         &self,
         area_name: &str,
     ) -> Result<crate::polygon_trigger::PolygonTrigger, ScriptError> {
+        if let Some(trigger) = with_script_engine_ref(|engine| {
+            engine.get_qualified_trigger_area_by_name(area_name)
+        })
+        .flatten()
+        {
+            return Ok(trigger);
+        }
+
+        let Some(resolved) = crate::scripting::engine::qualify_trigger_area_name(area_name, None)
+        else {
+            return Err(ScriptError::ObjectNotFound(format!(
+                "Trigger area '{}' not found",
+                area_name
+            )));
+        };
+
         if let Ok(terrain) = get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(area_name) {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(&resolved) {
                 Ok(trigger.clone())
             } else {
                 Err(ScriptError::ObjectNotFound(format!(

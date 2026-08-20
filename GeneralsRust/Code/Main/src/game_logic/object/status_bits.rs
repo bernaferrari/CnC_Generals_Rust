@@ -560,6 +560,15 @@ impl Object {
     pub fn set_stored_supplies(&mut self, supplies: u32) {
         self.stored_resources.supplies = supplies;
         crate::game_logic::host_stored_supplies_log::record(self.id, supplies);
+        if self.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
+            let (max_boxes, current_boxes) =
+                crate::game_logic::host_supply_gather::drawable_supply_status_from_cash(
+                    self.thing.template.dock_starting_boxes,
+                    supplies,
+                );
+            self.drawable_supply_max_boxes = max_boxes;
+            self.drawable_supply_boxes = current_boxes;
+        }
     }
 
     /// Set the AI state for autonomous behavior

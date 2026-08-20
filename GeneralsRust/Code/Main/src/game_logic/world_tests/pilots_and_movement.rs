@@ -2585,8 +2585,8 @@ fn hacker_internet_center_residual_deposits_cash() {
         .map(|p| p.resources.supplies)
         .unwrap_or(0);
     assert_eq!(mid, cash_before, "no deposit before fast interval");
-
-    game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES;
+    let first = 219 + HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
+    game_logic.frame = first - 1;
     game_logic.update_hacker_income();
     assert_eq!(
         game_logic
@@ -2594,9 +2594,9 @@ fn hacker_internet_center_residual_deposits_cash() {
             .map(|p| p.resources.supplies)
             .unwrap_or(0),
         cash_before,
-        "C++ deposits after decrementing the final fast-delay frame"
+        "C++ UNPACKING then fast delay before first cash"
     );
-    game_logic.frame = HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
+    game_logic.frame = first;
     game_logic.update_hacker_income();
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)
@@ -2606,6 +2606,13 @@ fn hacker_internet_center_residual_deposits_cash() {
         cash_after,
         cash_before.saturating_add(HACKER_CASH_REGULAR),
         "internet center hacker must deposit residual ${HACKER_CASH_REGULAR}"
+    );
+    assert_eq!(
+        game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.statistics.money_earned)
+            .unwrap_or(0),
+        HACKER_CASH_REGULAR
     );
     assert!(
         game_logic.honesty_hacker_income_ok(),
@@ -2618,8 +2625,8 @@ fn hacker_internet_center_residual_deposits_cash() {
     assert_eq!(game_logic.hacker_residual_deposits(), 1);
     assert_eq!(game_logic.hacker_residual_cash_total(), HACKER_CASH_REGULAR);
 
-    // Second fast interval, again with the state-machine's following update.
-    game_logic.frame = (HACKER_CASH_INTERVAL_FAST_FRAMES + 1) * 2;
+    // Second fast interval after unpack, again with the following update.
+    game_logic.frame = first + HACKER_CASH_INTERVAL_FAST_FRAMES + 1;
     game_logic.update_hacker_income();
     assert_eq!(game_logic.hacker_residual_deposits(), 2);
     assert_eq!(
@@ -2681,7 +2688,8 @@ fn hacker_field_residual_deposits_cash_on_interval() {
         .unwrap_or(0);
     assert_eq!(mid, cash_before, "no deposit before field interval");
 
-    game_logic.frame = HACKER_CASH_INTERVAL_FRAMES;
+    let first = 219 + HACKER_CASH_INTERVAL_FRAMES + 1;
+    game_logic.frame = first - 1;
     game_logic.update_hacker_income();
     assert_eq!(
         game_logic
@@ -2689,9 +2697,9 @@ fn hacker_field_residual_deposits_cash_on_interval() {
             .map(|p| p.resources.supplies)
             .unwrap_or(0),
         cash_before,
-        "C++ deposits after decrementing the final field-delay frame"
+        "C++ UNPACKING then field delay before first cash"
     );
-    game_logic.frame = HACKER_CASH_INTERVAL_FRAMES + 1;
+    game_logic.frame = first;
     game_logic.update_hacker_income();
     let cash_after = game_logic
         .get_player_mut_by_team(Team::China)
@@ -2702,9 +2710,68 @@ fn hacker_field_residual_deposits_cash_on_interval() {
         cash_before.saturating_add(HACKER_CASH_REGULAR),
         "field hacker must deposit residual ${HACKER_CASH_REGULAR}"
     );
+    assert_eq!(
+        game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.statistics.money_earned)
+            .unwrap_or(0),
+        HACKER_CASH_REGULAR
+    );
     assert!(game_logic.honesty_hacker_income_ok());
     // Field path is not internet-center classified.
     assert!(!game_logic.honesty_hacker_internet_center_ok());
+}
+
+/// C++ aiDoCommand PACKING: a move order stops HackInternet cash.
+#[test]
+fn hacker_move_command_stops_hacking() {
+    use crate::game_logic::host_hacker_income::{HACKER_CASH_INTERVAL_FRAMES, HACKER_CASH_REGULAR};
+    use crate::game_logic::{HackInternetAIUpdateMetadata, KindOf, ThingTemplate};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    let mut t = ThingTemplate::new("TestHackerMoveStop");
+    t.add_kind_of(KindOf::Infantry).set_health(100.0);
+    t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+        unpack_time_frames: 0,
+        pack_time_frames: 0,
+        cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+        cash_update_delay_fast_frames: 54,
+        regular_cash_amount: HACKER_CASH_REGULAR,
+        veteran_cash_amount: 6,
+        elite_cash_amount: 8,
+        heroic_cash_amount: 10,
+        xp_per_cash_update: 1.0,
+        pack_unpack_variation_factor: 0.0,
+    });
+    game_logic
+        .templates
+        .insert("TestHackerMoveStop".to_string(), t);
+
+    let hacker_id = game_logic
+        .create_object(
+            "TestHackerMoveStop",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("hacker");
+    assert!(game_logic.start_hacker_internet_hack(hacker_id));
+    assert!(game_logic.hacker_income().is_hacking(hacker_id));
+    assert!(game_logic.unit_command_move_to(hacker_id, Vec3::new(40.0, 0.0, 0.0)));
+    assert!(
+        !game_logic.hacker_income().is_hacking(hacker_id),
+        "move must PACKING-stop hack cash"
+    );
+    game_logic.frame = HACKER_CASH_INTERVAL_FRAMES + 1;
+    game_logic.update_hacker_income();
+    assert_eq!(
+        game_logic
+            .get_player_mut_by_team(Team::China)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(0),
+        0,
+        "no cash after packing"
+    );
 }
 
 /// Residual: non-hacker template must not start residual internet hack.
@@ -3499,6 +3566,33 @@ fn special_power_completion_die_notifies_script() {
         "expected CompletedSpecialPower event, got {evs:?}"
     );
 }
+
+#[test]
+fn ocl_weapon_spawn_sets_special_power_completion_creator() {
+    // C++ ObjectCreationList.cpp:386-393 + Weapon.cpp:1103-1113 setCreator.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(1, Team::USA, "USA", true));
+    let mut t = ThingTemplate::new("ScudStormMissile");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Projectile);
+    logic.templates.insert("ScudStormMissile".into(), t);
+    let id = logic
+        .create_object("ScudStormMissile", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    if let Some(obj) = logic.objects.get_mut(&id) {
+        obj.bind_special_power_completion_creator(77);
+    }
+    let data = logic
+        .objects
+        .get(&id)
+        .and_then(|o| o.special_power_completion.clone())
+        .expect("completion die residual");
+    assert!(data.creator_set);
+    assert_eq!(data.creator_id, 77);
+    assert_eq!(data.special_power_name, "SuperweaponScudStorm");
+}
+
 
 #[test]
 fn power_plant_rods_extend_upgrading_then_upgraded() {

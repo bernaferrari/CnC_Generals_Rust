@@ -845,10 +845,13 @@ impl GameLogic {
         self.sim_time_seconds
     }
 
-    /// Get the current difficulty setting (based on AI difficulty)
+    /// C++ `Player::getPlayerDifficulty` (Player.cpp:1519-1525) plus
+    /// `GameLogic::prepareNewGame` (GameLogicDispatch.cpp:295): after NewGame
+    /// the session difficulty is ScriptEngine / MSG_NEW_GAME arg 1, not the
+    /// AI-manager default Medium.
     pub fn get_difficulty(&self) -> AIDifficulty {
-        self.ai_manager
-            .dominant_difficulty()
+        crate::game_logic::host_faction_skirmish_residual::live_host_session_difficulty()
+            .or_else(|| self.ai_manager.dominant_difficulty())
             .unwrap_or(AIDifficulty::Medium)
     }
 

@@ -28,6 +28,28 @@ impl Locomotor {
         gravity: Real,
         vel_z: Real,
     ) -> BehaviorZResult {
+        self.handle_behavior_z_for(
+            current_pos,
+            goal_pos,
+            condition,
+            gravity,
+            vel_z,
+            false,
+            crate::common::PathfindLayerEnum::Ground,
+        )
+    }
+
+    /// C++ `handleBehaviorZ` with DISABLED_HELD + object layer (Locomotor.cpp:2196-2323).
+    pub fn handle_behavior_z_for(
+        &self,
+        current_pos: Coord3D,
+        goal_pos: Coord3D,
+        condition: BodyDamageType,
+        gravity: Real,
+        vel_z: Real,
+        disabled_held: bool,
+        layer: crate::common::PathfindLayerEnum,
+    ) -> BehaviorZResult {
         match self.template.behavior_z {
             LocomotorBehaviorZ::NoZMotiveForce => BehaviorZResult {
                 lift: 0.0,
@@ -35,25 +57,35 @@ impl Locomotor {
                 snapped_z: None,
             },
             LocomotorBehaviorZ::SeaLevel => {
-                let snapped = TheTerrainLogic::get()
-                    .map(|terrain| {
-                        let mut water_z = 0.0;
-                        if terrain.is_underwater(current_pos.x, current_pos.y, Some(&mut water_z), None)
-                        {
-                            water_z
-                        } else {
-                            terrain.get_layer_height(
+                // C++ Locomotor.cpp:2208-2221 — skip snap while DISABLED_HELD;
+                // else waterZ if underwater, otherwise getLayerHeight(..., obj->getLayer()).
+                if disabled_held {
+                    BehaviorZResult {
+                        lift: 0.0,
+                        requires_constant: true,
+                        snapped_z: None,
+                    }
+                } else {
+                    let snapped = TheTerrainLogic::get()
+                        .map(|terrain| {
+                            let mut water_z = 0.0;
+                            if terrain.is_underwater(
                                 current_pos.x,
                                 current_pos.y,
-                                crate::common::PathfindLayerEnum::Ground,
-                            )
-                        }
-                    })
-                    .unwrap_or(current_pos.z);
-                BehaviorZResult {
-                    lift: 0.0,
-                    requires_constant: true,
-                    snapped_z: Some(snapped),
+                                Some(&mut water_z),
+                                None,
+                            ) {
+                                water_z
+                            } else {
+                                terrain.get_layer_height(current_pos.x, current_pos.y, layer)
+                            }
+                        })
+                        .unwrap_or(current_pos.z);
+                    BehaviorZResult {
+                        lift: 0.0,
+                        requires_constant: true,
+                        snapped_z: Some(snapped),
+                    }
                 }
             }
             LocomotorBehaviorZ::FixedSurfaceRelativeHeight

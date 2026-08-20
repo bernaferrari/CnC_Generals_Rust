@@ -668,10 +668,24 @@ impl CnCGameEngine {
     ///
     /// Presentation freeze owns map/faction when installed; boot residual uses
     /// host probes. Starts a new match through `start_game_from_ui`.
+    /// Wave 601: host restart-mission residual.
+    ///
+    /// C++ `restartMissionMenu` (QuitMenu.cpp:211-216) re-posts MSG_NEW_GAME
+    /// with gameMode / difficulty / rankPoints. Keep the last Challenge
+    /// PlayerTemplate instead of `without_player_template`.
     pub(super) fn host_restart_mission_from_ui(&mut self) {
-        // Wave 601: host restart-mission residual.
-        // Wave 545: presentation freeze owns restart map/faction residual.
-        // Wave 554: via presentation_or_boot_map_name / presentation_or_live_game_mode.
+        if let Some(identity) = super::dispatch::last_new_game_identity() {
+            info!(
+                "UI requested restart: mode={:?} difficulty={} rank={} faction={} map={}",
+                identity.dispatch.game_mode,
+                identity.dispatch.difficulty_code,
+                identity.dispatch.rank_points,
+                identity.faction,
+                identity.map
+            );
+            self.host_restart_mission_from_dispatch(identity.dispatch);
+            return;
+        }
         let map = self.presentation_or_boot_map_name();
         let mode = self.presentation_or_live_game_mode();
         let faction = if let Some(pres) = self.last_presentation_frame.as_ref() {
@@ -680,9 +694,8 @@ impl CnCGameEngine {
             self.ui_local_player_team_name()
                 .unwrap_or_else(|| "USA".to_string())
         };
-
         info!(
-            "UI requested restart: mode={:?}, faction={}, map={}",
+            "UI requested restart without prior NewGame identity: mode={:?}, faction={}, map={}",
             mode, faction, map
         );
         self.start_game_from_ui(HostStartRequest::without_player_template(
@@ -2014,6 +2027,14 @@ impl CnCGameEngine {
             fow_rendering::reveal_entire_map_for_player(player_id);
             script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
             script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
+            // C++ Player::killPlayer — local loser switches to FactionObserver bar.
+            if self.presentation_or_boot_local_player_id() == Some(player_id) {
+                #[cfg(feature = "game_client")]
+                {
+                    self.control_bar
+                        .set_control_bar_scheme_by_player_side("Observer");
+                }
+            }
         }
 
         // Wave 569: presentation-or-boot alliance residual via helper.

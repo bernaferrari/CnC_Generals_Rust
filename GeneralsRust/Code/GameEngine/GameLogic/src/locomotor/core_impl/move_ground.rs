@@ -13,12 +13,7 @@ impl Locomotor {
     ) -> (Coord3D, Real, Real) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
-        if self.is_naval_blocked_at(current_pos) {
-            desired_speed = 0.0;
-        }
         desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_jump_slowdown(desired_speed, current_pos, goal_pos);
         let max_acceleration = self.get_max_acceleration(condition);
 
         // Calculate relative angle to goal (with turn pivot offset)
@@ -36,7 +31,6 @@ impl Locomotor {
         }
 
         let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
-        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
         // Check if close to target and turning - slow down for precision
         // C++ Locomotor.cpp:1190-1192
@@ -132,11 +126,7 @@ impl Locomotor {
         let max_speed = self.get_max_speed_for_condition(condition);
         let max_acceleration = self.get_max_acceleration(condition);
         let mut desired_speed = desired_speed.min(max_speed);
-        if self.is_naval_blocked_at(current_pos) {
-            desired_speed = 0.0;
-        }
         desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
 
         let mut turn_speed = self.template.min_turn_speed;
         let mut desired_angle =
@@ -193,7 +183,6 @@ impl Locomotor {
         if move_backwards {
             actual_speed = -actual_speed;
         }
-        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
         // Braking distance calculation - C++ Locomotor.cpp:1332-1337
         let braking = self.get_braking();
@@ -206,6 +195,26 @@ impl Locomotor {
         let mut effective_slow_down_dist = slow_down_dist;
         if effective_slow_down_dist < 1.0 * PATHFIND_CELL_SIZE_F {
             effective_slow_down_dist = 1.0 * PATHFIND_CELL_SIZE_F;
+        }
+
+        // C++ Locomotor.cpp:1340-1389 — sharp-turn look-ahead validMovementTerrain.
+        const FIFTEEN_DEGREES: Real = std::f32::consts::PI / 12.0;
+        if rel_angle.abs() > FIFTEEN_DEGREES {
+            let max_turn_rate = self.get_max_turn_rate(condition);
+            let layer = crate::common::PathfindLayerEnum::Ground;
+            if Self::wheels_look_ahead_blocked(
+                current_pos,
+                current_angle,
+                rel_angle,
+                goal_speed,
+                actual_speed,
+                turn_speed,
+                max_turn_rate,
+                |pos| self.valid_movement_terrain_at(layer, *pos),
+            ) {
+                // Rotate only; zero motive force (C++ applyMotiveForce(0) + return).
+                return (current_pos, desired_angle, 0.0, move_backwards);
+            }
         }
 
         // Start braking if close enough - C++ Locomotor.cpp:1393-1403
@@ -294,6 +303,50 @@ impl Locomotor {
         (current_pos, desired_angle, acceleration, move_backwards)
     }
 
+    /// C++ `moveTowardsPositionWheels` look-ahead (Locomotor.cpp:1340-1389).
+    /// True if the projected half/full point is invalid movement terrain.
+    pub fn wheels_look_ahead_blocked(
+        current_pos: Coord3D,
+        orientation: Real,
+        rel_angle: Real,
+        goal_speed: Real,
+        actual_speed: Real,
+        turn_speed: Real,
+        max_turn_rate: Real,
+        is_valid: impl Fn(&Coord3D) -> bool,
+    ) -> bool {
+        const FIFTEEN_DEGREES: Real = std::f32::consts::PI / 12.0;
+        if rel_angle.abs() <= FIFTEEN_DEGREES {
+            return false;
+        }
+        let project_frames = (LOGICFRAMES_PER_SECOND as Real) / 2.0;
+        let distance = project_frames * (goal_speed + actual_speed) / 2.0;
+        let mut turn_factor = if turn_speed > 0.0 {
+            ((goal_speed + actual_speed) / 2.0) / turn_speed
+        } else {
+            1.0
+        };
+        if turn_factor > 1.0 {
+            turn_factor = 1.0;
+        }
+        let turn_amount = project_frames * turn_factor * max_turn_rate / 4.0;
+        let mut target_angle = orientation;
+        if rel_angle < 0.0 {
+            target_angle -= turn_amount;
+        } else {
+            target_angle += turn_amount;
+        }
+        let offset_x = target_angle.cos() * distance;
+        let offset_y = target_angle.sin() * distance;
+        let next_pos = Coord3D::new(current_pos.x + offset_x, current_pos.y + offset_y, current_pos.z);
+        let half_pos = Coord3D::new(
+            current_pos.x + offset_x / 2.0,
+            current_pos.y + offset_y / 2.0,
+            current_pos.z,
+        );
+        !is_valid(&half_pos) || !is_valid(&next_pos)
+    }
+
     /// Move towards position - Legs locomotor (infantry) with full physics
     /// Matches C++ Locomotor.cpp:1594-1687 moveTowardsPositionLegs
     pub fn move_towards_position_legs_physics(
@@ -313,11 +366,6 @@ impl Locomotor {
 
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
-        if self.is_naval_blocked_at(current_pos) {
-            desired_speed = 0.0;
-        }
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_jump_slowdown(desired_speed, current_pos, goal_pos);
         let max_acceleration = self.get_max_acceleration(condition);
 
         let mut desired_angle =
@@ -350,7 +398,6 @@ impl Locomotor {
         }
 
         let mut goal_speed = (1.0 - angle_coeff) * desired_speed;
-        goal_speed = self.apply_naval_turn_limit(goal_speed, current_angle, desired_angle);
 
         // Slow down as approaching destination - C++ Locomotor.cpp:1649-1653
         let braking = self.get_braking();
@@ -439,17 +486,6 @@ impl Locomotor {
     ) -> (Coord3D, Real, Real) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
-        if self.is_naval_blocked_at(current_pos) {
-            desired_speed = 0.0;
-        }
-        desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
-        desired_speed = self.apply_jump_slowdown(desired_speed, current_pos, goal_pos);
-        if self.template.appearance == LocomotorAppearance::Wings
-            && desired_speed < self.template.min_turn_speed
-        {
-            desired_speed = self.template.min_turn_speed;
-        }
         let max_acceleration = self.get_max_acceleration(condition);
 
         // C++ Locomotor.cpp:2344-2366: ULTRA_ACCURATE slide-into-place logic
@@ -512,7 +548,6 @@ impl Locomotor {
         }
 
         _goal_speed = (1.0 - angle_coeff) * desired_speed;
-        _goal_speed = self.apply_naval_turn_limit(_goal_speed, current_angle, desired_angle);
 
         // C++ Locomotor.cpp:2368-2374: uses minSpeed, not 0.0
         if !self.no_slow_down_approaching_dest() {

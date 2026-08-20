@@ -111,10 +111,6 @@ impl Locomotor {
     ) -> (Coord3D, Real, Real, bool) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
-        if self.is_naval_blocked_at(current_pos) {
-            desired_speed = 0.0;
-        }
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current_pos, goal_pos);
         let max_acceleration = self.get_max_acceleration(condition);
         let braking = self.get_braking();
 

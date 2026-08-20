@@ -3,6 +3,7 @@
 use super::*;
 use crate::common::LocomotorSetType;
 use crate::modules::AIUpdateInterface;
+use crate::object::drawable::DrawableExt;
 use crate::object_manager::ObjectCreationFlags;
 use crate::scripting::engine::{
     initialize_script_engine, with_script_engine_mut, ScriptActionHandler, ScriptEngine,
@@ -2895,6 +2896,8 @@ fn damage_members_of_team_applies_unresistable_damage() {
 struct RecordingMoveAi {
     commands: Arc<Mutex<Vec<(AiCommandType, Coord3D, CommandSourceType)>>>,
     locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+    cleared: Arc<Mutex<u32>>,
+    attitudes: Arc<Mutex<Vec<crate::modules::AIAttitudeType>>>,
 }
 
 impl AIUpdateInterface for RecordingMoveAi {
@@ -2932,6 +2935,18 @@ impl AIUpdateInterface for RecordingMoveAi {
             .push((command.cmd, command.pos, command.cmd_source));
         Ok(())
     }
+
+    fn clear_waypoint_queue(&mut self) {
+        *self.cleared.lock().unwrap() += 1;
+    }
+
+    fn set_attitude(
+        &mut self,
+        attitude: crate::modules::AIAttitudeType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.attitudes.lock().unwrap().push(attitude);
+        Ok(())
+    }
 }
 
 #[test]
@@ -2965,6 +2980,7 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
 
     let commands = Arc::new(Mutex::new(Vec::new()));
     let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let cleared = Arc::new(Mutex::new(0u32));
     const UNIT_ID: ObjectID = 8730;
     let unit = crate::object_manager::GameObjectInstance::new(
         UNIT_ID,
@@ -2979,6 +2995,8 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
         base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
+            cleared: Arc::clone(&cleared),
+            attitudes: Arc::new(Mutex::new(Vec::new())),
         }))));
         base.enter_group(&crate::ai::AIGroup::new(93));
         assert_eq!(base.get_group_id(), Some(93));
@@ -3012,6 +3030,8 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
         .execute_action(&action)
         .expect("MOVE_NAMED_UNIT_TO should succeed");
     assert_eq!(result, ScriptActionResult::Success);
+    // C++ ScriptActions.cpp:433 doNamedMoveToWaypoint clears the queue first.
+    assert_eq!(*cleared.lock().unwrap(), 1);
     assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
     assert_eq!(
         *commands.lock().unwrap(),
@@ -3038,3 +3058,720 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
     get_named_object_tracker().clear().unwrap();
     get_terrain_logic().write().unwrap().reset();
 }
+
+fn install_recording_named_unit(
+    unit_id: ObjectID,
+    name: &str,
+    group_id: Option<u32>,
+) -> (
+    Arc<Mutex<Vec<(AiCommandType, Coord3D, CommandSourceType)>>>,
+    Arc<Mutex<Vec<LocomotorSetType>>>,
+    Arc<Mutex<u32>>,
+    Arc<Mutex<Vec<crate::modules::AIAttitudeType>>>,
+) {
+    let commands = Arc::new(Mutex::new(Vec::new()));
+    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let cleared = Arc::new(Mutex::new(0u32));
+    let attitudes = Arc::new(Mutex::new(Vec::new()));
+    let unit = crate::object_manager::GameObjectInstance::new(
+        unit_id,
+        None,
+        None,
+        ObjectCreationFlags::new(),
+    )
+    .expect("named unit");
+    {
+        let base_arc = unit.base();
+        let mut base = base_arc.write().unwrap();
+        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+            commands: Arc::clone(&commands),
+            locomotors: Arc::clone(&locomotors),
+            cleared: Arc::clone(&cleared),
+            attitudes: Arc::clone(&attitudes),
+        }))));
+        if let Some(gid) = group_id {
+            base.enter_group(&crate::ai::AIGroup::new(gid));
+        }
+    }
+    get_object_manager()
+        .write()
+        .unwrap()
+        .register_object_instance(unit, Coord3D::new(4.0, 5.0, 0.0))
+        .unwrap();
+    get_named_object_tracker()
+        .register_named_object(name.to_string(), unit_id)
+        .unwrap();
+    (commands, locomotors, cleared, attitudes)
+}
+
+#[test]
+fn named_follow_waypoints_leaves_group_and_selects_normal_loco() {
+    // C++ ScriptActions.cpp:1621-1623 doNamedFollowWaypoints.
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+    get_terrain_logic().write().unwrap().reset();
+
+    let mut map_data = crate::system::map_loader::MapData::new();
+    map_data.width = 4;
+    map_data.height = 4;
+    map_data.heightmap = vec![0; 16];
+    map_data
+        .waypoints
+        .push(crate::system::map_loader::MapWaypoint {
+            id: 9201,
+            name: "FollowWp".to_string(),
+            location: crate::system::map_loader::Coord3D::new(80.0, 90.0, 0.0),
+            path_label1: "FollowPath".to_string(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    get_terrain_logic().write().unwrap().load_map_data(map_data);
+
+    const UNIT_ID: ObjectID = 8740;
+    let (commands, locomotors, _, _) =
+        install_recording_named_unit(UNIT_ID, "FollowUnit", Some(94));
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedFollowWaypoints);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "FollowUnit".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::WaypointPath,
+            "FollowPath".to_string(),
+        ))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_follow_waypoints(&action).unwrap();
+
+    assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+    assert_eq!(
+        commands.lock().unwrap()[0].0,
+        AiCommandType::FollowWaypointPath
+    );
+    assert_eq!(
+        get_object_manager()
+            .read()
+            .unwrap()
+            .with_object(UNIT_ID, |o| o
+                .base()
+                .read()
+                .ok()
+                .and_then(|b| b.get_group_id()))
+            .flatten(),
+        None
+    );
+
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+    get_terrain_logic().write().unwrap().reset();
+}
+
+#[test]
+fn named_flash_sets_drawable_flash_count_for_presentation() {
+    // C++ ScriptActions.cpp:2661-2666 frames / DRAWABLE_FRAMES_PER_FLASH (15).
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+
+    const UNIT_ID: ObjectID = 8750;
+    let unit = crate::object_manager::GameObjectInstance::new(
+        UNIT_ID,
+        None,
+        None,
+        ObjectCreationFlags::new(),
+    )
+    .expect("flash unit");
+    let drawable = Arc::new(RwLock::new(crate::object::drawable::Drawable::new(
+        1,
+        UNIT_ID,
+        "FlashModel".to_string(),
+        crate::object::drawable::DrawableType::Static,
+    )));
+    {
+        let base_arc = unit.base();
+        let mut base = base_arc.write().unwrap();
+        base.set_drawable(Some(Arc::clone(&drawable)));
+    }
+    get_object_manager()
+        .write()
+        .unwrap()
+        .register_object_instance(unit, Coord3D::new(1.0, 1.0, 0.0))
+        .unwrap();
+    get_named_object_tracker()
+        .register_named_object("FlashUnit".to_string(), UNIT_ID)
+        .unwrap();
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedFlash);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "FlashUnit".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 2))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_flash(&action).unwrap();
+
+    let guard = drawable.read().unwrap();
+    assert_eq!(
+        guard.get_flash_count(),
+        4,
+        "2s * 30fps / 15 frames-per-flash"
+    );
+
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn named_custom_color_unpacks_argb_without_swapping_red_blue() {
+    // C++ Color.h GameMakeColor: (a<<24)|(r<<16)|(g<<8)|b
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+
+    const UNIT_ID: ObjectID = 8760;
+    let unit = crate::object_manager::GameObjectInstance::new(
+        UNIT_ID,
+        None,
+        None,
+        ObjectCreationFlags::new(),
+    )
+    .expect("color unit");
+    get_object_manager()
+        .write()
+        .unwrap()
+        .register_object_instance(unit, Coord3D::new(1.0, 1.0, 0.0))
+        .unwrap();
+    get_named_object_tracker()
+        .register_named_object("ColorUnit".to_string(), UNIT_ID)
+        .unwrap();
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedCustomColor);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "ColorUnit".to_string(),
+        ))
+        .unwrap();
+    // Opaque red 0xFFFF0000
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Color, -65536))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_custom_color(&action).unwrap();
+
+    let color = get_object_manager()
+        .read()
+        .unwrap()
+        .with_object(UNIT_ID, |o| {
+            o.base().read().ok().map(|b| b.get_indicator_color())
+        })
+        .flatten()
+        .expect("indicator color");
+    assert_eq!(color.r, 255);
+    assert_eq!(color.g, 0);
+    assert_eq!(color.b, 0);
+
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn named_set_attitude_reads_int_mood() {
+    // C++ ScriptActions.cpp:6585 getInt() AttitudeType Aggressive=2.
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+
+    const UNIT_ID: ObjectID = 8770;
+    let (_, _, _, attitudes) = install_recording_named_unit(UNIT_ID, "MoodUnit", None);
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedSetAttitude);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "MoodUnit".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::AiMood, 2))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_set_attitude(&action).unwrap();
+
+    assert_eq!(
+        *attitudes.lock().unwrap(),
+        vec![crate::modules::AIAttitudeType::Aggressive]
+    );
+
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn named_attack_area_qualifies_my_inner_perimeter() {
+    // C++ ScriptEngine.cpp:5888-5897 MyInnerPerimeter -> InnerPerimeter{mpStart+1}
+    let _lock = crate::test_sync::lock();
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+    get_terrain_logic().write().unwrap().reset();
+    crate::player::player_list().write().unwrap().clear();
+
+    let mut player = crate::player::Player::new(0);
+    player.set_display_name("PerimeterOwner");
+    player.set_mp_start_index(0);
+    crate::player::player_list()
+        .write()
+        .unwrap()
+        .add_player(Arc::new(RwLock::new(player)));
+
+    let _ = initialize_script_engine();
+    {
+        let handle = get_script_engine();
+        let mut slot = handle.write().unwrap();
+        if let Some(engine) = slot.as_mut() {
+            engine.set_external_eval_context(Some("PerimeterOwner".to_string()), None);
+        }
+    }
+
+    get_terrain_logic().write().unwrap().add_trigger_area(
+        crate::polygon_trigger::PolygonTrigger::new(
+            9301,
+            AsciiString::from("InnerPerimeter1"),
+            vec![
+                crate::common::ICoord3D::new(0, 0, 0),
+                crate::common::ICoord3D::new(20, 0, 0),
+                crate::common::ICoord3D::new(20, 20, 0),
+                crate::common::ICoord3D::new(0, 20, 0),
+            ],
+        ),
+    );
+
+    const UNIT_ID: ObjectID = 8780;
+    let (commands, _, _, _) = install_recording_named_unit(UNIT_ID, "PerimeterAttacker", None);
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedAttackArea);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "PerimeterAttacker".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            crate::scripting::engine::MY_INNER_PERIMETER.to_string(),
+        ))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_attack_area(&action).unwrap();
+
+    assert_eq!(commands.lock().unwrap()[0].0, AiCommandType::AttackArea);
+
+    crate::player::player_list().write().unwrap().clear();
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+    get_terrain_logic().write().unwrap().reset();
+}
+
+#[test]
+fn team_follow_waypoints_honors_as_team_int() {
+    // C++ ScriptActions.cpp:1803-1807 asTeam selects groupFollowWaypointPathAsTeam.
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_team_factory().lock().unwrap().reset();
+    get_terrain_logic().write().unwrap().reset();
+
+    let mut map_data = crate::system::map_loader::MapData::new();
+    map_data.width = 4;
+    map_data.height = 4;
+    map_data.heightmap = vec![0; 16];
+    map_data
+        .waypoints
+        .push(crate::system::map_loader::MapWaypoint {
+            id: 9401,
+            name: "TeamFollowWp".to_string(),
+            location: crate::system::map_loader::Coord3D::new(10.0, 10.0, 0.0),
+            path_label1: "TeamPath".to_string(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    get_terrain_logic().write().unwrap().load_map_data(map_data);
+
+    const UNIT_ID: ObjectID = 8790;
+    let commands = Arc::new(Mutex::new(Vec::new()));
+    let locomotors = Arc::new(Mutex::new(Vec::new()));
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test(UNIT_ID, 100.0)));
+    {
+        let mut guard = obj.write().unwrap();
+        guard.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+            commands: Arc::clone(&commands),
+            locomotors: Arc::clone(&locomotors),
+            cleared: Arc::new(Mutex::new(0)),
+            attitudes: Arc::new(Mutex::new(Vec::new())),
+        }))));
+        let _ = guard.set_position(&Coord3D::new(4.0, 5.0, 0.0));
+    }
+    TheGameLogic::register_object(obj).expect("register team follower");
+
+    {
+        let mut factory = get_team_factory().lock().unwrap();
+        let team = factory.create_team("FollowTeam").expect("team");
+        team.write().unwrap().add_member(UNIT_ID);
+    }
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamFollowWaypoints);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "FollowTeam".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::WaypointPath,
+            "TeamPath".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_team_follow_waypoints(&action).unwrap();
+
+    assert_eq!(
+        commands.lock().unwrap()[0].0,
+        AiCommandType::FollowWaypointPathAsTeam
+    );
+
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_team_factory().lock().unwrap().reset();
+    get_terrain_logic().write().unwrap().reset();
+}
+
+#[test]
+fn named_face_named_clears_waypoint_queue() {
+    // C++ ScriptActions.cpp:6092 doNamedFaceNamed clearWaypointQueue.
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+
+    const UNIT_ID: ObjectID = 8800;
+    const TARGET_ID: ObjectID = 8801;
+    let (_, _, cleared, _) = install_recording_named_unit(UNIT_ID, "FaceUnit", None);
+    let target = crate::object_manager::GameObjectInstance::new(
+        TARGET_ID,
+        None,
+        None,
+        ObjectCreationFlags::new(),
+    )
+    .expect("face target");
+    get_object_manager()
+        .write()
+        .unwrap()
+        .register_object_instance(target, Coord3D::new(9.0, 9.0, 0.0))
+        .unwrap();
+    get_named_object_tracker()
+        .register_named_object("FaceTarget".to_string(), TARGET_ID)
+        .unwrap();
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedFaceNamed);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "FaceUnit".to_string(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "FaceTarget".to_string(),
+        ))
+        .unwrap();
+
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    dispatcher.do_named_face_named(&action).unwrap();
+    assert_eq!(*cleared.lock().unwrap(), 1);
+
+    get_object_manager().write().unwrap().reset();
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn has_finished_media_fails_closed_without_handler() {
+    // C++ ScriptConditions.cpp:1419-1437 queries TheScriptEngine; missing handler is not complete.
+    let _test_lock = crate::test_sync::lock();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    for (kind, name) in [
+        (ConditionType::HasFinishedVideo, "IntroMovie"),
+        (ConditionType::HasFinishedSpeech, "Briefing"),
+        (ConditionType::HasFinishedAudio, "Boom"),
+    ] {
+        let mut condition = Condition::new(kind);
+        condition
+            .add_parameter(Parameter::with_string(ParameterType::Movie, name.into()))
+            .unwrap();
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::False,
+            "{kind:?} must fail closed without an action handler"
+        );
+    }
+}
+
+#[test]
+fn multiplayer_player_defeat_has_no_player_param() {
+    // C++ ScriptConditions.cpp:1748-1750 — no params; missing local player is false, not error.
+    let mut condition = Condition::new(ConditionType::MultiplayerPlayerDefeat);
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False
+    );
+}
+
+#[test]
+fn named_totally_dead_false_while_object_exists() {
+    // C++ ScriptConditions.cpp:323-335 — getUnitNamed success is never totally dead.
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+
+    const ID: u32 = 0x70_7A_11_DE;
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test(ID, 100.0)));
+    obj.write().unwrap().set_effectively_dead(true);
+    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
+    get_named_object_tracker()
+        .register_named_object("DeadHero".to_string(), ID)
+        .unwrap();
+
+    let mut condition = Condition::new(ConditionType::NamedTotallyDead);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "DeadHero".into()))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "NAMED_TOTALLY_DEAD is false while the object still exists"
+    );
+
+    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
+    drop(obj);
+    get_named_object_tracker().unregister_object(ID).unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True,
+        "NAMED_TOTALLY_DEAD is true only after the named object is gone"
+    );
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn named_totally_dead_false_if_name_never_existed() {
+    // C++ ScriptConditions.cpp:334 — never-existed names are not totally dead.
+    let _test_lock = crate::test_sync::lock();
+    get_named_object_tracker().clear().unwrap();
+    let mut condition = Condition::new(ConditionType::NamedTotallyDead);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "NeverExisted".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False
+    );
+}
+
+#[test]
+fn unit_health_uses_initial_health_rounding() {
+    // C++ ScriptConditions.cpp:934 (curHealth*100 + initialHealth/2)/initialHealth
+    // When initial==max, 100% current health is 100.
+
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+
+    const ID: u32 = 0x11_11_EA_17;
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test(ID, 100.0)));
+    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
+    get_named_object_tracker()
+        .register_named_object("HurtHero".to_string(), ID)
+        .unwrap();
+
+    let mut condition = Condition::new(ConditionType::UnitHealth);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "HurtHero".into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 2))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Int, 100))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::True,
+        "full initial health is 100 percent via the C++ integer formula"
+    );
+
+    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
+    get_named_object_tracker().clear().unwrap();
+}
+
+#[test]
+fn built_by_player_rejects_object_type_lists() {
+    // C++ ScriptConditions.cpp:872-874 findTemplate(raw) must exist.
+    let _test_lock = crate::test_sync::lock();
+    initialize_script_engine().expect("script engine");
+    let mut list = crate::object::object_types::ObjectTypes::new();
+    list.add_object_type(crate::common::AsciiString::from("AmericaRanger"));
+    let _ = with_script_engine_mut(|engine| {
+        engine.set_object_types("HeroList".to_string(), list);
+    });
+
+    let mut condition = Condition::new(ConditionType::BuiltByPlayer);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::ObjectType,
+            "HeroList".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "PlyrAmerica".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "type-list names are inert in retail BUILT_BY_PLAYER"
+    );
+}
+
+#[test]
+fn team_the_player_not_remapped_outside_challenge() {
+    // C++ ScriptEngine.cpp:5935-5939 remaps TEAM_THE_PLAYER only in Challenge.
+    let evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.resolve_string_token(crate::scripting::core::TEAM_THE_PLAYER),
+        crate::scripting::core::TEAM_THE_PLAYER
+    );
+}
+
+#[test]
+fn player_has_counts_dead_lost_ignores_dead() {
+    // C++ HAS ignoreDead=FALSE (ScriptConditions.cpp:1792);
+    // LOST ignoreDead=TRUE (ScriptConditions.cpp:2686).
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+
+    let player = crate::player::Player::new(0);
+    const ID: u32 = 0x0A5_DEAD;
+    let template: Arc<dyn crate::common::ThingTemplate> =
+        Arc::new(crate::common::DefaultThingTemplate::new(
+            "AmericaRanger".to_string(),
+        ));
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test_from_template(
+        ID,
+        100.0,
+        Arc::clone(&template),
+    )));
+    obj.write().unwrap().set_effectively_dead(true);
+    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
+    let mut player = player;
+    player.add_owned_object(ID);
+
+    let templates = vec![Arc::clone(&template)];
+    let mut counts = vec![0];
+    player.count_objects_by_thing_template(&templates, false, true, &mut counts);
+    assert_eq!(counts[0], 1, "HAS ignoreDead=false still counts a dead object");
+    player.count_objects_by_thing_template(&templates, true, true, &mut counts);
+    assert_eq!(counts[0], 0, "LOST ignoreDead=true skips effectively-dead objects");
+
+    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
+}
+
+#[test]
+fn skirmish_value_in_area_excludes_inert() {
+    // C++ ScriptConditions.cpp:2139 !KINDOF_INERT
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    player_list().write().unwrap().clear();
+
+    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+    {
+        let mut guard = player.write().unwrap();
+        guard.set_display_name("ValuePlayer");
+    }
+    player_list().write().unwrap().add_player(player);
+
+    const ID: u32 = 0x1E_E47;
+    let mut template = crate::common::DefaultThingTemplate::new("InertProp".to_string());
+    template.add_kind_of(crate::common::KindOf::Inert);
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test_from_template(
+        ID,
+        10.0,
+        Arc::new(template),
+    )));
+    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
+    get_area_tracker()
+        .register_area(crate::scripting::events::TriggerArea::new_circular(
+            "ValueArea".to_string(),
+            [0.0, 0.0, 0.0],
+            50.0,
+        ))
+        .unwrap();
+    let events = crate::scripting::engine::get_event_manager();
+    get_area_tracker()
+        .update_object_position_sync(ID, [0.0, 0.0, 0.0], &events)
+        .unwrap();
+
+    let mut condition = Condition::new(ConditionType::SkirmishValueInArea);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "ValuePlayer".into(),
+        ))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 4))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "ValueArea".into(),
+        ))
+        .unwrap();
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "inert objects do not add value"
+    );
+
+    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
+    player_list().write().unwrap().clear();
+}
+

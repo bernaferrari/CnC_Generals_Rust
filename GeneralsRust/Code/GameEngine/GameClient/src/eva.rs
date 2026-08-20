@@ -511,7 +511,9 @@ impl Eva {
             return;
         }
 
-        let current_frame = TheGameLogic::get_frame();
+        // C++ Eva.cpp:271 `TheGameLogic->getFrame()`. Live AuthorityOnly does
+        // not tick the crate GameLogic clock, so prefer the host-published frame.
+        let current_frame = eva_logic_frame();
         if current_frame < 2 {
             return;
         }
@@ -886,6 +888,32 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
 
 static THE_EVA: OnceLock<Mutex<Eva>> = OnceLock::new();
 
+thread_local! {
+    /// Live host logic frame (Main `GameLogic::get_frame` / presentation freeze).
+    /// Zero means "unset" so crate `TheGameLogic::get_frame` remains the fallback.
+    static HOST_EVA_FRAME: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Publish the live host/sim frame Eva.cpp:271 reads as `TheGameLogic->getFrame()`.
+pub fn set_eva_host_frame(frame: u32) {
+    HOST_EVA_FRAME.with(|cell| cell.set(frame));
+}
+
+/// Last host frame published by Main / presentation. Zero if none.
+pub fn eva_host_frame() -> u32 {
+    HOST_EVA_FRAME.with(|cell| cell.get())
+}
+
+/// Frame Eva::update uses: host clock when published, else crate GameLogic.
+pub fn eva_logic_frame() -> u32 {
+    let host = eva_host_frame();
+    if host != 0 {
+        host
+    } else {
+        TheGameLogic::get_frame()
+    }
+}
+
 pub fn get_eva() -> &'static Mutex<Eva> {
     THE_EVA.get_or_init(|| Mutex::new(Eva::new()))
 }
@@ -899,6 +927,7 @@ pub fn initialize_eva_system() -> INIResult<()> {
 }
 
 pub fn reset_eva_system() {
+    set_eva_host_frame(0);
     let eva = get_eva();
     if let Ok(mut guard) = eva.lock() {
         guard.reset();
@@ -1052,6 +1081,29 @@ mod tests {
         assert!(!eva.message_should_play_with_local_player(EvaMessage::BuildingLost, false));
         assert!(eva.should_play[EvaMessage::BuildingLost.as_index()]);
         assert_eq!(eva.message_being_tested, EvaMessage::LowPower);
+    }
+
+    #[test]
+    fn eva_update_uses_host_frame_when_crate_clock_is_starved() {
+        // C++ Eva.cpp:275 returns before probing when frame < 2. A starved crate
+        // clock stays at 0; the live host frame must open that gate.
+        set_eva_host_frame(0);
+        let mut eva = Eva::new();
+        eva.set_should_play(EvaMessage::BuildingLost);
+        eva.update();
+        assert!(
+            eva.should_play[EvaMessage::BuildingLost.as_index()],
+            "frame 0 must skip Eva.cpp:275 and leave shouldPlay latched"
+        );
+
+        set_eva_host_frame(5);
+        assert_eq!(eva_logic_frame(), 5);
+        eva.update();
+        assert!(
+            !eva.should_play[EvaMessage::BuildingLost.as_index()],
+            "host frame >= 2 must run Eva::update and clear unprobed flags"
+        );
+        set_eva_host_frame(0);
     }
 }
 

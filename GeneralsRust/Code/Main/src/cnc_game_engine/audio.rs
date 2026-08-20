@@ -166,9 +166,60 @@ impl CnCGameEngine {
     /// C++ `GameEngine::update` `TheAudio->UPDATE()` (`GameEngine.cpp:736`).
     /// Live Common `AudioManager::update` drains AR_Play / fade / playing lists.
     pub(super) fn host_update_the_audio(&mut self) {
-        let _ = self;
+        self.sync_audio_listener_from_main_camera();
         if let Some(audio) = gamelogic::helpers::TheAudio::get() {
             audio.update();
+        }
+        // C++ GameEngine.cpp:738 TheGameClient->UPDATE() includes Eva::update
+        // after TheAudio. Publish host frame first so Eva.cpp:271 is not 0.
+        self.publish_eva_host_frame_and_tick();
+    }
+
+    /// C++ GameAudio.cpp:281-330: mic/listener from TheTacticalView camera.
+    /// Drive GameClient View so AUDIO_VIEW_RESOLVER is not stuck at (0,0,0).
+    pub(super) fn sync_audio_listener_from_main_camera(&self) {
+        #[cfg(feature = "game_client")]
+        {
+            use game_client::display::view::{with_tactical_view, Point3};
+
+            // Main camera is Y-up; GameClient View / C++ Coord3D is Z-up (X/Y ground).
+            let target = Point3::new(
+                self.camera_target.x,
+                self.camera_target.z,
+                self.camera_target.y,
+            );
+            // C++ look_to = Rotate_Z(angle) * (0,1,0) = (-sin(a), cos(a)).
+            // Match heading of camera → look-at on the ground plane.
+            let look_x = self.camera_target.x - self.camera_position.x;
+            let look_y = self.camera_target.z - self.camera_position.z;
+            let angle = f32::atan2(-look_x, look_y);
+            let zoom = if self.camera_zoom.is_finite() {
+                self.camera_zoom.max(0.05)
+            } else {
+                1.0
+            };
+
+            with_tactical_view(|view| {
+                view.set_position(&target);
+                view.set_angle(angle);
+                view.set_zoom(zoom);
+                view.init_height_for_map();
+            });
+        }
+    }
+
+    /// Push live host/presentation frame into Eva and run Eva.cpp:264.
+    pub(super) fn publish_eva_host_frame_and_tick(&self) {
+        #[cfg(feature = "game_client")]
+        {
+            let frame = self
+                .last_presentation_frame
+                .as_ref()
+                .map(|pres| pres.frame.0)
+                .filter(|frame| *frame != 0)
+                .unwrap_or_else(|| self.game_logic.get_frame());
+            game_client::eva::set_eva_host_frame(frame);
+            game_client::eva::update_eva_system();
         }
     }
 

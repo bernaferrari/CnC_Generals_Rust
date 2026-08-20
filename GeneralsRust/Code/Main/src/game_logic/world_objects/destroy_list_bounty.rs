@@ -3,6 +3,57 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+
+/// C++ `OpenContain::getDamagePercentageToUnits` — INI `DamagePercentToUnits`
+/// via `parsePercentToReal` (`100%` → `1.0`). Live `building_data` is never
+/// populated, so resolve authored retail percents by container kind.
+fn damage_percent_to_units_from_ini(obj: &Object) -> f32 {
+    let authored = obj
+        .building_data
+        .as_ref()
+        .map(|bd| bd.damage_percent_to_units)
+        .unwrap_or(0.0);
+    if authored > 0.0 {
+        return authored;
+    }
+    if obj.is_humvee_style_container() {
+        return crate::game_logic::host_humvee::HUMVEE_DAMAGE_PERCENT_TO_UNITS / 100.0;
+    }
+    if obj.is_battle_bus_style_container() {
+        return crate::game_logic::host_battle_bus::BATTLE_BUS_DAMAGE_PERCENT_TO_UNITS / 100.0;
+    }
+    if obj.is_combat_chinook_style_container() {
+        return crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_DAMAGE_PERCENT_TO_UNITS
+            / 100.0;
+    }
+    if obj.is_technical_style_container() {
+        return crate::game_logic::host_technical::TECHNICAL_DAMAGE_PERCENT_TO_UNITS / 100.0;
+    }
+    if obj.is_troop_crawler_style_container() {
+        return crate::game_logic::host_troop_crawler::TROOP_CRAWLER_DAMAGE_PERCENT_TO_UNITS / 100.0;
+    }
+    if obj.is_listening_outpost_style_container() {
+        return crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_DAMAGE_PERCENT_TO_UNITS
+            / 100.0;
+    }
+    if obj.is_overlord_style_container() || obj.is_helix_transport {
+        return crate::game_logic::host_overlord_addons::OVERLORD_CONTAIN_DAMAGE_PERCENT_TO_UNITS;
+    }
+    if crate::game_logic::host_heal::is_ambulance_healer(&obj.template_name) {
+        return crate::game_logic::host_heal::AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS;
+    }
+    if obj
+        .template_name
+        .to_ascii_lowercase()
+        .contains("firebase")
+    {
+        // Retail AmericaFireBase DamagePercentToUnits 100% (parsePercentToReal).
+        return 1.0;
+    }
+    // C++ OpenContainModuleData default DamagePercentToUnits.
+    0.0
+}
+
 impl GameLogic {
     /// Wave 912: true when destroy queue or destroy-ready residual has work.
     #[inline]
@@ -151,13 +202,8 @@ impl GameLogic {
 
                 let eject_origin = obj.get_position();
 
-                // C++ parity (OpenContain::onDie): if DamagePercentToUnits > 0,
-                // apply damage to contained units based on their max health.
-                let damage_pct = obj
-                    .building_data
-                    .as_ref()
-                    .map(|bd| bd.damage_percent_to_units)
-                    .unwrap_or(0.0);
+                // C++ OpenContain::onDie: processDamageToContained(getDamagePercentageToUnits()).
+                let damage_pct = damage_percent_to_units_from_ini(&obj);
 
                 // C++ ParachuteContain::onDie: airborne chute → FreeFallDamage riders.
                 let is_america_parachute = obj.template_name.eq_ignore_ascii_case(
@@ -199,11 +245,28 @@ impl GameLogic {
                 } else {
                     for (i, contained_id) in obj.contained_units().into_iter().enumerate() {
                         if let Some(unit) = self.objects.get_mut(&contained_id) {
-                            // Apply damage before ejection if configured.
+                            // C++ OpenContain::processDamageToContained:
+                            // UNRESISTABLE, BURNED default, source = container,
+                            // then kill() if percent == 1.0 and still alive.
                             if damage_pct > 0.0 {
                                 let dmg = unit.max_health * damage_pct;
-                                let destroyed = unit.take_damage_from(dmg, Some(event.id));
-                                if destroyed {
+                                let destroyed = unit.take_damage_from_typed_death(
+                                    dmg,
+                                    Some(event.id),
+                                    crate::game_logic::combat::DamageType::Unresistable,
+                                    crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                                );
+                                let flame_proof_kill = !destroyed
+                                    && !unit.status.destroyed
+                                    && (damage_pct - 1.0).abs() < f32::EPSILON;
+                                if flame_proof_kill {
+                                    let _ = unit.take_damage_from_immediate(
+                                        crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+                                        Some(event.id),
+                                    );
+                                    unit.status.destroyed = true;
+                                }
+                                if destroyed || flame_proof_kill || unit.status.destroyed {
                                     unit.status.destroyed = true;
                                     self.mark_object_for_destruction(contained_id, event.killer);
                                     continue;
@@ -482,28 +545,12 @@ impl GameLogic {
                         bounty_awarded = player.do_bounty_for_kill(build_cost);
                     }
 
-                    // C++ Player::addSkillPointsForKill residual (scoreTheKill path).
-                    // No skill points for under-construction victims.
+                    // C++ Player::addSkillPointsForKill (scoreTheKill).
+                    // Skill value is victim template SkillPointValue / ExperienceValue.
                     if enemy_kill && !under_construction {
-                        use crate::game_logic::host_rank_ui_residual::skill_points_for_kill_residual;
-                        let vet_level = match destroyed_object.experience.level {
-                            crate::game_logic::VeterancyLevel::Rookie => 0,
-                            crate::game_logic::VeterancyLevel::Veteran => 1,
-                            crate::game_logic::VeterancyLevel::Elite => 2,
-                            crate::game_logic::VeterancyLevel::Heroic => 3,
-                        };
-                        let is_ac = destroyed_object.is_kind_of(KindOf::Aircraft)
-                            || destroyed_object.object_type == ObjectType::Aircraft;
-                        let is_veh = destroyed_object.is_kind_of(KindOf::Vehicle)
-                            || destroyed_object.object_type == ObjectType::Vehicle;
-                        let skill = skill_points_for_kill_residual(
-                            destroyed_is_structure,
-                            is_ac,
-                            is_veh,
-                            vet_level,
-                        );
-                        if skill > 0 {
-                            let _leveled = player.add_skill_points(skill);
+                        let skill = destroyed_object.kill_skill_point_value();
+                        if skill != 0 {
+                            let _leveled = player.add_skill_points_for_kill(skill);
                         }
                     }
                 }

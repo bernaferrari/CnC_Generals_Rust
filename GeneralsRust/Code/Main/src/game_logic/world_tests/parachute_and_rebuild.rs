@@ -270,6 +270,145 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
     );
 }
 
+
+#[test]
+fn resume_construction_allows_dead_or_retasked_builder() {
+    // C++ ActionManager.cpp:458-485 — stale exclusive builder must not freeze resume.
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut st = ThingTemplate::new("AmericaPowerPlant");
+    st.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("AmericaPowerPlant".into(), st);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+
+    let sid = logic
+        .create_object("AmericaPowerPlant", Team::USA, glam::Vec3::ZERO)
+        .expect("pp");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(true);
+        o.construction_percent = 0.4;
+        o.builder_id = Some(ObjectId(9999));
+    }
+    let did = logic
+        .create_object(
+            "AmericaVehicleDozer",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .expect("dozer");
+    assert!(
+        logic.can_resume_construction_of(did, sid),
+        "dead builder_id must not block resume"
+    );
+    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(
+        logic.host_object(sid).and_then(|o| o.builder_id),
+        Some(did)
+    );
+
+    let did2 = logic
+        .create_object(
+            "AmericaVehicleDozer",
+            Team::USA,
+            glam::Vec3::new(14.0, 0.0, 0.0),
+        )
+        .expect("dozer2");
+    if let Some(d) = logic.host_object_mut(did) {
+        d.set_ai_state(AIState::Idle);
+        d.target = None;
+    }
+    assert!(
+        logic.can_resume_construction_of(did2, sid),
+        "re-tasked builder must not block resume"
+    );
+    assert!(logic.resume_construction(&[did2], sid));
+    assert_eq!(
+        logic.host_object(sid).and_then(|o| o.builder_id),
+        Some(did2)
+    );
+}
+
+#[test]
+fn worker_build_or_repair_releases_supply_dock() {
+    // C++ WorkerAIUpdate.cpp:598-660 — newTask BUILD/REPAIR exits supply-truck.
+    use crate::game_logic::{KindOf, SupplyTruckState, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut worker_t = ThingTemplate::new("GLAInfantryWorker");
+    worker_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Harvester)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryWorker".into(), worker_t);
+    let mut dock_t = ThingTemplate::new("GLASupplyStash");
+    dock_t
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(400.0);
+    logic.templates.insert("GLASupplyStash".into(), dock_t);
+
+    let dock_id = logic
+        .create_object("GLASupplyStash", Team::GLA, glam::Vec3::ZERO)
+        .expect("dock");
+    let wid = logic
+        .create_object(
+            "GLAInfantryWorker",
+            Team::GLA,
+            glam::Vec3::new(8.0, 0.0, 0.0),
+        )
+        .expect("worker");
+    if let Some(dock) = logic.host_object_mut(dock_id) {
+        dock.dock_active_docker = Some(wid);
+    }
+    if let Some(w) = logic.host_object_mut(wid) {
+        w.preferred_dock_id = Some(dock_id);
+        w.target = Some(dock_id);
+        w.supply_truck_state = SupplyTruckState::DockingWarehouse;
+        w.supply_truck_force_pending = true;
+        w.supply_truck_next_dock_action_frame = 12;
+    }
+
+    logic.worker_exit_supply_for_dozer_task(wid);
+    let dock = logic.host_object(dock_id).expect("dock live");
+    assert_eq!(dock.dock_active_docker, None);
+    let w = logic.host_object(wid).expect("worker live");
+    assert_eq!(w.preferred_dock_id, None);
+    assert_eq!(w.supply_truck_state, SupplyTruckState::Idle);
+    assert!(!w.supply_truck_force_pending);
+    assert_eq!(w.supply_truck_next_dock_action_frame, 0);
+
+    if let Some(dock) = logic.host_object_mut(dock_id) {
+        dock.dock_active_docker = Some(wid);
+    }
+    if let Some(w) = logic.host_object_mut(wid) {
+        w.preferred_dock_id = Some(dock_id);
+        w.supply_truck_state = SupplyTruckState::Wanting;
+    }
+    assert!(logic.unit_command_begin_construct(wid, glam::Vec3::new(20.0, 0.0, 20.0)));
+    assert_eq!(
+        logic.host_object(dock_id).and_then(|d| d.dock_active_docker),
+        None
+    );
+    let w = logic.host_object(wid).expect("worker after construct");
+    assert_eq!(w.preferred_dock_id, None);
+    assert_eq!(w.supply_truck_state, SupplyTruckState::Idle);
+    assert_eq!(w.ai_state, AIState::Constructing);
+}
+
 #[test]
 fn mine_clear_drops_worker_supply_boxes() {
     // C++ WorkerAIUpdate.cpp:1043-1050.
@@ -1703,6 +1842,8 @@ fn kill_grants_player_skill_points_residual() {
         .insert("AmericaInfantryRanger".into(), ranger);
     let mut rebel = ThingTemplate::new("GLAInfantryRebel");
     rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+    rebel.experience_value = 20.0;
+    rebel.experience_values = [20.0, 20.0, 40.0, 60.0];
     logic.templates.insert("GLAInfantryRebel".into(), rebel);
 
     let killer = logic
@@ -2163,6 +2304,215 @@ fn shared_synced_special_power_timer_is_player_wide() {
     }
     assert!(logic.is_special_power_ready_for(cc2, &SpecialPowerType::Airstrike));
 }
+
+#[test]
+fn special_power_ready_uses_controlling_owner_not_first_faction() {
+    // C++ SpecialPowerModule.cpp:278/386 getControllingPlayer — two USA
+    // players must not share science or SharedSyncedTimer.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA0", true));
+    logic.add_player(Player::new(1, Team::USA, "USA1", true));
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    cc.special_power_cooldown = 10.0;
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let cc0 = logic
+        .create_object_for_player("AmericaCommandCenter", 0, glam::Vec3::ZERO)
+        .expect("cc0");
+    let cc1 = logic
+        .create_object_for_player(
+            "AmericaCommandCenter",
+            1,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("cc1");
+    if let Some(p) = logic.get_player_mut(0) {
+        assert!(p.unlock_science("SCIENCE_A10ThunderboltMissileStrike1"));
+    }
+    assert!(
+        logic.is_special_power_ready_for(cc0, &SpecialPowerType::Airstrike),
+        "owner 0 unlocked A10 science"
+    );
+    assert!(
+        !logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike),
+        "owner 1 must not inherit owner 0 science"
+    );
+    if let Some(p) = logic.get_player_mut(1) {
+        assert!(p.unlock_science("SCIENCE_A10ThunderboltMissileStrike1"));
+    }
+    assert!(logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike));
+    assert!(logic.consume_special_power_charge_for(cc0, &SpecialPowerType::Airstrike));
+    assert!(
+        !logic.is_special_power_ready_for(cc0, &SpecialPowerType::Airstrike),
+        "owner 0 A10 consumed"
+    );
+    assert!(
+        logic.is_special_power_ready_for(cc1, &SpecialPowerType::Airstrike),
+        "owner 1 SharedSyncedTimer must stay independent"
+    );
+}
+
+#[test]
+fn named_special_power_countdown_reaches_host_pause_and_set_ready() {
+    // C++ ScriptActions.cpp:4066-4113 pauseCountdown / setReadyFrame.
+    // Use a non-SharedNSync power so setReady/pause affect isReady (C++ isReady
+    // for SharedNSync reads the player timer, not the module frame).
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, NamedSpecialPowerCountdownOp, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut unit = ThingTemplate::new("AmericaInfantryTankHunter");
+    unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryTankHunter".into(), unit);
+    let id = logic
+        .create_object(
+            "AmericaInfantryTankHunter",
+            Team::USA,
+            glam::Vec3::ZERO,
+        )
+        .expect("hunter");
+    if let Some(obj) = logic.host_object_mut(id) {
+        obj.name = "HeroCC".into();
+    }
+    let power = SpecialPowerType::TankHunterTnt;
+    assert!(logic.is_special_power_ready_for(id, &power));
+    assert!(logic.script_named_special_power_countdown(
+        "HeroCC",
+        "SpecialAbilityTankHunterTNTAttack",
+        NamedSpecialPowerCountdownOp::Set,
+        12,
+    ));
+    assert!(
+        (logic
+            .host_object(id)
+            .unwrap()
+            .special_power_countdown_seconds(&power)
+            - 12.0)
+            .abs()
+            < 0.01
+    );
+    assert!(!logic.is_special_power_ready_for(id, &power));
+    assert!(logic.script_named_special_power_countdown(
+        "HeroCC",
+        "SpecialAbilityTankHunterTNTAttack",
+        NamedSpecialPowerCountdownOp::Add,
+        3,
+    ));
+    assert!(
+        (logic
+            .host_object(id)
+            .unwrap()
+            .special_power_countdown_seconds(&power)
+            - 15.0)
+            .abs()
+            < 0.01
+    );
+    assert!(logic.script_named_special_power_countdown(
+        "HeroCC",
+        "SpecialAbilityTankHunterTNTAttack",
+        NamedSpecialPowerCountdownOp::Stop,
+        0,
+    ));
+    assert!(logic
+        .host_object(id)
+        .unwrap()
+        .special_power_paused
+        .contains(&power));
+    assert!(
+        !logic.is_special_power_ready_for(id, &power),
+        "paused countdown is not ready"
+    );
+}
+
+
+#[test]
+fn special_power_fire_notifies_script_engine_triggered() {
+    // C++ SpecialPowerModule.cpp:513 notifyOfTriggeredSpecialPower.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use gamelogic::scripting::engine::{initialize_script_engine, with_script_engine_mut};
+    let _ = initialize_script_engine();
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut tpl = ThingTemplate::new("CC");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    logic.templates.insert("CC".into(), tpl);
+    let caster = logic
+        .create_object("CC", Team::USA, glam::Vec3::ZERO)
+        .expect("caster");
+    assert!(logic
+        .queue_special_power_strike(
+            &SpecialPowerType::Airstrike,
+            caster,
+            glam::Vec3::new(80.0, 0.0, 80.0),
+        )
+        .is_some());
+    let hit = with_script_engine_mut(|engine| {
+        engine.is_special_power_triggered(
+            0,
+            "SuperweaponA10ThunderboltMissileStrike",
+            false,
+            caster.0,
+        )
+    })
+    .unwrap_or(false);
+    assert!(hit, "TRIGGERED condition must see host superweapon fire");
+    logic.notify_script_engine_special_power_event(
+        caster,
+        &SpecialPowerType::SpySatellite,
+        true,
+        true,
+    );
+    let sat = with_script_engine_mut(|engine| {
+        engine.is_special_power_triggered(0, "SpecialPowerSpySatellite", false, caster.0)
+            && engine.is_special_power_complete(0, "SpecialPowerSpySatellite", false, caster.0)
+    })
+    .unwrap_or(false);
+    assert!(sat, "instant powers notify TRIGGERED and COMPLETED");
+}
+
+
+#[test]
+fn superweapon_fire_creates_view_object_reveal() {
+    // C++ SpecialPowerModule.cpp:462-497 createViewObject range 250 / 30-40s.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut cc = ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    let source = logic
+        .create_object("AmericaCommandCenter", Team::USA, glam::Vec3::ZERO)
+        .expect("source");
+    let target = glam::Vec3::new(200.0, 0.0, 200.0);
+    assert!(logic
+        .queue_special_power_strike(&SpecialPowerType::Airstrike, source, target)
+        .is_some());
+    assert!(
+        logic.special_power_strikes().view_object_count() >= 1,
+        "createViewObject must record a reveal"
+    );
+    let vo = &logic.special_power_strikes().view_objects()[0];
+    assert!((vo.range - 250.0).abs() < 0.1, "ViewObjectRange residual 250");
+    let dur = vo.duration_frames();
+    assert!(
+        dur == 900 || dur == 1_200,
+        "ViewObjectDuration 30-40s, got {dur}"
+    );
+    assert_eq!(vo.source_object, source);
+}
+
 
 #[test]
 fn special_power_cooldowns_are_independent_per_power() {

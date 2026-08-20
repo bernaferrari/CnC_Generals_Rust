@@ -179,6 +179,60 @@ impl GameLogic {
         );
     }
 
+    /// C++ `Player::killPlayer` after `VictoryConditions` marks a slot dead:
+    /// evacuate containers, destroy remaining army, zero money, mark dead.
+    pub(in super::super) fn kill_player_for_victory(&mut self, player_id: u32) {
+        let player_team = self.players.get(&player_id).map(|p| p.team);
+        let unique_team = player_team.and_then(|team| {
+            let mut found = None;
+            for p in self.players.values() {
+                if p.team != team || team == Team::Neutral {
+                    continue;
+                }
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(p.id);
+            }
+            found
+        });
+        let owned = |obj: &Object| match obj.owner_player_id {
+            Some(owner) => owner == player_id,
+            None => unique_team == Some(player_id) && player_team == Some(obj.team),
+        };
+
+        let container_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, obj)| owned(obj) && !obj.contained_units().is_empty())
+            .map(|(id, _)| *id)
+            .collect();
+        for container_id in container_ids {
+            let _ = self.evacuate_container_now(container_id, false);
+        }
+
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.is_alive = false;
+        }
+
+        let army: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, obj)| owned(obj))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in army {
+            self.destroy_object(id);
+        }
+
+        if let Some(player) = self.players.get_mut(&player_id) {
+            player.is_alive = false;
+            player.resources.supplies = 0;
+            player.pending_supply_delta = 0;
+            player.selected_objects.clear();
+        }
+    }
+
     pub(in super::super) fn convert_script_event(
         &self,
         event: &ScriptEvent,

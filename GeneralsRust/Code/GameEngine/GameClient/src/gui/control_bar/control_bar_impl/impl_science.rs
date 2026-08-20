@@ -65,6 +65,37 @@ fn reveal_ingame_command_window() {
     });
 }
 
+/// C++ ControlBarCommand.cpp:1219-1261 — COMMAND_RESTRICTED unless ScienceVec owned.
+pub fn command_button_science_vec_owned(
+    crate_player_has: impl Fn(ScienceType) -> bool,
+    host_unlocked_names: &[String],
+    required_ids: &[ScienceType],
+    required_names: &[String],
+) -> bool {
+    if !required_ids.is_empty() {
+        let ids_ok = required_ids
+            .iter()
+            .all(|&st| st == SCIENCE_INVALID || crate_player_has(st));
+        if ids_ok {
+            return true;
+        }
+    }
+    if !required_names.is_empty() {
+        return required_names.iter().all(|req| {
+            let want = req.trim();
+            if want.is_empty() {
+                return true;
+            }
+            host_unlocked_names
+                .iter()
+                .any(|owned| owned.eq_ignore_ascii_case(want))
+        });
+    }
+    required_ids.is_empty()
+}
+
+
+
 
 
 impl ControlBar {
@@ -226,6 +257,23 @@ impl ControlBar {
         }
         buttons
     }
+
+    /// First enabled purchase-science button (C++ populatePurchaseScience order).
+    pub fn first_capable_purchase_science_name(&self) -> Option<String> {
+        for buttons in [
+            &self.science_state.rank1_buttons,
+            &self.science_state.rank3_buttons,
+            &self.science_state.rank8_buttons,
+        ] {
+            for btn in buttons {
+                if btn.is_enabled && !btn.is_purchased && !btn.command_name.is_empty() {
+                    return Some(btn.command_name.clone());
+                }
+            }
+        }
+        None
+    }
+
 
 
     fn update_context_purchase_science(&mut self) {
@@ -796,6 +844,19 @@ impl ControlBar {
             refreshed.insert(button.command_name.clone(), state);
         }
 
+        let crate_has = |science: ScienceType| -> bool {
+            logic_player_list()
+                .read()
+                .ok()
+                .and_then(|list| {
+                    list.get_player(player_id as PlayerIndex)
+                        .cloned()
+                        .or_else(|| list.get_local_player().cloned())
+                })
+                .and_then(|arc| arc.read().ok().map(|p| p.has_science(science)))
+                .unwrap_or(false)
+        };
+
         for (name, state) in refreshed.iter_mut() {
             if let Some(button) = context
                 .available_commands
@@ -818,11 +879,22 @@ impl ControlBar {
                         }
                     }
                 }
+                if !command_button_science_vec_owned(
+                    &crate_has,
+                    &self.science_state.unlocked_sciences,
+                    &button.sciences_ids,
+                    &button.sciences,
+                ) {
+                    state.enabled = false;
+                    state.availability = CommandAvailability::Restricted;
+                }
+
             }
         }
 
         self.button_states = refreshed;
     }
+
 
     pub fn get_context(&self) -> Arc<RwLock<ControlBarContext>> {
         self.context.clone()
@@ -847,3 +919,34 @@ impl ControlBar {
             .unwrap_or(ControlBarState::None)
     }
 }
+
+#[cfg(test)]
+mod science_vec_gate_tests {
+    use super::*;
+
+    #[test]
+    fn science_vec_restricted_until_host_or_crate_owns() {
+        // C++ ControlBarCommand.cpp:1219-1261
+        let required_ids = [42];
+        let required_names = vec!["SCIENCE_StealthFighter".to_string()];
+        assert!(!command_button_science_vec_owned(
+            |_| false,
+            &[],
+            &required_ids,
+            &required_names
+        ));
+        assert!(command_button_science_vec_owned(
+            |st| st == 42,
+            &[],
+            &required_ids,
+            &required_names
+        ));
+        assert!(command_button_science_vec_owned(
+            |_| false,
+            &["SCIENCE_StealthFighter".to_string()],
+            &required_ids,
+            &required_names
+        ));
+    }
+}
+

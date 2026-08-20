@@ -21,11 +21,11 @@
 //!   C++ human players sleep forever (no auto-scan).
 //! - **Base-center fallback residual**: when no vehicle found, AI pilot moves once
 //!   toward team command-center / base (`m_didMoveToBase`).
-//! - **AutoFindHealingUpdate residual**: AI-only idle injured USA infantry
+//! - **AutoFindHealingUpdate residual**: AI-only idle injured infantry
 //!   auto-scan (ScanRate **1000**ms → **30** frames, ScanRange **300**,
 //!   NeverHeal **0.85**, AlwaysHeal **0.25**) toward nearest HealPad →
-//!   SeekingHealing residual. Templates: Pilot / Ranger / MissileDefender /
-//!   Pathfinder / ColonelBurton residual family.
+//!   SeekingHealing residual. C++: any AI template with the module (USA /
+//!   China / GLA infantry), not a USA-only allowlist.
 //! - **Air OCL parachute residual**: when dying vehicle is significantly above
 //!   terrain (C++ `isSignificantlyAboveTerrain` / OCL_EjectPilotViaParachute),
 //!   pilot spawns elevated + parachuting residual sink until ground.
@@ -740,14 +740,19 @@ pub fn pilot_levels_to_gain(pilot_level: VeterancyLevel) -> u8 {
 
 /// C++ ExperienceTracker::canGainExpForLevel residual.
 ///
-/// Vehicle can absorb `levels` only if resulting rank stays within Heroic (3).
-/// Fail-closed: Heroic vehicle cannot gain further levels → wouldLikeToCollideWith false.
+/// Gain whatever levels fit up to Heroic (`LEVEL_LAST`). Elite + 2 still
+/// promotes to Heroic; only a Heroic vehicle (or `levels == 0`) is blocked.
 pub fn vehicle_can_gain_exp_for_levels(vehicle_level: VeterancyLevel, levels: u8) -> bool {
-    if levels == 0 {
-        return false;
+        if levels == 0 {
+            return false;
+        }
+        let current = veterancy_rank(vehicle_level);
+        let mut new_level = current.saturating_add(levels);
+        if new_level > 3 {
+            new_level = 3;
+        }
+        new_level > current
     }
-    (veterancy_rank(vehicle_level) as u16 + levels as u16) <= 3
-}
 
 /// Combined PilotFindVehicle scan target residual (recrewable + MinHealth + range
 /// + CollideModule wouldLikeToCollideWith).
@@ -779,9 +784,9 @@ pub fn should_pilot_base_center_fallback(
 
 /// Whether template has residual AutoFindHealingUpdate module.
 ///
-/// Retail America infantry: Pilot / Ranger / MissileDefender / Pathfinder /
-/// ColonelBurton (+ general variants). Fail-closed name residual (not full INI
-/// module parse).
+/// C++ AutoFindHealingUpdate.cpp:78-123 — any object with the module + AI.
+/// Retail infantry across USA / China / GLA carry the module. Fail-closed
+/// against weapons, upgrades, hulks, and non-infantry names.
 pub fn is_auto_find_healing_template(template_name: &str) -> bool {
     if is_pilot_template(template_name) {
         return true;
@@ -803,6 +808,9 @@ pub fn is_auto_find_healing_template(template_name: &str) -> bool {
         || n.contains("voice")
         || n.contains("commandset")
         || n.contains("flashbang")
+        || n.contains("building")
+        || n.contains("vehicle")
+        || n.contains("aircraft")
     {
         return false;
     }
@@ -817,16 +825,24 @@ pub fn is_auto_find_healing_template(template_name: &str) -> bool {
         || n == "testcolonelburton"
         || n == "usa_colonelburton"
         || n == "testburton"
+        || n == "testinfantry"
+        || n == "gla_rebel"
+        || n == "china_redguard"
     {
         return true;
     }
-    // AmericaInfantryRanger / *MissileDefender / *Pathfinder / *ColonelBurton
-    n.contains("infantryranger")
-        || (n.contains("ranger") && n.contains("america"))
+    // Any living infantry template (America / China / GLA + generals).
+    n.contains("infantry")
         || n.contains("missiledefender")
-        || n.contains("infantrypathfinder")
-        || (n.contains("pathfinder") && (n.contains("america") || n.contains("usa")))
         || n.contains("colonelburton")
+        || n.contains("redguard")
+        || n.contains("minigunner")
+        || n.contains("tankhunter")
+        || n.contains("blacklotus")
+        || n.contains("rpgtrooper")
+        || n.contains("jarmen")
+        || (n.contains("ranger") && (n.contains("america") || n.contains("usa")))
+        || (n.contains("pathfinder") && (n.contains("america") || n.contains("usa")))
 }
 
 /// C++ Thing::isSignificantlyAboveTerrain residual.
@@ -941,7 +957,7 @@ pub fn tick_parachute_height_with_state(
 /// Whether AutoFindHealingUpdate residual may auto-scan this unit.
 ///
 /// C++: human players return early (no scan); AI idle only (busy path fail-closed).
-/// `has_auto_find_healing` covers pilot + residual USA infantry module templates.
+/// `has_auto_find_healing` covers any infantry AutoFindHealingUpdate module.
 pub fn auto_find_healing_scan_eligible(
     has_auto_find_healing: bool,
     is_alive: bool,
@@ -1001,17 +1017,26 @@ pub fn should_recrew_on_enter(is_pilot: bool, vehicle_recrewable: bool) -> bool 
     is_pilot && vehicle_recrewable
 }
 
-/// Merged veterancy after recrew: max(vehicle, pilot).
+/// Merged veterancy after recrew: C++ `gainExpForLevel(pilotLevels)`.
+///
+/// Pilot levels are the pilot's veterancy rank (Regular=0, Veteran=1, …),
+/// added to the vehicle and clamped to Heroic. Not `max(vehicle, pilot)`.
 pub fn merged_recrew_veterancy(
-    vehicle_level: VeterancyLevel,
-    pilot_level: VeterancyLevel,
-) -> VeterancyLevel {
-    if veterancy_rank(pilot_level) >= veterancy_rank(vehicle_level) {
-        pilot_level
-    } else {
-        vehicle_level
+        vehicle_level: VeterancyLevel,
+        pilot_level: VeterancyLevel,
+    ) -> VeterancyLevel {
+        let add = pilot_levels_to_gain(pilot_level);
+        let mut rank = veterancy_rank(vehicle_level).saturating_add(add);
+        if rank > 3 {
+            rank = 3;
+        }
+        match rank {
+            0 => VeterancyLevel::Rookie,
+            1 => VeterancyLevel::Veteran,
+            2 => VeterancyLevel::Elite,
+            _ => VeterancyLevel::Heroic,
+        }
     }
-}
 
 /// Host residual honesty counters for USA Pilot recrew + EjectPilotDie.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1439,6 +1464,16 @@ mod tests {
             merged_recrew_veterancy(VeterancyLevel::Heroic, VeterancyLevel::Veteran),
             VeterancyLevel::Heroic
         );
+        // Elite vehicle + Veteran pilot (adds 1) → Heroic, not max()=Elite.
+        assert_eq!(
+            merged_recrew_veterancy(VeterancyLevel::Elite, VeterancyLevel::Veteran),
+            VeterancyLevel::Heroic
+        );
+        // Veteran vehicle + Elite pilot (adds 2) → Heroic, not max()=Elite.
+        assert_eq!(
+            merged_recrew_veterancy(VeterancyLevel::Veteran, VeterancyLevel::Elite),
+            VeterancyLevel::Heroic
+        );
         assert_eq!(pilot_default_veterancy(), VeterancyLevel::Veteran);
     }
 
@@ -1529,8 +1564,8 @@ mod tests {
         assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Elite, 1));
         assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Heroic, 1));
         assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 0));
-        // Elite vehicle + Elite pilot levels (2) → 2+2=4 > 3 blocked.
-        assert!(!vehicle_can_gain_exp_for_levels(VeterancyLevel::Elite, 2));
+        // Elite + 2 clamps to Heroic and still gains (C++ canGainExpForLevel).
+        assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Elite, 2));
         // Rookie + Heroic pilot levels (3) → ok.
         assert!(vehicle_can_gain_exp_for_levels(VeterancyLevel::Rookie, 3));
 
@@ -1608,8 +1643,8 @@ mod tests {
         ));
         assert!(is_auto_find_healing_template("AirF_AmericaInfantryRanger"));
         assert!(is_auto_find_healing_template("TestRanger"));
-        assert!(!is_auto_find_healing_template("GLAInfantryRebel"));
-        assert!(!is_auto_find_healing_template("ChinaInfantryRedguard"));
+        assert!(is_auto_find_healing_template("GLAInfantryRebel"));
+        assert!(is_auto_find_healing_template("ChinaInfantryRedguard"));
         assert!(!is_auto_find_healing_template(
             "RangerFlashBangGrenadeWeapon"
         ));

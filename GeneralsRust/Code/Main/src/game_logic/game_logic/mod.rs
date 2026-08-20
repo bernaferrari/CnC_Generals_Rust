@@ -23,7 +23,10 @@ pub use crate_tick::{
     tick_gamelogic_crate, crate_empty_noop_tick_count, AICommand, PendingSpecialAbility,
     AudioEventRequest, GameMode, FixedStepDiagnostics, SimTimingSnapshot, PlayerStatistics,
 };
-pub use player::{Player, PlayerTemplateIdentity, SkirmishRulesState, HostObjectStore};
+pub use player::{
+    HostAuthoredBuild, HostObjectStore, Player, PlayerMapSideState, PlayerTemplateIdentity,
+    SkirmishRulesState,
+};
 pub use host::{GameLogic, RuntimeWeatherState};
 pub use script_camera::{
     AttackPriorityInfo, ATTACK_PRIORITY_DISTANCE_MODIFIER, find_enemy_flags, MoodMatrixAction,
@@ -97,8 +100,18 @@ impl GameLogic {
         {
             self.update_player_alive_state();
         }
-        self.victory_conditions
-            .evaluate(&self.players, &self.objects, self.frame)
+        let outcome = self.victory_conditions.evaluate(
+            &self.players,
+            &self.objects,
+            self.frame,
+            self.game_mode,
+        );
+        // C++ VictoryConditions.cpp:196 p->killPlayer() on first defeat frame.
+        let pending = self.victory_conditions.take_pending_kills();
+        for player_id in pending {
+            self.kill_player_for_victory(player_id);
+        }
+        outcome
     }
 
     pub fn victory_type(&self) -> VictoryType {

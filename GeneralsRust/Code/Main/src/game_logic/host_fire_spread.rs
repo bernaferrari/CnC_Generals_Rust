@@ -30,6 +30,12 @@ pub const TREE_BURNED_DELAY_MS: u32 = 2_500;
 pub const TREE_BURNED_DELAY_FRAMES: u32 = 75; // 2500ms
 pub const TREE_AFLAME_DURATION_MS: u32 = 3_500;
 pub const TREE_AFLAME_DURATION_FRAMES: u32 = 105; // 3500ms
+/// Retail tree FlammableUpdate AflameDamageAmount residual.
+pub const TREE_AFLAME_DAMAGE_AMOUNT: f32 = 5.0;
+/// Retail tree FlammableUpdate AflameDamageDelay residual (msec).
+pub const TREE_AFLAME_DAMAGE_DELAY_MS: u32 = 500;
+/// AflameDamageDelay 500ms → 15 frames @ 30 FPS.
+pub const TREE_AFLAME_DAMAGE_DELAY_FRAMES: u32 = 15;
 pub const TREE_BURNING_SOUND: &str = "GenericFireMediumLoop";
 
 /// Retail FireSpreadUpdate peels.
@@ -69,6 +75,23 @@ pub struct HostFireSpreadData {
     pub burned_delay: u32,
     pub active: bool,
     pub spread_enabled: bool,
+    /// C++ FlammableUpdateModuleData::m_aflameDamageAmount.
+    #[serde(default = "default_aflame_damage_amount")]
+    pub aflame_damage_amount: f32,
+    /// C++ FlammableUpdateModuleData::m_aflameDamageDelay (frames).
+    #[serde(default = "default_aflame_damage_delay")]
+    pub aflame_damage_delay: u32,
+    /// C++ FlammableUpdate::m_damageEndFrame.
+    #[serde(default)]
+    pub damage_end_frame: u32,
+}
+
+fn default_aflame_damage_amount() -> f32 {
+    TREE_AFLAME_DAMAGE_AMOUNT
+}
+
+fn default_aflame_damage_delay() -> u32 {
+    TREE_AFLAME_DAMAGE_DELAY_FRAMES
 }
 
 impl Default for HostFireSpreadData {
@@ -93,6 +116,9 @@ impl HostFireSpreadData {
             burned_delay: TREE_BURNED_DELAY_FRAMES,
             active: true,
             spread_enabled: true,
+            aflame_damage_amount: TREE_AFLAME_DAMAGE_AMOUNT,
+            aflame_damage_delay: TREE_AFLAME_DAMAGE_DELAY_FRAMES,
+            damage_end_frame: 0,
         }
     }
 
@@ -121,6 +147,12 @@ impl HostFireSpreadData {
         // C++ startFireSpreading → wake with next delay.
         self.next_spread_frame =
             current_frame.saturating_add(self.calc_next_spread_delay(current_frame));
+        // C++ FlammableUpdate.cpp:194 m_damageEndFrame = now + AflameDamageDelay
+        self.damage_end_frame = if self.aflame_damage_delay > 0 {
+            current_frame.saturating_add(self.aflame_damage_delay)
+        } else {
+            0
+        };
         true
     }
 
@@ -158,6 +190,12 @@ impl HostFireSpreadData {
             HostFlammableState::Normal => {}
             HostFlammableState::Aflame => {
                 r.aflame = true;
+                // C++ FlammableUpdate.cpp:113-117 doAflameDamage on m_damageEndFrame.
+                if self.damage_end_frame != 0 && current_frame >= self.damage_end_frame {
+                    self.damage_end_frame =
+                        current_frame.saturating_add(self.aflame_damage_delay.max(1));
+                    r.aflame_damage = self.aflame_damage_amount;
+                }
                 if current_frame >= self.aflame_end_frame {
                     self.state = HostFlammableState::Burned;
                     r.became_burned = true;
@@ -193,6 +231,8 @@ pub struct FlammableTickResult {
     pub aflame: bool,
     pub burned: bool,
     pub became_burned: bool,
+    /// C++ FlammableUpdate::doAflameDamage amount this frame (0 = none).
+    pub aflame_damage: f32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -256,6 +296,8 @@ pub fn honesty_fire_spread_residual_ok() -> bool {
         && fire_spread_ms_to_frames(TREE_BURNED_DELAY_MS) == TREE_BURNED_DELAY_FRAMES
         && TREE_SPREAD_TRY_RANGE == 50.0
         && TREE_FLAME_DAMAGE_LIMIT == 2.0
+        && TREE_AFLAME_DAMAGE_AMOUNT == 5.0
+        && TREE_AFLAME_DAMAGE_DELAY_FRAMES == 15
         && TREE_OCL_EMBERS == "OCL_BurningEmbers"
         && is_fire_spread_template("DogwoodTree")
         && is_fire_spread_template("PTDogwood01")
@@ -295,5 +337,18 @@ mod tests {
         let r = d.tick_flammable(5);
         assert!(r.became_burned);
         assert!(matches!(d.state, HostFlammableState::Burned));
+    }
+
+    #[test]
+    fn aflame_dot_applies_after_damage_delay() {
+        // C++ FlammableUpdate.cpp:113-117 / 202-212 doAflameDamage.
+        let mut d = HostFireSpreadData::tree_default();
+        assert!(d.try_to_ignite(0));
+        assert_eq!(d.damage_end_frame, TREE_AFLAME_DAMAGE_DELAY_FRAMES);
+        let r0 = d.tick_flammable(0);
+        assert_eq!(r0.aflame_damage, 0.0);
+        let r = d.tick_flammable(TREE_AFLAME_DAMAGE_DELAY_FRAMES);
+        assert!((r.aflame_damage - TREE_AFLAME_DAMAGE_AMOUNT).abs() < 0.001);
+        assert!(d.is_aflame());
     }
 }

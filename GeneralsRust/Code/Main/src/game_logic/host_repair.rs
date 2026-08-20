@@ -175,6 +175,23 @@ pub fn repair_dock_hp_per_sec(max_health: f32) -> f32 {
     max_health / seconds
 }
 
+/// C++ `RepairDockUpdate::action` first-docker rate:
+/// `(maxHealth - health) / TimeForFullHeal` seconds.
+///
+/// Retail 5000 ms → a Humvee and an Overlord both finish in 5 s from their
+/// arrival damage, instead of sharing a flat 35 HP/s.
+pub fn repair_dock_hp_per_sec_from_missing(max_health: f32, current_health: f32) -> f32 {
+    if max_health <= 0.0 {
+        return 0.0;
+    }
+    let seconds = (REPAIR_DOCK_TIME_FOR_FULL_HEAL_MS as f32) / 1000.0;
+    if seconds <= 0.0 {
+        return 0.0;
+    }
+    (max_health - current_health).max(0.0) / seconds
+}
+
+
 /// Whether a building type can service vehicle GetRepaired residual.
 ///
 /// Retail: USA Repair Bay (RepairPad / TechRepairPad); China War Factory docks vehicles
@@ -335,6 +352,22 @@ mod tests {
         assert_eq!(DOZER_BORED_TIME_MS, 5000);
         assert_eq!(DOZER_BORED_RANGE, 150.0);
     }
+
+    #[test]
+    fn repair_dock_time_for_full_heal_scales_with_missing_hp() {
+        // Humvee 240 max / 40 current vs Overlord 2000 max / 400 current:
+        // both finish in 5 s, so rates differ (not flat 35 HP/s).
+        let humvee = repair_dock_hp_per_sec_from_missing(240.0, 40.0);
+        let overlord = repair_dock_hp_per_sec_from_missing(2000.0, 400.0);
+        assert!((humvee - 40.0).abs() < 0.01);
+        assert!((overlord - 320.0).abs() < 0.01);
+        assert!(humvee < overlord);
+        assert_ne!(humvee, HOST_REPAIR_RATE_HP_PER_SEC);
+        assert_ne!(overlord, HOST_REPAIR_RATE_HP_PER_SEC);
+        assert_eq!(repair_dock_hp_per_sec_from_missing(100.0, 100.0), 0.0);
+        assert_eq!(repair_dock_hp_per_sec_from_missing(0.0, 0.0), 0.0);
+    }
+
     /// Wave 71 residual pack honesty gate.
     #[test]
     fn repair_residual_pack_honesty_wave71() {

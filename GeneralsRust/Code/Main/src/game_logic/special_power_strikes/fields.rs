@@ -1,6 +1,25 @@
 //! Radiation, toxin, neutron, Spectre orbit, Particle beam, and remnant field records.
 use super::types::*;
 use super::*;
+/// C++ `SpecialPowerModule::createViewObject` residual (range 250 / 30-40s).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostViewObjectReveal {
+    pub source_object: ObjectId,
+    pub player_id: u32,
+    pub position: Vec3,
+    pub range: f32,
+    pub spawn_frame: u32,
+    pub expires_frame: u32,
+    pub object_id: Option<ObjectId>,
+    pub fow_reveal_ok: bool,
+}
+
+impl HostViewObjectReveal {
+    pub fn duration_frames(&self) -> u32 {
+        self.expires_frame.saturating_sub(self.spawn_frame)
+    }
+}
+
 /// Residual radiation field spawned by NuclearMissile impact
 /// (`OCL_NukeRadiationField` / `NukeRadiationFieldWeapon` residual).
 /// Epicenter metadata for a NeutronMissileSlowDeath residual field.

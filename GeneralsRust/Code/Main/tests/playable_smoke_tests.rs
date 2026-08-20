@@ -47,7 +47,12 @@ fn install_smoke_templates(game_logic: &mut GameLogic) {
     let templates = [
         template(
             "SmokeCommandCenter",
-            &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
+            &[
+                KindOf::Structure,
+                KindOf::Selectable,
+                KindOf::CommandCenter,
+                KindOf::MpCountForVictory,
+            ],
             2000.0,
             2000,
             0.1,

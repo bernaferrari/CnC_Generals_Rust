@@ -91,6 +91,8 @@ pub use particle_manager::{
     ParticleSystemManager, ParticleSystemTemplate, ParticleType as CppParticleTypeEnum,
     RGBColorKeyframe, RandomKeyframe, WindMotion, INVALID_PARTICLE_SYSTEM_ID, MAX_KEYFRAMES,
 };
+pub use particle_ini_loader::ParticleSystemINIParser;
+
 pub use particle_presets::{destruction, environment, explosions, get_preset_by_name, weapons};
 pub use particle_renderer::{
     bake_particle_gpu_vertex, bake_particle_system_gpu_mesh, ParticleBatch, ParticleRenderStats,

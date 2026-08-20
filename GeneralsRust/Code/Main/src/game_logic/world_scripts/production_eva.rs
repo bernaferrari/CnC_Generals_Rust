@@ -1132,55 +1132,8 @@ impl GameLogic {
         let team = obj.team;
         let pos = obj.get_position();
         let name = obj.template_name.clone();
-        let has_preorder_create = obj.thing.template.has_preorder_create;
-        let grant_upgrades = obj.thing.template.grant_upgrade_creates.clone();
-        let lock_weapon_slot = obj.thing.template.lock_weapon_slot;
-        // NLL ends `obj` borrow after last field copy above.
-        // C++ PreorderCreate::onBuildComplete residual — INI module, not name heuristic.
-        let did_preorder = self
-            .players
-            .values()
-            .find(|p| p.team == team && p.is_alive)
-            .map(|p| p.did_preorder)
-            .unwrap_or(false);
-        if crate::game_logic::host_preorder_create::is_preorder_create_module(has_preorder_create)
-        {
-            if let Some(o) = self.objects.get_mut(&structure_id) {
-                o.model_condition_bits =
-                    crate::game_logic::host_preorder_create::apply_preorder_model_bit(
-                        o.model_condition_bits,
-                        did_preorder,
-                    );
-                o.refresh_model_condition_bits();
-            }
-            if did_preorder {
-                self.preorder_create_reg.record_set();
-            } else {
-                self.preorder_create_reg.record_clear();
-            }
-        }
-        // C++ GrantUpgradeCreate::onBuildComplete — grant UpgradeToGrant.
-        if let Some(o) = self.objects.get_mut(&structure_id) {
-            for grant in &grant_upgrades {
-                o.apply_upgrade_tag(&grant.upgrade_name);
-            }
-        }
-        if !grant_upgrades.is_empty() {
-            if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive)
-            {
-                for grant in &grant_upgrades {
-                    player.add_completed_upgrade(&grant.upgrade_name);
-                }
-            }
-        }
-        // C++ LockWeaponCreate::onBuildComplete — permanent slot lock.
-        if let Some(slot) = lock_weapon_slot {
-            if let Some(o) = self.objects.get_mut(&structure_id) {
-                let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
-            }
-        }
-        // C++ SpecialPowerCreate → onSpecialPowerCreation (all owners, not local-only).
-        self.on_structure_superweapon_creation(structure_id);
+        // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
+        self.apply_create_modules_on_build_complete(structure_id);
         let local = self
             .players
             .values()
@@ -1243,8 +1196,6 @@ impl GameLogic {
         };
         let team = unit.team;
         let pos = unit.get_position();
-        let grants = unit.thing.template.grant_upgrade_creates.clone();
-        let lock_weapon_slot = unit.thing.template.lock_weapon_slot;
         let local = self
             .players
             .values()
@@ -1261,23 +1212,9 @@ impl GameLogic {
                 localization::localize("GUI:UnitReady", &format!("Unit ready: {template_name}"));
             self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
         }
-        // C++ ProductionUpdate calls create onBuildComplete after spawn.
-        if let Some(o) = self.objects.get_mut(&unit_id) {
-            for grant in &grants {
-                o.apply_upgrade_tag(&grant.upgrade_name);
-            }
-            if let Some(slot) = lock_weapon_slot {
-                let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
-            }
-        }
-        if !grants.is_empty() {
-            if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive)
-            {
-                for grant in &grants {
-                    player.add_completed_upgrade(&grant.upgrade_name);
-                }
-            }
-        }
+        // C++ ProductionUpdate.cpp:819-825 create onBuildComplete after spawn,
+        // including SpecialPowerCreate::startPowerRecharge.
+        self.apply_create_modules_on_build_complete(unit_id);
         let _ = producer_id;
         self.unit_ready_events = self.unit_ready_events.saturating_add(1);
     }

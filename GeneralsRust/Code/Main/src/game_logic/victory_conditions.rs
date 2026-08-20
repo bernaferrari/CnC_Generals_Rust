@@ -13,7 +13,10 @@ use std::sync::OnceLock;
 use crate::config::{ConfigValue, IniParser, LoadMode};
 
 use super::{
-    game_logic::Player, object::Object, victory::VictoryCondition, KindOf, ObjectId, Team,
+    game_logic::{GameMode, Player},
+    object::Object,
+    victory::VictoryCondition,
+    KindOf, ObjectId, Team,
 };
 
 bitflags! {
@@ -59,36 +62,114 @@ struct PlayerArmyState {
     has_structures: bool,
 }
 
+/// C++ `VictoryConditions::areAllies` / slot team: `Player.alliance_team`,
+/// not faction [`Team`]. Unset (`< 0`) means the player is a lone alliance.
+fn alliance_key(player: &Player) -> i32 {
+    if player.alliance_team >= 0 {
+        player.alliance_team
+    } else {
+        // Unique negative so two USA slots without a team number never merge.
+        -1 - (player.id as i32)
+    }
+}
+
+/// C++ `TheRecorder->isMultiplayer()`: skirmish / network / replay of those.
+/// Campaign (`GAME_SINGLE_PLAYER`) and shell never run this evaluator.
+pub fn is_multiplayer_or_skirmish_victory(mode: GameMode) -> bool {
+    matches!(
+        mode,
+        GameMode::Skirmish
+            | GameMode::Multiplayer
+            | GameMode::Lan
+            | GameMode::Internet
+            | GameMode::Replay
+    )
+}
+
+fn unique_faction_owner(players: &HashMap<u32, Player>, team: Team) -> Option<u32> {
+    if team == Team::Neutral {
+        return None;
+    }
+    let mut found = None;
+    for player in players.values() {
+        if player.team != team || !is_playable_victory_player(player) {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some(player.id);
+    }
+    found
+}
+
+fn object_belongs_to_player(
+    obj: &Object,
+    player: &Player,
+    unique_team_owner: Option<u32>,
+) -> bool {
+    match obj.owner_player_id {
+        Some(owner) => owner == player.id,
+        None => unique_team_owner == Some(player.id) && obj.team == player.team,
+    }
+}
+
+fn is_playable_victory_player(player: &Player) -> bool {
+    if player.team == Team::Neutral {
+        return false;
+    }
+    let name = player.name.to_ascii_lowercase();
+    !name.contains("observer") && !name.contains("civilian")
+}
+
+/// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
+/// forced on the mask; walls without the victory bit do not stall a match.
+fn counts_as_victory_building(obj: &Object) -> bool {
+    obj.is_kind_of(KindOf::Structure) && obj.is_kind_of(KindOf::MpCountForVictory)
+}
+
+/// C++ `Team::hasAnyUnits`: not structure, not projectile, not mine.
+fn counts_as_unit(obj: &Object) -> bool {
+    !obj.is_kind_of(KindOf::Structure)
+        && !obj.is_kind_of(KindOf::Projectile)
+        && !obj.is_kind_of(KindOf::Mine)
+}
+
+/// C++ `Team::hasAnyObjects`: skip projectiles, mines (and inert, not hosted).
+fn counts_as_any_object(obj: &Object) -> bool {
+    !obj.is_kind_of(KindOf::Projectile) && !obj.is_kind_of(KindOf::Mine)
+}
+
 impl PlayerArmyState {
-    fn from_objects(objects: &HashMap<ObjectId, Object>, team: Team) -> Self {
+    fn from_objects(
+        objects: &HashMap<ObjectId, Object>,
+        player: &Player,
+        unique_team_owner: Option<u32>,
+    ) -> Self {
         let mut state = Self::default();
 
         for obj in objects.values() {
-            if obj.team != team || !obj.is_alive() {
+            if !object_belongs_to_player(obj, player, unique_team_owner) || !obj.is_alive() {
                 continue;
             }
 
-            state.has_any_objects = true;
+            if counts_as_any_object(obj) {
+                state.has_any_objects = true;
+            }
 
-            if obj.is_kind_of(KindOf::Structure) {
+            if counts_as_victory_building(obj) {
                 state.has_structures = true;
             } else if counts_as_unit(obj) {
                 state.has_units = true;
             }
 
-            if state.has_structures && state.has_units {
+            if state.has_structures && state.has_units && state.has_any_objects {
                 break;
             }
         }
 
         state
     }
-}
-
-fn counts_as_unit(obj: &Object) -> bool {
-    obj.is_kind_of(KindOf::Infantry)
-        || obj.is_kind_of(KindOf::Vehicle)
-        || obj.is_kind_of(KindOf::Aircraft)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -112,7 +193,8 @@ pub struct VictoryConditions {
     defeat_events: Vec<u32>,
     alliance_states: HashMap<u32, AllianceState>,
     alliance_events: Vec<AllianceNotification>,
-    winning_team: Option<Team>,
+    winning_alliance: Option<i32>,
+    pending_kills: Vec<u32>,
 }
 
 impl Default for VictoryConditions {
@@ -130,7 +212,8 @@ impl VictoryConditions {
             defeat_events: Vec::new(),
             alliance_states: HashMap::new(),
             alliance_events: Vec::new(),
-            winning_team: None,
+            winning_alliance: None,
+            pending_kills: Vec::new(),
         }
     }
 
@@ -141,7 +224,8 @@ impl VictoryConditions {
         self.defeat_events.clear();
         self.alliance_states.clear();
         self.alliance_events.clear();
-        self.winning_team = None;
+        self.winning_alliance = None;
+        self.pending_kills.clear();
     }
 
     pub fn set_victory_conditions(&mut self, config: VictoryType) {
@@ -161,16 +245,21 @@ impl VictoryConditions {
         players: &HashMap<u32, Player>,
         objects: &HashMap<ObjectId, Object>,
         frame: u32,
+        game_mode: GameMode,
     ) -> Option<VictoryCondition> {
+        // C++ VictoryConditions.cpp:125 — early-return unless isMultiplayer.
+        if !is_multiplayer_or_skirmish_victory(game_mode) {
+            return None;
+        }
         if players.is_empty() {
             return None;
         }
 
         let mut living_players = Vec::new();
-        let mut active_alliances: HashMap<Team, Vec<u32>> = HashMap::new();
+        let mut active_alliances: HashMap<i32, Vec<u32>> = HashMap::new();
 
         for (&player_id, player) in players {
-            if player.team == Team::Neutral {
+            if !is_playable_victory_player(player) {
                 continue;
             }
 
@@ -178,33 +267,39 @@ impl VictoryConditions {
                 continue;
             }
 
-            let state = PlayerArmyState::from_objects(objects, player.team);
+            let unique_owner = unique_faction_owner(players, player.team);
+            let state = PlayerArmyState::from_objects(objects, player, unique_owner);
             if self.is_defeated(state) {
                 if self.defeated_players.insert(player_id) {
                     self.defeat_events.push(player_id);
+                    self.pending_kills.push(player_id);
                 }
                 continue;
             }
 
             living_players.push(player_id);
             active_alliances
-                .entry(player.team)
+                .entry(alliance_key(player))
                 .or_default()
                 .push(player_id);
         }
 
         if living_players.is_empty() {
             self.end_frame.get_or_insert(frame);
+            self.winning_alliance = None;
+            self.refresh_alliance_states(players);
             return Some(VictoryCondition::Draw);
         }
 
-        let mut non_neutral_alliances: Vec<(Team, Vec<u32>)> = active_alliances
+        let mut non_neutral_alliances: Vec<(i32, Vec<u32>)> = active_alliances
             .into_iter()
-            .filter(|(team, members)| *team != Team::Neutral && !members.is_empty())
+            .filter(|(_, members)| !members.is_empty())
             .collect();
 
         if non_neutral_alliances.is_empty() {
             self.end_frame.get_or_insert(frame);
+            self.winning_alliance = None;
+            self.refresh_alliance_states(players);
             return Some(VictoryCondition::Draw);
         }
         let winning_entry = if non_neutral_alliances.len() == 1 {
@@ -212,7 +307,7 @@ impl VictoryConditions {
         } else {
             None
         };
-        self.winning_team = winning_entry.as_ref().map(|(team, _)| *team);
+        self.winning_alliance = winning_entry.as_ref().map(|(key, _)| *key);
         self.refresh_alliance_states(players);
 
         if let Some((_, members)) = winning_entry {
@@ -245,6 +340,10 @@ impl VictoryConditions {
         std::mem::take(&mut self.defeat_events)
     }
 
+    pub fn take_pending_kills(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.pending_kills)
+    }
+
     pub fn peek_alliance_events(&self) -> &[AllianceNotification] {
         &self.alliance_events
     }
@@ -255,14 +354,14 @@ impl VictoryConditions {
 
     fn refresh_alliance_states(&mut self, players: &HashMap<u32, Player>) {
         for (&player_id, player) in players {
-            if player.team == Team::Neutral {
+            if !is_playable_victory_player(player) {
                 continue;
             }
             let new_state = if self.defeated_players.contains(&player_id) {
                 AllianceState::AlliedDefeat
             } else if self
-                .winning_team
-                .map(|team| team == player.team)
+                .winning_alliance
+                .map(|key| key == alliance_key(player))
                 .unwrap_or(false)
             {
                 AllianceState::AlliedVictory
@@ -469,5 +568,123 @@ fn parse_victory_keyword(keyword: &str) -> Option<VictoryType> {
         "nobuildings" | "structures" => Some(VictoryType::NO_BUILDINGS),
         "none" | "custom" => Some(VictoryType::empty()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::ThingTemplate;
+
+    fn player(id: u32, team: Team, alliance: i32) -> Player {
+        let mut p = Player::new(id, team, &format!("P{id}"), id == 0);
+        p.alliance_team = alliance;
+        p.is_alive = true;
+        p.resources.supplies = 5_000;
+        p
+    }
+
+    fn obj(
+        id: u32,
+        owner: u32,
+        team: Team,
+        kinds: &[KindOf],
+    ) -> (ObjectId, Object) {
+        let mut tpl = ThingTemplate::new(format!("T{id}"));
+        tpl.set_health(100.0);
+        for k in kinds {
+            tpl.add_kind_of(*k);
+        }
+        let oid = ObjectId(id);
+        let mut o = Object::new(tpl, oid, team);
+        o.owner_player_id = Some(owner);
+        (oid, o)
+    }
+
+    #[test]
+    fn alliance_uses_slot_team_not_faction() {
+        let mut vc = VictoryConditions::new();
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::USA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(
+            1,
+            0,
+            Team::USA,
+            &[KindOf::Infantry],
+        );
+        let (b, ob) = obj(
+            2,
+            1,
+            Team::USA,
+            &[KindOf::Infantry],
+        );
+        objects.insert(a, oa);
+        objects.insert(b, ob);
+        assert!(
+            vc.evaluate(&players, &objects, 10, GameMode::Skirmish)
+                .is_none(),
+            "USA-vs-USA with different alliance_team must continue"
+        );
+
+        let mut mixed = HashMap::new();
+        mixed.insert(0, player(0, Team::USA, 7));
+        mixed.insert(1, player(1, Team::China, 7));
+        mixed.insert(2, player(2, Team::GLA, 8));
+        let mut objs = HashMap::new();
+        let (c, oc) = obj(3, 0, Team::USA, &[KindOf::Infantry]);
+        let (d, od) = obj(4, 1, Team::China, &[KindOf::Infantry]);
+        objs.insert(c, oc);
+        objs.insert(d, od);
+        // GLA has no army → defeated; USA+China share alliance 7 → win.
+        let outcome = vc.evaluate(&mixed, &objs, 11, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(_))),
+            "mixed-faction 2v1 with shared alliance_team must end, got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn campaign_and_shell_do_not_evaluate() {
+        let mut vc = VictoryConditions::new();
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (a, oa) = obj(1, 0, Team::USA, &[KindOf::Infantry]);
+        objects.insert(a, oa);
+        assert!(vc
+            .evaluate(&players, &objects, 3, GameMode::SinglePlayer)
+            .is_none());
+        assert!(vc
+            .evaluate(&players, &objects, 3, GameMode::Shell)
+            .is_none());
+        assert!(vc.peek_defeat_events().is_empty());
+    }
+
+    #[test]
+    fn building_loss_requires_mp_count_for_victory() {
+        let mut vc = VictoryConditions::new();
+        vc.set_victory_conditions(VictoryType::NO_BUILDINGS);
+        let mut players = HashMap::new();
+        players.insert(0, player(0, Team::USA, 1));
+        players.insert(1, player(1, Team::GLA, 2));
+        let mut objects = HashMap::new();
+        let (cc, occ) = obj(
+            1,
+            0,
+            Team::USA,
+            &[KindOf::Structure, KindOf::MpCountForVictory],
+        );
+        let (wall, owall) = obj(2, 1, Team::GLA, &[KindOf::Structure]);
+        objects.insert(cc, occ);
+        objects.insert(wall, owall);
+        let outcome = vc.evaluate(&players, &objects, 4, GameMode::Skirmish);
+        assert!(
+            matches!(outcome, Some(VictoryCondition::Winner(0))),
+            "wall-only STRUCTURE without MP_COUNT must not stall, got {outcome:?}"
+        );
+        assert!(vc.take_pending_kills().contains(&1));
     }
 }

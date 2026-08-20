@@ -99,6 +99,7 @@ pub(super) fn ensure_test_structure_template(game_logic: &mut GameLogic) {
     let mut test_building = ThingTemplate::new("TestBuilding");
     test_building
         .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::MpCountForVictory)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1200.0)
@@ -118,6 +119,7 @@ pub(super) fn ensure_test_command_center_template(game_logic: &mut GameLogic) {
     command_center
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::CommandCenter)
+        .add_kind_of(KindOf::MpCountForVictory)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1800.0)

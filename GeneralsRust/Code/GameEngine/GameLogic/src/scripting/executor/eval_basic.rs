@@ -5,6 +5,25 @@
 
 use super::*;
 
+/// C++ ScriptEngine.cpp:5935 — TEAM_THE_PLAYER alias is Challenge-only.
+fn is_generals_challenge_context() -> bool {
+    game_engine::System::capture_campaign_manager_runtime().is_challenge
+}
+
+/// C++ Team.cpp:142-145 locoSetMatches — WB bit1 (air) shifts to locomotor AIR.
+fn loco_set_matches(lstm: u32, surface_bit_flags: u32) -> bool {
+    let remapped = (surface_bit_flags & 0x01) | ((surface_bit_flags & 0x02) << 2);
+    (remapped & lstm) != 0
+}
+
+fn bool_result(value: bool) -> ScriptConditionResult {
+    if value {
+        ScriptConditionResult::True
+    } else {
+        ScriptConditionResult::False
+    }
+}
+
 impl ScriptConditionEvaluator {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
@@ -31,16 +50,15 @@ impl ScriptConditionEvaluator {
             .flatten()
             .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                let current_player =
-                    with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
-                let Some(player_name) = current_player else {
+                // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939):
+                // remap teamThePlayer only in Generals Challenge campaigns.
+                if !is_generals_challenge_context() {
                     return raw.to_string();
-                };
-
+                }
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.find_player_by_name(&player_name))
+                    .and_then(|list| list.get_local_player().cloned())
                     .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
                     .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
                     .unwrap_or_else(|| raw.to_string())
@@ -53,17 +71,36 @@ impl ScriptConditionEvaluator {
         &self,
         team_name: &str,
     ) -> Result<Arc<RwLock<crate::team::Team>>, ScriptError> {
-        let team_name = self.resolve_string_token(team_name);
+        self.lookup_condition_team(team_name)
+            .ok_or_else(|| ScriptError::TeamNotFound(team_name.to_string()))
+    }
+
+    /// C++ ScriptEngine::getTeamNamed — first instance, never every prototype copy.
+    pub(crate) fn lookup_condition_team(
+        &self,
+        team_name: &str,
+    ) -> Option<Arc<RwLock<crate::team::Team>>> {
+        let resolved = self.resolve_string_token(team_name);
+        let calling = with_script_engine_ref(|engine| {
+            engine
+                .get_calling_team_name()
+                .or_else(|| engine.get_condition_team_name())
+        })
+        .flatten();
+        let preferred = calling.filter(|name| name == &resolved);
+
         let factory = get_team_factory();
-        if let Ok(mut factory_guard) = factory.lock() {
-            factory_guard
-                .find_team(&team_name)
-                .ok_or_else(|| ScriptError::TeamNotFound(team_name.to_string()))
-        } else {
-            Err(ScriptError::ExecutionFailed(
-                "Failed to lock team factory".to_string(),
-            ))
+        let factory_guard = factory.lock().ok()?;
+        if let Some(name) = preferred {
+            if let Some(team) = factory_guard
+                .find_team_instances(&name)
+                .into_iter()
+                .next()
+            {
+                return Some(team);
+            }
         }
+        factory_guard.find_team_instances(&resolved).into_iter().next()
     }
 
     pub(crate) fn get_trigger_area(
@@ -940,7 +977,7 @@ impl ScriptConditionEvaluator {
         Ok(ScriptConditionResult::False)
     }
 
-    /// C++ Reference: ScriptConditions::evaluatePlayerLostObjectType() - requires event tracking
+    /// C++ Reference: ScriptConditions::evaluatePlayerLostObjectType() line 2671-2698
     pub(crate) fn eval_player_lost_object_type(
         &self,
         condition: &Condition,
@@ -953,61 +990,29 @@ impl ScriptConditionEvaluator {
             object_type
         );
 
-        let Some(player_index) = player_list()
-            .read()
-            .ok()
-            .and_then(|players| players.find_player_by_name(&player_name))
-            .and_then(|player_arc| {
-                player_arc
-                    .read()
-                    .ok()
-                    .map(|player| player.get_player_index())
-            })
-        else {
+        let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
         };
+        let Some(player_arc) = players.find_player_by_name(&player_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(player) = player_arc.read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let player_index = player.get_player_index();
+
+        let types = self.resolve_object_types_param(&object_type);
+        let (templates, mut counts) = types.prep_for_player_counting();
+        if templates.is_empty() {
+            return Ok(ScriptConditionResult::False);
+        }
+        // C++ countObjectsByThingTemplate(..., ignoreDead=TRUE)
+        player.count_objects_by_thing_template(&templates, true, true, &mut counts);
+        let sum_of_objs: i32 = counts.iter().copied().sum();
 
         let current_count =
             with_script_engine_ref(|engine| engine.get_object_count(player_index, &object_type))
                 .unwrap_or(0);
-
-        let object_manager = get_object_manager();
-        let sum_of_objs = object_manager
-            .read()
-            .ok()
-            .map(|manager| {
-                manager
-                    .all_object_ids()
-                    .into_iter()
-                    .filter(|object_id| {
-                        let Some(obj_arc) = manager.get_object(*object_id) else {
-                            return false;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            return false;
-                        };
-                        if obj_guard.is_destroyed() {
-                            return false;
-                        }
-                        let owner = obj_guard
-                            .base()
-                            .read()
-                            .ok()
-                            .and_then(|base| base.get_controlling_player_id())
-                            .map(|id| id as i32)
-                            .unwrap_or(-1);
-                        if owner != player_index {
-                            return false;
-                        }
-                        obj_guard
-                            .template
-                            .as_ref()
-                            .map(|template| template.get_name().as_str() == object_type.as_str())
-                            .unwrap_or(false)
-                    })
-                    .count() as i32
-            })
-            .unwrap_or(0);
 
         if sum_of_objs != current_count {
             let _ = with_script_engine_mut(|engine| {
@@ -1015,11 +1020,7 @@ impl ScriptConditionEvaluator {
             });
         }
 
-        Ok(if sum_of_objs < current_count {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
+        Ok(bool_result(sum_of_objs < current_count))
     }
 
     /// C++ Reference: ScriptConditions::evaluatePlayerDestroyedNOrMoreBuildings()
@@ -1098,21 +1099,12 @@ impl ScriptConditionEvaluator {
         };
 
         let types = self.resolve_object_types_param(&object_type);
-        let mut object_count = 0i32;
-        for object_id in player.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_effectively_dead() {
-                continue;
-            }
-            if types.contains_template(Some(obj_guard.get_template().as_ref())) {
-                object_count += 1;
-            }
+        let (templates, mut counts) = types.prep_for_player_counting();
+        // C++ countObjectsByThingTemplate(..., ignoreDead=FALSE)
+        if !templates.is_empty() {
+            player.count_objects_by_thing_template(&templates, false, true, &mut counts);
         }
+        let object_count: i32 = counts.iter().copied().sum();
 
         let result = match comparison {
             ComparisonType::LessThan => object_count < target_count,
@@ -1130,54 +1122,20 @@ impl ScriptConditionEvaluator {
             condition.custom_frame = frame;
         }
 
-        Ok(if result {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
+        Ok(bool_result(result))
     }
 
     // ============================================================================
     // TEAM CONDITION HANDLERS
     // ============================================================================
 
-    /// C++ Reference: ScriptConditions::evaluateTeamInsideAreaPartially() line 378-392
-    /// C++ pattern: theTeam->someInsideSomeOutside(pTrig, type) || theTeam->allInside(pTrig, type)
-    /// Returns true if ANY team member is inside the area
+    /// C++ ScriptConditions::evaluateTeamInsideAreaPartially (line 378-392)
     pub(crate) fn eval_team_inside_area_partially(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let team_name = self.get_condition_string_param(condition, 0)?;
-        let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' is partially inside area '{}'",
-            team_name,
-            area_name
-        );
-
-        // Get team members and check if ANY are inside the area
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if ANY team member is in the area
-                        for &member_id in members {
-                            if objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::True);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(ScriptConditionResult::False)
+        let counts = self.team_inside_consideration(condition)?;
+        Ok(bool_result(counts.any_considered && counts.any_inside))
     }
 
     pub(crate) fn eval_team_destroyed(
@@ -1188,15 +1146,9 @@ impl ScriptConditionEvaluator {
         log::debug!("Evaluating if team '{}' is destroyed", team_name);
 
         // C++: non-existent team is not destroyed; existing team uses Team::hasAnyObjects().
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if !team.has_any_objects() {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
+        if let Some(team_arc) = self.lookup_condition_team(&team_name) {
+            if let Ok(team) = team_arc.read() {
+                return Ok(bool_result(!team.has_any_objects()));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1209,8 +1161,7 @@ impl ScriptConditionEvaluator {
         let team_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if team '{}' has units", team_name);
 
-        // C++: non-THIS team names scan every instance of the prototype via
-        // TeamPrototype::iterate_TeamInstanceList().
+        // C++ evaluateHasUnits iterates every prototype instance for non-THIS names.
         if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.find_team_instances(&team_name) {
                 if let Ok(team) = team_arc.read() {
@@ -1220,7 +1171,6 @@ impl ScriptConditionEvaluator {
                 }
             }
         }
-        // If team doesn't exist, it has no units
         Ok(ScriptConditionResult::False)
     }
 
@@ -1236,17 +1186,9 @@ impl ScriptConditionEvaluator {
             expected_state
         );
 
-        // Look up the team and check its state
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let current_state = team.get_state();
-                    return Ok(if current_state.as_str() == expected_state {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
+        if let Some(team_arc) = self.lookup_condition_team(&team_name) {
+            if let Ok(team) = team_arc.read() {
+                return Ok(bool_result(team.get_state().as_str() == expected_state));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1265,91 +1207,40 @@ impl ScriptConditionEvaluator {
             expected_state
         );
 
-        // Look up the team and check its state
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let current_state = team.get_state();
-                    return Ok(if current_state.as_str() != expected_state {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
+        if let Some(team_arc) = self.lookup_condition_team(&team_name) {
+            if let Ok(team) = team_arc.read() {
+                return Ok(bool_result(team.get_state().as_str() != expected_state));
             }
         }
-        // C++: return false; // Non existent team isn't in any state.
         Ok(ScriptConditionResult::False)
     }
 
-    /// C++ Reference: ScriptConditions::evaluateTeamInsideAreaEntirely() line 632-649
-    /// C++ pattern: theTeam->allInside(pTrig, type)
-    /// Returns true if ALL team members are inside the area
+    /// C++ ScriptConditions::evaluateTeamInsideAreaEntirely (line 632-649)
     pub(crate) fn eval_team_inside_area_entirely(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let team_name = self.get_condition_string_param(condition, 0)?;
-        let area_name = self.get_condition_string_param(condition, 1)?;
-        log::debug!(
-            "Evaluating if team '{}' is entirely inside area '{}'",
-            team_name,
-            area_name
-        );
-
-        // Get team members and check if ALL are inside the area
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(ScriptConditionResult::False);
-                    }
-
-                    let area_tracker = get_area_tracker();
-                    if let Ok(objects_in_area) = area_tracker.get_objects_in_area(&area_name) {
-                        // Check if ALL team members are in the area
-                        for &member_id in members {
-                            if !objects_in_area.contains(&member_id) {
-                                return Ok(ScriptConditionResult::False);
-                            }
-                        }
-                        return Ok(ScriptConditionResult::True);
-                    }
-                }
-            }
-        }
-        Ok(ScriptConditionResult::False)
+        let counts = self.team_inside_consideration(condition)?;
+        Ok(bool_result(counts.any_considered && !counts.any_outside))
     }
 
-    /// C++ Reference: ScriptConditions::evaluateTeamOutsideAreaEntirely() line 652-658
-    /// C++ pattern: return !(evaluateTeamInsideAreaEntirely(...) || evaluateTeamInsideAreaPartially(...));
+    /// C++ ScriptConditions::evaluateTeamOutsideAreaEntirely (line 652-658)
     pub(crate) fn eval_team_outside_area_entirely(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        log::debug!("Evaluating team outside area entirely (using C++ pattern)");
-
-        // C++ pattern: return !(evaluateTeamInsideAreaEntirely(...) || evaluateTeamInsideAreaPartially(...));
         let entirely_inside = self.eval_team_inside_area_entirely(condition)?;
         let partially_inside = self.eval_team_inside_area_partially(condition)?;
-
-        // If either entirely or partially inside, team is NOT entirely outside
         let any_inside = matches!(entirely_inside, ScriptConditionResult::True)
             || matches!(partially_inside, ScriptConditionResult::True);
-
-        Ok(if any_inside {
-            ScriptConditionResult::False
-        } else {
-            ScriptConditionResult::True
-        })
+        Ok(bool_result(!any_inside))
     }
 
     pub(crate) fn eval_team_attacked_by_object_type(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // C++: ScriptConditions::evaluateTeamAttackedByType
+        // C++ ScriptConditions::evaluateTeamAttackedByType + objectTypesFromParam
         let team_name = self.get_condition_string_param(condition, 0)?;
         let types_param = self.get_condition_string_param(condition, 1)?;
         log::debug!(
@@ -1358,19 +1249,8 @@ impl ScriptConditionEvaluator {
             types_param
         );
 
-        let wanted_types: Vec<&str> = types_param
-            .split(|c| c == ',' || c == '|' || c == ';')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if wanted_types.is_empty() {
-            return Ok(ScriptConditionResult::False);
-        }
-
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(team_arc) = factory.find_team(&team_name) else {
+        let types = self.resolve_object_types_param(&types_param);
+        let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
         let Ok(team) = team_arc.read() else {
@@ -1378,46 +1258,8 @@ impl ScriptConditionEvaluator {
         };
 
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let Some(body) = obj.get_body_module() else {
-                continue;
-            };
-            let Ok(body_guard) = body.lock() else {
-                continue;
-            };
-            let Some(last) = body_guard.get_last_damage_info() else {
-                continue;
-            };
-
-            if let Some(template) = &last.input.source_template {
-                if wanted_types
-                    .iter()
-                    .any(|wanted| template.get_name().as_str() == *wanted)
-                {
-                    return Ok(ScriptConditionResult::True);
-                }
-            } else {
-                // Old system: consult the attacker object template if the source template wasn't set.
-                let attacker_id = last.input.source_id;
-                let Some(attacker_arc) = TheGameLogic::find_object_by_id(attacker_id) else {
-                    // C++ explicitly continues here so other team members can still satisfy.
-                    continue;
-                };
-                let Ok(attacker) = attacker_arc.read() else {
-                    continue;
-                };
-                let attacker_template = attacker.get_template();
-                if wanted_types
-                    .iter()
-                    .any(|wanted| attacker_template.get_name().as_str() == *wanted)
-                {
-                    return Ok(ScriptConditionResult::True);
-                }
+            if last_damage_matches_object_types(member_id, &types) {
+                return Ok(ScriptConditionResult::True);
             }
         }
 
@@ -1428,7 +1270,6 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // C++: ScriptConditions::evaluateTeamAttackedByPlayer
         let team_name = self.get_condition_string_param(condition, 0)?;
         let player_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
@@ -1448,10 +1289,7 @@ impl ScriptConditionEvaluator {
         };
         let victim_index = victim_guard.get_player_index();
 
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(team_arc) = factory.find_team(&team_name) else {
+        let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
         let Ok(team) = team_arc.read() else {
@@ -1501,16 +1339,9 @@ impl ScriptConditionEvaluator {
         let team_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if team '{}' was created", team_name);
 
-        // Look up the team and check if it was just created
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if team.is_created() {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
+        if let Some(team_arc) = self.lookup_condition_team(&team_name) {
+            if let Ok(team) = team_arc.read() {
+                return Ok(bool_result(team.is_created()));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1520,7 +1351,7 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // C++: ScriptConditions::evaluateTeamDiscovered
+        // C++ ScriptConditions::evaluateTeamDiscovered — CLEAR | PARTIAL_CLEAR only
         let team_name = self.get_condition_string_param(condition, 0)?;
         let player_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
@@ -1538,23 +1369,12 @@ impl ScriptConditionEvaluator {
         let Ok(player) = player_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
-        let player_id: u32 = match player.get_player_index().try_into() {
-            Ok(value) => value,
-            Err(_) => return Ok(ScriptConditionResult::False),
-        };
+        let player_index = player.get_player_index();
 
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(team_arc) = factory.find_team(&team_name) else {
+        let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
         let Ok(team) = team_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-
-        let shroud_mgr = crate::system::shroud_manager::get_shroud_manager();
-        let Ok(shroud_mgr) = shroud_mgr.lock() else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1565,27 +1385,7 @@ impl ScriptConditionEvaluator {
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
-
-            // We are held, so we are not visible.
-            if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
-                continue;
-            }
-
-            // If we are stealthed we are not visible (unless DETECTED or DISGUISED).
-            let status = obj.get_status_bits();
-            if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-                && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-                && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
-            {
-                continue;
-            }
-
-            let shroud_state = shroud_mgr.get_shroud_state(player_id, obj.get_position());
-            if matches!(
-                shroud_state,
-                crate::system::shroud_manager::ShroudState::Visible
-                    | crate::system::shroud_manager::ShroudState::Explored
-            ) {
+            if object_is_discovered_by_player(&obj, player_index) {
                 return Ok(ScriptConditionResult::True);
             }
         }
@@ -1993,4 +1793,149 @@ impl ScriptConditionEvaluator {
             ComparisonType::NotEqual => lhs != rhs,
         }
     }
+
+    /// C++ Team::allInside / someInsideSomeOutside (Team.cpp:2079-2203)
+    fn team_inside_consideration(
+        &self,
+        condition: &Condition,
+    ) -> Result<TeamInsideCounts, ScriptError> {
+        let team_name = self.get_condition_string_param(condition, 0)?;
+        let area_name = self.get_condition_string_param(condition, 1)?;
+        let which_to_consider = self.get_condition_int_param(condition, 2).unwrap_or(1) as u32;
+
+        let Some(team_arc) = self.lookup_condition_team(&team_name) else {
+            return Ok(TeamInsideCounts::default());
+        };
+        let Ok(team) = team_arc.read() else {
+            return Ok(TeamInsideCounts::default());
+        };
+        if !team.has_any_objects() {
+            return Ok(TeamInsideCounts::default());
+        }
+
+        let area_tracker = get_area_tracker();
+        let objects_in_area = area_tracker
+            .get_objects_in_area(&area_name)
+            .unwrap_or_default();
+
+        let mut counts = TeamInsideCounts::default();
+        for &member_id in team.get_members() {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+                continue;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if !member_counts_for_team_area(&obj, which_to_consider) {
+                continue;
+            }
+            counts.any_considered = true;
+            if objects_in_area.contains(&member_id) {
+                counts.any_inside = true;
+            } else {
+                counts.any_outside = true;
+            }
+        }
+        Ok(counts)
+    }
+
+    pub(crate) fn bool_result(value: bool) -> ScriptConditionResult {
+        bool_result(value)
+    }
+
+    pub(crate) fn last_damage_matches_object_types(
+        &self,
+        member_id: crate::common::ObjectID,
+        types: &crate::object::object_types::ObjectTypes,
+    ) -> bool {
+        last_damage_matches_object_types(member_id, types)
+    }
+
+    pub(crate) fn object_is_discovered_by_player(
+        &self,
+        obj: &crate::object::Object,
+        player_index: i32,
+    ) -> bool {
+        object_is_discovered_by_player(obj, player_index)
+    }
+}
+
+#[derive(Default)]
+struct TeamInsideCounts {
+    any_considered: bool,
+    any_inside: bool,
+    any_outside: bool,
+}
+
+fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u32) -> bool {
+    let surfaces = if let Some(ai) = obj.get_ai() {
+        if let Ok(ai_guard) = ai.lock() {
+            ai_guard
+                .get_locomotor_set_clone()
+                .map(|set| set.get_valid_surfaces())
+                .unwrap_or(crate::path::SURFACE_GROUND)
+        } else {
+            crate::path::SURFACE_GROUND
+        }
+    } else {
+        crate::path::SURFACE_GROUND
+    };
+    if !loco_set_matches(surfaces, which_to_consider) {
+        return false;
+    }
+    if obj.is_effectively_dead() {
+        return false;
+    }
+    if obj.is_kind_of(crate::common::KindOf::Inert) {
+        return false;
+    }
+    true
+}
+
+fn last_damage_matches_object_types(
+    member_id: crate::common::ObjectID,
+    types: &crate::object::object_types::ObjectTypes,
+) -> bool {
+    let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+        return false;
+    };
+    let Ok(obj) = obj_arc.read() else {
+        return false;
+    };
+    let Some(body) = obj.get_body_module() else {
+        return false;
+    };
+    let Ok(body_guard) = body.lock() else {
+        return false;
+    };
+    let Some(last) = body_guard.get_last_damage_info() else {
+        return false;
+    };
+    if let Some(template) = last.input.source_template.as_deref() {
+        return types.contains_template(Some(template));
+    }
+    let Some(attacker_arc) = TheGameLogic::find_object_by_id(last.input.source_id) else {
+        return false;
+    };
+    let Ok(attacker) = attacker_arc.read() else {
+        return false;
+    };
+    types.contains_template(Some(attacker.get_template().as_ref()))
+}
+
+fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32) -> bool {
+    if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
+        return false;
+    }
+    let status = obj.get_status_bits();
+    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+    {
+        return false;
+    }
+    matches!(
+        obj.get_shrouded_status(player_index),
+        crate::common::ObjectShroudStatus::Clear | crate::common::ObjectShroudStatus::PartialClear
+    )
 }

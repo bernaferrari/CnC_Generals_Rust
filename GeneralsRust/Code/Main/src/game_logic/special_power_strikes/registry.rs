@@ -74,6 +74,10 @@ pub struct HostSpecialPowerStrikeRegistry {
     pub(crate) remnant_objects_spawned: u32,
     /// Lifetime remnant damage applications (honesty after field expiry).
     pub(crate) remnant_damage_applications_total: u32,
+    /// C++ `SpecialPowerModule::createViewObject` residual reveals.
+    pub(crate) view_objects: Vec<HostViewObjectReveal>,
+    pub(crate) view_objects_spawned_total: u32,
+
 }
 
 impl HostSpecialPowerStrikeRegistry {
@@ -134,7 +138,10 @@ impl HostSpecialPowerStrikeRegistry {
             remnant_fields_spawned_total: 0,
             remnant_objects_spawned: 0,
             remnant_damage_applications_total: 0,
+            view_objects: Vec::new(),
+            view_objects_spawned_total: 0,
         }
+
     }
 
     pub fn clear(&mut self) {
@@ -179,6 +186,9 @@ impl HostSpecialPowerStrikeRegistry {
         self.remnant_fields_spawned_total = 0;
         self.remnant_objects_spawned = 0;
         self.remnant_damage_applications_total = 0;
+        self.view_objects.clear();
+        self.view_objects_spawned_total = 0;
+
     }
 
     pub fn clear_frame_events(&mut self) {
@@ -941,4 +951,22 @@ impl HostSpecialPowerStrikeRegistry {
         self.activated_this_frame.push(id);
         id
     }
+
+    pub fn record_view_object(&mut self, reveal: HostViewObjectReveal) {
+        self.view_objects_spawned_total = self.view_objects_spawned_total.saturating_add(1);
+        self.view_objects.push(reveal);
+    }
+
+    pub fn view_object_count(&self) -> usize {
+        self.view_objects.len()
+    }
+
+    pub fn view_objects(&self) -> &[HostViewObjectReveal] {
+        &self.view_objects
+    }
+
+    pub fn prune_expired_view_objects(&mut self, frame: u32) {
+        self.view_objects.retain(|v| v.expires_frame > frame);
+    }
+
 }

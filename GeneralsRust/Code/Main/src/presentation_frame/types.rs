@@ -1047,7 +1047,10 @@ impl RenderableObject {
             | ContainModuleKind::RiderChange
             | ContainModuleKind::RailedTransport
             | ContainModuleKind::InternetHack => true,
-            ContainModuleKind::Garrison => false,
+            ContainModuleKind::Garrison
+            | ContainModuleKind::Heal
+            | ContainModuleKind::Cave
+            | ContainModuleKind::Tunnel => false,
             ContainModuleKind::None => {
                 self.is_helix_transport
                     || self.is_battle_bus_transport

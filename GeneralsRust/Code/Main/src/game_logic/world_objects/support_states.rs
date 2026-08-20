@@ -1088,9 +1088,8 @@ impl GameLogic {
         // frame), so it only removes representation residue—not gameplay
         // time.
         const CAPTURE_CHANNEL_COMPLETE_EPSILON: f32 = 0.000_1;
-        // Host residual flat HP/sec (not C++ percent-of-max / TimeForFullHeal matrix).
-        const REPAIR_RATE: f32 = crate::game_logic::host_repair::HOST_REPAIR_RATE_HP_PER_SEC;
         const HEAL_RATE: f32 = crate::game_logic::host_repair::HOST_HEAL_RATE_HP_PER_SEC;
+
 
         for &object_id in object_ids {
             let snapshot = match self.objects.get(&object_id) {
@@ -1135,6 +1134,8 @@ impl GameLogic {
             if !is_alive {
                 continue;
             }
+            self.expire_temporary_stealth_grant(object_id);
+
 
             if ai_state != AIState::SpecialAbility {
                 self.pending_special_abilities.remove(&object_id);
@@ -1459,11 +1460,15 @@ impl GameLogic {
                 }
                 state @ (AIState::SeekingRepair | AIState::SeekingHealing) => {
                     if health_current >= health_maximum - 0.01 {
+                        if let Some(tid) = target_id {
+                            self.release_dock_if_holder(tid, object_id);
+                        }
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
                         }
                         continue;
                     }
+
 
                     let Some(support_target_id) = target_id else {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -1586,17 +1591,37 @@ impl GameLogic {
                         // An out-of-range source is never permitted to apply
                         // the repair/heal effect, including after a failed
                         // route allocation.
+                        if matches!(state, AIState::SeekingRepair) {
+                            self.release_dock_if_holder(support_target_id, object_id);
+                        }
+
                         continue;
                     }
 
-                    // Pad/airfield/war-factory residual: heal self over time while docked in range.
-                    // C++ RepairDockUpdate::action TimeForFullHeal residual (flat host rate).
-                    // HealPad SeekingHealing residual records heal honesty separately.
+                    // Pad/airfield/war-factory: C++ RepairDockUpdate::action
+                    // TimeForFullHeal. One activeDocker; rate computed once
+                    // from missing HP so Humvee ≠ Overlord.
+                    if matches!(state, AIState::SeekingRepair)
+                        && !self.try_claim_dock(support_target_id, object_id)
+                    {
+                        continue;
+                    }
                     let mut vehicle_healed = false;
                     let mut heal_pad_healed = false;
+                    let repair_rate = if matches!(state, AIState::SeekingRepair) {
+                        self.repair_dock_rate_for_docker(
+                            support_target_id,
+                            object_id,
+                            health_maximum,
+                            health_current,
+                        )
+                    } else {
+                        0.0
+                    };
+                    let seeking_repair = matches!(state, AIState::SeekingRepair);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         let rate = match state {
-                            AIState::SeekingRepair => REPAIR_RATE,
+                            AIState::SeekingRepair => repair_rate,
                             AIState::SeekingHealing => HEAL_RATE,
                             _ => 0.0,
                         };
@@ -1611,21 +1636,27 @@ impl GameLogic {
                         }
                         if obj.health.current >= obj.health.maximum - 0.01 {
                             obj.set_target(None);
-                        } else {
-                            // Host-immediate residual: keep SeekingRepair/Healing
-                            // authoritative on host; log for GameWorld last-write.
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                let ordinal =
-                                    crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                                        &state,
-                                    );
-                                crate::game_logic::host_ai_decision_log::record_set_state(
-                                    object_id, ordinal,
+                        } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                            let ordinal =
+                                crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                                    &state,
                                 );
-                            }
+                            crate::game_logic::host_ai_decision_log::record_set_state(
+                                object_id, ordinal,
+                            );
+                            obj.set_ai_state(state);
+                        } else {
                             obj.set_ai_state(state);
                         }
                     }
+                    let fully_repaired = self
+                        .objects
+                        .get(&object_id)
+                        .is_some_and(|o| o.health.current >= o.health.maximum - 0.01);
+                    if seeking_repair && fully_repaired {
+                        self.release_dock_if_holder(support_target_id, object_id);
+                    }
+
                     if vehicle_healed {
                         self.record_vehicle_repair_residual_heal();
                     }
@@ -1917,11 +1948,12 @@ impl GameLogic {
                     // C++ ChinookAIUpdate::getAiFreeToExit — WAIT_TO_EXIT while flying.
                     if container_is_combat_chinook {
                         let allow = self.objects.get_mut(&container_id).is_some_and(|c| {
+                            let p = c.get_position();
+                            let moving = c.status.moving;
                             if let Some(ai) = c.chinook_ai.as_mut() {
-                                let p = c.get_position();
                                 ai.pos = [p.x, p.z, p.y];
                                 ai.wanting_enter_or_exit = true;
-                                ai.parent_idle = !c.status.moving;
+                                ai.parent_idle = !moving;
                                 ai.tick_idle_auto_land();
                                 ai.ai_free_to_exit(false)
                                     == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
@@ -1964,6 +1996,12 @@ impl GameLogic {
                         }
                     }
 
+                    let container_is_heal_contain = self.objects.get(&container_id).is_some_and(
+                        |c| c.thing.template.contain_module.kind.is_heal_contain(),
+                    );
+                    self.tunnel_network
+                        .stamp_contained_by_frame(object_id, self.frame);
+
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.stop_moving();
                         obj.set_status_attacking(false);
@@ -1984,7 +2022,10 @@ impl GameLogic {
                             );
                             obj.record_host_movement();
                         }
-                        let __ai_st = if container_is_structure {
+                        let __ai_st = if container_is_heal_contain {
+                            // C++ HealContain is not garrisonable; Docked avoids garrison fire.
+                            AIState::Docked
+                        } else if container_is_structure {
                             AIState::Garrisoned
                         } else {
                             AIState::Docked
@@ -2004,6 +2045,8 @@ impl GameLogic {
                     }
                     if container_is_tunnel_network {
                         // Enter counter already incremented in record_enter.
+                    } else if container_is_heal_contain {
+                        // C++ HealContain is not a garrison / transport load.
                     } else if container_is_structure {
                         self.record_garrison_residual_enter();
                     } else if container_is_overlord_bunker {
@@ -3408,6 +3451,10 @@ impl GameLogic {
                         self.path_approach_with_state(object_id, source_pos, AIState::Gathering);
                         continue;
                     }
+                    if source_is_warehouse && !self.try_claim_dock(source_id, object_id) {
+                        continue;
+                    }
+
 
 
                     // C++ AIDock waits for the authored warehouse action
@@ -3500,10 +3547,14 @@ impl GameLogic {
                                 }
                                 crate::game_logic::host_supply_gather::DockCrippleVictimAction::None => {}
                             }
+                            self.release_dock_if_holder(source_id, object_id);
+
                             continue;
                         }
                     }
                     if source_is_warehouse && taken == 0 {
+                        self.release_dock_if_holder(source_id, object_id);
+
                         let scan = self.collector_warehouse_scan(object_id, owner_player_id);
                         if let Some(next) =
                             self.find_nearest_harvestable_supply_within(team, position, scan)
@@ -3577,12 +3628,16 @@ impl GameLogic {
                     }
 
 
+                    if source_is_warehouse && (is_full || remaining_after == 0) {
+                        self.release_dock_if_holder(source_id, object_id);
+                    }
+
                     if is_full {
                         // Full — `SupplyTruckAIUpdate::m_preferredDock` wins
                         // over ResourceManager's nearest-center search when
                         // AI assigned this collector to a specific depot.
                         let refinery_dest = self
-                            .preferred_supply_center_or_nearest(
+                            .preferred_or_allied_supply_center(
                                 object_id,
                                 team,
                                 owner_player_id,
@@ -3601,7 +3656,7 @@ impl GameLogic {
                 AIState::ReturningResources => {
                     // Deposit resources when close to a supply center.
                     let (refinery_id, refinery_pos) = self
-                        .preferred_supply_center_or_nearest(
+                        .preferred_or_allied_supply_center(
                             object_id,
                             team,
                             owner_player_id,
@@ -3614,10 +3669,17 @@ impl GameLogic {
                         })
                         .unwrap_or((None, position));
 
+
                     let at_refinery =
                         refinery_id.is_some() && position.distance(refinery_pos) <= INTERACT_RANGE;
 
                     if at_refinery {
+                        if let Some(rid) = refinery_id {
+                            if !self.try_claim_dock(rid, object_id) {
+                                continue;
+                            }
+                        }
+
                         let collector_metadata = self
                             .objects
                             .get(&object_id)
@@ -3710,18 +3772,15 @@ impl GameLogic {
                             // credit so the typed event below is tied to this
                             // real ReturningResources deposit, not a later
                             // resource-total observation or passive income.
-                            let credited_player_id = self
-                                .objects
-                                .get(&object_id)
-                                .and_then(|collector| self.player_owner_for_host_object(collector))
-                                .filter(|&player_id| {
-                                    self.objects
-                                        .get(&refinery_id.expect("checked above"))
-                                        .is_some_and(|center| {
-                                            self.player_owner_for_host_object(center)
-                                                == Some(player_id)
-                                        })
-                                });
+                            // C++ SupplyCenterDockUpdate::action credits the
+                            // *center* controlling player, so allied drop-offs
+                            // pay the dock owner instead of vanishing.
+                            let credited_player_id = refinery_id.and_then(|rid| {
+                                self.objects
+                                    .get(&rid)
+                                    .and_then(|center| self.player_owner_for_host_object(center))
+                            });
+
                             if let Some(player_id) = credited_player_id {
                                 let credited_player =
                                     if let Some(player) = self.get_player_mut(player_id) {
@@ -3784,6 +3843,11 @@ impl GameLogic {
                                 }
 
                             }
+                            if let Some(rid) = refinery_id {
+                                self.grant_center_temporary_stealth(rid, object_id);
+                                self.release_dock_if_holder(rid, object_id);
+                            }
+
                             if supply_lines_boost > 0 {
                                 self.supply_lines_bonus_cash_total = self
                                     .supply_lines_bonus_cash_total
@@ -3950,7 +4014,131 @@ impl GameLogic {
             self.mark_destroyed_authority_aware(object_id, None);
             self.mark_object_for_destruction(object_id, None);
         }
+
+        // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.
+        self.tick_heal_contain_and_tunnel();
     }
+
+    /// C++ HealContain::update (HealContain.cpp:68-157) and
+    /// TunnelContain::update → TunnelTracker::healObjects (TunnelContain.cpp:441-458).
+    fn tick_heal_contain_and_tunnel(&mut self) {
+        use crate::game_logic::host_tunnel_network::{
+            heal_contain_done, tunnel_tracker_heal_amount, TUNNEL_FULL_HEAL_FRAMES,
+        };
+
+        let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>, glam::Vec3)> = Vec::new();
+        for (&id, obj) in &self.objects {
+            if !obj.thing.template.contain_module.kind.is_heal_contain() {
+                continue;
+            }
+            if !obj.is_alive() || obj.status.under_construction {
+                continue;
+            }
+            let frames = obj
+                .thing
+                .template
+                .contain_module
+                .frames_for_full_heal
+                .unwrap_or(0);
+            let occupants = obj.contained_units();
+            if occupants.is_empty() {
+                continue;
+            }
+            heal_jobs.push((id, frames, occupants, obj.get_position()));
+        }
+        for (container_id, frames, occupants, origin) in heal_jobs {
+            for (i, unit_id) in occupants.into_iter().enumerate() {
+                let enter_frame = self
+                    .tunnel_network
+                    .contained_by_frame(unit_id)
+                    .unwrap_or(self.frame);
+                let contained_frames = self.frame.saturating_sub(enter_frame);
+                let done = heal_contain_done(contained_frames, frames);
+                let mut healed = false;
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    let amount = tunnel_tracker_heal_amount(
+                        unit.health.maximum,
+                        contained_frames,
+                        frames,
+                    );
+                    if amount > 0.0 {
+                        unit.heal(amount);
+                        healed = true;
+                    }
+                }
+                if healed {
+                    self.tunnel_network.record_heal_tick();
+                }
+                if !done {
+                    continue;
+                }
+                if let Some(container) = self.objects.get_mut(&container_id) {
+                    let _ = container.remove_occupant(unit_id);
+                }
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.set_contained_by(None);
+                    unit.target = None;
+                    let angle = (i as f32) * 0.9;
+                    let drop =
+                        origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
+                    unit.set_position(drop);
+                    unit.stop_moving();
+                    unit.set_ai_state(AIState::Idle);
+                    unit.status.moving = false;
+                }
+                self.tunnel_network.clear_contained_by_frame(unit_id);
+                self.tunnel_network.record_heal_auto_exit();
+            }
+        }
+
+        // Each living TunnelContain::update heals the shared tracker (C++ per-entrance).
+        let mut tunnel_ticks: Vec<(Team, u32)> = Vec::new();
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.under_construction {
+                continue;
+            }
+            let is_tunnel = obj.is_tunnel_network_style_container()
+                || obj.thing.template.contain_module.kind.is_tunnel_contain();
+            if !is_tunnel {
+                continue;
+            }
+            let frames = obj
+                .thing
+                .template
+                .contain_module
+                .frames_for_full_heal
+                .unwrap_or(TUNNEL_FULL_HEAL_FRAMES);
+            tunnel_ticks.push((obj.team, frames));
+        }
+        for (team, frames) in tunnel_ticks {
+            let passengers = self.tunnel_network.contained_for_team(team);
+            for unit_id in passengers {
+                let enter_frame = self
+                    .tunnel_network
+                    .contained_by_frame(unit_id)
+                    .unwrap_or(self.frame);
+                let contained_frames = self.frame.saturating_sub(enter_frame);
+                let mut healed = false;
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    let amount = tunnel_tracker_heal_amount(
+                        unit.health.maximum,
+                        contained_frames,
+                        frames,
+                    );
+                    if amount > 0.0 {
+                        unit.heal(amount);
+                        healed = true;
+                    }
+                }
+                if healed {
+                    self.tunnel_network.record_heal_tick();
+                }
+            }
+        }
+    }
+
+
+
 
     fn collector_warehouse_scan(&self, object_id: ObjectId, owner_player_id: Option<u32>) -> Option<f32> {
         let authored = self
@@ -4041,5 +4229,169 @@ impl GameLogic {
             .or(best_struct)
             .map(|(_, pos)| pos)
     }
+
+    fn expire_temporary_stealth_grant(&mut self, object_id: ObjectId) {
+        let expire = self
+            .objects
+            .get(&object_id)
+            .map(|object| object.temporary_stealth_expires_frame)
+            .unwrap_or(0);
+        if expire == 0 || self.frame < expire {
+            return;
+        }
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.temporary_stealth_expires_frame = 0;
+            if !object.innate_stealth {
+                object.break_stealth();
+            }
+        }
+    }
+
+    fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+        let current = self
+            .objects
+            .get(&dock_id)
+            .and_then(|dock| dock.dock_active_docker);
+        let current_alive = current
+            .and_then(|id| self.objects.get(&id))
+            .is_some_and(|object| object.is_alive());
+        let next = crate::game_logic::host_supply_gather::dock_claim_active(
+            current,
+            current_alive,
+            docker_id,
+        );
+        if let Some(dock) = self.objects.get_mut(&dock_id) {
+            dock.dock_active_docker = next;
+        }
+        crate::game_logic::host_supply_gather::dock_is_clear_to_act(next, docker_id)
+    }
+
+    fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        if let Some(dock) = self.objects.get_mut(&dock_id) {
+            if dock.dock_active_docker == Some(docker_id) {
+                dock.dock_active_docker = None;
+            }
+            if dock.repair_dock_last_id == Some(docker_id) {
+                dock.repair_dock_last_id = None;
+                dock.repair_dock_health_per_sec = 0.0;
+            }
+        }
+    }
+
+    fn repair_dock_rate_for_docker(
+        &mut self,
+        pad_id: ObjectId,
+        docker_id: ObjectId,
+        max_hp: f32,
+        current_hp: f32,
+    ) -> f32 {
+        let need_recompute = self.objects.get(&pad_id).is_some_and(|pad| {
+            pad.repair_dock_last_id != Some(docker_id) || pad.repair_dock_health_per_sec <= 0.0
+        });
+        if !need_recompute {
+            return self
+                .objects
+                .get(&pad_id)
+                .map(|pad| pad.repair_dock_health_per_sec)
+                .unwrap_or(0.0);
+        }
+        let rate = crate::game_logic::host_repair::repair_dock_hp_per_sec_from_missing(
+            max_hp, current_hp,
+        );
+        if let Some(pad) = self.objects.get_mut(&pad_id) {
+            pad.repair_dock_last_id = Some(docker_id);
+            pad.repair_dock_health_per_sec = rate;
+        }
+        rate
+    }
+
+    fn grant_center_temporary_stealth(&mut self, center_id: ObjectId, docker_id: ObjectId) {
+        let Some(center) = self.objects.get(&center_id) else {
+            return;
+        };
+        let grant_frames =
+            crate::game_logic::host_supply_gather::grant_temporary_stealth_frames_for_center(
+                &center.template_name,
+            );
+        let center_stealthed = center.status.stealthed;
+        let Some(docker) = self.objects.get(&docker_id) else {
+            return;
+        };
+        let docker_is_temp = docker.temporary_stealth_expires_frame > self.frame;
+        let docker_can_stealth = docker.innate_stealth || docker.status.stealthed;
+        if !crate::game_logic::host_supply_gather::should_grant_temporary_stealth(
+            center_stealthed,
+            grant_frames,
+            docker_is_temp,
+            docker_can_stealth,
+        ) {
+            return;
+        }
+        if let Some(docker) = self.objects.get_mut(&docker_id) {
+            docker.apply_grant_stealth();
+            docker.temporary_stealth_expires_frame = self.frame.saturating_add(grant_frames);
+        }
+    }
+
+    /// C++ ResourceManager + SupplyCenterDock: own or allied constructed center.
+    fn preferred_or_allied_supply_center(
+        &self,
+        collector_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+        from_position: glam::Vec3,
+    ) -> Option<ObjectId> {
+        let preferred = self
+            .objects
+            .get(&collector_id)
+            .and_then(|collector| collector.preferred_dock_id);
+        if let Some(center_id) = preferred {
+            if self.supply_center_accepts_deposit(center_id, team, owner_player_id) {
+                return Some(center_id);
+            }
+        }
+        let mut best: Option<(f32, ObjectId)> = None;
+        for (&id, obj) in &self.objects {
+            if !self.supply_center_accepts_deposit(id, team, owner_player_id) {
+                continue;
+            }
+            let d = from_position.distance(obj.get_position());
+            if best.is_none_or(|(bd, _)| d < bd) {
+                best = Some((d, id));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    fn supply_center_accepts_deposit(
+        &self,
+        center_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+    ) -> bool {
+        let Some(center) = self.objects.get(&center_id) else {
+            return false;
+        };
+        if !center.is_alive() || !center.is_constructed() {
+            return false;
+        }
+        let is_center = center.thing.template.dock_kind
+            == crate::game_logic::DockKind::SupplyCenter
+            || center.is_kind_of(KindOf::SupplyCenter)
+            || center.thing.template.has_supply_center_create;
+        if !is_center {
+            return false;
+        }
+        let center_owner = self.player_owner_for_host_object(center);
+        if center_owner == owner_player_id {
+            return true;
+        }
+        if let (Some(a), Some(b)) = (owner_player_id, center_owner) {
+            return self.player_relationship(a, b) == gamelogic::common::Relationship::Allies;
+        }
+        center.team == team
+    }
+
+
 
 }

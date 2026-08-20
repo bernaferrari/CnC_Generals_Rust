@@ -447,13 +447,32 @@ impl Object {
     }
 
     /// C++ ExperienceTracker::getExperienceValue + UNDER_CONSTRUCTION gate.
+    ///
+    /// Ally / same-controller kills must pass `killer_is_ally_or_own = true`
+    /// (C++ `getRelationship == ALLIES` and `controller == victimController`).
     pub fn kill_experience_value(&self) -> f32 {
-        if self.status.under_construction {
+        self.kill_experience_value_from_killer(false)
+    }
+
+    /// C++ ExperienceTracker::getExperienceValue(killer).
+    pub fn kill_experience_value_from_killer(&self, killer_is_ally_or_own: bool) -> f32 {
+        if killer_is_ally_or_own || self.status.under_construction {
             return 0.0;
         }
         self.thing
             .template
             .experience_value_for_level(self.experience.level)
+    }
+
+    /// C++ ThingTemplate::getSkillPointValue(victimLevel).
+    /// Unset SkillPointValue uses ExperienceValue (`USE_EXP_VALUE_FOR_SKILL_VALUE`).
+    pub fn kill_skill_point_value(&self) -> i32 {
+        if self.status.under_construction {
+            return 0;
+        }
+        self.thing
+            .template
+            .experience_value_for_level(self.experience.level) as i32
     }
 
     /// C++ ExperienceTracker::setExperienceSink.

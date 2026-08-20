@@ -36,8 +36,93 @@ impl HostCreateObjectDieData {
     }
 }
 
+/// C++ CreateObjectDie.cpp:42 `CreationList` → ObjectCreationList::create.
+/// Prefer an authored OCL name over template-name whitelist peels.
+pub fn create_object_die_config_from_creation_list(
+    ocl_name: &str,
+    transfer_previous_health: bool,
+) -> Option<HostCreateObjectDieData> {
+    let ocl_name = ocl_name.trim();
+    if ocl_name.is_empty() {
+        return None;
+    }
+    let mut spawn_templates = peel_ocl_spawn_templates(ocl_name);
+    if spawn_templates.is_empty() {
+        spawn_templates = ocl_store_spawn_templates(ocl_name);
+    }
+    if spawn_templates.is_empty() {
+        return None;
+    }
+    Some(HostCreateObjectDieData {
+        ocl_name: ocl_name.to_string(),
+        spawn_templates,
+        transfer_previous_health,
+        fired: false,
+    })
+}
+
+/// C++ CreateObjectDieModuleData::buildFieldParse CreationList + TransferPreviousHealth.
+pub fn create_object_die_config_from_modules<'a>(
+    modules: impl IntoIterator<Item = (&'a str, Option<&'a str>, Option<&'a str>)>,
+) -> Option<HostCreateObjectDieData> {
+    for (class_name, creation_list, transfer) in modules {
+        if !class_name.eq_ignore_ascii_case("CreateObjectDie") {
+            continue;
+        }
+        let Some(ocl) = creation_list.map(str::trim).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let transfer_previous_health = transfer
+            .map(|s| s.eq_ignore_ascii_case("yes") || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if let Some(cfg) = create_object_die_config_from_creation_list(ocl, transfer_previous_health)
+        {
+            return Some(cfg);
+        }
+    }
+    None
+}
+
+fn authored_create_object_die_config(name: &str) -> Option<HostCreateObjectDieData> {
+    let manager = crate::assets::get_asset_manager()?;
+    let manager = manager.lock().ok()?;
+    let definition = manager.get_object_definition(name)?;
+    create_object_die_config_from_modules(definition.behavior_modules.iter().map(|module| {
+        (
+            module.class_name.as_str(),
+            module.attribute("CreationList"),
+            module.attribute("TransferPreviousHealth"),
+        )
+    }))
+}
+
+fn ocl_store_spawn_templates(ocl_name: &str) -> Vec<String> {
+    use gamelogic::object_creation_list::GenericObjectCreationNugget;
+    let Some(ocl) =
+        gamelogic::helpers::TheObjectCreationListStore::lookup_object_creation_list(ocl_name)
+    else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    for nugget in ocl.nuggets() {
+        if let Some(generic) = nugget
+            .as_any()
+            .downcast_ref::<GenericObjectCreationNugget>()
+        {
+            if generic.name_are_objects {
+                names.extend(generic.names.iter().cloned());
+            }
+        }
+    }
+    names
+}
+
 /// Map common OCL / CreateObjectDie peels to spawn template names.
+/// Authored `CreationList` wins when Object INI is loaded.
 pub fn create_object_die_config_for_template(name: &str) -> Option<HostCreateObjectDieData> {
+    if let Some(cfg) = authored_create_object_die_config(name) {
+        return Some(cfg);
+    }
     let n = name.to_ascii_lowercase();
 
     // Sneak attack start → tunnel network (retail CreateObjectDie + TransferPreviousHealth).
@@ -169,5 +254,33 @@ mod tests {
         let d = create_object_die_config_for_template("GLASneakAttackTunnelNetworkStart").unwrap();
         assert!(d.transfer_previous_health);
         assert!(d.spawn_templates[0].contains("TunnelNetwork"));
+    }
+
+    #[test]
+    fn authored_creation_list_wins_over_template_whitelist() {
+        // C++ CreateObjectDie.cpp:42-43 / 78: CreationList is the authored OCL,
+        // not a template-name whitelist. DemoTrap peel would be GenericDebris.
+        let authored = create_object_die_config_from_creation_list("OCL_PoisonFieldSmall", false)
+            .expect("authored OCL must resolve");
+        assert_eq!(authored.ocl_name, "OCL_PoisonFieldSmall");
+        assert!(
+            authored
+                .spawn_templates
+                .iter()
+                .any(|s| s.contains("PoisonFieldSmall")),
+            "authored CreationList must spawn OCL ObjectNames, got {:?}",
+            authored.spawn_templates
+        );
+        assert!(!authored.transfer_previous_health);
+
+        let from_modules = create_object_die_config_from_modules([(
+            "CreateObjectDie",
+            Some("OCL_CreateSneakAttackTunnel"),
+            Some("Yes"),
+        )])
+        .expect("CreateObjectDie module CreationList");
+        assert_eq!(from_modules.ocl_name, "OCL_CreateSneakAttackTunnel");
+        assert!(from_modules.transfer_previous_health);
+        assert!(from_modules.spawn_templates[0].contains("TunnelNetwork"));
     }
 }

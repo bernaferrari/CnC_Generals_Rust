@@ -131,6 +131,81 @@ pub fn residual_supply_lines_drop_off_boost(has_supply_lines: bool) -> u32 {
     }
 }
 
+/// C++ `UpgradeType::UPGRADE_TYPE_OBJECT` — apply only to the producer.
+///
+/// Prefers the live Upgrade.ini `Type` on `TheUpgradeCenter`. Residual
+/// fallback covers retail object add-ons / BecomeReal / per-building radar
+/// grants when the center has no template (headless tests).
+pub fn is_object_scoped_upgrade(name: &str) -> bool {
+    let parsed = gamelogic::upgrade::center::with_upgrade_center(|center| {
+        center
+            .find_upgrade(name)
+            .map(|template| template.get_upgrade_type() == gamelogic::upgrade::UpgradeType::Object)
+    });
+    if let Some(is_object) = parsed {
+        return is_object;
+    }
+    is_object_scoped_upgrade_residual(name)
+}
+
+/// Retail Type=OBJECT names used when UpgradeCenter has no row.
+pub fn is_object_scoped_upgrade_residual(name: &str) -> bool {
+    let n = normalize_upgrade_identity(name);
+    n.contains("becomereal")
+        || n.contains("overlordgattling")
+        || n.contains("overlordpropaganda")
+        || n.contains("overlordbattlebunker")
+        || n.contains("helixgattling")
+        || n.contains("helixpropaganda")
+        || n.contains("helixbattlebunker")
+        || n.contains("helixnapalmbomb")
+        || n.contains("helixnukebomb")
+        || n.contains("advancedcontrolrods")
+        || n == "upgradeamericaradar"
+        || n == "upgradeglaradar"
+        || n.contains("americascoutdrone")
+        || n.contains("americabattledrone")
+        || n.contains("americahellfiredrone")
+}
+
+/// C++ `Object::updateUpgradeModules` target set.
+///
+/// Player upgrades walk every owner object. Object upgrades apply only to
+/// the producer (`ProductionUpdate` `giveUpgrade` on that instance).
+pub fn upgrade_mux_target_ids<T: Copy>(
+    object_scoped: bool,
+    producer: Option<T>,
+    owner_ids: impl IntoIterator<Item = T>,
+) -> Vec<T> {
+    if object_scoped {
+        producer.into_iter().collect()
+    } else {
+        owner_ids.into_iter().collect()
+    }
+}
+
+/// China CommandCenter RadarUpgrade is TriggeredBy `Upgrade_ChinaRadar`.
+/// America CC / GLA RadarVan use GrantUpgradeCreate and need no research.
+pub fn radar_provider_required_research_upgrade(template_name: &str) -> Option<&'static str> {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("fake") {
+        return None;
+    }
+    if n.contains("radarvan") || n.contains("radar_van") {
+        return None;
+    }
+    let is_cc = n.contains("commandcenter") || n.contains("headquarters");
+    if !is_cc {
+        return None;
+    }
+    if n.contains("china") {
+        Some(UPGRADE_CHINA_RADAR)
+    } else {
+        None
+    }
+}
+
+
 /// Host residual upgrade kinds with known observable unlocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HostUpgradeKind {
@@ -1065,6 +1140,52 @@ mod tests {
         assert!(!loaded.honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
         assert!(loaded.honesty_complete_ok(HostUpgradeKind::CaptureBuilding));
         assert_eq!(loaded.get(id).unwrap().units_affected, 1);
+    }
+
+    #[test]
+    fn object_scoped_addons_target_only_producer() {
+        // C++ Upgrade.h UpgradeType OBJECT + ProductionUpdate giveUpgrade
+        // on the producing object only (hq-w4syv).
+        assert!(is_object_scoped_upgrade(
+            "Upgrade_ChinaOverlordBattleBunker"
+        ));
+        assert!(is_object_scoped_upgrade("Upgrade_BecomeRealGLABarracks"));
+        assert!(!is_object_scoped_upgrade(UPGRADE_AMERICA_FLASHBANG));
+        assert!(!is_object_scoped_upgrade(UPGRADE_CHINA_RADAR));
+        assert_eq!(
+            upgrade_mux_target_ids(true, Some(7u32), [7, 8, 9]),
+            vec![7]
+        );
+        assert_eq!(
+            upgrade_mux_target_ids(false, Some(7u32), [7, 8, 9]),
+            vec![7, 8, 9]
+        );
+        assert!(upgrade_mux_target_ids(true, None::<u32>, [7, 8, 9]).is_empty());
+    }
+
+    #[test]
+    fn china_command_center_requires_radar_research() {
+        // C++ RadarUpgrade.cpp TriggeredBy Upgrade_ChinaRadar (hq-zx8e6).
+        assert_eq!(
+            radar_provider_required_research_upgrade("ChinaCommandCenter"),
+            Some(UPGRADE_CHINA_RADAR)
+        );
+        assert_eq!(
+            radar_provider_required_research_upgrade("Nuke_ChinaCommandCenter"),
+            Some(UPGRADE_CHINA_RADAR)
+        );
+        assert_eq!(
+            radar_provider_required_research_upgrade("AmericaCommandCenter"),
+            None
+        );
+        assert_eq!(
+            radar_provider_required_research_upgrade("TestCommandCenter"),
+            None
+        );
+        assert_eq!(
+            radar_provider_required_research_upgrade("GLAVehicleRadarVan"),
+            None
+        );
     }
 }
 

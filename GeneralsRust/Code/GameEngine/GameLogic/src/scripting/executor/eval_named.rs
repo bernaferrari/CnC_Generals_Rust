@@ -190,12 +190,8 @@ impl ScriptConditionEvaluator {
             types_param
         );
 
-        let wanted_types: Vec<&str> = types_param
-            .split(|c| c == ',' || c == '|' || c == ';')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect();
-        if wanted_types.is_empty() {
+        let types = self.resolve_object_types_param(&types_param);
+        if types.list_size() == 0 {
             return Ok(ScriptConditionResult::False);
         }
 
@@ -203,56 +199,9 @@ impl ScriptConditionEvaluator {
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
         };
-
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(body) = obj.get_body_module() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(body_guard) = body.lock() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Some(last) = body_guard.get_last_damage_info() else {
-            return Ok(ScriptConditionResult::False);
-        };
-
-        if let Some(template) = &last.input.source_template {
-            return Ok(
-                if wanted_types
-                    .iter()
-                    .any(|wanted| template.get_name().as_str() == *wanted)
-                {
-                    ScriptConditionResult::True
-                } else {
-                    ScriptConditionResult::False
-                },
-            );
-        }
-
-        // Old system: consult attacker object if source template wasn't set.
-        let attacker_id = last.input.source_id;
-        let Some(attacker_arc) = TheGameLogic::find_object_by_id(attacker_id) else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let Ok(attacker) = attacker_arc.read() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let attacker_template = attacker.get_template();
-
-        Ok(
-            if wanted_types
-                .iter()
-                .any(|wanted| attacker_template.get_name().as_str() == *wanted)
-            {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(Self::bool_result(
+            self.last_damage_matches_object_types(object_id, &types),
+        ))
     }
 
     pub(crate) fn eval_named_attacked_by_player(
@@ -379,10 +328,7 @@ impl ScriptConditionEvaluator {
         let Ok(player) = player_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
-        let player_id: u32 = match player.get_player_index().try_into() {
-            Ok(value) => value,
-            Err(_) => return Ok(ScriptConditionResult::False),
-        };
+        let player_index = player.get_player_index();
 
         let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
             return Ok(ScriptConditionResult::False);
@@ -391,37 +337,9 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        // We are held, so we are not visible.
-        if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
-            return Ok(ScriptConditionResult::False);
-        }
-
-        // If we are stealthed we are not visible (unless DETECTED or DISGUISED).
-        let status = obj.get_status_bits();
-        if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-            && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-            && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
-        {
-            return Ok(ScriptConditionResult::False);
-        }
-
-        let shroud_mgr = crate::system::shroud_manager::get_shroud_manager();
-        let Ok(shroud_mgr) = shroud_mgr.lock() else {
-            return Ok(ScriptConditionResult::False);
-        };
-        let shroud_state = shroud_mgr.get_shroud_state(player_id, obj.get_position());
-
-        Ok(
-            if matches!(
-                shroud_state,
-                crate::system::shroud_manager::ShroudState::Visible
-                    | crate::system::shroud_manager::ShroudState::Explored
-            ) {
-                ScriptConditionResult::True
-            } else {
-                ScriptConditionResult::False
-            },
-        )
+        Ok(Self::bool_result(
+            self.object_is_discovered_by_player(&obj, player_index),
+        ))
     }
 
     pub(crate) fn eval_named_owned_by_player(
@@ -686,23 +604,17 @@ impl ScriptConditionEvaluator {
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is totally dead", object_name);
 
-        // Look up the named object
+        // C++ ScriptConditions::evaluateNamedUnitTotallyDead (ScriptConditions.cpp:323-335):
+        // false while getUnitNamed succeeds; true only after it existed and is gone.
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    return Ok(if obj.is_effectively_dead() {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
+            if TheGameLogic::find_object_by_id(object_id).is_some() {
+                return Ok(ScriptConditionResult::False);
             }
-            // Object ID exists but object not found - considered totally dead
-            return Ok(ScriptConditionResult::True);
         }
-        // Object not in tracker - considered totally dead
-        Ok(ScriptConditionResult::True)
+        let existed = tracker.did_object_exist(&object_name).unwrap_or(false)
+            || with_script_engine_ref(|engine| engine.did_unit_exist(&object_name)).unwrap_or(false);
+        Ok(Self::bool_result(existed))
     }
 
     /// C++ Reference: ScriptConditions::evaluateIsBuildingEmpty() line 1008-1024
@@ -789,33 +701,34 @@ impl ScriptConditionEvaluator {
             target_health
         );
 
-        // Look up the named object
         let tracker = get_named_object_tracker();
-        if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    // Get health percentage (0-100 scale)
-                    let health_percent = (obj.get_health_percentage() * 100.0) as i32;
-
-                    let result = match comparison {
-                        ComparisonType::LessThan => health_percent < target_health,
-                        ComparisonType::LessEqual => health_percent <= target_health,
-                        ComparisonType::Equal => health_percent == target_health,
-                        ComparisonType::GreaterEqual => health_percent >= target_health,
-                        ComparisonType::Greater => health_percent > target_health,
-                        ComparisonType::NotEqual => health_percent != target_health,
-                    };
-
-                    return Ok(if result {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
-                }
-            }
+        let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(body) = obj.get_body_module() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(body_guard) = body.lock() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let cur_health = body_guard.get_health();
+        let initial_health = body_guard.get_initial_health();
+        if initial_health <= 0.0 {
+            return Ok(ScriptConditionResult::False);
         }
-        // Object not found - consider health check as false
-        Ok(ScriptConditionResult::False)
+        // C++ ScriptConditions.cpp:934 (curHealth*100 + initialHealth/2)/initialHealth
+        let health_percent = ((cur_health * 100.0 + initial_health / 2.0) / initial_health) as i32;
+        Ok(Self::bool_result(Self::compare_i32(
+            comparison,
+            health_percent,
+            target_health,
+        )))
     }
 
     pub(crate) fn eval_unit_completed_sequential_execution(
@@ -928,7 +841,6 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        // Wave 284: empty dual-world → fail-closed condition.
         if dual_world_registry_unavailable() {
             return Ok(ScriptConditionResult::False);
         }
@@ -936,10 +848,15 @@ impl ScriptConditionEvaluator {
         let type_or_list_name = self.get_condition_string_param(condition, 0)?;
         let player_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
-            "Evaluating if player '{}' has built object type/list '{}'",
+            "Evaluating if player '{}' has built object type '{}'",
             player_name,
             type_or_list_name
         );
+
+        // C++ ScriptConditions.cpp:872-874 — false unless findTemplate(raw name) exists.
+        if crate::helpers::TheThingFactory::find_template(&type_or_list_name).is_none() {
+            return Ok(ScriptConditionResult::False);
+        }
 
         let Ok(players) = player_list().read() else {
             return Ok(ScriptConditionResult::False);
@@ -952,25 +869,13 @@ impl ScriptConditionEvaluator {
         };
 
         let types = self.resolve_object_types_param(&type_or_list_name);
-        if types.list_size() == 0 {
+        let (templates, mut counts) = types.prep_for_player_counting();
+        if templates.is_empty() {
             return Ok(ScriptConditionResult::False);
         }
-
-        for obj_id in player.get_object_ids() {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if types.contains_template(Some(obj.get_template())) {
-                return Ok(ScriptConditionResult::True);
-            }
-        }
-
-        Ok(ScriptConditionResult::False)
+        player.count_objects_by_thing_template(&templates, false, true, &mut counts);
+        let sum: i32 = counts.iter().copied().sum();
+        Ok(Self::bool_result(sum != 0))
     }
 
     pub(crate) fn eval_building_entered_by_player(
@@ -1476,31 +1381,30 @@ impl ScriptConditionEvaluator {
         })
     }
 
-    /// C++ Reference: ScriptConditions::checkMultiplayerPlayerDefeat()
-    /// Checks if a specific player has been defeated
+    /// C++ ScriptConditions::evaluateMultiplayerPlayerDefeat — no params.
     pub(crate) fn eval_multiplayer_player_defeat(
         &self,
-        condition: &Condition,
+        _condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let player_name = self.get_condition_string_param(condition, 0)?;
-        log::debug!("Evaluating multiplayer player '{}' defeat", player_name);
-
-        // Look up player by name and check their defeat status
-        let players = player_list();
-        if let Ok(players_lock) = players.read() {
-            for player_arc in players_lock.iter() {
-                if let Ok(player) = player_arc.read() {
-                    if player.get_player_name_key() == NameKeyGenerator::name_to_key(&player_name) {
-                        // Check if player has been defeated
-                        if player.is_player_dead() {
-                            return Ok(ScriptConditionResult::True);
-                        }
-                        break;
-                    }
-                }
-            }
+        // isLocalDefeat() && !isLocalAlliedDefeat()
+        let Ok(players) = player_list().read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(local_arc) = players.get_local_player().cloned() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(local_player) = local_arc.read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        if local_player.is_player_observer() {
+            return Ok(ScriptConditionResult::False);
         }
-        Ok(ScriptConditionResult::False)
+        let local_defeat = local_player.is_defeated() || local_player.is_player_dead();
+        drop(local_player);
+        let allied_defeat = self.eval_multiplayer_allied_defeat(_condition)?;
+        Ok(Self::bool_result(
+            local_defeat && !matches!(allied_defeat, ScriptConditionResult::True),
+        ))
     }
 
     // ============================================================================
@@ -1524,7 +1428,7 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::True)
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_has_finished_speech(
@@ -1544,7 +1448,7 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::True)
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_has_finished_audio(
@@ -1564,7 +1468,7 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::True)
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_music_track_has_completed(
@@ -1589,7 +1493,7 @@ impl ScriptConditionEvaluator {
                 ScriptConditionResult::False
             });
         }
-        Ok(ScriptConditionResult::True)
+        Ok(ScriptConditionResult::False)
     }
 
     // ============================================================================

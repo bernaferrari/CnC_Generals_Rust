@@ -504,7 +504,7 @@ impl GameLogic {
     /// CashUpdateDelay=2000 ms → 60 frames field; CashUpdateDelayFast=1800 ms → 54
     /// frames inside Internet Center; Regular/Vet/Elite/Heroic = 5/6/8/10.
     /// InternetHackContain residual: hackers contained in FSInternetCenter auto-hack.
-    /// Fail-closed: not full unpack/pack animation / variation / floating text.
+    /// Fail-closed: unpack uses authored frames (variation 1.0); pack is cash-stop.
     pub(crate) fn apply_hacker_income_event(
         &mut self,
         ev: crate::game_logic::host_hacker_income_log::HackerIncomeEvent,
@@ -531,6 +531,7 @@ impl GameLogic {
         if let Some(pid) = owner_player_id {
             if let Some(player) = self.get_player_mut(pid) {
                 player.credit_supplies(deposited);
+                player.add_money_earned(deposited);
             }
         }
         // C++ awards XP to the hacker, not to a fixed retail template.  The
@@ -613,7 +614,6 @@ impl GameLogic {
             .collect();
 
         // Collect residual hackers with container / legal gates.
-        #[derive(Clone, Copy)]
         struct HackerSnap {
             id: ObjectId,
             team: Team,
@@ -634,6 +634,8 @@ impl GameLogic {
             container_team: Team,
             container_owner_player_id: Option<u32>,
             container_radius: f32,
+            moving: bool,
+            ai_state: AIState,
         }
         let hackers: Vec<HackerSnap> = self
             .objects
@@ -689,6 +691,8 @@ impl GameLogic {
                     container_team: c_team,
                     container_owner_player_id: c_owner_player_id,
                     container_radius: c_radius,
+                    moving: obj.status.moving,
+                    ai_state: obj.ai_state.clone(),
                 })
             })
             .collect();
@@ -714,8 +718,17 @@ impl GameLogic {
                 self.hacker_income.ensure_internet_center_hacking(
                     h.id,
                     frame,
+                    h.metadata.unpack_time_frames,
                     h.metadata.cash_update_delay_frames(true),
                 );
+            }
+            // C++ aiDoCommand PACKING: any new move/attack command leaves HACK_INTERNET.
+            if !h.in_ic
+                && self.hacker_income.is_hacking(h.id)
+                && (h.moving || !matches!(h.ai_state, AIState::Idle | AIState::Docked | AIState::Garrisoned))
+            {
+                self.hacker_income.stop_hacking(h.id);
+                continue;
             }
             // If no longer in IC and never field-started, keep active only if
             // still marked hacking (field residual). Leaving IC mid-hack continues
@@ -739,6 +752,7 @@ impl GameLogic {
             if let Some(player_id) = owner_player_id {
                 if let Some(player) = self.get_player_mut(player_id) {
                     player.credit_supplies(deposited);
+                    player.add_money_earned(deposited);
                 }
             }
             // Residual XpPerCashUpdate.
@@ -795,7 +809,7 @@ impl GameLogic {
     }
 
     /// Residual field command: start HackInternet for selected hacker unit(s).
-    /// Fail-closed: not full unpack animation / pack-on-interrupt state machine.
+    /// C++ `hackInternet()` enters UNPACKING then HACK_INTERNET cash delay.
     pub fn start_hacker_internet_hack(&mut self, hacker_id: ObjectId) -> bool {
         use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
         let frame = self.frame;
@@ -815,12 +829,18 @@ impl GameLogic {
         self.hacker_income.start_hacking(
             hacker_id,
             frame,
+            metadata.unpack_time_frames,
             metadata.cash_update_delay_frames(false),
         );
+        if let Some(obj) = self.objects.get_mut(&hacker_id) {
+            obj.set_status_moving(false);
+            obj.stop_moving();
+            obj.set_ai_state(AIState::Idle);
+        }
         true
     }
 
-    /// Residual: stop HackInternet (e.g. move interrupt residual).
+    /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on any new command.
     pub fn stop_hacker_internet_hack(&mut self, hacker_id: ObjectId) {
         self.hacker_income.stop_hacking(hacker_id);
     }

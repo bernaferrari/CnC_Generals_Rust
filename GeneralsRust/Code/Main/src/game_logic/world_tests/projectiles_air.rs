@@ -2885,11 +2885,11 @@ fn pilot_auto_find_healing_hospital_path_residual() {
     }
 }
 
-/// Residual: AutoFindHealingUpdate non-pilot USA infantry hospital path.
+/// Residual: AutoFindHealingUpdate non-pilot infantry hospital path.
 ///
-/// Retail AmericaInfantryRanger / MissileDefender / Pathfinder / ColonelBurton
-/// all carry AutoFindHealingUpdate. Host residual expands beyond pilot-only.
-/// Fail-closed: AlwaysHeal busy-interrupt still not claimed; China/GLA skip.
+/// C++ AutoFindHealingUpdate.cpp:78-123 any AI template with the module.
+/// USA Ranger / China Redguard / GLA Rebel all carry it in retail INI.
+/// Fail-closed: AlwaysHeal busy-interrupt still not claimed.
 #[test]
 fn usa_infantry_auto_find_healing_hospital_path_residual() {
     let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
@@ -2974,7 +2974,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
         "SeekingHealing residual must restore ranger HP (after={hp_after})"
     );
 
-    // Fail-closed: China infantry without AutoFindHealing residual does not scan.
+    // C++: China infantry with AutoFindHealingUpdate also scans.
     let mut china_logic = GameLogic::new();
     ensure_test_heal_pad_template(&mut china_logic);
     china_logic
@@ -3007,12 +3007,9 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
     china_logic.frame = AUTO_FIND_HEALING_SCAN_FRAMES;
     china_logic.update_ai(&[cred, cpad], 1.0 / 30.0);
     assert!(
-        !china_logic.honesty_infantry_auto_heal_ok(),
-        "China Redguard residual must not AutoFindHealing"
-    );
-    assert_eq!(
-        china_logic.host_object(cred).unwrap().ai_state,
-        AIState::Idle
+        china_logic.honesty_infantry_auto_heal_ok()
+            || china_logic.host_object(cred).unwrap().ai_state != AIState::Idle,
+        "China Redguard AutoFindHealingUpdate must seek a HealPad"
     );
 
     match prev_dec {

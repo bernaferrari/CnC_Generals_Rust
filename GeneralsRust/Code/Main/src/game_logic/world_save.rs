@@ -1938,8 +1938,11 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32()
         );
         self.sync_legacy_player_list_from_sides();
+        if !self.players.is_empty() {
+            self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
+            self.stash_side_builds_on_host(&sides_data.side_builds);
+        }
         self.transfer_side_build_lists_to_players();
-        self.sync_legacy_team_factory_from_sides();
 
         let waypoint_count = gamelogic::terrain::get_terrain_logic()
             .try_read()
@@ -2023,13 +2026,40 @@ impl GameLogic {
             player.set_player_type(player_type, false);
             player.init(Arc::new(template));
             player.init_from_dict_defaults();
-
+            player.apply_handicap_from_dict(dict);
+            if dict.get_type(key_player_color()).is_some() {
+                let color = (dict.get_int(key_player_color()) as u32) | 0xff00_0000;
+                let night = if dict.get_type(key_player_night_color()).is_some() {
+                    (dict.get_int(key_player_night_color()) as u32) | 0xff00_0000
+                } else {
+                    color
+                };
+                let to_color = |argb: u32| {
+                    gamelogic::common::Color::new(
+                        ((argb >> 16) & 0xff) as u8,
+                        ((argb >> 8) & 0xff) as u8,
+                        (argb & 0xff) as u8,
+                        ((argb >> 24) & 0xff) as u8,
+                    )
+                };
+                player.set_colors(to_color(color), to_color(night));
+            }
+            if dict.get_type(key_player_start_money()).is_some() {
+                // C++ Player.cpp:1007-1009 deposits map playerStartMoney.
+                player
+                    .get_money_mut()
+                    .deposit_money(dict.get_int(key_player_start_money()));
+            }
             logic_list.add_player(Arc::new(RwLock::new(player)));
 
             if is_human && logic_list.get_local_player_index() < 0 {
                 logic_list.set_local_player_index(index as i32);
             }
         }
+
+        // C++ PlayerList.cpp:167-199 — apply playerAllies / playerEnemies after
+        // every side exists so name lookup can resolve.
+        apply_logic_player_list_relationships(&mut logic_list, side_dicts);
 
         match ThePlayerList().try_write() {
             Ok(mut guard) => *guard = logic_list,
@@ -2207,6 +2237,152 @@ impl GameLogic {
             }
         }
     }
+
+    fn host_player_id_for_side_index(&self, side_index: u32) -> Option<u32> {
+        if self.players.contains_key(&side_index) {
+            return Some(side_index);
+        }
+        let mut pids: Vec<u32> = self.players.keys().copied().collect();
+        pids.sort_unstable();
+        pids.get(side_index as usize).copied()
+    }
+
+    fn apply_host_players_from_sides_list(&mut self, replace_default_money: bool) {
+        let sides_list = get_sides_list();
+        let Ok(sides_guard) = sides_list.try_read() else {
+            return;
+        };
+        let side_dicts: Vec<Dict> = (0..sides_guard.get_num_sides())
+            .filter_map(|index| {
+                sides_guard
+                    .get_side_info(index)
+                    .map(|side| side.get_dict().clone())
+            })
+            .collect();
+        drop(sides_guard);
+        self.apply_host_players_from_side_dicts(&side_dicts, replace_default_money);
+    }
+
+    /// C++ Player::initFromDict + PlayerList relationship pass onto live host players.
+    pub(super) fn apply_host_players_from_side_dicts(
+        &mut self,
+        side_dicts: &[Dict],
+        replace_default_money: bool,
+    ) {
+        if self.players.is_empty() || side_dicts.is_empty() {
+            return;
+        }
+        for (index, dict) in side_dicts.iter().enumerate() {
+            let name = dict.get_ascii_string(key_player_name());
+            let pid = self
+                .players
+                .iter()
+                .find(|(_, player)| {
+                    !name.is_empty()
+                        && (player.map_side.map_player_name == name || player.name == name)
+                })
+                .map(|(id, _)| *id)
+                .or_else(|| self.host_player_id_for_side_index(index as u32));
+            let Some(pid) = pid else {
+                continue;
+            };
+            if let Some(player) = self.players.get_mut(&pid) {
+                player.apply_map_side_dict(dict, replace_default_money);
+            }
+        }
+
+        let mut by_name: HashMap<String, u32> = HashMap::new();
+        for (&id, player) in &self.players {
+            if !player.map_side.map_player_name.is_empty() {
+                by_name.insert(player.map_side.map_player_name.clone(), id);
+            }
+            if !player.name.is_empty() {
+                by_name.entry(player.name.clone()).or_insert(id);
+            }
+        }
+        for dict in side_dicts {
+            let name = dict.get_ascii_string(key_player_name());
+            let Some(&pid) = by_name.get(&name) else {
+                continue;
+            };
+            let enemies = dict.get_ascii_string(key_player_enemies());
+            let allies = dict.get_ascii_string(key_player_allies());
+            if let Some(player) = self.players.get_mut(&pid) {
+                player.set_map_relationship(pid, gamelogic::common::Relationship::Allies);
+                for token in enemies.split_whitespace() {
+                    if let Some(&eid) = by_name.get(token) {
+                        player.set_map_relationship(
+                            eid,
+                            gamelogic::common::Relationship::Enemies,
+                        );
+                    }
+                }
+                for token in allies.split_whitespace() {
+                    if let Some(&aid) = by_name.get(token) {
+                        player.set_map_relationship(aid, gamelogic::common::Relationship::Allies);
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn stash_side_builds_on_host(
+        &mut self,
+        builds: &[super::script_loader::SideBuildEntry],
+    ) {
+        if builds.is_empty() {
+            return;
+        }
+        let mut grouped: HashMap<u32, Vec<HostAuthoredBuild>> = HashMap::new();
+        for entry in builds {
+            let Some(pid) = self.host_player_id_for_side_index(entry.side_index) else {
+                continue;
+            };
+            grouped.entry(pid).or_default().push(HostAuthoredBuild {
+                template: entry.template.clone(),
+                position: (entry.position.x, entry.position.y, entry.position.z),
+                num_rebuilds: entry.num_rebuilds.max(0) as u32,
+                initially_built: entry.initially_built,
+            });
+        }
+        for (pid, list) in grouped {
+            if let Some(player) = self.players.get_mut(&pid) {
+                player.map_side.build_list = list;
+            }
+        }
+        self.feed_host_ai_from_authored_build_lists();
+    }
+
+    /// C++ AIPlayer::newMap consumes Player build list + numRebuilds.
+    pub(super) fn feed_host_ai_from_authored_build_lists(&mut self) {
+        let authored: Vec<(u32, Vec<HostAuthoredBuild>)> = self
+            .players
+            .iter()
+            .filter_map(|(&id, player)| {
+                if player.map_side.build_list.is_empty() {
+                    None
+                } else {
+                    Some((id, player.map_side.build_list.clone()))
+                }
+            })
+            .collect();
+        for (pid, list) in authored {
+            let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) else {
+                continue;
+            };
+            ai.building_queue.clear();
+            for entry in list {
+                let pos = glam::Vec3::new(entry.position.0, entry.position.2, entry.position.1);
+                ai.add_building(&entry.template, pos, entry.num_rebuilds);
+                if entry.initially_built {
+                    if let Some(last) = ai.building_queue.last_mut() {
+                        last.is_built = true;
+                    }
+                }
+            }
+        }
+    }
+
 
     pub(super) fn sync_legacy_player_list_from_sides(&self) {
         let sides_list = get_sides_list();
@@ -2547,6 +2723,7 @@ impl GameLogic {
                                     "Preserving {} host player(s) across map load (skirmish/SP config)",
                                     self.players.len()
                                 );
+                                self.apply_host_players_from_sides_list(false);
                             } else {
                                 self.players.clear();
                                 for (&pid, &team) in &map_player_to_team {
@@ -2555,7 +2732,9 @@ impl GameLogic {
                                     self.players
                                         .insert(pid, Player::new(pid, team, &name, is_local));
                                 }
+                                self.apply_host_players_from_sides_list(true);
                             }
+                            self.stash_side_builds_on_host(&meta.side_builds);
                         }
 
                         let mut spawned_object_ids: Vec<(ObjectId, usize)> = Vec::new();
@@ -3001,6 +3180,55 @@ impl GameLogic {
     }
 }
 
+/// C++ PlayerList.cpp:167-199.
+fn apply_logic_player_list_relationships(logic_list: &mut LogicPlayerList, side_dicts: &[Dict]) {
+    let mut name_to_index: HashMap<String, i32> = HashMap::new();
+    for dict in side_dicts {
+        let name = dict.get_ascii_string(key_player_name());
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(player) = logic_list.find_player_by_name(&name) {
+            if let Ok(guard) = player.read() {
+                name_to_index.insert(name, guard.get_player_index());
+            }
+        }
+    }
+    for dict in side_dicts {
+        let name = dict.get_ascii_string(key_player_name());
+        let Some(&index) = name_to_index.get(&name) else {
+            continue;
+        };
+        let Some(player_arc) = logic_list.get_player(index) else {
+            continue;
+        };
+        let Ok(mut player) = player_arc.write() else {
+            continue;
+        };
+        player.set_player_relationship_by_index(index, gamelogic::common::Relationship::Allies);
+        if index != 0 {
+            player.set_player_relationship_by_index(0, gamelogic::common::Relationship::Neutral);
+        }
+        for token in dict.get_ascii_string(key_player_enemies()).split_whitespace() {
+            if let Some(&enemy) = name_to_index.get(token) {
+                player.set_player_relationship_by_index(
+                    enemy,
+                    gamelogic::common::Relationship::Enemies,
+                );
+            }
+        }
+        for token in dict.get_ascii_string(key_player_allies()).split_whitespace() {
+            if let Some(&ally) = name_to_index.get(token) {
+                player.set_player_relationship_by_index(
+                    ally,
+                    gamelogic::common::Relationship::Allies,
+                );
+            }
+        }
+    }
+}
+
+
 fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
     use game_engine::common::system::file::FileAccess;
     use game_engine::common::system::file_system::get_file_system;
@@ -3039,4 +3267,77 @@ fn apply_cpp_heightmap_xy_and_border(
     // C++ MapObject.h MAP_XY_FACTOR; WorldHeightMap::m_borderSize else ZH 70.
     heightmap.scale = MAP_XY_FACTOR;
     heightmap.border_size = if map_border > 0 { map_border } else { 70 };
+}
+
+#[cfg(test)]
+mod sides_host_apply_tests {
+    use super::*;
+
+    #[test]
+    fn map_side_dict_sets_host_money_color_and_enemies() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "PlyrAmerica", true));
+        logic.add_player(Player::new(1, Team::GLA, "PlyrGLA", false));
+
+        let mut america = Dict::new();
+        america.set_ascii_string(key_player_name(), "PlyrAmerica");
+        america.set_int(key_player_start_money(), 3_000);
+        america.set_int(key_player_color(), 0x0000_00ff);
+        america.set_ascii_string(key_player_enemies(), "PlyrGLA");
+        america.set_ascii_string(key_player_allies(), "");
+
+        let mut gla = Dict::new();
+        gla.set_ascii_string(key_player_name(), "PlyrGLA");
+        gla.set_int(key_player_start_money(), 1_500);
+        gla.set_ascii_string(key_player_enemies(), "PlyrAmerica");
+
+        logic.apply_host_players_from_side_dicts(&[america, gla], true);
+
+        let usa = logic.get_player(0).expect("usa");
+        assert_eq!(usa.resources.supplies, 3_000);
+        assert_eq!(usa.color_rgb, (0, 0, 0xff));
+        assert_eq!(
+            logic.player_relationship(0, 1),
+            gamelogic::common::Relationship::Enemies
+        );
+    }
+
+    #[test]
+    fn authored_build_list_replaces_hardcoded_ai_layout() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", false));
+        logic.add_ai_opponent(1, Team::USA, crate::ai::AIDifficulty::Medium);
+        let before = logic
+            .ai_manager
+            .ai_players
+            .get(&1)
+            .map(|ai| ai.building_queue.len())
+            .unwrap_or(0);
+        assert!(before > 0, "hardcoded layout seeds a queue");
+
+        let builds = [super::super::script_loader::SideBuildEntry {
+            building_name: "cc".into(),
+            template: "AmericaCommandCenter".into(),
+            position: gamelogic::scripting::core::Coord3D {
+                x: 10.0,
+                y: 20.0,
+                z: 0.0,
+            },
+            angle: 0.0,
+            initially_built: true,
+            num_rebuilds: 3,
+            side_index: 1,
+            script_name: None,
+            health: None,
+            whiner: None,
+            unsellable: None,
+            repairable: None,
+        }];
+        logic.stash_side_builds_on_host(&builds);
+        let ai = logic.ai_manager.ai_players.get(&1).expect("ai");
+        assert_eq!(ai.building_queue.len(), 1);
+        assert_eq!(ai.building_queue[0].template_name, "AmericaCommandCenter");
+        assert_eq!(ai.building_queue[0].max_rebuilds, 3);
+        assert!(ai.building_queue[0].is_built);
+    }
 }

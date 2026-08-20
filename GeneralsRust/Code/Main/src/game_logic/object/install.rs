@@ -209,9 +209,8 @@ impl Object {
         let previous = self.experience.level;
         let merged = merged_recrew_veterancy(previous, pilot_level);
         let transferred = veterancy_rank(merged) > veterancy_rank(previous);
-        if merged != previous {
-            self.experience.level = merged;
-            self.apply_veterancy_bonuses(previous, merged);
+        if transferred {
+            let _ = self.set_min_veterancy_level(merged);
         }
         transferred
     }

@@ -418,7 +418,7 @@ pub struct GameLogic {
     pub(super) pathfinder_residual_sniper_fires: u32,
 
     /// Host Scout / Hellfire slave-drone residual honesty.
-    /// Fail-closed: not full SlavedUpdate wander / ObjectCreationUpgrade matrix.
+    /// SlavedUpdate follow/guard/2x GuardMaxRange recall is ticked in update_ai.
     pub(super) scout_drone_residual_detects: u32,
     pub(super) scout_drone_residual_attaches: u32,
     pub(super) hellfire_drone_residual_auto_fires: u32,

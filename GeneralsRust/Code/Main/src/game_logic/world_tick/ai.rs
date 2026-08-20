@@ -29,6 +29,14 @@ impl GameLogic {
             let mut lifetime_kill = false;
             let mut poison_kill = false;
             let mut defector_audio: Vec<String> = Vec::new();
+            let height_die_terrain = {
+                let (pos, ground) = match self.objects.get(&object_id) {
+                    Some(o) => (o.get_position(), o.ground_height),
+                    None => (glam::Vec3::ZERO, 0.0),
+                };
+                // C++ HeightDieUpdate.cpp:133 TheTerrainLogic->getGroundHeight
+                self.terrain_height_at(pos).unwrap_or(ground)
+            };
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 // Wave 761: under coupled GameWorld shadow, status timer expire
                 // (faerie/repulsor/disable/frenzy/continuous-fire/selection flash)
@@ -174,7 +182,7 @@ impl GameLogic {
                 if !(crate::gameworld_shadow::gameworld_shadow_enabled()
                     && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    if !topple_kill && obj.tick_height_die(self.frame, 0.0) {
+                    if !topple_kill && obj.tick_height_die(self.frame, height_die_terrain) {
                         topple_kill = true;
                     }
                 }
@@ -385,8 +393,8 @@ impl GameLogic {
             // C++ human players sleep forever — host residual: is_local → skip.
             // Base-center fallback residual when no vehicle found (m_didMoveToBase).
             self.try_pilot_find_vehicle_residual(object_id);
-            // AutoFindHealingUpdate residual: AI idle injured USA infantry → HealPad.
-            // Pilot / Ranger / MissileDefender / Pathfinder / ColonelBurton residual.
+            // AutoFindHealingUpdate residual: AI idle injured infantry → HealPad.
+            // C++ AutoFindHealingUpdate.cpp:78-123 any template with the module.
             // ScanRate 1000ms / ScanRange 300 / NeverHeal 0.85 (AlwaysHeal busy path fail-closed).
             self.try_auto_find_healing_residual(object_id);
             // AutoFindRepair residual: AI idle damaged vehicles → RepairPad/WarFactory.
@@ -530,6 +538,230 @@ impl GameLogic {
         }
 
         // Resolve command-driven support states (guard/repair/docking/garrison) after AI decisions.
+        // C++ SlavedUpdate.cpp:91-261 follow / guard / 2x GuardMaxRange recall.
+        self.update_slaved_drone_follow();
+        // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+        self.update_demo_trap_detonate_when_killed();
         self.update_support_states(object_ids, dt);
+    }
+
+    /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
+    pub(in super::super) fn update_slaved_drone_follow(&mut self) {
+        use crate::game_logic::host_slave_drones::{
+            battle_drone_should_repair_master, is_battle_drone_template,
+            is_hellfire_drone_template, is_scout_drone_template, SLAVE_ATTACK_RANGE,
+            SLAVE_GUARD_MAX_RANGE, SLAVE_SCOUT_RANGE,
+        };
+
+        let drones: Vec<(ObjectId, ObjectId, glam::Vec3, bool, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| {
+                if !o.is_alive() {
+                    return None;
+                }
+                let is_drone = is_scout_drone_template(&o.template_name)
+                    || is_hellfire_drone_template(&o.template_name)
+                    || is_battle_drone_template(&o.template_name);
+                if !is_drone {
+                    return None;
+                }
+                let master = o.producer_id?;
+                let idle = matches!(o.ai_state, AIState::Idle);
+                let is_battle = is_battle_drone_template(&o.template_name);
+                Some((*id, master, o.get_position(), idle, is_battle))
+            })
+            .collect();
+
+        for (drone_id, master_id, dpos, idle, is_battle) in drones {
+            let Some(master) = self.objects.get(&master_id) else {
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    d.set_status_disabled_unmanned(true);
+                    d.set_ai_state(AIState::Idle);
+                }
+                continue;
+            };
+            if !master.is_alive() || master.is_unmanned() {
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    d.set_status_disabled_unmanned(true);
+                    d.set_ai_state(AIState::Idle);
+                }
+                continue;
+            }
+            let mpos = master.get_position();
+            let max_hp = master.health.maximum.max(1.0);
+            let master_hp_pct = (master.health.current / max_hp) * 100.0;
+            let master_dest = master.movement.target_position;
+            let victim_pos = master.target.and_then(|tid| {
+                self.objects
+                    .get(&tid)
+                    .filter(|t| t.is_alive())
+                    .map(|t| t.get_position())
+            });
+
+            if is_battle && battle_drone_should_repair_master(true, master_hp_pct, true, 0.0) {
+                // C++ SlavedUpdate.cpp:188-193 1ST PRIORITY: repair master.
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    d.set_destination(mpos);
+                }
+                continue;
+            }
+
+            let Some(goal) = slaved_update_follow_goal(
+                (dpos.x, dpos.z),
+                (mpos.x, mpos.z),
+                master_dest.map(|p| (p.x, p.z)),
+                victim_pos.map(|p| (p.x, p.z)),
+                idle,
+                SLAVE_GUARD_MAX_RANGE,
+                SLAVE_ATTACK_RANGE,
+                SLAVE_SCOUT_RANGE,
+            ) else {
+                continue;
+            };
+            if let Some(d) = self.objects.get_mut(&drone_id) {
+                let y = d.get_position().y.max(mpos.y);
+                d.set_destination(glam::Vec3::new(goal.0, y, goal.1));
+            }
+        }
+    }
+
+    /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+    pub(in super::super) fn update_demo_trap_detonate_when_killed(&mut self) {
+        use crate::game_logic::host_mines::{
+            should_detonate_when_killed, HostMineDetonateReason, DEMO_TRAP_DETONATE_WHEN_KILLED,
+        };
+        let due: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                let data = obj.mine_data.as_ref()?;
+                if should_detonate_when_killed(
+                    data.kind,
+                    DEMO_TRAP_DETONATE_WHEN_KILLED,
+                    !obj.is_alive(),
+                    data.detonated,
+                    obj.status.under_construction || obj.status.sold,
+                ) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in due {
+            let _ = self.detonate_mine_internal(id, HostMineDetonateReason::Killed);
+        }
+    }
+}
+
+/// C++ SlavedUpdate.cpp:196-258 attack / scout-ahead / 2×GuardMaxRange recall / guard.
+pub fn slaved_update_follow_goal(
+    drone_xz: (f32, f32),
+    master_xz: (f32, f32),
+    master_dest_xz: Option<(f32, f32)>,
+    victim_xz: Option<(f32, f32)>,
+    drone_idle: bool,
+    guard_max: f32,
+    attack_range: f32,
+    scout_range: f32,
+) -> Option<(f32, f32)> {
+    const STRAY_MULTIPLIER: f32 = 2.0;
+    const CLOSE_ENOUGH_SQR: f32 = 15.0 * 15.0;
+
+    let dist_sqr = |a: (f32, f32), b: (f32, f32)| {
+        let dx = a.0 - b.0;
+        let dz = a.1 - b.1;
+        dx * dx + dz * dz
+    };
+    let toward = |from: (f32, f32), to: (f32, f32), range: f32| {
+        let dx = to.0 - from.0;
+        let dz = to.1 - from.1;
+        let len = (dx * dx + dz * dz).sqrt();
+        if len <= f32::EPSILON {
+            to
+        } else {
+            (from.0 + dx / len * range, from.1 + dz / len * range)
+        }
+    };
+
+    if let Some(v) = victim_xz {
+        if attack_range > 0.0 {
+            if dist_sqr(drone_xz, v) > attack_range * attack_range {
+                return Some(toward(master_xz, v, attack_range));
+            }
+            return Some(v);
+        }
+    }
+    if let Some(dest) = master_dest_xz {
+        if scout_range > 0.0 {
+            let half = guard_max * 0.5;
+            if dist_sqr(master_xz, dest) > half * half {
+                if dist_sqr(drone_xz, dest) > scout_range * scout_range {
+                    return Some(toward(master_xz, dest, scout_range));
+                }
+                return Some(dest);
+            }
+        }
+    }
+    if guard_max > 0.0 {
+        if dist_sqr(drone_xz, master_xz) > (STRAY_MULTIPLIER * guard_max).powi(2) {
+            return Some(master_xz);
+        }
+        if drone_idle && dist_sqr(drone_xz, master_xz) > CLOSE_ENOUGH_SQR {
+            return Some(master_xz);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod slaved_follow_tests {
+    use super::slaved_update_follow_goal;
+
+    #[test]
+    fn slaved_update_recalls_past_two_times_guard_max() {
+        // C++ SlavedUpdate.cpp:253 STRAY_MULTIPLIER 2.0 * GuardMaxRange 35.
+        let goal = slaved_update_follow_goal(
+            (0.0, 0.0),
+            (100.0, 0.0),
+            None,
+            None,
+            false,
+            35.0,
+            75.0,
+            75.0,
+        );
+        assert_eq!(goal, Some((100.0, 0.0)));
+    }
+
+    #[test]
+    fn slaved_update_scouts_ahead_of_master_dest() {
+        let goal = slaved_update_follow_goal(
+            (0.0, 0.0),
+            (0.0, 0.0),
+            Some((200.0, 0.0)),
+            None,
+            true,
+            35.0,
+            75.0,
+            75.0,
+        );
+        assert_eq!(goal, Some((75.0, 0.0)));
+    }
+
+    #[test]
+    fn slaved_update_attacks_master_victim() {
+        let goal = slaved_update_follow_goal(
+            (0.0, 0.0),
+            (0.0, 0.0),
+            None,
+            Some((200.0, 0.0)),
+            true,
+            35.0,
+            75.0,
+            75.0,
+        );
+        assert_eq!(goal, Some((75.0, 0.0)));
     }
 }

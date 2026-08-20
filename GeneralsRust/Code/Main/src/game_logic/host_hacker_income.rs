@@ -16,7 +16,7 @@
 //! - Internet Center geometry scatter residual (±0.3 major/minor radius).
 //!
 //! Fail-closed honesty:
-//! - Not full Unpack/Pack state machine / variation factor / model conditions
+//! - Pack/unpack uses authored frame times (variation factor stays 1.0, no anim matrix)
 //! - Not full InGameUI GPU draw / Unicode GameText localization
 //! - Not full DISABLED_HACKED microwave interrupt resume matrix beyond skip-while-disabled
 //! - `XpPerCashUpdate` is applied from parsed module metadata
@@ -253,6 +253,18 @@ impl HostHackerIncomeRegistry {
         current_frame.saturating_add(delay_frames).saturating_add(1)
     }
 
+    /// C++ `hackInternet()` enters UNPACKING (`UnpackTime`) then HACK_INTERNET
+    /// (`CashUpdateDelay`). First cash is unpack + delay, then the extra
+    /// decrement-then-fire frame.
+    #[inline]
+    fn first_cash_update_after(
+        current_frame: u32,
+        unpack_frames: u32,
+        delay_frames: u32,
+    ) -> u32 {
+        Self::next_cash_update_after(current_frame.saturating_add(unpack_frames), delay_frames)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -279,6 +291,7 @@ impl HostHackerIncomeRegistry {
 
     /// Start a typed `HackInternetAIUpdate` cash schedule.
     ///
+    /// `unpack_frames` is C++ `UnpackTime` (UNPACKING before HACK_INTERNET).
     /// The caller supplies the exact parsed module delay.  This registry does
     /// not substitute the old China-Hacker constants when source metadata is
     /// absent.  A parsed zero delay is meaningful and fires next update.
@@ -286,13 +299,14 @@ impl HostHackerIncomeRegistry {
         &mut self,
         hacker_id: ObjectId,
         current_frame: u32,
+        unpack_frames: u32,
         initial_delay_frames: u32,
     ) {
         self.active_hackers.insert(hacker_id);
         self.field_starts = self.field_starts.saturating_add(1);
         self.next_deposit_frame.insert(
             hacker_id,
-            Self::next_cash_update_after(current_frame, initial_delay_frames),
+            Self::first_cash_update_after(current_frame, unpack_frames, initial_delay_frames),
         );
     }
 
@@ -302,6 +316,7 @@ impl HostHackerIncomeRegistry {
         &mut self,
         hacker_id: ObjectId,
         current_frame: u32,
+        unpack_frames: u32,
         initial_delay_frames: u32,
     ) -> bool {
         if self.active_hackers.contains(&hacker_id) {
@@ -309,17 +324,16 @@ impl HostHackerIncomeRegistry {
         }
         self.active_hackers.insert(hacker_id);
         self.internet_center_auto_starts = self.internet_center_auto_starts.saturating_add(1);
-        // The containment caller supplies the exact parsed fast delay.  The
-        // full C++ unpack/pack state machine remains unported; no name-based
-        // retail timing is used here.
+        // C++ `hackInternet()` still enters UNPACKING even when the unit will
+        // be contained; `getUnpackTime` is queried before contain.
         self.next_deposit_frame.insert(
             hacker_id,
-            Self::next_cash_update_after(current_frame, initial_delay_frames),
+            Self::first_cash_update_after(current_frame, unpack_frames, initial_delay_frames),
         );
         true
     }
 
-    /// Stop residual hacking (move order / death residual).
+    /// C++ `aiDoCommand` PACKING: leave HACK_INTERNET so cash stops immediately.
     pub fn stop_hacking(&mut self, hacker_id: ObjectId) {
         self.active_hackers.remove(&hacker_id);
         self.next_deposit_frame.remove(&hacker_id);
@@ -595,7 +609,7 @@ mod tests {
     fn field_hacking_deposits_on_interval() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(1);
-        reg.start_hacking(id, 0, HACKER_CASH_INTERVAL_FRAMES);
+        reg.start_hacking(id, 0, 0, HACKER_CASH_INTERVAL_FRAMES);
         assert!(reg.is_hacking(id));
         assert_eq!(
             reg.try_deposit(
@@ -657,8 +671,8 @@ mod tests {
     fn internet_center_auto_start_uses_fast_interval() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(2);
-        assert!(reg.ensure_internet_center_hacking(id, 0, HACKER_CASH_INTERVAL_FAST_FRAMES));
-        assert!(!reg.ensure_internet_center_hacking(id, 0, HACKER_CASH_INTERVAL_FAST_FRAMES)); // already active
+        assert!(reg.ensure_internet_center_hacking(id, 0, 0, HACKER_CASH_INTERVAL_FAST_FRAMES));
+        assert!(!reg.ensure_internet_center_hacking(id, 0, 0, HACKER_CASH_INTERVAL_FAST_FRAMES));
         assert_eq!(
             reg.try_deposit(
                 id,
@@ -684,10 +698,71 @@ mod tests {
     }
 
     #[test]
+    fn unpack_time_delays_first_cash_then_interval_only() {
+        let mut reg = HostHackerIncomeRegistry::new();
+        let id = ObjectId(4);
+        // Retail UnpackTime 219f then CashUpdateDelay 60f, +1 decrement-fire.
+        reg.start_hacking(id, 0, 219, HACKER_CASH_INTERVAL_FRAMES);
+        assert_eq!(reg.peek_next_deposit(id), Some(280));
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                61,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            0
+        );
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                279,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            0
+        );
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                280,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            5
+        );
+        // Subsequent pings skip unpack.
+        assert_eq!(reg.peek_next_deposit(id), Some(341));
+    }
+
+    #[test]
+    fn packing_on_new_command_stops_cash() {
+        let mut reg = HostHackerIncomeRegistry::new();
+        let id = ObjectId(5);
+        reg.start_hacking(id, 0, 0, HACKER_CASH_INTERVAL_FRAMES);
+        assert!(reg.is_hacking(id));
+        reg.stop_hacking(id);
+        assert!(!reg.is_hacking(id));
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                61,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            0
+        );
+    }
+
+    #[test]
     fn zero_authored_delay_waits_until_next_logic_update() {
         let mut reg = HostHackerIncomeRegistry::new();
         let id = ObjectId(3);
-        reg.start_hacking(id, 40, 0);
+        reg.start_hacking(id, 40, 0, 0);
         assert_eq!(reg.peek_next_deposit(id), Some(41));
         assert_eq!(reg.try_deposit(id, 40, 1, 0, false), 0);
         assert_eq!(reg.try_deposit(id, 41, 1, 0, false), 1);

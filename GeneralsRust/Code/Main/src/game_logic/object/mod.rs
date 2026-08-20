@@ -403,6 +403,25 @@ pub struct Object {
     /// Earliest frame at which the current warehouse/center dock may act.
     #[serde(default)]
     pub supply_truck_next_dock_action_frame: u32,
+    /// C++ `DockUpdate::m_activeDocker` — only this docker may enter/act.
+    #[serde(default)]
+    pub dock_active_docker: Option<ObjectId>,
+    /// C++ `Drawable::updateDrawableSupplyStatus` current boxes.
+    #[serde(default)]
+    pub drawable_supply_boxes: u32,
+    /// C++ startingBoxes argument to `updateDrawableSupplyStatus`.
+    #[serde(default)]
+    pub drawable_supply_max_boxes: u32,
+    /// C++ `RepairDockUpdate::m_lastRepair`.
+    #[serde(default)]
+    pub repair_dock_last_id: Option<ObjectId>,
+    /// C++ `RepairDockUpdate::m_healthToAddPerFrame` stored as HP/sec.
+    #[serde(default)]
+    pub repair_dock_health_per_sec: f32,
+    /// Absolute frame when a GrantTemporaryStealth residual expires (0 = none).
+    #[serde(default)]
+    pub temporary_stealth_expires_frame: u32,
+
     /// C++ HighlanderBody residual (cannot die from normal damage).
     pub highlander_body: bool,
     /// C++ UpgradeDie residual (free producer upgrade on death).

@@ -585,6 +585,31 @@ pub fn human_solo_health_bonus_for_difficulty(diff: AIDifficulty) -> f32 {
     }
 }
 
+/// Selected NewGame / `prepareNewGame` difficulty for the live host.
+///
+/// C++ `GameLogic::prepareNewGame` writes `TheScriptEngine->setGlobalDifficulty`
+/// (GameLogicDispatch.cpp:295). Human `Player::getPlayerDifficulty` then reads
+/// that global (Player.cpp:1519-1525). Unset (`i32::MIN`) keeps the pre-NewGame
+/// AI-manager / Medium fail-closed default.
+static LIVE_HOST_SESSION_DIFFICULTY: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(i32::MIN);
+
+/// Stamp the live-host session difficulty from MSG_NEW_GAME argument 1.
+pub fn set_live_host_session_difficulty(difficulty_code: i32) {
+    LIVE_HOST_SESSION_DIFFICULTY.store(difficulty_code, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Live-host session difficulty when a NewGame payload has been applied.
+pub fn live_host_session_difficulty() -> Option<AIDifficulty> {
+    match LIVE_HOST_SESSION_DIFFICULTY.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => Some(AIDifficulty::Easy),
+        1 => Some(AIDifficulty::Medium),
+        2 => Some(AIDifficulty::Hard),
+        3 => Some(AIDifficulty::Brutal),
+        _ => None,
+    }
+}
+
 /// Effective starting cash residual: multiplayer choice if valid, else default.
 pub fn effective_starting_cash(choice: Option<u32>) -> u32 {
     match choice {

@@ -69,6 +69,7 @@ impl SnapshotBuilder {
                 &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
             ),
             player_ranks: self.snapshot_player_ranks(game_logic)?,
+            object_instance_guards: self.snapshot_object_instance_guards(game_logic),
         };
 
         log::info!(
@@ -116,6 +117,7 @@ impl SnapshotBuilder {
         self.restore_player_template_bindings(snapshot, game_logic)?;
         self.restore_all_teams(&snapshot.teams, game_logic)?;
         self.restore_all_objects(&snapshot.objects, game_logic)?;
+        self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_terrain(&snapshot.terrain, game_logic)?;
         self.restore_pathfinding_cache(&snapshot.pathfinding_cache, game_logic)?;
         self.restore_weather(&snapshot.weather, game_logic)?;
@@ -162,6 +164,7 @@ impl SnapshotBuilder {
 
         let tail = super::lifecycle_tail::decode_lifecycle_tail(&snapshot.lifecycle_tail)?;
         super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
+        self.sync_all_garrisoned_units_from_occupants(game_logic);
 
         log::info!("World restoration complete");
         Ok(())
@@ -561,6 +564,33 @@ impl SnapshotBuilder {
         Ok(ranks)
     }
 
+
+    /// C++ `Object::xfer` (`Object.cpp:4068`) and `AIUpdateInterface::xfer`
+    /// (`AIUpdate.cpp:5015-5019`). World tail so nested object records stay
+    /// aligned with v1-v10 streams.
+    fn snapshot_object_instance_guards(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectInstanceGuardSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::with_capacity(ids.len());
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            entries.push(ObjectInstanceGuardSnapshot {
+                object_id: id,
+                instance_name: object.name.clone(),
+                guard_position: object.guard_position,
+                guard_target: object.guard_target,
+                guard_radius: object.guard_radius,
+                guard_mode: object.guard_mode,
+            });
+        }
+        entries
+    }
+
     fn restore_player_ranks(
         &self,
         snapshot: &WorldSnapshot,
@@ -646,7 +676,7 @@ impl SnapshotBuilder {
         snapshot: &WorldSnapshot,
         game_logic: &mut GameLogic,
     ) -> SaveLoadResult<()> {
-        if snapshot.version < WORLD_SNAPSHOT_BINCODE_VERSION {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION {
             return Ok(());
         }
 

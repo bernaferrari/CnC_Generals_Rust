@@ -612,6 +612,9 @@ impl GameLogic {
             // The C++ exit interface belongs to the Object's authored behavior
             // module, never to its producer basename.
             let exit_metadata = obj.thing.template.production_exit_metadata;
+            let producer_template = obj.template_name.clone();
+            let parking_place = obj.thing.template.parking_place.clone();
+            let is_airfield = obj.is_kind_of(KindOf::FSAirfield);
             if let Some(building) = obj.building_data.as_mut() {
                 let pf = object_owner_player_ids
                     .get(&id)
@@ -622,8 +625,27 @@ impl GameLogic {
                 // C++ ProductionUpdate checks an exit door only for completed
                 // unit entries; upgrades complete independently of the door.
                 let doors = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
-                    &obj.template_name,
+                    &producer_template,
                 );
+                let airfield_holds_parking = is_airfield
+                    && parking_place.is_some()
+                    && building.production_queue.first().is_some_and(|head| {
+                        !head.is_upgrade()
+                            && !crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+                                &head.template_name,
+                            )
+                    });
+                let parking_free = if airfield_holds_parking {
+                    let cap = parking_place.and_then(|m| m.capacity()).unwrap_or(0);
+                    Self::count_free_airfield_parking_slots(
+                        self.airfield_parking_spaces.get(&id).map(|v| v.as_slice()),
+                        cap,
+                    )
+                } else {
+                    usize::MAX
+                };
+
+
                 // Under PRODUCTION_AUTHORITY, GameWorld ticks queue progress;
                 // host only exits delay + completes when writeback already finished the head.
                 let completed_prod = if sole {
@@ -634,6 +656,21 @@ impl GameLogic {
                     // ready events so stale/missing events cannot make the host
                     // create an unbound unit.
                     if ready_producers.contains(&id) {
+                        if airfield_holds_parking && parking_free == 0 {
+                            if let Some(events) = ready_by_producer.get(&id) {
+                                for event in events {
+                                    crate::game_logic::host_production_ready_log::record_with_pose(
+                                        event.producer,
+                                        event.template_name.clone(),
+                                        event.is_upgrade,
+                                        event.spawn_pos,
+                                        event.rally,
+                                        event.gw_entity_raw,
+                                    );
+                                }
+                            }
+                            None
+                        } else {
                         let ready_count = ready_by_producer
                             .get(&id)
                             .and_then(|events| {
@@ -652,6 +689,11 @@ impl GameLogic {
                                 })
                             })
                             .unwrap_or(0);
+                        let ready_count = if airfield_holds_parking {
+                            ready_count.min(parking_free as u32)
+                        } else {
+                            ready_count
+                        };
                         (ready_count > 0)
                             .then(|| {
                                 building.try_complete_production_at_power_with_exit_metadata(
@@ -661,9 +703,11 @@ impl GameLogic {
                                 )
                             })
                             .flatten()
+                        }
                     } else {
                         None
                     }
+
                 } else {
                     // `ProductionUpdate::update` increments the integer frame
                     // counter before it handles the completed unit's exit
@@ -682,12 +726,15 @@ impl GameLogic {
                     if head_ready
                         && head_is_unit
                         && head_exit_available
-                        && !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
+                        && (airfield_holds_parking && parking_free == 0
+                            || !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
                             doors,
                             obj.production_door_phase,
-                        )
+                        ))
                     {
-                        if obj.production_door_phase == 0 {
+                        if obj.production_door_phase == 0
+                            && !(airfield_holds_parking && parking_free == 0)
+                        {
                             start_door_cycle = true;
                         }
                         None
@@ -695,9 +742,14 @@ impl GameLogic {
                         building.try_complete_production_at_power_with_exit_metadata(
                             pf,
                             exit_metadata.as_ref(),
-                            None,
+                            if airfield_holds_parking {
+                                Some(parking_free.min(u32::MAX as usize) as u32)
+                            } else {
+                                None
+                            },
                         )
                     }
+
                 };
                 // GameWorld production residual: snapshot queue progress each tick
                 // unless sole-tick owns progress (Wave 477) — then enqueue/complete logs
@@ -1139,19 +1191,21 @@ impl GameLogic {
                         unit.is_kind_of(KindOf::Aircraft)
                             || unit.object_type == ObjectType::Aircraft
                     });
-                if airfield_output
-                    && !self.reserve_produced_aircraft_parking_space(producer_id, new_id)
-                {
-                    log::warn!(
-                        "Production aircraft {:?} from airfield {:?} has no exact ParkingPlace reservation; clearing producer link",
-                        new_id,
-                        producer_id
-                    );
-                    if let Some(unit) = self.host_object_mut(new_id) {
-                        unit.producer_id = None;
-                        unit.airfield_parking_space_index = None;
+                if airfield_output {
+                    if self.reserve_produced_aircraft_parking_space(producer_id, new_id) {
+                        let _ = self.place_produced_jet_at_parking_pose(producer_id, new_id);
+
+                    } else {
+                        log::warn!(
+                            "Production aircraft {:?} from airfield {:?} held: no ParkingPlace stall",
+                            new_id,
+                            producer_id
+                        );
+                        self.destroy_object(new_id);
+                        continue;
                     }
                 }
+
                 crate::game_logic::host_production_log::record_complete(
                     producer_id,
                     template.clone(),
@@ -1269,9 +1323,15 @@ impl GameLogic {
             {
                 self.stealth_fighter_science.record_production_spawn();
             }
+            let parked_jet = self
+                .objects
+                .get(&new_id)
+                .is_some_and(|unit| unit.is_parked_at_airfield());
+
             // Wave 739: sole-tick keeps create_object/GW exit pose; non-sole
             // applies host stacking jitter + factory exit pose residual.
-            if !sole {
+            if !sole && !parked_jet {
+
                 if let Some(unit) = self.objects.get(&new_id) {
                     let selection_radius = unit.selection_radius.max(4.0);
                     spawn_pos += jitter_dir * selection_radius;
@@ -1292,38 +1352,37 @@ impl GameLogic {
             }
             // C++ Queue/DefaultProductionExitUpdate route from the frozen
             // module points.  Queue repeats its natural point when no custom
-            // rally exists; Default does not invent that second waypoint.
-            let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
-                let f = prod.thing.get_direction_vector();
-                let natural = if let Some(exit) = producer_exit_metadata {
-                    let point = exit.natural_rally_point_with_path_offset(
-                        crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
-                    );
-                    crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
-                        prod.get_position(),
-                        f,
-                        (point[0], point[1], point[2]),
-                    )
+            if !parked_jet {
+                let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
+                    let f = prod.thing.get_direction_vector();
+                    let natural = if let Some(exit) = producer_exit_metadata {
+                        let point = exit.natural_rally_point_with_path_offset(
+                            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+                        );
+                        crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                            prod.get_position(),
+                            f,
+                            (point[0], point[1], point[2]),
+                        )
+                    } else {
+                        prod.get_position() + f * prod.selection_radius.max(10.0)
+                    };
+                    (natural, f)
                 } else {
-                    prod.get_position() + f * prod.selection_radius.max(10.0)
+                    (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
                 };
-                (natural, f)
-            } else {
-                (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
-            };
-            self.path_approach_with_state(new_id, natural, AIState::Moving);
-            if let Some(rally_point) = rally {
-                let _ = self.append_unit_waypoint(new_id, rally_point);
-            } else if producer_exit_metadata.is_some_and(|exit| exit.is_queue()) {
-                // QueueProductionExitUpdate pushes its natural rally twice
-                // when no player rally is present, exactly at the same point.
-                let _ = self.append_unit_waypoint(new_id, natural);
-            } else if producer_exit_metadata.is_none() {
-                // Retain the legacy unparsed residual without letting it
-                // substitute for a source-authored Default interface.
-                let doubled = natural + forward.normalize_or_zero() * 5.0;
-                let _ = self.append_unit_waypoint(new_id, doubled);
+                self.path_approach_with_state(new_id, natural, AIState::Moving);
+                if let Some(rally_point) = rally {
+                    let _ = self.append_unit_waypoint(new_id, rally_point);
+                } else if producer_exit_metadata.is_some_and(|exit| exit.is_queue()) {
+                    let _ = self.append_unit_waypoint(new_id, natural);
+                } else if producer_exit_metadata.is_none() {
+                    let doubled = natural + forward.normalize_or_zero() * 5.0;
+                    let _ = self.append_unit_waypoint(new_id, doubled);
+                }
             }
+
+
             // SupplyCenterProductionExitUpdate performs the ordinary exit
             // route first, then forces only SupplyTruckAI-capable outputs into
             // their Wanting state.  This shared completion path covers both

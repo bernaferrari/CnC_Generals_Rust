@@ -90,6 +90,10 @@ pub const HELIX_FIRESTORM_TICK_INTERVAL_FRAMES: u32 = 15;
 
 /// Retail FirestormSmall LifetimeUpdate 6000 ms → 180 frames @ 30 FPS.
 pub const HELIX_FIRESTORM_DURATION_FRAMES: u32 = 180;
+/// C++ FirestormDynamicGeometryInfoUpdateModuleData default MaxHeightForDamage
+/// (`FirestormDynamicGeometryInfoUpdate.cpp:36`). Host Y-up maps C++ Z.
+pub const HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE: f32 = 20.0;
+
 
 /// Retail upgrade that unpauses Helix NapalmBomb special power.
 pub const UPGRADE_HELIX_NAPALM_BOMB: &str = "Upgrade_HelixNapalmBomb";
@@ -320,6 +324,8 @@ impl HostHelixNapalmRegistry {
     /// Plan Firestorm damage for zones due this frame.
     ///
     /// Retail Firestorm damages ALLIES ENEMIES NEUTRALS; residual skips source Helix.
+    /// C++ `doDamageScan` (`FirestormDynamicGeometryInfoUpdate.cpp:235-237`)
+    /// skips objects whose height is above `z + MaxHeightForDamage`.
     pub fn plan_due_ticks(
         &self,
         current_frame: u32,
@@ -332,8 +338,14 @@ impl HostHelixNapalmRegistry {
             }
             let mut hits = Vec::new();
             let r2 = zone.radius * zone.radius;
+            let height_cap = zone.position.y + HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE;
             for &(id, pos, _team, alive) in object_positions {
                 if !alive || id == zone.source_object {
+                    continue;
+                }
+                // C++ other->getPosition()->z > firestorm.z + m_maxHeightForDamage
+                // Host Y-up: skip aircraft / high objects over the firestorm.
+                if pos.y > height_cap {
                     continue;
                 }
                 let dx = pos.x - zone.position.x;
@@ -460,6 +472,7 @@ pub fn honesty_helix_napalm_firestorm_residual_ok() -> bool {
     (HELIX_FIRESTORM_RADIUS - 90.0).abs() < 0.01
         && (HELIX_FIRESTORM_DAMAGE_PER_TICK - 100.0).abs() < 0.01
         && (HELIX_FIRESTORM_DAMAGE_UPGRADED - 150.0).abs() < 0.01
+        && (HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE - 20.0).abs() < 0.01
         && HELIX_FIRESTORM_TICK_MS == 500
         && HELIX_FIRESTORM_TICK_INTERVAL_FRAMES
             == helix_napalm_ms_to_frames(HELIX_FIRESTORM_TICK_MS)
@@ -609,4 +622,51 @@ mod tests {
         assert_eq!(HELIX_NAPALM_DAMAGE_TYPE, "EXPLOSION");
         assert!((HELIX_NAPALM_START_ABILITY_RANGE - 3.0).abs() < 0.01);
     }
+
+    /// C++ FirestormDynamicGeometryInfoUpdate.cpp:235-237 — objects whose
+    /// height is above firestorm.z + MaxHeightForDamage (default 20) take no DoT.
+    #[test]
+    fn firestorm_skips_objects_above_max_height_for_damage() {
+        let mut reg = HostHelixNapalmRegistry::new();
+        let impact = Vec3::new(50.0, 0.0, 0.0);
+        let _id = reg.record_drop_and_spawn_firestorm(
+            ObjectId(1),
+            Team::China,
+            impact,
+            0,
+            false,
+            0,
+            0.0,
+        );
+        let objects = vec![
+            (ObjectId(1), Vec3::ZERO, Team::China, true),
+            (ObjectId(2), impact, Team::GLA, true),
+            (
+                ObjectId(3),
+                Vec3::new(
+                    impact.x,
+                    HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE + 1.0,
+                    impact.z,
+                ),
+                Team::GLA,
+                true,
+            ),
+            (
+                ObjectId(4),
+                Vec3::new(impact.x, HELIX_FIRESTORM_MAX_HEIGHT_FOR_DAMAGE, impact.z),
+                Team::GLA,
+                true,
+            ),
+        ];
+        let plans = reg.plan_due_ticks(0, &objects);
+        assert_eq!(plans.len(), 1);
+        let mut hits: Vec<_> = plans[0].hits.iter().map(|h| h.target_id).collect();
+        hits.sort_by_key(|id| id.0);
+        assert_eq!(
+            hits,
+            vec![ObjectId(2), ObjectId(4)],
+            "aircraft above MaxHeightForDamage must not burn; equal height still burns"
+        );
+    }
+
 }

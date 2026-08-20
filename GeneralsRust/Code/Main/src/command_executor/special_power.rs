@@ -639,7 +639,21 @@ impl<'a> CommandExecutor<'a> {
                         .queue_special_power_strike(power_type, unit_id, pos);
                 }
             }
+            if crate::game_logic::special_power_strikes::HostSuperweaponKind::from_command_power(
+                power_type,
+            )
+            .is_none()
+            {
+                // C++ aboutToDoSpecialPower + CompletionDie analog for instant powers.
+                self.game_logic.notify_script_engine_special_power_event(
+                    unit_id,
+                    power_type,
+                    true,
+                    true,
+                );
+            }
             any = true;
+
         }
         if any {
             CommandResult::Success

@@ -202,6 +202,10 @@ impl<'a> CommandExecutor<'a> {
             // C++ SpecialPowerModule::onSpecialPowerCreation residual.
             self.game_logic
                 .on_special_power_science_creation(player_id, science_name);
+            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
+                player_id,
+                science_name,
+            );
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand

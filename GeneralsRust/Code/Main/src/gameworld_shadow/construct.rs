@@ -2268,6 +2268,18 @@ impl GameWorldShadow {
                         e.hacker_hacking = logic.hacker_income.is_hacking(oid) || in_ic;
                         if let Some(next) = logic.hacker_income.peek_next_deposit(oid) {
                             e.hacker_next_deposit_frame = next;
+                        } else if e.hacker_hacking && e.hacker_next_deposit_frame == 0 {
+                            // C++ UNPACKING then CashUpdateDelay before first ping.
+                            let delay = if in_ic {
+                                metadata.cash_update_delay_fast_frames
+                            } else {
+                                metadata.cash_update_delay_frames
+                            };
+                            e.hacker_next_deposit_frame = logic
+                                .frame
+                                .saturating_add(metadata.unpack_time_frames)
+                                .saturating_add(delay)
+                                .saturating_add(1);
                         } else if !e.hacker_hacking {
                             e.hacker_next_deposit_frame = 0;
                         }

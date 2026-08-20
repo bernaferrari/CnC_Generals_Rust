@@ -284,6 +284,14 @@ impl GameWorldShadow {
         // active timer; amounts, delays, and XP were frozen from source
         // module data when the host object was mirrored.
         if e.hacker_unit && e.hacker_hacking {
+            // C++ aiDoCommand PACKING: a new move/attack leaves HACK_INTERNET.
+            if !e.hacker_in_internet_center
+                && (e.moving || e.attacking || e.move_target.is_some())
+            {
+                e.hacker_hacking = false;
+                e.hacker_next_deposit_frame = 0;
+                changed = true;
+            } else {
             use crate::game_logic::is_legal_hacker_income_source;
             let alive = e.health > 0.0 && !e.destroyed;
             let neutral = e.team_ordinal == 255;
@@ -310,9 +318,8 @@ impl GameWorldShadow {
                     e.hacker_cash_update_delay_frames
                 };
                 if e.hacker_next_deposit_frame == 0 {
-                    // C++ decrements a positive timer and performs the cash
-                    // update on the following logic update. A zero delay
-                    // likewise first fires on the next update.
+                    // First schedule includes UNPACKING then cash delay.
+                    // Remirror usually bakes this; keep the same formula here.
                     e.hacker_next_deposit_frame =
                         frame.saturating_add(interval).saturating_add(1);
                     changed = true;
@@ -340,6 +347,7 @@ impl GameWorldShadow {
                     }
                     changed = true;
                 }
+            }
             }
         }
         changed

@@ -194,6 +194,16 @@ impl UnitAIUpdate {
             }
         }
     }
+    pub(super) fn clear_waypoint_queue(&mut self) {
+        self.planning_waypoint_count = 0;
+        self.planning_waypoint_index = 0;
+        self.executing_waypoint_queue = false;
+        if let Some(unit) = get_unit_arc(self.unit_id) {
+            if let Ok(mut guard) = unit.write() {
+                guard.waypoint_queue.clear();
+            }
+        }
+    }
     pub(super) fn execute_waypoint_queue(&mut self) {
         if self.planning_waypoint_count > 0 {
             self.planning_waypoint_index = 0;

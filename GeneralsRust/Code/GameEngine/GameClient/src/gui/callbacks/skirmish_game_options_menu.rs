@@ -24,7 +24,7 @@ use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
 };
 use game_engine::common::ini::ini_map_cache::{
-    get_map_cache_mut, init_global_map_cache, MapMetaData,
+    get_map_cache_mut, init_global_map_cache, Coord3D, MapMetaData, Region3D,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_game_logic_random;
@@ -1116,10 +1116,10 @@ fn write_skirmish_preferences(state: &SkirmishGameOptionsState) {
 }
 
 /// Residual map-cache registration for maps present on disk but missing from MapCache.ini.
-/// Keeps WND ButtonStart / startPressed parity usable under headless extract layouts.
+/// C++ MapUtil.cpp `loadMap` + `WaypointMap::update` — parse the real header.
+/// Fail-closed: never invent official=true / 8 start spots.
 fn ensure_map_meta_registered(map_name: &str) {
     init_global_map_cache();
-    // Prefer an already-known alias if present.
     {
         let cache = get_map_cache_manager();
         let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -1128,57 +1128,14 @@ fn ensure_map_meta_registered(map_name: &str) {
         }
     }
 
-    // File existence residual via the same locator GameLogic uses.
-    let path_exists = std::path::Path::new(map_name).is_file() || {
-        // Walk a few workspace parents for relative extract paths.
-        let mut roots = vec![std::path::PathBuf::from(".")];
-        if let Ok(cwd) = std::env::current_dir() {
-            roots.push(cwd.clone());
-            let mut parent = cwd.parent().map(|p| p.to_path_buf());
-            for _ in 0..5 {
-                if let Some(p) = parent {
-                    roots.push(p.clone());
-                    parent = p.parent().map(|x| x.to_path_buf());
-                } else {
-                    break;
-                }
-            }
-        }
-        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        roots.push(manifest.clone());
-        roots.push(manifest.join("../.."));
-        roots.push(manifest.join("../../.."));
-        let normalized = map_name.replace('\\', "/");
-        roots.iter().any(|root| root.join(&normalized).is_file())
+    let Some(path) = resolve_map_file_path(map_name) else {
+        return;
+    };
+    let Some(meta) = parse_map_header_meta(map_name, &path) else {
+        return;
     };
 
-    if !path_exists {
-        // Still allow short retail names like "Lone Eagle" when the extract tree exists.
-        let short = std::path::Path::new(map_name)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(map_name);
-        let lone = short.eq_ignore_ascii_case("Lone Eagle")
-            || map_name.to_ascii_lowercase().contains("lone eagle");
-        if !lone {
-            return;
-        }
-    }
-
-    let display = std::path::Path::new(map_name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(map_name)
-        .to_string();
-    let mut meta = MapMetaData::default();
-    meta.file_name = map_name.to_string();
-    meta.display_name =
-        game_engine::common::ini::ini_map_cache::UnicodeString::from_string(display);
-    meta.is_multiplayer = true;
-    meta.is_official = true;
-    meta.num_players = 8;
     if let Some(mut cache) = get_map_cache_mut() {
-        // Register under the exact key used by GameInfo::getMap and common aliases.
         cache.insert(map_name.to_string(), meta.clone());
         let lower = map_name.to_lowercase();
         if lower != map_name {
@@ -1192,6 +1149,83 @@ fn ensure_map_meta_registered(map_name: &str) {
             cache.insert(stem.to_lowercase(), meta);
         }
     }
+}
+
+fn resolve_map_file_path(map_name: &str) -> Option<std::path::PathBuf> {
+    let direct = std::path::PathBuf::from(map_name);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    let mut roots = vec![std::path::PathBuf::from(".")];
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd.clone());
+        let mut parent = cwd.parent().map(|p| p.to_path_buf());
+        for _ in 0..5 {
+            if let Some(p) = parent {
+                roots.push(p.clone());
+                parent = p.parent().map(|x| x.to_path_buf());
+            } else {
+                break;
+            }
+        }
+    }
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    roots.push(manifest.clone());
+    roots.push(manifest.join("../.."));
+    roots.push(manifest.join("../../.."));
+    let normalized = map_name.replace('\\', "/");
+    for root in &roots {
+        let candidate = root.join(&normalized);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn path_is_official_map(path: &std::path::Path) -> bool {
+    let s = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    if s.contains("userdata") || s.contains("/maps/user") {
+        return false;
+    }
+    s.contains("/maps/")
+}
+
+fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMetaData> {
+    let mut loader = gamelogic::system::map_loader::MapLoader::new();
+    loader.load_map(path).ok()?;
+    let num_players = loader.count_start_spots() as i32;
+    let is_official = path_is_official_map(path);
+    let extent = loader.get_heightmap().get_extent();
+    let display = std::path::Path::new(map_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(map_name)
+        .to_string();
+    let mut meta = MapMetaData::default();
+    meta.file_name = map_name.to_string();
+    meta.display_name =
+        game_engine::common::ini::ini_map_cache::UnicodeString::from_string(display);
+    meta.num_players = num_players;
+    meta.is_multiplayer = num_players >= 2;
+    meta.is_official = is_official;
+    meta.extent = Region3D::new(
+        Coord3D::new(extent.lo.x, extent.lo.y, extent.lo.z),
+        Coord3D::new(extent.hi.x, extent.hi.y, extent.hi.z),
+    );
+    if let Ok(stat) = std::fs::metadata(path) {
+        meta.filesize = stat.len() as u32;
+    }
+    for (name, pos) in loader.get_waypoints() {
+        meta.set_waypoint(name.clone(), Coord3D::new(pos.x, pos.y, pos.z));
+    }
+    for pos in loader.get_supply_positions() {
+        meta.supply_positions.push(Coord3D::new(pos.x, pos.y, pos.z));
+    }
+    for pos in loader.get_tech_positions() {
+        meta.tech_positions.push(Coord3D::new(pos.x, pos.y, pos.z));
+    }
+    Some(meta)
 }
 
 fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
@@ -2098,5 +2132,20 @@ mod wnd_start_residual_tests {
         assert!(src.contains("SlotState::MedAI"));
         assert!(src.contains("ensure_default_slots()"));
         assert!(src.contains("pub fn set_skirmish_menu_selected_map"));
+        assert!(src.contains("fn parse_map_header_meta"));
+        assert!(src.contains("count_start_spots"));
+        assert!(!src.contains("meta.is_official = true"));
+        assert!(!src.contains("meta.num_players = 8"));
+    }
+
+    #[test]
+    fn official_path_is_maps_dir_not_userdata() {
+        use super::path_is_official_map;
+        assert!(path_is_official_map(std::path::Path::new(
+            "Maps/Alpine Assault/Alpine Assault.map"
+        )));
+        assert!(!path_is_official_map(std::path::Path::new(
+            "UserData/Maps/MyMap/MyMap.map"
+        )));
     }
 }

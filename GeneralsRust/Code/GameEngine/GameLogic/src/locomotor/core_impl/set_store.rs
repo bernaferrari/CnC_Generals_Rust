@@ -28,6 +28,13 @@ impl LocomotorSet {
         }
     }
 
+    /// Surfaces-only set for `Pathfinder::validMovementTerrain` (C++ takes the Locomotor*).
+    pub fn from_surfaces(surfaces: LocomotorSurfaceTypeMask) -> Self {
+        let mut set = Self::new();
+        set.valid_surfaces = surfaces;
+        set
+    }
+
     /// Clear all locomotors - matches C++ LocomotorSet::clear()
     pub fn clear(&mut self) {
         self.locomotors.clear();
@@ -243,68 +250,16 @@ impl TerrainSpeedTable {
     }
 
     fn init_default_multipliers(&mut self) {
-        use LocomotorAppearance::*;
-
-        // Terrain types: 0=clear, 1=rough, 2=very_rough, 3=water, 4=cliff, 5=road
-
-        // Infantry
-        self.set(TwoLegs, 0, 1.0); // Clear
-        self.set(TwoLegs, 1, 0.8); // Rough
-        self.set(TwoLegs, 2, 0.6); // Very rough
-        self.set(TwoLegs, 3, 0.0); // Water (can't cross)
-        self.set(TwoLegs, 4, 0.4); // Cliff (slow climb)
-        self.set(TwoLegs, 5, 1.0); // Road (no bonus)
-
-        // Wheeled
-        self.set(FourWheels, 0, 1.0);
-        self.set(FourWheels, 1, 0.7);
-        self.set(FourWheels, 2, 0.4);
-        self.set(FourWheels, 3, 0.0);
-        self.set(FourWheels, 4, 0.0); // Can't climb
-        self.set(FourWheels, 5, 1.5); // Road bonus
-
-        // Tracked
-        self.set(Treads, 0, 1.0);
-        self.set(Treads, 1, 0.9);
-        self.set(Treads, 2, 0.7);
-        self.set(Treads, 3, 0.0);
-        self.set(Treads, 4, 0.0);
-        self.set(Treads, 5, 1.2); // Slight road bonus
-
-        // Hover
-        self.set(Hover, 0, 1.0);
-        self.set(Hover, 1, 1.0);
-        self.set(Hover, 2, 1.0);
-        self.set(Hover, 3, 1.0); // Can cross water
-        self.set(Hover, 4, 0.7); // Slower over cliffs
-        self.set(Hover, 5, 1.0);
-
-        // Aircraft (ignore terrain)
-        for terrain in 0..6 {
-            self.set(Thrust, terrain, 1.0);
-            self.set(Wings, terrain, 1.0);
-        }
-
-        // Climber
-        self.set(Climber, 0, 1.0);
-        self.set(Climber, 1, 0.8);
-        self.set(Climber, 2, 0.7);
-        self.set(Climber, 3, 0.0);
-        self.set(Climber, 4, 0.8); // Can climb cliffs
-        self.set(Climber, 5, 1.0);
-
-        // Other (generic)
-        for terrain in 0..6 {
-            self.set(Other, terrain, 1.0);
-        }
+        // C++ has no appearance×terrain speed table; multipliers stay 1.0.
+        let _ = self;
     }
 
     fn set(&mut self, appearance: LocomotorAppearance, terrain: u8, multiplier: Real) {
         self.multipliers.insert((appearance, terrain), multiplier);
     }
 
-    pub fn get_multiplier(&self, appearance: LocomotorAppearance, terrain: u8) -> Real {
-        *self.multipliers.get(&(appearance, terrain)).unwrap_or(&1.0)
+    pub fn get_multiplier(&self, _appearance: LocomotorAppearance, _terrain: u8) -> Real {
+        1.0
     }
 }
 

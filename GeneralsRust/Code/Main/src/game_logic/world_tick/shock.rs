@@ -695,6 +695,38 @@ impl GameLogic {
         }
     }
 
+    /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.
+    fn kill_awards_unit_experience(
+        &self,
+        killer_id: ObjectId,
+        victim_id: ObjectId,
+        victim_team: Team,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+        let Some(killer) = self.objects.get(&killer_id) else {
+            return false;
+        };
+        if let Some(victim) = self.objects.get(&victim_id) {
+            if killer.owner_player_id.is_some()
+                && killer.owner_player_id == victim.owner_player_id
+            {
+                return false;
+            }
+            match (killer.owner_player_id, victim.owner_player_id) {
+                (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Enemies,
+                _ => {
+                    killer.team != victim.team
+                        && killer.team != Team::Neutral
+                        && victim.team != Team::Neutral
+                }
+            }
+        } else {
+            killer.team != victim_team
+                && killer.team != Team::Neutral
+                && victim_team != Team::Neutral
+        }
+    }
+
     /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.
     pub(crate) fn continue_or_stop_after_kill(
         &mut self,
@@ -705,7 +737,13 @@ impl GameLogic {
         weapon_name: Option<&str>,
         kill_xp: f32,
     ) {
-        self.award_experience(attacker_id, kill_xp);
+        let xp = if self.kill_awards_unit_experience(attacker_id, dead_victim_id, victim_team)
+        {
+            kill_xp
+        } else {
+            0.0
+        };
+        self.award_experience(attacker_id, xp);
         let cont = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)
             .unwrap_or(0.0);

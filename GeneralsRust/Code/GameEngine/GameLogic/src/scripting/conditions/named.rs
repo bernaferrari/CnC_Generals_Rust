@@ -385,7 +385,7 @@ impl ScriptCondition for NamedDiscoveredCondition {
         let player = player_arc
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_id() as u32;
+        let player_index = player.get_player_index();
         drop(player);
 
         let object_id = match lookup_named_object_id(&unit_name)? {
@@ -394,11 +394,21 @@ impl ScriptCondition for NamedDiscoveredCondition {
         };
         Ok(OBJECT_REGISTRY
             .with_object(object_id, |obj| {
-                // Held/disabled objects are not visible
                 if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
                     return false;
                 }
-                obj.is_visible_to_player(player_index)
+                let status = obj.get_status_bits();
+                if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                    && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                    && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                {
+                    return false;
+                }
+                matches!(
+                    obj.get_shrouded_status(player_index),
+                    crate::common::ObjectShroudStatus::Clear
+                        | crate::common::ObjectShroudStatus::PartialClear
+                )
             })
             .unwrap_or(false))
     }

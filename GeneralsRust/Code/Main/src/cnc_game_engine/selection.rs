@@ -465,55 +465,21 @@ impl CnCGameEngine {
             self.ui_manager.game_hud_mut().push_info_message(msg);
             return;
         }
-        let team = self.local_team_for_ui();
-        // Retail-ish purchasable science order residual (fail-closed vs full Science.ini tree).
-        let candidates: &[&str] = match team {
-            crate::game_logic::Team::China => &[
-                "SCIENCE_RedGuardTraining",
-                "SCIENCE_BattlemasterTraining",
-                "SCIENCE_ArtilleryTraining",
-                "SCIENCE_NukeCannon",
-                "SCIENCE_CashBounty1",
-            ],
-            crate::game_logic::Team::GLA => &[
-                "SCIENCE_RebelAmbush1",
-                "SCIENCE_CashBounty1",
-                "SCIENCE_SneakAttack",
-                "SCIENCE_AnthraxBomb",
-                "SCIENCE_ScudLauncher",
-            ],
-            _ => &[
-                // America / default
-                "SCIENCE_PaladinTank",
-                "SCIENCE_StealthFighter",
-                "SCIENCE_Pathfinder",
-                "SCIENCE_CashBounty1",
-                "SCIENCE_A10ThunderboltMissileStrike1",
-                "SCIENCE_EmergencyRepair1",
-                "SCIENCE_SpyDrone",
-            ],
-        };
-        // Wave 238/555: unlocked sciences prefer presentation freeze; boot via
-        // player_unlocked_sciences probe API (presentation_or_boot_unlocked_sciences).
-        let unlocked: Vec<String> = self.presentation_or_boot_unlocked_sciences(player_id);
-
-        let mut chosen = None;
-        for &name in candidates {
-            if unlocked.iter().any(|s| s.eq_ignore_ascii_case(name)) {
-                continue;
-            }
-            // Wave 238: InGame fail-open from presentation unlocked list;
-            // boot-only capability probe without &Player expose.
-            // Wave 584: boot science capability residual via helper.
-            if self.last_presentation_frame.is_none()
-                && !self.host_player_can_purchase_science(player_id, name)
-            {
-                continue;
-            }
-            chosen = Some(name.to_string());
-            break;
+        // C++ ControlBar.cpp:143-485 populatePurchaseScience — open the purchase
+        // screen. First-capable science comes from Science.ini residual graph,
+        // not a hardcoded 5-name faction array.
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheControlBar::toggle_purchase_science();
         }
-        let Some(science_name) = chosen else {
+        let unlocked_vec: Vec<String> = self.presentation_or_boot_unlocked_sciences(player_id);
+        let unlocked: std::collections::HashSet<String> = unlocked_vec.into_iter().collect();
+        let Some(science_name) =
+            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::first_capable_purchase_science_residual(
+                &unlocked,
+                spp,
+            )
+        else {
             let msg = format!("No purchasable science (spp={spp})");
             self.game_hud.push_info_message(&msg);
             self.ui_manager.game_hud_mut().push_info_message(&msg);
@@ -536,6 +502,7 @@ impl CnCGameEngine {
         self.ui_manager.game_hud_mut().push_info_message(&msg);
         self.play_sound_effect(SoundType::Command);
     }
+
 
     /// Cycle idle friendly combat units residual (Ctrl+Alt+, / .).
     pub(super) fn cycle_idle_military_selection(&mut self, delta: i32) {

@@ -193,6 +193,11 @@ impl GameLogic {
 
         // C++ SpecialPowerModule SuperweaponLaunched EVA residual.
         self.try_eva_superweapon_launched(source_team, kind);
+        // C++ SpecialPowerModule.cpp:513 aboutToDoSpecialPower.
+        self.notify_script_engine_special_power_event(source_object, power, true, false);
+        // C++ SpecialPowerModule.cpp:454/462 createViewObject (range 250 / 30-40s).
+        self.create_special_power_view_object(source_object, target_position, kind);
+
 
         // Activation audio residual (observable request path).
         self.queue_audio_event(
@@ -214,6 +219,113 @@ impl GameLogic {
         );
         Some(id)
     }
+
+    /// C++ `SpecialPowerModule::createViewObject` — spawn reveal at strike target.
+    ///
+    /// Retail Superweapon INI ViewObjectRange 250 / ViewObjectDuration 30-40s.
+    /// Fail-closed: not full ThingFactory DeletionUpdate object stack.
+    pub fn create_special_power_view_object(
+        &mut self,
+        source_object: ObjectId,
+        target_position: Vec3,
+        kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
+    ) -> bool {
+        use crate::game_logic::special_power_strikes::HostViewObjectReveal;
+        use crate::game_logic::{KindOf, ThingTemplate};
+        use gamelogic::common::Coord3D;
+
+
+        const VIEW_OBJECT_TEMPLATE: &str = "SpecialPowerViewObject";
+        let range = kind.view_object_range();
+        let duration = kind.view_object_duration_frames();
+        if range <= 0.0 || duration == 0 {
+            return false;
+        }
+
+        let (player_id, team) = match self.objects.get(&source_object) {
+            Some(obj) => (
+                self.player_owner_for_host_object(obj).unwrap_or(0),
+                obj.team,
+            ),
+            None => return false,
+        };
+
+        if !self.templates.contains_key(VIEW_OBJECT_TEMPLATE) {
+            let mut t = ThingTemplate::new(VIEW_OBJECT_TEMPLATE);
+            t.add_kind_of(KindOf::Unattackable)
+                .set_health(1.0)
+                .set_cost(0, 0);
+            self.templates
+                .insert(VIEW_OBJECT_TEMPLATE.to_string(), t);
+        }
+
+        let object_id = self.create_object(VIEW_OBJECT_TEMPLATE, team, target_position);
+        if let Some(oid) = object_id {
+            if let Some(o) = self.objects.get_mut(&oid) {
+                o.shroud_clearing_range = range;
+                o.vision_range = range;
+                o.producer_id = Some(source_object);
+                o.owner_player_id = Some(player_id);
+            }
+        }
+
+        let world_w = self.world_width.max(1.0);
+        let world_h = self.world_height.max(1.0);
+        let player_mask = 1u32 << player_id.min(31);
+        let center = Coord3D::new(target_position.x, target_position.z, target_position.y);
+        let frame = self.frame;
+        let fow_reveal_ok = {
+            let shroud = get_shroud_manager();
+            let mut shroud_mgr = match shroud.lock() {
+                Ok(mgr) => mgr,
+                Err(_) => {
+                    self.special_power_strikes
+                        .record_view_object(HostViewObjectReveal {
+                            source_object,
+                            player_id,
+                            position: target_position,
+                            range,
+                            spawn_frame: frame,
+                            expires_frame: frame.saturating_add(duration),
+                            object_id,
+                            fow_reveal_ok: false,
+                        });
+                    return object_id.is_some();
+                }
+            };
+            if !shroud_mgr.has_shroud_grid() {
+                shroud_mgr.init_shroud_grid(world_w, world_h);
+            }
+            shroud_mgr.do_shroud_reveal(&center, range, player_mask);
+            shroud_mgr.queue_undo_shroud_reveal(&center, range, player_mask, duration, frame);
+            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
+            if !visible {
+                for bit in 0..32u32 {
+                    if (player_mask & (1u32 << bit)) != 0
+                        && shroud_mgr.is_position_visible(bit, &center)
+                    {
+                        visible = true;
+                        break;
+                    }
+                }
+            }
+            visible
+        };
+
+        self.special_power_strikes
+            .record_view_object(HostViewObjectReveal {
+                source_object,
+                player_id,
+                position: target_position,
+                range,
+                spawn_frame: frame,
+                expires_frame: frame.saturating_add(duration),
+                object_id,
+                fow_reveal_ok,
+            });
+        fow_reveal_ok || object_id.is_some()
+    }
+
 
     /// Advance pending host superweapon strikes to impact and apply area damage.
     /// NuclearMissile residual also ticks radiation fields after impact.
@@ -371,6 +483,19 @@ impl GameLogic {
                 objects_hit,
                 objects_destroyed
             );
+
+            if plan.is_final_wave {
+                // C++ SpecialPowerCompletionDie::onDie analog: strike finished.
+                if let Some(power) = plan.kind.command_power_for_notify() {
+                    self.notify_script_engine_special_power_event(
+                        plan.source_object,
+                        &power,
+                        false,
+                        true,
+                    );
+                }
+            }
+
         }
 
         // NuclearMissile residual radiation field ticks (after impact blasts).
@@ -570,6 +695,23 @@ impl GameLogic {
         };
 
         let frame = self.frame;
+        // C++ WaveGuideUpdate.cpp:93-101 ctor m_needDisable; update:739-743
+        // setDisabled(DISABLED_DEFAULT) on first tick so flood waves stay
+        // inert until DamDie::onDie clears the bit.
+        for obj in self.objects.values_mut() {
+            let is_wg = obj.is_kind_of(crate::game_logic::KindOf::WaveGuide)
+                || is_wave_guide_template(&obj.template_name);
+            if !is_wg {
+                continue;
+            }
+            if obj.wave_guide_data.is_none() {
+                let mut wg = crate::game_logic::host_wave_guide::HostWaveGuideData::default();
+                wg.facing = obj.get_orientation();
+                obj.wave_guide_data = Some(wg);
+                obj.status.disabled_default = true;
+            }
+        }
+
         // Collect waveguide ids + poses first.
         let guides: Vec<(ObjectId, glam::Vec3, f32)> = self
             .objects

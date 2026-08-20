@@ -484,14 +484,52 @@ impl ControlBar {
             return Ok(());
         };
 
-        // Host/presentation residual: keep OCL display coherent without dual-world modules.
-        // Dual-world path may later read OCLUpdate; until then presentation freeze owns display.
-        let _registry_bound = OBJECT_REGISTRY.get_object(obj_id).is_some();
-        let _ = _registry_bound;
-        let seconds = self.presentation_ocl_timer_seconds;
+        // C++ ControlBar.cpp:2284-2293 CB_CONTEXT_OCL_TIMER: reveal OCLTimerWindow.
+        // C++ ControlBarOCLTimer.cpp:116-130: remaining frames + countdown percent.
+        let mut remaining_frames: Option<u32> = None;
+        let mut countdown_percent: Option<f32> = None;
+        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+            if let Ok(obj) = obj_arc.read() {
+                if let Some(handle) = obj.find_update_module("OCLUpdate") {
+                    handle.with_module(|module| {
+                        if let Some(ocl) = module.get_ocl_update_control_interface() {
+                            remaining_frames = Some(ocl.remaining_frames());
+                            countdown_percent = Some(ocl.countdown_percent());
+                        }
+                    });
+                }
+            }
+        }
+
+        let (seconds, percent) = if let (Some(frames), Some(pct)) =
+            (remaining_frames, countdown_percent)
+        {
+            (
+                frames / game_engine::common::game_common::LOGICFRAMES_PER_SECOND,
+                pct,
+            )
+        } else {
+            (self.presentation_ocl_timer_seconds, 0.0)
+        };
+
+        let button_kind = super::control_bar_ocl_timer::ocl_timer_kind_for_object(obj_id);
         if seconds != self.displayed_ocl_timer_seconds {
             self.displayed_ocl_timer_seconds = seconds;
+            let (text, progress) =
+                super::control_bar_ocl_timer::format_ocl_timer_display(seconds, percent);
+            super::control_bar_ocl_timer::apply_ocl_timer_windows(
+                &text,
+                progress,
+                button_kind,
+            );
             self.mark_ui_dirty();
+        } else {
+            // Still reveal the context window even when the second latch is unchanged.
+            super::control_bar_ocl_timer::apply_ocl_timer_windows(
+                &super::control_bar_ocl_timer::format_ocl_timer_display(seconds, percent).0,
+                (percent * 100.0).clamp(0.0, 100.0),
+                button_kind,
+            );
         }
         Ok(())
     }

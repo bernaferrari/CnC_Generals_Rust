@@ -52,6 +52,13 @@ pub enum ContainModuleKind {
     /// interface with exact controller and `TransportSlotCount` accounting;
     /// it is deliberately separate from a generic garrison.
     InternetHack = 5,
+    /// C++ `HealContain` (barracks / hospital). Not a transport; heals then
+    /// auto-exits. `isHealContain() == true`.
+    Heal = 6,
+    /// C++ `CaveContain` (CaveSystem shared tracker).
+    Cave = 7,
+    /// C++ `TunnelContain` (Player::TunnelTracker shared pool).
+    Tunnel = 8,
 }
 
 impl Default for ContainModuleKind {
@@ -67,6 +74,24 @@ impl ContainModuleKind {
             self,
             Self::Transport | Self::RiderChange | Self::RailedTransport
         )
+    }
+
+    /// C++ `ContainModuleInterface::isHealContain`.
+    #[inline]
+    pub const fn is_heal_contain(self) -> bool {
+        matches!(self, Self::Heal)
+    }
+
+    /// C++ `ContainModuleInterface::isTunnelContain`.
+    #[inline]
+    pub const fn is_tunnel_contain(self) -> bool {
+        matches!(self, Self::Tunnel)
+    }
+
+    /// C++ CaveContain (CaveSystem index, not Player::TunnelTracker).
+    #[inline]
+    pub const fn is_cave_contain(self) -> bool {
+        matches!(self, Self::Cave)
     }
 }
 
@@ -174,8 +199,8 @@ pub struct ContainModuleMetadata {
     #[serde(default)]
     pub kind: ContainModuleKind,
     /// `Slots` for Transport/RiderChange/RailedTransport, or `ContainMax` for
-    /// GarrisonContain. `Some(0)` is an authored zero-capacity module and must
-    /// remain distinct from no contain module.
+    /// GarrisonContain / HealContain. `Some(0)` is an authored zero-capacity
+    /// module and must remain distinct from no contain module.
     #[serde(default)]
     pub slots: Option<usize>,
     #[serde(default)]
@@ -203,6 +228,12 @@ pub struct ContainModuleMetadata {
     /// Active model-condition bit corresponding to `ScuttleStatus`.
     #[serde(default)]
     pub rider_change_scuttle_status_mask: u128,
+    /// C++ HealContain / TunnelContain `TimeForFullHeal`, already converted
+    /// with `parseDurationUnsignedInt` semantics to logic frames. `None`
+    /// means the field was not authored. HealContain default is 0 (instant
+    /// complete); TunnelContain default is 1 frame.
+    #[serde(default)]
+    pub frames_for_full_heal: Option<u32>,
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -254,6 +285,7 @@ impl Default for ContainModuleMetadata {
             rider_change_scuttle_delay_frames: None,
             rider_change_scuttle_status: String::new(),
             rider_change_scuttle_status_mask: 0,
+            frames_for_full_heal: None,
         }
     }
 }
@@ -1248,6 +1280,13 @@ pub struct ThingTemplate {
     /// Weapon.ini / Object INI tertiary weapon template name (resolved via WeaponStore).
     #[serde(default)]
     pub tertiary_weapon_name: Option<String>,
+    /// C++ `WeaponTemplateSet::m_preferredAgainst` per slot (0=PRIMARY).
+    /// Empty means the live chooser falls back to residual damage heuristics.
+    #[serde(default)]
+    pub preferred_against: [Vec<KindOf>; 3],
+    /// C++ `WeaponTemplateSet::m_isReloadTimeShared`.
+    #[serde(default)]
+    pub share_weapon_reload_time: bool,
     /// C++ `WeaponSet` `AutoChooseSources = PRIMARY NONE`.
     ///
     /// The authored PRIMARY still resolves from Weapon.ini when present, but
@@ -1374,6 +1413,8 @@ impl ThingTemplate {
             secondary_weapon_name: None,
             tertiary_weapon: None,
             tertiary_weapon_name: None,
+            preferred_against: [Vec::new(), Vec::new(), Vec::new()],
+            share_weapon_reload_time: false,
             primary_auto_choose_none: false,
             has_fire_ocl_after_weapon_cooldown: false,
             fire_weapon_when_damaged_behaviors: Vec::new(),
@@ -1729,6 +1770,91 @@ impl ThingTemplate {
         })
     }
 
+    /// C++ FiringTracker thresholds copied from the live WeaponStore.
+    /// `weapon_from_store` only builds host `Weapon` fire stats; these fields
+    /// live on the Object (ContinuousFireOne/Two/Coast, AutoReloadWhenIdle).
+    pub fn weapon_tracker_from_store(name: &str) -> WeaponTrackerBind {
+        use gamelogic::weapon::with_weapon_store;
+        let _ = super::weapon_bootstrap::ensure_host_weapon_store();
+        with_weapon_store(|store| {
+            store.find_weapon_template(name).map(|wt| WeaponTrackerBind {
+                continuous_fire_one_shots: shots_needed_to_host(wt.continuous_fire_one_shots_needed),
+                continuous_fire_two_shots: shots_needed_to_host(wt.continuous_fire_two_shots_needed),
+                continuous_fire_coast_frames: wt.continuous_fire_coast_frames,
+                auto_reload_when_idle_frames: wt.auto_reload_when_idle_frames,
+            })
+        })
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+    }
+
+    /// Resolve ContinuousFire / AutoReloadWhenIdle for this template's primary.
+    pub fn weapon_tracker_bind(&self) -> WeaponTrackerBind {
+        let name = self.primary_weapon_name.as_deref().or_else(|| {
+            super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name)
+        });
+        match name {
+            Some(name) => Self::weapon_tracker_from_store(name),
+            None => WeaponTrackerBind::default(),
+        }
+    }
+
+    /// Apply one unconditional Object INI `WeaponSet` row (PreferredAgainst +
+    /// ShareWeaponReloadTime). C++ WeaponSet.cpp parsePreferredAgainst / parseBool.
+    pub fn apply_weapon_set_definition(&mut self, set: &crate::assets::WeaponSetDefinition) {
+        for (key, value) in &set.attributes {
+            if key.eq_ignore_ascii_case("ShareWeaponReloadTime")
+                || key.eq_ignore_ascii_case("ShareReloadTime")
+            {
+                self.share_weapon_reload_time = parse_ini_bool(value);
+                continue;
+            }
+            let lower = key.to_ascii_lowercase();
+            if lower == "preferredagainst" || lower.starts_with("preferredagainst") {
+                if let Some((slot, kinds)) = parse_preferred_against_value(value) {
+                    if let Some(slot_kinds) = self.preferred_against.get_mut(slot as usize) {
+                        *slot_kinds = kinds;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fill PreferredAgainst / ShareWeaponReloadTime from the live Object INI
+    /// catalog when the template has not already authored them (tests).
+    pub fn bind_weapon_set_from_live_assets(&mut self) {
+        if self.preferred_against.iter().any(|kinds| !kinds.is_empty())
+            || self.share_weapon_reload_time
+        {
+            return;
+        }
+        let Some(manager) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(guard) = manager.lock() else {
+            return;
+        };
+        let Some(definition) = guard.get_object_definition(&self.name) else {
+            return;
+        };
+        if let Some(set) = definition
+            .weapon_sets
+            .iter()
+            .find(|set| set.is_unconditional())
+        {
+            self.apply_weapon_set_definition(set);
+        }
+    }
+
+    /// C++ WeaponSet.cpp:869-877 — victim matches this slot's PreferredAgainst.
+    pub fn slot_preferred_against(&self, slot: u8, target_kinds: impl Fn(KindOf) -> bool) -> bool {
+        let Some(kinds) = self.preferred_against.get(slot as usize) else {
+            return false;
+        };
+        !kinds.is_empty() && kinds.iter().copied().any(target_kinds)
+    }
+
     pub fn is_kind_of(&self, kind: KindOf) -> bool {
         self.kind_of.contains(&kind)
     }
@@ -1766,6 +1892,85 @@ impl ThingTemplate {
         } else {
             format!("{}.w3d", model_name)
         }
+    }
+}
+
+/// C++ FiringTracker fields bound from a WeaponStore template onto a host Object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WeaponTrackerBind {
+    pub continuous_fire_one_shots: u32,
+    pub continuous_fire_two_shots: u32,
+    pub continuous_fire_coast_frames: u32,
+    pub auto_reload_when_idle_frames: u32,
+}
+
+impl Default for WeaponTrackerBind {
+    fn default() -> Self {
+        Self {
+            continuous_fire_one_shots: u32::MAX,
+            continuous_fire_two_shots: u32::MAX,
+            continuous_fire_coast_frames: 0,
+            auto_reload_when_idle_frames: 0,
+        }
+    }
+}
+
+fn shots_needed_to_host(value: i32) -> u32 {
+    if value <= 0 || value == i32::MAX {
+        u32::MAX
+    } else {
+        value as u32
+    }
+}
+
+fn parse_ini_bool(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "yes" | "true" | "1"
+    )
+}
+
+fn kind_of_from_preferred_token(token: &str) -> Option<KindOf> {
+    match token.trim().to_ascii_uppercase().replace('-', "_").as_str() {
+        "INFANTRY" => Some(KindOf::Infantry),
+        "VEHICLE" => Some(KindOf::Vehicle),
+        "AIRCRAFT" => Some(KindOf::Aircraft),
+        "STRUCTURE" => Some(KindOf::Structure),
+        "PROJECTILE" => Some(KindOf::Projectile),
+        "BALLISTIC_MISSILE" => Some(KindOf::BallisticMissile),
+        "SMALL_MISSILE" => Some(KindOf::SmallMissile),
+        "MINE" => Some(KindOf::Mine),
+        "DEMOTRAP" => Some(KindOf::DemoTrap),
+        "PARACHUTE" => Some(KindOf::Parachute),
+        _ => None,
+    }
+}
+
+/// C++ `WeaponTemplateSet::parsePreferredAgainst`: first token is the slot.
+fn parse_preferred_against_value(value: &str) -> Option<(u8, Vec<KindOf>)> {
+    let mut tokens = value.split_whitespace();
+    let first = tokens.next()?;
+    let (slot, leftover) = match first.to_ascii_uppercase().as_str() {
+        "PRIMARY" => (0u8, None),
+        "SECONDARY" => (1, None),
+        "TERTIARY" => (2, None),
+        _ => (0, Some(first)),
+    };
+    let mut kinds = Vec::new();
+    if let Some(token) = leftover {
+        if let Some(kind) = kind_of_from_preferred_token(token) {
+            kinds.push(kind);
+        }
+    }
+    for token in tokens {
+        if let Some(kind) = kind_of_from_preferred_token(token) {
+            kinds.push(kind);
+        }
+    }
+    if kinds.is_empty() {
+        None
+    } else {
+        Some((slot, kinds))
     }
 }
 
@@ -1930,6 +2135,45 @@ mod weapon_resolve_tests {
         let w = t.resolve_secondary_weapon().expect("weapon");
         assert!((w.damage - 99.0).abs() < 0.01);
         assert!((w.range - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn preferred_against_ini_parses_slot_and_kinds() {
+        // C++ WeaponSet.cpp:119-122 parsePreferredAgainst: slot then KindOf list.
+        let (slot, kinds) = parse_preferred_against_value("PRIMARY INFANTRY").unwrap();
+        assert_eq!(slot, 0);
+        assert_eq!(kinds, vec![KindOf::Infantry]);
+        let (slot, kinds) =
+            parse_preferred_against_value("SECONDARY AIRCRAFT BALLISTIC_MISSILE").unwrap();
+        assert_eq!(slot, 1);
+        assert_eq!(kinds, vec![KindOf::Aircraft, KindOf::BallisticMissile]);
+    }
+
+    #[test]
+    fn apply_weapon_set_definition_binds_preferred_and_share_reload() {
+        let mut set = crate::assets::WeaponSetDefinition::default();
+        set.attributes.insert(
+            "PreferredAgainst".to_string(),
+            "PRIMARY INFANTRY".to_string(),
+        );
+        set.attributes
+            .insert("ShareWeaponReloadTime".to_string(), "Yes".to_string());
+        let mut t = ThingTemplate::new("AmericaVehicleComanche");
+        t.apply_weapon_set_definition(&set);
+        assert_eq!(t.preferred_against[0], vec![KindOf::Infantry]);
+        assert!(t.share_weapon_reload_time);
+        assert!(t.slot_preferred_against(0, |k| k == KindOf::Infantry));
+        assert!(!t.slot_preferred_against(0, |k| k == KindOf::Vehicle));
+    }
+
+    #[test]
+    fn weapon_tracker_from_store_maps_int_max_to_unbound() {
+        // C++ WeaponTemplate defaults ContinuousFireOne/Two to INT_MAX (off).
+        let bind = ThingTemplate::weapon_tracker_from_store(
+            super::super::weapon_bootstrap::RANGER_PRIMARY_WEAPON,
+        );
+        assert_eq!(bind.continuous_fire_one_shots, u32::MAX);
+        assert_eq!(bind.continuous_fire_two_shots, u32::MAX);
     }
 }
 

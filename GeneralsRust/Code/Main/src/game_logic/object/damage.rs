@@ -368,6 +368,19 @@ impl Object {
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
             self.notify_poisoned_on_damage(frame, damage_type, actual_damage, death_type);
         }
+        // C++ FlammableUpdate.cpp:78-100 onDamage FLAME / PARTICLE_BEAM → tryToIgnite.
+        if actual_damage > 0.0
+            && matches!(
+                damage_type,
+                crate::game_logic::combat::DamageType::Flame
+                    | crate::game_logic::combat::DamageType::ParticleBeam
+            )
+        {
+            if let Some(fs) = self.fire_spread.as_mut() {
+                let frame = crate::game_logic::host_historic_bonus::logic_frame();
+                let _ = fs.apply_flame_damage(actual_damage, frame);
+            }
+        }
         // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
         if actual_damage > 0.0 {
             // Wave 779: under damage authority, FWWDB onDamage reaction is owned by

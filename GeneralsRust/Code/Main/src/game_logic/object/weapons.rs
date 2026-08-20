@@ -418,19 +418,16 @@ impl Object {
     }
 
 
-    /// Fail-closed residual combat weapon choice (not full AutoChoose/PreferredAgainst).
+    /// Combat weapon choice.
     ///
     /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.
     /// Rules:
     /// - Explicit player lock wins when its concrete slot is ready + in range.
-    /// - PreferredAgainst residual (damage + kind heuristic, not full INI matrix):
-    ///   - Structures: prefer secondary when damage ≥ primary (or primary cannot fire).
-    ///   - Infantry: prefer secondary when damage > primary (FlashBang residual).
-    ///   - Vehicles: prefer secondary when damage > primary (TOW residual).
-    ///   - Neutron residual: active secondary with neutron upgrade vs infantry/vehicle
-    ///     prefers secondary when player locked or secondary is the only ready slot;
-    ///     also when primary cannot fire and secondary is ready.
-    /// - Else primary when ready + in range; else secondary (alternate fire residual).
+    /// - C++ WeaponSet.cpp:869-877 PreferredAgainst INI: a matching slot is
+    ///   treated as huge-damage and kept unless OUT_OF_AMMO (Comanche cannon
+    ///   vs infantry beats higher-damage Hellfires).
+    /// - Else residual damage + kind heuristic (FlashBang / TOW / structures).
+    /// - Else primary when ready + in range; else secondary (alternate fire).
     pub fn select_combat_weapon_slot(&self, target: &Object, current_time: f32) -> Option<u8> {
         // C++ WeaponSet lock: locked slot wins while ready/in-range.
         if self.weapon_lock_type != WeaponLockType::NotLocked {
@@ -484,6 +481,15 @@ impl Object {
                 return Some(0);
             }
             return None;
+        }
+
+        // C++ WeaponSet.cpp:869-877 PreferredAgainst override. Primary wins
+        // ties because C++ walks slots backwards and `damage >= best`.
+        if self.ini_preferred_slot_usable(0, target) {
+            return Some(0);
+        }
+        if self.ini_preferred_slot_usable(1, target) {
+            return Some(1);
         }
 
         let target_is_structure =
@@ -557,6 +563,46 @@ impl Object {
             Some(1)
         } else {
             None
+        }
+    }
+
+    /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
+    /// the clip is empty (`OUT_OF_AMMO`).
+    fn ini_preferred_slot_usable(&self, slot: u8, target: &Object) -> bool {
+        if !self
+            .thing
+            .template
+            .slot_preferred_against(slot, |kind| target.is_kind_of(kind))
+        {
+            return false;
+        }
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        if !self.can_target_with_slot(target, weapon, Some(slot)) {
+            return false;
+        }
+        !(weapon.clip_size > 0 && weapon.ammo == Some(0))
+    }
+
+    /// C++ Weapon.cpp:2655-2665 / 1898-1909 ShareWeaponReloadTime.
+    pub fn sync_shared_weapon_reload(&mut self) {
+        if !self.thing.template.share_weapon_reload_time {
+            return;
+        }
+        let mut latest = f32::NEG_INFINITY;
+        for slot in [0u8, 1, 2] {
+            if let Some(weapon) = self.weapon_slot(slot) {
+                latest = latest.max(weapon.last_fire_time);
+            }
+        }
+        if !latest.is_finite() {
+            return;
+        }
+        for slot in [0u8, 1, 2] {
+            if let Some(weapon) = self.weapon_slot_mut(slot) {
+                weapon.last_fire_time = latest;
+            }
         }
     }
 
@@ -783,6 +829,7 @@ impl Object {
         // PER_SHOT: force next fire_at to re-arm delay by clearing ready stamp into the past.
         self.pre_attack_ready_at = 0.0;
         self.record_host_combat_attack();
+        self.sync_shared_weapon_reload();
         self.update_continuous_fire_after_shot(target_id);
     }
 
@@ -862,10 +909,11 @@ impl Object {
         if delay == 0 {
             return;
         }
-        // Only meaningful when clip is partially empty.
-        let partial = self
-            .weapon_slot(0)
-            .is_some_and(|w| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false));
+        let partial = [0u8, 1, 2].iter().any(|&slot| {
+            self.weapon_slot(slot).is_some_and(|w| {
+                w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false)
+            })
+        });
         if partial {
             self.frame_to_force_reload = frame.saturating_add(delay);
         } else {
@@ -956,5 +1004,88 @@ mod tests {
         assert!(object.weapon_slot(99).is_none());
         assert!(object.weapon_slot_mut(99).is_none());
         assert!(!object.set_weapon_lock(99, WeaponLockType::LockedPermanently));
+    }
+
+    #[test]
+    fn preferred_against_primary_infantry_beats_higher_damage_secondary() {
+        // C++ WeaponSet.cpp:869-877 — Comanche cannon vs Hellfire: PRIMARY
+        // PreferredAgainst INFANTRY wins even when secondary damage is larger.
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("AmericaVehicleComanche");
+                t.preferred_against[0] = vec![KindOf::Infantry];
+                t
+            },
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(weapon(10.0));
+        attacker.secondary_weapon = Some(weapon(100.0));
+        let mut target = Object::new(
+            {
+                let mut t = ThingTemplate::new("Infantry");
+                t.add_kind_of(KindOf::Infantry);
+                t
+            },
+            ObjectId(2),
+            Team::GLA,
+        );
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(attacker.select_combat_weapon_slot(&target, 1.0), Some(0));
+    }
+
+    #[test]
+    fn preferred_against_secondary_infantry_beats_higher_damage_primary() {
+        // C++ SCUD toxin: PreferredAgainst SECONDARY INFANTRY.
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("GLAVehicleSCUDLauncher");
+                t.preferred_against[1] = vec![KindOf::Infantry];
+                t
+            },
+            ObjectId(1),
+            Team::GLA,
+        );
+        attacker.weapon = Some(weapon(300.0));
+        attacker.secondary_weapon = Some(weapon(50.0));
+        let mut target = Object::new(
+            {
+                let mut t = ThingTemplate::new("Infantry");
+                t.add_kind_of(KindOf::Infantry);
+                t
+            },
+            ObjectId(2),
+            Team::USA,
+        );
+        target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        assert_eq!(attacker.select_combat_weapon_slot(&target, 1.0), Some(1));
+    }
+
+    #[test]
+    fn share_weapon_reload_time_syncs_sibling_last_fire() {
+        // C++ Weapon.cpp:2655-2665 ShareWeaponReloadTime copies next-shot frame.
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("SharedReload");
+                t.share_weapon_reload_time = true;
+                t
+            },
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 4.0,
+            ..weapon(10.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 0.0,
+            ..weapon(10.0)
+        });
+        attacker.sync_shared_weapon_reload();
+        assert_eq!(attacker.weapon.as_ref().unwrap().last_fire_time, 4.0);
+        assert_eq!(
+            attacker.secondary_weapon.as_ref().unwrap().last_fire_time,
+            4.0
+        );
     }
 }

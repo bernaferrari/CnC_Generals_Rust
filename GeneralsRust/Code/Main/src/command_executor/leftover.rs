@@ -549,6 +549,8 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
+            // C++ WorkerAIUpdate::newTask — build/repair exits AS_SUPPLY_TRUCK.
+            self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
             if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
                 any = true;
             }

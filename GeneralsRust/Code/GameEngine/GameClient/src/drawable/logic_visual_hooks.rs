@@ -11,7 +11,7 @@ use crate::terrain::terrain_tracks::TerrainTrackHeightProvider;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
 use crate::render_bridge::THE_RENDER_BRIDGE;
-use gamelogic::common::{Matrix3D, ObjectID, Real};
+use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
     register_preload_asset_hook, register_pristine_bone_lookup_hook,
