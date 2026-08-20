@@ -712,13 +712,15 @@ impl GameLogic {
             // Path blocked until pack completes; re-issue move after ReadyToMove.
             return false;
         }
-        let (start, can_move, is_aircraft, surfaces) = match self.objects.get(&unit_id) {
+        let (start, can_move, is_aircraft, surfaces, is_crusher) = match self.objects.get(&unit_id)
+        {
             Some(unit) => (
                 unit.get_position(),
                 unit.can_move(),
                 unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
                     || unit.object_type == crate::game_logic::ObjectType::Aircraft,
                 unit.locomotor_surfaces,
+                unit.crusher_level > 0,
             ),
             None => return false,
         };
@@ -749,6 +751,7 @@ impl GameLogic {
                     waypoints: waypoints.to_vec(),
                     aircraft: is_aircraft,
                     surfaces,
+                    is_crusher,
                 });
             crate::game_logic::host_move_log::record(
                 unit_id,
@@ -760,9 +763,15 @@ impl GameLogic {
             return true;
         }
 
-        let Some(full_path) =
-            self.compute_assigned_unit_path(unit_id, start, destination, waypoints, is_aircraft, surfaces)
-        else {
+        let Some(full_path) = self.compute_assigned_unit_path(
+            unit_id,
+            start,
+            destination,
+            waypoints,
+            is_aircraft,
+            surfaces,
+            is_crusher,
+        ) else {
             return false;
         };
         self.apply_computed_unit_path(unit_id, start, destination, full_path)
@@ -776,6 +785,7 @@ impl GameLogic {
         waypoints: &[Vec3],
         is_aircraft: bool,
         surfaces: u32,
+        is_crusher: bool,
     ) -> Option<Vec<Vec3>> {
         let horiz = |a: Vec3, b: Vec3| {
             let dx = a.x - b.x;
@@ -809,7 +819,7 @@ impl GameLogic {
                 &self.objects,
                 is_aircraft,
                 loco,
-                false,
+                is_crusher,
             );
 
             match segment {
@@ -828,9 +838,9 @@ impl GameLogic {
                         if let Some(first) = segment_path.first_mut() {
                             *first = segment_start;
                         }
-                        if let Some(last) = segment_path.last_mut() {
-                            *last = goal;
-                        }
+                        // C++ Path::optimize / adjustDestination keep the
+                        // snapped cell as the last node. Restoring the raw
+                        // click (hq-7lrve) walked units into buildings.
                         if !full_path.is_empty()
                             && !segment_path.is_empty()
                             && full_path
@@ -939,9 +949,19 @@ impl GameLogic {
         let Some((leader_id, start, _, surfaces, aircraft)) = leader else {
             return false;
         };
-        let Some(spine) =
-            self.compute_assigned_unit_path(leader_id, start, destination, &[], aircraft, surfaces)
-        else {
+        let is_crusher = self
+            .objects
+            .get(&leader_id)
+            .is_some_and(|o| o.crusher_level > 0);
+        let Some(spine) = self.compute_assigned_unit_path(
+            leader_id,
+            start,
+            destination,
+            &[],
+            aircraft,
+            surfaces,
+            is_crusher,
+        ) else {
             return false;
         };
         let mut any = false;
@@ -966,21 +986,23 @@ impl GameLogic {
     pub(crate) fn process_pathfind_queue(&mut self) {
         let pending = self.pathfinding_system.take_pending_paths();
         for req in pending {
-            let (start, can_move, is_aircraft, surfaces) = match self.objects.get(&req.unit_id) {
-                Some(unit) if unit.is_alive() => (
-                    unit.get_position(),
-                    unit.can_move(),
-                    req.aircraft
-                        || unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                        || unit.object_type == crate::game_logic::ObjectType::Aircraft,
-                    if req.surfaces != 0 {
-                        req.surfaces
-                    } else {
-                        unit.locomotor_surfaces
-                    },
-                ),
-                _ => continue,
-            };
+            let (start, can_move, is_aircraft, surfaces, is_crusher) =
+                match self.objects.get(&req.unit_id) {
+                    Some(unit) if unit.is_alive() => (
+                        unit.get_position(),
+                        unit.can_move(),
+                        req.aircraft
+                            || unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                            || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+                        if req.surfaces != 0 {
+                            req.surfaces
+                        } else {
+                            unit.locomotor_surfaces
+                        },
+                        req.is_crusher || unit.crusher_level > 0,
+                    ),
+                    _ => continue,
+                };
             if !can_move {
                 if let Some(unit) = self.objects.get_mut(&req.unit_id) {
                     unit.waiting_for_path = false;
@@ -994,6 +1016,7 @@ impl GameLogic {
                 &req.waypoints,
                 is_aircraft,
                 surfaces,
+                is_crusher,
             ) {
                 Some(path) => {
                     let _ = self.apply_computed_unit_path(
@@ -1034,7 +1057,7 @@ impl GameLogic {
         target_id: Option<ObjectId>,
         target_pos: Vec3,
     ) -> bool {
-        let (from, range, can_move, contact) = match self.objects.get(&unit_id) {
+        let (from, range, can_move, contact, is_crusher) = match self.objects.get(&unit_id) {
             Some(u) => {
                 let range = u
                     .weapon
@@ -1057,6 +1080,7 @@ impl GameLogic {
                     range,
                     u.can_move() && u.is_alive(),
                     contact,
+                    u.crusher_level > 0,
                 )
             }
             None => return false,
@@ -1075,6 +1099,7 @@ impl GameLogic {
             target_pos,
             path_range,
             &self.objects,
+            is_crusher,
         );
         // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
         if let Some(ref full_path) = path {

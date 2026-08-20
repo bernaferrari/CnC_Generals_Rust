@@ -504,25 +504,10 @@ impl CnCGameEngine {
     ///
     /// Do **not** average every local object — map-wide centroid pulls the camera
     /// between bases and frustum-culls everything.
-    /// True when the look-at is so far from every living local object that the
-    /// frustum shows only sky (default (0,0) edge-scroll after a hitch).
-    pub(super) fn camera_is_unreasonably_far_from_local_units(&self) -> bool {
-        let Some(frame) = self.last_presentation_frame.as_ref() else {
-            return false;
-        };
-        let team = frame.local_team();
-        let mut nearest = f32::INFINITY;
-        for o in &frame.objects {
-            if o.team != team || o.destroyed {
-                continue;
-            }
-            let dx = o.position.x - self.camera_target.x;
-            let dz = o.position.z - self.camera_target.z;
-            nearest = nearest.min(dx * dx + dz * dz);
-        }
-        nearest.is_finite() && nearest > 6_000.0 * 6_000.0
-    }
-
+    ///
+    /// C++ `LookAtXlat` / `W3DView::scrollBy` never snap back to own units while
+    /// the player pans. Call this only at match start / first-frame origin hitch,
+    /// never from `update_camera` during play.
     pub(super) fn snap_camera_to_local_units_if_needed(&mut self) {
         // Presentation-only: compute focus from snapshot, then apply camera mutably.
         let Some(focus) = (|| {
@@ -2046,6 +2031,26 @@ End
             live.contains("TheGameEngine->reset() before startNewGame")
                 && live.contains("self.host_game_engine_reset()"),
             "new-game start must call GameEngine::reset like GameLogicDispatch.cpp:256"
+        );
+    }
+
+    #[test]
+    fn snap_camera_is_bootstrap_not_live_scout() {
+        // C++ has no 6000wu distance-to-own-units snap during play.
+        let src = include_str!("start_game.rs");
+        let live = src.split("#[cfg(test)]").next().expect("start_game live path");
+        assert!(
+            !live.contains("camera_is_unreasonably_far_from_local_units")
+                && !live.contains("6_000.0 * 6_000.0"),
+            "6000wu scout snap helper must not remain"
+        );
+        let snap = live
+            .find("fn snap_camera_to_local_units_if_needed")
+            .expect("snap remains for match bootstrap");
+        let doc = &live[snap.saturating_sub(400)..snap];
+        assert!(
+            doc.contains("never from `update_camera` during play"),
+            "snap must stay match-start / origin-hitch only"
         );
     }
 

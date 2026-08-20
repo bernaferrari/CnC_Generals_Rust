@@ -1658,7 +1658,7 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
         assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     }
 
-    // Enter rearm range → dock + full rearm.
+    // Enter rearm range → dock. ClipReload 0 still takes the C++ min 1 frame.
     {
         let jet = logic.objects.get_mut(&jet_id).unwrap();
         jet.set_position(Vec3::new(50.0, 40.0, 0.0));
@@ -1670,6 +1670,13 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
     {
         let jet = logic.objects.get(&jet_id).unwrap();
         assert_eq!(jet.contained_by, Some(af_id));
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
+        assert!(jet.needs_return_to_base_rearm());
+    }
+    logic.frame = logic.frame.saturating_add(1);
+    assert!(logic.try_return_to_base_rearm(jet_id));
+    {
+        let jet = logic.objects.get(&jet_id).unwrap();
         assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
         assert!(!jet.needs_return_to_base_rearm());
     }
@@ -1734,7 +1741,7 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
         assert!(jet.needs_return_to_base_rearm());
     }
 
-    // Mid-reload tick still suppresses OOA path (returns true) without ammo.
+    // Mid-reload: C++ setClipPercentFull((reloadTime-(done-now))/reloadTime).
     logic.frame = 10 + RAPTOR_CLIP_RELOAD_FRAMES - 1;
     assert!(logic.try_return_to_base_rearm(jet_id));
     assert_eq!(
@@ -1746,7 +1753,7 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
             .as_ref()
             .unwrap()
             .ammo,
-        Some(0)
+        Some(3)
     );
 
     // ClipReload elapsed → full rearm.
@@ -1758,6 +1765,101 @@ fn jet_airfield_rearm_waits_clip_reload_frames() {
         assert!(jet.airfield_rearm_ready_frame.is_none());
         assert!(!jet.needs_return_to_base_rearm());
     }
+}
+
+#[test]
+fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut af_tmpl = ThingTemplate::new("AmericaAirfield");
+    af_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    logic.templates.insert("AmericaAirfield".into(), af_tmpl);
+    let mut jet_tmpl = ThingTemplate::new("AmericaJetRaptor");
+    jet_tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+    jet_tmpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    logic.templates.insert("AmericaJetRaptor".into(), jet_tmpl);
+
+    let af_id = logic
+        .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+        .expect("af");
+    let jet_id = logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(2000.0, 50.0, 0.0))
+        .expect("jet");
+    {
+        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        jet.producer_id = Some(af_id);
+        jet.status.airborne_target = true;
+        jet.weapon = Some(Weapon {
+            damage: 50.0,
+            range: 200.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 4,
+            can_target_air: true,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+    }
+
+    logic.tick_out_of_ammo_jet_damage();
+    let hp_after_first = logic.objects.get(&jet_id).unwrap().health.current;
+    assert!(
+        (hp_after_first - 100.0).abs() < 1e-3,
+        "must not bleed while a live airfield exists or while flying home"
+    );
+
+    logic.destroy_object(af_id);
+    if let Some(af) = logic.objects.get_mut(&af_id) {
+        af.status.destroyed = true;
+        af.health.current = 0.0;
+    }
+    let hp_before = logic.objects.get(&jet_id).unwrap().health.current;
+    logic.tick_out_of_ammo_jet_damage();
+    {
+        let jet = logic.objects.get(&jet_id).unwrap();
+        assert!(
+            (jet.health.current - hp_before).abs() < 1e-3,
+            "must not bleed in place after airfield dies"
+        );
+        assert!(
+            !jet.jet_circling_dead_airfield,
+            "still returning to last airfield"
+        );
+        let goal = jet.jet_producer_location_vec().expect("remembered wreck");
+        assert!(goal.x.abs() < 1.0 && goal.z.abs() < 1.0);
+    }
+
+    {
+        let jet = logic.objects.get_mut(&jet_id).unwrap();
+        jet.set_position(Vec3::new(5.0, 50.0, 0.0));
+    }
+    logic.queued_audio_events.clear();
+    logic.tick_out_of_ammo_jet_damage();
+    {
+        let jet = logic.objects.get(&jet_id).unwrap();
+        assert!(jet.jet_circling_dead_airfield);
+        assert!(
+            jet.health.current < hp_before - 1e-4,
+            "OutOfAmmoDamage only after circling the wreck"
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type.contains("VoiceLowFuel")),
+        "circling enter plays VoiceLowFuel"
+    );
 }
 
 #[test]

@@ -1514,6 +1514,7 @@ impl GameLogic {
     }
 
     /// C++ SUPERWEAPON_A10ThunderboltMissileStrike DeliverPayload residual.
+    /// CREATE_AT_EDGE_NEAR_SOURCE + FormationSize 1/2/3 AmericaJetA10Thunderbolt.
     pub fn spawn_a10_strike_flight(
         &mut self,
         source_id: ObjectId,
@@ -1521,7 +1522,7 @@ impl GameLogic {
         tier: crate::game_logic::special_power_strikes::A10StrikeScienceTier,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_a10_strike_flight::HostA10StrikeFlightData;
-        use crate::game_logic::special_power_strikes::A10_TRANSPORT;
+        use crate::game_logic::special_power_strikes::{A10_FORMATIONION_SPACING, A10_TRANSPORT};
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let team = self
@@ -1534,14 +1535,13 @@ impl GameLogic {
             .get(&source_id)
             .map(|o| o.get_position())
             .unwrap_or(target);
-        let dx = target.x - source_pos.x;
-        let dz = target.z - source_pos.z;
+        let edge = self.closest_map_edge_point(source_pos);
+        let exit = self.opposite_map_edge_point(edge);
+        let dx = target.x - edge.x;
+        let dz = target.z - edge.z;
         let dist = (dx * dx + dz * dz).sqrt().max(1.0);
-        let edge = Vec3::new(
-            source_pos.x - dx / dist * 400.0,
-            160.0,
-            source_pos.z - dz / dist * 400.0,
-        );
+        let px = -dz / dist;
+        let pz = dx / dist;
         if !self.templates.contains_key(A10_TRANSPORT) {
             let mut t = ThingTemplate::new(A10_TRANSPORT);
             t.set_health(600.0)
@@ -1549,22 +1549,68 @@ impl GameLogic {
                 .add_kind_of(KindOf::Vehicle);
             self.templates.insert(A10_TRANSPORT.to_string(), t);
         }
-        let tid = self.create_object(A10_TRANSPORT, team, edge)?;
-        if let Some(o) = self.objects.get_mut(&tid) {
-            o.note_producer(source_id);
-            o.a10_strike_transport = Some(HostA10StrikeFlightData::start(edge, target, tier));
-            o.set_orientation(dz.atan2(dx));
+        let jets = tier.formation_size().max(1);
+        let half = (jets as f32 - 1.0) * 0.5;
+        let mut first = None;
+        for j in 0..jets {
+            let lat = (j as f32 - half) * A10_FORMATIONION_SPACING;
+            let launch = Vec3::new(edge.x + px * lat, 160.0, edge.z + pz * lat);
+            let tid = self.create_object(A10_TRANSPORT, team, launch)?;
+            if let Some(o) = self.objects.get_mut(&tid) {
+                o.note_producer(source_id);
+                o.a10_strike_transport =
+                    Some(HostA10StrikeFlightData::start_with_exit(launch, target, exit, tier));
+                o.set_orientation(dz.atan2(dx));
+            }
+            self.a10_strike_flight_reg.record_transport();
+            if first.is_none() {
+                first = Some(tid);
+            }
         }
-        self.a10_strike_flight_reg.record_transport();
         self.a10_strike_flight_reg
             .schedule_drops(self.frame, source_id.0, target, tier);
-        Some(tid)
+        first
+    }
+
+    /// C++ TerrainLogic::findClosestEdgePoint residual (world_min/max).
+    pub fn closest_map_edge_point(&self, pos: Vec3) -> Vec3 {
+        let min = self.world_min;
+        let max = self.world_max;
+        let dl = (pos.x - min.x).abs();
+        let dr = (max.x - pos.x).abs();
+        let db = (pos.z - min.z).abs();
+        let dt = (max.z - pos.z).abs();
+        let m = dl.min(dr).min(db).min(dt);
+        if (m - dl).abs() <= f32::EPSILON {
+            Vec3::new(min.x, 160.0, pos.z.clamp(min.z, max.z))
+        } else if (m - dr).abs() <= f32::EPSILON {
+            Vec3::new(max.x, 160.0, pos.z.clamp(min.z, max.z))
+        } else if (m - db).abs() <= f32::EPSILON {
+            Vec3::new(pos.x.clamp(min.x, max.x), 160.0, min.z)
+        } else {
+            Vec3::new(pos.x.clamp(min.x, max.x), 160.0, max.z)
+        }
+    }
+
+    fn opposite_map_edge_point(&self, edge: Vec3) -> Vec3 {
+        let min = self.world_min;
+        let max = self.world_max;
+        if (edge.x - min.x).abs() <= 1.0 {
+            Vec3::new(max.x, 160.0, edge.z)
+        } else if (edge.x - max.x).abs() <= 1.0 {
+            Vec3::new(min.x, 160.0, edge.z)
+        } else if (edge.z - min.z).abs() <= 1.0 {
+            Vec3::new(edge.x, 160.0, max.z)
+        } else {
+            Vec3::new(edge.x, 160.0, min.z)
+        }
     }
 
     pub fn update_a10_strike_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::special_power_strikes::{
             A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
+            A10_STRAFE_LENGTH, A10_VULCAN_PRIMARY_DAMAGE, A10_VULCAN_PRIMARY_RADIUS,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -1574,6 +1620,9 @@ impl GameLogic {
             .filter(|(_, o)| o.a10_strike_transport.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
+        let mut leave = Vec::new();
+        let mut vulcan: Vec<(ObjectId, Option<ObjectId>, crate::game_logic::Team, Vec3)> =
+            Vec::new();
         for id in tids {
             let Some(o) = self.objects.get_mut(&id) else {
                 continue;
@@ -1582,13 +1631,42 @@ impl GameLogic {
             let Some(data) = o.a10_strike_transport.as_mut() else {
                 continue;
             };
-            let (new_pos, vel, _over) = data.tick_transport(pos);
-            let _ = data;
+            let target = data.target;
+            let (new_pos, vel, at_exit) = data.tick_transport(pos);
+            let dx = new_pos.x - target.x;
+            let dz = new_pos.z - target.z;
+            let over_strafe = dx * dx + dz * dz <= A10_STRAFE_LENGTH * A10_STRAFE_LENGTH;
+            let due_vulcan = over_strafe
+                && self
+                    .frame
+                    .saturating_sub(data.last_vulcan_frame)
+                    >= 2;
+            if due_vulcan {
+                data.last_vulcan_frame = self.frame;
+                vulcan.push((id, o.producer_id, o.team, new_pos));
+            }
             o.set_position(new_pos);
             o.movement.velocity = vel;
             if vel.length_squared() > 1e-6 {
                 o.set_orientation(vel.z.atan2(vel.x));
             }
+            if at_exit {
+                leave.push(id);
+            }
+        }
+        for (id, producer, team, pos) in vulcan {
+            self.apply_fuel_air_radius_damage(
+                id,
+                producer,
+                team,
+                Vec3::new(pos.x, 0.0, pos.z),
+                A10_VULCAN_PRIMARY_DAMAGE,
+                A10_VULCAN_PRIMARY_RADIUS,
+                DamageType::Bullet,
+            );
+        }
+        for id in leave {
+            self.mark_object_for_destruction(id, None);
         }
 
         let due = self.a10_strike_flight_reg.take_due_drops(self.frame);

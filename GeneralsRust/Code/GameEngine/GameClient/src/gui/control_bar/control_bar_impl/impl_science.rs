@@ -1495,12 +1495,14 @@ impl ControlBar {
                         }
                     }
                 }
-                if !command_button_science_vec_owned(
-                    &crate_has,
-                    &self.science_state.unlocked_sciences,
-                    &button.sciences_ids,
-                    &button.sciences,
-                ) {
+                if matches!(button.command_type, CommandType::QueueUpgrade)
+                    && !command_button_science_vec_owned(
+                        &crate_has,
+                        &self.science_state.unlocked_sciences,
+                        &button.sciences_ids,
+                        &button.sciences,
+                    )
+                {
                     state.enabled = false;
                     state.availability = CommandAvailability::Restricted;
                 }

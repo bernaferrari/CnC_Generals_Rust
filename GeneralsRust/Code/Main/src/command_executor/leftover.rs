@@ -1364,6 +1364,27 @@ impl GameLogic {
     }
 }
 
+/// C++ `getRappellerCount` — CombatDrop Restricted at 0.
+pub fn host_rappeller_count(logic: &GameLogic, transport_id: ObjectId) -> usize {
+    let Some(obj) = logic.host_object(transport_id) else {
+        return 0;
+    };
+    obj.occupants
+        .iter()
+        .copied()
+        .filter(|&pid| {
+            logic.host_object(pid).is_some_and(|pax| {
+                pax.is_alive() && pax.is_kind_of(KindOf::Infantry)
+            })
+        })
+        .count()
+}
+
+/// C++ `HackInternetAIInterface::isHackingPackingOrUnpacking`.
+pub fn host_hack_internet_restricted(logic: &GameLogic, hacker_id: ObjectId) -> bool {
+    logic.hacker_income.is_hacking(hacker_id)
+}
+
 /// Convert crate `GameMessageType` leftovers into live host commands.
 /// C++ `GameLogicDispatch` is the only consumer of these MSG_* types.
 pub fn leftover_command_from_common_message(

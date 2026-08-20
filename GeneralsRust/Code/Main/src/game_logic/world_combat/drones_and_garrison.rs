@@ -1350,6 +1350,8 @@ impl GameLogic {
     }
 
     /// C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
+    /// ActionManager.cpp:1696-1710 rejects STRUCTURE and non-ENEMIES;
+    /// Object.cpp:6111-6132 `defect` returns if contained / UNDER_CONSTRUCTION / SOLD.
     pub fn activate_defector(&mut self, caster_id: ObjectId, victim_id: ObjectId) -> bool {
         use crate::game_logic::host_defector_special_power::DEFECTOR_DETECTION_FRAMES;
         if caster_id == victim_id {
@@ -1362,15 +1364,34 @@ impl GameLogic {
             return false;
         }
         let caster_team = caster.team;
-        let Some(victim) = self.objects.get_mut(&victim_id) else {
+        if caster_team == Team::Neutral {
+            return false;
+        }
+        let Some(victim) = self.objects.get(&victim_id) else {
             return false;
         };
         if !victim.is_alive() {
             return false;
         }
-        if victim.team == caster_team {
+        if victim.is_kind_of(KindOf::Structure) {
             return false;
         }
+        // C++ relationship ENEMIES only (neutral / same-team are worthless).
+        if victim.team == caster_team || victim.team == Team::Neutral {
+            return false;
+        }
+        if victim.contained_by.is_some() {
+            return false;
+        }
+        if victim.status.under_construction
+            || victim.construction_percent + 0.001 < 1.0
+            || victim.status.sold
+        {
+            return false;
+        }
+        let Some(victim) = self.objects.get_mut(&victim_id) else {
+            return false;
+        };
         let frames = DEFECTOR_DETECTION_FRAMES;
         let now = self.frame;
         victim.defect(caster_team, now, frames);
@@ -2772,6 +2793,56 @@ mod tests {
         let r = logic.host_object(ranger_id).unwrap();
         assert!(!r.selected);
         assert!(!logic.selected_objects.contains(&ranger_id));
+    }
+
+    /// C++ ActionManager.cpp:1696-1710 + Object.cpp:6111-6132.
+    #[test]
+    fn defector_rejects_structure_contained_and_unfinished() {
+        let mut logic = GameLogic::new();
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut tank = ThingTemplate::new("TestTank");
+        tank.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("TestTank".into(), tank);
+        let mut barracks = ThingTemplate::new("GLABarracks");
+        barracks.add_kind_of(KindOf::Structure).set_health(800.0);
+        logic.templates.insert("GLABarracks".into(), barracks);
+
+        let caster = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let building = logic
+            .create_object("GLABarracks", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        let unfinished = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.host_object_mut(unfinished) {
+            o.set_status_under_construction(true);
+            o.construction_percent = 0.2;
+        }
+        let contained = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.host_object_mut(contained) {
+            o.set_contained_by(Some(building));
+        }
+        let sold = logic
+            .create_object("TestTank", Team::GLA, Vec3::new(70.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.host_object_mut(sold) {
+            o.set_status_sold(true);
+        }
+
+        assert!(!logic.activate_defector(caster, building));
+        assert_eq!(logic.host_object(building).unwrap().team, Team::GLA);
+        assert!(!logic.activate_defector(caster, unfinished));
+        assert_eq!(logic.host_object(unfinished).unwrap().team, Team::GLA);
+        assert!(!logic.activate_defector(caster, contained));
+        assert_eq!(logic.host_object(contained).unwrap().team, Team::GLA);
+        assert!(!logic.activate_defector(caster, sold));
+        assert_eq!(logic.host_object(sold).unwrap().team, Team::GLA);
     }
 }
 

@@ -637,12 +637,32 @@ impl InGameUI {
     // C++: InGameUI.cpp:4850 (selectMatchingAcrossMap)
 
     pub fn select_units_matching_current_selection(&mut self) -> i32 {
-        // C++: First tries selectMatchingAcrossScreen(), if 0 results tries selectMatchingAcrossMap()
+        // C++ `InGameUI.cpp:4900-4916`: screen first; -1 does not fall through
+        // to the map pass; 0 new screen matches tries the map.
         let screen_count = self.select_matching_across_screen();
-        if screen_count > 0 {
+        if screen_count == -1 {
+            self.message(&GameText::fetch("GUI:NothingSelected"));
             return screen_count;
         }
-        self.select_matching_across_map()
+        if screen_count > 0 {
+            self.message(&GameText::fetch("GUI:SelectedAcrossScreen"));
+            return screen_count;
+        }
+        let map_count = self.select_matching_across_map();
+        if map_count == -1 {
+            self.message(&GameText::fetch("GUI:NothingSelected"));
+        } else if map_count > 0 || !self.first_selected_is_structure() {
+            self.message(&GameText::fetch("GUI:SelectedAcrossMap"));
+        }
+        map_count
+    }
+
+    fn first_selected_is_structure(&self) -> bool {
+        self.presentation_selected.first().is_some_and(|unit| {
+            unit.kind_names.iter().any(|kind| {
+                kind.eq_ignore_ascii_case("STRUCTURE") || kind.eq_ignore_ascii_case("BUILDING")
+            })
+        })
     }
 
     pub fn select_matching_across_screen(&mut self) -> i32 {

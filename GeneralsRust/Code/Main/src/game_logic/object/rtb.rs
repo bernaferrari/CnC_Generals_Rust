@@ -152,18 +152,27 @@ impl Object {
         self.thing.template.tertiary_weapon_name.as_deref()
     }
 
-    /// Max ClipReload frames among empty RETURN_TO_BASE weapons (C++ airfield rearm).
+    /// C++ `JetOrHeliReloadAmmoState::onEnter` duration: max over slots of
+    /// `clipReloadTime * (clipSize - remaining) / clipSize` (logic frames).
+    /// Caller clamps to at least 1 frame when entering ReloadAmmo.
     pub fn airfield_rearm_clip_reload_frames(&self) -> u32 {
         let mut frames = 0u32;
         let consider = |w: &Weapon, acc: &mut u32| {
-            if matches!(w.ammo, Some(0)) {
-                let f = if w.clip_reload_time > 0.0 {
-                    (w.clip_reload_time * 30.0).round() as u32
-                } else {
-                    0
-                };
-                *acc = (*acc).max(f);
+            if w.clip_size == 0 {
+                return;
             }
+            let remaining = w.ammo.unwrap_or(w.clip_size);
+            let needed = w.clip_size.saturating_sub(remaining);
+            if needed == 0 {
+                return;
+            }
+            let raw = if w.clip_reload_time > 0.0 {
+                (w.clip_reload_time * 30.0).round() as u32
+            } else {
+                0
+            };
+            let biased = (raw as u64 * needed as u64 / w.clip_size as u64) as u32;
+            *acc = (*acc).max(biased);
         };
         if let Some(w) = self.weapon.as_ref() {
             consider(w, &mut frames);
@@ -175,6 +184,76 @@ impl Object {
             consider(w, &mut frames);
         }
         frames
+    }
+
+    /// C++ `Weapon::setClipPercentFull` (Weapon.cpp:1845) — floor, no reduce
+    /// unless `allow_reduction`.
+    pub fn set_weapon_clip_percent_full(
+        weapon: &mut Weapon,
+        percent: f32,
+        allow_reduction: bool,
+    ) {
+        if weapon.clip_size == 0 {
+            return;
+        }
+        let ammo = (weapon.clip_size as f32 * percent.clamp(0.0, 1.0)).floor() as u32;
+        let current = weapon.ammo.unwrap_or(0);
+        if ammo > current || (allow_reduction && ammo < current) {
+            weapon.ammo = Some(ammo);
+            weapon.last_fire_time = -1.0e6;
+        }
+    }
+
+    fn weapons_need_clip_fill(&self) -> bool {
+        let short = |w: &Weapon| w.clip_size > 0 && w.ammo.map(|a| a < w.clip_size).unwrap_or(false);
+        self.weapon.as_ref().is_some_and(short)
+            || self.secondary_weapon.as_ref().is_some_and(short)
+            || self.tertiary_weapon.as_ref().is_some_and(short)
+    }
+
+    /// C++ `JetOrHeliReloadAmmoState::onEnter` — remaining-biased duration, min 1.
+    pub fn begin_parked_airfield_rearm(&mut self, now: u32) {
+        if self.airfield_rearm_ready_frame.is_some() {
+            return;
+        }
+        if !self.weapons_need_clip_fill() {
+            return;
+        }
+        let frames = self.airfield_rearm_clip_reload_frames().max(1);
+        self.airfield_rearm_duration_frames = frames;
+        self.airfield_rearm_ready_frame = Some(now.saturating_add(frames));
+    }
+
+    /// C++ `JetOrHeliReloadAmmoState::update` progressive `setClipPercentFull`.
+    /// Returns true when every clip is full.
+    pub fn tick_parked_airfield_rearm(&mut self, now: u32) -> bool {
+        let Some(done) = self.airfield_rearm_ready_frame else {
+            return false;
+        };
+        let duration = self.airfield_rearm_duration_frames.max(1);
+        let progress = if now >= done {
+            1.0
+        } else {
+            let remaining = done - now;
+            duration.saturating_sub(remaining) as f32 / duration as f32
+        };
+        if let Some(w) = self.weapon.as_mut() {
+            Self::set_weapon_clip_percent_full(w, progress, false);
+        }
+        if let Some(w) = self.secondary_weapon.as_mut() {
+            Self::set_weapon_clip_percent_full(w, progress, false);
+        }
+        if let Some(w) = self.tertiary_weapon.as_mut() {
+            Self::set_weapon_clip_percent_full(w, progress, false);
+        }
+        if now >= done || !self.weapons_need_clip_fill() {
+            if !self.weapons_need_clip_fill() {
+                self.airfield_rearm_ready_frame = None;
+                self.airfield_rearm_duration_frames = 0;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn needs_return_to_base_rearm(&self) -> bool {

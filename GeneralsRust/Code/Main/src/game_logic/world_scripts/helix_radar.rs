@@ -4,6 +4,47 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+
+/// C++ `ActionManager.cpp:1652-1672` `SPECIAL_CASH_HACK`.
+fn is_legal_superweapon_cash_hack_victim(victim: &Object, caster_team: Option<Team>) -> bool {
+    use crate::game_logic::host_hero_abilities::is_cash_hack_target;
+    if !victim.is_alive() {
+        return false;
+    }
+    if !victim.is_kind_of(KindOf::Structure) {
+        return false;
+    }
+    let Some(caster_team) = caster_team else {
+        return false;
+    };
+    // C++ relationship ENEMIES — same-team / Neutral are not enemies.
+    if victim.team == caster_team
+        || victim.team == Team::Neutral
+        || caster_team == Team::Neutral
+    {
+        return false;
+    }
+    if !victim.thing.template.capturable || victim.thing.template.immune_to_capture {
+        return false;
+    }
+    if victim.is_rebuild_hole {
+        return false;
+    }
+    if victim.status.under_construction
+        || victim.construction_percent + 0.001 < 1.0
+        || victim.status.sold
+    {
+        return false;
+    }
+    is_cash_hack_target(
+        &victim.template_name,
+        victim.is_kind_of(KindOf::SupplyCenter),
+        victim.is_kind_of(KindOf::FSSupplyCenter),
+        victim.is_kind_of(KindOf::FSBlackMarket),
+        victim.is_kind_of(KindOf::FSSupplyDropzone),
+    )
+}
+
 impl GameLogic {
     // -----------------------------------------------------------------------
     // China Nuclear Tanks residual (death blast + radiation + speed)
@@ -1216,7 +1257,7 @@ impl GameLogic {
         player_id: u32,
         caster_id: Option<ObjectId>,
         victim_id: Option<ObjectId>,
-    ) -> u32 {
+    ) -> Option<u32> {
         use crate::game_logic::host_hero_abilities::{
             cash_hack_money_from_sciences, CASH_HACK_ACTIVATE_AUDIO,
         };
@@ -1251,22 +1292,27 @@ impl GameLogic {
         let amount = cash_hack_money_from_sciences(sciences.iter().map(|s| s.as_str()));
 
         // C++ CashHackSpecialPower::doSpecialPowerAtLocation is a no-op.
-        // Object fire steals from the clicked victim's controlling player.
+        // ActionManager.cpp:1652-1672 SPECIAL_CASH_HACK is object-only:
+        // STRUCTURE + ENEMIES + CAPTURABLE + CASH_GENERATOR, not REBUILD_HOLE,
+        // not UNDER_CONSTRUCTION / SOLD.
         let Some(victim_id) = victim_id else {
-            self.last_cash_hack_request_amount = amount;
-            self.last_cash_hack_stolen_amount = 0;
-            return 0;
+            return None;
         };
-        let (victim_team, victim_owner) = match self.objects.get(&victim_id) {
-            Some(victim) => (victim.team, victim.owner_player_id),
-            None => {
-                self.last_cash_hack_request_amount = amount;
-                self.last_cash_hack_stolen_amount = 0;
-                return 0;
-            }
+        let caster_team = caster_id
+            .and_then(|id| self.objects.get(&id).map(|o| o.team))
+            .or_else(|| {
+                caster_owner_player_id
+                    .and_then(|id| self.players.get(&id).map(|p| p.team))
+            });
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return None;
         };
+        if !is_legal_superweapon_cash_hack_victim(victim, caster_team) {
+            return None;
+        }
+        let victim_team = victim.team;
+        let victim_owner = victim.owner_player_id;
         let victim_player_id = self.player_owner_for_event(victim_owner, victim_team);
-
 
         let stolen = match (caster_owner_player_id, victim_player_id) {
             (Some(to_player_id), Some(from_player_id)) => {
@@ -1300,7 +1346,7 @@ impl GameLogic {
         // Honesty residual: last requested science-tier amount.
         self.last_cash_hack_request_amount = amount;
         self.last_cash_hack_stolen_amount = stolen;
-        stolen
+        Some(stolen)
     }
 
 
@@ -1728,3 +1774,131 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod cash_hack_target_tests {
+    use super::*;
+    use crate::game_logic::host_hero_abilities::CASH_HACK_ACTIVATE_AUDIO;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    fn insert_cc_and_depot(logic: &mut GameLogic) {
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::USA, "USA", false));
+        logic.players.get_mut(&0).unwrap().resources.supplies = 0;
+        logic.players.get_mut(&1).unwrap().resources.supplies = 5_000;
+
+        let mut cc = ThingTemplate::new("ChinaCommandCenter");
+        cc.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), cc);
+
+        let mut depot = ThingTemplate::new("AmericaSupplyCenter");
+        depot
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSupplyCenter)
+            .set_health(2000.0);
+        depot.capturable = true;
+        logic.templates.insert("AmericaSupplyCenter".into(), depot);
+
+        let mut tank = ThingTemplate::new("AmericaTankCrusader");
+        tank.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("AmericaTankCrusader".into(), tank);
+    }
+
+    /// C++ ActionManager.cpp:1652-1672 — tank / unfinished / own / hole are no-ops.
+    #[test]
+    fn cash_hack_rejects_illegal_object_targets() {
+        let mut logic = GameLogic::new();
+        insert_cc_and_depot(&mut logic);
+        let src = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::ZERO)
+            .expect("cc");
+        let tank = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        let unfinished = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 0.0),
+            )
+            .expect("uc");
+        if let Some(o) = logic.host_object_mut(unfinished) {
+            o.set_status_under_construction(true);
+            o.construction_percent = 0.4;
+        }
+        let own = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::China,
+                Vec3::new(120.0, 0.0, 0.0),
+            )
+            .expect("own");
+        let hole = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                Vec3::new(160.0, 0.0, 0.0),
+            )
+            .expect("hole");
+        if let Some(o) = logic.host_object_mut(hole) {
+            o.is_rebuild_hole = true;
+        }
+
+        logic.queued_audio_events.clear();
+        assert_eq!(logic.activate_cash_hack(0, Some(src), Some(tank)), None);
+        assert_eq!(
+            logic.activate_cash_hack(0, Some(src), Some(unfinished)),
+            None
+        );
+        assert_eq!(logic.activate_cash_hack(0, Some(src), Some(own)), None);
+        assert_eq!(logic.activate_cash_hack(0, Some(src), Some(hole)), None);
+        assert!(
+            !logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == CASH_HACK_ACTIVATE_AUDIO),
+            "invalid CashHack must not play activate audio"
+        );
+        assert_eq!(logic.last_cash_hack_stolen_amount(), 0);
+        assert_eq!(logic.players.get(&1).unwrap().effective_supplies(), 5_000);
+    }
+
+    /// Empty coffers is still a successful fire (C++ steal min(amount, money)).
+    #[test]
+    fn cash_hack_empty_coffers_still_fires() {
+        let mut logic = GameLogic::new();
+        insert_cc_and_depot(&mut logic);
+        logic.players.get_mut(&1).unwrap().resources.supplies = 0;
+        let src = logic
+            .create_object("ChinaCommandCenter", Team::China, Vec3::ZERO)
+            .expect("cc");
+        let victim = logic
+            .create_object(
+                "AmericaSupplyCenter",
+                Team::USA,
+                Vec3::new(80.0, 0.0, 0.0),
+            )
+            .expect("depot");
+        logic.queued_audio_events.clear();
+        assert_eq!(
+            logic.activate_cash_hack(0, Some(src), Some(victim)),
+            Some(0)
+        );
+        assert!(logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == CASH_HACK_ACTIVATE_AUDIO));
+    }
+}
+

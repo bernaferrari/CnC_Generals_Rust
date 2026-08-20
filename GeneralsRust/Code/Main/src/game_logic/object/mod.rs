@@ -976,6 +976,24 @@ pub struct Object {
     /// C++ ARMORSET_HERO residual.
     #[serde(default)]
     pub armor_set_hero: bool,
+    /// C++ WEAPONSET_VETERAN residual (`Object::onVeterancyLevelChanged`).
+    #[serde(default)]
+    pub weapon_set_veteran: bool,
+    /// C++ WEAPONSET_ELITE residual.
+    #[serde(default)]
+    pub weapon_set_elite: bool,
+    /// C++ WEAPONSET_HERO residual.
+    #[serde(default)]
+    pub weapon_set_hero: bool,
+    /// C++ WEAPONBONUSCONDITION_VETERAN residual.
+    #[serde(default)]
+    pub weapon_bonus_veteran: bool,
+    /// C++ WEAPONBONUSCONDITION_ELITE residual.
+    #[serde(default)]
+    pub weapon_bonus_elite: bool,
+    /// C++ WEAPONBONUSCONDITION_HERO residual.
+    #[serde(default)]
+    pub weapon_bonus_hero: bool,
     /// C++ AIUpdate::m_locomotorUpgrade residual (LocomotorSetUpgrade).
     #[serde(default)]
     pub locomotor_upgrade: bool,
@@ -1933,6 +1951,18 @@ pub struct Object {
     /// C++ JetAIUpdate ClipReload airfield rearm ready frame residual.
     #[serde(default)]
     pub airfield_rearm_ready_frame: Option<u32>,
+    /// C++ JetAIUpdate `m_producerLocation` — last airfield/spawn position.
+    #[serde(default)]
+    pub jet_producer_location: Option<[f32; 3]>,
+    /// C++ `JetOrHeliCirclingDeadAirfieldState` — hover at last airfield.
+    #[serde(default)]
+    pub jet_circling_dead_airfield: bool,
+    /// C++ CirclingDeadAirfield `m_checkAirfield` next findSuitableAirfield frame.
+    #[serde(default)]
+    pub jet_circling_airfield_check_frame: u32,
+    /// C++ `JetOrHeliReloadAmmoState::m_reloadTime` (logic frames).
+    #[serde(default)]
+    pub airfield_rearm_duration_frames: u32,
     /// A player-issued `ReturnToBase` is distinct from an empty
     /// ReturnToBase-reload clip.  While it is live, the authoritative
     /// airfield path keeps the C++ ParkingPlace reservation and completes the

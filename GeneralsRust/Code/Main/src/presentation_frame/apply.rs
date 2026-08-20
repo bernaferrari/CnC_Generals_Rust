@@ -10,16 +10,11 @@ impl PresentationFrame {
         use crate::ui::UnitDisplayInfo;
 
         // Wave 1106: selection display residual fail-closed on sold/unselectable/
-        // masked/disabled (not only destroyed) so ControlBar/RTS panel does not
-        // keep UI for unusable selected objects. Under-construction is disabled
-        // for combat, but C++ still shows the structure so CancelConstruction
-        // remains reachable.
+        // masked (not only destroyed). C++ ControlBarCommand.cpp:1048-1078 still
+        // shows a disabled completed structure so Sell/Stop/Rally stay reachable.
+        // Under-construction is combat-disabled but must keep CancelConstruction.
         let usable = |o: &RenderableObject| {
-            !o.destroyed
-                && !o.sold
-                && !o.unselectable
-                && !o.masked
-                && (!o.disabled || o.under_construction)
+            !o.destroyed && !o.sold && !o.unselectable && !o.masked
         };
         let by_id: std::collections::HashMap<ObjectId, &RenderableObject> =
             self.objects.iter().map(|o| (o.id, o)).collect();
@@ -516,7 +511,7 @@ impl PresentationFrame {
         {
             let mut queue_items: Vec<(String, f32, i32, f32)> = Vec::new();
             let usable = |o: &&RenderableObject| {
-                o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+                o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked
             };
             if let Some(id) = self
                 .selected
@@ -525,12 +520,7 @@ impl PresentationFrame {
                 .or_else(|| self.objects.iter().find(usable).map(|o| o.id))
             {
                 if let Some(ro) = self.objects.iter().find(|o| {
-                    o.id == id
-                        && !o.destroyed
-                        && !o.sold
-                        && !o.unselectable
-                        && !o.masked
-                        && !o.disabled
+                    o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
                 }) {
                     for p in &ro.production_queue {
                         queue_items.push((
@@ -944,7 +934,7 @@ impl PresentationFrame {
         // selected_unit_display_infos Wave 1106).
         if let Some(id) = panel.primary_object_id {
             if let Some(ro) = self.objects.iter().find(|o| {
-                o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+                o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
             }) {
                 panel.production_queue = ro
                     .production_queue
@@ -1071,8 +1061,10 @@ impl PresentationFrame {
             panel.special_power_cooldown_remaining,
         );
         // Wave 1110: multi-select count residual excludes sold/unusable.
+        // Disabled completed structures still own their command set
+        // (C++ ControlBarCommand.cpp:1048-1078).
         let usable_selected = |o: &&RenderableObject| {
-            o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked && !o.disabled
+            o.selected && !o.destroyed && !o.sold && !o.unselectable && !o.masked
         };
         let selected_count = if !self.selected.is_empty() {
             self.selected
@@ -1090,7 +1082,10 @@ impl PresentationFrame {
             let names = self.selected_command_set_names();
             control_bar.sync_multi_select_command_sets_from_presentation(&names);
         } else {
-            control_bar.sync_command_set_from_presentation(self.selected_command_set_name());
+            control_bar.sync_command_set_from_presentation(
+                self.selected_command_set_name()
+                    .or_else(|| self.command_set_name_including_disabled()),
+            );
         }
         control_bar.sync_sciences_from_presentation(&self.local_unlocked_sciences);
         let ready_sp: Vec<String> = self
@@ -1135,12 +1130,7 @@ impl PresentationFrame {
         // when the frozen selected list still holds them.
         let usable_id = |id: &ObjectId| {
             self.objects.iter().any(|o| {
-                o.id == *id
-                    && !o.destroyed
-                    && !o.sold
-                    && !o.unselectable
-                    && !o.masked
-                    && !o.disabled
+                o.id == *id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
             })
         };
         let mut ids: Vec<ObjectId> = self.selected.iter().copied().filter(usable_id).collect();
@@ -1173,15 +1163,10 @@ impl PresentationFrame {
         let Some(id) = panel.primary_object_id else {
             return Vec::new();
         };
-        // Wave 1107: unit command buttons residual fail-closed on sold/unusable primary.
-        // Under-construction is combat-disabled but must still expose CancelConstruction.
+        // C++ getCommandAvailability: disabled objects still show Sell/Stop/Rally/
+        // Evacuate/SwitchWeapon/BeaconDelete (Restricted, not missing).
         let Some(ro) = self.objects.iter().find(|o| {
-            o.id == id
-                && !o.destroyed
-                && !o.sold
-                && !o.unselectable
-                && !o.masked
-                && (!o.disabled || o.under_construction)
+            o.id == id && !o.destroyed && !o.sold && !o.unselectable && !o.masked
         }) else {
             return Vec::new();
         };
@@ -1220,7 +1205,11 @@ impl PresentationFrame {
             {
                 let n = ro.template_name.to_ascii_lowercase();
                 if n.contains("chinook") {
-                    push(&mut cmds, "Command_CombatDrop", true);
+                    push(
+                        &mut cmds,
+                        "Command_CombatDrop",
+                        self.host_rappeller_count(ro) > 0,
+                    );
                 }
                 if n.contains("jet")
                     || n.contains("raptor")
@@ -1293,7 +1282,11 @@ impl PresentationFrame {
                 || (n.contains("hacker") && n.contains("china"))
                 || n.contains("china_hacker")
             {
-                push(&mut cmds, "Command_HackInternet", true);
+                push(
+                    &mut cmds,
+                    "Command_HackInternet",
+                    !ro.hacking_packing_or_unpacking,
+                );
             }
             if n.contains("ambulance") {
                 push(&mut cmds, "Command_CleanupArea", true);
@@ -1500,13 +1493,31 @@ impl PresentationFrame {
                             .as_ref()
                             .map(|t| norm(t) == u || norm(t).contains(&u))
                             .unwrap_or(false));
-                let enabled = !owned && !researching;
+                let queue_full = ro.production_queue.len()
+                    == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
+                let enabled = !owned && !researching && !queue_full;
                 // Only push when structure can produce (barracks/war factory/etc residual).
                 if ro.can_produce {
                     push(&mut cmds, cmd, enabled);
                 }
             }
         }
+        if self.can_make_producer_id == Some(ro.id.0) {
+            let queue_full = ro.production_queue.len()
+                == crate::game_logic::host_production_buildable_command_residual::MAX_BUILD_QUEUE_BUTTONS_RESIDUAL;
+            for cameo in &self.can_make_cameos {
+                if cameo.buildable_hidden {
+                    continue;
+                }
+                let name = format!("Command_Construct{}", cameo.template_name);
+                push(&mut cmds, &name, cameo.available && !queue_full);
+            }
+        }
+        if ro.template_name.to_ascii_lowercase().contains("beacon") {
+            push(&mut cmds, "Command_BeaconDelete", true);
+        }
+        cmds.retain(|c| self.host_need_special_power_science_owned(&c.command_name));
+        self.apply_host_disabled_command_strip(&mut cmds, ro);
         cmds
     }
 
@@ -1516,6 +1527,102 @@ impl PresentationFrame {
             self.selection_ids_for_consumers(),
         );
         panel.apply_commands(self.unit_command_buttons());
+    }
+
+    /// C++ ControlBarCommand.cpp:1048-1078 — disabled completed structures
+    /// still populate their command set (Sell/Stop/Rally stay evaluable).
+    fn command_set_name_including_disabled(&self) -> Option<&str> {
+        let usable = |o: &&RenderableObject| {
+            !o.destroyed && !o.sold && !o.unselectable && !o.masked
+        };
+        let primary = self
+            .selected
+            .first()
+            .copied()
+            .or_else(|| self.objects.iter().find(|o| o.selected && usable(o)).map(|o| o.id))?;
+        let o = self.objects.iter().find(|o| o.id == primary && usable(&o))?;
+        if !o.command_set_name.is_empty() {
+            Some(o.command_set_name.as_str())
+        } else if !o.command_set_override.is_empty() {
+            Some(o.command_set_override.as_str())
+        } else {
+            None
+        }
+    }
+
+    fn host_rappeller_count(&self, ro: &RenderableObject) -> usize {
+        ro.garrisoned_units
+            .iter()
+            .filter(|id| {
+                match self.objects.iter().find(|o| o.id == **id) {
+                    Some(o) => {
+                        !o.destroyed
+                            && (o.kind_of.contains(&crate::game_logic::KindOf::Infantry)
+                                || o.is_unit)
+                    }
+                    None => true,
+                }
+            })
+            .count()
+    }
+
+    fn host_need_special_power_science_owned(&self, command_name: &str) -> bool {
+        use crate::command_system::{command_type_from_button_name, CommandType};
+        use crate::game_logic::host_special_power_enum_residual::special_power_required_science;
+        let Some(CommandType::DoSpecialPower { power_type, .. }) =
+            command_type_from_button_name(command_name)
+        else {
+            return true;
+        };
+        let Some(required) = special_power_required_science(&power_type) else {
+            return true;
+        };
+        let req = required.to_ascii_lowercase().replace('-', "_");
+        self.local_unlocked_sciences.iter().any(|owned| {
+            owned.to_ascii_lowercase().replace('-', "_") == req
+                || owned.eq_ignore_ascii_case(required)
+        })
+    }
+
+    fn apply_host_disabled_command_strip(
+        &self,
+        cmds: &mut Vec<crate::ui::UnitCommandButton>,
+        ro: &RenderableObject,
+    ) {
+        if !ro.disabled || ro.under_construction {
+            return;
+        }
+        let flag_count = [
+            ro.disabled_underpowered,
+            ro.disabled_emp,
+            ro.disabled_hacked,
+            ro.disabled_unmanned,
+            ro.disabled_paralyzed,
+            ro.disabled_subdued,
+        ]
+        .into_iter()
+        .filter(|f| *f)
+        .count();
+        let sole_underpowered = ro.disabled_underpowered && flag_count == 1;
+        for cmd in cmds.iter_mut() {
+            let n = cmd.command_name.to_ascii_lowercase();
+            let evaluable = n.contains("sell")
+                || n.contains("evacuate")
+                || n.contains("structureexit")
+                || n.ends_with("exit")
+                || n.contains("beacondelete")
+                || n.contains("setrallypoint")
+                || n.contains("stop")
+                || n.contains("switchweapon");
+            let ignores_underpowered = n.contains("particlecannon")
+                || n.contains("nuclearmissile")
+                || n.contains("scudstorm")
+                || n.contains("neutronmissile");
+            if evaluable || (sole_underpowered && ignores_underpowered) {
+                continue;
+            }
+            cmd.enabled = false;
+        }
     }
 
     /// Dual-tick multi-consumer residual: HUD + UI state + RTS + unit command panel

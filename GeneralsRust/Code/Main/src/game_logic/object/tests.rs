@@ -24,6 +24,29 @@ fn veterancy_increases_weapon_damage() {
 }
 
 #[test]
+fn level_up_sets_weaponset_and_weaponbonus_flags() {
+    let mut object = make_test_object();
+    assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
+    object.gain_experience(60.0);
+    assert!(object.weapon_set_veteran);
+    assert!(object.weapon_bonus_veteran);
+    assert!(!object.weapon_set_elite && !object.weapon_set_hero);
+    assert!(!object.weapon_bonus_elite && !object.weapon_bonus_hero);
+
+    object.gain_experience(90.0); // 150 total → Elite
+    assert!(!object.weapon_set_veteran && !object.weapon_bonus_veteran);
+    assert!(object.weapon_set_elite);
+    assert!(object.weapon_bonus_elite);
+    assert!(!object.weapon_set_hero && !object.weapon_bonus_hero);
+
+    object.gain_experience(150.0); // 300 total → Heroic
+    assert!(!object.weapon_set_veteran && !object.weapon_set_elite);
+    assert!(object.weapon_set_hero);
+    assert!(object.weapon_bonus_hero);
+    assert!(!object.weapon_bonus_veteran && !object.weapon_bonus_elite);
+}
+
+#[test]
 fn veterancy_preserves_health_ratio_when_max_health_changes() {
     let mut object = make_test_object();
     object.health.current = 50.0;
@@ -2288,6 +2311,91 @@ fn out_of_ammo_damage_ticks_empty_rtb_jet() {
     jet.set_ai_state(AIState::Idle);
     jet.rearm_return_to_base_weapons();
     assert_eq!(jet.apply_out_of_ammo_damage_frame(), 0.0);
+}
+
+#[test]
+fn airfield_rearm_duration_is_remaining_biased() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+    tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+    tmpl.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+    jet.weapon = Some(Weapon {
+        damage: 50.0,
+        range: 200.0,
+        reload_time: 0.0,
+        last_fire_time: -100.0,
+        ammo: Some(2),
+        clip_size: 4,
+        clip_reload_time: 8.0,
+        can_target_air: true,
+        can_target_ground: true,
+        ..Weapon::default()
+    });
+    // C++ (rt * needed) / clipSize = (240 * 2) / 4 = 120.
+    assert_eq!(jet.airfield_rearm_clip_reload_frames(), 120);
+    jet.weapon.as_mut().unwrap().ammo = Some(0);
+    assert_eq!(jet.airfield_rearm_clip_reload_frames(), 240);
+}
+
+#[test]
+fn parked_rearm_fills_clip_percent_over_time() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+    tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+    tmpl.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+    jet.weapon = Some(Weapon {
+        damage: 50.0,
+        range: 200.0,
+        reload_time: 0.0,
+        last_fire_time: -100.0,
+        ammo: Some(0),
+        clip_size: 4,
+        clip_reload_time: 8.0,
+        can_target_air: true,
+        can_target_ground: true,
+        ..Weapon::default()
+    });
+    jet.begin_parked_airfield_rearm(10);
+    assert_eq!(jet.airfield_rearm_ready_frame, Some(250));
+    assert!(!jet.tick_parked_airfield_rearm(10));
+    assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
+    assert!(!jet.tick_parked_airfield_rearm(70));
+    assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
+    assert!(!jet.tick_parked_airfield_rearm(130));
+    assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(2));
+    assert!(jet.tick_parked_airfield_rearm(250));
+    assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
+    assert!(jet.airfield_rearm_ready_frame.is_none());
+}
+
+#[test]
+fn empty_jet_circles_last_airfield_not_own_pos() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+    let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+    tmpl.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+    tmpl.add_kind_of(KindOf::Aircraft);
+    tmpl.set_health(100.0);
+    let mut jet = Object::new(tmpl, ObjectId(1), Team::USA);
+    jet.set_position(Vec3::new(2000.0, 50.0, 0.0));
+    jet.weapon = Some(Weapon {
+        damage: 50.0,
+        range: 200.0,
+        ammo: Some(0),
+        clip_size: 4,
+        can_target_air: true,
+        can_target_ground: true,
+        ..Weapon::default()
+    });
+    jet.capture_jet_producer_location(Some(Vec3::ZERO));
+    assert!(!jet.is_at_jet_producer_location(80.0));
+    assert!(jet.enter_circling_dead_airfield(1));
+    assert!(jet.jet_circling_dead_airfield);
+    jet.leave_circling_dead_airfield();
+    jet.set_position(Vec3::new(10.0, 50.0, 0.0));
+    assert!(jet.is_at_jet_producer_location(80.0));
 }
 
 #[test]

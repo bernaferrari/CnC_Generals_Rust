@@ -2329,29 +2329,14 @@ impl GameLogic {
                                 wrange,
                                 wname.as_deref(),
                             );
-                            if !self.assign_unit_attack_path(attacker_id, Some(target_id), approach)
-                            {
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    // Fallback: direct march if A* / attack-path fails.
-                                    attacker.movement.path.clear();
-                                    attacker.movement.current_path_index = 0;
-                                    attacker.movement.target_position = Some(approach);
-                                    crate::game_logic::host_move_log::record(
-                                        attacker_id,
-                                        Some([approach.x, approach.y, approach.z]),
-                                    );
-                                    attacker.set_status_moving(true);
-                                    attacker.set_ai_state(AIState::Attacking);
-                                    if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
-                                    ) {
-                                        crate::game_logic::host_ai_decision_log::record_set_state(
-                                            attacker_id,
-                                            2,
-                                        ); // Attacking
-                                    }
-                                    attacker.set_status_attacking(true);
-                                }
-                            }
+                            let _ = self.assign_unit_attack_path(
+                                attacker_id,
+                                Some(target_id),
+                                approach,
+                            );
+                            // C++ findAttackPath NULL: leave the unit halted
+                            // (AIStates.cpp:1771-1778). Do not install a
+                            // straight-line through walls.
                         }
                     }
                 }

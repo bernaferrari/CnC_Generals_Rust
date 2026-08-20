@@ -311,6 +311,14 @@ impl ControlBar {
         cmd
     }
 
+    /// C++ `ControlBar::populateCommand` (`ControlBarCommand.cpp:329-343`):
+    /// hide NEED_SPECIAL_POWER_SCIENCE only when
+    /// `power->getRequiredScience() != SCIENCE_INVALID` and the local player
+    /// does not own that science. ScienceVec is never a hide source.
+    fn hide_need_special_power_science(required_from_power: i32, player_has_required: bool) -> bool {
+        required_from_power != SCIENCE_INVALID && !player_has_required
+    }
+
     /// C++ populateCommand NEED_SPECIAL_POWER_SCIENCE hide + copyImagesFrom rank 1/3/8.
     fn apply_need_special_power_science(
         cmd: &mut CommandButton,
@@ -339,15 +347,7 @@ impl ControlBar {
             .get_special_power_template()
             .map(|sp| sp.get_required_science())
             .unwrap_or(SCIENCE_INVALID);
-        let required = if required != SCIENCE_INVALID {
-            required
-        } else {
-            cmd.sciences_ids
-                .first()
-                .copied()
-                .unwrap_or(SCIENCE_INVALID)
-        };
-        if required != SCIENCE_INVALID && !player.has_science(required) {
+        if Self::hide_need_special_power_science(required, player.has_science(required)) {
             cmd.button_hidden = true;
             return;
         }
@@ -489,5 +489,27 @@ impl ControlBar {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod need_special_power_science_hide_tests {
+    use super::*;
+
+    #[test]
+    fn need_special_power_science_hides_only_on_power_required_science() {
+        // C++ ControlBarCommand.cpp:333-343 — ScienceVec[0] is never a hide gate.
+        assert!(
+            !ControlBar::hide_need_special_power_science(SCIENCE_INVALID, false),
+            "SCIENCE_INVALID RequiredScience must not hide even if ScienceVec is unowned"
+        );
+        assert!(
+            ControlBar::hide_need_special_power_science(42, false),
+            "unowned RequiredScience must hide"
+        );
+        assert!(
+            !ControlBar::hide_need_special_power_science(42, true),
+            "owned RequiredScience must not hide"
+        );
     }
 }

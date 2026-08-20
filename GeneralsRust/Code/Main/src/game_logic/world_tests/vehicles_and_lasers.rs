@@ -2365,9 +2365,9 @@ fn airfield_parking_rearm_docks_and_heals() {
     assert!(logic.try_return_to_base_rearm(jet_id));
     {
         let jet = logic.objects.get(&jet_id).unwrap();
-        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(4));
+        assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
         assert_eq!(jet.contained_by, Some(af_id));
-        assert!(!jet.needs_return_to_base_rearm());
+        assert!(jet.needs_return_to_base_rearm());
         // Docked AI state last-write under AI_DECISION_AUTHORITY (default on).
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             assert_eq!(jet.ai_state, AIState::Idle);
@@ -2416,6 +2416,31 @@ fn airfield_parking_rearm_docks_and_heals() {
             "heal {hp_before} -> {hp_after}, want +{expected}"
         );
     }
+    assert_eq!(
+        logic
+            .objects
+            .get(&jet_id)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(0),
+        "same-frame parking heal must not dump full clips"
+    );
+    logic.frame = logic.frame.saturating_add(1);
+    logic.tick_airfield_parking_heal();
+    assert_eq!(
+        logic
+            .objects
+            .get(&jet_id)
+            .unwrap()
+            .weapon
+            .as_ref()
+            .unwrap()
+            .ammo,
+        Some(4)
+    );
 }
 
 #[test]

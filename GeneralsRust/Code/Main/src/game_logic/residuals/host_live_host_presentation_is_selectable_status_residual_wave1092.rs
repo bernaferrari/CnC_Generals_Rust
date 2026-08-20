@@ -1,11 +1,12 @@
-//! Wave 1092: presentation_is_selectable sold/unselectable/masked/disabled residual.
+//! Wave 1092: presentation_is_selectable sold/unselectable/masked residual.
 //!
 //! Catalog stamp uses `UnitControlSystem::presentation_is_selectable` for dual-world
 //! selectable residual. It only checked destroyed + Selectable kind + not contained,
-//! so sold/unselectable/masked/disabled objects still entered the catalog as selectable
+//! so sold/unselectable/masked objects still entered the catalog as selectable
 //! and were pickable via `pick_object_id_at_world_from_presentation`.
 //!
-//! Fail-close those status bits (GameWorld entity rebuild already carries them).
+//! Fail-close those C++ status bits. `Object::isSelectable` / `CanSelectDrawable`
+//! have no disabled-type gate — EMP / underpowered / unmanned stay clickable.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -25,7 +26,7 @@ pub const LIVE_HOST_PRESENTATION_IS_SELECTABLE_STATUS_METHOD_NAMES_WAVE1092: &[&
 
 pub const LIVE_HOST_PRESENTATION_IS_SELECTABLE_STATUS_NAV_STEPS_WAVE1092: &[&str] = &[
     "PRESENTATION_IS_SELECTABLE",
-    "SOLD_UNSELECTABLE_MASKED_DISABLED",
+    "SOLD_UNSELECTABLE_MASKED",
     "LIVE_HOST_PRESENTATION_IS_SELECTABLE_STATUS",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -99,7 +100,7 @@ pub fn honesty_host_presentation_is_selectable_status_residual_pack_wave1092() -
         && window.contains("!o.sold")
         && window.contains("!o.unselectable")
         && window.contains("!o.masked")
-        && window.contains("!o.disabled")
+        && !window.contains("&& !o.disabled")
         && window.contains("!o.destroyed")
         && pick.contains("Self::presentation_is_selectable(o)")
         && cnc.contains("UnitControlSystem::presentation_is_selectable(o)")

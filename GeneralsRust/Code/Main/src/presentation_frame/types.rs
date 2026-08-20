@@ -14,6 +14,9 @@ pub struct PresentationCanMakeCameo {
     pub available: bool,
     /// Optional HelpBox status message residual (None when OK / silent statuses).
     pub help_status: Option<String>,
+    /// C++ ThingTemplate::getBuildable() NO / ONLY_BY_AI hide residual.
+    #[serde(default)]
+    pub buildable_hidden: bool,
 }
 
 /// Snapshot-owned factory production queue entry (host BuildingData residual).
@@ -582,6 +585,18 @@ pub struct RenderableObject {
     pub disabled_emp: bool,
     /// Host ObjectStatus::disabled_paralyzed residual.
     pub disabled_paralyzed: bool,
+    /// Host ObjectStatus::disabled_underpowered residual.
+    #[serde(default)]
+    pub disabled_underpowered: bool,
+    /// Host ObjectStatus::disabled_hacked residual.
+    #[serde(default)]
+    pub disabled_hacked: bool,
+    /// Host ObjectStatus::disabled_unmanned residual.
+    #[serde(default)]
+    pub disabled_unmanned: bool,
+    /// C++ HackInternetAIInterface::isHackingPackingOrUnpacking residual.
+    #[serde(default)]
+    pub hacking_packing_or_unpacking: bool,
     /// Host ObjectStatus::weapons_jammed residual.
     pub weapons_jammed: bool,
     /// Host ObjectStatus::masked residual.

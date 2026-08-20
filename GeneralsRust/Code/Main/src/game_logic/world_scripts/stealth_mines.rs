@@ -1515,9 +1515,28 @@ impl GameLogic {
             data = data.with_attach(t);
         }
 
+        let planter_owner = producer.and_then(|pid| {
+            self.objects.get(&pid).and_then(|o| o.owner_player_id)
+        });
+        let sink_to_planter = matches!(
+            kind,
+            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
+                | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge
+        );
+
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.mine_data = Some(data);
             obj.producer_id = producer;
+            // C++ SpecialAbilityUpdate::createSpecialObject setExperienceSink(planter).
+            // Charges are untrainable; without a sink scoreTheKill drops the XP.
+            if sink_to_planter {
+                if let Some(p) = producer {
+                    obj.set_experience_sink(Some(p));
+                }
+                if let Some(owner) = planter_owner {
+                    obj.owner_player_id = Some(owner);
+                }
+            }
             obj.record_host_demo_mine_cheer();
             // Mines/charges are not combat movers.
             obj.movement.max_speed = 0.0;
@@ -2430,10 +2449,11 @@ impl GameLogic {
         // Destroy the mine/trap itself.
         self.mark_object_for_destruction(mine_id, producer.map(|_| mine_team));
         for (vid, killer) in destroy_ids {
+            // C++ scoreTheKill on the charge; addExperiencePoints sinks to planter.
+            self.award_score_the_kill_experience(mine_id, vid);
             self.mark_object_for_destruction(vid, Some(killer));
         }
 
-        let _ = producer; // residual bookkeeping only
         true
     }
 
@@ -2497,6 +2517,7 @@ impl GameLogic {
             None,
         );
         for (vid, killer) in destroy_ids {
+            self.award_score_the_kill_experience(mine_id, vid);
             self.mark_object_for_destruction(vid, Some(killer));
         }
     }

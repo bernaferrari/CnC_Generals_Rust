@@ -54,6 +54,37 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
+use std::cell::RefCell;
+
+thread_local! {
+    static HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS: RefCell<Vec<(String, String)>> =
+        RefCell::new(Vec::new());
+    static HOST_SKIRMISH_BUILD_REQUESTS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+}
+
+/// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
+/// `OBJECT_REGISTRY` is empty (Wave 284 leftover no-op).
+pub fn request_host_skirmish_fire_special(player_name: &str, power_name: &str) {
+    HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((player_name.to_string(), power_name.to_string()));
+    });
+}
+
+pub fn take_host_skirmish_fire_special_requests() -> Vec<(String, String)> {
+    HOST_SKIRMISH_FIRE_SPECIAL_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: `SKIRMISH_BUILD_BUILDING` → `markPriorityBuild`.
+pub fn request_host_skirmish_build_building(thing_name: &str) {
+    HOST_SKIRMISH_BUILD_REQUESTS.with(|q| {
+        q.borrow_mut().push(thing_name.to_string());
+    });
+}
+
+pub fn take_host_skirmish_build_requests() -> Vec<String> {
+    HOST_SKIRMISH_BUILD_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
 
 /// Wave 284: host-only path has no dual-world factory objects.
 #[inline]

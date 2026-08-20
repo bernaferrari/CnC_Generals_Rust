@@ -1212,9 +1212,9 @@ fn falloff_two_stage_matches_fab_shape() {
 
 #[test]
 fn friendly_fire_allies_residual_and_source_excluded() {
-    // A10 retail RadiusDamageAffects includes ALLIES — friendly is hit.
-    let mut reg = HostSpecialPowerStrikeRegistry::new();
-    reg.queue(
+    // A10 no longer applies a delayed circle blast — OCL jets do the damage.
+    let mut a10 = HostSpecialPowerStrikeRegistry::new();
+    a10.queue(
         HostSuperweaponKind::A10Strike,
         ObjectId(1),
         Team::USA,
@@ -1226,7 +1226,22 @@ fn friendly_fire_allies_residual_and_source_excluded() {
         (ObjectId(2), Vec3::new(5.0, 0.0, 0.0), Team::USA, true),
         (ObjectId(3), Vec3::new(5.0, 0.0, 0.0), Team::China, true),
     ];
-    let plans = reg.plan_due_impacts(60, &objects);
+    let a10_plans = a10.plan_due_impacts(60, &objects);
+    assert!(
+        a10_plans[0].hits.is_empty(),
+        "A10 host blob must not apply circle damage"
+    );
+
+    // DaisyCutter retail RadiusDamageAffects includes ALLIES — friendly is hit.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    reg.queue(
+        HostSuperweaponKind::DaisyCutter,
+        ObjectId(1),
+        Team::USA,
+        Vec3::ZERO,
+        0,
+    );
+    let plans = reg.plan_due_impacts(90, &objects);
     assert_eq!(plans[0].hits.len(), 2);
     assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(2)));
     assert!(plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));

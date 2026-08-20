@@ -45,10 +45,10 @@ pub enum SpecialPowerType {
     /// USA America Airborne / SuperweaponParadropAmerica residual.
     Paradrop,
     /// Infantry General Paradrop residual (Infa_SuperweaponInfantryParadrop).
-    /// Host maps to Paradrop residual path with same ranger payload fail-closed.
+    /// Host uses Infa_AmericaInfantryRanger + Infa_SCIENCE_InfantryParadrop tiers.
     InfantryParadrop,
     /// Tank General Tank Paradrop residual (Tank_SuperweaponTankParadrop).
-    /// Host maps to Paradrop residual path (fail-closed infantry payload).
+    /// Host uses Tank_AmericaTankCrusader + SCIENCE_TankParadrop 1/2/3 counts.
     TankParadrop,
     /// GLA Rebel Ambush / SuperweaponRebelAmbush residual (SPECIAL_AMBUSH).
     /// Spawns infantry near target after fade delay — fail-closed vs full OCL.

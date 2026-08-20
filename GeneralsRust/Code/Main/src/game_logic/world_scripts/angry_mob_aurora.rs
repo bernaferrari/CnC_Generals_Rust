@@ -119,17 +119,14 @@ impl GameLogic {
             .and_then(|id| self.objects.get(&id).map(|o| o.get_position()))
             .unwrap_or(Vec3::ZERO);
 
-        for (obj_id, location, radius, was_stealthed) in enemy_snapshots {
-            // Mark vision-spied residual on Main object (setUnitsVisionSpied residual).
+        for (obj_id, location, radius, _was_stealthed) in enemy_snapshots {
+            // C++ Player::setUnitsVisionSpied → Object::setVisionSpied
+            // (Object.cpp:5222-5253) makes the enemy a moving looker via
+            // handlePartitionCellMaintenance. It does **not** mark DETECTED
+            // or destalth (SpyVisionSpecialPower.cpp:64-102).
             if let Some(obj) = self.objects.get_mut(&obj_id) {
                 obj.set_vision_spied_by_player(player_id, true);
                 any_vision_spied = true;
-                // Stealthed residual: DETECTED until spy expires so unit is
-                // visible/targetable (goal: enemy units become detectable).
-                if was_stealthed || obj.status.stealthed {
-                    obj.mark_detected(expires_frame);
-                    any_detect = true;
-                }
             }
 
             // Temporary FOW reveal at enemy unit (spy their vision residual).
@@ -145,7 +142,7 @@ impl GameLogic {
                             location,
                             radius,
                             fow_reveal_ok: false,
-                            detected_ok: was_stealthed,
+                            detected_ok: false,
                         });
                         continue;
                     }
@@ -174,7 +171,7 @@ impl GameLogic {
                 location,
                 radius,
                 fow_reveal_ok,
-                detected_ok: was_stealthed,
+                detected_ok: false,
             });
         }
 
@@ -206,8 +203,52 @@ impl GameLogic {
         self.cia_intelligence.activations() > 0
     }
 
-    /// Advance CIA Intelligence residual: clear expired vision-spied marks + FOW undos.
+    /// Advance CIA Intelligence residual: moving lookers + expired marks.
     pub(in super::super) fn update_cia_intelligence(&mut self) {
+        // C++ SpyVisionUpdate keeps enemy units as lookers until duration
+        // expires. Re-reveal FOW at each still-spied unit's current pos.
+        if !self.cia_intelligence.active_scans().is_empty() {
+            use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS;
+            use gamelogic::common::Coord3D;
+            let remaining_by_id: Vec<(ObjectId, u32, u32)> = self
+                .cia_intelligence
+                .active_scans()
+                .iter()
+                .flat_map(|scan| {
+                    let remain = scan.expires_frame.saturating_sub(self.frame).max(1);
+                    scan.spied_units.iter().map(move |u| {
+                        (u.object_id, remain, scan.player_mask)
+                    })
+                })
+                .collect();
+            if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+                for (obj_id, remain, player_mask) in remaining_by_id {
+                    let Some(obj) = self.objects.get(&obj_id) else {
+                        continue;
+                    };
+                    if !obj.is_alive() {
+                        continue;
+                    }
+                    let pos = obj.get_position();
+                    let sight = obj.get_template().sight_range;
+                    let radius = if sight > 0.0 {
+                        sight
+                    } else {
+                        CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS
+                    };
+                    let center = Coord3D::new(pos.x, pos.z, pos.y);
+                    shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
+                    shroud_mgr.queue_undo_shroud_reveal(
+                        &center,
+                        radius,
+                        player_mask,
+                        remain,
+                        self.frame,
+                    );
+                }
+            }
+        }
+
         let cleared = self.cia_intelligence.prune_expired(self.frame);
         // Clear vision_spied residual marks only if no other active spy still covers them.
         for obj_id in cleared {

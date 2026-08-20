@@ -445,6 +445,68 @@ fn timed_demo_charge_residual_detonates_after_delay() {
     );
 }
 
+/// C++ SpecialAbilityUpdate::createSpecialObject setExperienceSink: C4 kill XP
+/// forwards to the planter (`hq-2mg5c`).
+#[test]
+fn timed_c4_kill_sinks_xp_to_planter() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+
+    let burton_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(-40.0, 0.0, 0.0))
+        .expect("burton");
+    {
+        let burton = game_logic.host_object_mut(burton_id).unwrap();
+        burton.thing.template.is_trainable = true;
+        burton.thing.template.veterancy_xp_thresholds = [40.0, 150.0, 300.0];
+    }
+
+    let charge_id = game_logic
+        .place_timed_demo_charge(
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+            Some(burton_id),
+            None,
+            Some(1),
+        )
+        .expect("charge");
+    {
+        let charge = game_logic.host_object(charge_id).unwrap();
+        assert_eq!(
+            charge.experience_sink,
+            Some(burton_id),
+            "C4 must sink XP to the planter"
+        );
+        assert!(!charge.thing.template.is_trainable);
+    }
+
+    let victim_id = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(1.0, 0.0, 0.0))
+        .expect("victim");
+    {
+        let victim = game_logic.host_object_mut(victim_id).unwrap();
+        victim.health.current = 10.0;
+        victim.health.maximum = 10.0;
+        victim.thing.template.experience_value = 40.0;
+        victim.thing.template.experience_values = [40.0, 40.0, 80.0, 120.0];
+    }
+
+    game_logic.frame = 1;
+    game_logic.update_mines_and_demo_traps();
+
+    let burton = game_logic.host_object(burton_id).unwrap();
+    assert!(
+        burton.experience.current + f32::EPSILON >= 40.0,
+        "C4 kill XP must sink to planter, got {}",
+        burton.experience.current
+    );
+    assert_eq!(burton.experience.level, VeterancyLevel::Veteran);
+    assert!(burton.weapon_set_veteran);
+    assert!(burton.weapon_bonus_veteran);
+}
+
 /// Residual: ClusterMines special power places a ring of mines at target.
 #[test]
 fn cluster_mines_special_power_places_mines() {

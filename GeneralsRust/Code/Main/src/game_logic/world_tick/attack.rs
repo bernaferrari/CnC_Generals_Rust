@@ -1929,7 +1929,8 @@ impl GameLogic {
 
     /// C++ AIUpdateInterface::requestPath residual.
     ///
-    /// Uses host PathfindingSystem A* when available; fail-closed straight path.
+    /// Uses host PathfindingSystem A*. A null path leaves the unit halted
+    /// (AIStates.cpp:1771-1778) — never install a straight-line through walls.
     pub fn request_object_path(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         let Some(obj) = self.objects.get(&id) else {
             return false;
@@ -1938,12 +1939,34 @@ impl GameLogic {
             return false;
         }
         let start = obj.get_position();
-        // Snapshot objects for pathfinder dynamic obstacles.
-        let waypoints = self
-            .pathfinding_system
-            .find_path(start, destination, &self.objects)
-            .filter(|p| p.len() >= 2)
-            .unwrap_or_else(|| vec![destination]);
+        let is_aircraft = obj.is_kind_of(KindOf::Aircraft)
+            || obj.object_type == crate::game_logic::ObjectType::Aircraft;
+        let surfaces = if obj.locomotor_surfaces != 0 {
+            obj.locomotor_surfaces
+        } else {
+            Object::default_locomotor_surfaces_for_template(&obj.thing.template)
+        };
+        let is_crusher = obj.crusher_level > 0;
+        let loco = if is_aircraft {
+            gamelogic::ai::pathfind_complete::SURFACE_AIR
+        } else if surfaces != 0 {
+            surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let Some(waypoints) = self.pathfinding_system.find_path_ex_surfaces(
+            start,
+            destination,
+            &self.objects,
+            is_aircraft,
+            loco,
+            is_crusher,
+        ) else {
+            return false;
+        };
+        if waypoints.is_empty() {
+            return false;
+        }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.request_path(destination, Some(waypoints));
             true

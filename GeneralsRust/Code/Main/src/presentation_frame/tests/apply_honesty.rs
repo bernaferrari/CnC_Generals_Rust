@@ -228,6 +228,230 @@ fn structure_exposes_command_sell_residual() {
     );
 }
 
+#[test]
+fn disabled_structure_keeps_sell_stop_rally() {
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        KindOf, Team, ThingTemplate,
+    };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut tb = ThingTemplate::new("EmpBarracks");
+    tb.set_health(1000.0);
+    tb.add_kind_of(KindOf::Structure);
+    tb.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("EmpBarracks".into(), tb);
+    let id = logic
+        .create_object("EmpBarracks", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.building_data = Some(BuildingData::new(BuildingType::Barracks));
+        o.selected = true;
+        o.status.disabled_emp = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    assert!(
+        cmds.iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell") && c.enabled),
+        "EMP structure must keep Sell: {:?}",
+        cmds
+    );
+    assert!(
+        cmds.iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_SetRallyPoint") && c.enabled),
+        "EMP producer must keep Rally: {:?}",
+        cmds
+    );
+    assert!(
+        cmds.iter().any(|c| {
+            c.command_name
+                .to_ascii_lowercase()
+                .contains("upgrade")
+                && !c.enabled
+        }) || cmds.iter().all(|c| {
+            let n = c.command_name.to_ascii_lowercase();
+            n.contains("sell")
+                || n.contains("rally")
+                || n.contains("stop")
+                || n.contains("evacuate")
+                || n.contains("exit")
+                || n.contains("switchweapon")
+                || n.contains("beacon")
+                || !c.enabled
+        }),
+        "non-exception commands must be Restricted: {:?}",
+        cmds
+    );
+}
+
+#[test]
+fn emp_plus_underpowered_does_not_reenable_specials() {
+    // C++ ControlBarCommand.cpp:1051-1058 — IGNORES_UNDERPOWERED only when
+    // DISABLED_UNDERPOWERED is the sole flag.
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        KindOf, Team, ThingTemplate,
+    };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut tb = ThingTemplate::new("EmpPowerPlant");
+    tb.set_health(1000.0);
+    tb.add_kind_of(KindOf::Structure);
+    tb.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("EmpPowerPlant".into(), tb);
+    let id = logic
+        .create_object("EmpPowerPlant", Team::USA, glam::Vec3::ZERO)
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.building_data = Some(BuildingData::new(BuildingType::PowerPlant));
+        o.selected = true;
+        o.status.disabled_emp = true;
+        o.status.disabled_underpowered = true;
+        o.can_toggle_overcharge = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    assert!(
+        cmds.iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_Sell") && c.enabled),
+        "multi-flag disabled structure still shows Sell: {:?}",
+        cmds
+    );
+    if let Some(over) = cmds
+        .iter()
+        .find(|c| c.command_name.eq_ignore_ascii_case("Command_ToggleOvercharge"))
+    {
+        assert!(
+            !over.enabled,
+            "IGNORES_UNDERPOWERED must not re-enable on EMP+brownout: {:?}",
+            cmds
+        );
+    }
+}
+
+#[test]
+fn empty_chinook_combat_drop_restricted() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut t = ThingTemplate::new("AmericaVehicleChinook");
+    t.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleChinook".into(), t);
+    let id = logic
+        .create_object("AmericaVehicleChinook", Team::USA, glam::Vec3::ZERO)
+        .expect("c");
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    if let Some(o) = logic.host_object_mut(id) {
+        o.selected = true;
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    let drop = cmds
+        .iter()
+        .find(|c| c.command_name.eq_ignore_ascii_case("Command_CombatDrop"));
+    assert!(
+        drop.is_some_and(|c| !c.enabled),
+        "empty Chinook CombatDrop Restricted: {:?}",
+        cmds
+    );
+}
+
+#[test]
+fn generals_power_hidden_without_required_science() {
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        KindOf, Team, ThingTemplate,
+    };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaCommandCenter");
+    tb.set_health(2000.0);
+    tb.add_kind_of(KindOf::Structure);
+    tb.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaCommandCenter".into(), tb);
+    let id = logic
+        .create_object("AmericaCommandCenter", Team::USA, glam::Vec3::ZERO)
+        .expect("cc");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.building_data = Some(BuildingData::new(BuildingType::CommandCenter));
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+        p.unlocked_sciences.clear();
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let cmds = frame.unit_command_buttons();
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_LeafletDrop")),
+        "Leaflet hidden without science: {:?}",
+        cmds
+    );
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| c.command_name.eq_ignore_ascii_case("Command_SpectreGunship")),
+        "Spectre hidden without science: {:?}",
+        cmds
+    );
+}
+
+#[test]
+fn human_hides_ai_only_construct_cameo() {
+    use crate::game_logic::{
+        buildings::{BuildingData, BuildingType},
+        host_production_buildable_command_residual::BSTATUS_ONLY_BY_AI,
+        KindOf, Team, ThingTemplate,
+    };
+    crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut tb = ThingTemplate::new("AmericaWarFactory");
+    tb.set_health(2000.0);
+    tb.add_kind_of(KindOf::Structure);
+    tb.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaWarFactory".into(), tb);
+    let mut hidden = ThingTemplate::new("AmericaTankCrusader");
+    hidden.buildable_status = BSTATUS_ONLY_BY_AI;
+    hidden.add_kind_of(KindOf::Vehicle);
+    logic
+        .templates
+        .insert("AmericaTankCrusader".into(), hidden);
+    let id = logic
+        .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
+        .expect("wf");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        o.selected = true;
+    }
+    if let Some(p) = logic.get_player_mut(0) {
+        p.selected_objects = vec![id];
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert!(
+        !frame.unit_command_buttons().iter().any(|c| c
+            .command_name
+            .to_ascii_lowercase()
+            .contains("crusader")),
+        "ONLY_BY_AI Crusader must be hidden: {:?}",
+        frame.unit_command_buttons()
+    );
+}
+
 fn presentation_feeds_unit_command_panel_buttons() {
     use crate::game_logic::{
         buildings::{BuildingData, BuildingType},

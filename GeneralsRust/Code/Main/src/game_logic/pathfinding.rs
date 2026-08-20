@@ -36,6 +36,8 @@ pub struct PendingHostPath {
     pub waypoints: Vec<Vec3>,
     pub aircraft: bool,
     pub surfaces: u32,
+    /// C++ `obj->getCrusherLevel() > 0` (AIPathfind.cpp:8170).
+    pub is_crusher: bool,
 }
 
 /// Grid-based pathfinding node
@@ -167,6 +169,8 @@ pub struct PathfindingGrid {
     occ_goal_mask: Vec<u16>,
     /// Players with infantry occupying this cell.
     occ_infantry_mask: Vec<u16>,
+    /// Max CrushableLevel among fixed occupants (canCrushOrSquish).
+    occ_fixed_max_crushable: Vec<u8>,
     /// Structure-aware zone ids (obstacles split zones). 0 = uninitialized.
     path_zones: Vec<u16>,
 
@@ -205,6 +209,7 @@ impl PathfindingGrid {
             transparent_bits: vec![0u64; words],
             occ_goal_mask: vec![0u16; cells],
             occ_infantry_mask: vec![0u16; cells],
+            occ_fixed_max_crushable: vec![0u8; cells],
             path_zones: vec![0u16; cells],
 
             terrain_gen: 1,
@@ -551,6 +556,7 @@ impl PathfindingGrid {
         self.occ_moving_mask.fill(0);
         self.occ_goal_mask.fill(0);
         self.occ_infantry_mask.fill(0);
+        self.occ_fixed_max_crushable.fill(0);
     }
 
     pub fn is_pinched(&self, pos: GridPos) -> bool {
@@ -820,6 +826,7 @@ impl PathfindingGrid {
         pos: GridPos,
         seeker_player: Option<u32>,
         seeker_is_infantry: bool,
+        crusher_level: u8,
     ) -> Option<f32> {
         let Some(idx) = self.bit_index(pos) else {
             return Some(0.0);
@@ -849,7 +856,12 @@ impl PathfindingGrid {
         }
         let enemy_fixed = (fixed & !bit) != 0;
         if enemy_fixed {
-            return None;
+            // C++ checkForMovement: enemyFixed only when !canCrushOrSquish
+            // (AIPathfind.cpp:5063-5065). Crushers plan through idle cars.
+            let max_c = self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(255);
+            if crusher_level == 0 || crusher_level <= max_c {
+                return None;
+            }
         }
         let mut extra = 0.0;
         if (moving & bit) != 0 {
@@ -878,6 +890,7 @@ impl PathfindingGrid {
         moving: bool,
         infantry: bool,
         goal: bool,
+        crushable_level: u8,
     ) {
         let Some(idx) = self.bit_index(pos) else {
             return;
@@ -901,6 +914,9 @@ impl PathfindingGrid {
             }
         } else if let Some(slot) = self.occ_fixed_mask.get_mut(idx) {
             *slot |= bit;
+            if let Some(crush) = self.occ_fixed_max_crushable.get_mut(idx) {
+                *crush = (*crush).max(crushable_level);
+            }
         }
     }
 
@@ -1024,7 +1040,7 @@ impl PathfindingGrid {
                 if self.is_pinched(neighbor) {
                     movement_cost += 1.414_213_5;
                 }
-                match self.occupancy_cost(neighbor, None, false) {
+                match self.occupancy_cost(neighbor, None, false, 0) {
                     None => continue, // enemyFixed abort
                     Some(extra) => movement_cost += extra,
                 }
@@ -1120,7 +1136,7 @@ impl PathfindingGrid {
                 for dx in -radius_cells..=radius_cells {
                     let p = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
                     if self.is_valid_pos(p) {
-                        self.mark_occupancy(p, player, moving, infantry, false);
+                        self.mark_occupancy(p, player, moving, infantry, false, obj.crushable_level);
                     }
                 }
             }
@@ -1138,7 +1154,7 @@ impl PathfindingGrid {
                         for dx in -radius_cells..=radius_cells {
                             let p = GridPos::new(goal_cell.x + dx, goal_cell.y + dy);
                             if self.is_valid_pos(p) {
-                                self.mark_occupancy(p, player, false, false, true);
+                                self.mark_occupancy(p, player, false, false, true, 255);
                             }
                         }
                     }
@@ -1152,8 +1168,9 @@ impl PathfindingGrid {
         pos: GridPos,
         seeker_player: Option<u32>,
         seeker_is_infantry: bool,
+        crusher_level: u8,
     ) -> u32 {
-        match self.occupancy_cost(pos, seeker_player, seeker_is_infantry) {
+        match self.occupancy_cost(pos, seeker_player, seeker_is_infantry, crusher_level) {
             None => u32::MAX / 8,
             Some(c) => (c * 10.0) as u32, // crate A* uses integer COST_DIAGONAL=14
         }
@@ -1522,6 +1539,8 @@ pub struct PathfindingSystem {
     seeker_id: Option<ObjectId>,
     /// Seeker team for ally checks.
     seeker_team: Option<Team>,
+    /// Seeker CrusherLevel for canCrushOrSquish occupancy (AIPathfind.cpp:5063).
+    seeker_crusher_level: u8,
 
 }
 
@@ -1545,6 +1564,7 @@ impl PathfindingSystem {
             seeker_wings: false,
             seeker_id: None,
             seeker_team: None,
+            seeker_crusher_level: 0,
 
         }
     }
@@ -1673,8 +1693,14 @@ impl PathfindingSystem {
         let occ_moving = self.grid.occ_moving_mask.clone();
         let occ_goal = self.grid.occ_goal_mask.clone();
         let occ_infantry = self.grid.occ_infantry_mask.clone();
+        let occ_crush = self.grid.occ_fixed_max_crushable.clone();
         let seeker = self.seeker_player;
         let seeker_inf = self.seeker_is_infantry;
+        let crusher_level = if is_crusher {
+            self.seeker_crusher_level.max(1)
+        } else {
+            0
+        };
         let extra = move |c: GridCoord| {
             if c.x < 0 || c.y < 0 || c.x >= width {
                 return 0;
@@ -1702,7 +1728,12 @@ impl PathfindingSystem {
                 }
             }
             if (fixed & !bit) != 0 {
-                return u32::MAX / 8;
+                // C++ examineNeighboringCells continue only when enemyFixed
+                // (AIPathfind.cpp:6241). Crushers do not set enemyFixed.
+                let max_c = occ_crush.get(idx).copied().unwrap_or(255);
+                if crusher_level == 0 || crusher_level <= max_c {
+                    return u32::MAX / 8;
+                }
             }
             let mut extra = 0u32;
             if (moving & bit) != 0 {
@@ -1839,6 +1870,7 @@ impl PathfindingSystem {
         victim: Vec3,
         weapon_range: f32,
         objects: &HashMap<ObjectId, Object>,
+        is_crusher: bool,
     ) -> Option<Vec<Vec3>> {
         self.ensure_dynamic_obstacles(objects);
         let range = weapon_range.max(self.grid.grid_size());
@@ -1864,10 +1896,16 @@ impl PathfindingSystem {
                         (dx * dx + dz * dz).sqrt()
                     };
                     if dist <= range && !self.grid.is_attack_view_blocked_static(test, victim) {
-                        // Already have a near-step firing spot — path via A* (or direct).
-                        return self
-                            .find_path(from, test, objects)
-                            .or_else(|| Some(vec![from, test]));
+                        // C++ findAttackPath returns NULL when A* fails — no
+                        // straight-line fallback through blocked cells.
+                        return self.find_path_ex_surfaces(
+                            from,
+                            test,
+                            objects,
+                            false,
+                            SURFACE_GROUND,
+                            is_crusher,
+                        );
                     }
                 }
             }
@@ -1916,8 +1954,7 @@ impl PathfindingSystem {
         }
 
         let goal = best.map(|(_, _, w)| w)?;
-        self.find_path(from, goal, objects)
-            .or_else(|| Some(vec![from, goal]))
+        self.find_path_ex_surfaces(from, goal, objects, false, SURFACE_GROUND, is_crusher)
     }
 
     /// C++ `computeNormalRadialOffset` residual (AIPathfind.cpp) on host XZ ground plane.
@@ -2234,12 +2271,19 @@ impl PathfindingSystem {
             self.seeker_wings = matches!(o.loco_appearance, LocomotorAppearance::Wings);
             self.seeker_id = Some(o.id);
             self.seeker_team = Some(o.team);
+            self.seeker_crusher_level = o.crusher_level;
         } else {
             self.seeker_player = None;
             self.seeker_is_infantry = false;
             self.seeker_wings = false;
             self.seeker_id = None;
             self.seeker_team = None;
+            self.seeker_crusher_level = 0;
+        }
+        // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
+        let is_crusher = is_crusher || self.seeker_crusher_level > 0;
+        if is_crusher && self.seeker_crusher_level == 0 {
+            self.seeker_crusher_level = 1;
         }
 
         let start_grid = self.grid.world_to_grid(start);
@@ -2926,6 +2970,7 @@ mod tests {
             waypoints: Vec::new(),
             aircraft: false,
             surfaces: SURFACE_GROUND,
+            is_crusher: false,
         });
         assert_eq!(sys.pending_path_count(), 1);
         let drained = sys.take_pending_paths();
@@ -3085,5 +3130,173 @@ mod tests {
         assert!(g.is_blocked(center));
         assert!(g.is_blocked(GridPos::new(center.x + 2, center.y)));
     }
+
+    /// hq-6p032: crushers plan through idle crushable cars (AIPathfind.cpp:5063).
+    #[test]
+    fn crusher_plans_through_idle_crushable_cars() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        for (i, z) in (20..90).step_by(10).enumerate() {
+            let mut tmpl = ThingTemplate::new("CivilianCar");
+            tmpl.add_kind_of(KindOf::Vehicle);
+            let mut car = Object::new(tmpl, ObjectId(100 + i as u32), Team::GLA);
+            car.set_position(Vec3::new(80.0, 0.0, z as f32));
+            car.crushable_level = 1;
+            car.crusher_level = 0;
+            car.owner_player_id = Some(1);
+            car.selection_radius = 4.0;
+            objects.insert(car.id, car);
+        }
+        let mut tank_t = ThingTemplate::new("Crusader");
+        tank_t.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tank_t, ObjectId(1), Team::USA);
+        tank.set_position(Vec3::new(10.0, 0.0, 50.0));
+        tank.crusher_level = 2;
+        tank.crushable_level = 2;
+        tank.owner_player_id = Some(0);
+        objects.insert(tank.id, tank);
+
+        let start = Vec3::new(10.0, 0.0, 50.0);
+        let goal = Vec3::new(150.0, 0.0, 50.0);
+        let crushed = sys
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, true)
+            .expect("crusher must path through cars");
+        assert!(crushed.len() >= 2);
+        let through = crushed.windows(2).any(|w| {
+            let crosses = (w[0].x - 80.0) * (w[1].x - 80.0) <= 0.0;
+            let near_mid = w[0].z > 15.0 && w[0].z < 95.0;
+            crosses && near_mid
+        });
+        assert!(
+            through,
+            "crusher path must cross the car line, path={crushed:?}"
+        );
+
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(inf_t, ObjectId(2), Team::USA);
+        inf.set_position(start);
+        inf.crusher_level = 0;
+        inf.owner_player_id = Some(0);
+        objects.insert(inf.id, inf);
+        objects.remove(&ObjectId(1));
+        sys.note_logic_frame(1);
+        let walked = sys
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false)
+            .expect("non-crusher can detour");
+        let walk_len: f32 = walked.windows(2).map(|w| (w[0] - w[1]).length()).sum();
+        let crush_len: f32 = crushed.windows(2).map(|w| (w[0] - w[1]).length()).sum();
+        assert!(
+            walk_len > crush_len + 20.0,
+            "non-crusher must detour around cars crush={crush_len} walk={walk_len}"
+        );
+    }
+
+    /// hq-bw35t: attack / requestPath must not fail-open through sealed walls.
+    #[test]
+    fn attack_and_request_path_fail_closed_through_walls() {
+        use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..20 {
+            sys.grid
+                .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+        }
+        let objects = HashMap::new();
+        let from = Vec3::new(20.0, 0.0, 50.0);
+        let to = Vec3::new(150.0, 0.0, 50.0);
+        let crosses_wall = |path: &[Vec3]| {
+            path.windows(2).any(|w| {
+                let a = sys.grid.world_to_grid(w[0]);
+                let b = sys.grid.world_to_grid(w[1]);
+                (a.x - 10) * (b.x - 10) <= 0 && (a.x != 10 || b.x != 10)
+                    || sys.grid.cell_type(a) == PathfindCellType::Impassable
+                    || sys.grid.cell_type(b) == PathfindCellType::Impassable
+            })
+        };
+        if let Some(p) = sys.find_path_ex_surfaces(from, to, &objects, false, SURFACE_GROUND, false)
+        {
+            assert!(
+                !crosses_wall(&p),
+                "A* must not walk Impassable, path={p:?}"
+            );
+        }
+        if let Some(p) = sys.find_attack_firing_position(from, to, 50.0, &objects, false) {
+            assert!(
+                !crosses_wall(&p),
+                "findAttackPath must not install a through-wall march, path={p:?}"
+            );
+            assert!(
+                !(p.len() == 2 && (p[1] - to).length() < 1.0),
+                "must not fail-open start→goal through the wall"
+            );
+        }
+
+        let mut logic = GameLogic::new();
+        for y in 0..logic.pathfinding_system.grid.height() {
+            logic
+                .pathfinding_system
+                .grid
+                .set_cell_type(GridPos::new(10, y), PathfindCellType::Impassable);
+        }
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        let id = ObjectId(7);
+        let mut unit = Object::new(tmpl, id, Team::USA);
+        unit.set_position(from);
+        logic.objects.insert(id, unit);
+        let ok = logic.request_object_path(id, to);
+        let unit = logic.objects.get(&id).expect("unit");
+        if ok {
+            let path = &unit.movement.path;
+            let through = path.iter().any(|p| {
+                let c = logic.pathfinding_system.grid.world_to_grid(*p);
+                logic.pathfinding_system.grid.cell_type(c) == PathfindCellType::Impassable
+                    || p.x > 105.0
+            });
+            assert!(!through, "requestPath must not march through the wall: {path:?}");
+        }
+    }
+
+    /// hq-3biqe: assign_unit_path must pass real is_crusher into live A*.
+    #[test]
+    fn assign_unit_path_crusher_walks_rubble() {
+        use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic.force_map_loaded_for_path_test(false);
+        let start = Vec3::new(10.0, 0.0, 10.0);
+        let goal = Vec3::new(80.0, 0.0, 10.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
+        let wall_x = (start_cell.x + goal_cell.x) / 2;
+        for y in 0..logic.pathfinding_system.grid.height() {
+            logic
+                .pathfinding_system
+                .grid
+                .set_cell_type(GridPos::new(wall_x, y), PathfindCellType::Rubble);
+        }
+        let mut tmpl = ThingTemplate::new("Overlord");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("Overlord".into(), tmpl);
+        let id = logic
+            .create_object("Overlord", Team::USA, start)
+            .expect("overlord");
+        if let Some(u) = logic.host_object_mut(id) {
+            u.crusher_level = 2;
+            u.locomotor_surfaces = SURFACE_GROUND;
+            u.movement.max_speed = 20.0;
+        }
+        assert!(
+            logic.assign_unit_path_for_test(id, goal, &[]),
+            "crusher assign_unit_path must path CELL_RUBBLE"
+        );
+        let unit = logic.host_object(id).expect("unit");
+        assert!(
+            unit.movement.path.len() >= 2,
+            "crusher must receive a live A* path, got {:?}",
+            unit.movement.path
+        );
+    }
+
 
 }

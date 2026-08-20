@@ -1,6 +1,23 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+/// C++ `TheGameText->fetch("GUI:MaxSelectionSize").format(count)`.
+fn format_max_selection_size_message(max: i32) -> String {
+    #[cfg(feature = "game_client")]
+    {
+        let template = game_client::game_text::GameText::fetch("GUI:MaxSelectionSize");
+        if template.contains("%d") || template.contains("%i") {
+            return template
+                .replace("%d", &max.to_string())
+                .replace("%i", &max.to_string());
+        }
+        if !template.is_empty() && !template.starts_with("MISSING:") {
+            return template;
+        }
+    }
+    format!("You cannot select more than {max} units.")
+}
+
 /// Convert a still-armed FIRE_WEAPON button into Main's authoritative order.
 ///
 /// `ATTACK_OBJECTS_POSITION` deliberately keeps the target object only for
@@ -635,9 +652,14 @@ impl CnCGameEngine {
         let max = Self::live_max_select_count();
         if max > 0 && ids.len() > max as usize {
             ids.truncate(max as usize);
-            let msg = format!("GUI:MaxSelectionSize {max}");
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            if !self.displayed_max_selection_warning {
+                self.displayed_max_selection_warning = true;
+                let msg = format_max_selection_size_message(max);
+                self.game_hud.push_info_message(&msg);
+                self.ui_manager.game_hud_mut().push_info_message(&msg);
+            }
+        } else if max > 0 {
+            self.displayed_max_selection_warning = false;
         }
         ids
     }
@@ -2077,4 +2099,17 @@ mod tests {
             "NUCLEARMISSILE"
         );
     }
+
+    #[test]
+    fn max_selection_warning_substitutes_count_not_raw_key() {
+        // C++ SelectionXlat.cpp:283-290 / InGameUI.cpp:120-127
+        // TheGameText->fetch("GUI:MaxSelectionSize").format(count)
+        let msg = format_max_selection_size_message(25);
+        assert!(
+            !msg.starts_with("GUI:MaxSelectionSize"),
+            "live warning must not show the raw GameText key, got {msg:?}"
+        );
+        assert!(msg.contains("25"), "localized warning must include the cap, got {msg:?}");
+    }
+
 }

@@ -675,6 +675,10 @@ impl PresentationFrame {
                 is_aiming_weapon: obj.status.is_aiming_weapon,
                 disabled_emp: obj.status.disabled_emp,
                 disabled_paralyzed: obj.status.disabled_paralyzed,
+                disabled_underpowered: obj.status.disabled_underpowered,
+                disabled_hacked: obj.status.disabled_hacked,
+                disabled_unmanned: obj.status.disabled_unmanned,
+                hacking_packing_or_unpacking: logic.hacker_income.is_hacking(obj.id),
                 weapons_jammed: obj.status.weapons_jammed,
                 masked: obj.status.masked,
                 unattackable: obj.is_kind_of(KindOf::Unattackable),
@@ -1331,6 +1335,10 @@ impl PresentationFrame {
                         available: status
                             == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
                         help_status: help,
+                        buildable_hidden: logic
+                            .templates
+                            .get(*name)
+                            .is_some_and(|t| t.human_control_bar_buildable_hidden()),
                     });
                 }
                 can_make_cameos.truncate(12);
