@@ -23,7 +23,6 @@ fn supports_host_weapon_generic_ocl(
         && nugget.debris_to_generate > 0
         && !nugget.disposition.has(unsupported_disposition)
         && nugget.put_in_container.trim().is_empty()
-        && nugget.particle_sys_name.trim().is_empty()
         && !nugget.ignore_primary_obstacle
         && !nugget.contain_inside_source_object
         && !nugget.spread_formation
@@ -31,6 +30,11 @@ fn supports_host_weapon_generic_ocl(
         && !nugget.fade_out
         && !nugget.dies_on_bad_land
         && !nugget.requires_live_player
+}
+
+fn usable_ocl_particle_sys_name(name: &str) -> Option<&str> {
+    let name = name.trim();
+    (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
 }
 
 impl GameLogic {
@@ -232,6 +236,16 @@ impl GameLogic {
                         // TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
                         let _ = self.transfer_script_object_name(sid, created_id);
                     }
+                }
+                // C++ ObjectCreationList.cpp:962-969 — ParticleSystem is extra
+                // attached fire/smoke. The object still spawns.
+                if let Some(particle) = usable_ocl_particle_sys_name(&generic.particle_sys_name) {
+                    let _ = self.combat_particles.attach_named_to_object(
+                        created_id,
+                        spawn_position,
+                        self.frame,
+                        particle,
+                    );
                 }
                 created.push(created_id);
             }

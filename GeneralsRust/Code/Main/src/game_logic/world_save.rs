@@ -734,13 +734,11 @@ impl GameLogic {
         if defer {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.waiting_for_path = true;
-                unit.movement.target_position = Some(destination);
+                // C++ queueForPath: sit still until processPathfindQueue installs Path.
+                unit.movement.target_position = None;
+                unit.movement.velocity = glam::Vec3::ZERO;
                 unit.set_ai_state(AIState::Moving);
                 unit.set_status_moving(true);
-                let mut dir = destination - start;
-                dir.y = 0.0;
-                let dir = dir.normalize_or_zero();
-                unit.movement.velocity = dir * unit.movement.max_speed;
                 unit.record_host_movement();
             }
             self.pathfinding_system

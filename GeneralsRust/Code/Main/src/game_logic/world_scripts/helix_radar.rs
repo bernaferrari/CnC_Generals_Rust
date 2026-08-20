@@ -1359,9 +1359,7 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::host_spy_satellite::{
             HostSpySatellite, SPY_SATELLITE_ACTIVATE_AUDIO, SPY_SATELLITE_DURATION_FRAMES,
-            SPY_SATELLITE_RADIUS,
         };
-        use gamelogic::common::Coord3D;
 
         // Ensure shroud grid exists (tests / pre-map residual).
         let world_w = self.world_width.max(1.0);
@@ -1381,12 +1379,10 @@ impl GameLogic {
         // ShroudManager grid axes are (x, y). Host residual gameplay uses glam
         // (x, z) as the ground plane (y = height). Feed horizontal plane into
         // shroud so temporary reveals land on FOW / PresentationFowGrid cells.
-        let center = Coord3D::new(location.x, location.z, location.y);
-        let radius = SPY_SATELLITE_RADIUS;
         let duration = SPY_SATELLITE_DURATION_FRAMES;
         let frame = self.frame;
 
-        let fow_reveal_ok = {
+        {
             let shroud = get_shroud_manager();
             let mut shroud_mgr = match shroud.lock() {
                 Ok(mgr) => mgr,
@@ -1397,42 +1393,25 @@ impl GameLogic {
             if !shroud_mgr.has_shroud_grid() {
                 shroud_mgr.init_shroud_grid(world_w, world_h);
             }
+        }
 
-            shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
-            shroud_mgr.queue_undo_shroud_reveal(&center, radius, player_mask, duration, frame);
-
-            // Observe FOW: center must be visible for the commanding player.
-            let mut visible = shroud_mgr.is_position_visible(player_id.min(31), &center);
-            if !visible {
-                // Team-shared mask may use a different bit; check any teammate bit.
-                for bit in 0..32u32 {
-                    if (player_mask & (1u32 << bit)) != 0
-                        && shroud_mgr.is_position_visible(bit, &center)
-                    {
-                        visible = true;
-                        break;
-                    }
-                }
-            }
-            visible
-        };
-
+        // C++ DynamicShroudClearingRangeUpdate starts m_currentClearingRange = 0.
+        // Grow/shrink is applied each tick in update_spy_satellites.
         let scan_id = self.spy_satellites.alloc_id();
         self.spy_satellites.record_activation(HostSpySatellite {
             id: scan_id,
             player_id,
             player_mask,
             location,
-            radius,
+            radius: 0.0,
             activate_frame: frame,
             expires_frame: frame.saturating_add(duration),
             caster_id,
-            fow_reveal_ok,
-            // Wave 48: SpySatellitePing DynamicShroud + StealthDetector residual on activate.
+            fow_reveal_ok: false,
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
+            last_applied_radius: 0.0,
         });
-
         self.queue_audio_event(
             AudioEventRequest::new(SPY_SATELLITE_ACTIVATE_AUDIO)
                 .with_position(location)
@@ -1442,7 +1421,7 @@ impl GameLogic {
         // C++ OCL SUPERWEAPON_SpySatellite → SpySatellitePing residual.
         let _ = self.spawn_spy_satellite_ping(team, location, caster_id);
 
-        fow_reveal_ok || self.spy_satellites.activations() > 0
+        self.spy_satellites.activations() > 0
     }
 
     /// Host SpyDrone residual: spawn AmericaVehicleSpyDrone + temporary FOW reveal.
@@ -1765,12 +1744,100 @@ impl GameLogic {
         &self.countermeasures
     }
 
-    /// Advance SpySatellite residual: expire bookkeeping + process shroud undos.
+    /// Advance SpySatellite residual: DynamicShroud grow/shrink + expire + undo.
     pub(in super::super) fn update_spy_satellites(&mut self) {
+        self.apply_spy_satellite_dynamic_shroud();
+        self.undo_expired_spy_satellite_shroud();
         self.spy_satellites.prune_expired(self.frame);
         self.spy_drones.prune_expired(self.frame);
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
+        }
+    }
+
+    /// C++ DynamicShroudClearingRangeUpdate::update → setShroudClearingRange.
+    fn apply_spy_satellite_dynamic_shroud(&mut self) {
+        use gamelogic::common::Coord3D;
+        let frame = self.frame;
+        let work: Vec<(u32, Vec3, f32, f32, u32)> = self
+            .spy_satellites
+            .active_scans()
+            .iter()
+            .map(|s| {
+                let new_r = s.dynamic_shroud_radius(frame);
+                (s.player_id, s.location, s.last_applied_radius, new_r, s.player_mask)
+            })
+            .collect();
+        if work.is_empty() {
+            return;
+        }
+        let Ok(mut shroud_mgr) = get_shroud_manager().lock() else {
+            return;
+        };
+        for (player_id, location, old_r, new_r, player_mask) in &work {
+            let center = Coord3D::new(location.x, location.z, location.y);
+            if (*new_r - *old_r).abs() <= 0.01 {
+                continue;
+            }
+            if *old_r > 0.01 {
+                shroud_mgr.undo_shroud_reveal(&center, *old_r, *player_mask);
+            }
+            if *new_r > 0.01 {
+                shroud_mgr.do_shroud_reveal(&center, *new_r, *player_mask);
+            }
+            let _ = player_id;
+        }
+        drop(shroud_mgr);
+        let mut newly_visible = 0u32;
+        if let Ok(shroud_mgr) = get_shroud_manager().lock() {
+            for scan in self.spy_satellites.active_scans_mut() {
+                let new_r = scan.dynamic_shroud_radius(frame);
+                scan.last_applied_radius = new_r;
+                scan.radius = new_r;
+                if scan.fow_reveal_ok || new_r <= 0.01 {
+                    continue;
+                }
+                let center = Coord3D::new(scan.location.x, scan.location.z, scan.location.y);
+                let mut visible = shroud_mgr.is_position_visible(scan.player_id.min(31), &center);
+                if !visible {
+                    for bit in 0..32u32 {
+                        if (scan.player_mask & (1u32 << bit)) != 0
+                            && shroud_mgr.is_position_visible(bit, &center)
+                        {
+                            visible = true;
+                            break;
+                        }
+                    }
+                }
+                if visible {
+                    scan.fow_reveal_ok = true;
+                    newly_visible = newly_visible.saturating_add(1);
+                }
+            }
+        }
+        for _ in 0..newly_visible {
+            self.spy_satellites.record_fow_reveal();
+        }
+    }
+
+    fn undo_expired_spy_satellite_shroud(&mut self) {
+        use gamelogic::common::Coord3D;
+        let frame = self.frame;
+        let expired: Vec<(Vec3, f32, u32)> = self
+            .spy_satellites
+            .active_scans()
+            .iter()
+            .filter(|s| s.is_expired(frame) && s.last_applied_radius > 0.01)
+            .map(|s| (s.location, s.last_applied_radius, s.player_mask))
+            .collect();
+        if expired.is_empty() {
+            return;
+        }
+        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            for (location, radius, player_mask) in expired {
+                let center = Coord3D::new(location.x, location.z, location.y);
+                shroud_mgr.undo_shroud_reveal(&center, radius, player_mask);
+            }
         }
     }
 }

@@ -740,6 +740,7 @@ impl GameLogic {
     }
 
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.
+    /// Also skips non-playable sides and KINDOF_IGNORED_IN_GUI (Object.cpp:2898-2905).
     fn kill_awards_unit_experience(
         &self,
         killer_id: ObjectId,
@@ -751,6 +752,9 @@ impl GameLogic {
             return false;
         };
         if let Some(victim) = self.objects.get(&victim_id) {
+            if !self.score_the_kill_victim_counts(victim) {
+                return false;
+            }
             if killer.owner_player_id.is_some()
                 && killer.owner_player_id == victim.owner_player_id
             {
@@ -765,6 +769,9 @@ impl GameLogic {
                 }
             }
         } else {
+            if victim_team == Team::Neutral {
+                return false;
+            }
             killer.team != victim_team
                 && killer.team != Team::Neutral
                 && victim_team != Team::Neutral

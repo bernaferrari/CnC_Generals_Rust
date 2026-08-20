@@ -154,4 +154,57 @@ impl GameLogic {
             "",
         );
     }
+
+    /// C++ `recalcBonesForClientParticleSystems` on create.
+    pub(crate) fn spawn_particle_sys_bones_for_object(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        let bones = crate::game_logic::combat_particles::particle_sys_bones_for_template(
+            &obj.template_name,
+            obj.model_condition_bits,
+        );
+        let pos = obj.get_position();
+        let frame = self.frame;
+        self.combat_particles
+            .sync_particle_sys_bones(frame, object_id, pos, &bones);
+    }
+
+    /// Keep ParticleSysBone and damaged-body fire/smoke attached to live objects.
+    pub(crate) fn sync_live_state_particles(&mut self) {
+        let frame = self.frame;
+        let snapshots: Vec<_> = self
+            .objects
+            .iter()
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.template_name.clone(),
+                    obj.model_condition_bits,
+                    obj.body_damage_state.ordinal(),
+                    obj.has_object_status_bit("AFLAME")
+                        || obj.fire_spread.as_ref().is_some_and(|f| f.is_aflame()),
+                )
+            })
+            .collect();
+        for (id, pos, template, bits, ordinal, aflame) in snapshots {
+            let bones =
+                crate::game_logic::combat_particles::particle_sys_bones_for_template(&template, bits);
+            self.combat_particles
+                .sync_particle_sys_bones(frame, id, pos, &bones);
+            let wants_body = ordinal > 0 || aflame;
+            let has_body = self.combat_particles.has_body_particles(id);
+            if wants_body && !has_body {
+                self.combat_particles.replace_body_auto_particles(
+                    id, pos, frame, ordinal, aflame,
+                );
+            } else if wants_body {
+                self.combat_particles.follow_attached_body_particles(id, pos);
+            } else if has_body {
+                self.combat_particles
+                    .replace_body_auto_particles(id, pos, frame, 0, false);
+            }
+        }
+    }
 }

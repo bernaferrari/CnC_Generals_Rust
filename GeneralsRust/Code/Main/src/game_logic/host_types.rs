@@ -223,6 +223,9 @@ pub enum KindOf {
     /// C++ `KINDOF_IMMUNE_TO_CAPTURE` (Patch 1.03 battle bus).
     /// Gameplay-only: the compact presentation KindOf bank is full.
     ImmuneToCapture,
+    /// C++ `KINDOF_DEFENSIVE_WALL`. FenceWidth objects with this bit stay solid walls.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    DefensiveWall,
 }
 
 impl KindOf {
@@ -240,6 +243,7 @@ impl KindOf {
             "BOAT" => Some(Self::Boat),
             "TRANSPORT" => Some(Self::Transport),
             "IMMUNE_TO_CAPTURE" | "IMMUNETOCAPTURE" => Some(Self::ImmuneToCapture),
+            "DEFENSIVE_WALL" | "DEFENSIVEWALL" => Some(Self::DefensiveWall),
             "DRONE" => Some(Self::Drone),
             _ => None,
         }

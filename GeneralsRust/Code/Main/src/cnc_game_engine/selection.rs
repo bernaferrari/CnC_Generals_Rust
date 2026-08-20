@@ -11,6 +11,136 @@ struct IdleWorkerSelectionTarget {
     focus_position: glam::Vec3,
 }
 
+/// C++ `ALLOW_SHRUBBERY_TARGET` / `ALLOW_MINE_TARGET` (`Command.h`).
+const CMD_ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
+const CMD_ALLOW_MINE_TARGET: u32 = 0x0000_0800;
+
+/// Live-host analog of leftover `ContextPickProfile` mine/shrubbery bits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct HostContextPickProfile {
+    include_mines: bool,
+    include_shrubbery: bool,
+}
+
+/// C++ `getPickTypesForContext` / `getPickTypesForCurrentSelection`
+/// (`SelectionInfo.cpp:227-295`). An armed GUI command owns the extra
+/// pick bits; otherwise force-attack + a `DAMAGE_FLAME` weapon adds
+/// shrubbery. Disarm no longer auto-picks mines.
+pub(super) fn host_context_pick_profile(
+    force_attack_mode: bool,
+    armed_gui_command_options: Option<u32>,
+    selection_has_flame: bool,
+) -> HostContextPickProfile {
+    let mut profile = HostContextPickProfile::default();
+    if let Some(options) = armed_gui_command_options {
+        if options & CMD_ALLOW_MINE_TARGET != 0 {
+            profile.include_mines = true;
+        }
+        if options & CMD_ALLOW_SHRUBBERY_TARGET != 0 {
+            profile.include_shrubbery = true;
+        }
+    } else if force_attack_mode && selection_has_flame {
+        profile.include_shrubbery = true;
+    }
+    profile
+}
+
+fn presentation_is_mine_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
+    use crate::game_logic::KindOf;
+    o.has_mine
+        || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::Mine)
+        || crate::presentation_frame::PresentationFrame::object_has_kind(o, KindOf::DemoTrap)
+        || crate::game_logic::host_car_bomb::object_definition_has_kind(&o.template_name, "MINE")
+        || crate::game_logic::host_car_bomb::object_definition_has_kind(
+            &o.template_name,
+            "DEMOTRAP",
+        )
+}
+
+fn presentation_is_shrubbery_pick(o: &crate::presentation_frame::RenderableObject) -> bool {
+    crate::game_logic::host_car_bomb::object_definition_has_kind(&o.template_name, "SHRUBBERY")
+}
+
+fn presentation_object_has_flame_weapon(
+    o: &crate::presentation_frame::RenderableObject,
+) -> bool {
+    let Some(name) = crate::game_logic::primary_weapon_name_for_unit(&o.template_name) else {
+        return false;
+    };
+    crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(name)
+        == crate::game_logic::combat::DamageType::Flame
+}
+
+/// Nearest mine/shrubbery under the cursor when the pick profile widens.
+pub(super) fn pick_widened_context_target(
+    frame: &crate::presentation_frame::PresentationFrame,
+    position: glam::Vec3,
+    player_team: Option<crate::game_logic::Team>,
+    base_selection_radius: f32,
+    profile: HostContextPickProfile,
+) -> Option<ObjectId> {
+    if !profile.include_mines && !profile.include_shrubbery {
+        return None;
+    }
+
+
+    let mut best: Option<(ObjectId, f32)> = None;
+    for o in &frame.objects {
+        if o.destroyed {
+            continue;
+        }
+        let is_local = player_team.is_some() && frame.is_owned_by_local(o);
+        if !is_local && o.fow_visibility.visibility_alpha < 0.95 {
+            continue;
+        }
+        let extra = (profile.include_mines && presentation_is_mine_pick(o))
+            || (profile.include_shrubbery && presentation_is_shrubbery_pick(o));
+        if !extra {
+            continue;
+        }
+        let distance = o.position.distance(position);
+        let radius = base_selection_radius.max(o.selection_radius);
+        if distance > radius {
+            continue;
+        }
+        if best.is_none_or(|(_, best_d)| distance < best_d) {
+            best = Some((o.id, distance));
+        }
+    }
+    best.map(|(id, _)| id)
+}
+
+pub(super) fn closer_presentation_pick(
+    frame: &crate::presentation_frame::PresentationFrame,
+    position: glam::Vec3,
+    standard: Option<ObjectId>,
+    extra: Option<ObjectId>,
+) -> Option<ObjectId> {
+    match (standard, extra) {
+        (Some(s), Some(e)) if s != e => {
+            let sd = frame
+                .objects
+                .iter()
+                .find(|o| o.id == s)
+                .map(|o| o.position.distance(position))
+                .unwrap_or(f32::MAX);
+            let ed = frame
+                .objects
+                .iter()
+                .find(|o| o.id == e)
+                .map(|o| o.position.distance(position))
+                .unwrap_or(f32::MAX);
+            if ed < sd {
+                Some(e)
+            } else {
+                Some(s)
+            }
+        }
+        (s, e) => s.or(e),
+    }
+}
+
+
 /// Mirror `InGameUI::selectNextIdleWorker`: only exactly one currently
 /// selected idle worker advances; any empty, multi, or unrelated selection
 /// starts from the first worker.
@@ -82,6 +212,68 @@ fn idle_worker_selection_targets_from_presentation(
 }
 
 impl CnCGameEngine {
+    pub(super) fn host_selection_has_flame_weapon(&self) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        let selected = self.ui_selected_ids(self.current_player_id);
+        for id in selected {
+            if let Some(obj) = self.game_logic.host_object(id) {
+                if let Some(name) = obj.get_template().primary_weapon_name.as_deref() {
+                    if crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                        name,
+                    ) == crate::game_logic::combat::DamageType::Flame
+                    {
+                        return true;
+                    }
+                }
+            }
+            if let Some(o) = frame.objects.iter().find(|o| o.id == id) {
+                if presentation_object_has_flame_weapon(o) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub(super) fn host_find_object_at_position(
+        &self,
+        position: glam::Vec3,
+        command_context: bool,
+    ) -> Option<ObjectId> {
+        const BASE_SELECTION_RADIUS: f32 = 20.0;
+        let frame = self.last_presentation_frame.as_ref()?;
+        let player_team = Some(frame.local_team());
+        let has_selected_units = !self.selected_objects.is_empty();
+        let prioritize_enemy_targets = command_context && has_selected_units;
+        let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
+            winit::keyboard::NamedKey::Control,
+        ));
+        let profile = host_context_pick_profile(
+            force_attack_mode,
+            self.host_armed_gui_command_options(),
+            self.host_selection_has_flame_weapon(),
+        );
+        let standard =
+            crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
+                frame,
+                position,
+                player_team,
+                prioritize_enemy_targets,
+                BASE_SELECTION_RADIUS,
+            );
+        let extra = pick_widened_context_target(
+            frame,
+            position,
+            player_team,
+            BASE_SELECTION_RADIUS,
+            profile,
+        );
+        closer_presentation_pick(frame, position, standard, extra)
+    }
+
+
     /// Retail `ControlBar.wnd:ButtonIdleWorker` and
     /// `IdleWorker.wnd:ButtonSelectNextIdleWorker` action.  This deliberately
     /// differs from the broader hotkey worker cycle: C++ considers idle
@@ -1727,5 +1919,45 @@ mod idle_worker_selection_tests {
         assert!(plan.added.is_empty());
         assert_eq!(plan.message, Some("GUI:NothingSelected"));
     }
+
+    #[test]
+    fn context_pick_profile_matches_cpp_selection_info() {
+        // C++ SelectionInfo.cpp:227-295.
+        assert_eq!(
+            host_context_pick_profile(true, None, false),
+            HostContextPickProfile::default()
+        );
+        assert_eq!(
+            host_context_pick_profile(true, None, true),
+            HostContextPickProfile {
+                include_mines: false,
+                include_shrubbery: true,
+            }
+        );
+        assert_eq!(
+            host_context_pick_profile(false, None, true),
+            HostContextPickProfile::default()
+        );
+        assert_eq!(
+            host_context_pick_profile(true, Some(CMD_ALLOW_MINE_TARGET), true),
+            HostContextPickProfile {
+                include_mines: true,
+                include_shrubbery: false,
+            }
+        );
+        assert_eq!(
+            host_context_pick_profile(true, Some(CMD_ALLOW_SHRUBBERY_TARGET), false),
+            HostContextPickProfile {
+                include_mines: false,
+                include_shrubbery: true,
+            }
+        );
+        // Armed GUI command with no extra bits must not fall through to flame.
+        assert_eq!(
+            host_context_pick_profile(true, Some(0), true),
+            HostContextPickProfile::default()
+        );
+    }
+
 
 }

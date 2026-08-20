@@ -3807,6 +3807,189 @@ fn airfield_takeoff_releases_parking_slot() {
     assert!(logic.try_return_to_base_rearm(jet2));
 }
 
+fn helipad_parking_place() -> crate::game_logic::ParkingPlaceMetadata {
+    crate::game_logic::ParkingPlaceMetadata {
+        num_rows: 1,
+        num_cols: 1,
+        approach_height: 37.0,
+        landing_deck_height_offset: 4.0,
+        has_runways: false,
+        park_in_hangars: false,
+        heal_amount_per_second: 10.0,
+    }
+}
+
+fn dock_helipad_comanche(logic: &mut GameLogic) -> (ObjectId, ObjectId) {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    use glam::Vec3;
+
+    let mut pad_tmpl = ThingTemplate::new("AmericaHelipad");
+    pad_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    pad_tmpl.parking_place = Some(helipad_parking_place());
+    logic.templates.insert("AmericaHelipad".into(), pad_tmpl);
+
+    let mut heli_tmpl = ThingTemplate::new("AmericaVehicleComanche");
+    heli_tmpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(220.0);
+    logic.templates.insert("AmericaVehicleComanche".into(), heli_tmpl);
+
+    let pad_id = logic
+        .create_object("AmericaHelipad", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("helipad");
+    let heli_id = logic
+        .create_object(
+            "AmericaVehicleComanche",
+            Team::USA,
+            Vec3::new(0.0, 4.0, 0.0),
+        )
+        .expect("comanche");
+    {
+        let heli = logic.objects.get_mut(&heli_id).unwrap();
+        heli.set_contained_by(Some(pad_id));
+        heli.set_ai_state(AIState::Docked);
+        heli.status.airborne_target = false;
+        heli.producer_id = Some(pad_id);
+        heli.movement.max_speed = 30.0;
+    }
+    (pad_id, heli_id)
+}
+
+#[test]
+fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
+    let mut logic = GameLogic::new();
+    let (pad_id, heli_id) = dock_helipad_comanche(&mut logic);
+    let pad_y = logic.objects.get(&heli_id).unwrap().get_position().y;
+    assert!(logic.try_runway_takeoff_from_airfield(heli_id));
+    {
+        let heli = logic.objects.get(&heli_id).unwrap();
+        assert!(heli.contained_by.is_none());
+        assert!(heli.status.airborne_target);
+        assert!(
+            (heli.get_position().y - pad_y).abs() < 1e-3,
+            "helipad takeoff must not pop Y in one frame, y={} pad={}",
+            heli.get_position().y,
+            pad_y
+        );
+        assert!(
+            logic.heli_takeoff_or_landing.contains_key(&heli_id),
+            "two-point HeliTakeoff state must be armed"
+        );
+    }
+    let approach = pad_y + 37.0 + 4.0;
+    for _ in 0..200 {
+        logic.tick_airfield_parking_heal();
+        let y = logic.objects.get(&heli_id).unwrap().get_position().y;
+        if (y - approach).abs() <= 3.0 && !logic.heli_takeoff_or_landing.contains_key(&heli_id) {
+            break;
+        }
+    }
+    let heli = logic.objects.get(&heli_id).unwrap();
+    assert!(
+        (heli.get_position().y - approach).abs() <= 3.0,
+        "heli must finish at parking + approachHeight + deck, y={} want {}",
+        heli.get_position().y,
+        approach
+    );
+    assert!(!logic.heli_takeoff_or_landing.contains_key(&heli_id));
+    assert!(heli.status.airborne_target);
+    let _ = pad_id;
+}
+
+#[test]
+fn repaired_helipad_aircraft_auto_takeoff() {
+    let mut logic = GameLogic::new();
+    let (_pad_id, heli_id) = dock_helipad_comanche(&mut logic);
+    {
+        let heli = logic.objects.get_mut(&heli_id).unwrap();
+        heli.health.current = heli.health.maximum;
+        heli.target = None;
+        heli.set_ai_state(AIState::Docked);
+    }
+    let pad_y = logic.objects.get(&heli_id).unwrap().get_position().y;
+    logic.tick_airfield_parking_heal();
+    {
+        let heli = logic.objects.get(&heli_id).unwrap();
+        assert!(
+            heli.contained_by.is_none(),
+            "full-health parked Comanche must lift off"
+        );
+        assert!(heli.status.airborne_target);
+        assert!(
+            (heli.get_position().y - pad_y).abs() < 1e-3,
+            "auto-takeoff must use two-point climb, not pop"
+        );
+        assert!(logic.heli_takeoff_or_landing.contains_key(&heli_id));
+    }
+}
+
+#[test]
+fn helipad_landing_uses_two_point_descent_not_pad_snap() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut pad_tmpl = ThingTemplate::new("AmericaHelipad");
+    pad_tmpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    pad_tmpl.parking_place = Some(helipad_parking_place());
+    logic.templates.insert("AmericaHelipad".into(), pad_tmpl);
+    let mut heli_tmpl = ThingTemplate::new("AmericaVehicleComanche");
+    heli_tmpl
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(220.0);
+    logic.templates.insert("AmericaVehicleComanche".into(), heli_tmpl);
+
+    let pad_id = logic
+        .create_object("AmericaHelipad", Team::USA, Vec3::ZERO)
+        .expect("helipad");
+    let heli_id = logic
+        .create_object(
+            "AmericaVehicleComanche",
+            Team::USA,
+            Vec3::new(80.0, 50.0, 0.0),
+        )
+        .expect("comanche");
+    {
+        let heli = logic.objects.get_mut(&heli_id).unwrap();
+        heli.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ammo: Some(0),
+            clip_size: 4,
+            ..Weapon::default()
+        });
+        heli.status.airborne_target = true;
+        heli.producer_id = Some(pad_id);
+        heli.movement.max_speed = 30.0;
+    }
+    assert!(logic.try_return_to_base_rearm(heli_id));
+    {
+        let heli = logic.objects.get(&heli_id).unwrap();
+        assert!(
+            heli.contained_by.is_none(),
+            "far helipad landing must not snap-dock"
+        );
+        assert!(logic.heli_takeoff_or_landing.contains_key(&heli_id));
+        let y = heli.get_position().y;
+        assert!(
+            y > 10.0,
+            "descent must start from current altitude, y={y}"
+        );
+    }
+}
+
+
 #[test]
 fn target_pitch_gate_blocks_strategy_center_out_of_loft() {
     use crate::game_logic::weapon_bootstrap::{

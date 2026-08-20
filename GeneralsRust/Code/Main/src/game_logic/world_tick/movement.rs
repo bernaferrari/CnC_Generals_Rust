@@ -211,6 +211,14 @@ impl GameLogic {
                     obj.record_host_movement();
                     continue;
                 }
+                if obj.waiting_for_path {
+                    // C++ queueForPath: locomotor does not integrate until Path is installed.
+                    obj.movement.velocity = Vec3::ZERO;
+                    obj.record_host_movement();
+                    Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                    continue;
+                }
+
                 // Horizontal (XZ) distance — path grid / terrain height use Y separately,
                 // and 3D distance falsely stalls waypoint advance when |ΔY| is large.
                 let horiz = |a: Vec3, b: Vec3| {
@@ -248,10 +256,22 @@ impl GameLogic {
                         }
                     }
 
-                    // C++ computePointOnPath: lead into the next optimized node.
-                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path(
+                    // C++ computePointOnPath: lead only when isLinePassable.
+                    let surfaces = if obj.locomotor_surfaces != 0 {
+                        obj.locomotor_surfaces
+                    } else {
+                        gamelogic::ai::pathfind_complete::SURFACE_GROUND
+                    };
+                    let is_crusher = obj.crusher_level > 0;
+                    let path_tail = obj.movement.path
+                        [obj.movement.current_path_index.saturating_sub(1)..]
+                        .to_vec();
+                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path_ex(
                         current_pos,
-                        &obj.movement.path[obj.movement.current_path_index.saturating_sub(1)..],
+                        &path_tail,
+                        Some(&self.pathfinding_system.grid),
+                        surfaces,
+                        is_crusher,
                     );
                     let mut target = lead;
                     // Ground locos keep XZ march; Z-motive keeps lead Y so

@@ -416,6 +416,8 @@ pub struct DrawConditionStateDefinition {
     /// before local fields are parsed, just like the model, animations,
     /// visibility, and turret.
     pub weapon_bone_bindings: AuthoredDrawWeaponBoneBindings,
+    /// C++ `ModelConditionInfo::m_particleSysBones` (bone name + ParticleSystem).
+    pub particle_sys_bones: Vec<(String, String)>,
     /// Parser-only counterpart of C++ `ANIMS_COPIED_FROM_DEFAULT_STATE`.
     /// A state starts with Default's animations but its first Animation or
     /// IdleAnimation field replaces that inherited list rather than appending.
@@ -434,6 +436,7 @@ impl DrawConditionStateDefinition {
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
+            particle_sys_bones: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -449,6 +452,7 @@ impl DrawConditionStateDefinition {
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
+            particle_sys_bones: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -464,6 +468,7 @@ impl DrawConditionStateDefinition {
             subobject_visibility: Vec::new(),
             primary_turret: AuthoredDrawPrimaryTurret::default(),
             weapon_bone_bindings: AuthoredDrawWeaponBoneBindings::default(),
+            particle_sys_bones: Vec::new(),
             animations_copied_from_default: false,
         }
     }
@@ -618,6 +623,26 @@ impl BehaviorModuleDefinition {
         self.attributes
             .iter()
             .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
+    }
+
+    /// C++ SlowDeath `FX`/`OCL`/`Weapon` may appear once per phase; HashMap last-wins
+    /// would drop INITIAL when FINAL follows. Concatenate with newlines.
+    fn insert_attribute(&mut self, key: String, value: String) {
+        let repeatable = key.eq_ignore_ascii_case("FX")
+            || key.eq_ignore_ascii_case("OCL")
+            || key.eq_ignore_ascii_case("Weapon");
+        if repeatable {
+            if let Some((_, existing)) = self
+                .attributes
+                .iter_mut()
+                .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+            {
+                existing.push('\n');
+                existing.push_str(&value);
+                return;
+            }
+        }
+        self.attributes.insert(key, value);
     }
 }
 
@@ -996,6 +1021,22 @@ impl ObjectDefinition {
 
         found_selectable_module.then_some(selected)
     }
+
+    /// C++ current-state `ParticleSysBone` list across Draw modules.
+    pub fn particle_sys_bones_for_conditions(
+        &self,
+        condition_bits: u128,
+    ) -> Vec<(String, String)> {
+        let mut bones = Vec::new();
+        for module in &self.draw_modules {
+            if let Ok(Some((_, state))) =
+                module.selected_condition_state_for_conditions(condition_bits)
+            {
+                bones.extend(state.particle_sys_bones.iter().cloned());
+            }
+        }
+        bones
+    }
 }
 
 impl DrawModuleDefinition {
@@ -1355,7 +1396,6 @@ impl IniParser {
                         // a normal Object-level weapon later in loading.
                         continue;
                     }
-
                     if let Some(set) =
                         active_armor_set.and_then(|index| obj.armor_sets.get_mut(index))
                     {
@@ -1375,7 +1415,7 @@ impl IniParser {
                         if let Some(module) = active_behavior_module
                             .and_then(|index| obj.behavior_modules.get_mut(index))
                         {
-                            module.attributes.insert(key.to_string(), value.to_string());
+                            module.insert_attribute(key.to_string(), value.to_string());
                         }
                     }
 
@@ -1523,6 +1563,12 @@ impl IniParser {
                         // ModelConditionInfo. They delimit barrel topology;
                         // do not collapse them to the currently visible
                         // recoil/muzzle pair.
+                        "particlesysbone" => Self::assign_draw_condition_particle_sys_bone(
+                            obj,
+                            active_draw_module,
+                            active_condition_state,
+                            value,
+                        ),
                         "weaponfirefxbone" => Self::assign_draw_condition_weapon_bone(
                             obj,
                             active_draw_module,
@@ -1837,6 +1883,7 @@ impl IniParser {
                 state.subobject_visibility = default.subobject_visibility.clone();
                 state.primary_turret = default.primary_turret.clone();
                 state.weapon_bone_bindings = default.weapon_bone_bindings.clone();
+                state.particle_sys_bones = default.particle_sys_bones.clone();
                 state.animations_copied_from_default = true;
             }
         }
@@ -2269,6 +2316,38 @@ impl IniParser {
         let bone = (!bone.is_empty() && !bone.eq_ignore_ascii_case("none"))
             .then(|| bone.to_ascii_lowercase());
         Some((slot, bone))
+    }
+
+    /// C++ `parseParticleSysBone`: bone name + ParticleSystem template.
+    fn assign_draw_condition_particle_sys_bone(
+        obj: &mut ObjectDefinition,
+        active_draw_module: Option<usize>,
+        active_condition_state: Option<usize>,
+        value: &str,
+    ) {
+        let Some(module) = active_draw_module.and_then(|index| obj.draw_modules.get_mut(index))
+        else {
+            return;
+        };
+        let Some(state) =
+            active_condition_state.and_then(|index| module.condition_states.get_mut(index))
+        else {
+            return;
+        };
+        let mut tokens = value.split_whitespace();
+        let Some(bone) = tokens.next() else {
+            return;
+        };
+        let Some(system) = tokens.next() else {
+            return;
+        };
+        let bone = bone.to_ascii_lowercase();
+        if bone.is_empty() || system.eq_ignore_ascii_case("none") {
+            return;
+        }
+        state
+            .particle_sys_bones
+            .push((bone, system.to_string()));
     }
 
     fn assign_draw_condition_weapon_bone(

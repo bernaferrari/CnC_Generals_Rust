@@ -1969,6 +1969,10 @@ pub struct Object {
     /// landing even if there is no weapon clip to rearm.
     #[serde(default)]
     pub return_to_base_requested: bool,
+    /// C++ `JetAIUpdate` live residual (lockon / sneaky / idle RTB / takeoff).
+    #[serde(default)]
+    pub jet_ai: HostJetAi,
+
     /// Exact index of the C++ `ParkingPlaceBehavior::m_spaces` entry reserved
     /// for this aircraft.  The producer id names the owning airfield; this
     /// index is the persistent parking reservation and is intentionally not a
@@ -2736,6 +2740,12 @@ pub use entity_lifecycle_tags::INVENTORY_TAGS;
 
 pub use barrels::WeaponBarrelState;
 pub use visual::ObjectVisualInfo;
+pub use jets::{
+    HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND, JET_LOCKON_TICK_SOUND,
+    STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
+};
+
+
 
 #[cfg(test)]
 mod tests;

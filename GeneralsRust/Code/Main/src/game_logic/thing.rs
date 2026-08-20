@@ -1684,6 +1684,12 @@ pub struct ThingTemplate {
     /// Default 255 = cannot be crushed (ThingTemplate.cpp:1024).
     #[serde(default = "default_template_crushable_level")]
     pub crushable_level: u8,
+    /// C++ `ThingTemplate::m_fenceWidth` from Object INI `FenceWidth`.
+    #[serde(default)]
+    pub fence_width: f32,
+    /// C++ `ThingTemplate::m_fenceXOffset` from Object INI `FenceXOffset`.
+    #[serde(default)]
+    pub fence_x_offset: f32,
     /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
     #[serde(default)]
     pub geometry_info: HostGeometryInfo,
@@ -1795,6 +1801,8 @@ impl ThingTemplate {
             fall_height_damage_factor: 1.0,
             crusher_level: 0,
             crushable_level: 255,
+            fence_width: 0.0,
+            fence_x_offset: 0.0,
             geometry_info: HostGeometryInfo::default(),
         }
     }

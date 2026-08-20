@@ -676,6 +676,12 @@ impl GameLogic {
             template.add_kind_of(KindOf::ImmuneToCapture);
             template.immune_to_capture = true;
         }
+        if has_kind("defensive_wall") {
+            template.add_kind_of(KindOf::DefensiveWall);
+        }
+        if has_kind("can_see_through") || has_kind("can_see_through_structure") {
+            template.add_kind_of(KindOf::CanSeeThrough);
+        }
     }
 
     /// Preserve the exact DockUpdate and normal-containment slice that the
@@ -2860,6 +2866,18 @@ impl GameLogic {
             geom.authored = true;
         }
         template.geometry_info = geom;
+        if let Some(v) = Self::object_definition_attr(definition, "fencewidth")
+            .as_deref()
+            .and_then(parse_real)
+        {
+            template.fence_width = v;
+        }
+        if let Some(v) = Self::object_definition_attr(definition, "fencexoffset")
+            .as_deref()
+            .and_then(parse_real)
+        {
+            template.fence_x_offset = v;
+        }
     }
     /// C++ Object.cpp:160-497 builds weapons and modules from ThingTemplate
     /// INI data, not from unit-name residuals.  Capture the create-time

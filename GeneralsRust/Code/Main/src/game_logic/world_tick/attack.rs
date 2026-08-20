@@ -1283,7 +1283,7 @@ impl GameLogic {
                     if !v.is_alive() || v.status.destroyed {
                         return AttackAimResult::Failure;
                     }
-                    let aim = if host_template_is_bridge(&v.template_name)
+                    let raw = if host_template_is_bridge(&v.template_name)
                         || v.template_name.eq_ignore_ascii_case("Bridge")
                     {
                         nearer_bridge_attack_point(
@@ -1294,6 +1294,12 @@ impl GameLogic {
                     } else {
                         v.get_position()
                     };
+                    if v.is_temporarily_preventing_aim_success(self.frame) {
+                        return AttackAimResult::Continue;
+
+                    }
+                    let aim = v.apply_sneaky_targeting_offset(raw, self.frame);
+
                     (
                         aim,
                         true,

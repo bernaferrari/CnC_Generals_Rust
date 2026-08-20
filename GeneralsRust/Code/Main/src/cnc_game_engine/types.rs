@@ -672,6 +672,18 @@ impl PendingWeaponCommand {
         const ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
         self.options & ATTACK_OBJECTS_POSITION != 0
     }
+    /// C++ `ALLOW_MINE_TARGET` (`Command.h` bit 11).
+    pub(super) fn allows_mine_target(&self) -> bool {
+        const ALLOW_MINE_TARGET: u32 = 0x0000_0800;
+        self.options & ALLOW_MINE_TARGET != 0
+    }
+
+    /// C++ `ALLOW_SHRUBBERY_TARGET` (`Command.h` bit 4).
+    pub(super) fn allows_shrubbery_target(&self) -> bool {
+        const ALLOW_SHRUBBERY_TARGET: u32 = 0x0000_0010;
+        self.options & ALLOW_SHRUBBERY_TARGET != 0
+    }
+
 }
 
 /// Parsed `COMBATDROP` targeting data retained while the player chooses a
@@ -729,6 +741,19 @@ pub(super) enum PendingMapCommand {
     /// Unit special-ability residual awaiting object/map click.
     UnitAbility(PendingUnitAbility),
 }
+
+impl PendingMapCommand {
+    /// Armed CommandButton option bits when the pending command retains them.
+    /// Attack-move / guard / rally have no pick-widening bits.
+    pub(super) fn command_option_bits(&self) -> Option<u32> {
+        match self {
+            Self::Weapon(weapon) => Some(weapon.options),
+            Self::CombatDrop(combat_drop) => Some(combat_drop.options),
+            _ => None,
+        }
+    }
+}
+
 
 /// What the active left-button gesture must do once it is released.
 ///
@@ -1119,6 +1144,8 @@ pub struct CnCGameEngine {
     pub(crate) camera_yaw_ease_in: f32,
     pub(crate) camera_yaw_ease_out: f32,
     pub(crate) camera_shake_offset: Vec3,
+    /// C++ CameraShakerSystem Compute_Rotations (pitch/yaw/roll radians).
+    pub(crate) camera_shake_rotation: Vec3,
     pub(crate) screen_shake_intensity: f32,
     pub(crate) screen_shake_angle_cos: f32,
     pub(crate) screen_shake_angle_sin: f32,
@@ -1181,6 +1208,12 @@ pub struct CnCGameEngine {
     /// requires the press and release to both be real OS mouse input; injected
     /// press/release pairs still execute normal gameplay but cannot qualify.
     pub(crate) rmb_scroll_started_physically: bool,
+    /// C++ `SelectionTranslator::m_lastClick` / `m_deselectFeedbackAnchor` /
+    /// `m_deselectDownCameraPosition` for the RMB click-vs-look-at gate.
+    pub(crate) rmb_deselect_down_at: Option<Instant>,
+    pub(crate) rmb_deselect_down_screen: Option<(f32, f32)>,
+    pub(crate) rmb_deselect_down_camera: Option<Vec3>,
+
     pub(crate) is_mmb_rotating: bool,
     pub(crate) mmb_anchor: Option<(f32, f32)>,
 

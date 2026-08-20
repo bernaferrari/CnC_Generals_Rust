@@ -484,6 +484,8 @@ impl Object {
             jet_circling_airfield_check_frame: 0,
             airfield_rearm_duration_frames: 0,
             return_to_base_requested: false,
+            jet_ai: HostJetAi::default(),
+
             airfield_parking_space_index: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,
@@ -1239,6 +1241,8 @@ impl Object {
             jet_circling_airfield_check_frame: 0,
             airfield_rearm_duration_frames: 0,
             return_to_base_requested: false,
+            jet_ai: HostJetAi::default(),
+
             airfield_parking_space_index: None,
             frenzy_invisible_marker: false,
             ambush_fade_in: false,

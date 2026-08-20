@@ -355,8 +355,12 @@ fn windowed_edge_scroll_residual() {
         "edge scroll residual must remain"
     );
     assert!(
-        !body.contains("if !self.is_windowed\n                && matches!(self.current_state, GameState::InGame | GameState::Paused)"),
-        "edge scroll must not be fullscreen-only"
+        body.contains("!self.is_windowed"),
+        "C++ LookAtXlat.cpp:277-293 edge-scrolls only when !windowed"
+    );
+    assert!(
+        src.contains("EDGE_SCROLL_SIZE: f32 = 3.0"),
+        "C++ edgeScrollSize is 3px"
     );
     assert!(
         body.contains("!self.chat_panel.is_open()")

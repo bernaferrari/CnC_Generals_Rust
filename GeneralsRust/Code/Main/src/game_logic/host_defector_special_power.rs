@@ -5,11 +5,10 @@
 //! DetectionTime defaults to DEFECTION_DETECTION_TIME_MAX (10s @ 30 FPS).
 //!
 //! Residual playability slice:
-//! - Change victim team to caster team
+//! - Change victim team to caster team / owner
 //! - Start undetected-defector timer with FX
+//! - Radar infiltration, aiIdle, VoiceDefect, kickOutOnCapture, parked/mines
 //! - Disabled caster skips
-//!
-//! Fail-closed: not full fat-cursor FOW reveal geometry / AI path hooks.
 
 use crate::game_logic::host_defection_helper::{
     DEFAULT_DEFECTION_PROTECTION_FRAMES, DEFECTION_DETECTION_TIME_MAX,
@@ -18,6 +17,10 @@ use serde::{Deserialize, Serialize};
 
 /// Default detection time residual frames.
 pub const DEFECTOR_DETECTION_FRAMES: u32 = DEFAULT_DEFECTION_PROTECTION_FRAMES;
+/// C++ ThingTemplate VoiceDefect residual.
+pub const DEFECTOR_VOICE_AUDIO: &str = "VoiceDefect";
+/// C++ MiscAudio DefectorTimerTickSound residual.
+pub const DEFECTOR_TIMER_TICK_AUDIO: &str = "DefectorTimerTickSound";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostDefectorSpecialPowerRegistry {

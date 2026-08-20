@@ -187,15 +187,33 @@ pub struct PresentationFrame {
     /// Pending camera zoom residual (zoom, duration).
     pub camera_zoom: Option<(f32, f32)>,
     pub camera_zoom_reset: bool,
+    /// RESET_CAMERA duration in seconds. 0 = snap (legacy).
+    #[serde(default)]
+    pub camera_zoom_reset_duration: f32,
+    /// RESET_CAMERA ease-in/out seconds.
+    #[serde(default)]
+    pub camera_zoom_reset_ease: (f32, f32),
+    /// CAMERA_ZOOM ease-in/out seconds.
+    #[serde(default)]
+    pub camera_zoom_ease: (f32, f32),
     /// Pending camera pitch residual (pitch, duration).
     pub camera_pitch: Option<(f32, f32)>,
+    /// CAMERA_PITCH ease-in/out seconds.
+    #[serde(default)]
+    pub camera_pitch_ease: (f32, f32),
     /// Pending camera rotate residual (rotations, duration).
     pub camera_rotate: Option<(f32, f32)>,
+    /// ROTATE_CAMERA ease-in/out seconds.
+    #[serde(default)]
+    pub camera_rotate_ease: (f32, f32),
     /// Pending look-toward residual.
     pub camera_look_toward: Option<[f32; 3]>,
     /// Seconds remaining for the pending look-toward rotate (0 = snap).
     #[serde(default)]
     pub camera_look_toward_duration: f32,
+    /// LOOK_TOWARD ease-in/out seconds.
+    #[serde(default)]
+    pub camera_look_toward_ease: (f32, f32),
     /// LOCK_TETHER play radius. None means LOCK_FOLLOW.
     #[serde(default)]
     pub camera_tether_play: Option<f32>,

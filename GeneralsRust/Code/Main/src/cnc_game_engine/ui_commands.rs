@@ -104,6 +104,26 @@ fn exact_parsed_structure_power_for_button(
 }
 
 impl CnCGameEngine {
+    /// C++ `TheInGameUI->getGUICommand()` option bits, or `None` when no
+    /// GUI command is armed (force-attack then uses current-selection pick).
+    pub(super) fn host_armed_gui_command_options(&self) -> Option<u32> {
+        if let Some(kind) = self.pending_map_command.as_ref() {
+            return Some(kind.command_option_bits().unwrap_or(0));
+        }
+        #[cfg(feature = "game_client")]
+        {
+            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_command() {
+                return Some(pending.options);
+            }
+            if let Some(pending) =
+                game_client::helpers::TheInGameUI::get_pending_special_power()
+            {
+                return Some(pending.options);
+            }
+        }
+        None
+    }
+
     /// Prime the immutable host-side barrel-topology catalogue for every
     /// Object template actually present in a freshly loaded world.
     ///

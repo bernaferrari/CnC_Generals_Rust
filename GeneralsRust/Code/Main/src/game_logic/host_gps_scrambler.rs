@@ -2,7 +2,7 @@
 //!
 //! Residual slice (playability):
 //! - `DoSpecialPower(GpsScrambler)` at a world location grants STEALTHED status to
-//!   same-team **VEHICLE|INFANTRY** in radius (retail SuperweaponGPSScrambler →
+//!   allied **VEHICLE|INFANTRY** in radius (retail SuperweaponGPSScrambler →
 //!   SUPERWEAPON_GPSScrambler → GPSScrambler_InvisibleMarker GrantStealthBehavior
 //!   receiveGrant() → OBJECT_STATUS_CAN_STEALTH + OBJECT_STATUS_STEALTHED).
 //! - FinalRadius residual 100 (RadiusCursorRadius / GrantStealth FinalRadius).
@@ -22,7 +22,7 @@
 //! - GrantStealthBehavior grow-radius pulse residual closed (Start 20 → Final 100)
 //! - C++ GrantStealthBehavior.cpp:170-179 only receiveGrant() when getStealth()
 //!   exists. Host proxy: innate_stealth / stealth module already present.
-//! - Not full ally relationship filter (uses same-team residual)
+//! - C++ PartitionFilterRelationship ALLOW_ALLIES (same player or allied players)
 //! - Not full particle / flashAsSelected drawable path
 //! - Not network GPS Scrambler replication (network deferred)
 //!
@@ -125,7 +125,7 @@ pub fn gps_scrambler_grow_is_final(update_index: u32) -> bool {
 /// Whether residual target can receive GPS Scrambler stealth grant.
 ///
 /// Retail GrantStealthBehavior + receiveGrant:
-/// - allies (host residual: same-team)
+/// - allies (C++ PartitionFilterRelationship ALLOW_ALLIES)
 /// - alive
 /// - KindOf VEHICLE | INFANTRY
 /// - not under construction residual
@@ -135,7 +135,7 @@ pub fn is_legal_gps_scrambler_target(
     is_vehicle: bool,
     is_infantry: bool,
     is_alive: bool,
-    same_team: bool,
+    is_ally: bool,
     under_construction: bool,
     is_disguise_unit: bool,
     has_stealth_module: bool,
@@ -143,7 +143,7 @@ pub fn is_legal_gps_scrambler_target(
     if !is_alive || under_construction || is_disguise_unit || !has_stealth_module {
         return false;
     }
-    if !same_team {
+    if !is_ally {
         return false;
     }
     is_vehicle || is_infantry
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn legal_gps_scrambler_target_matrix() {
-        // vehicle, infantry, alive, same_team, under_construction, disguise, stealth_module
+        // vehicle, infantry, alive, is_ally, under_construction, disguise, stealth_module
         assert!(is_legal_gps_scrambler_target(
             true, false, true, true, false, false, true
         ));

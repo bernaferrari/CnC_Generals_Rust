@@ -2,6 +2,35 @@
 use super::*;
 use crate::graphics::render_pipeline::CachedLighting;
 use crate::presentation_frame::PresentationWorldEnv;
+use super::mouse::{
+    airborne_look_at_ground, w3d_camera_constraint_offset, PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH,
+    SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW,
+};
+
+fn script_camera_shaker_rotations(shaker: &ScriptCameraShaker, camera_position: Vec3) -> Vec3 {
+    let dist = Vec2::new(
+        camera_position.x - shaker.epicenter.x,
+        camera_position.z - shaker.epicenter.z,
+    )
+    .length();
+    if dist > shaker.radius {
+        return Vec3::ZERO;
+    }
+    let distance_factor = (1.0 - dist / shaker.radius).clamp(0.0, 1.0);
+    let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
+    let intensity = (shaker.amplitude_degrees / 15.0).abs() * distance_factor * life;
+    if intensity <= f32::EPSILON {
+        return Vec3::ZERO;
+    }
+    let t = shaker.elapsed_seconds.max(0.0);
+    let omega = TAU * shaker.frequency_hz;
+    Vec3::new(
+        SHAKE_AXIS_PITCH * intensity * (omega * t + shaker.phase).sin(),
+        SHAKE_AXIS_YAW * intensity * (omega * 0.79 * t + shaker.phase * 1.37).sin(),
+        SHAKE_AXIS_ROLL * intensity * (omega * 1.17 * t + shaker.phase * 0.53).sin(),
+    )
+}
+
 
 /// Object-scene and terrain lighting resolved at the presentation/map
 /// activation boundary. They are intentionally independent: C++ selects
@@ -936,13 +965,29 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_camera_orbit_transform(&mut self) {
+        if self.camera_slave_mode.is_some() {
+            return;
+        }
         self.camera_pitch_radians = self
             .camera_pitch_radians
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
         self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
         let offset = self.camera_orbit_offset();
         self.camera_position = self.camera_target + offset + self.camera_shake_offset;
-        self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+        let shake = self.camera_shake_rotation;
+        if shake.length_squared() > 1.0e-8 {
+            let forward = (self.camera_target - self.camera_position)
+                .try_normalize()
+                .unwrap_or(Vec3::NEG_Z);
+            let rot = glam::Quat::from_rotation_y(shake.y)
+                * glam::Quat::from_rotation_x(shake.x)
+                * glam::Quat::from_rotation_z(shake.z);
+            let look = self.camera_position + rot * forward;
+            let up = rot * Vec3::Y;
+            self.view_matrix = Mat4::look_at_rh(self.camera_position, look, up);
+        } else {
+            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+        }
     }
 
     /// C++ `W3DView::buildCameraTransform` offset in Main's X/Z-ground basis.
@@ -1239,8 +1284,10 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_script_camera_shake(&mut self, dt: f32) -> bool {
-        let previous = self.camera_shake_offset;
+        let previous_offset = self.camera_shake_offset;
+        let previous_rot = self.camera_shake_rotation;
         let mut offset = Vec3::ZERO;
+        let mut rotation = Vec3::ZERO;
 
         if self.screen_shake_intensity > 0.01 {
             offset.x += self.screen_shake_intensity * self.screen_shake_angle_cos;
@@ -1264,8 +1311,6 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            // FXList ViewShake writes THE_TACTICAL_VIEW; fold that impulse into
-            // the wgpu camera so explosions shake the live view like C++ W3DView.
             game_client::display::view::with_tactical_view_ref(|view| {
                 let impulse = view.impulse_shake_offset();
                 offset.x += impulse.x;
@@ -1275,37 +1320,16 @@ impl CnCGameEngine {
 
         let camera_position = self.camera_position;
         for shaker in &self.script_camera_shakers {
-            let dist = Vec2::new(
-                camera_position.x - shaker.epicenter.x,
-                camera_position.z - shaker.epicenter.z,
-            )
-            .length();
-            if dist > shaker.radius {
-                continue;
-            }
-
-            let distance_factor = (1.0 - dist / shaker.radius).clamp(0.0, 1.0);
-            let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
-            let amplitude_world = shaker.amplitude_degrees.to_radians().sin().abs()
-                * self.camera_orbit_distance.max(1.0)
-                * 0.5;
-            let magnitude = amplitude_world * distance_factor * life;
-            if magnitude <= f32::EPSILON {
-                continue;
-            }
-
-            let t = shaker.elapsed_seconds.max(0.0);
-            let omega = TAU * shaker.frequency_hz;
-            let phase_a = shaker.phase + omega * t;
-            let phase_b = shaker.phase * 1.37 + omega * 0.79 * t;
-
-            offset.x += phase_a.sin() * magnitude;
-            offset.z += phase_a.cos() * magnitude;
-            offset.y += phase_b.sin() * magnitude * 0.2;
+            rotation += script_camera_shaker_rotations(shaker, camera_position);
         }
+        rotation.x = rotation.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH);
+        rotation.y = rotation.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW);
+        rotation.z = rotation.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL);
 
         self.camera_shake_offset = offset;
-        (self.camera_shake_offset - previous).length_squared() > 0.000001
+        self.camera_shake_rotation = rotation;
+        (self.camera_shake_offset - previous_offset).length_squared() > 0.000001
+            || (self.camera_shake_rotation - previous_rot).length_squared() > 1.0e-8
     }
 
     pub(super) fn normalize_signed_angle(mut angle: f32) -> f32 {
@@ -1389,8 +1413,29 @@ impl CnCGameEngine {
     }
 
     pub(super) fn host_center_camera_on(&mut self, world_pos: Vec3) {
-        // Wave 611: host residual helper.
-        let clamped = self.clamp_to_world_bounds(world_pos);
+        let mut look = world_pos;
+        let ground_height = self.sample_presentation_height_under(look);
+        // C++ W3DView::lookAt: elevated targets ray-cast onto the heightmap.
+        if world_pos.y > PATHFIND_CELL_SIZE_F + ground_height {
+            let (world_min, world_max) = self.presentation_world_bounds();
+            let env = self
+                .render_pipeline
+                .presentation_frame()
+                .or(self.last_presentation_frame.as_ref())
+                .map(|f| &f.world_env);
+            if let Some(hit) = airborne_look_at_ground(
+                self.camera_position,
+                world_pos,
+                DEFAULT_VIEW_FAR_CLIP,
+                world_min,
+                world_max,
+                env,
+            ) {
+                look.x = hit.x;
+                look.z = hit.z;
+            }
+        }
+        let clamped = self.clamp_to_world_bounds(look);
         let ground_height = self.sample_presentation_height_under(clamped);
         self.camera_target.x = clamped.x;
         self.camera_target.y = ground_height;
@@ -1656,8 +1701,27 @@ impl CnCGameEngine {
     pub(super) fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
         // Wave 461: presentation-first bounds via shared probe.
         let (world_min, world_max) = self.presentation_world_bounds();
-        position.x = position.x.clamp(world_min.x, world_max.x);
-        position.z = position.z.clamp(world_min.z, world_max.z);
+        let size = self.window.inner_size();
+        let inset = w3d_camera_constraint_offset(
+            self.view_matrix,
+            self.projection_matrix,
+            (size.width as f32, size.height as f32),
+            position.y,
+        );
+        let lo_x = world_min.x + inset;
+        let hi_x = world_max.x - inset;
+        let lo_z = world_min.z + inset;
+        let hi_z = world_max.z - inset;
+        if lo_x <= hi_x {
+            position.x = position.x.clamp(lo_x, hi_x);
+        } else {
+            position.x = (world_min.x + world_max.x) * 0.5;
+        }
+        if lo_z <= hi_z {
+            position.z = position.z.clamp(lo_z, hi_z);
+        } else {
+            position.z = (world_min.z + world_max.z) * 0.5;
+        }
         position
     }
 
@@ -1791,6 +1855,10 @@ impl CnCGameEngine {
         self.rmb_scroll_anchor = None;
         self.is_rmb_scrolling = false;
         self.rmb_scroll_started_physically = false;
+        self.rmb_deselect_down_at = None;
+        self.rmb_deselect_down_screen = None;
+        self.rmb_deselect_down_camera = None;
+
 
         for sink in &self.sound_effects {
             sink.stop();
@@ -1826,6 +1894,7 @@ impl CnCGameEngine {
         self.camera_zoom_ease_in = 0.0;
         self.camera_zoom_ease_out = 0.0;
         self.camera_shake_offset = Vec3::ZERO;
+        self.camera_shake_rotation = Vec3::ZERO;
         self.screen_shake_intensity = 0.0;
         self.screen_shake_angle_cos = 0.0;
         self.screen_shake_angle_sin = 0.0;
@@ -2111,6 +2180,62 @@ End
             "live ghost must carry C++ 0.45 opacity, illegal tint, and faction bibs"
         );
     }
+
+    #[test]
+    fn script_camera_shakers_rotate_not_translate() {
+        let src = include_str!("start_game.rs");
+        let start = src
+            .find("fn update_script_camera_shake")
+            .expect("update_script_camera_shake");
+        let body = &src[start..start + 1800];
+        assert!(
+            body.contains("script_camera_shaker_rotations")
+                && body.contains("camera_shake_rotation")
+                && body.contains("SHAKE_AXIS_PITCH"),
+            "C++ CameraShakerSystem Compute_Rotations must drive axis-capped rotation"
+        );
+        assert!(
+            !body.contains("offset.x += phase_a.sin() * magnitude"),
+            "script shakers must not translate the look-at"
+        );
+    }
+
+    #[test]
+    fn shaker_rotations_are_axis_capped() {
+        let shaker = ScriptCameraShaker {
+            epicenter: Vec3::ZERO,
+            radius: 500.0,
+            duration_seconds: 2.0,
+            elapsed_seconds: 0.1,
+            amplitude_degrees: 90.0,
+            phase: 0.0,
+            frequency_hz: 4.0,
+        };
+        let rot = script_camera_shaker_rotations(&shaker, Vec3::new(0.0, 50.0, 0.0));
+        assert!(rot.x.abs() <= SHAKE_AXIS_PITCH + 1.0e-5);
+        assert!(rot.y.abs() <= SHAKE_AXIS_YAW + 1.0e-5);
+        assert!(rot.z.abs() <= SHAKE_AXIS_ROLL + 1.0e-5);
+        assert!(rot.length_squared() > 0.0);
+    }
+
+    #[test]
+    fn look_at_uses_airborne_terrain_ray() {
+        let src = include_str!("start_game.rs");
+        let start = src
+            .find("fn host_center_camera_on")
+            .expect("host_center_camera_on");
+        let body = &src[start..start + 900];
+        assert!(
+            body.contains("airborne_look_at_ground")
+                && body.contains("PATHFIND_CELL_SIZE_F"),
+            "C++ W3DView::lookAt airborne ray must be live"
+        );
+        assert!(
+            src.contains("w3d_camera_constraint_offset"),
+            "clamp must use W3DView inset, not raw map extent"
+        );
+    }
+
 
 
 }

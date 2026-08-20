@@ -3187,3 +3187,151 @@ fn shock_stun_blocks_attack_fire_and_flail_move() {
     assert!(o.can_fire(2.0));
     assert!(o.can_move());
 }
+
+#[test]
+fn jet_stop_idle_timer_sneaky_and_lockon() {
+    use crate::game_logic::object::{
+        HostJetPendingResume, JetAiTickAction, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let mut aurora_t = ThingTemplate::new("AmericaJetAurora");
+    aurora_t.add_kind_of(KindOf::Aircraft);
+    let mut aurora = Object::new(aurora_t, ObjectId(1), Team::USA);
+    aurora.set_position(Vec3::new(0.0, 50.0, 0.0));
+    aurora.status.airborne_target = true;
+    aurora.set_ai_state(AIState::Idle);
+    aurora.status.attacking = true;
+    let persist = aurora.tick_jet_ai_update(10);
+    assert_eq!(persist, JetAiTickAction::None);
+    aurora.status.attacking = false;
+    aurora.set_ai_state(AIState::Idle);
+    let _ = aurora.tick_jet_ai_update(11);
+    assert_eq!(
+        aurora.jet_ai.return_to_base_frame,
+        11 + crate::game_logic::host_aurora_bomb::AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
+    );
+    aurora.jet_ai.return_to_base_frame = 12;
+    assert_eq!(aurora.tick_jet_ai_update(12), JetAiTickAction::ReturnToBase);
+    aurora.notify_jet_victim_is_dead(40);
+    assert_eq!(aurora.jet_ai.return_to_base_frame, 40);
+
+    aurora.status.attacking = true;
+    let _ = aurora.tick_jet_ai_update(50);
+    let off = aurora.get_sneaky_targeting_offset(50).expect("sneaky");
+    assert!((off.length() - 20.0).abs() < 0.01);
+
+    let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
+    sf_t.add_kind_of(KindOf::Aircraft);
+    let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
+    sf.set_position(Vec3::new(10.0, 40.0, 0.0));
+    sf.add_jet_targeter(ObjectId(9), true, 100);
+    assert!(sf.is_temporarily_preventing_aim_success(100));
+    assert!(!sf.is_temporarily_preventing_aim_success(100 + STEALTH_FIGHTER_LOCKON_TIME_FRAMES));
+    let _ = sf.tick_jet_ai_update(101);
+    assert!(sf.jet_ai.lockon_pos.is_some());
+
+    let mut raptor_t = ThingTemplate::new("AmericaJetRaptor");
+    raptor_t.add_kind_of(KindOf::Aircraft);
+    raptor_t.primary_weapon_name = Some("HostTestRaptorJetMissileWeapon".into());
+    let mut raptor = Object::new(raptor_t, ObjectId(3), Team::USA);
+    raptor.status.airborne_target = true;
+    raptor.set_ai_state(AIState::GuardingArea);
+    raptor.mark_jet_command_for_reload_interrupt(true);
+    raptor.weapon = Some(crate::game_logic::Weapon {
+        ammo: Some(0),
+        clip_size: 2,
+        ..crate::game_logic::Weapon::default()
+    });
+
+    assert!(raptor.needs_return_to_base_rearm());
+    assert!(raptor.jet_empty_clip_should_auto_rtb());
+    assert_eq!(raptor.tick_jet_ai_update(3), JetAiTickAction::ReturnToBase);
+    assert!(raptor.jet_ai.has_pending_command);
+    assert_eq!(raptor.jet_ai.pending_resume, HostJetPendingResume::GuardArea);
+
+    raptor.set_ai_state(AIState::Attacking);
+    raptor.target = Some(ObjectId(9));
+    raptor.jet_ai.allow_interrupt_for_reload = false;
+    raptor.jet_ai.has_pending_command = false;
+    assert!(!raptor.jet_empty_clip_should_auto_rtb());
+}
+
+#[test]
+fn jet_takeoff_pause_afterburner_and_lift_ramp() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("AmericaJetRaptor");
+    t.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(t, ObjectId(4), Team::USA);
+    jet.max_lift = 8.0;
+    jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+    jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
+    assert!(jet.jet_ai.afterburners_on);
+    assert!(jet.jet_ai.takeoff_in_progress);
+    assert_eq!(jet.max_lift, 0.0);
+    assert!(!jet.jet_should_transfer_runway(0));
+    assert!(jet.jet_should_transfer_runway(1));
+    let _ = jet.tick_jet_takeoff_lift(1);
+    jet.set_position(Vec3::new(50.0, 0.0, 0.0));
+    let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
+    assert!(jet.max_lift > 0.0 && jet.max_lift < 8.0, "lift={}", jet.max_lift);
+}
+
+#[test]
+fn jet_stop_and_enter_airfield_land() {
+    use crate::game_logic::{GameLogic, KindOf, ParkingPlaceMetadata, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut af_t = ThingTemplate::new("AmericaAirfield");
+    af_t.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSAirfield)
+        .set_health(1000.0);
+    af_t.parking_place = Some(ParkingPlaceMetadata {
+        num_rows: 2,
+        num_cols: 2,
+        approach_height: 50.0,
+        landing_deck_height_offset: 0.0,
+        has_runways: true,
+        park_in_hangars: false,
+        heal_amount_per_second: 10.0,
+    });
+    logic.templates.insert("AmericaAirfield".into(), af_t);
+    let mut jet_t = ThingTemplate::new("AmericaJetRaptor");
+    jet_t.add_kind_of(KindOf::Aircraft).set_health(80.0);
+    logic.templates.insert("AmericaJetRaptor".into(), jet_t);
+    let af = logic
+        .create_object("AmericaAirfield", Team::USA, Vec3::ZERO)
+        .expect("af");
+    let jet = logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(80.0, 40.0, 0.0))
+        .expect("jet");
+    {
+        let j = logic.objects.get_mut(&jet).unwrap();
+        j.status.airborne_target = true;
+        j.owner_player_id = Some(0);
+        j.producer_id = Some(af);
+        j.set_ai_state(AIState::Attacking);
+        j.target = Some(ObjectId(99));
+    }
+    assert!(logic.unit_command_stop(jet));
+    let j = logic.objects.get(&jet).unwrap();
+    assert!(
+        j.return_to_base_requested || j.contained_by == Some(af) || j.ai_state == AIState::Moving
+    );
+
+    let jet2 = logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(10.0, 40.0, 0.0))
+        .expect("jet2");
+    {
+        let j = logic.objects.get_mut(&jet2).unwrap();
+        j.status.airborne_target = true;
+        j.health.current = 20.0;
+        j.owner_player_id = Some(0);
+    }
+    assert!(logic.do_jet_landing_command(jet2, af));
+}
+
+
+

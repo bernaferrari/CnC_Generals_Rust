@@ -1884,6 +1884,81 @@ fn kill_grants_player_skill_points_residual() {
 }
 
 #[test]
+fn civilian_and_ignored_in_gui_kills_grant_no_rank_points() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    if let Some(p) = logic.get_player_mut_by_team(Team::USA) {
+        p.skill_points = 0;
+        p.rank_level = 1;
+        p.alliance_team = 1;
+    }
+    if let Some(p) = logic.get_player_mut_by_team(Team::GLA) {
+        p.alliance_team = 2;
+    }
+    let mut civ_player = Player::new(9, Team::Neutral, "Civilian", false);
+    civ_player.is_alive = true;
+    civ_player.alliance_team = 2;
+    logic.players.insert(9, civ_player);
+
+    let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+    ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), ranger);
+    let mut civ = ThingTemplate::new("Civilian");
+    civ.add_kind_of(KindOf::Infantry).set_health(50.0);
+    civ.experience_value = 20.0;
+    civ.experience_values = [20.0, 20.0, 40.0, 60.0];
+    logic.templates.insert("Civilian".into(), civ);
+    let mut dummy = ThingTemplate::new("AngryMobNexus");
+    dummy.add_kind_of(KindOf::Infantry);
+    dummy.add_kind_of(KindOf::IgnoredInGui);
+    dummy.set_health(50.0);
+    dummy.experience_value = 20.0;
+    dummy.experience_values = [20.0, 20.0, 40.0, 60.0];
+    logic.templates.insert("AngryMobNexus".into(), dummy);
+
+    let killer = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("killer");
+    let civilian = logic
+        .create_object("Civilian", Team::Neutral, glam::Vec3::new(10.0, 0.0, 0.0))
+        .expect("civ");
+    let ignored = logic
+        .create_object(
+            "AngryMobNexus",
+            Team::GLA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("ignored");
+    if let Some(v) = logic.host_object_mut(civilian) {
+        v.last_damage_source = Some(killer);
+        v.owner_player_id = Some(9);
+    }
+    if let Some(v) = logic.host_object_mut(ignored) {
+        v.last_damage_source = Some(killer);
+    }
+
+    logic.mark_object_for_destruction(civilian, Some(Team::USA));
+    logic.process_destroy_list();
+    logic.mark_object_for_destruction(ignored, Some(Team::USA));
+    logic.process_destroy_list();
+
+    let p = logic.get_player_by_team(Team::USA).expect("usa");
+    assert_eq!(
+        p.skill_points, 0,
+        "civilian and IGNORED_IN_GUI kills must not grant rank points"
+    );
+    let _ = killer;
+}
+
+#[test]
 fn science_purchase_spends_points_not_supplies() {
     use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
         is_capable_of_purchasing_science_residual, science_purchase_point_cost_residual,

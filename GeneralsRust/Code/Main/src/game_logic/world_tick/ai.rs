@@ -258,6 +258,10 @@ impl GameLogic {
                     }
                 }
             }
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.poll_slow_death_phase_fx(self.frame);
+            }
+            self.sync_helicopter_attach_particle(object_id);
             // Wave 777: under coupled shadow, StructureTopple crush sweep is owned by
             // GW tick_status_timer_expirations + host_structure_topple_crush_log drain.
             if !(crate::gameworld_shadow::gameworld_shadow_enabled()
@@ -344,6 +348,33 @@ impl GameLogic {
                                         .with_priority(130),
                                 );
                             }
+                        }
+                    }
+                    if let Some(old) = ev.clear_old_state {
+                        if let Some(cfg) = self
+                            .objects
+                            .get_mut(&object_id)
+                            .and_then(|o| o.transition_damage_fx.as_mut())
+                        {
+                            for id in cfg.take_attached_ids(old) {
+                                self.combat_particles.deactivate(id);
+                            }
+                        }
+                    }
+                    if !ev.particles.is_empty() {
+                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles(
+                            &mut self.combat_particles,
+                            &ev.particles,
+                            pos,
+                            self.frame,
+                            object_id,
+                        );
+                        if let Some(cfg) = self
+                            .objects
+                            .get_mut(&object_id)
+                            .and_then(|o| o.transition_damage_fx.as_mut())
+                        {
+                            cfg.store_attached_ids(ev.new_state, ids);
                         }
                     }
                 }
@@ -742,6 +773,29 @@ impl GameLogic {
             .collect();
         for id in due {
             let _ = self.detonate_mine_internal(id, HostMineDetonateReason::Killed);
+        }
+    }
+
+    /// C++ HelicopterSlowDeath beginSlowDeath attachParticle + follow object.
+    fn sync_helicopter_attach_particle(&mut self, id: ObjectId) {
+        let pos = self.objects.get(&id).map(|o| o.get_position());
+        let Some(pos) = pos else {
+            return;
+        };
+        let Some(mut h) = self
+            .objects
+            .get_mut(&id)
+            .and_then(|o| o.helicopter_slow_death.take())
+        else {
+            return;
+        };
+        if h.pending_attach {
+            h.spawn_attach_particle(&mut self.combat_particles, pos, self.frame, id);
+        } else if h.is_active() || h.attach_system_id.is_some() {
+            h.sync_attach_particle_position(&mut self.combat_particles, pos);
+        }
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.helicopter_slow_death = Some(h);
         }
     }
 }

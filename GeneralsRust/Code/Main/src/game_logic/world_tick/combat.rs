@@ -4,9 +4,8 @@ use super::super::*;
 impl GameLogic {
     pub(crate) fn update_combat(&mut self, object_ids: &[ObjectId], _dt: f32) {
         for &attacker_id in object_ids {
-            // RETURN_TO_BASE residual: attempt airfield rearm before fire checks.
-            // Out-of-ammo HP drip is applied once per frame in tick_out_of_ammo_jet_damage.
-            let _ = self.try_return_to_base_rearm(attacker_id);
+            // Empty-clip RTB is JetAI (guard/hunt interrupt or idle), not every attack.
+
             // Early gates + docked/garrisoned flags in one immutable scope.
             let (docked_sortie, docked_passenger, garrisoned) = {
                 let Some(attacker) = self.objects.get(&attacker_id) else {
@@ -221,20 +220,33 @@ impl GameLogic {
 
             // Standard object-to-object attack.
             if let Some(target_id) = target_id {
-                let target_status = self
-                    .objects
-                    .get(&target_id)
-                    .map(|target| (target.is_alive(), target.get_position()));
+                let target_status = self.objects.get(&target_id).map(|target| {
+                    (
+                        target.is_alive(),
+                        target.apply_sneaky_targeting_offset(target.get_position(), self.frame),
+                        target.is_temporarily_preventing_aim_success(self.frame),
+                    )
+                });
 
-                let Some((target_alive, target_position)) = target_status else {
+                let Some((target_alive, target_position, lockon_block)) = target_status else {
                     self.stop_attack_decision_aware(attacker_id);
                     continue;
                 };
 
                 if !target_alive {
+                    if let Some(atk) = self.objects.get_mut(&attacker_id) {
+                        atk.notify_jet_victim_is_dead(self.frame);
+                    }
                     self.stop_attack_decision_aware(attacker_id);
                     continue;
                 }
+                if lockon_block {
+                    continue;
+                }
+                if let Some(tgt) = self.objects.get_mut(&target_id) {
+                    tgt.add_jet_targeter(attacker_id, true, self.frame);
+                }
+
 
                 // Choose a legal explicit/automatic combat slot, then fire.
                 // Stealthed + undetected: drop the engagement (C++ AIStates residual).

@@ -626,7 +626,9 @@ impl Object {
 
     /// C++ JetAIUpdate takeoff residual from ParkingPlace.
     ///
-    /// Clears hangar bookkeeping, lifts to ApproachHeight (**50**), marks airborne.
+    /// Clears hangar bookkeeping and marks airborne. Runway jets lift to
+    /// ApproachHeight here; helipad aircraft keep pad Y so
+    /// `HeliTakeoffOrLandingState` can climb the two-point path.
     /// Returns the airfield id that was left (if any).
     pub fn takeoff_from_airfield_parking(&mut self) -> Option<ObjectId> {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
@@ -638,12 +640,17 @@ impl Object {
         let af = self.contained_by.take();
         self.set_ai_state(AIState::Idle);
         self.status.airborne_target = true;
-        // Retail AmericaAirfield ApproachHeight residual.
-        use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-        let mut pos = self.get_position();
-        if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
-            pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
-            self.set_position(pos);
+        let helipad = crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+            &self.template_name,
+        );
+        if !helipad {
+            // Retail AmericaAirfield ApproachHeight residual (jets only).
+            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+            let mut pos = self.get_position();
+            if pos.y < PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT {
+                pos.y = PARKING_PLACE_AIRFIELD_APPROACH_HEIGHT;
+                self.set_position(pos);
+            }
         }
         af
     }

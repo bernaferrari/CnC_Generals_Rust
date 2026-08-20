@@ -78,9 +78,15 @@ impl GameLogic {
                     capture.source_pos[1],
                     capture.source_pos[2],
                 );
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                let target = capture
+                    .target_pos
+                    .map(|p| Vec3::new(p[0], p[1], p[2]));
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
                     &capture.selected_fx_name,
                     pos,
+                    target,
+                    0.0,
+                    0.0,
                 );
             }
         }
@@ -148,15 +154,17 @@ impl GameLogic {
         if capture.selected_fx_name.is_empty() {
             return;
         }
-        if !plan.fire_fx_falls_back_to_drawable_position {
-            return;
-        }
         let source_pos = Vec3::new(
             capture.source_pos[0],
             capture.source_pos[1],
             capture.source_pos[2],
         );
         let target_pos = self.resolved_visual_target_pos(capture);
+        // C++ handleWeaponFireFX plays at the FX bone when handled, else
+        // Weapon.cpp:934-939 doFXPos at drawable/contact `where`. Live host
+        // has no leftover bone matrix; source pos is the barrel-origin residual.
+        // spawn_weapon_fire_fx_named_ocl dispatches the authored FXList with
+        // victim secondary so Tracer/RayEffect nuggets run.
         let where_pos = if capture.is_contact_weapon {
             target_pos
         } else {
@@ -173,8 +181,6 @@ impl GameLogic {
             "",
             "",
         );
-        // C++ Weapon.cpp:934-939: unhandled FireFX → FXList::doFXPos at `where`.
-        let _ = crate::game_logic::dispatch_fx_list_at_pos(&capture.selected_fx_name, where_pos);
     }
 
     pub fn take_weapon_discharges_for_presentation(

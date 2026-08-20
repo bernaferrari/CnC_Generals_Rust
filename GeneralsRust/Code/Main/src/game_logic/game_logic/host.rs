@@ -7,6 +7,8 @@ use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
 use super::*;
+use super::HostHeliTakeoffOrLanding;
+
 
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
@@ -329,6 +331,10 @@ pub struct GameLogic {
     pub(super) airfield_runway_was_in_line: std::collections::HashMap<ObjectId, Vec<bool>>,
     /// Produced-at-helipad exits waiting for the next airfield tick (`HeliPark01` + rally).
     pub(super) airfield_pending_helipad_exits: std::collections::HashMap<ObjectId, ObjectId>,
+    /// C++ `HeliTakeoffOrLandingState` two-point climb/descent (NeedsRunway=No).
+    pub(super) heli_takeoff_or_landing:
+        std::collections::HashMap<ObjectId, HostHeliTakeoffOrLanding>,
+
     /// C++ FlightDeckBehavior runtime stalls / launch-wave / designated orders.
     pub(crate) flight_decks: std::collections::HashMap<
         ObjectId,
@@ -1200,6 +1206,9 @@ pub struct GameLogic {
     pub(super) script_time_frozen_by_script: bool,
     pub(super) pending_script_fps_limit: Option<i32>,
     pub(super) pending_camera_zoom_reset: bool,
+    pub(super) pending_camera_zoom_reset_duration: f32,
+    pub(super) pending_camera_zoom_reset_ease_in: f32,
+    pub(super) pending_camera_zoom_reset_ease_out: f32,
     pub(super) pending_camera_zoom: Option<CameraZoomRequest>,
     pub(super) pending_camera_pitch: Option<CameraPitchRequest>,
     pub(super) pending_camera_rotate: Option<CameraRotateRequest>,

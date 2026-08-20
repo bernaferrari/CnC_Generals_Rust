@@ -1182,6 +1182,22 @@ impl GameLogic {
                 continue;
             }
             obj.apply_body_damage_state_change_residual(prev, next);
+            let pos = obj.get_position();
+            let aflame = obj.has_object_status_bit("AFLAME")
+                || obj
+                    .fire_spread
+                    .as_ref()
+                    .is_some_and(|f| f.is_aflame());
+            let owner = ev.object;
+            let ordinal = ev.new_ordinal;
+            drop(obj);
+            self.combat_particles.replace_body_auto_particles(
+                owner,
+                pos,
+                self.frame,
+                ordinal,
+                aflame,
+            );
             n = n.saturating_add(1);
         }
         n
