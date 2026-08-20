@@ -602,6 +602,10 @@ fn fx_pos_cell_is_clear(primary: Option<&Coord3D>) -> bool {
     )
 }
 
+/// C++ `FXList::doFXObj` (FXList.cpp:794-797) skips when
+/// `primary && getShroudedStatus(localPlayer) > OBJECTSHROUD_PARTIAL_CLEAR`.
+/// Invalid local index (`< 0`) is fail-closed like PartitionManager's
+/// `playerIndex < 0` → `CELLSHROUD_SHROUDED` (hq-nyjgg).
 fn fx_obj_is_visible(primary: Option<&Object>) -> bool {
     let Some(primary) = primary else {
         return true;
@@ -609,10 +613,54 @@ fn fx_obj_is_visible(primary: Option<&Object>) -> bool {
     use gamelogic::common::types::ObjectShroudStatus;
     let player = fx_local_player_index();
     if player < 0 {
-        return true;
+        return false;
     }
     let status = primary.get_shrouded_status(player);
     (status as u8) <= (ObjectShroudStatus::PartialClear as u8)
+}
+
+fn controlling_player_index(primary: &Object) -> i32 {
+    primary
+        .get_controlling_player()
+        .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+        .unwrap_or(-1)
+}
+
+/// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.
+fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_index: Option<i32>) {
+    use game_engine::common::audio::audio_event_rts::{
+        AudioEventRts, Coord3D as AudioCoord3D,
+    };
+    use game_engine::common::audio::game_audio::{
+        get_global_audio_manager, initialize_global_audio_manager,
+    };
+
+    if sound_name.is_empty() {
+        return;
+    }
+    let mut event = AudioEventRts::with_event_name(sound_name);
+    if let Some(pos) = position {
+        event.set_position(&AudioCoord3D {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        });
+    }
+    if let Some(index) = player_index {
+        event.set_player_index(index);
+    }
+    let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+    let Ok(mut manager) = manager.lock() else {
+        return;
+    };
+    if let Some(info) = manager
+        .find_audio_event_info(event.get_event_name())
+        .or_else(|| manager.new_audio_event_info(event.get_event_name().to_string()))
+    {
+        event.set_audio_event_info(info.clone());
+        event.set_volume(info.volume);
+    }
+    let _ = manager.add_audio_event(&event);
 }
 pub struct FXList {
     nuggets: Vec<Box<dyn FXNugget>>,
@@ -1116,23 +1164,15 @@ impl FXNugget for SoundFXNugget {
     }
 
     fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
-        let position = primary.map(|obj| to_message_coord(obj.get_position()));
-        let routed = with_audio(|hook| {
-            hook(&self.sound_name, position);
-        });
-        if !routed {
-            if let Some(obj) = primary {
-                let pos = obj.get_position();
-                game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
-                    &self.sound_name,
-                    pos.x,
-                    pos.y,
-                    pos.z,
-                );
-            } else {
-                game_engine::common::audio::dispatch_ui_sound(&self.sound_name);
-            }
-        }
+        // C++ SoundFXNugget::doFXObj (FXList.cpp:90-99): setPlayerIndex +
+        // setPosition from the primary object, then TheAudio->addAudioEvent.
+        let player_index = primary.map(controlling_player_index);
+        let world_pos = primary.map(|obj| *obj.get_position());
+        play_sound_fx_event(
+            &self.sound_name,
+            world_pos.as_ref(),
+            player_index.filter(|&index| index >= 0),
+        );
     }
 
     fn sound_name(&self) -> Option<&str> {
@@ -1537,42 +1577,68 @@ impl FXNugget for ParticleSystemWrapper {
     }
 }
 
-#[derive(Default)]
 struct FXListAtBonePosFXNugget {
     fx_name: String,
     bone_name: String,
+    /// Parsed (C++ default true) but never read — always the bone world matrix.
     orient_to_bone: bool,
+}
+
+impl Default for FXListAtBonePosFXNugget {
+    fn default() -> Self {
+        Self {
+            fx_name: String::new(),
+            bone_name: String::new(),
+            orient_to_bone: true,
+        }
+    }
 }
 
 impl FXListAtBonePosFXNugget {
     const MAX_BONE_POINTS: usize = 40;
 
-    fn bone_query_names(&self) -> Vec<String> {
-        if self.bone_name.is_empty() {
-            return Vec::new();
+    /// C++ `W3DModelDraw::getCurrentBonePositions`: `start==0` is the
+    /// unadorned name only; `start>=1` walks `Name01`… until the first miss.
+    fn client_bone_name(prefix: &str, index: i32) -> String {
+        if index <= 0 {
+            prefix.to_string()
+        } else {
+            format!("{prefix}{index:02}")
         }
-
-        let mut names = Vec::with_capacity(Self::MAX_BONE_POINTS + 1);
-        names.push(self.bone_name.clone());
-        for index in 1..=Self::MAX_BONE_POINTS {
-            names.push(format!("{}{:02}", self.bone_name, index));
-        }
-        names
     }
 
-    fn execute_fx_at_bone(&self, fx: &FXList, primary: &Object, bone_name: &str) -> bool {
-        let (found, pos, bone_mtx) = primary.get_single_logical_bone_position(bone_name);
-        if !found {
-            return false;
-        }
-
-        let mtx = if self.orient_to_bone {
-            bone_mtx
+    fn client_bone_end_index(start: i32) -> i32 {
+        if start <= 0 {
+            0
         } else {
-            primary.get_transform_matrix()
+            Self::MAX_BONE_POINTS as i32
+        }
+    }
+
+    /// C++ `FXListAtBonePosFXNugget::doFxAtBones` (FXList.cpp:711-728).
+    fn do_fx_at_bones(&self, primary: &Object, start: i32, fx: &FXList) {
+        if self.bone_name.is_empty() {
+            return;
+        }
+        let Some(drawable) = primary.get_drawable() else {
+            return;
         };
-        fx.do_fx_pos(Some(&pos), Some(&mtx), 0.0, None, 0.0);
-        true
+        let Ok(draw) = drawable.read() else {
+            return;
+        };
+        let start = start.max(0);
+        let end = Self::client_bone_end_index(start);
+        for index in start..=end {
+            let bone_name = Self::client_bone_name(&self.bone_name, index);
+            let Some(bone_mtx) = draw.get_bone_local_transform(&bone_name) else {
+                break;
+            };
+            let (_, _, bone_pos) = bone_mtx.to_scale_rotation_translation();
+            let world = primary.convert_bone_pos_to_world_pos(Some(&bone_pos), Some(&bone_mtx));
+            let (_, _, world_pos) = world.to_scale_rotation_translation();
+            let _ = self.orient_to_bone;
+            fx.do_fx_pos(Some(&world_pos), Some(&world), 0.0, None, 0.0);
+        }
     }
 }
 
@@ -1596,9 +1662,9 @@ impl FXNugget for FXListAtBonePosFXNugget {
             return;
         };
 
-        for bone_name in self.bone_query_names() {
-            self.execute_fx_at_bone(&fx, primary, &bone_name);
-        }
+        // C++ doFXObj: unadorned name, then 01,02,… (FXList.cpp:682-686).
+        self.do_fx_at_bones(primary, 0, &fx);
+        self.do_fx_at_bones(primary, 1, &fx);
     }
 }
 
@@ -1640,27 +1706,68 @@ mod tests {
     }
 
     #[test]
-    fn fx_list_at_bone_pos_queries_cpp_bone_name_sequence() {
-        let nugget = FXListAtBonePosFXNugget {
-            fx_name: "NestedFX".to_string(),
-            bone_name: "WeaponFireFXBone".to_string(),
-            orient_to_bone: true,
-        };
-
-        let names = nugget.bone_query_names();
-
-        assert_eq!(names.first().map(String::as_str), Some("WeaponFireFXBone"));
-        assert_eq!(names.get(1).map(String::as_str), Some("WeaponFireFXBone01"));
-        assert_eq!(names.get(2).map(String::as_str), Some("WeaponFireFXBone02"));
-        assert_eq!(names.last().map(String::as_str), Some("WeaponFireFXBone40"));
-        assert_eq!(names.len(), FXListAtBonePosFXNugget::MAX_BONE_POINTS + 1);
+    fn fx_list_at_bone_pos_queries_cpp_current_client_bone_sequence() {
+        assert_eq!(
+            FXListAtBonePosFXNugget::client_bone_name("WeaponFireFXBone", 0),
+            "WeaponFireFXBone"
+        );
+        assert_eq!(
+            FXListAtBonePosFXNugget::client_bone_name("WeaponFireFXBone", 1),
+            "WeaponFireFXBone01"
+        );
+        assert_eq!(
+            FXListAtBonePosFXNugget::client_bone_name("WeaponFireFXBone", 40),
+            "WeaponFireFXBone40"
+        );
+        assert_eq!(FXListAtBonePosFXNugget::client_bone_end_index(0), 0);
+        assert_eq!(
+            FXListAtBonePosFXNugget::client_bone_end_index(1),
+            FXListAtBonePosFXNugget::MAX_BONE_POINTS as i32
+        );
+        assert!(FXListAtBonePosFXNugget::default().orient_to_bone);
     }
 
     #[test]
     fn fx_list_at_bone_pos_empty_name_queries_no_bones() {
         let nugget = FXListAtBonePosFXNugget::default();
+        assert!(nugget.bone_name.is_empty());
+        assert!(nugget.orient_to_bone);
+    }
 
-        assert!(nugget.bone_query_names().is_empty());
+    #[test]
+    fn fx_obj_is_visible_fail_closes_when_local_player_invalid() {
+        let prev_player = gamelogic::player::player_list()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player_index())
+            .unwrap_or(-1);
+        if let Ok(mut list) = gamelogic::player::player_list().write() {
+            list.set_local_player_index(-1);
+        }
+        assert!(
+            fx_obj_is_visible(None),
+            "C++ `if (primary && …)` plays when primary is null"
+        );
+        assert!(
+            fx_local_player_index() < 0,
+            "local player must be invalid for this gate"
+        );
+        if let Ok(mut players) = gamelogic::player::player_list().write() {
+            players.set_local_player_index(prev_player);
+        }
+    }
+
+    #[test]
+    fn sound_fx_nugget_do_fx_obj_sets_player_index_on_audio_event() {
+        let mut event = game_engine::common::audio::audio_event_rts::AudioEventRts::with_event_name(
+            "UnitDie",
+        );
+        event.set_player_index(3);
+        assert_eq!(event.get_player_index(), 3);
+        let nugget = SoundFXNugget {
+            sound_name: "UnitDie".to_string(),
+        };
+        nugget.do_fx_obj(None, None);
     }
 
     #[test]

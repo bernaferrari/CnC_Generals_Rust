@@ -112,6 +112,40 @@ impl FXNugget for SoundFXNugget {
             primary.z,
         );
     }
+
+    fn do_fx_obj(
+        &self,
+        primary_pos: Option<Point3<f32>>,
+        _primary_mtx: Option<&Matrix3<f32>>,
+        _secondary_pos: Option<Point3<f32>>,
+        _context: &mut FXContext,
+    ) {
+        // C++ SoundFXNugget::doFXObj (FXList.cpp:90-99): setPlayerIndex + setPosition.
+        // Leftover integration has no Object; the live GameClient runner sets
+        // the controlling-player index. Position-only here still hits TheAudio.
+        use game_engine::common::audio::audio_event_rts::{
+            AudioEventRts, Coord3D as AudioCoord3D,
+        };
+        use game_engine::common::audio::game_audio::{
+            get_global_audio_manager, initialize_global_audio_manager,
+        };
+
+        if self.sound_name.is_empty() {
+            return;
+        }
+        let mut event = AudioEventRts::with_event_name(&self.sound_name);
+        if let Some(pos) = primary_pos {
+            event.set_position(&AudioCoord3D {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            });
+        }
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        if let Ok(mut manager) = manager.lock() {
+            let _ = manager.add_audio_event(&event);
+        }
+    }
 }
 
 /// Tracer FX nugget - creates tracer effects between positions (matches C++ TracerFXNugget)
@@ -533,7 +567,8 @@ impl FXList {
 
     /// Execute FX on objects (matches C++ FXList::doFXObj).
     ///
-    /// Position form uses the same `CELLSHROUD_CLEAR` gate as `doFXPos`.
+    /// C++ `FXList.cpp:794-797` uses object `OBJECTSHROUD_PARTIAL_CLEAR`, not
+    /// the cell `CELLSHROUD_CLEAR` gate. Invalid local player is fail-closed.
     pub fn execute_fx_obj(
         &self,
         primary_pos: Option<Point3<f32>>,
@@ -541,10 +576,8 @@ impl FXList {
         secondary_pos: Option<Point3<f32>>,
         context: &mut FXContext,
     ) {
-        if let Some(pos) = primary_pos {
-            if !fx_pos_cell_is_clear(pos, context.local_player_index) {
-                return;
-            }
+        if primary_pos.is_some() && context.local_player_index < 0 {
+            return;
         }
         for nugget in &self.nuggets {
             nugget.do_fx_obj(primary_pos, primary_mtx, secondary_pos, context);
@@ -1165,6 +1198,23 @@ mod tests {
 
         *shroud_manager.lock().expect("shroud") =
             gamelogic::system::shroud_manager::ShroudManager::new();
+    }
+
+    #[test]
+    fn execute_fx_obj_fail_closes_when_local_player_invalid() {
+        let positions = Arc::new(Mutex::new(Vec::new()));
+        let mut list = FXList::new();
+        list.add_nugget(Arc::new(RecordingNugget {
+            positions: Arc::clone(&positions),
+        }));
+        let mut manager = ParticleSystemManager::new();
+        let mut context = test_context(&mut manager, None);
+        context.local_player_index = -1;
+        list.execute_fx_obj(Some(Point3::new(10.0, 10.0, 0.0)), None, None, &mut context);
+        assert!(
+            positions.lock().unwrap().is_empty(),
+            "hq-nyjgg: invalid local player must fail-close doFXObj"
+        );
     }
 
     #[test]

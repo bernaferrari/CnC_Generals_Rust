@@ -168,6 +168,41 @@ pub fn get_projected_shadow_manager() -> &'static RwLock<ProjectedShadowManager>
     PROJECTED_SHADOW_MANAGER.get_or_init(|| RwLock::new(ProjectedShadowManager::new()))
 }
 
+/// C++ `RadiusDecalTemplate::createRadiusDecal` (`RadiusDecal.cpp:53-66`):
+/// `TheProjectedShadowManager->addDecal` then setAngle/setColor/setPosition.
+/// Live host delivery rings must land here so `forward_render` flushDecals
+/// (`collect_render_items`) can draw strike rings.
+pub fn enqueue_delivery_decal(
+    texture: &str,
+    radius: Real,
+    x: Real,
+    y: Real,
+    z: Real,
+    color_rgb: [u8; 3],
+    opacity: Real,
+) -> Option<ShadowHandle> {
+    if texture.is_empty() || radius <= 0.0 {
+        return None;
+    }
+    let info = ShadowTypeInfo {
+        allow_updates: false,
+        allow_world_align: true,
+        shadow_type: SHADOW_ALPHA_DECAL,
+        shadow_name: AsciiString::from(texture),
+        size_x: radius * 2.0,
+        size_y: radius * 2.0,
+    };
+    let handle = get_projected_shadow_manager().write().add_decal(&info)?;
+    handle.set_angle(0.0);
+    let color = ((color_rgb[0] as u32) << 16)
+        | ((color_rgb[1] as u32) << 8)
+        | (color_rgb[2] as u32);
+    handle.set_color(color);
+    handle.set_position(x, y, z);
+    handle.set_opacity(real_to_int(opacity.clamp(0.0, 1.0) * 255.0));
+    Some(handle)
+}
+
 /// Template for radius decals (mirrors GameClient/RadiusDecalTemplate).
 #[derive(Debug, Clone)]
 pub struct RadiusDecalTemplate {
@@ -592,5 +627,38 @@ mod tests {
 
         handle.release();
         assert!(manager.collect_render_items().is_empty());
+    }
+
+    /// C++ RadiusDecal.cpp:61 addDecal — global manager must expose the ring
+    /// to Display/forward_render collect_render_items.
+    #[test]
+    fn enqueue_delivery_decal_is_visible_to_collect_render_items() {
+        let handle = enqueue_delivery_decal(
+            "SCCScudStorm_GLA",
+            200.0,
+            4242.5,
+            3.0,
+            4243.5,
+            [33, 255, 67],
+            0.25,
+        )
+        .expect("enqueue");
+        let items = get_projected_shadow_manager().read().collect_render_items();
+        assert!(
+            items.iter().any(|it| {
+                (it.position.x - 4242.5).abs() < 0.01
+                    && (it.position.y - 3.0).abs() < 0.01
+                    && (it.position.z - 4243.5).abs() < 0.01
+                    && (it.size - 400.0).abs() < 0.01
+                    && (it.color[3] - 0.25).abs() < 0.02
+            }),
+            "forward_render collect_render_items must see delivery ring"
+        );
+        handle.release();
+        get_projected_shadow_manager().write().cleanup();
+        let items = get_projected_shadow_manager().read().collect_render_items();
+        assert!(!items.iter().any(|it| {
+            (it.position.x - 4242.5).abs() < 0.01 && (it.position.z - 4243.5).abs() < 0.01
+        }));
     }
 }

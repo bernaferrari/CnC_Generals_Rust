@@ -304,9 +304,12 @@ pub struct PartitionManager {
     objects: HashMap<ObjectId, PartitionObject>,
     /// Contact list for collision detection
     contact_list: Vec<(ObjectId, ObjectId)>,
-    fogged_cells: HashMap<usize, HashSet<CellCoord>>,
+    /// C++ storeFoggedCells keyed by `(player_index, store_to_fog)`.
+    fogged_cells: HashMap<(usize, bool), HashSet<CellCoord>>,
     /// C++ PartitionCell shroud levels on the 40wu grid.
     pub(crate) shroud: super::partition_shroud::PartitionShroudGrid,
+    /// C++ `m_updatedSinceLastReset`.
+    updated_since_last_reset: bool,
 }
 
 impl PartitionManager {
@@ -317,8 +320,26 @@ impl PartitionManager {
             contact_list: Vec::new(),
             fogged_cells: HashMap::new(),
             shroud: super::partition_shroud::PartitionShroudGrid::new(),
+            updated_since_last_reset: false,
         }
     }
+
+    pub fn updated_since_last_reset(&self) -> bool {
+        self.updated_since_last_reset
+    }
+
+    pub fn mark_updated_since_last_reset(&mut self) {
+        self.updated_since_last_reset = true;
+    }
+
+    pub fn object_coi_cells(&self, id: ObjectId) -> Option<&[CellCoord]> {
+        self.objects.get(&id).map(|obj| obj.cells.as_slice())
+    }
+
+    pub fn has_known_shroud_cell(&self, x: i32, y: i32) -> bool {
+        self.shroud.has_known_cell(x, y)
+    }
+
 
     pub fn shutdown(&mut self) {
         self.clear();
@@ -954,11 +975,6 @@ impl PartitionManager {
         other_id: Option<ObjectId>,
         other_pos: &Coord3D,
     ) -> bool {
-        // Wave 324: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         let pos = if let Some(id) = obj_id {
             if let Some(p) = OBJECT_REGISTRY.with_object(id, |obj| *obj.get_position()) {
                 // Adjust z to top of collision shape (eye level).
@@ -1599,11 +1615,6 @@ impl PartitionManager {
     /// Get ground height plus tallest structure height at a position.
     /// Matches C++ PartitionManager::getGroundOrStructureHeight (PartitionManager.cpp:4674)
     pub fn get_ground_or_structure_height(&self, posx: f32, posy: f32) -> f32 {
-        // Wave 324: empty dual-world → 0.0.
-        if dual_world_registry_unavailable() {
-            return 0.0;
-        }
-
         let terrain_height = if let Ok(terrain) = get_terrain_logic().read() {
             terrain.get_ground_height(posx, posy, None)
         } else {
@@ -1737,28 +1748,41 @@ impl PartitionManager {
         )
     }
 
-    pub fn store_fogged_cells(&mut self, player_index: usize, _store_to_fog: bool) {
+    pub fn store_fogged_cells(&mut self, player_index: usize, store_to_fog: bool) {
+        let player = player_index as i32;
+        let mut cells = HashSet::new();
+        for (x, y) in self.shroud.iter_known_cells() {
+            match self.shroud.cell_status(player, x, y) {
+                game_engine::common::system::radar::CellShroudStatus::Fogged
+                    if store_to_fog =>
+                {
+                    cells.insert(CellCoord { x, y });
+                }
+                game_engine::common::system::radar::CellShroudStatus::Clear
+                    if !store_to_fog =>
+                {
+                    cells.insert(CellCoord { x, y });
+                }
+                _ => {}
+            }
+        }
         self.fogged_cells
-            .insert(player_index, self.cells.keys().copied().collect());
+            .insert((player_index, store_to_fog), cells);
     }
 
-    pub fn restore_fogged_cells(&self, player_index: usize, restore_to_fog: bool) {
-        let Some(cells) = self.fogged_cells.get(&player_index) else {
+    pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
+        let Some(cells) = self.fogged_cells.get(&(player_index, restore_to_fog)).cloned() else {
             return;
         };
-        let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() else {
-            return;
-        };
+        let player = player_index as i32;
         for cell in cells {
-            let center = self.get_cell_center_pos(cell.x, cell.y);
-            let c = glam::Vec3::new(center.x, center.y, center.z);
+            self.shroud.add_looker(player, cell.x, cell.y);
             if restore_to_fog {
-                shroud.undo_shroud_reveal(&c, PARTITION_CELL_SIZE, 1u32 << player_index);
-            } else {
-                shroud.do_shroud_reveal(&c, PARTITION_CELL_SIZE, 1u32 << player_index);
+                self.shroud.remove_looker(player, cell.x, cell.y);
             }
         }
     }
+
 
     /// Clear all data
     pub fn clear(&mut self) {
@@ -1766,6 +1790,7 @@ impl PartitionManager {
         self.objects.clear();
         self.contact_list.clear();
         self.shroud.clear();
+        self.updated_since_last_reset = false;
     }
 }
 

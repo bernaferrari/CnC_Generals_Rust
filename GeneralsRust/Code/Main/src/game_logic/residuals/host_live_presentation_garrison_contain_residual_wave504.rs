@@ -1,6 +1,7 @@
 //! Wave 504 residual peels: hide contained units; stamp GARRISONED on occupied structures.
 //! - `unit_render_inputs` skips objects with `contained_by`
 //! - `occupant_count > 0` stamps MODELCONDITION_GARRISONED
+//! - stealth hide: freeze zeros occupant_count for non-allies when hide_garrisoned_state
 //! Never flips shell `playable_claim`.
 //!
 //! Orthogonal to Wave 502–503 stealth/construction/disguise mesh residuals.

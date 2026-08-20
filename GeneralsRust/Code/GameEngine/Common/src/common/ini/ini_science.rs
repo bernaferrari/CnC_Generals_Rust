@@ -254,10 +254,73 @@ impl ScienceStore {
         names
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.sciences.is_empty()
+    }
+
     /// Find science info by science type
     /// Matches C++ ScienceStore::findScienceInfo from Science.cpp lines 124-135
-    fn find_science_info(&self, st: ScienceType) -> Option<&ScienceInfo> {
+    pub fn find_science_info(&self, st: ScienceType) -> Option<&ScienceInfo> {
         self.sciences.iter().find(|info| info.science == st)
+    }
+
+    /// C++ ScienceStore::playerHasPrereqsForScience (Science.cpp:257-275).
+    pub fn player_has_prereqs_for_science<F>(&self, has_science: &F, science: ScienceType) -> bool
+    where
+        F: Fn(ScienceType) -> bool,
+    {
+        let Some(info) = self.find_science_info(science) else {
+            return false;
+        };
+        info.prereq_sciences.iter().all(|&prereq| has_science(prereq))
+    }
+
+    /// C++ ScienceStore::playerHasRootPrereqsForScience (Science.cpp:278-296).
+    pub fn player_has_root_prereqs_for_science<F>(
+        &self,
+        has_science: &F,
+        science: ScienceType,
+    ) -> bool
+    where
+        F: Fn(ScienceType) -> bool,
+    {
+        let Some(info) = self.find_science_info(science) else {
+            return false;
+        };
+        if info.root_sciences.is_empty() {
+            return info.prereq_sciences.is_empty()
+                || info
+                    .prereq_sciences
+                    .iter()
+                    .all(|&prereq| has_science(prereq));
+        }
+        info.root_sciences.iter().all(|&root| has_science(root))
+    }
+
+    /// C++ ScienceStore::getPurchasableSciences (Science.cpp:301-329).
+    pub fn get_purchasable_sciences<F>(
+        &self,
+        has_science: &F,
+    ) -> (Vec<ScienceType>, Vec<ScienceType>)
+    where
+        F: Fn(ScienceType) -> bool,
+    {
+        let mut purchasable = Vec::new();
+        let mut potentially_purchasable = Vec::new();
+        for info in &self.sciences {
+            if info.science_purchase_point_cost == 0 {
+                continue;
+            }
+            if has_science(info.science) {
+                continue;
+            }
+            if self.player_has_prereqs_for_science(has_science, info.science) {
+                purchasable.push(info.science);
+            } else if self.player_has_root_prereqs_for_science(has_science, info.science) {
+                potentially_purchasable.push(info.science);
+            }
+        }
+        (purchasable, potentially_purchasable)
     }
 
     /// Find mutable science info by science type

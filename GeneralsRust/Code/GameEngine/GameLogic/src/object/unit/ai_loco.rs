@@ -799,6 +799,26 @@ impl UnitAIUpdate {
         }
         None
     }
+    pub(super) fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
+        let unit = get_unit_arc(self.unit_id)?;
+        let guard = unit.read().ok()?;
+        let pos = guard.get_position();
+        if let Some(path) = guard.current_path.as_ref() {
+            if !path.is_empty() {
+                let waypoints: Vec<Coord3D> = path
+                    .iter()
+                    .map(|p| Coord3D::new(p.x, p.y, pos.z))
+                    .collect();
+                return Some(
+                    crate::ai::pathfind_complete::peek_point_on_path_from_waypoints(
+                        &pos, &waypoints,
+                    ),
+                );
+            }
+        }
+        self.get_path_destination()
+    }
+
     pub(super) fn get_locomotor_distance_to_goal(&self) -> Real {
         let Some(unit) = get_unit_arc(self.unit_id) else {
             return 0.0;

@@ -470,7 +470,7 @@ impl GameLogic {
         // Spawn at primary (launcher) residual; smart-bomb course toward secondary.
         let id = self.create_object(&plan.projectile_template, team, primary)?;
         if let Some(o) = self.objects.get_mut(&id) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             let yaw = (secondary.z - primary.z).atan2(secondary.x - primary.x);
             o.set_orientation(yaw);
             // C++ NeutronMissileUpdate loft residual (preferred over flat smart-bomb).
@@ -1885,7 +1885,7 @@ impl GameLogic {
             o.nuke_shell_aim = Some([aim.x, aim.y, aim.z]);
             o.nuke_shell_launch_frame = Some(self.frame);
             o.nuke_shell_flight_frames = frames;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = NUKE_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, NUKE_SHELL_MAX_HEALTH);
         }

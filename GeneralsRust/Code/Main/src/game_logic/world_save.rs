@@ -28,6 +28,15 @@ impl GameLogic {
 
     pub fn set_weather_visible(&mut self, visible: bool) {
         self.weather_state.visible = visible;
+        #[cfg(feature = "game_client")]
+        {
+            // C++ ScriptActions.cpp:3804 TheSnowManager->setVisible(showWeather)
+            let snow = game_client::snow::get_snow_manager()
+                .unwrap_or_else(game_client::snow::initialize_snow_manager);
+            if let Ok(mut guard) = snow.lock() {
+                guard.set_visible(visible);
+            }
+        }
     }
 
     pub fn queue_pending_special_ability(
@@ -265,19 +274,42 @@ impl GameLogic {
     }
 
     /// Snapshot map bridge spans converted to runtime world-space vectors for visual road parity.
+    ///
+    /// C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`) looks up
+    /// `TheTerrainRoads->findBridge` and uses `BridgeModelName` + `BridgeScale`
+    /// plus the four `TowerObjectName*` slots. Freeze that authored identity
+    /// here so presentation bake cannot invent granite `RoadType::StoneBridge`.
     pub fn terrain_bridge_segments_snapshot(&self) -> Vec<(Vec3, Vec3, f32, String)> {
         let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
             return Vec::new();
         };
+        let roads = game_engine::common::ini::try_get_terrain_roads();
         terrain
             .bridge_data_snapshot()
             .into_iter()
             .map(|bridge| {
+                let identity = roads
+                    .as_ref()
+                    .and_then(|roads| roads.find_bridge(&bridge.template_name))
+                    .map(|tmpl| {
+                        encode_authored_bridge_visual(
+                            &bridge.template_name,
+                            tmpl.bridge_model_name.as_str(),
+                            tmpl.bridge_scale,
+                            [
+                                tmpl.tower_object_name[0].as_str(),
+                                tmpl.tower_object_name[1].as_str(),
+                                tmpl.tower_object_name[2].as_str(),
+                                tmpl.tower_object_name[3].as_str(),
+                            ],
+                        )
+                    })
+                    .unwrap_or(bridge.template_name);
                 (
                     Vec3::new(bridge.from.x, bridge.from.z, bridge.from.y),
                     Vec3::new(bridge.to.x, bridge.to.z, bridge.to.y),
                     bridge.width,
-                    bridge.template_name,
+                    identity,
                 )
             })
             .collect()
@@ -389,6 +421,7 @@ impl GameLogic {
                 0,
             );
             self.terrain = Some(terrain);
+            self.copy_crate_water_into_host_terrain();
             self.seed_pathfinding_from_terrain();
             self.pathfinding_system
                 .apply_structure_static_blocks(&self.objects);
@@ -397,6 +430,15 @@ impl GameLogic {
         #[cfg(not(feature = "game_client"))]
         {
             true
+        }
+    }
+
+    /// Copy crate `TerrainLogic` water handles/polygons into live host
+    /// `TerrainData.water_plane_y` / water polygons.
+    /// C++ `TerrainLogic::isUnderwater` / `getWaterHandle` (TerrainLogic.cpp:2119-2160).
+    fn copy_crate_water_into_host_terrain(&mut self) {
+        if let Some(terrain) = self.terrain.as_mut() {
+            terrain.copy_water_from_global_crate_terrain_logic();
         }
     }
 
@@ -1511,6 +1553,8 @@ impl GameLogic {
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
         log::info!("Starting new game: {:?}", mode);
+        // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
+        clear_live_campaign_victorious_for_new_game();
         self.reset();
         self.game_mode = mode;
         // C++ GameLogic.cpp:1606 TheVictoryConditions->setVictoryConditions(VICTORY_NOBUILDINGS)
@@ -1544,6 +1588,7 @@ impl GameLogic {
             self.set_install_multiplayer_scripts(true);
         }
         log::info!("New game started successfully");
+        crate::command_system::tap_host_new_game_for_recorder(mode);
     }
 
     pub fn game_mode(&self) -> GameMode {
@@ -1672,6 +1717,7 @@ impl GameLogic {
             terrain.reset();
             terrain.load_map_data(map_data);
         }
+        self.copy_crate_water_into_host_terrain();
         log::info!(
             "Legacy terrain sync finished for '{}' in {:.2}s",
             map_path.display(),
@@ -1905,6 +1951,7 @@ impl GameLogic {
                     );
                 }
             }
+        self.copy_crate_water_into_host_terrain();
         } else {
             log::info!(
                 "Fast legacy runtime sync skipped terrain write for '{}' (no payload) in {:.2}s",
@@ -2322,6 +2369,78 @@ impl GameLogic {
                         player.set_map_relationship(aid, gamelogic::common::Relationship::Allies);
                     }
                 }
+            }
+        }
+        // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
+        self.apply_challenge_the_player_relationships();
+    }
+
+    /// Copy dummy ThePlayer alliances onto the local Challenge general.
+    pub(super) fn apply_challenge_the_player_relationships(&mut self) {
+        if !game_engine::System::capture_campaign_manager_runtime().is_challenge {
+            return;
+        }
+        if !matches!(self.game_mode, GameMode::SinglePlayer) {
+            return;
+        }
+        use gamelogic::common::Relationship;
+        let Some(local_id) = self
+            .players
+            .iter()
+            .find(|(_, player)| player.is_local)
+            .map(|(&id, _)| id)
+        else {
+            return;
+        };
+        let the_player_id = self.players.iter().find(|(_, player)| {
+            player.map_side.map_player_name.eq_ignore_ascii_case("ThePlayer")
+                || player.name.eq_ignore_ascii_case("ThePlayer")
+        }).map(|(&id, _)| id);
+
+        if let Some(placeholder_id) = the_player_id {
+            let enemy_ids: Vec<u32> = self
+                .players
+                .keys()
+                .copied()
+                .filter(|&id| {
+                    id != placeholder_id
+                        && self
+                            .players
+                            .get(&placeholder_id)
+                            .and_then(|player| player.map_relationship(id))
+                            == Some(Relationship::Enemies)
+                })
+                .collect();
+            for eid in enemy_ids {
+                if let Some(enemy) = self.players.get_mut(&eid) {
+                    enemy.set_map_relationship(local_id, Relationship::Enemies);
+                }
+                if let Some(local) = self.players.get_mut(&local_id) {
+                    local.set_map_relationship(eid, Relationship::Enemies);
+                }
+            }
+            return;
+        }
+
+        let ids: Vec<u32> = self.players.keys().copied().collect();
+        for id in ids {
+            let rel = if id == local_id {
+                Relationship::Allies
+            } else {
+                let player = &self.players[&id];
+                let name = player.map_side.map_player_name.as_str();
+                let civilian_or_neutral = player.team == Team::Neutral
+                    || name.eq_ignore_ascii_case("PlyrCivilian")
+                    || name.to_ascii_lowercase().contains("civilian")
+                    || name.to_ascii_lowercase().contains("neutral");
+                if civilian_or_neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            };
+            if let Some(local) = self.players.get_mut(&local_id) {
+                local.set_map_relationship(id, rel);
             }
         }
     }
@@ -2977,6 +3096,7 @@ impl GameLogic {
                                 self.world_max,
                                 border,
                             ));
+                            self.copy_crate_water_into_host_terrain();
                             if let Some(meta) = self.last_map_settings.clone() {
                                 let spawned_map_object_ids = self.spawned_map_object_ids.clone();
                                 self.ground_loaded_map_objects_to_terrain(
@@ -3061,6 +3181,7 @@ impl GameLogic {
                                 border,
                             );
                             self.terrain = Some(terrain);
+                            self.copy_crate_water_into_host_terrain();
                             if let Some(meta) = self.last_map_settings.clone() {
                                 let spawned_map_object_ids = self.spawned_map_object_ids.clone();
                                 self.ground_loaded_map_objects_to_terrain(
@@ -3180,6 +3301,20 @@ impl GameLogic {
     }
 }
 
+/// Presentation identity for C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`).
+/// Unit-separated so map template names stay unambiguous.
+pub(crate) fn encode_authored_bridge_visual(
+    template_name: &str,
+    model_name: &str,
+    scale: f32,
+    towers: [&str; 4],
+) -> String {
+    format!(
+        "AUTHBR\u{1f}{template_name}\u{1f}{model_name}\u{1f}{scale}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{}",
+        towers[0], towers[1], towers[2], towers[3]
+    )
+}
+
 /// C++ PlayerList.cpp:167-199.
 fn apply_logic_player_list_relationships(logic_list: &mut LogicPlayerList, side_dicts: &[Dict]) {
     let mut name_to_index: HashMap<String, i32> = HashMap::new();
@@ -3256,6 +3391,14 @@ fn load_multiplayer_scripts_scb() -> Option<ScriptList> {
         return None;
     }
     read_info.lists.into_iter().next().map(|boxed| *boxed)
+}
+
+fn clear_live_campaign_victorious_for_new_game() {
+    if let Ok(mut guard) = gamelogic::scripting::engine::get_script_engine().write() {
+        if let Some(engine) = guard.as_mut() {
+            engine.set_campaign_victorious(false);
+        }
+    }
 }
 
 #[cfg(feature = "game_client")]
@@ -3339,5 +3482,34 @@ mod sides_host_apply_tests {
         assert_eq!(ai.building_queue[0].template_name, "AmericaCommandCenter");
         assert_eq!(ai.building_queue[0].max_rebuilds, 3);
         assert!(ai.building_queue[0].is_built);
+    }
+}
+
+#[cfg(test)]
+mod authored_bridge_snapshot_tests {
+    use super::encode_authored_bridge_visual;
+
+    #[test]
+    fn encode_authored_bridge_visual_carries_model_scale_and_towers() {
+        // C++ W3DBridgeBuffer.cpp:182-191 findBridge + BridgeModelName/Scale/towers.
+        let encoded = encode_authored_bridge_visual(
+            "Concrete",
+            "CBBridgeSt",
+            0.7,
+            [
+                "BridgeTowerFromLeft",
+                "BridgeTowerFromRight",
+                "BridgeTowerToLeft",
+                "BridgeTowerToRight",
+            ],
+        );
+        assert!(encoded.starts_with("AUTHBR"));
+        assert!(encoded.contains("Concrete"));
+        assert!(encoded.contains("CBBridgeSt"));
+        assert!(encoded.contains("0.7"));
+        assert!(encoded.contains("BridgeTowerFromLeft"));
+        assert!(encoded.contains("BridgeTowerToRight"));
+        assert!(!encoded.contains("StoneBridge"));
+        assert!(!encoded.contains("Granite"));
     }
 }

@@ -232,6 +232,13 @@ pub struct ControlBar {
     last_flashed_at_point_value: i32,
     radar_attack_glow_on: bool,
     remaining_radar_attack_glow_frames: u32,
+    science_layout_loaded: bool,
+    rally_point_drawable_id: u32,
+    default_control_bar_x: i32,
+    default_control_bar_y: i32,
+    default_control_bar_captured: bool,
+    special_power_shortcut_layout: String,
+    radar_glow_window_enabled: bool,
     special_power_shortcuts: Vec<SpecialPowerShortcutState>,
     special_power_shortcut_count: usize,
     /// Radar provider count residual from PresentationFrame.

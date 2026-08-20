@@ -58,6 +58,8 @@ pub use fx::*;
 mod projectile_sound;
 pub use projectile_sound::*;
 mod projectile_lifecycle;
+mod projectile_flight;
+pub use projectile_flight::*;
 pub use projectile_lifecycle::*;
 mod damage_kinds;
 pub use damage_kinds::*;
@@ -79,6 +81,7 @@ pub const WEAPON_BOOTSTRAP_SRC: &str = concat!(
     include_str!("honesty.rs"),
     include_str!("names.rs"),
     include_str!("pitch_range.rs"),
+    include_str!("projectile_flight.rs"),
     include_str!("projectile_lifecycle.rs"),
     include_str!("projectile_sound.rs"),
     include_str!("reload_aim.rs"),

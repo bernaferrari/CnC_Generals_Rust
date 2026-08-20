@@ -62,6 +62,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.road_meshes.clear();
         self.bridge_meshes.clear();
         self.scorch_meshes.clear();
+        // C++ BaseHeightMap.cpp:618 reset → clearAllScorches.
+        crate::terrain::clear_terrain_scorches();
         self.overlay_gpu_meshes_dirty = true;
 
         self.overlay = OverlayGpuState::default();
@@ -110,11 +112,8 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.simulate_water_grid(1.0 / 30.0);
         self.overlay.river_v_origin = (self.overlay.river_v_origin + 0.002) % 1.0;
         self.overlay.cloud_map.update(1000.0 / 30.0);
-        if let Some(snow) = crate::snow::get_snow_manager() {
-            if let Ok(mut guard) = snow.lock() {
-                guard.update(1.0 / 30.0);
-            }
-        }
+        // C++ GameClient.cpp:560 is the only SnowManager::UPDATE; TerrainVisual
+        // does not tick snow (GameClient.cpp:719-722).
         self.flush_water_tracks();
         if self.overlay.overlays_dirty || self.overlay.water_grid_dirty {
             self.rebuild_all_overlays();

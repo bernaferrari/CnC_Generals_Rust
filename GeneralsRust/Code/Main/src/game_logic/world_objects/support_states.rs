@@ -77,6 +77,13 @@ fn apply_rider_change_locomotor_binding(
     crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(container, binding);
 }
 
+enum LeftoverSaTick {
+    Waiting,
+    Trigger,
+    Finished,
+}
+
+
 impl GameLogic {
     /// End an interrupted C++ capture SpecialAbilityUpdate.  An order may be
     /// cancelled while approaching, unpacking, or preparing; in all cases the
@@ -88,6 +95,7 @@ impl GameLogic {
             object.set_status_using_ability(false);
             object.set_target(None);
         }
+        self.hero_abilities.clear_capture_flash(object_id);
     }
 
     /// Complete C++ capture packing.  Ownership changes at the end of
@@ -99,7 +107,463 @@ impl GameLogic {
             object.set_status_using_ability(false);
             object.set_target(None);
         }
+        self.hero_abilities.clear_capture_flash(object_id);
     }
+
+    /// C++ `onExit` when a player/script order replaces capture.
+    /// Do not stop a newly issued move — only drop the stale channel.
+    fn abort_capture_channel_on_new_order(&mut self, object_id: ObjectId) {
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.capture_channel = None;
+            object.set_status_using_ability(false);
+        }
+        self.hero_abilities.clear_capture_flash(object_id);
+    }
+
+    /// C++ `SpecialAbilityUpdate::triggerAbilityEffect` AwardXPForTriggering
+    /// (`SpecialAbilityUpdate.cpp:1248-1253`) plus skill-points fallback
+    /// (`:1256-1264`). SkillPointsForTriggering defaults to -1, so retail
+    /// uses the same AwardXP integer.
+    fn award_ability_trigger_experience(&mut self, object_id: ObjectId, award_xp: i32) {
+        if award_xp <= 0 {
+            return;
+        }
+        let (owner_player_id, team) = match self.objects.get(&object_id) {
+            Some(object) => (object.owner_player_id, object.team),
+            None => return,
+        };
+        self.award_experience(object_id, award_xp as f32);
+        let player_id = owner_player_id.or_else(|| self.player_id_for_team(team));
+        if let Some(player) = player_id.and_then(|id| self.get_player_mut(id)) {
+            let _ = player.add_skill_points(award_xp);
+        }
+    }
+
+    /// Retail Object INI `AwardXPForTriggering` for the four capture powers.
+    fn award_xp_for_capture_trigger(kind: crate::game_logic::CapturePowerKind) -> i32 {
+        use crate::game_logic::CapturePowerKind;
+        match kind {
+            CapturePowerKind::Ranger | CapturePowerKind::RedGuard => {
+                crate::game_logic::host_structure_economy_residual::CAPTURE_AWARD_XP as i32
+            }
+            CapturePowerKind::Rebel => {
+                crate::game_logic::host_gla_rebel::REBEL_CAPTURE_AWARD_XP as i32
+            }
+            CapturePowerKind::BlackLotus => {
+                crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_AWARD_XP as i32
+            }
+            CapturePowerKind::None => 0,
+        }
+    }
+
+    fn leftover_sa_kind(
+        ability: PendingSpecialAbility,
+    ) -> Option<crate::game_logic::host_hero_abilities::LeftoverSaKind> {
+        use crate::game_logic::host_hero_abilities::LeftoverSaKind;
+        match ability {
+            PendingSpecialAbility::StealCashHack { .. } => Some(LeftoverSaKind::StealCash),
+            PendingSpecialAbility::DisableVehicleHack { .. } => {
+                Some(LeftoverSaKind::DisableVehicle)
+            }
+            PendingSpecialAbility::PlantTimedDemoCharge { .. } => Some(LeftoverSaKind::PlantTimed),
+            PendingSpecialAbility::PlantRemoteDemoCharge { .. } => {
+                Some(LeftoverSaKind::PlantRemote)
+            }
+            _ => None,
+        }
+    }
+
+    fn leftover_timings_for(
+        &self,
+        object_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+    ) -> (
+        crate::game_logic::host_hero_abilities::LeftoverSaTimings,
+        f32,
+    ) {
+        use crate::game_logic::host_hero_abilities::{leftover_sa_timings, LeftoverSaKind};
+        let mut timings = leftover_sa_timings(kind);
+        let mut variation = 0.0;
+        if matches!(
+            kind,
+            LeftoverSaKind::PlantTimed | LeftoverSaKind::PlantRemote
+        ) {
+            let meta = self.objects.get(&object_id).and_then(|object| {
+                if matches!(kind, LeftoverSaKind::PlantTimed) {
+                    object.thing.template.charge_plant_ability_for_timed()
+                } else {
+                    object.thing.template.charge_plant_ability_for_remote()
+                }
+            });
+            if let Some(meta) = meta {
+                timings.unpack_ms = meta.unpack_time_ms;
+                timings.pack_ms = meta.pack_time_ms;
+                timings.flee_range = meta.flee_range_after_completion;
+                timings.flip_after_unpack = meta.flip_object_after_unpacking;
+                variation = meta.pack_unpack_variation_factor;
+            } else {
+                // C++ skips unpack/flee when the module is absent / UnpackTime is 0.
+                timings.unpack_ms = 0;
+                timings.pack_ms = 0;
+                timings.flee_range = 0.0;
+                timings.flip_after_unpack = false;
+            }
+        }
+        (timings, variation)
+    }
+
+
+    fn abort_leftover_sa_channel_on_new_order(&mut self, object_id: ObjectId) {
+        self.hero_abilities.take_leftover_channel(object_id);
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            object.set_status_using_ability(false);
+        }
+    }
+
+    fn leftover_sa_within_start_range(
+        &self,
+        position: glam::Vec3,
+        selection_radius: f32,
+        target_position: glam::Vec3,
+        target_radius: f32,
+        start_range: f32,
+    ) -> bool {
+        let edge = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+            position,
+            selection_radius,
+            target_position,
+            target_radius,
+        );
+        crate::game_logic::host_hero_abilities::leftover_within_start_ability_range(
+            edge,
+            start_range,
+        )
+    }
+
+    fn leftover_probe_booby_at_target(
+        &mut self,
+        planter_id: ObjectId,
+        target_id: ObjectId,
+        planter_team: crate::game_logic::Team,
+    ) -> bool {
+        let trap_position = self.objects.get(&target_id).map(|t| t.get_position());
+        let planter_ally = self
+            .booby_trap
+            .plant(target_id)
+            .map(|plant| plant.planter_team == planter_team)
+            .unwrap_or(false);
+        let target_is_trapped = self.booby_trap.is_booby_trapped(target_id)
+            || self
+                .objects
+                .get(&target_id)
+                .map(|t| t.status.booby_trapped)
+                .unwrap_or(false);
+        if planter_ally || !target_is_trapped {
+            return false;
+        }
+        if let Some(trap_position) = trap_position {
+            let _ = self.detonate_booby_trap_at(
+                target_id,
+                trap_position,
+                Some(planter_id),
+                true,
+                false,
+            );
+        }
+        let target_dead = self
+            .objects
+            .get(&target_id)
+            .map(|t| !t.is_alive() || t.status.destroyed)
+            .unwrap_or(true);
+        let planter_dead = self
+            .objects
+            .get(&planter_id)
+            .map(|p| !p.is_alive() || p.status.destroyed)
+            .unwrap_or(true);
+        target_dead || planter_dead
+    }
+
+    fn leftover_nearest_own_mine(
+        &self,
+        dest: glam::Vec3,
+        team: crate::game_logic::Team,
+        flee_range: f32,
+    ) -> Option<glam::Vec3> {
+        let mut best: Option<(f32, glam::Vec3)> = None;
+        for obj in self.objects.values() {
+            if obj.team != team || !obj.is_kind_of(KindOf::Mine) {
+                continue;
+            }
+            let p = obj.get_position();
+            let d = crate::game_logic::host_hero_abilities::horizontal_distance(dest, p);
+            if d > flee_range {
+                continue;
+            }
+            if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                best = Some((d, p));
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
+    fn leftover_start_sa_preparation(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        prep_ms: u32,
+    ) -> bool {
+        use crate::command_system::SpecialPowerType;
+        use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase};
+        let power = match kind {
+            LeftoverSaKind::StealCash => Some(SpecialPowerType::BlackLotusStealCash),
+            LeftoverSaKind::DisableVehicle => Some(SpecialPowerType::BlackLotusDisableVehicle),
+            _ => None,
+        };
+        if let Some(power) = power {
+            if !self.consume_special_power_charge_for(object_id, &power) {
+                return false;
+            }
+        }
+        if let Some(object) = self.objects.get_mut(&object_id) {
+            if !object.is_alive() {
+                return false;
+            }
+            object.set_ai_state(AIState::SpecialAbility);
+            object.set_status_using_ability(true);
+        } else {
+            return false;
+        }
+        self.hero_abilities.set_leftover_channel(
+            object_id,
+            LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Preparing, prep_ms),
+        );
+        if matches!(kind, LeftoverSaKind::StealCash | LeftoverSaKind::DisableVehicle) {
+            self.queue_audio_event(
+                AudioEventRequest::new(
+                    crate::game_logic::host_hero_abilities::LOTUS_PREP_SOUND_LOOP,
+                )
+                .with_object(object_id)
+                .with_priority(140),
+            );
+        }
+        true
+    }
+
+    fn leftover_flee_after_plant(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        team: crate::game_logic::Team,
+        flee_range: f32,
+        flip_after_unpack: bool,
+    ) {
+        let (pos, dir) = match self.objects.get(&object_id) {
+            Some(obj) => (obj.get_position(), obj.unit_direction_xz()),
+            None => return,
+        };
+        let dest_guess = crate::game_logic::host_hero_abilities::leftover_flee_position(
+            pos,
+            dir,
+            flee_range,
+            flip_after_unpack,
+            None,
+        );
+        let mine = self.leftover_nearest_own_mine(dest_guess, team, flee_range);
+        let dest = crate::game_logic::host_hero_abilities::leftover_flee_position(
+            pos,
+            dir,
+            flee_range,
+            flip_after_unpack,
+            mine,
+        );
+        self.hero_abilities.take_leftover_channel(object_id);
+        self.pending_special_abilities.remove(&object_id);
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.set_status_using_ability(false);
+        }
+        self.path_approach_with_state(object_id, dest, AIState::Moving);
+        let _ = target_id;
+    }
+
+    fn tick_leftover_special_ability(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        dt: f32,
+    ) -> LeftoverSaTick {
+        use crate::game_logic::host_hero_abilities::{
+            leftover_should_unstealth_during_unpack, LeftoverSaChannel, LeftoverSaPhase,
+        };
+        const EPS: f32 = 0.000_1;
+        let (timings, variation) = self.leftover_timings_for(object_id, kind);
+        let channel = self.hero_abilities.leftover_channel(object_id).copied();
+        match channel {
+            None => {
+                let unpack_ms =
+                    crate::game_logic::vary_pack_unpack_duration_ms(timings.unpack_ms, variation);
+                if unpack_ms > 0 {
+                    self.hero_abilities.set_leftover_channel(
+                        object_id,
+                        LeftoverSaChannel::new(
+                            kind,
+                            target_id,
+                            LeftoverSaPhase::Unpacking,
+                            unpack_ms,
+                        ),
+                    );
+                    return LeftoverSaTick::Waiting;
+                }
+                if !self.leftover_start_sa_preparation(
+                    object_id,
+                    target_id,
+                    kind,
+                    timings.prep_ms,
+                ) {
+                    self.abort_leftover_sa_channel_on_new_order(object_id);
+                    self.pending_special_abilities.remove(&object_id);
+                    return LeftoverSaTick::Finished;
+                }
+                if timings.prep_ms == 0 {
+                    LeftoverSaTick::Trigger
+                } else {
+                    LeftoverSaTick::Waiting
+                }
+            }
+            Some(mut channel) if channel.phase == LeftoverSaPhase::Unpacking => {
+                channel.remaining_seconds = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                if timings.pre_trigger_unstealth_ms > 0
+                    && leftover_should_unstealth_during_unpack(
+                        channel.remaining_seconds,
+                        timings.pre_trigger_unstealth_ms,
+                    )
+                    && !channel.unstealthed
+                {
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.set_status_detected(true);
+                    }
+                    channel.unstealthed = true;
+                }
+                if channel.remaining_seconds > EPS {
+                    self.hero_abilities.set_leftover_channel(object_id, channel);
+                    return LeftoverSaTick::Waiting;
+                }
+                if !self.leftover_start_sa_preparation(
+                    object_id,
+                    target_id,
+                    kind,
+                    timings.prep_ms,
+                ) {
+                    self.abort_leftover_sa_channel_on_new_order(object_id);
+                    self.pending_special_abilities.remove(&object_id);
+                    return LeftoverSaTick::Finished;
+                }
+                if timings.prep_ms == 0 {
+                    LeftoverSaTick::Trigger
+                } else {
+                    LeftoverSaTick::Waiting
+                }
+            }
+            Some(channel) if channel.phase == LeftoverSaPhase::Preparing => {
+                let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                if remaining > EPS {
+                    self.hero_abilities.set_leftover_channel(
+                        object_id,
+                        LeftoverSaChannel {
+                            remaining_seconds: remaining,
+                            ..channel
+                        },
+                    );
+                    LeftoverSaTick::Waiting
+                } else {
+                    LeftoverSaTick::Trigger
+                }
+            }
+            Some(channel) if channel.phase == LeftoverSaPhase::Packing => {
+                let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+                if remaining > EPS {
+                    self.hero_abilities.set_leftover_channel(
+                        object_id,
+                        LeftoverSaChannel {
+                            remaining_seconds: remaining,
+                            ..channel
+                        },
+                    );
+                    LeftoverSaTick::Waiting
+                } else {
+                    self.hero_abilities.take_leftover_channel(object_id);
+                    self.pending_special_abilities.remove(&object_id);
+                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                        obj.stop_moving();
+                        obj.set_status_using_ability(false);
+                        obj.set_target(None);
+                        obj.set_ai_state(AIState::Idle);
+                    }
+                    LeftoverSaTick::Finished
+                }
+            }
+            Some(_) => LeftoverSaTick::Finished,
+        }
+    }
+
+    fn leftover_begin_packing(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        kind: crate::game_logic::host_hero_abilities::LeftoverSaKind,
+        pack_ms: u32,
+    ) {
+        use crate::game_logic::host_hero_abilities::{LeftoverSaChannel, LeftoverSaPhase};
+        if pack_ms == 0 {
+            self.hero_abilities.take_leftover_channel(object_id);
+            self.pending_special_abilities.remove(&object_id);
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.stop_moving();
+                obj.set_status_using_ability(false);
+                obj.set_target(None);
+                obj.set_ai_state(AIState::Idle);
+            }
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.stop_moving();
+            obj.set_status_using_ability(false);
+            obj.set_ai_state(AIState::SpecialAbility);
+        }
+        self.hero_abilities.set_leftover_channel(
+            object_id,
+            LeftoverSaChannel::new(kind, target_id, LeftoverSaPhase::Packing, pack_ms),
+        );
+    }
+
+
+    fn apply_leftover_capture_fx(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        remaining_seconds: f32,
+        preparation_time_ms: u32,
+    ) {
+        if !crate::game_logic::host_hero_abilities::LOTUS_CAPTURE_DO_CAPTURE_FX {
+            return;
+        }
+        let phase = self
+            .hero_abilities
+            .capture_flash_phase
+            .entry(object_id)
+            .or_insert(0.0);
+        if crate::game_logic::host_hero_abilities::leftover_capture_fx_should_flash(
+            phase,
+            remaining_seconds,
+            preparation_time_ms,
+        ) {
+            if let Some(target) = self.objects.get_mut(&target_id) {
+                target.flash_as_selected();
+            }
+        }
+    }
+
 
     /// Validate every mutable participant in the RiderChange replacement
     /// before taking the first item out of the old containment list.  The
@@ -591,9 +1055,6 @@ impl GameLogic {
         if !object.is_alive() {
             return false;
         }
-        // `consume_special_power_charge` preserves an older generic Idle
-        // side-effect; restore the capture machine after the authoritative
-        // timer was accepted.
         object.set_ai_state(AIState::Capturing);
         object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(
             crate::game_logic::CaptureChannelPhase::Preparing,
@@ -602,6 +1063,7 @@ impl GameLogic {
         object.set_status_using_ability(true);
         true
     }
+
 
     /// Clear a completed Hacker Disable Building channel.  Unlike a generic
     /// `PendingSpecialAbility`, HDB has an authored PackTime, so this is only
@@ -631,6 +1093,17 @@ impl GameLogic {
         pack_time_ms: u32,
     ) {
         let mut finish_now = false;
+        let pack_time_ms = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.thing.template.hacker_disable_building.as_ref())
+            .map(|meta| {
+                crate::game_logic::vary_pack_unpack_duration_ms(
+                    pack_time_ms,
+                    meta.pack_unpack_variation_factor,
+                )
+            })
+            .unwrap_or(pack_time_ms);
         if let Some(object) = self.objects.get_mut(&object_id) {
             if !object.is_alive() {
                 finish_now = true;
@@ -969,17 +1442,24 @@ impl GameLogic {
                                 metadata.pack_time_ms,
                             );
                         }
-                    } else if let Some(object) = self.objects.get_mut(&object_id) {
-                        object.stop_moving();
-                        object.hacker_disable_channel =
-                            Some(crate::game_logic::HackerDisableChannelState::new(
-                                channel.target_id,
-                                crate::game_logic::HackerDisableChannelPhase::Unpacking,
-                                metadata.unpack_time_ms,
-                            ));
-                        object.set_status_using_ability(false);
-                        object.set_ai_state(AIState::SpecialAbility);
+                    } else {
+                        let unpack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                            metadata.unpack_time_ms,
+                            metadata.pack_unpack_variation_factor,
+                        );
+                        if let Some(object) = self.objects.get_mut(&object_id) {
+                            object.stop_moving();
+                            object.hacker_disable_channel =
+                                Some(crate::game_logic::HackerDisableChannelState::new(
+                                    channel.target_id,
+                                    crate::game_logic::HackerDisableChannelPhase::Unpacking,
+                                    unpack_ms,
+                                ));
+                            object.set_status_using_ability(false);
+                            object.set_ai_state(AIState::SpecialAbility);
+                        }
                     }
+
                 } else if self.objects.get(&object_id).is_some_and(Object::can_move) {
                     let target_position = self
                         .objects
@@ -1076,6 +1556,8 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
+        self.update_leftover_laser_guided_channels(dt);
+
         const GUARD_MIN_RADIUS: f32 = 80.0;
         const INTERACT_RANGE: f32 = crate::game_logic::host_repair::HOST_REPAIR_INTERACT_RANGE;
         const CAPTURE_RANGE_PADDING: f32 = 4.0;
@@ -1148,6 +1630,19 @@ impl GameLogic {
                         object.hacker_disable_channel = None;
                         object.set_status_using_ability(false);
                     }
+                }
+                self.abort_leftover_sa_channel_on_new_order(object_id);
+            }
+            // C++ SpecialAbilityUpdate::update: any non-AI command source
+            // immediately onExit. Leftover capture must not keep
+            // IS_USING_ABILITY / capture_channel after a player move.
+            if ai_state != AIState::Capturing {
+                let has_capture = self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|o| o.capture_channel.is_some());
+                if has_capture {
+                    self.abort_capture_channel_on_new_order(object_id);
                 }
             }
 
@@ -1827,7 +2322,10 @@ impl GameLogic {
                     let unit_can_garrison_structure = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.is_kind_of(KindOf::Infantry) || o.is_hero())
+                        .map(|o| {
+                            (o.is_kind_of(KindOf::Infantry) || o.is_hero())
+                                && !o.is_kind_of(KindOf::NoGarrison)
+                        })
                         .unwrap_or(false);
                     let unit_is_aircraft = self
                         .objects
@@ -2009,6 +2507,13 @@ impl GameLogic {
                         obj.set_status_force_attack(false);
                         obj.target = Some(container_id);
                         obj.set_contained_by(Some(container_id));
+                        if container_is_overlord_bunker {
+                            // C++ OverlordContain::onContaining ExperienceSinkForRider
+                            // (`OverlordContain.cpp:354-355`, default TRUE). Live
+                            // BattleBunker infantry are the rider analog — bunker
+                            // kills must level the tank, not the occupant.
+                            obj.set_experience_sink(Some(container_id));
+                        }
                         obj.set_position(container_pos);
                         crate::game_logic::host_ground_height_log::record(
                             obj.id,
@@ -2049,6 +2554,7 @@ impl GameLogic {
                         // C++ HealContain is not a garrison / transport load.
                     } else if container_is_structure {
                         self.record_garrison_residual_enter();
+                        self.apply_garrison_contain_on_enter(container_id, object_id);
                     } else if container_is_overlord_bunker {
                         // China Overlord BattleBunker residual load (redirected bunker slots).
                         self.record_overlord_bunker_residual_enter();
@@ -2221,6 +2727,17 @@ impl GameLogic {
                     match capture_channel {
                         None => {
                             if unpack_time_ms > 0 {
+                                let factor = self
+                                    .objects
+                                    .get(&object_id)
+                                    .map(|object| {
+                                        object.thing.template.capture_pack_unpack_variation_factor
+                                    })
+                                    .unwrap_or(0.0);
+                                let unpack_time_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                                    unpack_time_ms,
+                                    factor,
+                                );
                                 if let Some(object) = self.objects.get_mut(&object_id) {
                                     object.capture_channel =
                                         Some(crate::game_logic::CaptureChannelState::new(
@@ -2228,6 +2745,7 @@ impl GameLogic {
                                             unpack_time_ms,
                                         ));
                                 }
+
                                 continue;
                             }
                             if !self.start_capture_preparation(
@@ -2292,6 +2810,12 @@ impl GameLogic {
                                             remaining_seconds: remaining,
                                         });
                                 }
+                                self.apply_leftover_capture_fx(
+                                    object_id,
+                                    capture_target_id,
+                                    remaining,
+                                    preparation_time_ms,
+                                );
                                 continue;
                             }
                             preparation_complete = true;
@@ -2326,6 +2850,14 @@ impl GameLogic {
                             false,
                         );
                     }
+
+                    // C++ `triggerAbilityEffect` awards XP before the capture
+                    // switch (`SpecialAbilityUpdate.cpp:1248-1253`), including
+                    // garrison-evac triggers that do not defect the building.
+                    self.award_ability_trigger_experience(
+                        object_id,
+                        Self::award_xp_for_capture_trigger(capture_power),
+                    );
 
                     let did_capture =
                         if self.can_unit_capture_building(object_id, capture_target_id, false) {
@@ -2384,8 +2916,12 @@ impl GameLogic {
                             object.capture_channel =
                                 Some(crate::game_logic::CaptureChannelState::new(
                                     crate::game_logic::CaptureChannelPhase::Packing,
-                                    pack_time_ms,
+                                    crate::game_logic::vary_pack_unpack_duration_ms(
+                                        pack_time_ms,
+                                        object.thing.template.capture_pack_unpack_variation_factor,
+                                    ),
                                 ));
+
                             object.set_ai_state(AIState::Capturing);
                         }
                     }
@@ -2511,8 +3047,6 @@ impl GameLogic {
                         continue;
                     };
 
-                    // CarBomb allows neutral; DisguiseAsVehicle allows any living
-                    // vehicle (ally/enemy/neutral) — C++ ActionManager residual.
                     let requires_enemy_target = !matches!(
                         ability,
                         PendingSpecialAbility::CarBomb { .. }
@@ -2542,6 +3076,58 @@ impl GameLogic {
                         self.clear_target_decision_aware(object_id);
                         continue;
                     }
+
+
+                    // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
+                    // residual: complete without approach walk.
+                    let disguise_instant =
+                        matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
+                    let black_lotus_range = matches!(
+                        ability,
+                        PendingSpecialAbility::StealCashHack { .. }
+                            | PendingSpecialAbility::DisableVehicleHack { .. }
+                    );
+                    let booby_trap_range =
+                        matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. });
+                    let plant_range = matches!(
+                        ability,
+                        PendingSpecialAbility::PlantTimedDemoCharge { .. }
+                            | PendingSpecialAbility::PlantRemoteDemoCharge { .. }
+                    );
+                    let leftover_busy = self.hero_abilities.leftover_channel(object_id).is_some();
+                    let out_of_start_range = if plant_range {
+                        !self.leftover_sa_within_start_range(
+                            position,
+                            selection_radius,
+                            target_position,
+                            target_radius,
+                            crate::game_logic::host_hero_abilities::PLANT_START_ABILITY_RANGE,
+                        )
+                    } else if black_lotus_range {
+                        position.distance(target_position)
+                            > crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
+                    } else if booby_trap_range {
+                        position.distance(target_position)
+                            > crate::game_logic::host_booby_trap::BOOBY_START_ABILITY_RANGE
+                                + selection_radius
+                                + target_radius
+                    } else {
+                        position.distance(target_position)
+                            > selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING
+                    };
+                    if !leftover_busy
+                        && !disguise_instant
+                        && can_move
+                        && out_of_start_range
+                    {
+                        self.path_approach_with_state(
+                            object_id,
+                            target_position,
+                            AIState::SpecialAbility,
+                        );
+                        continue;
+                    }
+
 
                     // Disguise: reject bomb-truck / train name residual targets,
                     // unless the target is already disguised (C++ disguiseAsObject
@@ -2588,9 +3174,10 @@ impl GameLogic {
                         continue;
                     }
 
-                    // Disable vehicle hack: skip already-hacked or unmanned vehicles.
+                    // Disable vehicle hack: unmanned still matches ActionManager.
+                    // Already-hacked is legal — C++ triggerAbilityEffect refreshes.
                     if matches!(ability, PendingSpecialAbility::DisableVehicleHack { .. })
-                        && (target_is_hacked || target_is_unmanned)
+                        && target_is_unmanned
                     {
                         self.pending_special_abilities.remove(&object_id);
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -2658,38 +3245,18 @@ impl GameLogic {
                         }
                     }
 
-                    // C++ SpecialAbilityDisguiseAsVehicle StartAbilityRange = 1e6
-                    // residual: complete without approach walk.
-                    let disguise_instant =
-                        matches!(ability, PendingSpecialAbility::DisguiseAsVehicle { .. });
-                    // Black Lotus residual specials: StartAbilityRange 150.
-                    let black_lotus_range = matches!(
-                        ability,
-                        PendingSpecialAbility::StealCashHack { .. }
-                            | PendingSpecialAbility::DisableVehicleHack { .. }
-                    );
-                    let booby_trap_range =
-                        matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. });
-                    let interact_range = if black_lotus_range {
-                        crate::game_logic::host_hero_abilities::BLACK_LOTUS_START_ABILITY_RANGE
-                    } else if booby_trap_range {
-                        crate::game_logic::host_booby_trap::BOOBY_START_ABILITY_RANGE
-                            + selection_radius
-                            + target_radius
-                    } else {
-                        selection_radius + target_radius + SPECIAL_ABILITY_RANGE_PADDING
-                    };
-                    if !disguise_instant
-                        && can_move
-                        && position.distance(target_position) > interact_range
-                    {
-                        self.path_approach_with_state(
+                    if let Some(kind) = Self::leftover_sa_kind(ability) {
+                        match self.tick_leftover_special_ability(
                             object_id,
-                            target_position,
-                            AIState::SpecialAbility,
-                        );
-                        continue;
+                            special_target_id,
+                            kind,
+                            dt,
+                        ) {
+                            LeftoverSaTick::Waiting | LeftoverSaTick::Finished => continue,
+                            LeftoverSaTick::Trigger => {}
+                        }
                     }
+
 
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
@@ -2823,8 +3390,16 @@ impl GameLogic {
                                             let until = self.frame.saturating_add(
                                                 crate::game_logic::host_saboteur::SABOTEUR_POWER_DURATION_FRAMES,
                                             );
-                                            if let Some(player) =
-                                                self.get_player_mut_by_team(target_team)
+                                            // C++ SabotagePowerPlantCrateCollide.cpp:112-120
+                                            // other->getControllingPlayer(), never first same-faction slot.
+                                            let victim_id = self
+                                                .objects
+                                                .get(&special_target_id)
+                                                .and_then(|target| {
+                                                    self.player_owner_for_host_object(target)
+                                                });
+                                            if let Some(player) = victim_id
+                                                .and_then(|id| self.players.get_mut(&id))
                                             {
                                                 player.power_sabotaged_till_frame = until;
                                             }
@@ -3001,6 +3576,16 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::PlantTimedDemoCharge { .. } => {
+                            // C++ triggerAbilityEffect checkAndDetonateBoobyTrap before plant.
+                            if self.leftover_probe_booby_at_target(
+                                object_id,
+                                special_target_id,
+                                team,
+                            ) {
+                                self.hero_abilities.take_leftover_channel(object_id);
+                                self.pending_special_abilities.remove(&object_id);
+                                continue;
+                            }
                             // Burton / Tank Hunter TNT residual: plant sticky timed charge at target.
                             let is_tank_hunter = self
                                 .objects
@@ -3059,6 +3644,15 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::PlantRemoteDemoCharge { .. } => {
+                            if self.leftover_probe_booby_at_target(
+                                object_id,
+                                special_target_id,
+                                team,
+                            ) {
+                                self.hero_abilities.take_leftover_channel(object_id);
+                                self.pending_special_abilities.remove(&object_id);
+                                continue;
+                            }
                             // Burton residual: plant sticky remote charge (no auto-timer).
                             let charge_id = self.place_remote_demo_charge(
                                 team,
@@ -3080,6 +3674,13 @@ impl GameLogic {
                             }
                         }
                         PendingSpecialAbility::StealCashHack { .. } => {
+                            // C++ `triggerAbilityEffect` AwardXPForTriggering
+                            // (`SpecialAbilityUpdate.cpp:1248-1253`). Retail
+                            // `SpecialAbilityBlackLotusStealCashHack` = 20.
+                            self.award_ability_trigger_experience(
+                                object_id,
+                                crate::game_logic::host_hero_abilities::LOTUS_STEAL_AWARD_XP as i32,
+                            );
                             // Black Lotus residual: steal cash from enemy economy.
                             // C++ SPECIAL_BLACKLOTUS_STEAL_CASH_HACK:
                             // withdraw/deposit, scorekeeper money earned, EVA_CashStolen
@@ -3354,7 +3955,32 @@ impl GameLogic {
                         }
                     }
 
-                    self.pending_special_abilities.remove(&object_id);
+                    if let Some(kind) = Self::leftover_sa_kind(ability) {
+                        let (timings, variation) = self.leftover_timings_for(object_id, kind);
+                        if timings.flee_range > 0.0 {
+                            self.leftover_flee_after_plant(
+                                object_id,
+                                special_target_id,
+                                team,
+                                timings.flee_range,
+                                timings.flip_after_unpack,
+                            );
+                        } else {
+                            let pack_ms = crate::game_logic::vary_pack_unpack_duration_ms(
+                                timings.pack_ms,
+                                variation,
+                            );
+                            self.leftover_begin_packing(
+                                object_id,
+                                special_target_id,
+                                kind,
+                                pack_ms,
+                            );
+                        }
+                    } else {
+                        self.pending_special_abilities.remove(&object_id);
+                    }
+
                 }
                 AIState::Gathering => {
                     // Retail GameData.ini `ValuePerSupplyBox = 75` (ZH override of

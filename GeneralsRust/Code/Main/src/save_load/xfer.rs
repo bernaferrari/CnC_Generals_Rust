@@ -235,6 +235,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::Score => 58,
         KindOf::ScoreCreate => 59,
         KindOf::ScoreDestroy => 60,
+        KindOf::CanSeeThrough => 61,
+        KindOf::NoGarrison => 62,
+        KindOf::GarrisonableUntilDestroyed => 63,
     }
 }
 
@@ -301,6 +304,9 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         58 => Ok(KindOf::Score),
         59 => Ok(KindOf::ScoreCreate),
         60 => Ok(KindOf::ScoreDestroy),
+        61 => Ok(KindOf::CanSeeThrough),
+        62 => Ok(KindOf::NoGarrison),
+        63 => Ok(KindOf::GarrisonableUntilDestroyed),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

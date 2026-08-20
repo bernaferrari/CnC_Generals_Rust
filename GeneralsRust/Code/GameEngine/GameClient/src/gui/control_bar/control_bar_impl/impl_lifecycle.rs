@@ -32,6 +32,13 @@ impl ControlBar {
             last_flashed_at_point_value: -1,
             radar_attack_glow_on: false,
             remaining_radar_attack_glow_frames: 0,
+            science_layout_loaded: false,
+            rally_point_drawable_id: 0,
+            default_control_bar_x: 0,
+            default_control_bar_y: 0,
+            default_control_bar_captured: false,
+            special_power_shortcut_layout: String::new(),
+            radar_glow_window_enabled: true,
             special_power_shortcuts: Vec::new(),
             special_power_shortcut_count: 0,
             presentation_radar_count: 0,
@@ -51,6 +58,11 @@ impl ControlBar {
 
             border_colors: CommandBarBorderColors::default(),
         }
+    }
+
+    /// C++ ControlBar::updateFlashButtons — pulse ready generals-star / command buttons.
+    fn update_flash_buttons(&mut self) {
+        self.update_star_image();
     }
 
     pub fn set_window_manager(&mut self, manager: Arc<WindowManager>) {
@@ -414,6 +426,10 @@ impl ControlBar {
 
     fn evaluate_context_ui(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.ui_dirty = false;
+        if self.science_state.is_visible || !leftover_window_is_hidden(GEN_EXP_PARENT) {
+            self.show_purchase_science();
+        }
+
 
         let mut context = {
             let mut guard = self

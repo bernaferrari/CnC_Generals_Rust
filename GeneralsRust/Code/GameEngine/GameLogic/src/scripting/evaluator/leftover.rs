@@ -15,17 +15,13 @@ impl ScriptEvaluator {
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                let current_player = self
-                    .with_evaluation_engine_ref(|engine| engine.get_current_player_name())
-                    .flatten();
-                let Some(player_name) = current_player else {
+                if !is_generals_challenge_campaign() {
                     return raw.to_string();
-                };
-
+                }
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.find_player_by_name(&player_name))
+                    .and_then(|list| list.get_local_player().cloned())
                     .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
                     .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
                     .unwrap_or_else(|| raw.to_string())
@@ -84,7 +80,23 @@ impl ScriptEvaluator {
 
         let raw = param.get_string();
         let resolved = match raw {
-            THE_PLAYER | THIS_PLAYER => self
+            THE_PLAYER => {
+                if !is_generals_challenge_campaign() {
+                    raw.to_string()
+                } else {
+                    player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_local_player().cloned())
+                        .and_then(|p| {
+                            p.read().ok().and_then(|p| {
+                                NameKeyGenerator::key_to_name(p.get_player_name_key())
+                            })
+                        })
+                        .unwrap_or_else(|| raw.to_string())
+                }
+            }
+            THIS_PLAYER => self
                 .with_evaluation_engine_ref(|engine| engine.get_current_player_name())
                 .flatten()
                 .unwrap_or_else(|| raw.to_string()),

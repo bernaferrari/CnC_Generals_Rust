@@ -1,0 +1,991 @@
+//! Host RailroadBehavior residual (C++ `RailroadBehavior::update`).
+//!
+//! Live host never populates crate `OBJECT_REGISTRY`, so crate
+//! `RailroadBehavior::update` early-outs. This residual is the production
+//! path: locomotives follow track waypoints, wait at stations, and hitch
+//! carriages — the minimal C++ `RailroadGuideAIUpdate.cpp` update loop.
+//!
+//! Sources:
+//! - `RailroadGuideAIUpdate.cpp` `RailroadBehavior::update` (~652-832)
+//! - `loadTrackData` (~480-616)
+//! - `FindPosByPathDistance` (~1355-1482)
+//! - `createCarriages` / `getPulled` / `updatePositionTrackDistance`
+//!
+//! Fail-closed: not full collide crush / audio / pathfinder wall / xfer.
+
+use super::ObjectId;
+use crate::game_logic::{GameLogic, Team};
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+/// C++ `RailroadBehaviorModuleData::m_speedMax` default.
+pub const RAILROAD_SPEED_MAX: f32 = 4.0;
+/// C++ `m_acceleration` default.
+pub const RAILROAD_ACCELERATION: f32 = 1.01;
+/// C++ `m_braking` default.
+pub const RAILROAD_BRAKING: f32 = 0.99;
+/// C++ `m_friction` default.
+pub const RAILROAD_FRICTION: f32 = 0.97;
+/// C++ `m_waitAtStationTime` default (logic frames).
+pub const RAILROAD_WAIT_AT_STATION_FRAMES: i32 = 150;
+/// C++ `0.02f * direction` push-start while accelerating.
+pub const RAILROAD_ACCEL_PUSH: f32 = 0.02;
+/// C++ station-depart kick `0.05f * direction`.
+pub const RAILROAD_STATION_DEPART_SPEED: f32 = 0.05;
+/// C++ `fabs(speed) < 0.1f` stop threshold.
+pub const RAILROAD_STOP_SPEED: f32 = 0.1;
+/// C++ `getMajorRadius()` fallback when host geometry is missing.
+pub const RAILROAD_DEFAULT_HITCH_RADIUS: f32 = 20.0;
+/// C++ `FRAMES_UNPULLED_LONG_ENOUGH_TO_UNHITCH`.
+pub const RAILROAD_UNHITCH_FRAMES: i32 = 2;
+
+const FACADE_HANDLE: u32 = 0x00_FACADE;
+
+fn alnum_lower(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// C++ `IsLocomotive = Yes` name residual (no KINDOF_TRAIN in retail).
+pub fn is_railroad_locomotive_template(template_name: &str) -> bool {
+    let n = alnum_lower(template_name);
+    if n.is_empty() {
+        return false;
+    }
+    if n.contains("transport") || n.contains("railed") {
+        return false;
+    }
+    n.contains("trainengine") || n.contains("locomotive")
+}
+
+/// Map-placed / INI carriage residual.
+pub fn is_railroad_carriage_template(template_name: &str) -> bool {
+    let n = alnum_lower(template_name);
+    if n.is_empty() || is_railroad_locomotive_template(template_name) {
+        return false;
+    }
+    if n.contains("transport") || n.contains("railed") {
+        return false;
+    }
+    n.contains("traincar")
+        || n.contains("traincoal")
+        || n.contains("traintanker")
+        || n.contains("traincaboose")
+        || n.contains("carriage")
+        || (n.contains("train") && (n.contains("car") || n.contains("coal") || n.contains("tanker")))
+}
+
+pub fn is_railroad_template(template_name: &str) -> bool {
+    is_railroad_locomotive_template(template_name) || is_railroad_carriage_template(template_name)
+}
+
+/// C++ `RailroadBehavior::ConductorState`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostConductorState {
+    ApplyBrakes,
+    WaitAtStation,
+    Accelerate,
+    Coast,
+}
+
+/// C++ `TrackPoint`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostTrackPoint {
+    pub position: Vec3,
+    pub distance_from_prev: f32,
+    pub distance_from_first: f32,
+    pub handle: u32,
+    pub is_station: bool,
+    pub is_disembark: bool,
+    pub is_ping_pong: bool,
+    pub is_tunnel_or_bridge: bool,
+}
+
+/// C++ `TrainTrack`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HostTrainTrack {
+    pub points: Vec<HostTrackPoint>,
+    pub length: f32,
+    pub is_looping: bool,
+}
+
+impl HostTrainTrack {
+    /// C++ `RailroadBehavior::loadTrackData` walk of `getLink(0)`.
+    pub fn from_linked_waypoints(waypoints: &[HostWaypointSnap], anchor_index: usize) -> Option<Self> {
+        if waypoints.is_empty() || anchor_index >= waypoints.len() {
+            return None;
+        }
+        let by_id: HashMap<u32, usize> = waypoints
+            .iter()
+            .enumerate()
+            .map(|(i, w)| (w.id, i))
+            .collect();
+        let anchor = &waypoints[anchor_index];
+        let mut track = HostTrainTrack::default();
+        track.points.push(HostTrackPoint {
+            position: anchor.position,
+            distance_from_prev: 0.0,
+            distance_from_first: 0.0,
+            handle: anchor.id,
+            is_station: anchor.name.ends_with("Station"),
+            is_disembark: anchor.name.ends_with("Disembark"),
+            is_ping_pong: false,
+            is_tunnel_or_bridge: anchor.name.ends_with("Tunnel"),
+        });
+        let mut scanner_id = anchor.id;
+        let mut hops = 0usize;
+        loop {
+            hops += 1;
+            if hops > 4096 {
+                break;
+            }
+            let Some(&idx) = by_id.get(&scanner_id) else {
+                break;
+            };
+            let scanner = &waypoints[idx];
+            let Some(next_id) = scanner.link0 else {
+                break;
+            };
+            let Some(&next_idx) = by_id.get(&next_id) else {
+                break;
+            };
+            let next = &waypoints[next_idx];
+            let delta = next.position - scanner.position;
+            let dist = delta.length();
+            track.length += dist;
+            track.points.push(HostTrackPoint {
+                position: next.position,
+                distance_from_prev: dist,
+                distance_from_first: track.length,
+                handle: scanner.id,
+                is_station: next.name.ends_with("Station"),
+                is_disembark: scanner.name.ends_with("Disembark"),
+                is_ping_pong: scanner.name.ends_with("PingPong"),
+                is_tunnel_or_bridge: next.name.ends_with("Tunnel"),
+            });
+            scanner_id = next.id;
+            if scanner_id == anchor.id {
+                track.is_looping = true;
+                break;
+            }
+        }
+        if track.points.len() < 2 {
+            return None;
+        }
+        Some(track)
+    }
+}
+
+/// Terrain / test waypoint snapshot (host XZ plane).
+#[derive(Debug, Clone)]
+pub struct HostWaypointSnap {
+    pub id: u32,
+    pub name: String,
+    pub position: Vec3,
+    pub link0: Option<u32>,
+}
+
+/// C++ Coord3D (x/y plane, z height) → host Vec3 (x/z plane, y height).
+pub fn railroad_coord_to_host(x: f32, y: f32, z: f32) -> Vec3 {
+    Vec3::new(x, z, y)
+}
+
+/// C++ `FindPosByPathDistance` interpolation.
+pub fn find_pos_by_path_distance(
+    track: &HostTrainTrack,
+    dist: f32,
+) -> (Vec3, bool, bool, Option<u32>) {
+    if track.points.is_empty() {
+        return (Vec3::ZERO, false, false, None);
+    }
+    let mut actual = dist;
+    let mut waiting_in_wings = false;
+    let mut end_of_line = false;
+    if track.is_looping && track.length > 0.0 {
+        while actual < 0.0 {
+            actual += track.length;
+        }
+        while actual > track.length {
+            actual -= track.length;
+        }
+    } else {
+        if dist < 0.0 {
+            waiting_in_wings = true;
+        } else if dist >= track.length {
+            end_of_line = true;
+        }
+        actual = dist.clamp(0.0, track.length);
+    }
+    if actual <= track.points[0].distance_from_first {
+        return (track.points[0].position, waiting_in_wings, end_of_line, Some(track.points[0].handle));
+    }
+    for pair in track.points.windows(2) {
+        let this_pt = &pair[0];
+        let next_pt = &pair[1];
+        if this_pt.distance_from_first < actual && next_pt.distance_from_first >= actual {
+            let difference = actual - this_pt.distance_from_first;
+            let mut delta = next_pt.position - this_pt.position;
+            let len = delta.length();
+            if len > 0.0 {
+                delta /= len;
+            }
+            return (
+                this_pt.position + delta * difference,
+                waiting_in_wings,
+                end_of_line,
+                Some(this_pt.handle),
+            );
+        }
+    }
+    let last = track.points.last().unwrap();
+    (last.position, waiting_in_wings, end_of_line, Some(last.handle))
+}
+
+/// Per-car C++ `RailroadBehavior` runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostRailroadCar {
+    pub object_id: ObjectId,
+    pub is_locomotive: bool,
+    pub is_lead_carriage: bool,
+    pub track_data_loaded: bool,
+    pub carriages_created: bool,
+    pub has_ever_been_hitched: bool,
+    pub held: bool,
+    pub disembark: bool,
+    pub in_tunnel: bool,
+    pub waiting_in_wings: bool,
+    pub end_of_line: bool,
+    pub conductor_state: HostConductorState,
+    pub speed: f32,
+    pub direction: f32,
+    pub track_distance: f32,
+    pub wait_at_station_timer: i32,
+    pub current_point_handle: u32,
+    pub most_recent_special_handle: u32,
+    pub trailer_id: Option<ObjectId>,
+    pub hitch_radius: f32,
+    pub speed_max: f32,
+    pub acceleration: f32,
+    pub braking: f32,
+    pub friction: f32,
+    pub wait_at_station_time: i32,
+    pub carriage_template_names: Vec<String>,
+    pub track: Option<HostTrainTrack>,
+}
+
+impl HostRailroadCar {
+    pub fn new_locomotive(object_id: ObjectId) -> Self {
+        Self {
+            object_id,
+            is_locomotive: true,
+            is_lead_carriage: true,
+            track_data_loaded: false,
+            carriages_created: false,
+            has_ever_been_hitched: false,
+            held: false,
+            disembark: false,
+            in_tunnel: false,
+            waiting_in_wings: false,
+            end_of_line: false,
+            conductor_state: HostConductorState::Accelerate,
+            speed: 0.0,
+            direction: 1.0,
+            track_distance: 0.0,
+            wait_at_station_timer: 0,
+            current_point_handle: FACADE_HANDLE,
+            most_recent_special_handle: FACADE_HANDLE,
+            trailer_id: None,
+            hitch_radius: RAILROAD_DEFAULT_HITCH_RADIUS,
+            speed_max: RAILROAD_SPEED_MAX,
+            acceleration: RAILROAD_ACCELERATION,
+            braking: RAILROAD_BRAKING,
+            friction: RAILROAD_FRICTION,
+            wait_at_station_time: RAILROAD_WAIT_AT_STATION_FRAMES,
+            carriage_template_names: Vec::new(),
+            track: None,
+        }
+    }
+
+    pub fn new_carriage(object_id: ObjectId) -> Self {
+        let mut car = Self::new_locomotive(object_id);
+        car.is_locomotive = false;
+        car.is_lead_carriage = false;
+        car.conductor_state = HostConductorState::Coast;
+        car
+    }
+
+    /// C++ locomotive conductor block inside `RailroadBehavior::update`.
+    pub fn tick_conductor(&mut self) {
+        if !self.is_locomotive {
+            return;
+        }
+        match self.conductor_state {
+            HostConductorState::ApplyBrakes => {
+                self.speed *= self.braking;
+                if self.speed.abs() < RAILROAD_STOP_SPEED {
+                    self.speed = 0.0;
+                    self.wait_at_station_timer = self.wait_at_station_time;
+                    self.conductor_state = HostConductorState::WaitAtStation;
+                }
+            }
+            HostConductorState::WaitAtStation => {
+                self.wait_at_station_timer -= 1;
+                if self.wait_at_station_timer <= 0 && !self.held {
+                    self.conductor_state = HostConductorState::Accelerate;
+                    self.speed = RAILROAD_STATION_DEPART_SPEED * self.direction;
+                }
+            }
+            HostConductorState::Accelerate => {
+                self.speed += RAILROAD_ACCEL_PUSH * self.direction;
+                self.speed *= self.acceleration;
+                if self.speed > self.speed_max {
+                    self.speed = self.speed_max;
+                } else if self.speed < -self.speed_max {
+                    self.speed = -self.speed_max;
+                }
+            }
+            HostConductorState::Coast => {
+                self.speed *= self.friction;
+            }
+        }
+    }
+
+    /// C++ lead-carriage `trackDistance += speed` + station sniff.
+    pub fn advance_along_track(&mut self) -> Option<Vec3> {
+        let track = self.track.as_ref()?;
+        if self.is_lead_carriage {
+            if self.conductor_state == HostConductorState::Coast {
+                self.speed *= self.friction;
+            }
+            self.track_distance += self.speed;
+            if track.is_looping && track.length > 0.0 {
+                while self.track_distance > track.length {
+                    self.track_distance -= track.length;
+                }
+                while self.track_distance < 0.0 {
+                    self.track_distance += track.length;
+                }
+            }
+        }
+        let (pos, waiting, end, handle) = find_pos_by_path_distance(track, self.track_distance);
+        self.waiting_in_wings = waiting;
+        self.end_of_line = end;
+        if let Some(handle) = handle {
+            if self.is_locomotive && handle != self.current_point_handle {
+                if let Some(pt) = track.points.iter().find(|p| p.handle == handle) {
+                    self.in_tunnel = pt.is_tunnel_or_bridge;
+                    if pt.is_station || pt.is_disembark {
+                        self.conductor_state = HostConductorState::ApplyBrakes;
+                        self.disembark = pt.is_disembark;
+                    } else if pt.is_ping_pong && self.most_recent_special_handle != handle {
+                        self.most_recent_special_handle = handle;
+                        self.conductor_state = HostConductorState::ApplyBrakes;
+                        self.disembark = false;
+                        self.direction = -self.direction;
+                    }
+                }
+                self.current_point_handle = handle;
+            }
+        }
+        Some(pos)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct HostRailroadRegistry {
+    cars: HashMap<ObjectId, HostRailroadCar>,
+    /// Test / script inject: track used when TerrainLogic is empty.
+    injected_tracks: HashMap<ObjectId, HostTrainTrack>,
+    moved_count: u32,
+}
+
+impl HostRailroadRegistry {
+    pub fn get(&self, id: ObjectId) -> Option<&HostRailroadCar> {
+        self.cars.get(&id)
+    }
+
+    pub fn get_mut(&mut self, id: ObjectId) -> Option<&mut HostRailroadCar> {
+        self.cars.get_mut(&id)
+    }
+
+    pub fn inject_track(&mut self, id: ObjectId, track: HostTrainTrack) {
+        self.injected_tracks.insert(id, track);
+    }
+
+    pub fn moved_count(&self) -> u32 {
+        self.moved_count
+    }
+
+    pub fn ensure_car(&mut self, id: ObjectId, locomotive: bool) -> &mut HostRailroadCar {
+        self.cars.entry(id).or_insert_with(|| {
+            if locomotive {
+                HostRailroadCar::new_locomotive(id)
+            } else {
+                HostRailroadCar::new_carriage(id)
+            }
+        })
+    }
+}
+
+thread_local! {
+    static RAILROAD: RefCell<HostRailroadRegistry> = RefCell::new(HostRailroadRegistry::default());
+}
+
+pub fn railroad_registry_reset() {
+    RAILROAD.with(|r| *r.borrow_mut() = HostRailroadRegistry::default());
+}
+
+pub fn with_railroad_registry<R>(f: impl FnOnce(&HostRailroadRegistry) -> R) -> R {
+    RAILROAD.with(|r| f(&r.borrow()))
+}
+
+pub fn with_railroad_registry_mut<R>(f: impl FnOnce(&mut HostRailroadRegistry) -> R) -> R {
+    RAILROAD.with(|r| f(&mut r.borrow_mut()))
+}
+
+pub fn inject_railroad_track(id: ObjectId, track: HostTrainTrack) {
+    with_railroad_registry_mut(|reg| reg.inject_track(id, track));
+}
+
+pub fn railroad_car(id: ObjectId) -> Option<HostRailroadCar> {
+    with_railroad_registry(|reg| reg.get(id).cloned())
+}
+
+/// Snapshot TerrainLogic waypoints (C++ `TheTerrainLogic->getFirstWaypoint`).
+pub fn snapshot_terrain_waypoints() -> Vec<HostWaypointSnap> {
+    let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut cur = terrain.get_first_waypoint();
+    while let Some(wp) = cur {
+        let loc = wp.get_location();
+        out.push(HostWaypointSnap {
+            id: wp.get_id(),
+            name: wp.get_name().as_str().to_string(),
+            position: railroad_coord_to_host(loc.x, loc.y, loc.z),
+            link0: wp.get_link(0),
+        });
+        cur = wp.get_next();
+    }
+    out
+}
+
+fn load_track_near(pos: Vec3, snaps: &[HostWaypointSnap]) -> Option<HostTrainTrack> {
+    if snaps.is_empty() {
+        return None;
+    }
+    let mut best = 0usize;
+    let mut best_d = f32::MAX;
+    for (i, wp) in snaps.iter().enumerate() {
+        let d = (wp.position - pos).length();
+        if d < best_d {
+            best_d = d;
+            best = i;
+        }
+    }
+    HostTrainTrack::from_linked_waypoints(snaps, best)
+}
+
+fn heading_xz(from: Vec3, to: Vec3) -> f32 {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    if dx == 0.0 && dz == 0.0 {
+        0.0
+    } else {
+        dz.atan2(dx)
+    }
+}
+
+fn xz_dist(a: Vec3, b: Vec3) -> f32 {
+    let dx = a.x - b.x;
+    let dz = a.z - b.z;
+    (dx * dx + dz * dz).sqrt()
+}
+
+impl GameLogic {
+    /// Live host railroad tick. C++ `RailroadBehavior::update` per locomotive.
+    pub fn update_railroads(&mut self) {
+        let living: Vec<(ObjectId, String, Vec3, bool)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
+                    return None;
+                }
+                if !is_railroad_template(&obj.template_name)
+                    && with_railroad_registry(|r| r.get(*id).is_none())
+                {
+                    return None;
+                }
+                Some((
+                    *id,
+                    obj.template_name.clone(),
+                    obj.get_position(),
+                    is_railroad_locomotive_template(&obj.template_name),
+                ))
+            })
+            .collect();
+
+        if living.is_empty() {
+            return;
+        }
+
+        let terrain_snaps = snapshot_terrain_waypoints();
+
+        // Ensure cars + load tracks (C++ loadTrackData once per locomotive).
+        for (id, _name, pos, is_loco) in &living {
+            with_railroad_registry_mut(|reg| {
+                let injected = if *is_loco {
+                    reg.injected_tracks.get(id).cloned()
+                } else {
+                    None
+                };
+                let car = reg.ensure_car(*id, *is_loco);
+                if car.track_data_loaded {
+                    return;
+                }
+                if *is_loco {
+                    car.track = injected.or_else(|| load_track_near(*pos, &terrain_snaps));
+                }
+                car.track_data_loaded = true;
+            });
+        }
+
+        // Share the locomotive track with any still-trackless carriages.
+        let loco_tracks: Vec<(ObjectId, HostTrainTrack)> = with_railroad_registry(|reg| {
+            living
+                .iter()
+                .filter_map(|(id, _, _, is_loco)| {
+                    if !*is_loco {
+                        return None;
+                    }
+                    reg.get(*id)
+                        .and_then(|c| c.track.clone())
+                        .map(|t| (*id, t))
+                })
+                .collect()
+        });
+
+        let hitch_jobs: Vec<(ObjectId, Vec3, Team, f32, Vec<String>, Option<ObjectId>)> =
+            with_railroad_registry(|reg| {
+                living
+                    .iter()
+                    .filter_map(|(id, _, pos, is_loco)| {
+                        if !*is_loco {
+                            return None;
+                        }
+                        let car = reg.get(*id)?;
+                        if car.carriages_created || car.track.is_none() {
+                            return None;
+                        }
+                        let team = self.objects.get(id).map(|o| o.team).unwrap_or(Team::USA);
+                        Some((
+                            *id,
+                            *pos,
+                            team,
+                            car.hitch_radius,
+                            car.carriage_template_names.clone(),
+                            car.trailer_id,
+                        ))
+                    })
+                    .collect()
+            });
+        for (loco_id, loco_pos, team, hitch_r, templates, existing_trailer) in hitch_jobs {
+            let mut trailer = existing_trailer;
+            if trailer.is_none() {
+                let max_r = hitch_r * 2.0;
+                let mut best: Option<(ObjectId, f32)> = None;
+                for (oid, name, pos, is_loco) in &living {
+                    if *oid == loco_id || *is_loco {
+                        continue;
+                    }
+                    if !is_railroad_carriage_template(name)
+                        && with_railroad_registry(|r| r.get(*oid).map(|c| c.is_locomotive).unwrap_or(true))
+                    {
+                        continue;
+                    }
+                    let already = with_railroad_registry(|r| {
+                        r.get(*oid)
+                            .map(|c| c.has_ever_been_hitched)
+                            .unwrap_or(false)
+                    });
+                    if already {
+                        continue;
+                    }
+                    let d = xz_dist(loco_pos, *pos);
+                    if d <= max_r * 3.0 && best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                        best = Some((*oid, d));
+                    }
+                }
+                trailer = best.map(|(id, _)| id);
+            }
+            if trailer.is_none() {
+                if let Some(first) = templates.first() {
+                    let spawn_pos = Vec3::new(loco_pos.x - hitch_r * 2.0, loco_pos.y, loco_pos.z);
+                    if let Some(cid) = self.create_object(first, team, spawn_pos) {
+                        trailer = Some(cid);
+                    }
+                }
+            }
+            if let Some(tid) = trailer {
+                with_railroad_registry_mut(|reg| {
+                    if let Some(loco) = reg.get_mut(loco_id) {
+                        loco.trailer_id = Some(tid);
+                        loco.carriages_created = true;
+                    }
+                    let track = reg.get(loco_id).and_then(|c| c.track.clone());
+                    let car = reg.ensure_car(tid, false);
+                    car.has_ever_been_hitched = true;
+                    if car.track.is_none() {
+                        car.track = track;
+                    }
+                    car.track_data_loaded = true;
+                });
+                // Remaining INI carriages after the first.
+                let mut parent = tid;
+                for extra in templates.iter().skip(1) {
+                    let parent_pos = self
+                        .objects
+                        .get(&parent)
+                        .map(|o| o.get_position())
+                        .unwrap_or(loco_pos);
+                    let spawn_pos = Vec3::new(parent_pos.x - hitch_r * 2.0, parent_pos.y, parent_pos.z);
+                    let Some(cid) = self.create_object(extra, team, spawn_pos) else {
+                        break;
+                    };
+                    with_railroad_registry_mut(|reg| {
+                        if let Some(p) = reg.get_mut(parent) {
+                            p.trailer_id = Some(cid);
+                        }
+                        let track = reg.get(loco_id).and_then(|c| c.track.clone());
+                        let car = reg.ensure_car(cid, false);
+                        car.has_ever_been_hitched = true;
+                        car.track = track;
+                        car.track_data_loaded = true;
+                    });
+                    parent = cid;
+                }
+            } else {
+                with_railroad_registry_mut(|reg| {
+                    if let Some(loco) = reg.get_mut(loco_id) {
+                        loco.carriages_created = true;
+                    }
+                });
+            }
+        }
+
+        // Tick locomotives (lead cars) then pull the hitch chain.
+        let loco_ids: Vec<ObjectId> = living
+            .iter()
+            .filter_map(|(id, _, _, is_loco)| is_loco.then_some(*id))
+            .collect();
+
+        let mut poses: Vec<(ObjectId, Vec3, f32)> = Vec::new();
+        for loco_id in loco_ids {
+            with_railroad_registry_mut(|reg| {
+                if let Some(track) = loco_tracks
+                    .iter()
+                    .find(|(id, _)| *id == loco_id)
+                    .map(|(_, t)| t.clone())
+                {
+                    if let Some(car) = reg.get_mut(loco_id) {
+                        if car.track.is_none() {
+                            car.track = Some(track);
+                        }
+                    }
+                }
+                let (pos, heading, mut pull_dist, pull_speed, pull_dir, mut next, track) = {
+                    let Some(loco) = reg.get_mut(loco_id) else {
+                        return;
+                    };
+                    if loco.track.is_none() {
+                        return;
+                    }
+                    loco.tick_conductor();
+                    let Some(pos) = loco.advance_along_track() else {
+                        return;
+                    };
+                    let heading = {
+                        let track = loco.track.as_ref().unwrap();
+                        let (ahead, _, _, _) = find_pos_by_path_distance(
+                            track,
+                            loco.track_distance + loco.hitch_radius.max(1.0),
+                        );
+                        heading_xz(pos, ahead)
+                    };
+                    (
+                        pos,
+                        heading,
+                        loco.track_distance,
+                        loco.speed,
+                        loco.direction,
+                        loco.trailer_id,
+                        loco.track.clone(),
+                    )
+                };
+                poses.push((loco_id, pos, heading));
+                reg.moved_count = reg.moved_count.saturating_add(1);
+
+                // Pull trailers: C++ getPulled / updatePositionTrackDistance.
+                while let Some(tid) = next {
+                    let hitch_r = reg
+                        .get(tid)
+                        .map(|c| c.hitch_radius)
+                        .unwrap_or(RAILROAD_DEFAULT_HITCH_RADIUS);
+                    pull_dist -= hitch_r * 2.0;
+                    let Some(car) = reg.get_mut(tid) else {
+                        break;
+                    };
+                    if car.track.is_none() {
+                        car.track = track.clone();
+                    }
+                    car.speed = pull_speed;
+                    car.direction = pull_dir;
+                    car.track_distance = pull_dist;
+                    car.has_ever_been_hitched = true;
+                    if let Some(pos) = car.advance_along_track() {
+                        let heading = car
+                            .track
+                            .as_ref()
+                            .map(|t| {
+                                let (ahead, _, _, _) = find_pos_by_path_distance(
+                                    t,
+                                    car.track_distance + car.hitch_radius.max(1.0),
+                                );
+                                heading_xz(pos, ahead)
+                            })
+                            .unwrap_or(0.0);
+                        poses.push((tid, pos, heading));
+                    }
+                    next = car.trailer_id;
+                }
+            });
+        }
+
+        for (id, pos, heading) in poses {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_position(pos);
+                obj.set_orientation(heading);
+            }
+        }
+    }
+
+    pub fn set_railroad_held(&mut self, id: ObjectId, held: bool) {
+        with_railroad_registry_mut(|reg| {
+            if let Some(car) = reg.get_mut(id) {
+                car.held = held;
+            }
+        });
+    }
+}
+
+/// Honesty: C++ defaults and live tick symbol exist.
+pub fn honesty_railroad_residual_ok() -> bool {
+    RAILROAD_SPEED_MAX == 4.0
+        && RAILROAD_ACCELERATION == 1.01
+        && RAILROAD_BRAKING == 0.99
+        && RAILROAD_WAIT_AT_STATION_FRAMES == 150
+        && RAILROAD_UNHITCH_FRAMES == 2
+        && is_railroad_locomotive_template("CivilianTrainEngine")
+        && is_railroad_carriage_template("CivilianTrainCoalCar")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    fn straight_track(len: f32, station_at: Option<f32>) -> HostTrainTrack {
+        let mut points = vec![
+            HostTrackPoint {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                distance_from_prev: 0.0,
+                distance_from_first: 0.0,
+                handle: 1,
+                is_station: false,
+                is_disembark: false,
+                is_ping_pong: false,
+                is_tunnel_or_bridge: false,
+            },
+            HostTrackPoint {
+                position: Vec3::new(len * 0.5, 0.0, 0.0),
+                distance_from_prev: len * 0.5,
+                distance_from_first: len * 0.5,
+                handle: 2,
+                is_station: station_at.map(|s| (s - len * 0.5).abs() < 1.0).unwrap_or(false),
+                is_disembark: false,
+                is_ping_pong: false,
+                is_tunnel_or_bridge: false,
+            },
+            HostTrackPoint {
+                position: Vec3::new(len, 0.0, 0.0),
+                distance_from_prev: len * 0.5,
+                distance_from_first: len,
+                handle: 3,
+                is_station: false,
+                is_disembark: false,
+                is_ping_pong: false,
+                is_tunnel_or_bridge: false,
+            },
+        ];
+        if let Some(s) = station_at {
+            if (s - len * 0.5).abs() >= 1.0 {
+                points[0].is_station = s.abs() < 1.0;
+            }
+        }
+        HostTrainTrack {
+            points,
+            length: len,
+            is_looping: true,
+        }
+    }
+
+    fn spawn_train(logic: &mut GameLogic, name: &str, pos: Vec3) -> ObjectId {
+        let mut tmpl = ThingTemplate::new(name);
+        tmpl.add_kind_of(KindOf::Vehicle).set_health(1000.0);
+        logic.templates.insert(name.into(), tmpl);
+        let id = logic
+            .create_object(name, Team::America, pos)
+            .expect("spawn railroad object");
+        if let Some(o) = logic.objects.get_mut(&id) {
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        id
+    }
+
+    /// C++ RailroadBehavior::update: locomotive advances trackDistance by speed.
+    #[test]
+    fn locomotive_moves_along_track() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(id, straight_track(400.0, None));
+        let start = logic.host_object(id).unwrap().get_position();
+        for _ in 0..30 {
+            logic.update_railroads();
+        }
+        let after = logic.host_object(id).unwrap().get_position();
+        assert!(
+            after.x > start.x + 1.0,
+            "train must move along track x {start:?} -> {after:?}"
+        );
+        let car = railroad_car(id).expect("registered locomotive");
+        assert!(car.track_distance > 0.0);
+        assert!(car.speed > 0.0);
+        assert_eq!(car.conductor_state, HostConductorState::Accelerate);
+    }
+
+    /// C++ FindPosByPathDistance station edge → APPLY_BRAKES → WAIT_AT_STATION.
+    #[test]
+    fn locomotive_waits_at_station_then_departs() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let id = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::ZERO);
+        inject_railroad_track(id, straight_track(80.0, Some(40.0)));
+        with_railroad_registry_mut(|reg| {
+            let car = reg.ensure_car(id, true);
+            car.wait_at_station_time = 8;
+            // C++ default 0.99 needs ~370 frames from SpeedMax; tighten for the test.
+            car.braking = 0.8;
+        });
+        let mut saw_wait = false;
+        for _ in 0..200 {
+            logic.update_railroads();
+            if let Some(car) = railroad_car(id) {
+                if car.conductor_state == HostConductorState::WaitAtStation {
+                    saw_wait = true;
+                    assert!(car.speed.abs() < RAILROAD_STOP_SPEED + 0.01);
+                    break;
+                }
+            }
+        }
+        assert!(saw_wait, "station waypoint must apply brakes");
+        for _ in 0..20 {
+            logic.update_railroads();
+        }
+        let car = railroad_car(id).unwrap();
+        assert_eq!(car.conductor_state, HostConductorState::Accelerate);
+        assert!(car.speed.abs() > 0.0, "must depart after WaitAtStationTime");
+    }
+
+    /// C++ getPulled: carriage trackDistance = puller - 2*hitchRadius.
+    #[test]
+    fn hitch_pulls_carriage_behind_locomotive() {
+        railroad_registry_reset();
+        let mut logic = GameLogic::new();
+        let loco = spawn_train(&mut logic, "CivilianTrainEngine", Vec3::new(0.0, 0.0, 0.0));
+        let car = spawn_train(&mut logic, "CivilianTrainCoalCar", Vec3::new(-10.0, 0.0, 0.0));
+        inject_railroad_track(loco, straight_track(400.0, None));
+        for _ in 0..40 {
+            logic.update_railroads();
+        }
+        let loco_pos = logic.host_object(loco).unwrap().get_position();
+        let car_pos = logic.host_object(car).unwrap().get_position();
+        assert!(loco_pos.x > 1.0, "loco moved {loco_pos:?}");
+        assert!(
+            car_pos.x < loco_pos.x,
+            "carriage must trail locomotive {car_pos:?} vs {loco_pos:?}"
+        );
+        let loco_state = railroad_car(loco).unwrap();
+        let car_state = railroad_car(car).unwrap();
+        assert_eq!(loco_state.trailer_id, Some(car));
+        assert!(car_state.has_ever_been_hitched);
+        assert!(
+            (loco_state.track_distance - car_state.track_distance - loco_state.hitch_radius * 2.0)
+                .abs()
+                < 1.0,
+            "hitch spacing loco={} car={}",
+            loco_state.track_distance,
+            car_state.track_distance
+        );
+    }
+
+    #[test]
+    fn load_track_from_linked_waypoints_matches_cpp_walk() {
+        let snaps = vec![
+            HostWaypointSnap {
+                id: 10,
+                name: "TrainPathStart".into(),
+                position: Vec3::new(0.0, 0.0, 0.0),
+                link0: Some(11),
+            },
+            HostWaypointSnap {
+                id: 11,
+                name: "TrainPathStation".into(),
+                position: Vec3::new(100.0, 0.0, 0.0),
+                link0: Some(12),
+            },
+            HostWaypointSnap {
+                id: 12,
+                name: "TrainPathEnd".into(),
+                position: Vec3::new(200.0, 0.0, 0.0),
+                link0: None,
+            },
+        ];
+        let track = HostTrainTrack::from_linked_waypoints(&snaps, 0).unwrap();
+        assert!(!track.is_looping);
+        assert!((track.length - 200.0).abs() < 0.01);
+        assert!(track.points[1].is_station);
+        let (p, _, end, _) = find_pos_by_path_distance(&track, 50.0);
+        assert!((p.x - 50.0).abs() < 0.01);
+        assert!(!end);
+        let (_, _, end, _) = find_pos_by_path_distance(&track, 250.0);
+        assert!(end);
+    }
+
+    #[test]
+    fn honesty_pack_matches_cpp_defaults() {
+        assert!(honesty_railroad_residual_ok());
+        assert!(!is_railroad_locomotive_template("AmericaVehicleChinook"));
+        assert!(!is_railroad_template("RailedTransport"));
+    }
+}

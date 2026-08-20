@@ -63,6 +63,25 @@ pub enum TerrainTreeEvent {
     Remove(u32),
 }
 
+/// C++ `W3DGameClient::notifyTerrainObjectMoved` → `unitMoved` payload.
+#[derive(Clone, Copy, Debug)]
+pub struct TerrainUnitMovedInfo {
+    pub object_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub dir_x: f32,
+    pub dir_y: f32,
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    pub is_box: bool,
+    pub crusher_level: i32,
+    pub immobile: bool,
+    pub frame: u32,
+}
+
+pub type TerrainUnitMovedHook = Arc<dyn Fn(TerrainUnitMovedInfo) + Send + Sync>;
+static TERRAIN_UNIT_MOVED_HOOK: OnceLock<TerrainUnitMovedHook> = OnceLock::new();
 pub type TerrainTreeHook = Arc<dyn Fn(TerrainTreeEvent) + Send + Sync>;
 static TERRAIN_TREE_HOOK: OnceLock<TerrainTreeHook> = OnceLock::new();
 pub type AnimationMetadataHook = Arc<dyn Fn(&str) -> Option<Real> + Send + Sync>;
@@ -82,6 +101,14 @@ pub fn register_terrain_tree_hook(hook: TerrainTreeHook) -> bool {
 
 fn get_terrain_tree_hook() -> Option<&'static TerrainTreeHook> {
     TERRAIN_TREE_HOOK.get()
+}
+
+pub fn register_terrain_unit_moved_hook(hook: TerrainUnitMovedHook) -> bool {
+    TERRAIN_UNIT_MOVED_HOOK.set(hook).is_ok()
+}
+
+fn get_terrain_unit_moved_hook() -> Option<&'static TerrainUnitMovedHook> {
+    TERRAIN_UNIT_MOVED_HOOK.get()
 }
 
 pub fn register_animation_metadata_hook(hook: AnimationMetadataHook) -> bool {

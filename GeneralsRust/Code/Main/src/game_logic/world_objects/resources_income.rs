@@ -49,25 +49,25 @@ impl GameLogic {
                 .filter(|object| self.player_owner_for_host_object(object) == Some(player_id))
                 .filter(|object| object.is_constructed() && object.is_alive())
                 .fold((0_i32, 0_i32), |(produced, consumed), object| {
+                    // C++ Object::friend_adjustPowerForPlayer: disabledness
+                    // only affects producers. onDisabledEdge also folds
+                    // Overcharge EnergyBonus out of the same production pool.
+                    let produced = if object.is_disabled() && object.power_provided > 0 {
+                        produced
+                    } else {
+                        produced.saturating_add(object.power_provided)
+                    };
                     (
-                        produced.saturating_add(object.power_provided),
+                        produced,
                         consumed.saturating_add(object.power_consumed.abs()),
                     )
                 });
 
-            // `OverchargeBehavior::onCapture` normally moves its
-            // ThingTemplate EnergyBonus explicitly.  Its disabled branch
-            // intentionally does neither removal nor addition, while this
-            // host's ordinary object scan follows the new owner.  Retain the
-            // resulting per-player delta separately so later disable/delete
-            // calls still subtract the bonus from the then-current owner,
-            // exactly like C++ `Energy::removePowerBonus`.
-            let power_produced = object_power_produced.saturating_add(
-                self.players
-                    .get(&player_id)
-                    .map(|player| player.captured_overcharge_power_delta)
-                    .unwrap_or(0),
-            );
+            // C++ Energy is incremental. Disabled producers (including an
+            // active Overcharge EnergyBonus) are omitted above, so the
+            // capture-while-disabled delta is not applied — onDisabledEdge
+            // already stripped that pool before onCapture no-ops.
+            let power_produced = object_power_produced;
 
             let Some(player) = self.players.get_mut(&player_id) else {
                 continue;
@@ -83,8 +83,9 @@ impl GameLogic {
             {
                 player.power_sabotaged_till_frame = 0;
             }
-            // If power is sabotaged, zero out power production
+            // C++ Energy::getProduction / getEnergySupplyRatio return 0 while sabotaged.
             if player.power_sabotaged_till_frame > 0 {
+                player.power_produced = 0;
                 player.power_available = -power_consumed;
             }
 

@@ -269,7 +269,7 @@ impl DamageFX {
     }
 
     /// Get appropriate FX list for damage type and amount
-    fn get_damage_fx_list(
+    pub fn get_damage_fx_list(
         &self,
         damage_type: DamageType,
         damage_amount: f32,
@@ -295,6 +295,25 @@ impl DamageFX {
             entry.major_damage_fx_list.clone()
         } else {
             entry.minor_damage_fx_list.clone()
+        }
+    }
+
+    /// Install major/minor FXList names for every veterancy slot of `damage_type`.
+    pub fn set_major_minor_fx(
+        &mut self,
+        damage_type: DamageType,
+        major: Option<String>,
+        minor: Option<String>,
+        amount_for_major_fx: f32,
+    ) {
+        let type_index = self.damage_type_to_index(damage_type);
+        if type_index >= DAMAGE_NUM_TYPES {
+            return;
+        }
+        for level in 0..LEVEL_COUNT {
+            self.dfx[type_index][level].major_damage_fx_list = major.clone();
+            self.dfx[type_index][level].minor_damage_fx_list = minor.clone();
+            self.dfx[type_index][level].amount_for_major_fx = amount_for_major_fx;
         }
     }
 

@@ -264,7 +264,7 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&oid) {
                 o.shroud_clearing_range = range;
                 o.vision_range = range;
-                o.producer_id = Some(source_object);
+                o.note_producer(source_object);
                 o.owner_player_id = Some(player_id);
             }
         }
@@ -1172,7 +1172,7 @@ impl GameLogic {
             if let Some(oid) = self.create_object(SPECTRE_HOWITZER_SHELL_OBJECT, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.spectre_howitzer_shell = true;
-                    o.producer_id = Some(source);
+                    o.note_producer(source);
                     o.spectre_howitzer_shell_expires_frame = Some(expires);
                     o.health.maximum = SPECTRE_HOWITZER_SHELL_MAX_HEALTH;
                     Self::write_object_health_authority_aware(o, SPECTRE_HOWITZER_SHELL_MAX_HEALTH);
@@ -1283,7 +1283,7 @@ impl GameLogic {
             if let Some(oid) = self.create_object(&tmpl, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.anthrax_toxin_field = true;
-                    o.producer_id = Some(source);
+                    o.note_producer(source);
                     o.anthrax_toxin_field_expires_frame = Some(expires);
                     o.health.maximum = max_hp;
                     Self::write_object_health_authority_aware(o, max_hp);
@@ -1364,7 +1364,7 @@ impl GameLogic {
             if let Some(oid) = self.create_object(NUKE_RADIATION_OBJECT_NAME, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.nuke_radiation_field = true;
-                    o.producer_id = Some(source);
+                    o.note_producer(source);
                     o.nuke_radiation_field_expires_frame = Some(expires);
                     o.health.maximum = NUKE_RADIATION_FIELD_MAX_HEALTH;
                     Self::write_object_health_authority_aware(o, NUKE_RADIATION_FIELD_MAX_HEALTH);
@@ -1474,7 +1474,7 @@ impl GameLogic {
                 if let Some(oid) = self.create_object(name, team, cpos) {
                     if let Some(o) = self.objects.get_mut(&oid) {
                         o.particle_connector_laser = true;
-                        o.producer_id = Some(source);
+                        o.note_producer(source);
                         o.particle_connector_laser_expires_frame = Some(expires);
                         o.health.maximum = PARTICLE_CONNECTOR_LASER_MAX_HEALTH;
                         Self::write_object_health_authority_aware(
@@ -1571,7 +1571,7 @@ impl GameLogic {
             if let Some(oid) = self.create_object(PARTICLE_ORBITAL_LASER_NAME, team, laser_pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.particle_orbital_laser = true;
-                    o.producer_id = Some(source);
+                    o.note_producer(source);
                     o.particle_orbital_laser_expires_frame = Some(expires);
                     o.health.maximum = PARTICLE_ORBITAL_LASER_MAX_HEALTH;
                     Self::write_object_health_authority_aware(o, PARTICLE_ORBITAL_LASER_MAX_HEALTH);
@@ -1652,7 +1652,7 @@ impl GameLogic {
             if let Some(oid) = self.create_object(PARTICLE_REMNANT_OBJECT_NAME, team, pos) {
                 if let Some(o) = self.objects.get_mut(&oid) {
                     o.particle_trail_remnant = true;
-                    o.producer_id = Some(source);
+                    o.note_producer(source);
                     o.particle_trail_remnant_expires_frame = Some(expires);
                     o.health.maximum = PARTICLE_REMNANT_MAX_HEALTH;
                     Self::write_object_health_authority_aware(o, PARTICLE_REMNANT_MAX_HEALTH);

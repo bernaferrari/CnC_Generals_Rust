@@ -65,16 +65,15 @@ impl GameLogic {
         );
 
         let mut state_to_apply: Option<AIState> = None;
+        let mut nudge_allies: Vec<ObjectId> = Vec::new();
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if let Some(waypoints) = path {
                 if waypoints.len() >= 2 {
                     obj.movement.path = waypoints;
                     obj.record_host_movement();
                     obj.movement.current_path_index = 1; // skip start node
-                                                         // target_position will be set to path[1] by update_movement
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.set_status_moving(true);
-                    // Final destination for shadow move channel (not intermediate waypoint).
                     crate::game_logic::host_move_log::record(
                         object_id,
                         Some([target_position.x, target_position.y, target_position.z]),
@@ -82,22 +81,19 @@ impl GameLogic {
                     state_to_apply = Some(ai_state_override.unwrap_or(AIState::Moving));
                 } else {
                     // A* found the goal cell (often start==goal after snap).
-                    // Walk the remaining intra-cell offset; this is not a
-                    // through-obstacle fallback (AIStates.cpp:1577-1585).
-                    obj.movement.path = vec![start_pos, target_position];
+                    let dest = waypoints.last().copied().unwrap_or(target_position);
+                    obj.movement.path = vec![start_pos, dest];
                     obj.record_host_movement();
                     obj.movement.current_path_index = 1;
-                    obj.movement.target_position = Some(target_position);
+                    obj.movement.target_position = Some(dest);
                     obj.set_status_moving(true);
                     crate::game_logic::host_move_log::record(
                         object_id,
-                        Some([target_position.x, target_position.y, target_position.z]),
+                        Some([dest.x, dest.y, dest.z]),
                     );
                     state_to_apply = Some(ai_state_override.unwrap_or(AIState::Moving));
                 }
             } else {
-                // C++ null path → STATE_FAILURE (AIStates.cpp:1771-1778).
-                // Leave the unit without a through-obstacle march.
                 log::debug!(
                     "No path found for {:?} to {:?}; refuse fail-open march",
                     object_id,
@@ -105,9 +101,28 @@ impl GameLogic {
                 );
             }
         }
+        if state_to_apply.is_some() {
+            if let Some(obj) = self.objects.get(&object_id) {
+                let path = obj.movement.path.clone();
+                nudge_allies = self
+                    .pathfinding_system
+                    .allies_to_nudge_off_path(object_id, &path, &self.objects);
+            }
+        }
         if let Some(state) = state_to_apply {
             apply_state(self, state);
         }
+        let mover_pos = self
+            .objects
+            .get(&object_id)
+            .map(|o| o.get_position())
+            .unwrap_or(start_pos);
+        for ally in nudge_allies {
+            if let Some(obj) = self.objects.get_mut(&ally) {
+                obj.ai_move_away_from_unit(object_id, mover_pos);
+            }
+        }
+
     }
 
     /// Update movement for all objects
@@ -120,6 +135,64 @@ impl GameLogic {
             let _ = (object_ids, dt);
             return;
         }
+        // C++ m_isBlockedAndStuck → patchPath; requestSafePath → findSafePath Dijkstra.
+        let mut repaths: Vec<(ObjectId, Vec<Vec3>)> = Vec::new();
+        for &id in object_ids {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            if obj.is_disabled() || !obj.is_alive() {
+                continue;
+            }
+            let surfaces = if obj.locomotor_surfaces != 0 {
+                obj.locomotor_surfaces
+            } else {
+                gamelogic::ai::pathfind_complete::SURFACE_GROUND
+            };
+            let is_crusher = obj.crusher_level > 0;
+            if obj.is_safe_path {
+                if let Some(rep) = obj.requested_victim_id {
+                    let from = obj.get_position();
+                    let vision = obj.vision_range.max(50.0);
+                    let rep_pos = self
+                        .objects
+                        .get(&rep)
+                        .map(|r| r.get_position())
+                        .unwrap_or(obj.move_away_destination.unwrap_or(from));
+                    if let Some(path) = self.pathfinding_system.find_safe_path(
+                        from,
+                        rep_pos,
+                        vision,
+                        surfaces,
+                        is_crusher,
+                    ) {
+                        repaths.push((id, path));
+                    }
+                }
+            } else if obj.is_blocked_and_stuck && obj.movement.path.len() >= 2 {
+                let from = obj.get_position();
+                let original = obj.movement.path.clone();
+                if let Some(path) =
+                    self.pathfinding_system
+                        .patch_path(from, &original, surfaces, is_crusher)
+                {
+                    repaths.push((id, path));
+                }
+            }
+        }
+        for (id, path) in repaths {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if path.len() >= 2 {
+                    obj.movement.path = path;
+                    obj.movement.current_path_index = 1;
+                    obj.movement.target_position = Some(obj.movement.path[1]);
+                    obj.is_blocked_and_stuck = false;
+                    obj.set_status_moving(true);
+                    obj.record_host_movement();
+                }
+            }
+        }
+
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
@@ -151,8 +224,6 @@ impl GameLogic {
                             let and_exit = obj.pending_exit_after_evacuate;
                             obj.stop_moving();
                             if do_evac {
-                                // Defer mut borrow: process after this get_mut ends.
-                                // Use a side channel via pending flags re-set for post-pass.
                                 obj.pending_evacuate_on_stop = true;
                                 obj.pending_exit_after_evacuate = and_exit;
                             }
@@ -160,12 +231,16 @@ impl GameLogic {
                         }
                     }
 
-                    let waypoint = obj.movement.path[obj.movement.current_path_index];
-                    // Keep unit height; path cells often sit at Y=0 from the grid.
-                    let mut target = waypoint;
+                    // C++ computePointOnPath: lead into the next optimized node.
+                    let lead = crate::game_logic::PathfindingSystem::compute_point_on_path(
+                        current_pos,
+                        &obj.movement.path[obj.movement.current_path_index.saturating_sub(1)..],
+                    );
+                    let mut target = lead;
                     target.y = current_pos.y;
                     obj.movement.target_position = Some(target);
                 }
+
 
                 if let Some(target_pos) = obj.movement.target_position {
                     let current_pos = obj.get_position();
@@ -238,6 +313,10 @@ impl GameLogic {
                         let reached_target = dist < 2.0;
 
                         obj.set_position(new_position);
+                        // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved →
+                        // W3DTreeBuffer::unitMoved (topple/push). set_position
+                        // also notifies on integer XY change for GameWorld writeback.
+                        obj.notify_terrain_trees_on_unit_move();
                         if reached_target {
                             // Only stop when there is no further path waypoint.
                             // Mid-path "reached" is handled by index advance above.
@@ -658,6 +737,60 @@ mod tests {
             (unit.braking - 99999.0).abs() < 0.5,
             "C++ BIGNUM default, got {}",
             unit.braking
+        );
+    }
+
+    /// C++ Object.cpp:2580-2583 notifyTerrainObjectMoved → W3DTreeBuffer::unitMoved.
+    #[test]
+    fn unit_move_notifies_tree_buffer_topple() {
+        let _ = game_client::terrain::terrain_visual::init_terrain_visual();
+        let tree_ndx = {
+            let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
+                .expect("terrain visual lock");
+            let visual = guard.as_mut().expect("terrain visual");
+            visual.tree_buffer_mut().clear_all_trees();
+            visual.tree_buffer_mut().set_bounds(
+                game_client::terrain::TreeRegion2D::new(
+                    glam::Vec2::ZERO,
+                    glam::Vec2::new(100.0, 100.0),
+                ),
+            );
+            let mut data = game_client::terrain::TreeModuleData::default();
+            data.model_name = "Oak".into();
+            data.do_topple = true;
+            visual
+                .tree_buffer_mut()
+                .add_tree(
+                    77,
+                    glam::Vec3::new(10.0, 10.0, 0.0),
+                    1.0,
+                    0.0,
+                    1.0,
+                    data,
+                    game_client::terrain::TreeSphere {
+                        center: glam::Vec3::ZERO,
+                        radius: 5.0,
+                    },
+                )
+                .expect("add tree")
+        };
+
+        let mut tank_tmpl = ThingTemplate::new("CrusherTank");
+        tank_tmpl.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tank_tmpl, ObjectId(9100), Team::USA);
+        tank.set_position(Vec3::ZERO);
+        tank.crusher_level = 2;
+        tank.selection_radius = 8.0;
+        // Integer XY change from (0,0) → (10,10) must notify trees.
+        tank.set_position(Vec3::new(10.0, 0.0, 10.0));
+
+        let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
+            .expect("terrain visual lock");
+        let visual = guard.as_mut().expect("terrain visual");
+        assert_eq!(
+            visual.tree_buffer_mut().trees()[tree_ndx].topple_state,
+            game_client::terrain::W3DToppleState::Falling,
+            "hq-rdyvl: moving crusher must topple map trees"
         );
     }
 }

@@ -239,6 +239,194 @@ mod tests {
     }
 
     #[test]
+    fn test_create_drawable_from_template_attaches_tank_laser_debris_modules() {
+        // C++ W3DModuleFactory.cpp:38-52 addModule(W3DTankDraw/W3DLaserDraw/W3DDebrisDraw).
+        use game_engine::common::rts::AsciiString;
+        use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
+
+        let mut template = ThingTemplate::new();
+        template.set_template_name(AsciiString::from("SpecializedDrawTemplate"));
+        template.add_draw_module_info(
+            AsciiString::from("W3DTankDraw"),
+            AsciiString::from("TankDrawTag"),
+            Arc::new(W3DTankDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleInterfaceType::DRAW,
+        );
+        template.add_draw_module_info(
+            AsciiString::from("W3DLaserDraw"),
+            AsciiString::from("LaserDrawTag"),
+            Arc::new(W3DLaserDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleInterfaceType::DRAW,
+        );
+        template.add_draw_module_info(
+            AsciiString::from("W3DDebrisDraw"),
+            AsciiString::from("DebrisDrawTag"),
+            Arc::new(W3DDebrisDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleInterfaceType::DRAW,
+        );
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        let drawable_id = client
+            .create_drawable_from_template(&template)
+            .expect("template drawable should be created");
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("created drawable should be registered");
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .expect("template drawable should be BasicDrawable");
+
+        let ids: Vec<_> = basic
+            .get_draw_modules()
+            .iter()
+            .filter_map(|module| module.snapshot_module_identifier())
+            .collect();
+        assert!(ids.contains(&"TankDrawTag"));
+        assert!(ids.contains(&"LaserDrawTag"));
+        assert!(ids.contains(&"DebrisDrawTag"));
+    }
+
+    #[test]
+    fn presentation_sync_attaches_tank_draw_residual_and_scrolls_treads() {
+        // C++ W3DTankDraw.cpp:197-379 updateTreadPositions / doDrawModule.
+        let mut client = GameClient::new().unwrap();
+        let mut first = presentation_drawable_sync_for_test(
+            501,
+            1,
+            "AmericaTankCrusader",
+            true,
+            false,
+            [0.0, 0.0, 0.0],
+            0.0,
+        );
+        first.draw_module_names = vec!["W3DTankDraw".to_string()];
+        assert_eq!(client.sync_presentation_drawables([first.clone()]), (1, 0, 0));
+        let drawable_id = client
+            .presentation_direct_drawable_state(1, 501)
+            .expect("tank visual")
+            .binding_key
+            .drawable_id;
+        let drawable = client.find_drawable_by_id(drawable_id).expect("drawable");
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .expect("BasicDrawable");
+        assert!(
+            basic.get_draw_modules().iter().any(|module| {
+                module.snapshot_module_identifier() == Some("W3DTankDraw")
+            }),
+            "live presentation drawable must attach W3DTankDraw residual"
+        );
+
+        first.position = [10.0, 0.0, 0.0];
+        assert_eq!(client.sync_presentation_drawables([first]), (0, 1, 0));
+        let snap = presentation_specialized_draw_snapshot(501).expect("tank residual");
+        assert_eq!(snap.kind, PresentationSpecializedDrawKind::Tank);
+        assert!(
+            snap.tread_uv > 0.0 || snap.tread_uv_for_mesh("HLOD.TREADSL").is_some(),
+            "moving tank must publish TREADS* UV residual"
+        );
+        let uv = snap
+            .tread_uv_for_mesh("AVCrusader.TREADSL")
+            .expect("left tread");
+        assert!((uv[1] - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn presentation_sync_laser_width_is_not_hairline() {
+        // C++ W3DLaserDraw::getLaserTemplateWidth = OuterBeamWidth * 0.5
+        // (W3DLaserDraw.h / LaserUpdate.cpp:374-381).
+        let mut client = GameClient::new().unwrap();
+        let mut entry = presentation_drawable_sync_for_test(
+            777,
+            1,
+            "PatriotBinaryDataStream",
+            true,
+            false,
+            [1.0, 2.0, 3.0],
+            0.0,
+        );
+        entry.draw_module_names = vec!["W3DLaserDraw".to_string()];
+        assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
+        let snap = presentation_specialized_draw_snapshot(777).expect("laser residual");
+        assert!(snap.is_laser());
+        assert!(
+            snap.laser_width >= 0.5,
+            "laser residual must use template width, not a hairline"
+        );
+    }
+
+    #[test]
+    fn presentation_sync_debris_anim_reaches_flying() {
+        // C++ W3DDebrisDraw.cpp:127-228 INITIAL/FLYING/FINAL via Is_Animation_Complete.
+        let mut client = GameClient::new().unwrap();
+        let mut entry = presentation_drawable_sync_for_test(
+            808,
+            1,
+            "OCL_GenericTankDebris",
+            true,
+            false,
+            [0.0, 0.0, 8.0],
+            0.0,
+        );
+        entry.draw_module_names = vec!["W3DDebrisDraw".to_string()];
+        assert_eq!(client.sync_presentation_drawables([entry.clone()]), (1, 0, 0));
+        for frame in 0..40 {
+            entry.position = [frame as f32 * 0.1, 0.0, 8.0];
+            let _ = client.sync_presentation_drawables([entry.clone()]);
+        }
+        let snap = presentation_specialized_draw_snapshot(808).expect("debris residual");
+        assert!(snap.is_debris());
+        assert!(
+            snap.debris_state >= 1,
+            "debris residual must leave INITIAL once the first anim completes"
+        );
+        assert!(!snap.model_name.is_empty());
+    }
+
+
+    #[test]
+    fn infer_draw_modules_match_cpp_w3d_factory_names() {
+        // C++ W3DModuleFactory.cpp:38-52.
+        assert_eq!(
+            infer_presentation_draw_module_names("AmericaTankCrusader", &["TANK".into()]),
+            vec!["W3DTankDraw".to_string()]
+        );
+        assert_eq!(
+            infer_presentation_draw_module_names("AmericaVehicleHumvee", &[]),
+            vec!["W3DTruckDraw".to_string()]
+        );
+        assert_eq!(
+            infer_presentation_draw_module_names("ChinaTankOverlord", &[]),
+            vec!["W3DOverlordTankDraw".to_string()]
+        );
+        assert_eq!(
+            infer_presentation_draw_module_names("PatriotBinaryDataStream", &["IMMOBILE".into()]),
+            vec!["W3DLaserDraw".to_string()]
+        );
+        assert_eq!(
+            infer_presentation_draw_module_names("OCL_GenericTankDebris", &[]),
+            vec!["W3DDebrisDraw".to_string()]
+        );
+        let snap = PresentationSpecializedDrawSnapshot {
+            kind: PresentationSpecializedDrawKind::Tank,
+            module_name: "W3DTankDraw".into(),
+            object_id: 1,
+            tread_uv: 0.25,
+            wheel_angle: 0.0,
+            laser_width: 0.5,
+            debris_state: 0,
+            debris_anim_time: 0.0,
+            model_name: String::new(),
+        };
+        assert_eq!(snap.tread_uv_for_mesh("AV.TREADSL"), Some([0.25, 0.0]));
+        assert_eq!(snap.tread_uv_for_mesh("AV.TREADSR"), Some([0.75, 0.0]));
+        assert_eq!(snap.tread_uv_for_mesh("AV.HULL"), None);
+    }
+
+
+    #[test]
     fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType};
@@ -729,6 +917,8 @@ mod tests {
             emoticon_frames_left: 0,
             formation_id: 0,
             caption: String::new(),
+            draw_module_names: Vec::new(),
+
         }
     }
 

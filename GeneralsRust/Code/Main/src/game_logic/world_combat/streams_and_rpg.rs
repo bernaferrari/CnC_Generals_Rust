@@ -200,7 +200,7 @@ impl GameLogic {
             o.technical_cannon_shell_launch_frame = Some(self.frame);
             o.technical_cannon_shell_flight_frames = flight;
             o.technical_cannon_shell_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = TECH_CANNON_SHELL_MAX_HEALTH;
             o.health.maximum = TECH_CANNON_SHELL_MAX_HEALTH;
         }
@@ -1050,7 +1050,7 @@ impl GameLogic {
             o.rpg_trooper_missile_travelled = 0.0;
             o.rpg_trooper_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(RPG_MISSILE_FUEL_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = RPG_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, RPG_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -1548,7 +1548,7 @@ impl GameLogic {
             o.missile_defender_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(MD_MISSILE_FUEL_FRAMES));
             o.missile_defender_missile_laser_slot = laser_slot;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = MD_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, MD_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;

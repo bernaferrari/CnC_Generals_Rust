@@ -37,7 +37,7 @@ use std::time::SystemTime;
 /// (`m_locationToGuard` / `m_objectToGuard` / `m_guardMode` and the host
 /// guard radius) as a world tail so nested `ObjectSnapshot` records stay
 /// aligned with v1-v10 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 11;
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 12;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -45,7 +45,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 11;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 11;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 12;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -55,6 +55,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION: u32 = 8;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION: u32 = 9;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION: u32 = 10;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION: u32 = 11;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION: u32 = 12;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -64,7 +65,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -160,6 +161,18 @@ pub struct WorldSnapshot {
     /// guard anchors. World tail so v1-v10 nested object records stay aligned.
     #[serde(default)]
     pub object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+
+    /// C++ `OverchargeBehavior::xfer` `m_overchargeActive`. World tail so
+    /// nested Object/Building records stay aligned with v1-v11 streams.
+    #[serde(default)]
+    pub overcharge_active: Vec<ObjectOverchargeSnapshot>,
+}
+
+/// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectOverchargeSnapshot {
+    pub object_id: ObjectId,
+    pub overcharge_enabled: bool,
 }
 
 /// C++ `Object::xfer` (`Object.cpp:4068`) `m_name` plus `AIUpdateInterface::xfer`
@@ -219,6 +232,7 @@ impl Default for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }

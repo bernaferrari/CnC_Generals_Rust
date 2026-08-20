@@ -508,6 +508,39 @@ pub struct DumbProjectileBehavior {
     has_detonated: Bool,
 }
 
+/// C++ `DumbProjectileBehavior::calcFlightPath` Bezier + segment count.
+/// `segments == 0` recalculates `ceil(arcLength / speed)`.
+pub fn calc_dumb_projectile_bezier_points(
+    start: crate::common::Coord3D,
+    end: crate::common::Coord3D,
+    first_height: Real,
+    second_height: Real,
+    first_percent_indent: Real,
+    second_percent_indent: Real,
+    highest_intervening: Real,
+    speed: Real,
+    segments: usize,
+) -> (Vec<crate::common::Coord3D>, usize) {
+    use crate::weapon::bezier::BezierSegment;
+    let bezier = BezierSegment::create_projectile_arc(
+        start,
+        end,
+        first_height,
+        second_height,
+        first_percent_indent.clamp(0.0, 1.0),
+        second_percent_indent.clamp(0.0, 1.0),
+        highest_intervening.max(start.z).max(end.z),
+    );
+    let mut segs = segments;
+    if segs == 0 {
+        segs = (bezier.get_approximate_length() / speed.max(1.0)).ceil() as usize;
+        if segs == 0 {
+            segs = 1;
+        }
+    }
+    (bezier.get_segment_points(segs), segs)
+}
+
 impl DumbProjectileBehavior {
     fn construct_with_object(
         object_id: ObjectID,
@@ -617,6 +650,7 @@ impl DumbProjectileBehavior {
         TheGameLogic::get_frame()
     }
 
+
     /// Initialize flight path using Bezier curve calculation
     /// Matches C++ DumbProjectileBehavior::calcFlightPath() from DumbProjectileBehavior.cpp:389-435
     fn init_flight_path(
@@ -624,8 +658,6 @@ impl DumbProjectileBehavior {
         recalc_num_segments: bool,
         reset_step: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::weapon::bezier::BezierSegment;
-
         let start = if self.flight_path_segments == 0 && self.current_step == 0 {
             self.with_object(|obj_guard| *obj_guard.get_position())?
         } else {
@@ -648,33 +680,23 @@ impl DumbProjectileBehavior {
         }
         let highest_terrain = highest_intervening.max(start.z).max(target.z);
 
-        // Create Bezier arc using module parameters (C++ lines 389-435)
-        let bezier = BezierSegment::create_projectile_arc(
+        let (points, segs) = calc_dumb_projectile_bezier_points(
             start,
             target,
             self.module_data.first_height,
             self.module_data.second_height,
-            self.module_data.first_percent_indent.clamp(0.0, 1.0),
-            self.module_data.second_percent_indent.clamp(0.0, 1.0),
+            self.module_data.first_percent_indent,
+            self.module_data.second_percent_indent,
             highest_terrain,
+            self.flight_path_speed,
+            if recalc_num_segments {
+                0
+            } else {
+                self.flight_path_segments
+            },
         );
-
-        // Generate flight path points (C++ lines 438-445)
-        // Calculate number of steps based on arc length and flight speed
-        if recalc_num_segments {
-            self.flight_path_segments = 0;
-        }
-        if self.flight_path_segments == 0 {
-            let arc_length = bezier.get_approximate_length();
-            let speed = self.flight_path_speed.max(1.0);
-            self.flight_path_segments = (arc_length / speed).ceil() as usize;
-            if self.flight_path_segments == 0 {
-                self.flight_path_segments = 1;
-            }
-        }
-
-        // Get evenly spaced points along the curve
-        self.flight_path = bezier.get_segment_points(self.flight_path_segments);
+        self.flight_path_segments = segs;
+        self.flight_path = points;
         if reset_step {
             self.current_step = 0;
         }

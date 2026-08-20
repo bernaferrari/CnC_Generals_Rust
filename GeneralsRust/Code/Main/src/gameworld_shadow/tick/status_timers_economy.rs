@@ -284,9 +284,15 @@ impl GameWorldShadow {
         // active timer; amounts, delays, and XP were frozen from source
         // module data when the host object was mirrored.
         if e.hacker_unit && e.hacker_hacking {
-            // C++ aiDoCommand PACKING: a new move/attack leaves HACK_INTERNET.
-            if !e.hacker_in_internet_center
-                && (e.moving || e.attacking || e.move_target.is_some())
+            // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105):
+            // PACKING on any command, including InternetHackContain evacuate/exit.
+            // Riders are dropped Idle, so a move/attack-only stop leaked cash
+            // forever while idle outside. Remirror clears leftover IC schedules;
+            // fail-closed here if contain already emptied while still flagged IC.
+            // Field HackInternet stays idle-outside and must keep depositing.
+            let still_in_ic = e.hacker_in_internet_center && e.contained_by_host != 0;
+            if (e.hacker_in_internet_center && e.contained_by_host == 0)
+                || (!still_in_ic && (e.moving || e.attacking || e.move_target.is_some()))
             {
                 e.hacker_hacking = false;
                 e.hacker_next_deposit_frame = 0;
@@ -351,5 +357,107 @@ impl GameWorldShadow {
             }
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::game_logic::{
+        host_hacker_income::{HACKER_CASH_INTERVAL_FAST_FRAMES, HACKER_CASH_REGULAR},
+        host_hacker_income_log, ContainAdmission, ContainModuleKind, ContainModuleMetadata,
+        GameLogic, HackInternetAIUpdateMetadata, KindOf, Player, Team, ThingTemplate,
+    };
+    use crate::gameworld_shadow::GameWorldShadow;
+    use glam::Vec3;
+
+    /// C++ HackInternetAIUpdate.cpp:105 PACKING on evacuate/exit.
+    /// Remirror must not keep leftover IC hacking while idle outside.
+    #[test]
+    fn remirror_and_economy_stop_evac_hacker_idle_outside() {
+        host_hacker_income_log::clear();
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "TestChina", true);
+        player.resources.supplies = 0;
+        logic.add_player(player);
+
+        let mut hacker_t = ThingTemplate::new("GwHackerEvac");
+        hacker_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::MoneyHacker)
+            .set_health(100.0);
+        hacker_t.transport_slot_count = Some(1);
+        hacker_t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+            unpack_time_frames: 0,
+            pack_time_frames: 0,
+            cash_update_delay_frames: 60,
+            cash_update_delay_fast_frames: HACKER_CASH_INTERVAL_FAST_FRAMES,
+            regular_cash_amount: HACKER_CASH_REGULAR,
+            veteran_cash_amount: 6,
+            elite_cash_amount: 8,
+            heroic_cash_amount: 10,
+            xp_per_cash_update: 1.0,
+            pack_unpack_variation_factor: 0.0,
+        });
+        logic.templates.insert("GwHackerEvac".into(), hacker_t);
+
+        let mut ic_t = ThingTemplate::new("GwInternetCenterEvac");
+        ic_t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSInternetCenter)
+            .set_health(2000.0);
+        ic_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::InternetHack,
+            slots: Some(8),
+            admission: ContainAdmission::MoneyHackerOnly,
+            ..Default::default()
+        };
+        logic.templates.insert("GwInternetCenterEvac".into(), ic_t);
+
+        let ic = logic
+            .create_object("GwInternetCenterEvac", Team::China, Vec3::ZERO)
+            .expect("ic");
+        if let Some(obj) = logic.host_object_mut(ic) {
+            obj.set_status_under_construction(false);
+        }
+        let hacker = logic
+            .create_object("GwHackerEvac", Team::China, Vec3::new(1.0, 0.0, 0.0))
+            .expect("hacker");
+        assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
+        if let Some(obj) = logic.host_object_mut(hacker) {
+            obj.set_contained_by(Some(ic));
+            obj.set_ai_state(crate::game_logic::AIState::Docked);
+        }
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        let eid = shadow.entity_for_host(hacker).expect("map");
+        {
+            let e = shadow.world().entity(eid).expect("e");
+            assert!(e.hacker_unit);
+            assert!(e.hacker_hacking, "contained remirror must start hacking");
+            assert!(e.hacker_in_internet_center);
+        }
+
+        assert!(logic.evacuate_container_now(ic, false));
+        shadow.sync_from_host(&logic);
+        {
+            let e = shadow.world().entity(eid).expect("e");
+            assert!(
+                !e.hacker_hacking,
+                "remirror after evacuate must PACKING-clear hacking"
+            );
+            assert!(!e.hacker_in_internet_center);
+            assert_eq!(e.contained_by_host, 0);
+            assert!(!e.moving);
+        }
+
+        host_hacker_income_log::clear();
+        shadow.tick_status_timer_expirations(HACKER_CASH_INTERVAL_FAST_FRAMES + 2);
+        let deposits = host_hacker_income_log::drain();
+        assert!(
+            deposits.is_empty(),
+            "idle outside after IC evacuate must not deposit: {deposits:?}"
+        );
+        let e = shadow.world().entity(eid).expect("e");
+        assert!(!e.hacker_hacking);
     }
 }

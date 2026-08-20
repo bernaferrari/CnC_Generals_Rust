@@ -1562,19 +1562,49 @@ fn register_upgrade_template(name: &str, properties: &HashMap<String, String>) -
     true
 }
 
-/// Register a science template parsed from INI into the Common ScienceStore.
+/// Register a science template parsed from INI into leftover leftover + live ScienceStore.
 fn register_science_template(name: &str, properties: &HashMap<String, String>) -> bool {
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::ini::ini_science::{get_science_store_mut, parse_science_definition};
-
-    let ascii_name = AsciiString::from(name);
+    use game_engine::common::rts::science::{
+        get_science_store_mut as get_live_science_store_mut, init_science_store, ScienceDefinition,
+    };
 
     match parse_science_definition(name, properties) {
         Ok(info) => {
-            let mut store = get_science_store_mut();
-            if let Err(e) = store.add_science(ascii_name, info) {
-                warn!("Failed to add science '{}': {:?}", name, e);
-                return false;
+            {
+                let mut store = get_science_store_mut();
+                let _ = store.add_science(AsciiString::from(name), info);
+            }
+            // C++ TheScienceStore is one store. Host leftover leftover parse also
+            // feeds the live rts store used by GrantScience / scripts.
+            init_science_store();
+            if let Some(mut live) = get_live_science_store_mut() {
+                let prereq_names = properties.get("PrerequisiteSciences").map(|value| {
+                    value
+                        .split_whitespace()
+                        .filter(|token| !token.is_empty() && !token.eq_ignore_ascii_case("None"))
+                        .map(|token| token.to_string())
+                        .collect::<Vec<_>>()
+                });
+                let cost = properties
+                    .get("SciencePurchasePointCost")
+                    .and_then(|value| value.parse().ok());
+                let grantable = properties.get("IsGrantable").map(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "yes" | "true" | "1"
+                    )
+                });
+                live.ingest_definition(ScienceDefinition {
+                    name: name.to_string(),
+                    display_name: properties.get("DisplayName").cloned(),
+                    description: properties.get("Description").cloned(),
+                    prereq_names,
+                    cost,
+                    grantable,
+                });
+                live.rebuild_root_sciences();
             }
             debug!("Registered science template: {}", name);
             true

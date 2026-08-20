@@ -601,7 +601,7 @@ impl GarrisonContain {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
 
-        self.base.redeploy_occupants()?;
+        self.redeploy_occupants()?;
         self.on_containing(obj_id, was_selected)?;
         Ok(())
     }
@@ -881,6 +881,13 @@ impl GarrisonContain {
         if let Ok(mut contained) = obj.write() {
             contained.set_disabled_held(true)?;
             contained.set_weapon_bonus_condition(WeaponBonusConditionType::Garrisoned);
+            if let Some(player) = contained.get_controlling_player() {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard
+                        .get_academy_stats_mut()
+                        .record_building_garrisoned();
+                }
+            }
         }
 
         let owner_pos = self.with_owner_object_mut(|owner| {
@@ -1033,7 +1040,18 @@ impl GarrisonContain {
                 .unwrap_or(false);
             if !allow_until_destroyed && self.base.get_contain_count() > 0 {
                 let _ = self.order_all_passengers_to_exit(CommandSourceType::FromAi, false);
+                return Ok(());
             }
+        }
+        // C++ OpenContain model-condition change → GarrisonContain::redeployOccupants
+        // so Damaged / ReallyDamaged FIREPOINT bones replace the pristine set.
+        if self.base.get_contain_count() > 0
+            && matches!(
+                new_state,
+                BodyDamageType::Damaged | BodyDamageType::ReallyDamaged
+            )
+        {
+            let _ = self.redeploy_occupants();
         }
         Ok(())
     }
@@ -1244,10 +1262,26 @@ impl GarrisonContain {
         self.evac_disposition = disp;
     }
 
-    /// Redeploy occupants at garrison points
-    #[allow(dead_code)]
+    /// C++ GarrisonContain::redeployOccupants: keep placeFrame, reset station
+    /// bones for the new transform/damage model, rematch, then restore frames.
     fn redeploy_occupants(&mut self) -> GameResult<()> {
-        self.add_valid_objects_to_garrison_points()?;
+        let saved: Vec<(ObjectID, u32)> = self
+            .garrison_point_data
+            .iter()
+            .filter(|point| point.object_id != INVALID_ID)
+            .map(|point| (point.object_id, point.place_frame))
+            .collect();
+        self.station_garrison_points_initialized = false;
+        self.match_objects_to_garrison_points()?;
+        for (obj_id, place_frame) in saved {
+            if let Some(index) = self
+                .garrison_point_data
+                .iter()
+                .position(|point| point.object_id == obj_id)
+            {
+                self.garrison_point_data[index].place_frame = place_frame;
+            }
+        }
         Ok(())
     }
 
@@ -1734,7 +1768,8 @@ impl GarrisonContain {
 
         // Create effect drawable (gun barrel)
         if let Ok(obj_guard) = obj.read() {
-            self.create_garrison_effect(point_index, &pos, &*obj_guard)?;
+            // C++: missing GarrisonGun is a warning; occupancy already succeeded.
+            let _ = self.create_garrison_effect(point_index, &pos, &*obj_guard);
         }
 
         Ok(())
@@ -2367,7 +2402,10 @@ impl GarrisonContain {
             return Ok(());
         }
         let Some(template) = TheThingFactory::find_template("GarrisonGun") else {
-            return Err("GarrisonContain: template 'GarrisonGun' not found".into());
+            log::warn!(
+                "Warning, Object 'GarrisonGun' not found and is need for Garrison gun effects"
+            );
+            return Ok(());
         };
         let Some(client) = TheGameClient::get() else {
             return Ok(());

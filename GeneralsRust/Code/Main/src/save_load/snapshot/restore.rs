@@ -271,6 +271,12 @@ impl SnapshotBuilder {
         object.status.hijacked = status.hijacked;
         // Wave 79 Drawable residual: restore StealthLook ordinal.
         object.camo_stealth_look = status.camo_stealth_look;
+        // C++ StealthUpdate::xfer (`StealthUpdate.cpp:1127-1130`) persists
+        // m_stealthAllowedFrame + m_detectionExpiresFrame. Without the expiry
+        // frame, host update_stealth_and_detection requires >0 and DETECTED
+        // never clears after load.
+        object.detection_expires_frame = status.detection_expires_frame;
+        object.stealth_allowed_frame = status.stealth_allowed_frame;
 
         object.ai_state = if status.destroyed {
             AIState::Idle
@@ -569,6 +575,8 @@ impl SnapshotBuilder {
                 resource_supply_centers: Vec::new(),
                 resource_supply_warehouses: Vec::new(),
                 map_side: crate::game_logic::PlayerMapSideState::default(),
+                attacked_by: [false; crate::game_logic::Player::MAX_ATTACKED_BY_PLAYERS],
+                attacked_frame: 0,
             });
         }
 

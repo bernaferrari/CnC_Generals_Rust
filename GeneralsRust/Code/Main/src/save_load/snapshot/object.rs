@@ -197,6 +197,15 @@ pub struct ObjectStatusSnapshot {
     /// Serde default for older snapshots.
     #[serde(default)]
     pub camo_stealth_look: u8,
+    /// C++ StealthUpdate::m_detectionExpiresFrame (`StealthUpdate.cpp:1130`).
+    /// Absolute host logic frame when OBJECT_STATUS_DETECTED expires (0 = no timer).
+    /// Serde default for older snapshots — missing field must not leave DETECTED stuck.
+    #[serde(default)]
+    pub detection_expires_frame: u32,
+    /// C++ StealthUpdate::m_stealthAllowedFrame (`StealthUpdate.cpp:1127`).
+    /// Absolute host logic frame when the unit may re-cloak after a reveal.
+    #[serde(default)]
+    pub stealth_allowed_frame: u32,
 }
 
 impl Default for ObjectStatusSnapshot {
@@ -233,6 +242,8 @@ impl Default for ObjectStatusSnapshot {
             weapon_lock_type: WeaponLockType::NotLocked,
             weapon_lock_slot: 0,
             camo_stealth_look: 0,
+            detection_expires_frame: 0,
+            stealth_allowed_frame: 0,
         }
     }
 }
@@ -676,6 +687,18 @@ impl XferData for ObjectInstanceGuardSnapshot {
     }
 }
 
+impl XferData for ObjectOverchargeSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectOverchargeSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("OverchargeEnabled")?;
+        xfer.xfer_bool(&mut self.overcharge_enabled)?;
+        Ok(())
+    }
+}
+
+
 
 impl XferData for WeaponBarrelStateSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
@@ -798,6 +821,13 @@ impl XferData for ObjectStatusSnapshot {
         self.weapon_lock_type = weapon_lock_type_from_snapshot_value(weapon_lock_type);
         xfer.xfer_marker_label("WeaponLockSlot")?;
         xfer.xfer_u8(&mut self.weapon_lock_slot)?;
+        // Appended residual: C++ StealthUpdate::xfer m_stealthAllowedFrame /
+        // m_detectionExpiresFrame. Older binary residual saves without these
+        // fields fail-closed on xfer (serde JSON path uses #[serde(default)]).
+        xfer.xfer_marker_label("DetectionExpiresFrame")?;
+        xfer.xfer_u32(&mut self.detection_expires_frame)?;
+        xfer.xfer_marker_label("StealthAllowedFrame")?;
+        xfer.xfer_u32(&mut self.stealth_allowed_frame)?;
         Ok(())
     }
 }

@@ -3677,6 +3677,17 @@ fn team_the_player_not_remapped_outside_challenge() {
 }
 
 #[test]
+fn the_player_not_remapped_outside_challenge() {
+    // C++ ScriptEngine.cpp:5809-5814 remaps THE_PLAYER only in Challenge.
+    let evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.resolve_string_token(crate::scripting::core::THE_PLAYER),
+        crate::scripting::core::THE_PLAYER
+    );
+}
+
+
+#[test]
 fn player_has_counts_dead_lost_ignores_dead() {
     // C++ HAS ignoreDead=FALSE (ScriptConditions.cpp:1792);
     // LOST ignoreDead=TRUE (ScriptConditions.cpp:2686).

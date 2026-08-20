@@ -130,10 +130,16 @@ use game_engine::common::frame_clock::FrameTiming;
 use gamelogic::common::types::{ObjectID, Real, INVALID_ID};
 use gamelogic::helpers::{
     register_animation_metadata_hook, register_scorch_hook, register_terrain_tree_hook,
-    TerrainTreeEvent, TheGameClient, TheGameLogic, TheScriptEngine,
+    register_terrain_unit_moved_hook, TerrainTreeEvent, TerrainUnitMovedInfo, TheGameClient,
+    TheGameLogic, TheScriptEngine,
 };
 use gamelogic::object::draw::{
-    W3DModelDraw, W3DModelDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData,
+    W3DDebrisDraw, W3DDebrisDrawModuleData, W3DLaserDraw, W3DLaserDrawModuleData, W3DModelDraw,
+    W3DModelDrawModuleData, W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData,
+    W3DOverlordTankDraw, W3DOverlordTankDrawModuleData, W3DOverlordTruckDraw,
+    W3DOverlordTruckDrawModuleData, W3DTankDraw, W3DTankDrawModuleData, W3DTankTruckDraw,
+    W3DTankTruckDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData, W3DTruckDraw,
+    W3DTruckDrawModuleData,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::{
@@ -147,6 +153,8 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 // stay identical to the former `core/game_client.rs` god-file.
 
 include!("ids.rs");
+include!("presentation_specialized_draw.rs");
+
 include!("live_slot.rs");
 include!("xfer_adapters.rs");
 include!("errors.rs");
@@ -166,6 +174,8 @@ include!("tests.rs");
 pub const GAME_CLIENT_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("ids.rs"),
+    include_str!("presentation_specialized_draw.rs"),
+
     include_str!("live_slot.rs"),
     include_str!("xfer_adapters.rs"),
     include_str!("errors.rs"),

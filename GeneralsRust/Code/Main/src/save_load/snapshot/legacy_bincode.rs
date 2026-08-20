@@ -27,10 +27,12 @@ use std::time::SystemTime;
 /// normal-Weapon suspend-FX tail, and v7 predates the v8 temporary-Weapon
 /// behavior tail. Version 9 predates the v10 Player rank/skill/science tail.
 /// Version 10 predates the v11 Object instance-name/guard tail.
+/// Version 11 predates the v12 OverchargeBehavior m_overchargeActive tail.
 /// Unknown versions fail closed rather than relying on field
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BincodeWorldSnapshotDecodePath {
     Current,
+    LegacyPreV12V11,
     LegacyPreV11V10,
     LegacyPreV10V9,
     LegacyPreV9V8,
@@ -52,6 +54,14 @@ pub(crate) fn decode_bincode_world_snapshot(
     match version {
         WORLD_SNAPSHOT_BINCODE_VERSION => bincode_exact::<WorldSnapshot>(payload)
             .map(|snapshot| (snapshot, BincodeWorldSnapshotDecodePath::Current))
+            .map_err(|error| SaveLoadError::Serialization(error.to_string())),
+        11 => bincode_exact::<PreV12WorldSnapshot>(payload)
+            .map(|snapshot| {
+                (
+                    snapshot.into(),
+                    BincodeWorldSnapshotDecodePath::LegacyPreV12V11,
+                )
+            })
             .map_err(|error| SaveLoadError::Serialization(error.to_string())),
         10 => bincode_exact::<PreV11WorldSnapshot>(payload)
             .map(|snapshot| {
@@ -337,6 +347,37 @@ struct PreV11WorldSnapshot {
     lifecycle_tail: Vec<u8>,
     player_ranks: Vec<PlayerRankSnapshot>,
 }
+
+/// Complete v11 world record before the v12 OverchargeBehavior active tail.
+#[derive(Debug, Deserialize, Serialize)]
+struct PreV12WorldSnapshot {
+    version: u32,
+    timestamp: SystemTime,
+    frame_number: u64,
+    random_seed: u64,
+    objects: HashMap<ObjectId, ObjectSnapshot>,
+    players: Vec<PlayerSnapshot>,
+    teams: Vec<TeamSnapshot>,
+    terrain: TerrainSnapshot,
+    weather: WeatherSnapshot,
+    resource_manager: ResourceManagerSnapshot,
+    combat_tracker: CombatTrackerSnapshot,
+    experience_tracker: ExperienceTrackerSnapshot,
+    pathfinding_cache: PathfindingCacheSnapshot,
+    ai_players: Vec<AIPlayerSnapshot>,
+    global_ai_state: GlobalAIStateSnapshot,
+    special_power_strikes: SpecialPowerStrikeRegistrySnapshot,
+    combat_particles: CombatParticleRegistrySnapshot,
+    host_upgrades: HostUpgradeRegistrySnapshot,
+    next_weapon_discharge_sequence: u64,
+    client_drawables: ClientDrawableWorldSnapshot,
+    player_template_bindings: Vec<PlayerTemplateBindingSnapshot>,
+    shroud: ShroudSnapshot,
+    lifecycle_tail: Vec<u8>,
+    player_ranks: Vec<PlayerRankSnapshot>,
+    object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
+}
+
 
 
 /// Complete v7 world record before the v8 source-keyed temporary-Weapon
@@ -656,6 +697,7 @@ impl From<LegacyWorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -776,6 +818,7 @@ impl From<PreHackerDisableWorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -842,6 +885,7 @@ impl From<PreV4WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -878,6 +922,7 @@ impl From<PreV6WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -914,6 +959,7 @@ impl From<PreV8WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -946,6 +992,7 @@ impl From<PreV9WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -978,6 +1025,7 @@ impl From<PreV10WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: snapshot.lifecycle_tail,
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -1010,9 +1058,44 @@ impl From<PreV11WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: snapshot.lifecycle_tail,
             player_ranks: snapshot.player_ranks,
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
+
+impl From<PreV12WorldSnapshot> for WorldSnapshot {
+    fn from(snapshot: PreV12WorldSnapshot) -> Self {
+        Self {
+            version: WORLD_SNAPSHOT_BINCODE_VERSION,
+            timestamp: snapshot.timestamp,
+            frame_number: snapshot.frame_number,
+            random_seed: snapshot.random_seed,
+            objects: snapshot.objects,
+            players: snapshot.players,
+            teams: snapshot.teams,
+            terrain: snapshot.terrain,
+            weather: snapshot.weather,
+            resource_manager: snapshot.resource_manager,
+            combat_tracker: snapshot.combat_tracker,
+            experience_tracker: snapshot.experience_tracker,
+            pathfinding_cache: snapshot.pathfinding_cache,
+            ai_players: snapshot.ai_players,
+            global_ai_state: snapshot.global_ai_state,
+            special_power_strikes: snapshot.special_power_strikes,
+            combat_particles: snapshot.combat_particles,
+            host_upgrades: snapshot.host_upgrades,
+            next_weapon_discharge_sequence: snapshot.next_weapon_discharge_sequence,
+            client_drawables: snapshot.client_drawables,
+            player_template_bindings: snapshot.player_template_bindings,
+            shroud: snapshot.shroud,
+            lifecycle_tail: snapshot.lifecycle_tail,
+            player_ranks: snapshot.player_ranks,
+            object_instance_guards: snapshot.object_instance_guards,
+            overcharge_active: Vec::new(),
+        }
+    }
+}
+
 
 
 impl From<PreV8ObjectSnapshot> for ObjectSnapshot {
@@ -1077,6 +1160,7 @@ impl From<PreV7WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }
@@ -1143,6 +1227,7 @@ impl From<PreV5WorldSnapshot> for WorldSnapshot {
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
             object_instance_guards: Vec::new(),
+            overcharge_active: Vec::new(),
         }
     }
 }

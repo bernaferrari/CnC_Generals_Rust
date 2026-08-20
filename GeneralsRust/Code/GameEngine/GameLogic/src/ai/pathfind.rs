@@ -1667,16 +1667,28 @@ pub fn update_goal_for_object(
         .try_read()
         .map_err(|_| "Could not lock object for goal update")?;
 
-    // Update the object's internal pathfinding state
-    if let Some(ai) = obj_guard.get_ai_update_interface() {
-        // The AI module tracks its current goal internally
-        // This is a simplified implementation - the actual C++ code
-        // updates the pathfinder's internal tracking structures
-        let _ = (ai, goal, layer);
+    let cell = crate::ai::pathfind_astar::GridCoord::from_world(goal);
+    let radius = {
+        let geo = obj_guard.get_geometry_info();
+        let r = (geo.get_major_radius() / crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F).floor()
+            as i32;
+        r.clamp(0, 2)
+    };
+    let pf_layer = match layer {
+        PathfindLayerEnum::Ground => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
+    };
+    drop(obj_guard);
+    if let Ok(ai) = THE_AI.read() {
+        if let Some(pf) = ai.pathfinder() {
+            if let Ok(pf) = pf.read() {
+                pf.update_goal_cells(cell, obj_id, pf_layer, radius, true, false);
+            }
+        }
     }
-
     Ok(())
 }
+
 
 /// Snap a world position to the nearest pathfind grid cell center.
 /// Matches C++ Pathfinder::goalPosition() — returns the grid-snapped position

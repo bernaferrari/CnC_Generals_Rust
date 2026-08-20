@@ -1809,7 +1809,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
     );
     assert_eq!(
         game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_INITIAL_MEMBERS)
+        Some(ANGRY_MOB_MAX_MEMBERS)
     );
 
     let hp_after_first = game_logic.host_object(enemy_id).unwrap().health.current;
@@ -1818,7 +1818,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         "near enemy must take residual Angry Mob damage on first tick (before={enemy_hp_before}, after={hp_after_first})"
     );
     let dealt = enemy_hp_before - hp_after_first;
-    let expected = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS, false);
+    let expected = angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS, false);
     assert!(
         (dealt - expected).abs() < 0.01,
         "first tick damage expected {expected}, got {dealt}"
@@ -1861,47 +1861,44 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         "second tick damage expected {expected}, got {dealt2}"
     );
 
-    // Expand residual: after SpawnReplaceDelay frames, member count grows.
+    // C++ SpawnBehavior rapid-spawns SpawnNumber; no +1/30s ramp.
     game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES;
     game_logic.update_angry_mobs();
     assert_eq!(
         game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_INITIAL_MEMBERS + 1),
-        "expand residual must grow member count"
+        Some(ANGRY_MOB_MAX_MEMBERS),
+        "rapid spawn stays at SpawnNumber until a member dies"
     );
     assert!(
-        game_logic.honesty_angry_mob_expand_ok(),
-        "expand residual honesty"
+        game_logic
+            .host_object(mob_id)
+            .map(|o| o.status.masked)
+            .unwrap_or(false),
+        "C++ computeAggregateStates MASKED on nexus"
     );
 
-    // Expanded mob deals more damage on next due tick.
-    // Force next tick due: set frame to expand frame (tick also due after interval).
-    let hp_pre_expand_fire = game_logic.host_object(enemy_id).unwrap().health.current;
-    // Ensure tick is due: advance to a frame past last next_tick.
-    game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES + ANGRY_MOB_TICK_INTERVAL_FRAMES;
+    // Dead members reduce DPS; last member destroys the nexus.
+    let member_ids: Vec<_> = game_logic
+        .host_objects()
+        .values()
+        .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(mob_id))
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(member_ids.len() as u32, ANGRY_MOB_MAX_MEMBERS);
+    if let Some(first) = member_ids.first() {
+        if let Some(o) = game_logic.objects.get_mut(first) {
+            o.health.current = 0.0;
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+        }
+    }
     game_logic.update_angry_mobs();
-    let hp_post_expand_fire = game_logic.host_object(enemy_id).unwrap().health.current;
-    let expand_dealt = hp_pre_expand_fire - hp_post_expand_fire;
-    let expected_expanded = angry_mob_damage_for_tick(ANGRY_MOB_INITIAL_MEMBERS + 1, false);
-    // Expand may coincide with tick; accept either expanded damage or that members grew.
-    if expand_dealt > 0.0 {
-        assert!(
-            expand_dealt + 0.01 >= expected
-                || (expand_dealt - expected_expanded).abs() < 0.01,
-            "expanded mob damage should be >= base or match expanded (got {expand_dealt}, base={expected}, expanded={expected_expanded})"
-        );
-    }
-
-    // Cap expand at max members.
-    for i in 0u32..12 {
-        game_logic.frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES.saturating_mul(i.saturating_add(2));
-        game_logic.update_angry_mobs();
-    }
     assert_eq!(
         game_logic.angry_mobs().member_count_of(mob_id),
-        Some(ANGRY_MOB_MAX_MEMBERS),
-        "member count caps at SpawnNumber residual"
+        Some(ANGRY_MOB_MAX_MEMBERS - 1),
+        "onSpawnDeath must shrink live count"
     );
+    let _ = ANGRY_MOB_INITIAL_MEMBERS;
 
     // ArmTheMob upgrade residual multiplies damage.
     {
@@ -1938,7 +1935,7 @@ fn angry_mob_damages_nearby_enemies_over_frames() {
         .health
         .current;
     let armed_dealt = hp_pre_armed - hp_post_armed;
-    let expected_armed = angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS, true);
+    let expected_armed = angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS - 1, true);
     assert!(
         armed_dealt > 0.0,
         "ArmTheMob residual must still deal damage (pre={hp_pre_armed}, post={hp_post_armed})"
@@ -4101,6 +4098,57 @@ fn overlord_bunker_residual_enter_sets_docked_state_and_capacity() {
         "Overlord bunker enter must not count as structure garrison"
     );
 }
+
+/// C++ `OverlordContain::onContaining` ExperienceSinkForRider
+/// (`OverlordContain.cpp:354-355`). Bunker occupant kills must level the tank.
+#[test]
+fn overlord_bunker_enter_sets_rider_experience_sink_to_tank() {
+    use crate::command_system::{CommandType, GameCommand};
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    let overlord_id = create_test_overlord(&mut game_logic, Vec3::new(0.0, 0.0, 0.0), Some(5));
+    let infantry_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(2.0, 0.0, 0.0))
+        .expect("infantry");
+    {
+        let overlord = game_logic.host_object_mut(overlord_id).expect("overlord");
+        overlord.thing.template.is_trainable = true;
+    }
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::Enter {
+            target_id: overlord_id,
+        },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![infantry_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    game_logic.update_ai(&[infantry_id, overlord_id], 1.0 / 30.0);
+
+    let infantry = game_logic.host_object(infantry_id).expect("rider");
+    assert_eq!(
+        infantry.experience_sink,
+        Some(overlord_id),
+        "Overlord onContaining must setExperienceSink to the tank"
+    );
+
+    game_logic.award_experience(infantry_id, 40.0);
+    let infantry = game_logic.host_object(infantry_id).expect("rider after xp");
+    let overlord = game_logic.host_object(overlord_id).expect("tank after xp");
+    assert_eq!(
+        infantry.experience.current, 0.0,
+        "bunker occupant must forward kill XP"
+    );
+    assert_eq!(
+        overlord.experience.current, 40.0,
+        "tank must receive the rider sink forward"
+    );
+}
+
 
 /// Residual acceptance: load 2 infantry → unload all → both free + honesty.
 #[test]

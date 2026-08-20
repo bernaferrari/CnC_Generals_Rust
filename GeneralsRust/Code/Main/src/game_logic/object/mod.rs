@@ -155,6 +155,10 @@ fn default_max_shots() -> i32 {
     -1
 }
 
+fn default_experience_scalar() -> f32 {
+    1.0
+}
+
 fn default_braking() -> f32 {
     // C++ LocomotorTemplate::m_braking = BIGNUM (Locomotor.cpp:270).
     99999.0
@@ -751,6 +755,9 @@ pub struct Object {
     /// C++ ExperienceTracker::m_experienceSink — forward kill XP to this object.
     #[serde(default)]
     pub experience_sink: Option<ObjectId>,
+    /// C++ ExperienceTracker::m_experienceScalar (ctor 1.0).
+    #[serde(default = "default_experience_scalar")]
+    pub experience_scalar: f32,
 
 
     /// Primary weapon
@@ -787,6 +794,10 @@ pub struct Object {
     /// through `PersistentPrepTime` and starts its recharge at preparation.
     #[serde(default)]
     pub hacker_disable_channel: Option<HackerDisableChannelState>,
+    /// C++ `SpecialAbilityUpdate::m_animFrames` while planting C4/TNT.
+    #[serde(default)]
+    pub charge_plant_unpack_remaining_seconds: Option<f32>,
+
 
     /// Construction progress (0.0 to 1.0)
     pub construction_percent: f32,
@@ -2270,6 +2281,11 @@ pub struct Object {
     #[serde(default)]
     pub partition_last_affect:
         Option<crate::game_logic::partition_manager::HostPartitionAffectStamp>,
+    /// Last doShroudReveal looker (C++ Object::m_partitionLastLook).
+    #[serde(default)]
+    pub partition_last_look:
+        Option<crate::game_logic::partition_manager::HostPartitionLookStamp>,
+
 
     /// C++ AutoAcquireEnemiesWhenIdle residual (AAS_Idle bit).
     #[serde(default = "default_true_for_auto_acquire")]

@@ -521,7 +521,7 @@ impl GameLogic {
             o.inferno_shell_flight_frames = frames;
             o.inferno_shell_intended = intended.map(|id| id.0);
             o.inferno_shell_upgraded = upgraded;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = INFERNO_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, INFERNO_SHELL_MAX_HEALTH);
         }
@@ -902,8 +902,10 @@ impl GameLogic {
     }
 
     // -----------------------------------------------------------------------
-    // GLA Angry Mob residual (nexus damages nearby enemies / expands members)
-    // Fail-closed: not full SpawnBehavior members / MobMemberSlavedUpdate matrix.
+    // GLA Angry Mob residual (nexus damages nearby enemies / SpawnBehavior members)
+    // C++ SpawnBehavior: rapid-spawn SpawnNumber, replace on delay, last-member
+    // death destroys nexus, computeAggregateStates MASKED.
+    // Fail-closed: not full MobMemberSlavedUpdate / wander locomotor matrix.
     // -----------------------------------------------------------------------
 
     /// Host GLA Angry Mob residual registry (member expand + aggregate fire).
@@ -926,13 +928,13 @@ impl GameLogic {
         self.angry_mobs.honesty_host_path_ok()
     }
 
-    /// Advance Angry Mob residual: expand members + aggregate fire on nearby enemies.
+    /// Advance Angry Mob residual: SpawnBehavior members + aggregate fire.
     ///
     /// Retail: SpawnBehavior members fire pistol/rock/molotov; residual collapses
     /// that into periodic AoE damage around the nexus within AttackRange 100.
-    /// Expand residual grows member strength from InitialBurst 5 → SpawnNumber 10.
+    /// C++ rapid-spawns all SpawnNumber, then SpawnReplaceDelay replacements.
     ///
-    /// Fail-closed: not individual member objects, projectile weapons, or slave AI.
+    /// Fail-closed: not full member wander locomotor or slave AI matrix.
     /// C++ SpawnBehavior member SpecialObject residual for AngryMob nexus.
     pub fn spawn_angry_mob_member_object(
         &mut self,
@@ -944,13 +946,15 @@ impl GameLogic {
         use crate::game_logic::host_angry_mob::ANGRY_MOB_MEMBER_MAX_HEALTH;
         use crate::game_logic::{KindOf, ThingTemplate};
         use std::f32::consts::PI;
-
         if !self.templates.contains_key(template_name) {
             let mut t = ThingTemplate::new(template_name);
             t.add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Attackable)
                 .set_health(ANGRY_MOB_MEMBER_MAX_HEALTH)
                 .set_cost(0, 0);
             self.templates.insert(template_name.to_string(), t);
+        } else if let Some(t) = self.templates.get_mut(template_name) {
+            t.add_kind_of(KindOf::Attackable);
         }
         let origin = self.objects.get(&nexus_id)?.get_position();
         let angle = (slot_index as f32) * (2.0 * PI / 8.0);
@@ -960,12 +964,17 @@ impl GameLogic {
             origin.y,
             origin.z + angle.sin() * radius,
         );
-        let mid = self.create_object(template_name, team, place)?;
+        let Some(mid) = self.create_object(template_name, team, place) else {
+            self.angry_mobs
+                .rollback_failed_member_spawn(nexus_id, self.frame);
+            return None;
+        };
         if let Some(o) = self.objects.get_mut(&mid) {
             o.angry_mob_member = true;
             o.angry_mob_nexus_id = Some(nexus_id);
             o.producer_id = Some(nexus_id);
             o.health.maximum = ANGRY_MOB_MEMBER_MAX_HEALTH;
+            o.thing.template.add_kind_of(KindOf::Attackable);
             Self::write_object_health_authority_aware(o, ANGRY_MOB_MEMBER_MAX_HEALTH);
         }
         if let Some(m) = self
@@ -983,12 +992,18 @@ impl GameLogic {
     pub fn flush_angry_mob_member_spawns(&mut self) {
         let pending = self.angry_mobs.take_pending_member_spawns();
         for spawn in pending {
-            let _ = self.spawn_angry_mob_member_object(
-                spawn.nexus_id,
-                spawn.team,
-                &spawn.template_name,
-                spawn.slot_index,
-            );
+            if self
+                .spawn_angry_mob_member_object(
+                    spawn.nexus_id,
+                    spawn.team,
+                    &spawn.template_name,
+                    spawn.slot_index,
+                )
+                .is_none()
+            {
+                self.angry_mobs
+                    .rollback_failed_member_spawn(spawn.nexus_id, self.frame);
+            }
         }
     }
 
@@ -1087,6 +1102,30 @@ impl GameLogic {
             .collect();
 
         self.angry_mobs.sync_mobs(&living, frame);
+
+        // C++ SpawnBehavior::onSpawnDeath — shrink live count; last member kills nexus.
+        let destroy_nexuses = self.angry_mobs.process_dead_members(frame, |mid| {
+            match self.objects.get(&mid) {
+                None => true,
+                Some(o) => !o.is_alive() || o.status.destroyed || o.status.effectively_dead,
+            }
+        });
+        for nid in destroy_nexuses {
+            if let Some(o) = self.objects.get_mut(&nid) {
+                if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                    let hp = o.health.current.max(1.0);
+                    let oid = o.id;
+                    crate::game_logic::host_damage_log::record(oid, hp, None, true);
+                } else {
+                    o.health.current = 0.0;
+                }
+                o.status.destroyed = true;
+                o.status.effectively_dead = true;
+            }
+            self.mark_object_for_destruction(nid, None);
+        }
+        self.angry_mobs.evict_pending_destroyed_nexuses();
+
         self.angry_mobs.apply_due_expands(frame);
         self.flush_angry_mob_member_spawns();
         // Wave 801: under coupled shadow, AngryMob member follow is owned by
@@ -1095,6 +1134,23 @@ impl GameLogic {
             && crate::gameworld_shadow::shadow_coupled_tick_active())
         {
             self.update_angry_mob_member_follow();
+        }
+
+        // C++ SpawnBehavior::computeAggregateStates OBJECT_STATUS_MASKED
+        // (SpawnBehavior.cpp:995) — weapons must target members, not the nexus.
+        let mask_ids: Vec<ObjectId> = self
+            .angry_mobs
+            .active_mobs()
+            .iter()
+            .filter(|m| !m.pending_nexus_destroy)
+            .map(|m| m.object_id)
+            .collect();
+        for nid in mask_ids {
+            if let Some(obj) = self.objects.get_mut(&nid) {
+                if crate::game_logic::host_angry_mob::angry_mob_nexus_should_be_masked() {
+                    obj.set_status_masked(true);
+                }
+            }
         }
 
         if self.angry_mobs.active_count() == 0 {
@@ -1333,7 +1389,7 @@ impl GameLogic {
             o.aurora_bomb_projectile = true;
             o.aurora_bomb_aim = Some([aim.x, aim.y, aim.z]);
             o.aurora_bomb_mission_id = Some(mission_id);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = AURORA_BOMB_PROJECTILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, AURORA_BOMB_PROJECTILE_MAX_HEALTH);
             o.movement.velocity = vel;
@@ -1550,7 +1606,7 @@ impl GameLogic {
             place,
         )?;
         if let Some(o) = self.objects.get_mut(&gid) {
-            o.producer_id = Some(source_object);
+            o.note_producer(source_object);
             o.health.maximum = FUEL_AIR_GAS_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, FUEL_AIR_GAS_MAX_HEALTH);
             o.movement.max_speed = 0.0;
@@ -1691,5 +1747,129 @@ impl GameLogic {
                 objects_destroyed
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod spawn_behavior_parity {
+    use super::*;
+    use crate::game_logic::host_angry_mob::{
+        ANGRY_MOB_EXPAND_INTERVAL_FRAMES, ANGRY_MOB_MAX_MEMBERS,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    fn make_nexus_logic() -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut nexus = ThingTemplate::new("GLAInfantryAngryMobNexus");
+        nexus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(99_999.0);
+        logic
+            .templates
+            .insert("GLAInfantryAngryMobNexus".into(), nexus);
+        let nid = logic
+            .create_object(
+                "GLAInfantryAngryMobNexus",
+                Team::GLA,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("nexus");
+        if let Some(o) = logic.objects.get_mut(&nid) {
+            o.construction_percent = 1.0;
+            o.status.under_construction = false;
+        }
+        (logic, nid)
+    }
+
+    fn live_members(logic: &GameLogic, nid: ObjectId) -> Vec<ObjectId> {
+        logic
+            .host_objects()
+            .values()
+            .filter(|o| {
+                o.angry_mob_member
+                    && o.angry_mob_nexus_id == Some(nid)
+                    && o.is_alive()
+                    && !o.status.destroyed
+            })
+            .map(|o| o.id)
+            .collect()
+    }
+
+    fn kill_member(logic: &mut GameLogic, mid: ObjectId) {
+        if let Some(o) = logic.objects.get_mut(&mid) {
+            o.health.current = 0.0;
+            o.status.destroyed = true;
+            o.status.effectively_dead = true;
+        }
+    }
+
+    #[test]
+    fn rapid_spawn_all_spawn_number_then_replace_delay() {
+        // C++ SpawnBehavior::update (SpawnBehavior.cpp:194-208, 221-243).
+        let (mut logic, nid) = make_nexus_logic();
+        logic.update_angry_mobs();
+        assert_eq!(
+            logic.angry_mobs().member_count_of(nid),
+            Some(ANGRY_MOB_MAX_MEMBERS)
+        );
+        let members = live_members(&logic, nid);
+        assert_eq!(members.len() as u32, ANGRY_MOB_MAX_MEMBERS);
+
+        kill_member(&mut logic, members[0]);
+        logic.update_angry_mobs();
+        assert_eq!(
+            logic.angry_mobs().member_count_of(nid),
+            Some(ANGRY_MOB_MAX_MEMBERS - 1)
+        );
+
+        logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+        logic.update_angry_mobs();
+        assert_eq!(
+            logic.angry_mobs().member_count_of(nid),
+            Some(ANGRY_MOB_MAX_MEMBERS)
+        );
+        assert!(logic.honesty_angry_mob_expand_ok());
+    }
+
+    #[test]
+    fn last_member_death_destroys_nexus() {
+        // C++ SpawnBehavior::onSpawnDeath (SpawnBehavior.cpp:749-757).
+        let (mut logic, nid) = make_nexus_logic();
+        logic.update_angry_mobs();
+        let members = live_members(&logic, nid);
+        assert_eq!(members.len() as u32, ANGRY_MOB_MAX_MEMBERS);
+        for mid in members {
+            kill_member(&mut logic, mid);
+        }
+        logic.update_angry_mobs();
+        assert_eq!(logic.angry_mobs().member_count_of(nid), None);
+        let nexus_gone = logic
+            .host_object(nid)
+            .map(|o| !o.is_alive() || o.status.destroyed)
+            .unwrap_or(true);
+        assert!(nexus_gone, "last member death must destroy AggregateHealth nexus");
+    }
+
+    #[test]
+    fn nexus_is_masked_so_weapons_target_members() {
+        // C++ SpawnBehavior::computeAggregateStates MASKED (SpawnBehavior.cpp:995).
+        let (mut logic, nid) = make_nexus_logic();
+        logic.update_angry_mobs();
+        let nexus = logic.host_object(nid).expect("nexus");
+        assert!(nexus.status.masked, "nexus must be OBJECT_STATUS_MASKED");
+        assert!(
+            !nexus.is_targetable_by_enemy_of(Team::USA),
+            "weapons must not acquire the 99999-HP nexus"
+        );
+        let members = live_members(&logic, nid);
+        assert!(!members.is_empty());
+        let member = logic.host_object(members[0]).expect("member");
+        assert!(!member.status.masked);
+        assert!(
+            member.is_targetable_by_enemy_of(Team::USA),
+            "weapons must target live members"
+        );
     }
 }

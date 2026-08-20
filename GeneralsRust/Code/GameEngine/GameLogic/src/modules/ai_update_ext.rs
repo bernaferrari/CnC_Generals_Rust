@@ -134,6 +134,8 @@ pub trait AIUpdateInterfaceExt {
     fn is_turret_in_natural_position(&self, turret: TurretType) -> bool;
     fn get_path(&self) -> Option<()>;
     fn get_path_destination(&self) -> Option<Coord3D>;
+    fn peek_cached_point_on_path(&self) -> Option<Coord3D>;
+
     fn get_locomotor_distance_to_goal(&self) -> Real;
     fn get_current_victim(&self) -> Option<ObjectID>;
     fn set_current_victim(&mut self, victim: Option<ObjectID>);
@@ -774,6 +776,15 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             None
         }
     }
+
+    fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
+        if let Ok(guard) = self.try_lock() {
+            guard.peek_cached_point_on_path()
+        } else {
+            None
+        }
+    }
+
 
     fn get_locomotor_distance_to_goal(&self) -> Real {
         if let Ok(guard) = self.try_lock() {

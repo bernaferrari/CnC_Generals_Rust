@@ -95,53 +95,14 @@ impl ExperienceGainManager {
         self.requirements.remove(&object_id);
     }
 
-    /// Award experience for damage dealt (matches C++ Object::onDamageDealt)
-    ///
-    /// # Parameters
-    /// - `attacker_id`: ID of the object that dealt damage
-    /// - `damage_dealt`: Amount of damage dealt
-    /// - `can_scale`: Whether to apply experience scalar bonuses
-    ///
-    /// # Returns
-    /// Result indicating if promotion occurred
+    /// C++ ExperienceTracker has no damage/hit XP. Kill XP is scoreTheKill only.
     pub fn award_damage_experience(
         &self,
-        attacker_id: ObjectID,
-        damage_dealt: f32,
-        can_scale: bool,
+        _attacker_id: ObjectID,
+        _damage_dealt: f32,
+        _can_scale: bool,
     ) -> Option<ExperienceGainResult> {
-        // Get the attacker's tracker and requirements
-        let tracker = self.trackers.get(&attacker_id)?;
-        let requirements = self.requirements.get(&attacker_id)?;
-
-        // Calculate experience from damage
-        let experience_gain = ExperienceTracker::calculate_damage_experience(damage_dealt);
-
-        if experience_gain <= 0 {
-            return None;
-        }
-
-        // Award experience
-        let mut tracker_guard = tracker.lock().ok()?;
-        let _old_level = tracker_guard.get_veterancy_level();
-
-        let promotion = tracker_guard.add_experience_points(
-            experience_gain,
-            can_scale,
-            requirements.as_array(),
-        );
-
-        let new_level = tracker_guard.get_veterancy_level();
-
-        if let Some(old) = promotion {
-            Some(ExperienceGainResult::promotion(
-                old,
-                new_level,
-                experience_gain,
-            ))
-        } else {
-            Some(ExperienceGainResult::no_promotion(experience_gain))
-        }
+        None
     }
 
     /// Award experience for killing an enemy (matches C++ Object::onKill)
@@ -381,17 +342,9 @@ mod tests {
 
         manager.register_object(1, tracker.clone(), 1000);
 
-        // Deal 500 damage = 50 XP (damage * 0.1)
-        let result = manager.award_damage_experience(1, 500.0, false);
-
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.experience_gained, 50);
-        assert!(!result.promoted);
-
-        // Check tracker has the XP
+        assert!(manager.award_damage_experience(1, 500.0, false).is_none());
         let tracker_guard = tracker.lock().unwrap();
-        assert_eq!(tracker_guard.get_current_experience(), 50);
+        assert_eq!(tracker_guard.get_current_experience(), 0);
     }
 
     #[test]
@@ -401,15 +354,9 @@ mod tests {
 
         manager.register_object(1, tracker.clone(), 1000);
 
-        // Deal 15000 damage = 1500 XP (enough for Veteran at 1000)
-        let result = manager.award_damage_experience(1, 15000.0, false);
-
-        assert!(result.is_some());
-        let result = result.unwrap();
-        assert_eq!(result.experience_gained, 1500);
-        assert!(result.promoted);
-        assert_eq!(result.old_level, Some(VeterancyLevel::Regular));
-        assert_eq!(result.new_level, Some(VeterancyLevel::Veteran));
+        assert!(manager.award_damage_experience(1, 15000.0, false).is_none());
+        let tracker_guard = tracker.lock().unwrap();
+        assert_eq!(tracker_guard.get_veterancy_level(), VeterancyLevel::Regular);
     }
 
     #[test]
@@ -417,11 +364,14 @@ mod tests {
         let mut manager = ExperienceGainManager::new();
         let killer_tracker = create_test_tracker(1, 1000);
         let victim_tracker = create_test_tracker(2, 600);
+        {
+            let mut victim = victim_tracker.lock().unwrap();
+            victim.set_experience_value_table([300, 300, 600, 900]);
+        }
 
         manager.register_object(1, killer_tracker.clone(), 1000);
         manager.register_object(2, victim_tracker, 600);
 
-        // Kill worth 300 XP (600 * 0.5)
         let result =
             manager.award_kill_experience(1, 2, 600, VeterancyLevel::Regular, false, false);
 
@@ -430,7 +380,6 @@ mod tests {
         assert_eq!(result.experience_gained, 300);
         assert!(!result.promoted);
 
-        // Check tracker has the XP
         let killer_guard = killer_tracker.lock().unwrap();
         assert_eq!(killer_guard.get_current_experience(), 300);
     }
@@ -459,10 +408,9 @@ mod tests {
         let mut manager = ExperienceGainManager::new();
         let killer_tracker = create_test_tracker(1, 1000);
         let victim_tracker = create_test_tracker(2, 600);
-
-        // Set victim to Veteran level
         {
             let mut victim_guard = victim_tracker.lock().unwrap();
+            victim_guard.set_experience_value_table([300, 375, 600, 900]);
             let req = ExperienceRequirements::from_build_cost(600);
             victim_guard
                 .set_veterancy_level_with_requirements(VeterancyLevel::Veteran, req.as_array());
@@ -471,7 +419,6 @@ mod tests {
         manager.register_object(1, killer_tracker.clone(), 1000);
         manager.register_object(2, victim_tracker, 600);
 
-        // Veteran kill worth more: 600 * 0.5 * 1.25 = 375 XP
         let result =
             manager.award_kill_experience(1, 2, 600, VeterancyLevel::Veteran, false, false);
 

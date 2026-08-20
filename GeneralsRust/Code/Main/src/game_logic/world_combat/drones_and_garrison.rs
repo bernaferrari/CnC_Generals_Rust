@@ -127,7 +127,7 @@ impl GameLogic {
             o.neutron_shell_aim = Some([aim.x, aim.y, aim.z]);
             o.neutron_shell_launch_frame = Some(self.frame);
             o.neutron_shell_flight_frames = frames;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = NEUTRON_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, NEUTRON_SHELL_MAX_HEALTH);
             let dir = aim - start;
@@ -415,7 +415,8 @@ impl GameLogic {
 
     /// Residual fire-from-transport: docked passengers auto-engage nearest
     /// enemy in weapon range from the **container position** when the container
-    /// has `passengers_allowed_to_fire` (Battle Bus / Combat Chinook / Humvee residual).
+    /// has `passengers_allowed_to_fire` (Battle Bus / Combat Chinook / Humvee residual)
+    /// or an installed Overlord BattleBunker (`OverlordContain.cpp:553`).
     /// Fail-closed: not C++ transport weapon bone positions / multi-slot matrix.
     pub(in super::super) fn try_transport_passenger_residual_fire(
         &mut self,
@@ -443,8 +444,21 @@ impl GameLogic {
         let Some(container) = self.objects.get(&cid) else {
             return;
         };
-        // C++ OpenContain::isPassengerAllowedToFire residual.
-        if !container.passengers_allowed_to_fire {
+        // C++ OverlordContain::isPassengerAllowedToFire — nested contain voids fire.
+        let nested = container.contained_by.is_some();
+        let bunker_slots = container.overlord_bunker_slot_capacity();
+        let bunker_may = crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
+            bunker_slots,
+            nested,
+        );
+        // C++ OpenContain::isPassengerAllowedToFire residual + Overlord bunker peel.
+        if !container.passengers_allowed_to_fire && !bunker_may {
+            return;
+        }
+        if nested {
+            return;
+        }
+        if bunker_slots > 0 && !attacker.is_kind_of(KindOf::Infantry) {
             return;
         }
         let is_battle_bus = container.is_battle_bus_style_container();
@@ -454,6 +468,14 @@ impl GameLogic {
         let range = weapon.range;
         let damage = weapon.damage;
         let fire_pos = container.get_position();
+        if bunker_may {
+            if let Some(c) = self.objects.get_mut(&cid) {
+                if !c.passengers_allowed_to_fire {
+                    c.passengers_allowed_to_fire = true;
+                    c.record_host_stealth_flags();
+                }
+            }
+        }
 
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
@@ -580,6 +602,15 @@ impl GameLogic {
         if !attacker.is_alive() {
             return;
         }
+        let container_id = attacker.container_id();
+        if container_id
+            .and_then(|cid| self.objects.get(&cid))
+            .is_some_and(|container| container.status.disabled_subdued)
+        {
+            // C++ GarrisonContain::isPassengerAllowedToFire: DISABLED_SUBDUED
+            // (flashbang / neutron) silences window fire.
+            return;
+        }
         let has_any_weapon = attacker.weapon_slot(0).is_some()
             || attacker.weapon_slot(1).is_some()
             || attacker.weapon_slot(2).is_some();
@@ -587,7 +618,6 @@ impl GameLogic {
             return;
         }
 
-        let container_id = attacker.container_id();
         let team = attacker.team;
         let container_pos = container_id
             .and_then(|cid| self.objects.get(&cid).map(|c| c.get_position()))
@@ -738,8 +768,149 @@ impl GameLogic {
             self.award_experience(garrisoned_id, kill_xp);
             self.mark_object_for_destruction(target_id, Some(team));
         }
-
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
+        self.ensure_garrison_gun_effect(container_id, occupant_index, fire_pos);
+    }
+
+    /// C++ GarrisonContain::onContaining setTeam + academy + stealth hide.
+    pub(in super::super) fn apply_garrison_contain_on_enter(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+    ) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !container.is_garrison_contain() {
+            return;
+        }
+        self.recalc_garrison_apparent_controller(container_id);
+        let occupant_owner = self
+            .objects
+            .get(&occupant_id)
+            .and_then(|o| o.owner_player_id);
+        let occupant_team = self.objects.get(&occupant_id).map(|o| o.team);
+        if let Some(pid) = occupant_owner {
+            if let Some(player) = self.players.get_mut(&pid) {
+                player.record_building_garrisoned();
+                return;
+            }
+        }
+        if let Some(team) = occupant_team {
+            if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
+                player.record_building_garrisoned();
+            }
+        }
+    }
+
+    /// C++ GarrisonContain::recalcApparentControllingPlayer.
+    pub(in super::super) fn recalc_garrison_apparent_controller(&mut self, container_id: ObjectId) {
+        let occupants = self
+            .objects
+            .get(&container_id)
+            .map(|c| c.contained_units())
+            .unwrap_or_default();
+        if occupants.is_empty() {
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                container.restore_garrison_original_team_if_empty();
+            }
+            return;
+        }
+        let first = occupants
+            .first()
+            .and_then(|id| self.objects.get(id))
+            .map(|o| (o.team, o.owner_player_id, o.status.detected));
+        let Some((first_team, first_owner, first_detected)) = first else {
+            return;
+        };
+        let all_stealth = occupants.iter().all(|id| {
+            self.objects
+                .get(id)
+                .is_some_and(|o| o.status.stealthed && !o.status.detected)
+        });
+        let hide = !first_detected && all_stealth;
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            if let Some(bd) = container.building_data.as_mut() {
+                if bd.original_team.is_none() {
+                    bd.original_team = Some(container.team);
+                }
+                bd.hide_garrisoned_state = hide;
+            }
+            container.set_team_and_owner(first_team, first_owner);
+        }
+    }
+
+    /// C++ putObjectAtGarrisonPoint + updateEffects GarrisonGun / FIRING_A.
+    fn ensure_garrison_gun_effect(
+        &mut self,
+        container_id: Option<ObjectId>,
+        point_index: usize,
+        pos: glam::Vec3,
+    ) {
+        const MUZZLE_FLASH_LIFETIME: u32 = 30 / 7;
+        let Some(cid) = container_id else {
+            return;
+        };
+        self.expire_garrison_gun_muzzle_flashes(cid, MUZZLE_FLASH_LIFETIME);
+        let existing = self
+            .objects
+            .get(&cid)
+            .and_then(|c| c.building_data.as_ref())
+            .and_then(|b| b.garrison_guns.get(point_index))
+            .and_then(|g| g.drawable_id);
+        let gun_id = existing.or_else(|| {
+            if !self.templates.contains_key("GarrisonGun") {
+                return None;
+            }
+            let team = self
+                .objects
+                .get(&cid)
+                .map(|c| c.team)
+                .unwrap_or(Team::Neutral);
+            self.create_object("GarrisonGun", team, pos)
+        });
+        if let Some(gid) = gun_id {
+            if let Some(gun) = self.objects.get_mut(&gid) {
+                gun.set_position(pos);
+                gun.model_condition_bits |=
+                    1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FIRING_A;
+            }
+        }
+        if let Some(container) = self.objects.get_mut(&cid) {
+            if let Some(bd) = container.building_data.as_mut() {
+                if bd.garrison_guns.len() <= point_index {
+                    bd.garrison_guns
+                        .resize(point_index + 1, crate::game_logic::GarrisonGunEffect::default());
+                }
+                let gun = &mut bd.garrison_guns[point_index];
+                gun.drawable_id = gun_id;
+                gun.last_effect_frame = self.frame;
+                gun.firing = true;
+            }
+        }
+    }
+
+    fn expire_garrison_gun_muzzle_flashes(&mut self, container_id: ObjectId, lifetime: u32) {
+        let frame = self.frame;
+        let mut expire_ids = Vec::new();
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            if let Some(bd) = container.building_data.as_mut() {
+                for gun in &mut bd.garrison_guns {
+                    if gun.firing && frame.saturating_sub(gun.last_effect_frame) > lifetime {
+                        gun.firing = false;
+                        if let Some(id) = gun.drawable_id {
+                            expire_ids.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        for id in expire_ids {
+            if let Some(gun) = self.objects.get_mut(&id) {
+                gun.model_condition_bits &=
+                    !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_FIRING_A);
+            }
+        }
     }
 
     /// Residual honesty: enter → garrisoned → exit path was exercised.
@@ -2179,6 +2350,79 @@ mod tests {
             "PLAYERMASK_ALL deselect must drop the husk from the player roster"
         );
         assert!(!logic.selected_objects.contains(&tank_id));
+    }
+
+    /// C++ OverlordContain.cpp:553 — BattleBunker infantry fire from the tank.
+    #[test]
+    fn overlord_bunker_infantry_residual_fire_without_helix_flag() {
+        let mut logic = GameLogic::new();
+        let mut overlord = ThingTemplate::new("ChinaTankOverlord");
+        overlord
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), overlord);
+        let mut red = ThingTemplate::new("ChinaRedguard");
+        red.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        logic.templates.insert("ChinaRedguard".to_string(), red);
+        let mut enemy = ThingTemplate::new("UsaRanger");
+        enemy
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("UsaRanger".to_string(), enemy);
+
+        let tank = logic
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("overlord");
+        {
+            let o = logic.host_object_mut(tank).unwrap();
+            o.install_overlord_battle_bunker(5);
+            o.passengers_allowed_to_fire = false;
+        }
+        let rider = logic
+            .create_object("ChinaRedguard", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("rider");
+        {
+            let o = logic.host_object_mut(tank).unwrap();
+            assert!(o.add_occupant(rider), "bunker must accept infantry");
+        }
+        {
+            let r = logic.host_object_mut(rider).unwrap();
+            r.contained_by = Some(tank);
+            r.set_ai_state(AIState::Docked);
+            if r.weapon.is_none() {
+                r.weapon = Some(crate::game_logic::Weapon::default());
+            }
+            if let Some(w) = r.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+                w.range = 150.0;
+                w.damage = 10.0;
+            }
+        }
+        let victim = logic
+            .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("victim");
+        let hp_before = logic.host_object(victim).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_transport_passenger_residual_fire(rider);
+        let hp_after = logic.host_object(victim).unwrap().health.current;
+        assert!(
+            hp_after < hp_before - 0.01,
+            "bunker infantry must fire (before={hp_before} after={hp_after})"
+        );
+        assert!(
+            logic.host_object(tank).unwrap().passengers_allowed_to_fire,
+            "live bunker fire sets passengers_allowed_to_fire"
+        );
     }
 }
 

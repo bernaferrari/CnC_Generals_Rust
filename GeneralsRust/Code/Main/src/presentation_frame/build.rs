@@ -172,6 +172,72 @@ fn freeze_host_player_power(
     (available, produced, consumed)
 }
 
+/// C++ `Object::getControllingPlayer` for PublicTimer ownership.
+/// Prefer persistent `owner_player_id`; faction-only leftovers match only
+/// when that team has exactly one living host player.
+fn superweapon_object_owned_by_player(
+    obj: &crate::game_logic::Object,
+    player: &crate::game_logic::Player,
+    logic: &GameLogic,
+) -> bool {
+    match obj.owner_player_id {
+        Some(id) => id == player.id,
+        None => {
+            obj.team == player.team
+                && player.team != Team::Neutral
+                && logic.unique_player_id_for_team(player.team) == Some(player.id)
+        }
+    }
+}
+
+/// C++ InGameUI SuperweaponInfo name + `m_color` (player color).
+/// Local rows stay unadorned; enemy/ally rows carry relationship + `#RRGGBB`.
+fn public_timer_row_name(
+    display: &str,
+    is_local: bool,
+    rel: gamelogic::common::Relationship,
+    color: (u8, u8, u8),
+) -> String {
+    if is_local {
+        return display.to_string();
+    }
+    let rel = match rel {
+        gamelogic::common::Relationship::Enemies => "Enemy",
+        gamelogic::common::Relationship::Allies => "Ally",
+        gamelogic::common::Relationship::Neutral => "Neutral",
+    };
+    let (r, g, b) = color;
+    format!("{display} ({rel} #{r:02X}{g:02X}{b:02X})")
+}
+
+/// Local player keeps a bare `SpecialPowerType` Debug key so overlay tests
+/// that match `"ParticleCannon"` stay valid. Other players suffix `#id`.
+fn public_timer_power_key(
+    power: &crate::command_system::SpecialPowerType,
+    player_id: u32,
+    local_player_id: u32,
+) -> String {
+    if player_id == local_player_id {
+        format!("{power:?}")
+    } else {
+        format!("{power:?}#{player_id}")
+    }
+}
+
+/// Split overlay/HUD power_key into `(owner_player_id, SpecialPowerType Debug)`.
+pub(crate) fn split_superweapon_power_key(power_key: &str, local_player_id: u32) -> (u32, &str) {
+    match power_key.rsplit_once('#') {
+        Some((key, id)) if !key.is_empty() => {
+            if let Ok(pid) = id.parse::<u32>() {
+                return (pid, key);
+            }
+        }
+        _ => {}
+    }
+    (local_player_id, power_key)
+}
+
+
 impl PresentationFrame {
     /// Build a snapshot by borrowing the authoritative world for this call only.
     ///
@@ -398,14 +464,31 @@ impl PresentationFrame {
                         ) && logic.is_special_power_ready_for(obj.id, power)
                     })
                 });
+            // C++ GarrisonContain::recalcApparentControllingPlayer: stealth
+            // occupants hide GARRISONED + capture color from non-allies.
+            let garrison_hide_from_local = obj
+                .building_data
+                .as_ref()
+                .is_some_and(|b| b.hide_garrisoned_state)
+                && obj.team != local_team;
+            let garrison_apparent_team = if garrison_hide_from_local {
+                obj.building_data
+                    .as_ref()
+                    .and_then(|b| b.original_team)
+                    .unwrap_or(obj.team)
+            } else {
+                obj.team
+            };
             let renderable = RenderableObject {
                 id: obj.id,
                 template_name: obj.template_name.clone(),
-                team: obj.team,
+                team: garrison_apparent_team,
                 owner_player_id: obj.owner_player_id,
                 team_color: {
-                    // Wave 503: C++ enemies see disguise player color; allies see true colors.
-                    if obj.status.disguised && obj.team != local_team {
+                    if garrison_hide_from_local {
+                        garrison_apparent_team.get_color()
+                    } else if obj.status.disguised && obj.team != local_team {
+                        // Wave 503: C++ enemies see disguise player color; allies see true colors.
                         if let Some(dt) = obj.disguise_as_team {
                             dt.get_color()
                         } else {
@@ -470,8 +553,12 @@ impl PresentationFrame {
                 path_waypoints: obj.movement.path.iter().copied().take(16).collect(),
                 path_len: obj.movement.path.len().min(u16::MAX as usize) as u16,
                 path_index: obj.movement.current_path_index.min(u16::MAX as usize) as u16,
-                occupant_count: auth_occupants
-                    .unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16),
+                occupant_count: if garrison_hide_from_local {
+                    0
+                } else {
+                    auth_occupants
+                        .unwrap_or(obj.occupants.len().min(u16::MAX as usize) as u16)
+                },
                 production_queue: obj
                     .building_data
                     .as_ref()
@@ -494,7 +581,11 @@ impl PresentationFrame {
                 // rider's authored TransportSlotCount, so physical RMB input
                 // must be able to resolve mobile occupants without a live
                 // GameLogic read.
-                garrisoned_units: obj.contained_units().into_iter().take(32).collect(),
+                garrisoned_units: if garrison_hide_from_local {
+                    Vec::new()
+                } else {
+                    obj.contained_units().into_iter().take(32).collect()
+                },
                 max_garrison: obj
                     .building_data
                     .as_ref()
@@ -991,14 +1082,20 @@ impl PresentationFrame {
             .unwrap_or_default();
         let _ = (&mut local_unlocked_sciences, &mut local_queued_upgrades);
 
-        // PublicTimer superweapon residual from player SharedSyncedTimer + ownership.
+        // PublicTimer superweapon residual.
+        // C++ InGameUI.cpp:3503 `for (Int i=0; i<MAX_PLAYER_COUNT; ++i)` —
+        // enemy/ally rows draw in that player's SuperweaponInfo.m_color.
+        // C++ SpecialPowerModule::getReadyFrame (SpecialPowerModule.cpp:756)
+        // returns Player::getOrStartSpecialPowerReadyFrame when SharedNSync;
+        // InGameUI.cpp:3684 then emits one row per player+template.
         let mut superweapon_timers: Vec<PresentationSuperweaponTimer> = Vec::new();
-        if let Some(p) = local {
+        {
             use crate::command_system::SpecialPowerType as P;
             use crate::game_logic::host_special_power_enum_residual::{
                 special_power_has_public_timer, special_power_is_structure_bound_public_timer,
                 special_power_public_timer_display_name, special_power_public_timer_icon,
                 special_power_reload_seconds, special_power_required_science,
+                special_power_uses_shared_synced_timer,
             };
             const PUBLIC_POWERS: &[P] = &[
                 P::ParticleCannon,
@@ -1016,125 +1113,143 @@ impl PresentationFrame {
                 P::SuperweaponNeutronMissile,
                 P::BaikonurRocket,
             ];
-            // C++ addSuperweapon obtains the exact SpecialPowerModule from a
-            // living structure.  Keep the module record with its owning
-            // object so timer/reload identity cannot be recreated from an
-            // Object INI basename later in the HUD path.
-            let owned_structure_modules: Vec<_> = logic
-                .host_objects()
-                .values()
-                .filter(|o| {
-                    o.team == p.team
-                        && o.is_alive()
-                        && o.is_constructed()
-                        && (o.is_kind_of(crate::game_logic::KindOf::Structure)
-                            || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
-                })
-                .flat_map(|obj| {
-                    obj.thing
-                        .template
-                        .special_power_modules
-                        .iter()
-                        .filter(|module| module.public_timer)
-                        .map(move |module| (obj, module))
-                })
-                .collect();
-            let mut seen = std::collections::HashSet::new();
-            for power in PUBLIC_POWERS {
-                if !special_power_has_public_timer(power) {
+            let mut player_ids: Vec<u32> = logic.get_players().keys().copied().collect();
+            player_ids.sort_unstable();
+            for pid in player_ids {
+                let Some(p) = logic.get_player(pid) else {
                     continue;
-                }
-                let template = format!("{:?}", power);
-                if !seen.insert(template.clone()) {
-                    continue;
-                }
-                let structure_bound = special_power_is_structure_bound_public_timer(power);
-                let matching_modules: Vec<_> = owned_structure_modules
-                    .iter()
-                    .copied()
-                    .filter(|(_, module)| {
-                        module
-                            .command_power
-                            .as_ref()
-                            .is_some_and(|candidate| candidate == power)
+                };
+                let is_local = pid == local_player_id;
+                let rel = logic.player_relationship(local_player_id, pid);
+                let owned_structure_modules: Vec<_> = logic
+                    .host_objects()
+                    .values()
+                    .filter(|o| {
+                        superweapon_object_owned_by_player(o, p, logic)
+                            && o.is_alive()
+                            && o.is_constructed()
+                            && (o.is_kind_of(crate::game_logic::KindOf::Structure)
+                                || o.is_kind_of(crate::game_logic::KindOf::FSSuperweapon))
+                    })
+                    .flat_map(|obj| {
+                        obj.thing
+                            .template
+                            .special_power_modules
+                            .iter()
+                            .filter(|module| module.public_timer)
+                            .map(move |module| (obj, module))
                     })
                     .collect();
-                let science_ok = if structure_bound {
-                    // An exact module's RequiredScience must resolve on its
-                    // actual owner.  This handles authored general variants
-                    // without a parallel enum/name prerequisite table.
-                    matching_modules.iter().any(|(_, module)| {
-                        module
-                            .required_science
-                            .as_deref()
-                            .map(|required| p.has_unlocked_science(required))
-                            .unwrap_or(true)
-                    })
-                } else {
-                    match special_power_required_science(power) {
-                        Some(req) => p.has_unlocked_science(req),
-                        None => true,
+                let mut seen = std::collections::HashSet::new();
+                for power in PUBLIC_POWERS {
+                    if !special_power_has_public_timer(power) {
+                        continue;
                     }
-                };
-                let unlocked = if structure_bound {
-                    science_ok && !matching_modules.is_empty()
-                } else {
-                    science_ok
-                };
-                // Only list unlocked PublicTimer rows (C++ addSuperweapon when present).
-                // C++ ~SpecialPowerModule removeSuperweapon: destroyed/sold structure drops row.
-                if !unlocked {
-                    continue;
-                }
-                let (template_name, reload, remaining) = if structure_bound {
-                    // Per-structure module residual: the first ready source
-                    // is the earliest timer, but its reload/name remain that
-                    // same exact loaded SpecialPowerTemplate.
-                    let mut min_rem = f32::MAX;
-                    let mut selected = None;
-                    for (obj, module) in &matching_modules {
-                        let rem = obj
-                            .special_power_cooldowns
-                            .get(power)
-                            .copied()
-                            .unwrap_or(obj.special_power_cooldown_remaining)
-                            .max(0.0);
-                        if rem < min_rem {
-                            min_rem = rem;
-                            selected = Some(*module);
+                    let template = format!("{:?}", power);
+                    if !seen.insert(template.clone()) {
+                        continue;
+                    }
+                    let structure_bound = special_power_is_structure_bound_public_timer(power);
+                    let matching_modules: Vec<_> = owned_structure_modules
+                        .iter()
+                        .copied()
+                        .filter(|(_, module)| {
+                            module
+                                .command_power
+                                .as_ref()
+                                .is_some_and(|candidate| candidate == power)
+                        })
+                        .collect();
+                    let science_ok = if structure_bound {
+                        matching_modules.iter().any(|(_, module)| {
+                            module
+                                .required_science
+                                .as_deref()
+                                .map(|required| p.has_unlocked_science(required))
+                                .unwrap_or(true)
+                        })
+                    } else {
+                        match special_power_required_science(power) {
+                            Some(req) => p.has_unlocked_science(req),
+                            None => true,
                         }
+                    };
+                    let unlocked = if structure_bound {
+                        science_ok && !matching_modules.is_empty()
+                    } else {
+                        science_ok
+                    };
+                    if !unlocked {
+                        continue;
                     }
-                    let module = selected.expect("unlocked structure module is non-empty");
-                    (
-                        module.special_power_template.clone(),
-                        (module.reload_time_frames as f32 / 30.0).max(0.0),
-                        min_rem,
-                    )
-                } else {
-                    (
-                        template.clone(),
-                        special_power_reload_seconds(power).unwrap_or(0.0).max(0.0),
-                        p.shared_special_power_cooldowns
-                            .get(power)
-                            .copied()
-                            .unwrap_or(0.0)
-                            .max(0.0),
-                    )
-                };
-                let ready = remaining <= 0.0;
-                superweapon_timers.push(PresentationSuperweaponTimer {
-                    name: special_power_public_timer_display_name(power).to_string(),
-                    template_name,
-                    icon: special_power_public_timer_icon(power).to_string(),
-                    recharge_time: reload,
-                    remaining,
-                    unlocked,
-                    ready,
-                    power_key: format!("{power:?}"),
-                });
+                    let shared_n_sync = matching_modules.iter().any(|(_, module)| module.shared_n_sync)
+                        || special_power_uses_shared_synced_timer(power);
+                    let (template_name, reload, remaining) = if shared_n_sync {
+                        // C++ SpecialPowerModule.cpp:756-765 — player shared ready frame,
+                        // not min() of independent object special_power_cooldowns.
+                        let module = matching_modules.first().map(|(_, module)| *module);
+                        (
+                            module
+                                .map(|module| module.special_power_template.clone())
+                                .unwrap_or_else(|| template.clone()),
+                            module
+                                .map(|module| (module.reload_time_frames as f32 / 30.0).max(0.0))
+                                .unwrap_or_else(|| {
+                                    special_power_reload_seconds(power).unwrap_or(0.0).max(0.0)
+                                }),
+                            p.shared_special_power_remaining(power),
+                        )
+                    } else if structure_bound {
+                        let mut min_rem = f32::MAX;
+                        let mut selected = None;
+                        for (obj, module) in &matching_modules {
+                            let rem = obj
+                                .special_power_cooldowns
+                                .get(power)
+                                .copied()
+                                .unwrap_or(obj.special_power_cooldown_remaining)
+                                .max(0.0);
+                            if rem < min_rem {
+                                min_rem = rem;
+                                selected = Some(*module);
+                            }
+                        }
+                        let module = selected.expect("unlocked structure module is non-empty");
+                        (
+                            module.special_power_template.clone(),
+                            (module.reload_time_frames as f32 / 30.0).max(0.0),
+                            min_rem,
+                        )
+                    } else {
+                        (
+                            template.clone(),
+                            special_power_reload_seconds(power).unwrap_or(0.0).max(0.0),
+                            p.shared_special_power_remaining(power),
+                        )
+                    };
+                    let ready = remaining <= 0.0;
+                    superweapon_timers.push(PresentationSuperweaponTimer {
+                        name: public_timer_row_name(
+                            special_power_public_timer_display_name(power),
+                            is_local,
+                            rel,
+                            p.color_rgb,
+                        ),
+                        template_name,
+                        icon: special_power_public_timer_icon(power).to_string(),
+                        recharge_time: reload,
+                        remaining,
+                        unlocked,
+                        ready,
+                        power_key: public_timer_power_key(power, pid, local_player_id),
+                    });
+                }
             }
-            // Stable HUD order by name.
-            superweapon_timers.sort_by(|a, b| a.name.cmp(&b.name));
+            superweapon_timers.sort_by(|a, b| {
+                a.power_key
+                    .cmp(&b.power_key)
+                    .then_with(|| a.name.cmp(&b.name))
+            });
             superweapon_timers.truncate(16);
         }
 
@@ -1919,3 +2034,179 @@ impl PresentationFrame {
         h.finish()
     }
 }
+
+#[cfg(test)]
+mod sw_hud_tests {
+    use super::*;
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{
+        GameLogic, KindOf, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team,
+        ThingTemplate,
+    };
+    fn sw_module(
+        template: &str,
+        power: SpecialPowerType,
+        shared: bool,
+    ) -> SpecialPowerModuleMetadata {
+        SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_SpecialPower".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: template.into(),
+            special_power_template_id: 1,
+            command_power: Some(power),
+            reload_time_frames: 9000,
+            required_science: None,
+            public_timer: true,
+            shared_n_sync: shared,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        }
+    }
+
+    fn spawn_sw(
+        logic: &mut GameLogic,
+        name: &str,
+        owner: u32,
+        power: SpecialPowerType,
+        shared: bool,
+        object_remaining: f32,
+    ) {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        tpl.special_power_modules
+            .push(sw_module(&format!("Superweapon{name}"), power, shared));
+        logic.templates.insert(name.into(), tpl);
+        let id = logic
+            .create_object_for_player(name, owner, glam::Vec3::ZERO)
+            .expect("sw");
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.under_construction = false;
+            o.construction_percent = 1.0;
+            o.special_power_cooldowns.insert(power, object_remaining);
+            o.special_power_cooldown_remaining = object_remaining;
+            o.special_power_ready = object_remaining <= 0.0;
+        }
+    }
+
+    #[test]
+    fn superweapon_strip_iterates_all_players_with_enemy_color() {
+        // C++ InGameUI.cpp:3503 iterates MAX_PLAYER_COUNT so enemy rows
+        // draw in SuperweaponInfo.m_color (player color).
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA", true);
+        local.alliance_team = 0;
+        local.color_rgb = (0x22, 0x44, 0xCC);
+        local.apply_faction_intrinsic_sciences();
+        logic.add_player(local);
+        let mut enemy = Player::new(1, Team::China, "China", false);
+        enemy.alliance_team = 1;
+        enemy.color_rgb = (0xCC, 0x22, 0x22);
+        enemy.apply_faction_intrinsic_sciences();
+        logic.add_player(enemy);
+
+        spawn_sw(
+            &mut logic,
+            "LocalPuc",
+            0,
+            SpecialPowerType::ParticleCannon,
+            false,
+            30.0,
+        );
+        spawn_sw(
+            &mut logic,
+            "EnemyNuke",
+            1,
+            SpecialPowerType::NuclearMissile,
+            false,
+            90.0,
+        );
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let local_row = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.name.contains("Particle"))
+            .expect("local PUC row");
+        assert!(
+            !local_row.name.contains("Enemy"),
+            "local row must stay unadorned: {}",
+            local_row.name
+        );
+        let enemy_row = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.name.contains("Nuclear") || t.name.contains("Enemy"))
+            .expect("enemy nuke row");
+        assert!(
+            enemy_row.name.contains("Enemy"),
+            "enemy row {}",
+            enemy_row.name
+        );
+        assert!(
+            enemy_row.name.contains("#CC2222"),
+            "player color on enemy row {}",
+            enemy_row.name
+        );
+        assert_eq!(enemy_row.power_key, "NuclearMissile#1");
+        assert!(
+            (enemy_row.remaining - 90.0).abs() < 0.5,
+            "enemy remaining {}",
+            enemy_row.remaining
+        );
+    }
+
+    #[test]
+    fn shared_nsync_uses_player_shared_ready_frame_not_object_min() {
+        // C++ SpecialPowerModule::getReadyFrame (SpecialPowerModule.cpp:756-765)
+        // returns Player::getOrStartSpecialPowerReadyFrame when SharedNSync.
+        // Two CCs with 10s/90s object timers must not min() to 10s.
+        let mut logic = GameLogic::new();
+        let mut p = Player::new(0, Team::USA, "USA", true);
+        p.apply_faction_intrinsic_sciences();
+        p.shared_special_power_cooldowns
+            .insert(SpecialPowerType::ParticleCannon, 45.0);
+        logic.add_player(p);
+
+        spawn_sw(
+            &mut logic,
+            "PucA",
+            0,
+            SpecialPowerType::ParticleCannon,
+            true,
+            10.0,
+        );
+        spawn_sw(
+            &mut logic,
+            "PucB",
+            0,
+            SpecialPowerType::ParticleCannon,
+            true,
+            90.0,
+        );
+
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let rows: Vec<_> = frame
+            .superweapon_timers
+            .iter()
+            .filter(|t| t.name.contains("Particle"))
+            .collect();
+        assert_eq!(
+            rows.len(),
+            1,
+            "SharedNSync is one row per player (InGameUI.cpp:3684): {:?}",
+            rows.iter().map(|t| &t.name).collect::<Vec<_>>()
+        );
+        assert!(
+            (rows[0].remaining - 45.0).abs() < 0.01,
+            "shared ready frame 45, not object min 10: {}",
+            rows[0].remaining
+        );
+        assert!(!rows[0].ready);
+    }
+}
+

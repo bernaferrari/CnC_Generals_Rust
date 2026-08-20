@@ -1244,16 +1244,71 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // C++ AutoHealBehavior is MODULEINTERFACE_DAMAGE; the wrapper must
-        // downcast so onDamage can restart StartHealingDelay after SLEEP_FOREVER.
         self.entry.with_module(|module| {
             if let Some(auto_heal) = (module as &mut dyn Any).downcast_mut::<
                 crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule,
             >() {
-                auto_heal.behavior_mut().on_damage(damage_info)
-            } else {
-                Ok(())
+                return auto_heal.behavior_mut().on_damage(damage_info);
             }
+            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
+            >() {
+                return bridge.behavior_mut().on_damage(damage_info);
+            }
+            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
+            >() {
+                return tower.behavior_mut().on_damage(damage_info);
+            }
+            Ok(())
+        })
+    }
+
+    fn on_healing(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.entry.with_module(|module| {
+            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
+            >() {
+                return bridge.behavior_mut().on_healing(damage_info);
+            }
+            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
+            >() {
+                return tower.behavior_mut().on_healing(damage_info);
+            }
+            Ok(())
+        })
+    }
+
+    fn on_body_damage_state_change(
+        &mut self,
+        damage_info: &DamageInfo,
+        old_state: crate::damage::BodyDamageType,
+        new_state: crate::damage::BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.entry.with_module(|module| {
+            if let Some(bridge) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
+            >() {
+                return bridge.behavior_mut().on_body_damage_state_change(
+                    damage_info,
+                    old_state,
+                    new_state,
+                );
+            }
+            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
+            >() {
+                return tower.behavior_mut().on_body_damage_state_change(
+                    damage_info,
+                    old_state,
+                    new_state,
+                );
+            }
+            Ok(())
         })
     }
 }

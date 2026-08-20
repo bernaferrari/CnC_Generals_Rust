@@ -314,6 +314,56 @@ fn leftover_misc_event_name(
     event.playable_event_name()
 }
 
+/// C++ `AudioEventRTS` exclusive owner + caller volume, then `TheAudio->addAudioEvent`.
+fn leftover_event_to_engine(event: &AudioEventRts) -> EngineAudioEventRts {
+    let mut engine_event = match event.owner_type {
+        LeftoverAudioOwner::Positional | LeftoverAudioOwner::Dead => {
+            if let Some((x, y, z)) = event.position {
+                EngineAudioEventRts::with_position(
+                    event.get_event_name(),
+                    &EngineCoord3D { x, y, z },
+                )
+            } else {
+                EngineAudioEventRts::with_event_name(event.get_event_name())
+            }
+        }
+        _ => EngineAudioEventRts::with_event_name(event.get_event_name()),
+    };
+
+    match event.owner_type {
+        LeftoverAudioOwner::Object if event.object_id != 0 => {
+            engine_event.set_object_id(event.object_id);
+        }
+        LeftoverAudioOwner::Drawable => {
+            if let Some(drawable_id) = event.drawable_id {
+                engine_event.set_drawable_id_override(drawable_id);
+            }
+        }
+        LeftoverAudioOwner::Invalid => {
+            if let Some(drawable_id) = event.drawable_id {
+                engine_event.set_drawable_id_override(drawable_id);
+            } else if event.object_id != 0 {
+                engine_event.set_object_id(event.object_id);
+            }
+        }
+        _ => {}
+    }
+
+    if let Some(time_of_day) = event.time_of_day {
+        engine_event.set_time_of_day(map_audio_time_of_day(time_of_day));
+    }
+    if let Some(player_index) = event.player_index {
+        engine_event.set_player_index(player_index as i32);
+    }
+    engine_event.set_should_fade(event.should_fade());
+    engine_event.set_is_logical_audio(event.is_logical_audio());
+    engine_event.set_uninterruptable(event.is_uninterruptable());
+    if event.has_caller_volume() {
+        engine_event.set_volume(event.volume);
+    }
+    engine_event
+}
+
 
 impl TheAudio {
     pub fn get() -> Option<&'static Self> {
@@ -366,29 +416,7 @@ impl TheAudio {
             return 0;
         }
 
-        let mut engine_event = if let Some((x, y, z)) = event.position {
-            let pos = EngineCoord3D { x, y, z };
-            EngineAudioEventRts::with_position(event.get_event_name(), &pos)
-        } else {
-            EngineAudioEventRts::with_event_name(event.get_event_name())
-        };
-
-        if let Some(drawable_id) = event.drawable_id {
-            engine_event.set_drawable_id_override(drawable_id);
-        } else if event.position.is_none() && event.object_id != 0 {
-            engine_event.set_object_id(event.object_id);
-        }
-
-        if let Some(time_of_day) = event.time_of_day {
-            engine_event.set_time_of_day(map_audio_time_of_day(time_of_day));
-        }
-
-        if let Some(player_index) = event.player_index {
-            engine_event.set_player_index(player_index as i32);
-        }
-        engine_event.set_should_fade(event.should_fade());
-        engine_event.set_is_logical_audio(event.is_logical_audio());
-        engine_event.set_uninterruptable(event.is_uninterruptable());
+        let mut engine_event = leftover_event_to_engine(event);
 
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let mut manager = match manager.lock() {
@@ -396,11 +424,11 @@ impl TheAudio {
             Err(_) => return 0,
         };
         if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
-            engine_event.set_audio_event_info(info.clone());
-            engine_event.set_volume(info.volume);
+            engine_event.set_audio_event_info(info);
         }
         // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396) returns AHSV_Error
         // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
+        // generatePlayInfo does not overwrite a caller setVolume (default -1 uses INI).
 
         manager.add_audio_event(&engine_event)
     }
@@ -436,28 +464,7 @@ impl TheAudio {
     }
 
     pub fn get_audio_length_ms(&self, event: &AudioEventRts) -> Real {
-        let mut engine_event = if let Some((x, y, z)) = event.position {
-            let pos = EngineCoord3D { x, y, z };
-            EngineAudioEventRts::with_position(event.get_event_name(), &pos)
-        } else {
-            EngineAudioEventRts::with_event_name(event.get_event_name())
-        };
-
-        if let Some(drawable_id) = event.drawable_id {
-            engine_event.set_drawable_id_override(drawable_id);
-        } else if event.position.is_none() && event.object_id != 0 {
-            engine_event.set_object_id(event.object_id);
-        }
-
-        if let Some(time_of_day) = event.time_of_day {
-            engine_event.set_time_of_day(map_audio_time_of_day(time_of_day));
-        }
-        if let Some(player_index) = event.player_index {
-            engine_event.set_player_index(player_index as i32);
-        }
-        engine_event.set_should_fade(event.should_fade());
-        engine_event.set_is_logical_audio(event.is_logical_audio());
-        engine_event.set_uninterruptable(event.is_uninterruptable());
+        let mut engine_event = leftover_event_to_engine(event);
 
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let manager_lock = manager.lock();
@@ -466,8 +473,7 @@ impl TheAudio {
         };
 
         if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
-            engine_event.set_audio_event_info(info.clone());
-            engine_event.set_volume(info.volume);
+            engine_event.set_audio_event_info(info);
         } else {
             return 0.0;
         }
@@ -504,6 +510,22 @@ impl TheAudio {
         let manager_lock = manager.lock();
         if let Ok(mut guard) = manager_lock {
             guard.resume_audio(affect);
+        }
+    }
+
+    /// C++ `TheAudio->loseFocus()` (`GameAudio.cpp:1071-1082`).
+    pub fn lose_focus(&self) {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        if let Ok(mut guard) = manager.lock() {
+            guard.lose_focus();
+        }
+    }
+
+    /// C++ `TheAudio->regainFocus()` (`GameAudio.cpp:1086-1100`).
+    pub fn regain_focus(&self) {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        if let Ok(mut guard) = manager.lock() {
+            guard.regain_focus();
         }
     }
 
@@ -581,5 +603,50 @@ mod leftover_the_audio_tests {
         }
         let events = TheAudio::get_misc_audio();
         assert_eq!(events.crate_heal.get_event_name(), "CrateHeal");
+    }
+
+    #[test]
+    fn leftover_the_audio_object_owner_beats_stamped_position() {
+        // C++ setObjectID then setPosition is a no-op; TheAudio follows the object.
+        let mut leftover = AudioEventRts::new("PucBeam");
+        leftover.set_object_id(77);
+        leftover.set_position(&(1.0, 2.0, 3.0));
+        let engine = leftover_event_to_engine(&leftover);
+        assert_eq!(
+            engine.get_owner_type(),
+            game_engine::common::audio::OwnerType::Object
+        );
+        assert_eq!(engine.get_object_id(), 77);
+        assert!(!engine.is_positional());
+    }
+
+    #[test]
+    fn leftover_the_audio_preserves_caller_volume() {
+        // C++ addAudioEvent copies caller setVolume; INI volume is not written over it.
+        let mut leftover = AudioEventRts::new("TrainCrush");
+        leftover.set_volume(0.3);
+        let engine = leftover_event_to_engine(&leftover);
+        assert!((engine.get_volume() - 0.3).abs() < 1e-5);
+    }
+
+    #[test]
+    fn leftover_the_audio_lose_focus_mutes_and_regain_restores() {
+        // C++ WinMain WM_ACTIVATE → TheAudio->loseFocus / regainFocus.
+        let audio = TheAudio::get().unwrap();
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        {
+            let mut guard = manager.lock().unwrap();
+            guard.set_volume(0.8, EngineAudioAffect::AllSystemSetting);
+        }
+        audio.lose_focus();
+        {
+            let guard = manager.lock().unwrap();
+            assert_eq!(guard.get_volume(EngineAudioAffect::Music), 0.0);
+        }
+        audio.regain_focus();
+        {
+            let guard = manager.lock().unwrap();
+            assert!((guard.get_volume(EngineAudioAffect::Music) - 0.8).abs() < 1e-5);
+        }
     }
 }

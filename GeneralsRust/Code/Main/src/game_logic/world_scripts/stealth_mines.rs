@@ -1327,10 +1327,10 @@ impl GameLogic {
 
     /// Advance residual mines: dozer clear + proximity scan + timed detonation.
     ///
-    /// Clear residual (C++ DozerMineDisarmingWeapon DAMAGE_DISARM / MinefieldBehavior
-    /// clearer immunity): Workers/Dozers do not proximity-detonate mines; when within
-    /// clear range of an enemy/neutral mine they disarm it without area damage.
-    /// Fail-closed: not full weapon-set flag / PreAttack scoop delay / AcademyStats.
+    /// Clear residual (C++ DozerMineDisarmingWeapon DAMAGE_DISARM): only when
+    /// WEAPONSET_MINE_CLEARING_DETAIL is armed (MSG_SET_MINE_CLEARING_DETAIL).
+    /// Demo-trap skip is DISARM-while-attacking only (DemoTrapUpdate.cpp:181-191).
+    /// Proximity fuse is ENEMIES only (DemoTrapUpdate.cpp:196).
 
     /// C++ StickyBombUpdate::update residual.
     ///
@@ -1451,7 +1451,8 @@ impl GameLogic {
 
     pub fn update_mines_and_demo_traps(&mut self) {
         use crate::game_logic::host_mines::{
-            can_clear_mine_kind, is_mine_clearer, HostMineDetonateReason, HostMineKind,
+            can_clear_mine_kind, demo_trap_skips_dozer_disarm_while_attacking, is_mine_clearer,
+            mine_clear_allowed_for_order, HostMineDetonateReason, HostMineKind,
             DOZER_MINE_CLEAR_RANGE, DOZER_MINE_CLEAR_SCAN_RANGE,
         };
 
@@ -1521,7 +1522,7 @@ impl GameLogic {
             })
             .collect();
 
-        // Mine clearers: Worker / Dozer residual (C++ KINDOF_DOZER + DISARM weapon).
+        // Mine clearers: only after player/AI issued MINE_CLEARING_DETAIL.
         let clearers: Vec<(ObjectId, Team, Vec3, bool)> = self
             .objects
             .iter()
@@ -1532,7 +1533,9 @@ impl GameLogic {
                 if !is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name) {
                     return None;
                 }
-                // Busy construction/economy jobs do not auto-clear (Dozer primary task residual).
+                if !mine_clear_allowed_for_order(obj.weapon_set_mine_clearing_detail) {
+                    return None;
+                }
                 let busy = matches!(
                     obj.ai_state,
                     AIState::Constructing
@@ -1548,7 +1551,7 @@ impl GameLogic {
             })
             .collect();
 
-        // Potential victims snapshot (mine clearers never proximity-trigger residual).
+        // Potential victims: dozers skip only DISARM + IS_ATTACKING (C++ :181-191).
         let victims: Vec<(ObjectId, Team, Vec3)> = self
             .objects
             .iter()
@@ -1556,11 +1559,19 @@ impl GameLogic {
                 if !obj.is_alive() || obj.mine_data.is_some() {
                     return None;
                 }
-                // C++: mine-clearers with DISARM / isClearingMines are immune to detonation.
-                if is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name) {
+                let is_dozer =
+                    is_mine_clearer(obj.is_kind_of(KindOf::Worker), &obj.template_name);
+                let weapon_disarm = obj
+                    .weapon_name_for_slot(0)
+                    .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                    .unwrap_or(false)
+                    || obj.weapon_set_mine_clearing_detail;
+                let attacking = obj.status.attacking
+                    || matches!(obj.ai_state, AIState::Attacking);
+                if demo_trap_skips_dozer_disarm_while_attacking(is_dozer, weapon_disarm, attacking)
+                {
                     return None;
                 }
-                // Only ground combatants / structures trigger residual mines.
                 let combatant = obj.is_kind_of(KindOf::Infantry)
                     || obj.is_kind_of(KindOf::Vehicle)
                     || obj.is_kind_of(KindOf::Structure)
@@ -1568,7 +1579,6 @@ impl GameLogic {
                 if !combatant {
                     return None;
                 }
-                // Aircraft do not trigger (C++ DemoTrapUpdate is_above_terrain skip residual).
                 if obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target {
                     return None;
                 }
@@ -1914,12 +1924,10 @@ impl GameLogic {
         true
     }
 
-    /// C++ `Object::getRelationship` / `DemoTrapUpdate.cpp:195-204`.
-    /// Skip ALLIES and the same controlling player. Same-faction enemies
-    /// (two USA slots that are not allied) still trigger. Unowned legacy
-    /// objects keep the old Team fallback so map mines without player
-    /// provenance do not friendly-fire their own faction.
+    /// C++ `Object::getRelationship` / `DemoTrapUpdate.cpp:196`.
+    /// Detonate only on ENEMIES. Neutral and Allies never start the fuse.
     fn mine_proximity_skips_friendly(&self, mine_id: ObjectId, victim_id: ObjectId) -> bool {
+        use crate::game_logic::host_mines::demo_trap_proximity_requires_enemies;
         use gamelogic::common::Relationship;
 
         let Some(mine) = self.objects.get(&mine_id) else {
@@ -1928,15 +1936,23 @@ impl GameLogic {
         let Some(victim) = self.objects.get(&victim_id) else {
             return true;
         };
-        match (
+        let rel = match (
             self.player_owner_for_host_object(mine),
             self.player_owner_for_host_object(victim),
         ) {
             (Some(mine_owner), Some(victim_owner)) => {
-                mine_owner == victim_owner
-                    || self.player_relationship(mine_owner, victim_owner) == Relationship::Allies
+                self.player_relationship(mine_owner, victim_owner)
             }
-            _ => victim.team == mine.team,
-        }
+            _ => {
+                if victim.team == mine.team {
+                    Relationship::Allies
+                } else if victim.team == Team::Neutral || mine.team == Team::Neutral {
+                    Relationship::Neutral
+                } else {
+                    Relationship::Enemies
+                }
+            }
+        };
+        !demo_trap_proximity_requires_enemies(rel == Relationship::Enemies)
     }
 }

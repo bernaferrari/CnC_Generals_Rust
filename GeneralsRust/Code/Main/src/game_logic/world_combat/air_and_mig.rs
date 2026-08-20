@@ -108,7 +108,7 @@ impl GameLogic {
                         .saturating_add(STEALTH_JET_MISSILE_KILL_SELF_DELAY_FRAMES),
                 ),
             );
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = STEALTH_JET_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, STEALTH_JET_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -1047,7 +1047,7 @@ impl GameLogic {
             o.overlord_shell_launch_frame = Some(self.frame);
             o.overlord_shell_flight_frames = frames;
             o.overlord_shell_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = OVERLORD_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, OVERLORD_SHELL_MAX_HEALTH);
         }
@@ -1627,7 +1627,7 @@ impl GameLogic {
             o.usa_tank_shell_flight_frames = frames;
             o.usa_tank_shell_weapon_speed = weapon_speed;
             o.usa_tank_shell_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = USA_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, USA_SHELL_MAX_HEALTH);
         }

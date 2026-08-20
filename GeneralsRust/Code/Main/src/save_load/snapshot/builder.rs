@@ -70,6 +70,7 @@ impl SnapshotBuilder {
             ),
             player_ranks: self.snapshot_player_ranks(game_logic)?,
             object_instance_guards: self.snapshot_object_instance_guards(game_logic),
+            overcharge_active: self.snapshot_overcharge_active(game_logic),
         };
 
         log::info!(
@@ -118,6 +119,8 @@ impl SnapshotBuilder {
         self.restore_all_teams(&snapshot.teams, game_logic)?;
         self.restore_all_objects(&snapshot.objects, game_logic)?;
         self.restore_object_instance_guards(snapshot, game_logic)?;
+        self.restore_overcharge_active(snapshot, game_logic)?;
+
         self.restore_terrain(&snapshot.terrain, game_logic)?;
         self.restore_pathfinding_cache(&snapshot.pathfinding_cache, game_logic)?;
         self.restore_weather(&snapshot.weather, game_logic)?;
@@ -367,6 +370,8 @@ impl SnapshotBuilder {
             weapon_lock_type: object.weapon_lock_type,
             weapon_lock_slot: object.weapon_lock_slot,
             camo_stealth_look: object.camo_stealth_look,
+            detection_expires_frame: object.detection_expires_frame,
+            stealth_allowed_frame: object.stealth_allowed_frame,
         }
     }
 
@@ -590,6 +595,58 @@ impl SnapshotBuilder {
         }
         entries
     }
+
+    /// C++ OverchargeBehavior::xfer m_overchargeActive + loadPostProcess.
+    fn snapshot_overcharge_active(&self, game_logic: &GameLogic) -> Vec<ObjectOverchargeSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            if object.overcharge_enabled {
+                entries.push(ObjectOverchargeSnapshot {
+                    object_id: id,
+                    overcharge_enabled: true,
+                });
+            }
+        }
+        entries
+    }
+
+    fn restore_overcharge_active(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
+            return Ok(());
+        }
+        let mut seen = HashSet::new();
+        for entry in &snapshot.overcharge_active {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate Overcharge snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Overcharge snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            // C++ loadPostProcess re-fires addPowerBonus when the flag is
+            // true because Energy production was reconstructed from base
+            // only. Live persists power_provided (already includes the
+            // bonus), so only the module flag is restored.
+            object.set_overcharge_enabled(entry.overcharge_enabled);
+        }
+        Ok(())
+    }
+
 
     fn restore_player_ranks(
         &self,

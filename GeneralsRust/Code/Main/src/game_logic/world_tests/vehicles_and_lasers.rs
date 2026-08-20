@@ -3661,6 +3661,252 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
     );
 }
 
+#[test]
+fn rebuild_hole_worker_death_resumes_existing_scaffold() {
+    // C++ RebuildHoleBehavior.cpp:241 aiResumeConstruction when worker dies.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let now = logic.frame.max(1);
+    if let Some(h) = logic.host_object_mut(hole) {
+        h.rebuild_ready_frame = now;
+    }
+    logic.frame = now;
+    logic.update_rebuild_holes();
+    let (rid, wid) = {
+        let h = logic.host_object(hole).expect("hole");
+        (
+            h.rebuild_reconstructing_id.expect("recon"),
+            h.rebuild_worker_id.expect("worker"),
+        )
+    };
+    // Kill the generated worker; scaffold stays up.
+    if let Some(w) = logic.host_object_mut(wid) {
+        w.health.current = 0.0;
+        w.status.destroyed = true;
+    }
+    logic.update_rebuild_holes();
+    let h = logic.host_object(hole).expect("hole after worker death");
+    assert!(h.rebuild_worker_id.is_none());
+    assert_eq!(h.rebuild_reconstructing_id, Some(rid));
+    assert!(logic.rebuild_hole_worker_restarts > 0);
+    // After WorkerRespawnDelay, a new worker must resume the same scaffold.
+    let later = logic.frame.max(1).saturating_add(600);
+    if let Some(h) = logic.host_object_mut(hole) {
+        h.rebuild_ready_frame = later;
+    }
+    logic.frame = later;
+    logic.update_rebuild_holes();
+    let h = logic.host_object(hole).expect("hole after resume");
+    let wid2 = h.rebuild_worker_id.expect("replacement worker");
+    assert_ne!(wid2, wid);
+    assert_eq!(h.rebuild_reconstructing_id, Some(rid));
+    assert_eq!(logic.host_object(wid2).unwrap().target, Some(rid));
+    assert!(logic.host_object(wid2).unwrap().status.unselectable);
+    assert!(h.status.masked);
+}
+
+#[test]
+fn rebuild_hole_copies_dying_building_geometry() {
+    // C++ RebuildHoleExposeDie.cpp:126 hole->setGeometryInfo(us->getGeometryInfo()).
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLAPalace");
+    st.add_kind_of(KindOf::Structure).set_health(2000.0);
+    logic.templates.insert("GLAPalace".into(), st);
+    let sid = logic
+        .create_object("GLAPalace", Team::GLA, glam::Vec3::new(10.0, 0.0, 20.0))
+        .expect("palace");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.thing.geometry.bounds_min = glam::Vec3::new(-40.0, 0.0, -35.0);
+        o.thing.geometry.bounds_max = glam::Vec3::new(40.0, 55.0, 35.0);
+        o.thing.geometry.radius = 53.0;
+        o.selection_radius = 48.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let h = logic.host_object(hole).expect("hole obj");
+    assert!((h.thing.geometry.bounds_min.x + 40.0).abs() < 0.01);
+    assert!((h.thing.geometry.bounds_max.y - 55.0).abs() < 0.01);
+    assert!((h.thing.geometry.radius - 53.0).abs() < 0.01);
+    assert!((h.selection_radius - 48.0).abs() < 0.01);
+}
+
+#[test]
+fn rebuild_hole_complete_transfers_script_name() {
+    // C++ RebuildHoleBehavior.cpp:302 transferObjectName(hole, reconstructing).
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLATunnelNetwork");
+    st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    logic.templates.insert("GLATunnelNetwork".into(), st);
+    let sid = logic
+        .create_object(
+            "GLATunnelNetwork",
+            Team::GLA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("tn");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.name = "NamedTunnel".into();
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let now = logic.frame.max(1);
+    if let Some(h) = logic.host_object_mut(hole) {
+        h.rebuild_ready_frame = now;
+    }
+    logic.frame = now;
+    logic.update_rebuild_holes();
+    let rid = logic
+        .host_object(hole)
+        .and_then(|h| h.rebuild_reconstructing_id)
+        .expect("recon");
+    if let Some(b) = logic.host_object_mut(rid) {
+        b.set_status_under_construction(false);
+        b.construction_percent = 1.0;
+    }
+    logic.update_rebuild_holes();
+    assert!(logic.host_object(hole).is_none());
+    assert_eq!(
+        logic.host_object(rid).unwrap().name,
+        "NamedTunnel",
+        "completed rebuild must inherit the hole script name"
+    );
+}
+
+#[test]
+fn captured_gla_building_exposes_rebuild_hole() {
+    // C++ RebuildHoleExposeDie is module-based; captured GLA still drops a hole
+    // on the capturing player's team.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(1, Player::new(1, Team::USA, "USA", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object("GLABarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("captured");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.owner_player_id = Some(1);
+    }
+    let hole = logic
+        .maybe_spawn_rebuild_hole(sid)
+        .expect("captured GLA must expose a hole");
+    let h = logic.host_object(hole).expect("hole");
+    assert!(h.is_rebuild_hole);
+    assert_eq!(h.team, Team::USA);
+    assert_eq!(h.owner_player_id, Some(1));
+}
+
+#[test]
+fn rebuild_hole_and_scaffold_death_destroys_worker() {
+    // C++ onDie / newWorkerRespawnProcess destroy the generated worker.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLABarracks");
+    st.add_kind_of(KindOf::Structure).set_health(800.0);
+    logic.templates.insert("GLABarracks".into(), st);
+    let sid = logic
+        .create_object("GLABarracks", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("b");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    let now = logic.frame.max(1);
+    if let Some(h) = logic.host_object_mut(hole) {
+        h.rebuild_ready_frame = now;
+    }
+    logic.frame = now;
+    logic.update_rebuild_holes();
+    let (rid, wid) = {
+        let h = logic.host_object(hole).expect("hole");
+        (
+            h.rebuild_reconstructing_id.expect("recon"),
+            h.rebuild_worker_id.expect("worker"),
+        )
+    };
+    assert!(logic.handle_reconstructing_death(rid));
+    assert!(
+        logic.host_object(hole).unwrap().rebuild_worker_id.is_none(),
+        "scaffold death must drop the worker id"
+    );
+    let worker_destroyed = logic
+        .host_object(wid)
+        .map(|w| w.status.destroyed || !w.is_alive())
+        .unwrap_or(true)
+        || logic.objects_to_destroy.iter().any(|e| e.id == wid);
+    assert!(
+        worker_destroyed,
+        "scaffold death must destroy the generated worker"
+    );
+
+    // Fresh hole+worker: hole death must also destroy the worker.
+    let sid2 = logic
+        .create_object("GLABarracks", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
+        .expect("b2");
+    if let Some(o) = logic.host_object_mut(sid2) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    let hole2 = logic.maybe_spawn_rebuild_hole(sid2).expect("hole2");
+    let now2 = logic.frame.max(1);
+    if let Some(h) = logic.host_object_mut(hole2) {
+        h.rebuild_ready_frame = now2;
+    }
+    logic.frame = now2;
+    logic.update_rebuild_holes();
+    let wid2 = logic
+        .host_object(hole2)
+        .and_then(|h| h.rebuild_worker_id)
+        .expect("worker2");
+    assert!(logic.maybe_spawn_rebuild_hole(hole2).is_none());
+    assert!(
+        logic.host_object(hole2).unwrap().rebuild_worker_id.is_none()
+    );
+    let worker2_destroyed = logic
+        .host_object(wid2)
+        .map(|w| w.status.destroyed || !w.is_alive())
+        .unwrap_or(true)
+        || logic.objects_to_destroy.iter().any(|e| e.id == wid2);
+    assert!(
+        worker2_destroyed,
+        "hole death must destroy the generated worker"
+    );
+}
+
+
 
 #[test]
 fn production_door_hold_open_blocks_close_until_released() {

@@ -5,13 +5,13 @@ use game_engine::common::ini::ini_game_data::{
 };
 use std::sync::Arc;
 
-/// Index-zero GameData light frozen for Main's WGPU presentation path.
+/// GameData light frozen for Main's WGPU presentation path.
 ///
 /// `light_pos` deliberately stays in the authored C++ W3D coordinate basis
 /// (X/Y/Z, Z-up). Consumers that render in Main's Y-up basis must call
 /// [`Self::render_light_pos`] rather than silently treating authored values as
-/// WGPU coordinates. C++ `W3DDisplay::setTimeOfDay` selects index zero from
-/// both the objects and terrain arrays independently.
+/// WGPU coordinates. C++ `W3DDisplay::setTimeOfDay` loops all
+/// `LightEnvironmentClass::MAX_LIGHTS` object lights and scales infantry copies.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationPrimaryGlobalLight {
     pub ambient: [f32; 3],
@@ -33,12 +33,90 @@ impl PresentationPrimaryGlobalLight {
         }
     }
 
+    fn from_row(row: [f32; 9], object_light_active: bool) -> Self {
+        Self {
+            ambient: [row[0], row[1], row[2]],
+            diffuse: [row[3], row[4], row[5]],
+            light_pos: [row[6], row[7], row[8]],
+            object_light_active,
+        }
+    }
+
     /// Convert authored C++ W3D X/Y/Z (Z-up) to Main's X/Z/Y (Y-up) render
     /// basis. This is the same conversion used for dynamic W3D scene lights.
     #[inline]
     pub fn render_light_pos(self) -> [f32; 3] {
         [self.light_pos[0], self.light_pos[2], self.light_pos[1]]
     }
+
+    /// C++ `W3DScene::updateFixedLightEnvironments` infantry copy: scale
+    /// ambient/diffuse and cap each channel at 1.0.
+    #[inline]
+    pub fn scaled_for_infantry(self, scale: f32) -> Self {
+        Self {
+            ambient: [
+                (self.ambient[0] * scale).min(1.0),
+                (self.ambient[1] * scale).min(1.0),
+                (self.ambient[2] * scale).min(1.0),
+            ],
+            diffuse: [
+                (self.diffuse[0] * scale).min(1.0),
+                (self.diffuse[1] * scale).min(1.0),
+                (self.diffuse[2] * scale).min(1.0),
+            ],
+            ..self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FrozenGlobalLights {
+    object: [PresentationPrimaryGlobalLight; MAX_GLOBAL_LIGHTS],
+    terrain: [PresentationPrimaryGlobalLight; MAX_GLOBAL_LIGHTS],
+    infantry_scale: f32,
+}
+
+fn infantry_light_scale_for(global_data: &AuthoredGlobalData, time_index: usize) -> f32 {
+    // C++ W3DScene.cpp:856-860 — script override wins when not -1.
+    if (global_data.script_override_infantry_light_scale - (-1.0)).abs() > f32::EPSILON {
+        global_data.script_override_infantry_light_scale
+    } else {
+        global_data
+            .infantry_light_scale
+            .get(time_index)
+            .copied()
+            .unwrap_or(1.5)
+    }
+}
+
+fn freeze_all_game_data_lighting(global_data: &AuthoredGlobalData) -> Option<FrozenGlobalLights> {
+    let time_index = match global_data.time_of_day {
+        TimeOfDay::Invalid => return None,
+        time_of_day => time_of_day as usize,
+    };
+    if time_index >= TIME_OF_DAY_COUNT {
+        return None;
+    }
+    let active = global_data
+        .num_global_lights
+        .clamp(0, MAX_GLOBAL_LIGHTS as i32) as usize;
+    let mut object = [PresentationPrimaryGlobalLight::default(); MAX_GLOBAL_LIGHTS];
+    let mut terrain = [PresentationPrimaryGlobalLight::default(); MAX_GLOBAL_LIGHTS];
+    for i in 0..MAX_GLOBAL_LIGHTS {
+        object[i] = PresentationPrimaryGlobalLight::from_authored(
+            &global_data.terrain_objects_lighting[time_index][i],
+            i < active,
+        );
+        terrain[i] = PresentationPrimaryGlobalLight::from_authored(
+            &global_data.terrain_lighting[time_index][i],
+            i < active,
+        );
+    }
+    Some(FrozenGlobalLights {
+        object,
+        terrain,
+        infantry_scale: infantry_light_scale_for(global_data, time_index),
+    })
 }
 
 /// Freeze the exact primary GameData lighting pair for the active authored
@@ -51,41 +129,75 @@ pub(crate) fn freeze_primary_game_data_lighting(
     PresentationPrimaryGlobalLight,
     PresentationPrimaryGlobalLight,
 )> {
-    let time_index = match global_data.time_of_day {
-        TimeOfDay::Invalid => return None,
-        time_of_day => time_of_day as usize,
-    };
-    if time_index >= TIME_OF_DAY_COUNT {
-        return None;
-    }
-
-    let object_light_active = global_data
-        .num_global_lights
-        .clamp(0, MAX_GLOBAL_LIGHTS as i32)
-        > 0;
-    let object = PresentationPrimaryGlobalLight::from_authored(
-        &global_data.terrain_objects_lighting[time_index][0],
-        object_light_active,
-    );
-    let terrain = PresentationPrimaryGlobalLight::from_authored(
-        &global_data.terrain_lighting[time_index][0],
-        object_light_active,
-    );
-    Some((object, terrain))
+    let frozen = freeze_all_game_data_lighting(global_data)?;
+    Some((frozen.object[0], frozen.terrain[0]))
 }
 
-fn freeze_current_primary_game_data_lighting() -> (
-    Option<PresentationPrimaryGlobalLight>,
-    Option<PresentationPrimaryGlobalLight>,
-) {
-    let Some(global_data) = get_global_data() else {
-        return (None, None);
-    };
+fn freeze_current_all_game_data_lighting() -> Option<FrozenGlobalLights> {
+    let global_data = get_global_data()?;
     let global_data = global_data.read();
-    match freeze_primary_game_data_lighting(&global_data) {
-        Some((object, terrain)) => (Some(object), Some(terrain)),
-        None => (None, None),
+    freeze_all_game_data_lighting(&global_data)
+}
+
+fn light_from_map_channels(
+    ambient: Option<[f32; 3]>,
+    diffuse: Option<[f32; 3]>,
+    light_pos: Option<[f32; 3]>,
+) -> Option<PresentationPrimaryGlobalLight> {
+    Some(PresentationPrimaryGlobalLight {
+        ambient: ambient?,
+        diffuse: diffuse?,
+        light_pos: light_pos?,
+        object_light_active: true,
+    })
+}
+
+fn merge_map_and_frozen_lights(
+    meta: Option<&crate::game_logic::script_loader::MapMetadata>,
+    frozen: Option<FrozenGlobalLights>,
+) -> (
+    [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS],
+    [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS],
+    Option<f32>,
+) {
+    let mut object_global_lights = [None; MAX_GLOBAL_LIGHTS];
+    let mut terrain_global_lights = [None; MAX_GLOBAL_LIGHTS];
+    if let Some(frozen) = frozen {
+        for i in 0..MAX_GLOBAL_LIGHTS {
+            object_global_lights[i] = Some(frozen.object[i]);
+            terrain_global_lights[i] = Some(frozen.terrain[i]);
+        }
     }
+    if let Some(map_object) = meta.and_then(|m| {
+        light_from_map_channels(
+            m.objects_ambient_color,
+            m.objects_sun_color,
+            m.objects_sun_direction,
+        )
+    }) {
+        object_global_lights[0] = Some(map_object);
+    }
+    if let Some(map_terrain) = meta.and_then(|m| {
+        light_from_map_channels(m.ambient_color, m.sun_color, m.sun_direction)
+    }) {
+        terrain_global_lights[0] = Some(map_terrain);
+    }
+    if let Some(m) = meta {
+        for (i, row) in m.objects_extra_lights.iter().take(2).enumerate() {
+            object_global_lights[i + 1] =
+                Some(PresentationPrimaryGlobalLight::from_row(*row, true));
+        }
+        for (i, row) in m.terrain_extra_lights.iter().take(2).enumerate() {
+            terrain_global_lights[i + 1] =
+                Some(PresentationPrimaryGlobalLight::from_row(*row, true));
+        }
+    }
+    let infantry_light_scale = frozen.map(|f| f.infantry_scale);
+    (
+        object_global_lights,
+        terrain_global_lights,
+        infantry_light_scale,
+    )
 }
 
 /// Compact road segment for presentation-side road mesh bake.
@@ -349,6 +461,15 @@ pub struct PresentationWorldEnv {
     /// Primary `TerrainLighting*` GameData record for the active TOD.
     #[serde(default)]
     pub primary_terrain_lighting: Option<PresentationPrimaryGlobalLight>,
+    /// C++ `W3DDisplay::setTimeOfDay` loops 3 object-scene lights.
+    #[serde(default)]
+    pub object_global_lights: [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS],
+    /// Authored terrain lights 0..2 for TerrainVisual.
+    #[serde(default)]
+    pub terrain_global_lights: [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS],
+    /// C++ `m_scriptOverrideInfantryLightScale` or `m_infantryLightScale[tod]`.
+    #[serde(default)]
+    pub infantry_light_scale: Option<f32>,
     /// Placed-object count from last parsed map metadata (prewarm signature).
     pub map_object_count: u32,
     pub has_map_metadata: bool,
@@ -493,11 +614,17 @@ impl PresentationWorldEnv {
         let is_snow = weather.contains("snow");
         // Night residual: weather name or evening/night tokens (fail-closed TOD runtime).
         let is_night = weather.contains("night") || weather.contains("evening");
-        // C++ W3DDisplay::setTimeOfDay selects GameData index zero separately
-        // for scene objects and TerrainVisual. Freeze it with the map frame so
-        // Main does not rediscover global lighting while rendering.
-        let (primary_object_lighting, primary_terrain_lighting) =
-            freeze_current_primary_game_data_lighting();
+        // C++ W3DDisplay::setTimeOfDay applies all 3 object lights; TerrainVisual
+        // uses the terrain array. Map objects-lighting wins for units/shadows.
+        let (object_global_lights, terrain_global_lights, infantry_light_scale) =
+            merge_map_and_frozen_lights(
+                meta.as_ref(),
+                freeze_current_all_game_data_lighting(),
+            );
+        let primary_object_lighting = object_global_lights[0];
+        let primary_terrain_lighting = terrain_global_lights[0];
+        // Units/shadows: C++ W3DDisplay.cpp:2128 uses objects lighting, not terrain.
+        let unit_light = primary_object_lighting;
         let (clear_alpha, fog_alpha) = get_global_data()
             .map(|global| {
                 let global = global.read();
@@ -513,9 +640,15 @@ impl PresentationWorldEnv {
             heightmap_hint,
             skybox_enabled: logic.is_skybox_enabled(),
             skybox_textures: meta.as_ref().and_then(|m| m.skybox_textures.clone()),
-            sun_direction: meta.as_ref().and_then(|m| m.sun_direction),
-            sun_color: meta.as_ref().and_then(|m| m.sun_color),
-            ambient_color: meta.as_ref().and_then(|m| m.ambient_color),
+            sun_direction: unit_light
+                .map(|l| l.light_pos)
+                .or_else(|| meta.as_ref().and_then(|m| m.objects_sun_direction)),
+            sun_color: unit_light
+                .map(|l| l.diffuse)
+                .or_else(|| meta.as_ref().and_then(|m| m.objects_sun_color)),
+            ambient_color: unit_light
+                .map(|l| l.ambient)
+                .or_else(|| meta.as_ref().and_then(|m| m.objects_ambient_color)),
             // C++ SceneClass FogEnabled defaults false; GlobalLighting has no fog.
             fog_color: None,
             fog_start: None,
@@ -525,6 +658,9 @@ impl PresentationWorldEnv {
             fog_alpha,
             primary_object_lighting,
             primary_terrain_lighting,
+            object_global_lights,
+            terrain_global_lights,
+            infantry_light_scale,
             map_object_count: meta.as_ref().map(|m| m.objects.len() as u32).unwrap_or(0),
             has_map_metadata: meta.is_some(),
             prewarm_template_names,
@@ -553,6 +689,25 @@ impl PresentationWorldEnv {
         } else {
             (self.fog_alpha as f32 / self.clear_alpha as f32).clamp(0.0, 1.0)
         }
+    }
+
+    /// C++ W3DScene.cpp:856-881 infantry light copies.
+    #[inline]
+    pub fn infantry_scale(&self) -> f32 {
+        self.infantry_light_scale.unwrap_or(1.5)
+    }
+
+    /// Object-scene lights scaled for infantry drawables.
+    #[inline]
+    pub fn infantry_scaled_object_lights(
+        &self,
+    ) -> [Option<PresentationPrimaryGlobalLight>; MAX_GLOBAL_LIGHTS] {
+        let scale = self.infantry_scale();
+        let mut out = [None; MAX_GLOBAL_LIGHTS];
+        for (i, light) in self.object_global_lights.iter().enumerate() {
+            out[i] = light.map(|l| l.scaled_for_infantry(scale));
+        }
+        out
     }
 
     #[inline]
@@ -667,4 +822,81 @@ fn default_clear_alpha() -> u8 {
 
 fn default_fog_alpha() -> u8 {
     127
+}
+
+#[cfg(test)]
+mod lighting_parity_tests {
+    use super::*;
+    use game_engine::common::ini::ini_game_data::{
+        ensure_global_data, Coord3D, RGBColor, TimeOfDay,
+    };
+
+    #[test]
+    fn freeze_applies_three_global_lights_and_infantry_scale() {
+        // C++ W3DDisplay.cpp:2136 loops 3 lights; W3DScene.cpp:856-881 scales infantry.
+        let handle = ensure_global_data();
+        let previous = handle.read().clone();
+        {
+            let mut data = handle.write();
+            data.time_of_day = TimeOfDay::Night;
+            data.num_global_lights = 3;
+            data.infantry_light_scale[TimeOfDay::Night as usize] = 1.5;
+            data.script_override_infantry_light_scale = -1.0;
+            for i in 0..MAX_GLOBAL_LIGHTS {
+                let f = (i + 1) as f32;
+                data.terrain_objects_lighting[TimeOfDay::Night as usize][i].ambient =
+                    RGBColor::new(0.1 * f, 0.0, 0.0);
+                data.terrain_objects_lighting[TimeOfDay::Night as usize][i].diffuse =
+                    RGBColor::new(0.2 * f, 0.0, 0.0);
+                data.terrain_objects_lighting[TimeOfDay::Night as usize][i].light_pos =
+                    Coord3D::new(f, 0.0, 1.0);
+                data.terrain_lighting[TimeOfDay::Night as usize][i].ambient =
+                    RGBColor::new(0.01 * f, 0.0, 0.0);
+            }
+        }
+        let frozen = freeze_all_game_data_lighting(&handle.read()).expect("night lights");
+        assert!(frozen.object[0].object_light_active);
+        assert!(frozen.object[1].object_light_active);
+        assert!(frozen.object[2].object_light_active);
+        assert!((frozen.object[1].ambient[0] - 0.2).abs() < 1e-5);
+        assert!((frozen.object[2].diffuse[0] - 0.6).abs() < 1e-5);
+        assert!((frozen.infantry_scale - 1.5).abs() < 1e-5);
+        let scaled = frozen.object[0].scaled_for_infantry(frozen.infantry_scale);
+        assert!((scaled.ambient[0] - 0.15).abs() < 1e-5);
+        *handle.write() = previous;
+    }
+
+    #[test]
+    fn world_env_prefers_map_objects_lighting_for_units() {
+        // C++ W3DDisplay.cpp:2128 uses m_terrainObjectsLighting for units/shadows.
+        let mut meta = crate::game_logic::script_loader::MapMetadata::default();
+        meta.ambient_color = Some([0.1, 0.1, 0.1]);
+        meta.sun_color = Some([0.2, 0.2, 0.2]);
+        meta.sun_direction = Some([1.0, 0.0, 0.0]);
+        meta.objects_ambient_color = Some([0.9, 0.8, 0.7]);
+        meta.objects_sun_color = Some([0.15, 0.25, 0.35]);
+        meta.objects_sun_direction = Some([9.0, 8.0, 7.0]);
+        meta.objects_extra_lights = vec![
+            [0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 3.0, 0.0, 0.0],
+        ];
+        let (object_lights, terrain_lights, _) =
+            merge_map_and_frozen_lights(Some(&meta), None);
+        let unit = object_lights[0].expect("objects lighting");
+        assert_eq!(unit.ambient, [0.9, 0.8, 0.7]);
+        assert_eq!(unit.diffuse, [0.15, 0.25, 0.35]);
+        assert_eq!(unit.light_pos, [9.0, 8.0, 7.0]);
+        assert_eq!(
+            terrain_lights[0].map(|l| l.ambient),
+            Some([0.1, 0.1, 0.1])
+        );
+        assert_eq!(
+            object_lights[1].map(|l| l.diffuse),
+            Some([0.4, 0.0, 0.0])
+        );
+        assert_eq!(
+            object_lights[2].map(|l| l.diffuse),
+            Some([0.0, 0.5, 0.0])
+        );
+    }
 }

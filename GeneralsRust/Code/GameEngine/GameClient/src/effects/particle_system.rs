@@ -1489,9 +1489,8 @@ impl ParticleSystem {
         }
 
         self.resolve_attached_parent(local_player_index);
-        if self.is_destroyed {
-            return FrameEmitPhase::Dead;
-        }
+        // C++ ParticleSys.cpp:1966 skips emit when destroyed, but still runs
+        // the particle update loop (2028-2053) so leftover particles fade.
         self.update_wind_motion();
         self.update_transform_from_parent();
         self.apply_control_particle_origin();

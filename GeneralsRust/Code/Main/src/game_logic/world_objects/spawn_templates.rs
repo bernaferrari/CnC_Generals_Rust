@@ -214,6 +214,8 @@ impl GameLogic {
         Self::apply_authored_hack_internet_metadata(&mut template, definition);
         Self::apply_authored_special_power_module_metadata(&mut template, definition);
         Self::apply_authored_hacker_disable_building_metadata(&mut template, definition);
+        Self::apply_authored_charge_plant_metadata(&mut template, definition);
+
         Self::apply_authored_overcharge_metadata(&mut template, definition);
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
         Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
@@ -391,6 +393,14 @@ impl GameLogic {
             .filter(|&v| v > 0.0)
         {
             template.sight_range = sight;
+        }
+
+        // C++ Object.cpp doShroudReveal uses getShroudClearingRange, not VisionRange.
+        if let Some(scr) = Self::object_definition_attr(definition, "shroudclearingrange")
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .filter(|v| v.is_finite())
+        {
+            template.shroud_clearing_range = scr;
         }
 
         // C++ parity: parse BuildCost from INI.
@@ -617,6 +627,12 @@ impl GameLogic {
         }
         if has_kind("score_destroy") {
             template.add_kind_of(KindOf::ScoreDestroy);
+        }
+        if has_kind("no_garrison") {
+            template.add_kind_of(KindOf::NoGarrison);
+        }
+        if has_kind("garrisonable_until_destroyed") {
+            template.add_kind_of(KindOf::GarrisonableUntilDestroyed);
         }
     }
 
@@ -2169,6 +2185,11 @@ impl GameLogic {
                     Some(value) => parse_duration_ms(value)?,
                     None => 0,
                 },
+                pack_unpack_variation_factor: match update.attribute("PackUnpackVariationFactor") {
+                    Some(value) => parse_nonnegative_real(value)?,
+                    None => 0.0,
+                },
+
                 persistence_requires_recharge: match update.attribute("PersistenceRequiresRecharge")
                 {
                     Some(value) => parse_bool(value)?,
@@ -2177,6 +2198,85 @@ impl GameLogic {
             })
         };
         template.hacker_disable_building = parse();
+    }
+
+
+    /// Retain authored Burton/TNT `SpecialAbilityUpdate` pack/unpack/flee data.
+    /// C++ `SpecialAbilityUpdateModuleData` (`SpecialAbilityUpdate.h:113`).
+    fn apply_authored_charge_plant_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        fn parse_duration_ms(value: &str) -> Option<u32> {
+            value
+                .trim()
+                .parse::<i64>()
+                .ok()
+                .and_then(|ms| u32::try_from(ms).ok())
+        }
+        fn parse_real(value: &str) -> Option<f32> {
+            value
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+        }
+        fn parse_bool(value: &str) -> bool {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "yes" | "true" | "1"
+            )
+        }
+        fn is_charge_plant_power(name: &str) -> bool {
+            let name = name.to_ascii_lowercase();
+            name.contains("timedcharges")
+                || name.contains("remotecharges")
+                || name.contains("tntattack")
+        }
+
+        template.charge_plant_abilities.clear();
+        for module in &definition.behavior_modules {
+            if !module
+                .class_name
+                .eq_ignore_ascii_case("SpecialAbilityUpdate")
+            {
+                continue;
+            }
+            let Some(power) = module
+                .attribute("SpecialPowerTemplate")
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && is_charge_plant_power(name))
+            else {
+                continue;
+            };
+            template
+                .charge_plant_abilities
+                .push(ChargePlantAbilityMetadata {
+                    special_power_template: power.to_string(),
+                    unpack_time_ms: module
+                        .attribute("UnpackTime")
+                        .and_then(parse_duration_ms)
+                        .unwrap_or(0),
+                    pack_time_ms: module
+                        .attribute("PackTime")
+                        .and_then(parse_duration_ms)
+                        .unwrap_or(0),
+                    pack_unpack_variation_factor: module
+                        .attribute("PackUnpackVariationFactor")
+                        .and_then(parse_real)
+                        .unwrap_or(0.0),
+                    flee_range_after_completion: module
+                        .attribute("FleeRangeAfterCompletion")
+                        .and_then(parse_real)
+                        .unwrap_or(0.0),
+                    flip_object_after_unpacking: module
+                        .attribute("FlipOwnerAfterUnpacking")
+                        .is_some_and(parse_bool),
+                    flip_object_after_packing: module
+                        .attribute("FlipOwnerAfterPacking")
+                        .is_some_and(parse_bool),
+                });
+        }
     }
 
     /// Retain the exact StealthUpdate friendly opacity bounds used by
@@ -2537,6 +2637,7 @@ impl GameLogic {
                 template.capture_unpack_time_ms = None;
                 template.capture_preparation_time_ms = None;
                 template.capture_pack_time_ms = None;
+                template.capture_pack_unpack_variation_factor = 0.0;
                 return;
             }
             power = candidate;
@@ -2549,6 +2650,7 @@ impl GameLogic {
         template.capture_unpack_time_ms = None;
         template.capture_preparation_time_ms = None;
         template.capture_pack_time_ms = None;
+        template.capture_pack_unpack_variation_factor = 0.0;
         if power == CapturePowerKind::None {
             return;
         }
@@ -2589,6 +2691,11 @@ impl GameLogic {
                     .attribute("PackTime")
                     .and_then(|value| value.trim().parse::<i64>().ok())
                     .and_then(|value| u32::try_from(value).ok());
+                template.capture_pack_unpack_variation_factor = module
+                    .attribute("PackUnpackVariationFactor")
+                    .and_then(|value| value.trim().parse::<f32>().ok())
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .unwrap_or(0.0);
             } else if module
                 .class_name
                 .eq_ignore_ascii_case("UnpauseSpecialPowerUpgrade")
@@ -2600,6 +2707,7 @@ impl GameLogic {
                     .map(str::to_string);
             }
         }
+
     }
 
     /// Seed templates for retail Object INI entries that the hand-authored
@@ -2708,6 +2816,8 @@ impl GameLogic {
                 Self::apply_authored_hack_internet_metadata(template, &definition);
                 Self::apply_authored_special_power_module_metadata(template, &definition);
                 Self::apply_authored_hacker_disable_building_metadata(template, &definition);
+                Self::apply_authored_charge_plant_metadata(template, &definition);
+
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
@@ -3004,14 +3114,11 @@ impl GameLogic {
         player_ids.next().is_none().then_some(first)
     }
 
-    /// Feed Main-crate object positions and sight ranges into the
-    /// gamelogic ShroudManager so that fog-of-war reveals around
-    /// player-owned units and structures.
+    /// Feed Main-crate object positions into ShroudManager.
     ///
-    /// The gamelogic ShroudManager's own `update()` only iterates
-    /// objects in the gamelogic OBJECT_REGISTRY; Main-crate objects
-    /// are not registered there, so we must push vision directly.
-    pub(in super::super) fn update_main_crate_vision(&self) {
+    /// C++ Object::look/unlook: unlook previous looker then look at
+    /// ShroudClearingRange on move/death. Do not add lookers every frame.
+    pub(in super::super) fn update_main_crate_vision(&mut self) {
         use gamelogic::common::Coord3D;
 
         let shroud = get_shroud_manager();
@@ -3020,33 +3127,53 @@ impl GameLogic {
             Err(_) => return,
         };
 
-        // Host residual: clear current object visibility membership for known players
-        // before rebuilding from Main objects (explored territory persists).
+        let persist = 30u32;
+        let frame = self.frame;
+        shroud_mgr.process_pending_undo_shroud_reveals(frame);
+
         let mut player_ids: Vec<u32> = self.players.keys().copied().collect();
         player_ids.sort_unstable();
         for &pid in &player_ids {
             shroud_mgr.clear_host_object_visibility(pid);
         }
 
-        // Snapshot alive viewers with vision + all alive targets once.
         let mut viewers: Vec<(crate::game_logic::ObjectId, u32, glam::Vec3, f32)> = Vec::new();
         let mut targets: Vec<(crate::game_logic::ObjectId, glam::Vec3)> = Vec::new();
+        let mut live_lookers = std::collections::HashSet::new();
+        let mut cell_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
+
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
             }
             let pos = obj.get_position();
             targets.push((obj.id, pos));
-            let vision_range = obj.get_template().sight_range;
-            if vision_range <= 0.0 {
+            let tpl = obj.get_template();
+            let vision_range = if obj.vision_range > 0.0 {
+                obj.vision_range
+            } else {
+                tpl.sight_range
+            };
+            let mut shroud_range = if obj.status.under_construction {
+                obj.selection_radius.max(1.0)
+            } else if obj.shroud_clearing_range > 0.0 {
+                obj.shroud_clearing_range
+            } else {
+                tpl.resolved_shroud_clearing_range()
+            };
+            if shroud_range < 0.0 {
+                shroud_range = vision_range;
+            }
+            if vision_range <= 0.0 && shroud_range <= 0.0 {
                 continue;
             }
             let Some(owner_pid) = self.player_id_for_team(obj.team) else {
                 continue;
             };
-            viewers.push((obj.id, owner_pid, pos, vision_range));
+            if vision_range > 0.0 {
+                viewers.push((obj.id, owner_pid, pos, vision_range));
+            }
 
-            // Terrain looker residual (grid FOW) for allies sharing vision.
             let center = Coord3D::new(pos.x, pos.z, pos.y);
             let mut player_mask = 0u32;
             for (&pid, player) in &self.players {
@@ -3054,13 +3181,45 @@ impl GameLogic {
                     player_mask |= 1u32 << pid.min(31);
                 }
             }
-            if player_mask != 0 {
-                shroud_mgr.do_shroud_reveal(&center, vision_range, player_mask);
+            if player_mask == 0 || shroud_range <= 0.0 {
+                continue;
+            }
+            live_lookers.insert(obj.id);
+            let next = (center.x, center.y, center.z, shroud_range, player_mask);
+            if let Some(prev) = self.vision_last_looks.get(&obj.id).copied() {
+                let same = (prev.0 - next.0).abs() < 1e-4
+                    && (prev.1 - next.1).abs() < 1e-4
+                    && (prev.2 - next.2).abs() < 1e-4
+                    && (prev.3 - next.3).abs() < 1e-4
+                    && prev.4 == next.4;
+                if same {
+                    continue;
+                }
+                let old = Coord3D::new(prev.0, prev.1, prev.2);
+                shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
+                cell_ops.push((old, prev.3, prev.4, false));
+            }
+            shroud_mgr.do_shroud_reveal(&center, shroud_range, player_mask);
+            cell_ops.push((center, shroud_range, player_mask, true));
+            self.vision_last_looks.insert(obj.id, next);
+        }
+
+
+        let stale: Vec<crate::game_logic::ObjectId> = self
+            .vision_last_looks
+            .keys()
+            .copied()
+            .filter(|id| !live_lookers.contains(id))
+            .collect();
+        for id in stale {
+            if let Some(prev) = self.vision_last_looks.remove(&id) {
+                let old = Coord3D::new(prev.0, prev.1, prev.2);
+                shroud_mgr.queue_undo_shroud_reveal(&old, prev.3, prev.4, persist, frame);
+                cell_ops.push((old, prev.3, prev.4, false));
             }
         }
 
-        // Own-force residual: every alive object on a player's team is always
-        // membership-visible to that player (C++ always draws controlling player units).
+
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
@@ -3072,9 +3231,6 @@ impl GameLogic {
             }
         }
 
-        // Object membership residual: mark host objects seen by each viewer's allies.
-        // Required because ShroudManager::update() only consults ObjectManager, which
-        // does not hold Main host objects on the default authority path.
         for &(viewer_id, owner_pid, viewer_pos, vision_range) in &viewers {
             let mut ally_pids: Vec<u32> = self
                 .players
@@ -3092,7 +3248,6 @@ impl GameLogic {
             }
             let range_sq = vision_range * vision_range;
             for &pid in &ally_pids {
-                // Always see the viewer itself.
                 shroud_mgr.mark_host_object_seen(pid, viewer_id.0);
             }
             for &(target_id, target_pos) in &targets {
@@ -3108,6 +3263,11 @@ impl GameLogic {
                 }
             }
         }
+        drop(shroud_mgr);
+        for (center, radius, mask, add) in cell_ops {
+            gamelogic::object::stamp_partition_cell_lookers(&center, radius, mask, add);
+        }
+
     }
 
     pub(in super::super) fn shroud_visibility_snapshot_for_team(
@@ -4997,6 +5157,165 @@ End
     }
 
     #[test]
+    fn parsed_charge_plant_keeps_unpack_variation_and_flee() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryBurtonChargeIdentity
+  Type = Infantry
+  Model = ArbitraryBurtonChargeModel
+  KindOf = INFANTRY SELECTABLE
+  Behavior = SpecialAbilityUpdate ModuleTag_Timed
+    SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges
+    UnpackTime = 5500
+    PackTime = 0
+    PackUnpackVariationFactor = 0.2
+    FleeRangeAfterCompletion = 100
+    FlipOwnerAfterUnpacking = Yes
+  End
+  Behavior = SpecialAbilityUpdate ModuleTag_Remote
+    SpecialPowerTemplate = SpecialAbilityColonelBurtonRemoteCharges
+    UnpackTime = 5500
+    PackUnpackVariationFactor = 0.2
+    FleeRangeAfterCompletion = 100
+    FlipOwnerAfterUnpacking = Yes
+  End
+End
+"#,
+                "charge_plant_metadata_probe.ini",
+            )
+            .expect("parse charge plant metadata probe");
+
+        let source = GameLogic::build_template_from_object_definition(
+            "ArbitraryBurtonChargeIdentity",
+            parser
+                .get_definition("ArbitraryBurtonChargeIdentity")
+                .expect("charge source definition"),
+            None,
+        );
+        let timed = source
+            .charge_plant_ability_for_timed()
+            .expect("timed C4 update");
+        assert_eq!(timed.unpack_time_ms, 5_500);
+        assert_eq!(timed.pack_unpack_variation_factor, 0.2);
+        assert_eq!(timed.flee_range_after_completion, 100.0);
+        assert!(timed.flip_object_after_unpacking);
+        let remote = source
+            .charge_plant_ability_for_remote()
+            .expect("remote C4 update");
+        assert_eq!(remote.unpack_time_ms, 5_500);
+        assert_eq!(remote.pack_unpack_variation_factor, 0.2);
+        assert_eq!(remote.flee_range_after_completion, 100.0);
+    }
+
+    #[test]
+    fn burton_charge_unpacks_then_plants_then_flees() {
+        // SpecialAbilityUpdate.cpp:397-441 unpack, trigger, finishAbility flee.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object BurtonChargeUnpackProbe
+  Type = Infantry
+  KindOf = INFANTRY SELECTABLE CAN_ATTACK
+  Behavior = SpecialAbilityUpdate ModuleTag_Timed
+    SpecialPowerTemplate = SpecialAbilityColonelBurtonTimedCharges
+    UnpackTime = 200
+    PackUnpackVariationFactor = 0
+    FleeRangeAfterCompletion = 100
+    FlipOwnerAfterUnpacking = Yes
+  End
+End
+Object ChargePlantTargetProbe
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+End
+"#,
+                "burton_charge_live_probe.ini",
+            )
+            .expect("parse live charge probe");
+
+        let mut logic = GameLogic::new();
+        let burton_tpl = GameLogic::build_template_from_object_definition(
+            "BurtonChargeUnpackProbe",
+            parser
+                .get_definition("BurtonChargeUnpackProbe")
+                .expect("burton probe"),
+            None,
+        );
+        assert_eq!(
+            burton_tpl
+                .charge_plant_ability_for_timed()
+                .map(|m| m.unpack_time_ms),
+            Some(200)
+        );
+        logic
+            .templates
+            .insert("BurtonChargeUnpackProbe".into(), burton_tpl);
+        let mut target_tpl = GameLogic::build_template_from_object_definition(
+            "ChargePlantTargetProbe",
+            parser
+                .get_definition("ChargePlantTargetProbe")
+                .expect("target probe"),
+            None,
+        );
+        target_tpl.set_health(500.0);
+        logic
+            .templates
+            .insert("ChargePlantTargetProbe".into(), target_tpl);
+
+        let burton_id = logic
+            .create_object(
+                "BurtonChargeUnpackProbe",
+                Team::USA,
+                Vec3::new(2.0, 0.0, 0.0),
+            )
+            .expect("burton");
+        let target_id = logic
+            .create_object(
+                "ChargePlantTargetProbe",
+                Team::GLA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("target");
+        {
+            let burton = logic.host_object_mut(burton_id).expect("burton mut");
+            burton.set_ai_state(AIState::SpecialAbility);
+            burton.set_target(Some(target_id));
+        }
+        logic.queue_pending_special_ability(
+            burton_id,
+            PendingSpecialAbility::PlantTimedDemoCharge { target_id },
+        );
+
+        logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+        assert_eq!(
+            logic.mine_residual_places(),
+            0,
+            "UnpackTime 200ms must delay plant"
+        );
+
+        for _ in 0..20 {
+            logic.update_ai(&[burton_id, target_id], 1.0 / 60.0);
+        }
+        assert!(
+            logic.mine_residual_places() >= 1,
+            "charge plants after UnpackTime"
+        );
+        let pos = logic
+            .host_object(burton_id)
+            .expect("burton after plant")
+            .get_position();
+        assert!(
+            pos.distance(Vec3::new(2.0, 0.0, 0.0)) > 1.0,
+            "finishAbility flee after plant, pos={pos:?}"
+        );
+    }
+
+
+
+    #[test]
     fn temporary_weapon_behavior_metadata_is_source_ordered_and_not_live_state() {
         use crate::game_logic::host_temporary_weapon_behavior::{
             FireWeaponWhenDamagedWeaponRole, TemporaryWeaponSlot,
@@ -5757,6 +6076,52 @@ End
             "TunnelTracker::healObjects must sliver-heal, {before_tunnel} -> {after_tunnel}"
         );
         assert!(logic.tunnel_network.honesty_heal_objects_ok());
+    }
+
+    #[test]
+    fn crate_vision_uses_shroud_clearing_range_and_unlooks_on_move() {
+        use gamelogic::system::shroud_manager::get_shroud_manager;
+        use glam::Vec3;
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(1, Team::USA, "USA", true));
+        let mut tpl = ThingTemplate::new("VisionProbe");
+        tpl.sight_range = 100.0;
+        tpl.shroud_clearing_range = 240.0;
+        logic.templates.insert("VisionProbe".into(), tpl);
+        let id = logic
+            .create_object_for_player("VisionProbe", 1, Vec3::new(10.0, 0.0, 20.0))
+            .expect("spawn");
+
+        {
+            let shroud = get_shroud_manager();
+            let mut mgr = shroud.lock().expect("shroud");
+            mgr.init_shroud_grid(512.0, 512.0);
+        }
+
+        logic.update_main_crate_vision();
+        let first = *logic.vision_last_looks.get(&id).expect("looker");
+        assert!((first.3 - 240.0).abs() < 0.01, "look radius {}", first.3);
+        logic.update_main_crate_vision();
+        assert_eq!(logic.vision_last_looks.len(), 1);
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.set_position(Vec3::new(80.0, 0.0, 90.0));
+        }
+        logic.update_main_crate_vision();
+        let moved = *logic.vision_last_looks.get(&id).expect("moved looker");
+        assert!((moved.0 - 80.0).abs() < 0.01);
+        assert!((moved.1 - 90.0).abs() < 0.01);
+        assert!((moved.3 - 240.0).abs() < 0.01);
+
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.health.current = 0.0;
+        }
+        logic.update_main_crate_vision();
+        assert!(
+            !logic.vision_last_looks.contains_key(&id),
+            "death must unlook"
+        );
     }
 }
 

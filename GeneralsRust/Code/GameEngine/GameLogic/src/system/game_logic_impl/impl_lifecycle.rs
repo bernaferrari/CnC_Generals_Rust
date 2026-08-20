@@ -486,6 +486,10 @@ impl GameLogic {
             return Err("Cannot start game: global map_name is empty".to_string());
         }
 
+
+        // C++ GameLogic.cpp:1254-1256 — always clear campaign win before map load.
+        clear_campaign_victorious_for_new_game();
+
         if !loading_save_game {
             let mut state = game_engine::System::get_game_state();
             state.set_pristine_map_name(map_path.clone());
@@ -556,6 +560,8 @@ impl GameLogic {
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
+            // C++ GameLogic.cpp:2073-2119 after PlayerList::newMap.
+            apply_challenge_the_player_relationships();
             crate::helpers::TheGameLogic::update_load_progress(
                 crate::system::game_initialization::LOAD_PROGRESS_END,
             );
@@ -936,6 +942,8 @@ impl GameLogic {
                 return;
             }
         }
+        clear_campaign_victorious_for_new_game();
+
         self.rank_level_limit = 1000;
         self.set_defaults(loading_save_game);
         self.show_behind_building_markers = true;
@@ -988,3 +996,78 @@ impl GameLogic {
         trace!("sendObjectDestroyed: obj={}", object_id);
     }
 }
+
+/// C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
+fn clear_campaign_victorious_for_new_game() {
+    if let Ok(mut guard) = get_script_engine().write() {
+        if let Some(engine) = guard.as_mut() {
+            engine.set_campaign_victorious(false);
+        }
+    }
+}
+
+/// C++ GameLogic.cpp:2073-2119 Challenge copies ThePlayer alliances onto the local general.
+fn apply_challenge_the_player_relationships() {
+    if !crate::scripting::core::is_generals_challenge_campaign() {
+        return;
+    }
+    let Ok(list) = player_list().read() else {
+        return;
+    };
+    let Some(local_arc) = list.get_local_player().cloned() else {
+        return;
+    };
+    if let Some(placeholder_arc) = list.find_player_by_name(crate::scripting::core::THE_PLAYER) {
+        let enemies: Vec<Arc<RwLock<Player>>> = {
+            let Ok(placeholder) = placeholder_arc.read() else {
+                return;
+            };
+            list.iter()
+                .filter_map(|player_arc| {
+                    if Arc::ptr_eq(player_arc, &placeholder_arc) {
+                        return None;
+                    }
+                    let other = player_arc.read().ok()?;
+                    (placeholder.get_relationship(&other) == crate::common::Relationship::Enemies)
+                        .then(|| Arc::clone(player_arc))
+                })
+                .collect()
+        };
+        for enemy_arc in enemies {
+            if Arc::ptr_eq(&enemy_arc, &local_arc) {
+                continue;
+            }
+            if let (Ok(mut local), Ok(mut enemy)) = (local_arc.write(), enemy_arc.write()) {
+                local.set_player_relationship(&enemy, crate::common::Relationship::Enemies);
+                enemy.set_player_relationship(&local, crate::common::Relationship::Enemies);
+            }
+        }
+        return;
+    }
+
+    let civilian = list.find_player_by_name("PlyrCivilian");
+    let neutral = list.get_neutral_player();
+    let others: Vec<Arc<RwLock<Player>>> = list.iter().cloned().collect();
+    for other_arc in others {
+        let rel = if Arc::ptr_eq(&other_arc, &local_arc) {
+            crate::common::Relationship::Allies
+        } else if civilian.as_ref().is_some_and(|c| Arc::ptr_eq(&other_arc, c))
+            || neutral.as_ref().is_some_and(|n| Arc::ptr_eq(&other_arc, n))
+        {
+            crate::common::Relationship::Neutral
+        } else {
+            crate::common::Relationship::Enemies
+        };
+        if Arc::ptr_eq(&other_arc, &local_arc) {
+            if let Ok(mut local) = local_arc.write() {
+                let index = local.get_player_index();
+                local.set_player_relationship_by_index(index, rel);
+            }
+            continue;
+        }
+        if let (Ok(mut local), Ok(other)) = (local_arc.write(), other_arc.read()) {
+            local.set_player_relationship(&other, rel);
+        }
+    }
+}
+

@@ -45,6 +45,7 @@ impl GameLogic {
             max_retaliate_distance: 210.0,
             objects: HostObjectStore::new(),
             host_view_dirty: HashSet::new(),
+            vision_last_looks: HashMap::new(),
             players: HashMap::new(),
             player_template_bindings: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid

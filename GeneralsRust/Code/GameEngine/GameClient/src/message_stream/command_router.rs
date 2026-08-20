@@ -18,21 +18,50 @@ use gamelogic::common::{
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, IRegion2D,
 };
+use std::sync::{Arc, LazyLock, Mutex};
 
-/// Errors that can occur while routing commands to the legacy command queue.
-#[derive(Debug, Error)]
-pub enum CommandRoutingError {
-    #[error("Command queue lock poisoned")]
-    QueueLock,
-    #[error("Failed to queue command: {0}")]
-    QueueError(String),
+type HostCommandAuthority = dyn Fn(&[GameMessage]) + Send + Sync;
+
+static HOST_COMMAND_AUTHORITY: LazyLock<Mutex<Option<Arc<HostCommandAuthority>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+fn host_command_authority_slot() -> &'static Mutex<Option<Arc<HostCommandAuthority>>> {
+    &HOST_COMMAND_AUTHORITY
 }
 
-/// Convert the supplied messages into GameLogic commands and queue them for execution.
+/// Register the live Main command authority sink.
+///
+/// C++ `RecorderClass::updatePlayback` (Recorder.cpp:415) appends file
+/// commands to `TheCommandList`; `GameLogic::processCommandList` then
+/// executes them. Rust AuthorityOnly skips the crate queue, so playback
+/// must also feed Main.
+pub fn set_host_command_authority(sink: Option<Arc<HostCommandAuthority>>) {
+    if let Ok(mut slot) = host_command_authority_slot().lock() {
+        *slot = sink;
+    }
+}
+
+fn deliver_to_host_command_authority(messages: &[GameMessage]) {
+    if messages.is_empty() {
+        return;
+    }
+    if let Ok(slot) = host_command_authority_slot().lock() {
+        if let Some(host) = slot.as_ref() {
+            host(messages);
+        }
+    }
+}
+
+/// Convert messages into crate GameLogic commands and also deliver them to
+/// the registered Main host authority (C++ Recorder.cpp:415 → TheCommandList).
 pub fn route_commands_to_gamelogic(
     messages: Vec<GameMessage>,
     current_frame: u32,
 ) -> Result<usize, CommandRoutingError> {
+    // Replay / CommandList survivors must reach Main even when the crate
+    // queue is unused under AuthorityOnly.
+    deliver_to_host_command_authority(&messages);
+
     let mut pending = Vec::with_capacity(messages.len());
 
     for message in messages {
@@ -65,6 +94,16 @@ pub fn route_commands_to_gamelogic(
 
     Ok(routed)
 }
+
+/// Errors that can occur while routing commands to the legacy command queue.
+#[derive(Debug, Error)]
+pub enum CommandRoutingError {
+    #[error("Command queue lock poisoned")]
+    QueueLock,
+    #[error("Failed to queue command: {0}")]
+    QueueError(String),
+}
+
 
 fn determine_priority(message_type: &GameMessageType) -> CommandPriority {
     use GameMessageType::*;
@@ -690,5 +729,32 @@ mod tests {
             Some(CommandArgumentType::ObjectID(source)) => assert_eq!(*source, 23),
             other => panic!("expected source object argument, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn route_commands_delivers_set_replay_camera_to_host_authority() {
+        // C++ Recorder.cpp:415 appends playback commands to TheCommandList;
+        // AuthorityOnly must not drop them on the crate-only queue.
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen_for_sink = seen.clone();
+        set_host_command_authority(Some(std::sync::Arc::new(move |messages| {
+            seen_for_sink
+                .lock()
+                .expect("host sink mutex")
+                .extend(messages.iter().map(|m| m.get_type().clone()));
+        })));
+
+        let pos = Coord3D::new(10.0, 2.0, 4.0);
+        let msg = GameMessage::with_player(GameMessageType::SetReplayCamera(pos, 0.3, 1.2), 1);
+        let _ = route_commands_to_gamelogic(vec![msg], 12);
+
+        let types = seen.lock().expect("host sink mutex");
+        assert!(
+            types
+                .iter()
+                .any(|ty| matches!(ty, GameMessageType::SetReplayCamera(..))),
+            "host authority must receive MSG_SET_REPLAY_CAMERA"
+        );
+        set_host_command_authority(None);
     }
 }

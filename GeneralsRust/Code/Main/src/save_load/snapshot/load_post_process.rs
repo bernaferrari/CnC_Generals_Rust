@@ -227,6 +227,20 @@ impl Snapshot for WorldSnapshot {
             self.object_instance_guards.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION {
+            xfer.xfer_marker_label("OverchargeActive")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.overcharge_active,
+                ObjectOverchargeSnapshot {
+                    object_id: ObjectId(0),
+                    overcharge_enabled: false,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.overcharge_active.clear();
+        }
+
         Ok(())
     }
 

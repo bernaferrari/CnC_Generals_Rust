@@ -53,6 +53,14 @@ impl GameLogic {
     /// Also invoked after presentation `apply_events_to_audio` so same-frame
     /// presentation residual is not delayed one tick.
     pub(crate) fn process_audio_events(&mut self) {
+        for ev in crate::game_logic::host_voice_fear_log::drain() {
+            self.queued_audio_events.push(
+                AudioEventRequest::new(&ev.event_name)
+                    .with_object(ev.victim)
+                    .with_position(ev.position)
+                    .with_priority(150),
+            );
+        }
         for event in self.queued_audio_events.drain(..) {
             let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
             for name in names {

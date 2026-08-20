@@ -257,7 +257,9 @@ fn hacker_disable_building_uses_typed_persistent_channel_and_packs_on_relation_l
         persistent_prep_time_ms: 333,
         effect_duration_ms: 2_000,
         pack_time_ms: 5_133,
+        pack_unpack_variation_factor: 0.0,
         persistence_requires_recharge: false,
+
     });
     game_logic
         .templates

@@ -832,6 +832,20 @@ fn science_ini_store_cost(name: &str) -> Option<i32> {
 }
 
 fn science_ini_prereq_names(name: &str) -> Option<Vec<String>> {
+    {
+        let leftover = game_engine::common::ini::ini_science::get_science_store();
+        if let Some(st) = leftover.get_science_from_internal_name(name) {
+            if let Some(info) = leftover.find_science_info(st) {
+                return Some(
+                    info.prereq_sciences
+                        .iter()
+                        .filter_map(|p| leftover.get_internal_name_for_science(*p))
+                        .map(|a| a.to_string())
+                        .collect(),
+                );
+            }
+        }
+    }
     let rts = game_engine::common::rts::get_science_store()?;
     let st = rts.get_science_from_internal_name(name);
     if st == game_engine::common::rts::SCIENCE_INVALID {
@@ -915,11 +929,19 @@ pub fn science_is_purchasable_residual(point_cost: i32) -> bool {
 }
 
 /// C++ `ScienceStore::getPurchasableSciences` first capable (Science.cpp:301-328).
-/// Walks Science.ini residual table in definition order — not a hardcoded 5-name list.
+/// Walks leftover leftover / live Science.ini store order — not a hardcoded 5-name list.
 pub fn first_capable_purchase_science_residual(
     unlocked: &std::collections::HashSet<String>,
     science_purchase_points: i32,
 ) -> Option<String> {
+    if let Some(name) = first_capable_from_leftover_science_store(unlocked, science_purchase_points)
+    {
+        return Some(name);
+    }
+    if let Some(name) = first_capable_from_live_science_store(unlocked, science_purchase_points) {
+        return Some(name);
+    }
+    // Residual sample table only when neither store has Science.ini.
     for row in SCIENCE_STORE_TABLE_WAVE109 {
         if !science_is_purchasable_residual(row.point_cost) {
             continue;
@@ -930,6 +952,88 @@ pub fn first_capable_purchase_science_residual(
             row.name,
         ) {
             return Some(row.name.to_string());
+        }
+    }
+    None
+}
+
+fn leftover_unlocked_science_types(
+    unlocked: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<game_engine::common::ini::ini_science::ScienceType> {
+    use game_engine::common::ini::ini_science::ScienceType;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+    unlocked
+        .iter()
+        .map(|name| {
+            let canon = normalize_science_name_residual(name);
+            ScienceType(NameKeyGenerator::name_to_key(&canon) as i32)
+        })
+        .collect()
+}
+
+fn first_capable_from_leftover_science_store(
+    unlocked: &std::collections::HashSet<String>,
+    science_purchase_points: i32,
+) -> Option<String> {
+    let leftover = game_engine::common::ini::ini_science::get_science_store();
+    if leftover.is_empty() {
+        return None;
+    }
+    let owned = leftover_unlocked_science_types(unlocked);
+    let has = |st| owned.contains(&st);
+    let (purchasable, _) = leftover.get_purchasable_sciences(&has);
+    for science in purchasable {
+        let Some(name) = leftover.get_internal_name_for_science(science) else {
+            continue;
+        };
+        if is_capable_of_purchasing_science_residual(
+            unlocked,
+            science_purchase_points,
+            name.as_str(),
+        ) {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+fn first_capable_from_live_science_store(
+    unlocked: &std::collections::HashSet<String>,
+    science_purchase_points: i32,
+) -> Option<String> {
+    use game_engine::common::rts::science::{ScienceAccess, ScienceType};
+    struct UnlockedAccess<'a>(&'a std::collections::HashSet<String>);
+    impl ScienceAccess for UnlockedAccess<'_> {
+        fn has_science(&self, science: ScienceType) -> bool {
+            let Some(store) = game_engine::common::rts::get_science_store() else {
+                return false;
+            };
+            let name = store.get_internal_name_for_science(science);
+            if name.is_empty() {
+                return false;
+            }
+            let key = normalize_science_name_residual(&name).to_ascii_lowercase();
+            self.0.iter().any(|owned| {
+                normalize_science_name_residual(owned).to_ascii_lowercase() == key
+            })
+        }
+    }
+    let store = game_engine::common::rts::get_science_store()?;
+    if store.get_science_names().is_empty() {
+        return None;
+    }
+    let (purchasable, _) = store.get_purchasable_sciences(&UnlockedAccess(unlocked));
+    for science in purchasable {
+        let name = store.get_internal_name_for_science(science).to_string();
+        if name.is_empty() {
+            continue;
+        }
+        if is_capable_of_purchasing_science_residual(
+            unlocked,
+            science_purchase_points,
+            &name,
+        ) {
+            return Some(name);
         }
     }
     None

@@ -408,6 +408,13 @@ pub use super::host_radar_stealth_vision_residual::{
     honesty_radar_stealth_vision_residual_pack_wave97, honesty_spotter_residual_pack_wave97,
     honesty_stealth_residual_deepen_pack_wave97, honesty_vision_residual_pack_wave97,
 };
+pub use super::host_railroad::{
+    honesty_railroad_residual_ok, inject_railroad_track, is_railroad_carriage_template,
+    is_railroad_locomotive_template, is_railroad_template, railroad_car, railroad_registry_reset,
+    HostConductorState, HostRailroadCar, HostTrainTrack, RAILROAD_SPEED_MAX,
+    RAILROAD_WAIT_AT_STATION_FRAMES,
+};
+
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,

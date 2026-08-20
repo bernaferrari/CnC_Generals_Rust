@@ -1244,15 +1244,25 @@ impl PresentationFrame {
                 };
                 self.local_rank_progress_percent = rank_progress_percent_residual(&state);
             }
-            // Superweapon PublicTimer remaining from shadow shared cooldowns.
+            // Superweapon PublicTimer remaining from the owning player's
+            // SharedNSync ready frame (C++ SpecialPowerModule.cpp:756-765).
+            // power_key is bare for the local player and `Type#id` for others.
             for timer in &mut self.superweapon_timers {
                 if timer.power_key.is_empty() {
                     continue;
                 }
-                if let Some((_, rem)) = p
+                let (owner_id, key) = super::build::split_superweapon_power_key(
+                    &timer.power_key,
+                    self.local_player_id,
+                );
+                let pid = gamelogic::world::PlayerId::from_index(owner_id as u8);
+                let Some(owner) = shadow.world().player(pid) else {
+                    continue;
+                };
+                if let Some((_, rem)) = owner
                     .shared_special_power_cooldowns
                     .iter()
-                    .find(|(k, _)| k == &timer.power_key)
+                    .find(|(k, _)| k == key)
                 {
                     let rem = (*rem).max(0.0);
                     if (timer.remaining - rem).abs() > 1e-5 {
@@ -2348,3 +2358,83 @@ impl PresentationFrame {
         frame
     }
 }
+
+#[cfg(test)]
+mod overlay_sw_owner_tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, Player, Team};
+    use crate::gameworld_shadow::GameWorldShadow;
+
+    #[test]
+    fn overlay_shared_cooldown_uses_owning_player_slot() {
+        // C++ SpecialPowerModule.cpp:756-765: SharedNSync remaining is the
+        // owning player's ready frame, not the local player's.
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "USA", true);
+        local.alliance_team = 0;
+        logic.add_player(local);
+        let mut enemy = Player::new(1, Team::China, "China", false);
+        enemy.alliance_team = 1;
+        logic.add_player(enemy);
+
+        let mut shadow = GameWorldShadow::new(64);
+        shadow.sync_from_host(&logic);
+        if let Some(p) = shadow
+            .world_mut()
+            .player_mut(gamelogic::world::PlayerId::from_index(0u8))
+        {
+            p.shared_special_power_cooldowns = vec![("ParticleCannon".into(), 11.0)];
+        }
+        if let Some(p) = shadow
+            .world_mut()
+            .player_mut(gamelogic::world::PlayerId::from_index(1u8))
+        {
+            p.shared_special_power_cooldowns = vec![("ParticleCannon".into(), 77.0)];
+        }
+
+        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        frame.superweapon_timers.clear();
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "PUC".into(),
+            template_name: "T".into(),
+            icon: "I".into(),
+            recharge_time: 300.0,
+            remaining: 1.0,
+            unlocked: true,
+            ready: false,
+            power_key: "ParticleCannon".into(),
+        });
+        frame.superweapon_timers.push(PresentationSuperweaponTimer {
+            name: "PUC (Enemy #CC2222)".into(),
+            template_name: "T2".into(),
+            icon: "I2".into(),
+            recharge_time: 300.0,
+            remaining: 1.0,
+            unlocked: true,
+            ready: false,
+            power_key: "ParticleCannon#1".into(),
+        });
+        let _ = frame.overlay_gameworld_shadow(&shadow);
+        let local = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.power_key == "ParticleCannon")
+            .expect("local");
+        assert!(
+            (local.remaining - 11.0).abs() < 1e-5,
+            "local remaining {}",
+            local.remaining
+        );
+        let enemy = frame
+            .superweapon_timers
+            .iter()
+            .find(|t| t.power_key == "ParticleCannon#1")
+            .expect("enemy");
+        assert!(
+            (enemy.remaining - 77.0).abs() < 1e-5,
+            "enemy remaining must come from player 1 shared frame, got {}",
+            enemy.remaining
+        );
+    }
+}
+

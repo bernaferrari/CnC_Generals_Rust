@@ -532,6 +532,25 @@ impl GameClient {
                 }
             }));
         }
+        let _ = register_terrain_unit_moved_hook(Arc::new(|info: TerrainUnitMovedInfo| {
+            crate::terrain::notify_terrain_unit_moved(
+                crate::terrain::TreeCollisionUnit {
+                    object_id: info.object_id,
+                    position: glam::Vec3::new(info.x, info.y, info.z),
+                    direction_2d: glam::Vec2::new(info.dir_x, info.dir_y),
+                    major_radius: info.major_radius,
+                    minor_radius: info.minor_radius,
+                    geometry_type: if info.is_box {
+                        crate::terrain::TreeGeometryType::Box
+                    } else {
+                        crate::terrain::TreeGeometryType::Cylinder
+                    },
+                    crusher_level: info.crusher_level,
+                    immobile: info.immobile,
+                },
+                info.frame,
+            );
+        }));
 
         if let Some(asset_manager) = self.subsystem_manager.asset_manager.as_ref() {
             let resolver = Arc::new(AnimationDurationResolver::new(Arc::clone(asset_manager)));

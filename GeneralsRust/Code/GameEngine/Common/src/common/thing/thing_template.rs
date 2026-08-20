@@ -2109,6 +2109,22 @@ impl ThingTemplate {
             .get(ThingTemplateAudioType::SoundAmbientRubble)
     }
 
+    /// C++ `ThingTemplate::getVoiceFear` / `TTAUDIO_voiceFear`.
+    pub fn get_voice_fear(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceFear)
+    }
+
+    /// C++ `ThingTemplate::getSoundOnDamaged` / `TTAUDIO_soundOnDamaged`.
+    pub fn get_sound_on_damaged(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::SoundOnDamaged)
+    }
+
+    /// C++ `ThingTemplate::getSoundOnReallyDamaged` / `TTAUDIO_soundOnReallyDamaged`.
+    pub fn get_sound_on_really_damaged(&self) -> Option<&AudioEventRts> {
+        self.audioarray
+            .get(ThingTemplateAudioType::SoundOnReallyDamaged)
+    }
+
     pub fn get_per_unit_sound(&self, sound_name: &AsciiString) -> Option<&AudioEventRts> {
         self.per_unit_sounds.get(sound_name)
     }

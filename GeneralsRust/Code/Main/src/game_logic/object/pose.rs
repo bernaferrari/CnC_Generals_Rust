@@ -6,6 +6,8 @@ impl Object {
     }
 
     pub fn set_position(&mut self, position: Vec3) {
+        let old_ix = self.position.x as i32;
+        let old_iz = self.position.z as i32;
         let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
             self.position.x,
             self.position.z,
@@ -19,6 +21,41 @@ impl Object {
         );
         if old_cell != new_cell {
             self.restamp_partition_value_threat();
+        }
+        // C++ Object.cpp:2580-2583: integer XY change notifies W3DTreeBuffer::unitMoved.
+        if old_ix != position.x as i32 || old_iz != position.z as i32 {
+            self.notify_terrain_trees_on_unit_move();
+        }
+    }
+
+    /// C++ `TheGameClient->notifyTerrainObjectMoved` → `W3DTreeBuffer::unitMoved`.
+    pub fn notify_terrain_trees_on_unit_move(&self) {
+        if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Immobile) {
+            return;
+        }
+        if !self.is_kind_of(KindOf::Infantry) && !self.is_kind_of(KindOf::Vehicle) {
+            return;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            let pos = self.get_position();
+            let angle = self.get_orientation();
+            let radius = self.selection_radius.max(1.0);
+            let unit = game_client::terrain::TreeCollisionUnit {
+                object_id: self.id.0,
+                // Tree buffer stores C++ XY-horizontal; host pose is Y-up.
+                position: Vec3::new(pos.x, pos.z, pos.y),
+                direction_2d: glam::Vec2::new(angle.cos(), -angle.sin()),
+                major_radius: radius,
+                minor_radius: radius,
+                geometry_type: game_client::terrain::TreeGeometryType::Cylinder,
+                crusher_level: i32::from(self.crusher_level),
+                immobile: false,
+            };
+            game_client::terrain::notify_terrain_unit_moved(
+                unit,
+                gamelogic::system::game_logic::current_frame(),
+            );
         }
     }
 

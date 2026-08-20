@@ -38,7 +38,7 @@
 //!   Forbidden **USING_ABILITY**, InnateStealth **Yes**
 //!
 //! Fail-closed honesty:
-//! - Not full SpecialAbilityUpdate preparation timers / packing / flee-after-plant
+//! - Leftover steal/disable/plant run C++ unpack/prep/pack + flee-after-plant
 //! - RemoteC4Charge/TimedC4Charge SpecialObject + MaxSpecialObjects residual closed
 //! - Not full StickyBombUpdate attach bone matrix / geometry splash / max-charge list UI
 //! - Not full CashHackSpecialPower victim money clamp / floating text path
@@ -49,6 +49,7 @@
 use super::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Logic frames per second (host fixed step).
 pub const HERO_ABILITY_LOGIC_FPS: f32 = 30.0;
@@ -176,6 +177,15 @@ pub const BURTON_MAX_REMOTE_CHARGES: u32 = 8;
 pub const BURTON_MAX_TIMED_CHARGES: u32 = 10;
 pub const BURTON_REMOTE_CHARGE_OBJECT: &str = "RemoteC4Charge";
 pub const BURTON_TIMED_CHARGE_OBJECT: &str = "TimedC4Charge";
+/// C++ `SpecialAbilityUpdate::StartAbilityRange` for Burton C4 / Tank Hunter TNT.
+pub const PLANT_START_ABILITY_RANGE: f32 = 5.0;
+/// C++ `PATHFIND_CELL_SIZE_F` used to undersize contact-class start ranges.
+pub const SA_PATHFIND_CELL_SIZE_F: f32 = 10.0;
+/// C++ `SpecialAbilityMissileDefenderLaserGuidedMissiles` leftover timings.
+pub const LEFTOVER_LASER_START_RANGE: f32 = 200.0;
+pub const LEFTOVER_LASER_ABORT_RANGE: f32 = 250.0;
+pub const LEFTOVER_LASER_PREP_MS: u32 = 1_000;
+pub const LEFTOVER_LASER_PERSIST_MS: u32 = 500;
 
 // --- Black Lotus body / stealth residual ---
 
@@ -276,7 +286,10 @@ pub fn is_legal_steal_cash_target(
     is_alive && is_structure && !under_construction && is_enemy && is_cash_generator
 }
 
-/// Legal residual DisableVehicleHack target (enemy manned ground vehicle).
+/// Legal leftover DisableVehicleHack target (enemy manned ground vehicle).
+///
+/// C++ `triggerAbilityEffect` refreshes `DISABLED_HACKED` on an already-hacked
+/// vehicle. Unmanned still matches ActionManager (cannot hack an empty hull).
 pub fn is_legal_disable_vehicle_target(
     is_alive: bool,
     is_vehicle: bool,
@@ -285,7 +298,8 @@ pub fn is_legal_disable_vehicle_target(
     already_hacked: bool,
     unmanned: bool,
 ) -> bool {
-    is_alive && is_vehicle && !is_airborne && is_enemy && !already_hacked && !unmanned
+    let _ = already_hacked;
+    is_alive && is_vehicle && !is_airborne && is_enemy && !unmanned
 }
 
 /// Legal residual Black Lotus CaptureBuilding target (enemy structure).
@@ -438,6 +452,195 @@ pub fn horizontal_distance(a: Vec3, b: Vec3) -> f32 {
     (dx * dx + dz * dz).sqrt()
 }
 
+/// C++ `FROM_BOUNDINGSPHERE_2D` leftover: 2D center distance minus both radii.
+pub fn leftover_bounding_sphere_2d(
+    a: Vec3,
+    a_radius: f32,
+    b: Vec3,
+    b_radius: f32,
+) -> f32 {
+    (horizontal_distance(a, b) - a_radius.max(0.0) - b_radius.max(0.0)).max(0.0)
+}
+
+/// C++ `isWithinStartAbilityRange` distance gate (bounding-sphere 2D vs INI).
+pub fn leftover_within_start_ability_range(edge_distance: f32, start_ability_range: f32) -> bool {
+    edge_distance <= start_ability_range
+}
+
+/// C++ `isWithinAbilityAbortRange` (no start-range undersize).
+pub fn leftover_within_abort_range(edge_distance: f32, abort_range: f32) -> bool {
+    edge_distance <= abort_range
+}
+
+/// Undersized contact-class start range (`max(0, StartAbilityRange - cell/4)`).
+pub fn leftover_undersized_start_range(start_ability_range: f32) -> f32 {
+    (start_ability_range - SA_PATHFIND_CELL_SIZE_F * 0.25).max(0.0)
+}
+
+/// C++ `LoseStealthOnTrigger` + `PreTriggerUnstealthTime` during unpack.
+/// `m_animFrames < preTriggerUnstealthFrames` → remaining seconds < 5.0s.
+pub fn leftover_should_unstealth_during_unpack(remaining_seconds: f32, pre_trigger_ms: u32) -> bool {
+    remaining_seconds * 1000.0 < pre_trigger_ms as f32
+}
+
+/// C++ `finishAbility` flee point: ±facing * fleeRange, then off nearest own mine.
+pub fn leftover_flee_position(
+    pos: Vec3,
+    dir_xz: (f32, f32),
+    flee_range: f32,
+    flip_after_unpack: bool,
+    nearest_own_mine: Option<Vec3>,
+) -> Vec3 {
+    let mut dest = pos;
+    if flip_after_unpack {
+        dest.x += dir_xz.0 * flee_range;
+        dest.z += dir_xz.1 * flee_range;
+    } else {
+        dest.x -= dir_xz.0 * flee_range;
+        dest.z -= dir_xz.1 * flee_range;
+    }
+    if let Some(mine) = nearest_own_mine {
+        let mut dx = dest.x - mine.x;
+        let mut dz = dest.z - mine.z;
+        let len = (dx * dx + dz * dz).sqrt();
+        if len > 1.0e-4 {
+            dx /= len;
+            dz /= len;
+        } else {
+            dx = dir_xz.0;
+            dz = dir_xz.1;
+        }
+        dest.x = mine.x + dx * flee_range;
+        dest.z = mine.z + dz * flee_range;
+    }
+    dest
+}
+
+/// C++ `continuePreparation` DoCaptureFX flash edge (odd→even falling).
+pub fn leftover_capture_fx_should_flash(
+    phase: &mut f32,
+    remaining_seconds: f32,
+    preparation_time_ms: u32,
+) -> bool {
+    let last_phase = (*phase as i32) & 1;
+    let denom = ((preparation_time_ms as f32) / 1000.0 * HERO_ABILITY_LOGIC_FPS).max(1.0);
+    let prep_frames = remaining_seconds * HERO_ABILITY_LOGIC_FPS;
+    let increment = 1.0 - (prep_frames / denom);
+    *phase += increment / 3.0;
+    let this_phase = (*phase as i32) & 1;
+    last_phase == 1 && this_phase == 0
+}
+
+/// Leftover SpecialAbilityUpdate kind that needs unpack/prep/pack (or laser persist).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LeftoverSaKind {
+    StealCash,
+    DisableVehicle,
+    PlantTimed,
+    PlantRemote,
+    LaserGuided,
+}
+
+/// C++ `PackingState` leftover subset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LeftoverSaPhase {
+    #[default]
+    Unpacking,
+    Preparing,
+    Packing,
+}
+
+/// Authored leftover SpecialAbilityUpdate timings (milliseconds / world units).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LeftoverSaTimings {
+    pub unpack_ms: u32,
+    pub prep_ms: u32,
+    pub pack_ms: u32,
+    pub start_range: f32,
+    pub abort_range: f32,
+    pub flee_range: f32,
+    pub pre_trigger_unstealth_ms: u32,
+    pub flip_after_unpack: bool,
+    pub persist_prep_ms: u32,
+}
+
+/// Retail leftover timings for each leftover SpecialAbilityUpdate kind.
+pub fn leftover_sa_timings(kind: LeftoverSaKind) -> LeftoverSaTimings {
+    match kind {
+        LeftoverSaKind::StealCash => LeftoverSaTimings {
+            unpack_ms: LOTUS_STEAL_UNPACK_MS,
+            prep_ms: LOTUS_STEAL_PREP_MS,
+            pack_ms: LOTUS_STEAL_PACK_MS,
+            start_range: BLACK_LOTUS_START_ABILITY_RANGE,
+            abort_range: f32::MAX,
+            flee_range: 0.0,
+            pre_trigger_unstealth_ms: 0,
+            flip_after_unpack: false,
+            persist_prep_ms: 0,
+        },
+        LeftoverSaKind::DisableVehicle => LeftoverSaTimings {
+            unpack_ms: LOTUS_DISABLE_UNPACK_MS,
+            prep_ms: LOTUS_DISABLE_PREP_MS,
+            pack_ms: LOTUS_DISABLE_PACK_MS,
+            start_range: BLACK_LOTUS_START_ABILITY_RANGE,
+            abort_range: f32::MAX,
+            flee_range: 0.0,
+            pre_trigger_unstealth_ms: 0,
+            flip_after_unpack: false,
+            persist_prep_ms: 0,
+        },
+        LeftoverSaKind::PlantTimed | LeftoverSaKind::PlantRemote => LeftoverSaTimings {
+            unpack_ms: BURTON_CHARGE_UNPACK_MS,
+            prep_ms: 0,
+            pack_ms: 0,
+            start_range: PLANT_START_ABILITY_RANGE,
+            abort_range: f32::MAX,
+            flee_range: BURTON_CHARGE_FLEE_RANGE,
+            pre_trigger_unstealth_ms: BURTON_CHARGE_PRE_TRIGGER_UNSTEALTH_MS,
+            flip_after_unpack: true,
+            persist_prep_ms: 0,
+        },
+        LeftoverSaKind::LaserGuided => LeftoverSaTimings {
+            unpack_ms: 0,
+            prep_ms: LEFTOVER_LASER_PREP_MS,
+            pack_ms: 0,
+            start_range: LEFTOVER_LASER_START_RANGE,
+            abort_range: LEFTOVER_LASER_ABORT_RANGE,
+            flee_range: 0.0,
+            pre_trigger_unstealth_ms: 0,
+            flip_after_unpack: false,
+            persist_prep_ms: LEFTOVER_LASER_PERSIST_MS,
+        },
+    }
+}
+
+/// Persistent leftover SpecialAbilityUpdate channel (steal/disable/plant/laser).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LeftoverSaChannel {
+    pub target_id: ObjectId,
+    pub kind: LeftoverSaKind,
+    pub phase: LeftoverSaPhase,
+    pub remaining_seconds: f32,
+    pub unstealthed: bool,
+}
+
+impl LeftoverSaChannel {
+    pub fn new(
+        kind: LeftoverSaKind,
+        target_id: ObjectId,
+        phase: LeftoverSaPhase,
+        duration_ms: u32,
+    ) -> Self {
+        Self {
+            target_id,
+            kind,
+            phase,
+            remaining_seconds: duration_ms as f32 / 1_000.0,
+            unstealthed: false,
+        }
+    }
+}
+
 /// Bookkeeping id for residual plant (producer → charge object).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeroAbilityPlant {
@@ -472,6 +675,12 @@ pub struct HostHeroAbilityRegistry {
     /// Black Market emergency cash steals completed (subset of cash_steals).
     #[serde(default)]
     pub black_market_emergency_steals: u32,
+    /// Leftover SpecialAbilityUpdate channels (steal/disable/plant/laser).
+    #[serde(default)]
+    pub leftover_channels: HashMap<ObjectId, LeftoverSaChannel>,
+    /// C++ `m_captureFlashPhase` leftover, keyed by capturing object.
+    #[serde(default)]
+    pub capture_flash_phase: HashMap<ObjectId, f32>,
 }
 
 impl HostHeroAbilityRegistry {
@@ -585,6 +794,23 @@ impl HostHeroAbilityRegistry {
             || self.honesty_building_capture_ok()
             || self.honesty_black_market_emergency_ok()
     }
+
+    pub fn leftover_channel(&self, id: ObjectId) -> Option<&LeftoverSaChannel> {
+        self.leftover_channels.get(&id)
+    }
+
+    pub fn set_leftover_channel(&mut self, id: ObjectId, channel: LeftoverSaChannel) {
+        self.leftover_channels.insert(id, channel);
+    }
+
+    pub fn take_leftover_channel(&mut self, id: ObjectId) -> Option<LeftoverSaChannel> {
+        self.leftover_channels.remove(&id)
+    }
+
+    pub fn clear_capture_flash(&mut self, id: ObjectId) {
+        self.capture_flash_phase.remove(&id);
+    }
+
 }
 
 // --- Wave 57 residual honesty packs ---
@@ -792,7 +1018,7 @@ mod tests {
         assert!(!is_legal_disable_vehicle_target(
             true, true, true, true, false, false
         ));
-        assert!(!is_legal_disable_vehicle_target(
+        assert!(is_legal_disable_vehicle_target(
             true, true, false, true, true, false
         ));
         assert!(!is_legal_disable_vehicle_target(
@@ -836,5 +1062,44 @@ mod tests {
         assert!(is_legal_black_market_emergency_steal(
             true, false, true, true
         ));
+    }
+
+    #[test]
+    fn leftover_sa_range_flee_and_flash() {
+        assert!((PLANT_START_ABILITY_RANGE - 5.0).abs() < 0.01);
+        assert!(leftover_within_start_ability_range(5.0, PLANT_START_ABILITY_RANGE));
+        assert!(!leftover_within_start_ability_range(5.1, PLANT_START_ABILITY_RANGE));
+        let edge = leftover_bounding_sphere_2d(
+            Vec3::new(0.0, 0.0, 0.0),
+            2.0,
+            Vec3::new(10.0, 0.0, 0.0),
+            3.0,
+        );
+        assert!((edge - 5.0).abs() < 1e-4);
+        assert!(leftover_should_unstealth_during_unpack(4.9, 5_000));
+        assert!(!leftover_should_unstealth_during_unpack(5.0, 5_000));
+        let flee = leftover_flee_position(
+            Vec3::new(0.0, 0.0, 0.0),
+            (1.0, 0.0),
+            100.0,
+            true,
+            None,
+        );
+        assert!((flee.x - 100.0).abs() < 1e-4);
+        let mut phase = 1.4_f32;
+        let flashed = leftover_capture_fx_should_flash(&mut phase, 1.0, 6_000);
+        let _ = flashed;
+        let steal = leftover_sa_timings(LeftoverSaKind::StealCash);
+        assert_eq!(steal.unpack_ms, 6_730);
+        assert_eq!(steal.prep_ms, 6_000);
+        assert_eq!(steal.pack_ms, 5_800);
+        let plant = leftover_sa_timings(LeftoverSaKind::PlantTimed);
+        assert_eq!(plant.unpack_ms, 5_500);
+        assert!((plant.flee_range - 100.0).abs() < 0.01);
+        let laser = leftover_sa_timings(LeftoverSaKind::LaserGuided);
+        assert_eq!(laser.prep_ms, 1_000);
+        assert_eq!(laser.persist_prep_ms, 500);
+        assert!((laser.start_range - 200.0).abs() < 0.01);
+        assert!((laser.abort_range - 250.0).abs() < 0.01);
     }
 }

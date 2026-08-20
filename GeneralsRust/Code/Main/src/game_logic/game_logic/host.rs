@@ -29,6 +29,10 @@ pub struct GameLogic {
     pub objects: HostObjectStore,
     /// Host ids mutated this tick that must write through to GameWorld.
     pub(super) host_view_dirty: HashSet<ObjectId>,
+    /// C++ Object partition last-look: unlook previous then look on move/death.
+    /// (x, y, z, radius, player_mask) in shroud Coord3D space.
+    pub(super) vision_last_looks: HashMap<ObjectId, (f32, f32, f32, f32, u32)>,
+
 
     /// Players in the game. Coupled shadow: supplies/power/sciences last-write
     /// from GameWorld `PlayerData` (economy writeback). This map is a read-view
@@ -1246,6 +1250,7 @@ pub struct GameLogic {
     /// C++ startNewGame installs MultiplayerScripts.scb when numTeams > 1.
     pub(super) install_multiplayer_scripts: bool,
 }
+
 
 #[derive(Debug, Clone)]
 pub(super) struct PathfindingHeightSamples {

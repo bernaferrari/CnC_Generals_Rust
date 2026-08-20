@@ -1,8 +1,8 @@
 use game_client_rust::{
     system::SubsystemInterface,
     terrain::{
-        blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip, generate_box_mip_chain,
-        height_map::HeightMap,
+        add_terrain_scorch, blit_tree_tile_into_atlas, do_lighting, do_tree_atlas_mip,
+        generate_box_mip_chain, height_map::HeightMap, terrain_scorch_count,
         terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
         textures::{BlendTileInfo, TileData, FLIPPED_MASK},
         TerrainTrackHeightProvider, TerrainTracksConfig, TreeModuleData, TreeRegion2D, TreeSphere,
@@ -806,4 +806,21 @@ fn tree_atlas_live_draw_matches_cpp_blit_mip_and_lod() {
     assert_eq!(do_tree_atlas_mip(&expected[0], width), expected[1]);
     let dest = (63 * 512 + 0) * 4;
     assert_eq!(&expected[0][dest..dest + 4], &[11, 22, 33, 44]);
+}
+
+/// C++ BaseHeightMap.cpp:618 `reset` → `clearAllScorches`.
+#[test]
+fn terrain_visual_reset_clears_all_scorches() {
+    add_terrain_scorch([12.0, 8.0, 0.0], 18.0, 2);
+    assert!(
+        terrain_scorch_count() > 0,
+        "pre-reset scorches must exist so the clear is observable"
+    );
+    let mut visual = TerrainVisualImpl::new();
+    visual.reset().expect("TerrainVisual::reset");
+    assert_eq!(
+        terrain_scorch_count(),
+        0,
+        "hq-y8cc2: reset must call clear_terrain_scorches"
+    );
 }

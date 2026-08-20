@@ -2252,6 +2252,19 @@ fn path_to_goal_with_state_used_by_guard_scatter_gather() {
     }
 }
 
+/// C++ BuildAssistant.cpp:333-334 clearRemovableForConstruction before create.
+#[test]
+fn execute_build_source_clears_trees_and_props() {
+    let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
+    let i = src.find("fn execute_build").expect("execute_build");
+    let w = &src[i..src.len().min(i + 6000)];
+    assert!(
+        w.contains("clear_removable_for_construction")
+            && src.contains("remove_trees_and_props_for_construction"),
+        "hq-wtzcx: execute_build must clear removable objects and map trees/props"
+    );
+}
+
 #[test]
 fn interaction_commands_pathfind_surface() {
     let src = crate::command_executor::COMMAND_EXECUTOR_SRC;
@@ -3902,6 +3915,114 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
         place(&mut logic),
         CommandResult::InvalidCommand,
         "cap must refuse extra beacons"
+    );
+}
+
+/// C++ BuildAssistant.cpp:333-334 / :1365-1383 — placement clears trees/props.
+#[test]
+fn execute_build_clears_removable_and_map_trees() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    let _ = game_client::terrain::terrain_visual::init_terrain_visual();
+    {
+        let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
+            .expect("terrain visual lock");
+        let visual = guard.as_mut().expect("terrain visual");
+        visual.tree_buffer_mut().clear_all_trees();
+        visual.tree_buffer_mut().set_bounds(
+            game_client::terrain::TreeRegion2D::new(
+                glam::Vec2::new(-200.0, -200.0),
+                glam::Vec2::new(200.0, 200.0),
+            ),
+        );
+        let mut data = game_client::terrain::TreeModuleData::default();
+        data.model_name = "Oak".into();
+        visual
+            .tree_buffer_mut()
+            .add_tree(
+                88,
+                glam::Vec3::new(80.0, 80.0, 0.0),
+                1.0,
+                0.0,
+                1.0,
+                data,
+                game_client::terrain::TreeSphere {
+                    center: glam::Vec3::ZERO,
+                    radius: 4.0,
+                },
+            )
+            .expect("add tree");
+        assert!(visual.add_prop([80.0, 80.0, 0.0], 0.0, 1.0, "TreeProp"));
+    }
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 100_000;
+    logic.add_player(player);
+
+    let mut barracks = ThingTemplate::new("TestClearFootprintBarracks");
+    barracks
+        .add_kind_of(KindOf::Structure)
+        .set_cost(50, 0)
+        .set_health(1_000.0);
+    logic
+        .templates
+        .insert("TestClearFootprintBarracks".into(), barracks);
+
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t.clone());
+    let mut dozer = Object::new(dozer_t, ObjectId(9101), Team::USA);
+    dozer.set_position(Vec3::new(40.0, 0.0, 80.0));
+    dozer.owner_player_id = Some(0);
+    logic.objects.insert(ObjectId(9101), dozer);
+
+    let mut shrub_t = ThingTemplate::new("TreeOakShrub");
+    shrub_t.set_health(10.0);
+    let mut shrub = Object::new(shrub_t, ObjectId(9102), Team::Neutral);
+    shrub.set_position(Vec3::new(80.0, 0.0, 80.0));
+    shrub.status.effectively_dead = true;
+    logic.objects.insert(ObjectId(9102), shrub);
+
+    let site = Vec3::new(80.0, 0.0, 80.0);
+    let result = {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
+    };
+    assert_eq!(result, CommandResult::Success, "placement must succeed");
+
+    let shrub = logic.host_object(ObjectId(9102)).expect("shrub still rostered");
+    assert!(
+        shrub.status.destroyed || !shrub.is_alive(),
+        "hq-wtzcx: removable shrub under footprint must be destroyed"
+    );
+
+    let mut guard = game_client::terrain::terrain_visual::get_terrain_visual()
+        .expect("terrain visual lock");
+    let visual = guard.as_mut().expect("terrain visual");
+    assert!(
+        !visual.construction_removals().is_empty(),
+        "hq-wtzcx: execute_build must call removeTreesAndPropsForConstruction"
+    );
+    assert!(
+        visual.terrain_props().is_empty(),
+        "map prop under footprint must be removed"
+    );
+    assert!(
+        visual
+            .tree_buffer_mut()
+            .trees()
+            .iter()
+            .all(|tree| tree.tree_type < 0),
+        "map tree under footprint must be removed"
     );
 }
 

@@ -174,6 +174,18 @@ impl GameLogic {
                     continue;
                 }
             }
+            // Portable Overlord/Helix gattling: independent auto-acquire (HelixContain.cpp:340).
+            if self
+                .objects
+                .get(&attacker_id)
+                .map(|a| a.has_overlord_gattling_residual())
+                .unwrap_or(false)
+            {
+                self.try_overlord_gattling_addon_independent_fire(attacker_id);
+            }
+            let Some(attacker) = self.objects.get(&attacker_id) else {
+                continue;
+            };
             let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
             // TARGET_FAERIE_FIRE residual: painted targets grant 150% ROF readiness.
@@ -691,11 +703,6 @@ impl GameLogic {
                                         attacker_team,
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 20.0);
-                                    }
-                                }
                             } else if neutron_blast {
                                 let impact = target_position;
                                 let from = self
@@ -725,13 +732,6 @@ impl GameLogic {
                                     )
                                 };
                                 // Stop attack after residual blast shot (slow reload residual).
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    // Award residual XP for infantry kills / unmans.
-                                    let xp = (ik as f32) * 20.0 + (vu as f32) * 30.0;
-                                    if xp > 0.0 {
-                                        attacker.gain_experience(xp);
-                                    }
-                                }
                             } else if {
                                 // Helix residual: PRIMARY HelixMinigunWeapon intended-only.
                                 // When portable gattling addon is installed, the Overlord/Helix
@@ -754,11 +754,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 6.0);
-                                    }
-                                }
                             } else if {
                                 // Comanche residual: 20mm primary / anti-tank secondary /
                                 // manual rocket pods tertiary.
@@ -851,11 +846,6 @@ impl GameLogic {
                                 } else {
                                     (0, false)
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
                                 use crate::game_logic::host_rocket_buggy::{
@@ -895,11 +885,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
                                 use crate::game_logic::host_scud_launcher::{
@@ -948,11 +933,6 @@ impl GameLogic {
                                         toxin,
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 15.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
                                 use crate::game_logic::host_technical::{
@@ -1036,11 +1016,6 @@ impl GameLogic {
                                             Some(target_id),
                                         )
                                     };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 6.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Marauder residual: salvage fire-rate tiers + small splash.
                                 use crate::game_logic::host_marauder::{
@@ -1099,11 +1074,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
                                 use crate::game_logic::host_scorpion::{
@@ -1160,11 +1130,6 @@ impl GameLogic {
                                         slot,
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // USA Tomahawk residual: dual-radius long-range missile.
                                 use crate::game_logic::host_tomahawk::{
@@ -1204,11 +1169,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 15.0);
-                                    }
-                                }
                             } else if {
                                 // USA Raptor residual: jet missiles + Laser Missiles splash.
                                 use crate::game_logic::host_raptor::{
@@ -1248,11 +1208,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 12.0);
-                                    }
-                                }
                             } else if {
                                 // China MiG residual: dual-radius napalm / Nuke missiles + field residual.
                                 use crate::game_logic::host_mig::{
@@ -1290,11 +1245,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 12.0);
-                                    }
-                                }
                             } else if {
                                 // America Fire Base residual: howitzer primary-radius splash.
                                 use crate::game_logic::host_fire_base::{
@@ -1334,11 +1284,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // USA Stealth Fighter residual: jet missiles splash + bunker-buster structure path.
                                 use crate::game_logic::host_stealth_fighter::{
@@ -1379,11 +1324,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 12.0);
-                                    }
-                                }
                             } else if {
                                 // USA Battle Drone residual: intended-only MG fire.
                                 use crate::game_logic::host_slave_drones::is_battle_drone_template;
@@ -1398,11 +1338,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 2.0);
-                                    }
-                                }
                             } else if {
                                 // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
                                 use crate::game_logic::host_overlord_gun::{
@@ -1441,11 +1376,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 12.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Jarmen Kell residual: primary sniper (intended-only).
                                 use crate::game_logic::host_jarmen_kell::{
@@ -1466,11 +1396,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 15.0);
-                                    }
-                                }
                             } else if {
                                 // USA Crusader/Paladin residual: GenericTankShell Bezier + splash.
                                 use crate::game_logic::host_usa_tanks::{
@@ -1575,11 +1500,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // China Tank Hunter residual: RPG splash + AA capable residual.
                                 use crate::game_logic::host_tank_hunter::{
@@ -1619,11 +1539,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
                                 use crate::game_logic::host_red_guard::{
@@ -1643,11 +1558,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else if {
                                 // GLA RPG Trooper residual: rocket splash + AA capable residual.
                                 use crate::game_logic::host_rpg_trooper::{
@@ -1687,11 +1597,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Terrorist residual: SuicideDynamitePack self-detonation.
                                 use crate::game_logic::host_terrorist::{
@@ -1710,11 +1615,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // USA Missile Defender residual: missile splash + laser guided secondary.
                                 use crate::game_logic::host_missile_defender::{
@@ -1768,11 +1668,6 @@ impl GameLogic {
                                         laser_slot,
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Rebel residual: machine gun intended-only residual.
                                 use crate::game_logic::host_gla_rebel::{
@@ -1792,11 +1687,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else if {
                                 // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
                                 use crate::game_logic::host_ranger::{
@@ -1847,11 +1737,6 @@ impl GameLogic {
                                         false,
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else if {
                                 // USA Humvee TOW residual: HumveeMissile / PatriotMissile flight + splash.
                                 use crate::game_logic::host_humvee::{
@@ -1913,11 +1798,6 @@ impl GameLogic {
                                     )
                                 };
                                 let _ = HV_TOW_AUDIO;
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // China MiniGunner residual: ground gun or AA secondary hit.
                                 use crate::game_logic::host_minigunner::{
@@ -1938,11 +1818,6 @@ impl GameLogic {
                                     Some(target_id),
                                     slot,
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else if {
                                 // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
                                 use crate::game_logic::host_colonel_burton::{
@@ -1962,11 +1837,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 10.0);
-                                    }
-                                }
                             } else if {
                                 // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
                                 use crate::game_logic::host_troop_crawler::{
@@ -2026,11 +1896,6 @@ impl GameLogic {
                                         Some(target_id),
                                     )
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // China Gattling Tank residual: ground gun or AA secondary hit.
                                 use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
@@ -2046,39 +1911,12 @@ impl GameLogic {
                                     Some(target_id),
                                     slot,
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else if {
-                                // Overlord / Helix / Emperor portable gattling addon residual.
-                                use crate::game_logic::host_overlord_addons::should_apply_overlord_gattling_residual;
-                                self.objects
-                                    .get(&attacker_id)
-                                    .map(|a| {
-                                        should_apply_overlord_gattling_residual(
-                                            a.has_overlord_gattling_residual(),
-                                        )
-                                    })
-                                    .unwrap_or(false)
+                                // Portable gattling is independent (try_overlord_gattling_addon_independent_fire).
+                                // Do not piggyback stacked +10 onto the host chassis shot.
+                                false
                             } {
-                                let impact = target_position;
-                                let (hits, _destroyed_any) = self
-                                    .apply_overlord_gattling_residual_at(
-                                        impact,
-                                        Some(attacker_id),
-                                        Some(target_id),
-                                        slot,
-                                    );
-                                // Primary OverlordTankGun / HelixMinigun still applies when
-                                // slot==0: passenger gattling residual is extra damage path
-                                // handled inside apply_overlord_gattling (primary + passenger).
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
+                                let _ = slot;
                             } else if {
                                 // GLA Combat Cycle residual: rider weapon fire / suicide residual.
                                 use crate::game_logic::host_combat_cycle::{
@@ -2099,11 +1937,6 @@ impl GameLogic {
                                     Some(attacker_id),
                                     Some(target_id),
                                 );
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 8.0);
-                                    }
-                                }
                             } else if {
                                 // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
                                 use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
@@ -2145,11 +1978,6 @@ impl GameLogic {
                                         )
                                     }
                                 };
-                                if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                    if hits > 0 {
-                                        attacker.gain_experience((hits as f32) * 5.0);
-                                    }
-                                }
                             } else {
                                 // Bunker Buster residual: kill garrisoned occupants + amplify bunker damage.
                                 // KILL_GARRISONED residual: microwave-style kill floor(damage) occupants.
@@ -2198,34 +2026,23 @@ impl GameLogic {
                                 };
 
                                 if bunker_buster_hit {
-                                    let (kills, structure_dmg, destroyed) = self
+                                    let (_kills, _structure_dmg, destroyed) = self
                                         .apply_bunker_buster_to_target(
                                             target_id,
                                             attacker_team,
                                             weapon_damage,
                                             Some(attacker_id),
                                         );
-                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                        let xp = (kills as f32) * 15.0 + structure_dmg * 0.05;
-                                        if xp > 0.0 {
-                                            attacker.gain_experience(xp);
-                                        }
-                                        if destroyed {
-                                            self.stop_attack_decision_aware(attacker_id);
-                                        }
+                                    if destroyed {
+                                        self.stop_attack_decision_aware(attacker_id);
                                     }
                                 } else if kill_garrisoned_hit {
-                                    let kills = self.apply_kill_garrisoned_to_target(
+                                    let _kills = self.apply_kill_garrisoned_to_target(
                                         target_id,
                                         attacker_team,
                                         weapon_damage,
                                         Some(attacker_id),
                                     );
-                                    if kills > 0 {
-                                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                            attacker.gain_experience((kills as f32) * 15.0);
-                                        }
-                                    }
                                 } else if {
                                     let table_offset = self.objects.get_mut(&attacker_id).and_then(
                                         |attacker| {
@@ -2266,13 +2083,6 @@ impl GameLogic {
                                                 target_id,
                                                 wname_splash.as_deref(),
                                             );
-                                            if hits > 0 {
-                                                if let Some(attacker) =
-                                                    self.objects.get_mut(&attacker_id)
-                                                {
-                                                    attacker.gain_experience((hits as f32) * 5.0);
-                                                }
-                                            }
                                         }
                                         true
                                     } else {
@@ -2376,13 +2186,6 @@ impl GameLogic {
                                                 target_id,
                                                 wname.as_deref(),
                                             );
-                                            if hits > 0 {
-                                                if let Some(attacker) =
-                                                    self.objects.get_mut(&attacker_id)
-                                                {
-                                                    attacker.gain_experience((hits as f32) * 5.0);
-                                                }
-                                            }
                                         }
                                     }
                                 }
@@ -2770,11 +2573,6 @@ impl GameLogic {
                                 target_location,
                                 Some(attacker_id),
                             );
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                if hits > 0 {
-                                    attacker.gain_experience((hits as f32) * 10.0);
-                                }
-                            }
                             let _ = weapon_damage; // area residual owns damage
                         } else if buggy_ground {
                             let from = self
@@ -2801,11 +2599,6 @@ impl GameLogic {
                                     None,
                                 )
                             };
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                if hits > 0 {
-                                    attacker.gain_experience((hits as f32) * 8.0);
-                                }
-                            }
                             let _ = weapon_damage;
                         } else if scud_ground {
                             // Ground force-fire: stock uses primary explosive; Chem SCUD
@@ -2843,11 +2636,6 @@ impl GameLogic {
                                     toxin,
                                 )
                             };
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                if hits > 0 {
-                                    attacker.gain_experience((hits as f32) * 15.0);
-                                }
-                            }
                             let _ = weapon_damage;
                         } else if tomahawk_ground {
                             let from = self
@@ -2874,11 +2662,6 @@ impl GameLogic {
                                     None,
                                 )
                             };
-                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                if hits > 0 {
-                                    attacker.gain_experience((hits as f32) * 15.0);
-                                }
-                            }
                             let _ = weapon_damage;
                         } else if let Some(ground_target_id) =
                             self.find_ground_attack_victim(attacker_id, target_location)

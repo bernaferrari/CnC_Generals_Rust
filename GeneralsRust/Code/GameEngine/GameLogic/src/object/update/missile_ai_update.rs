@@ -413,6 +413,10 @@ pub struct MissileAIUpdate {
 
     /// Previous position (for distance tracking)
     prev_pos: Coord3D,
+    /// Last pose passed to `update`. Used when the dual-world registry is empty
+    /// so lock-distance / ignition still see a C++-faithful 2D range.
+    last_known_pos: Option<Coord3D>,
+
 
     /// Maximum acceleration
     max_accel: Real,
@@ -461,6 +465,7 @@ impl MissileAIUpdate {
             fuel_expiration_date: 0,
             no_turn_dist_left: data.initial_distance,
             prev_pos: Coord3D::new(0.0, 0.0, 0.0),
+            last_known_pos: None,
             max_accel: BIGNUM,
             detonation_weapon_tmpl: None,
             exhaust_sys_tmpl: None,
@@ -734,8 +739,10 @@ impl MissileAIUpdate {
     /// Detonate the missile
     /// Matches C++ MissileAIUpdate::detonate from MissileAIUpdate.cpp lines 364-400
     fn detonate(&mut self) {
-        // Wave 350: empty dual-world → no-op.
+        // Wave 350: empty dual-world still enters KILL_SELF so leftover
+        // ignition→detonate state matches C++ even in a host-only session.
         if dual_world_registry_unavailable() {
+            self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
             return;
         }
 
@@ -812,6 +819,8 @@ impl MissileAIUpdate {
         current_frame: UnsignedInt,
         current_pos: Coord3D,
     ) -> GameLogicResult<()> {
+        self.last_known_pos = Some(current_pos);
+
         // Update no-turn distance tracking
         if self.no_turn_dist_left > 0.0
             && matches!(
@@ -977,25 +986,20 @@ impl MissileAIUpdate {
     /// Ignition state: arm warhead, start exhaust, enable movement
     /// Matches C++ MissileAIUpdate::doIgnitionState from MissileAIUpdate.cpp lines 451-474
     fn do_ignition_state(&mut self, current_frame: UnsignedInt) {
-        // Wave 350: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
-        if let Some(fx) = &self.data.ignition_fx {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-                let _ = fx.do_fx_obj(&object_arc, None);
+        if !dual_world_registry_unavailable() {
+            if let Some(fx) = &self.data.ignition_fx {
+                if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
+                    let _ = fx.do_fx_obj(&object_arc, None);
+                }
             }
+            self.create_exhaust();
         }
 
-        self.create_exhaust();
-
-        // Arm the warhead
+        // C++ arms the warhead even if FX / exhaust / locomotor walks fail.
         self.is_armed = true;
 
-        // Set fuel expiration
         let now = current_frame;
         self.fuel_expiration_date = if self.data.fuel_lifetime > 0 {
             now + self.data.fuel_lifetime
@@ -1149,13 +1153,14 @@ impl MissileAIUpdate {
     }
 
     fn current_object_position(&self) -> Option<Coord3D> {
-        // Wave 350: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
+        if !dual_world_registry_unavailable() {
+            if let Some(pos) = TheGameLogic::find_object_by_id(self.object_id)
+                .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+            {
+                return Some(pos);
+            }
         }
-
-        TheGameLogic::find_object_by_id(self.object_id)
-            .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+        self.last_known_pos
     }
 
     fn current_ai_interface(

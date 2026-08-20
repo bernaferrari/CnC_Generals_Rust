@@ -408,13 +408,9 @@ impl GameLogic {
 
     /// Apply Overlord/Helix portable gattling residual at impact.
     ///
-    /// Slot 1 = AA secondary only. Slot 0 = primary weapon_damage path already
-    /// handled? Residual: passenger ground gattling damage + when slot 1 AA only.
-    /// For simplicity host residual: slot 1 deals AA dmg; slot 0 deals ground
-    /// gattling passenger residual (primary tank gun still dealt via weapon_damage
-    /// when not taking this exclusive branch). This branch is exclusive — so for
-    /// slot 0 we deal both OverlordTankGun residual damage (weapon_damage) AND
-    /// passenger gattling ground damage.
+    /// Independent portable rider (C++ HelixContain.cpp:340 RIDERS ALWAYS FIRE):
+    /// slot 1 = AA `GattlingBuildingGunAir`; slot 0 = ground `GattlingBuildingGun`
+    /// only — never stacked onto OverlordTankGun / HelixMinigun host damage.
     pub(crate) fn apply_overlord_gattling_residual_at(
         &mut self,
         impact: Vec3,
@@ -428,21 +424,16 @@ impl GameLogic {
             OVERLORD_GATTLING_AIR_DAMAGE, OVERLORD_GATTLING_FIRE_AUDIO,
         };
 
-        let (chain, primary_dmg) = source
+        let chain = source
             .and_then(|id| self.objects.get(&id))
-            .map(|o| {
-                let chain = has_chain_guns_upgrade(&o.applied_upgrades);
-                let primary = o.weapon.as_ref().map(|w| w.damage).unwrap_or(80.0);
-                (chain, primary)
-            })
-            .unwrap_or((false, 80.0));
+            .map(|o| has_chain_guns_upgrade(&o.applied_upgrades))
+            .unwrap_or(false);
 
         let (dmg, is_aa) = if slot == 1 {
             let mult = if chain { 1.25 } else { 1.0 };
             (OVERLORD_GATTLING_AIR_DAMAGE * mult, true)
         } else {
-            // Primary tank/minigun residual + passenger ground gattling residual.
-            (primary_dmg + overlord_gattling_ground_damage(chain), false)
+            (overlord_gattling_ground_damage(chain), false)
         };
 
         let mut hits = 0u32;
@@ -557,6 +548,112 @@ impl GameLogic {
         }
 
         (hits, any_destroyed)
+    }
+
+    /// C++ HelixContain.cpp:340 — portable gattling auto-acquires independently
+    /// of the host chassis shot (not a piggyback +10 on OverlordTankGun).
+    pub(in super::super) fn try_overlord_gattling_addon_independent_fire(
+        &mut self,
+        host_id: ObjectId,
+    ) {
+        use crate::game_logic::host_overlord_addons::{
+            is_legal_overlord_gattling_target, overlord_gattling_slot_for_air,
+            OVERLORD_GATTLING_AIR_RANGE, OVERLORD_GATTLING_GROUND_RANGE,
+        };
+
+        let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+        let Some(host) = self.objects.get(&host_id) else {
+            return;
+        };
+        if !host.has_overlord_gattling_residual() || !host.is_alive() {
+            return;
+        }
+        if host.contained_by.is_some() {
+            return;
+        }
+        let Some(aa) = host.weapon_slot(1) else {
+            return;
+        };
+        if !Object::weapon_ready(aa, current_time) {
+            return;
+        }
+        let team = host.team;
+        let fire_pos = host.get_position();
+
+        let candidates: Vec<_> = self
+            .objects
+            .iter()
+            .filter(|(id, _)| **id != host_id)
+            .map(|(id, obj)| {
+                let combat_kind = crate::game_logic::host_residual_acquire::residual_combat_kind(
+                    obj.is_kind_of(KindOf::Attackable),
+                    obj.is_kind_of(KindOf::Structure),
+                    obj.is_kind_of(KindOf::Infantry),
+                    obj.is_kind_of(KindOf::Vehicle),
+                    obj.is_kind_of(KindOf::Aircraft),
+                );
+                crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
+                    id: *id,
+                    team: obj.team,
+                    position: obj.get_position(),
+                    is_alive: obj.is_alive(),
+                    is_neutral: obj.team == Team::Neutral,
+                    under_construction: obj.status.under_construction,
+                    combat_kind,
+                    effectively_stealthed: obj.is_effectively_stealthed(),
+                    is_air: obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                    eject_invulnerable: obj.is_eject_invulnerable(),
+                }
+            })
+            .collect();
+        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
+            host_id,
+            team,
+            fire_pos,
+            candidates,
+            |is_air| {
+                if is_air {
+                    OVERLORD_GATTLING_AIR_RANGE
+                } else {
+                    OVERLORD_GATTLING_GROUND_RANGE
+                }
+            },
+            |c| {
+                c.is_alive
+                    && c.team != team
+                    && !c.is_neutral
+                    && is_legal_overlord_gattling_target(
+                        c.is_alive,
+                        false,
+                        c.under_construction,
+                        c.combat_kind,
+                    )
+            },
+        );
+        let Some((target_id, _, _)) = best else {
+            return;
+        };
+        let target_is_air = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
+            .unwrap_or(false);
+        let slot = overlord_gattling_slot_for_air(target_is_air);
+        let impact = self
+            .objects
+            .get(&target_id)
+            .map(|t| t.get_position())
+            .unwrap_or(fire_pos);
+        let (hits, _) =
+            self.apply_overlord_gattling_residual_at(impact, Some(host_id), Some(target_id), slot);
+        if hits == 0 {
+            return;
+        }
+        if let Some(host) = self.objects.get_mut(&host_id) {
+            if let Some(w) = host.weapon_slot_mut(1) {
+                crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
+            }
+        }
     }
 
     /// Residual honesty: Overlord/Helix gattling addon install + fire path.
@@ -1524,7 +1621,7 @@ impl GameLogic {
             o.marauder_shell_flight_frames = frames;
             o.marauder_shell_intended = intended.map(|id| id.0);
             o.marauder_shell_weapon_speed = weapon_speed;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = MARAUDER_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, MARAUDER_SHELL_MAX_HEALTH);
         }
@@ -1965,7 +2062,7 @@ impl GameLogic {
             o.scorpion_shell_launch_frame = Some(self.frame);
             o.scorpion_shell_flight_frames = frames;
             o.scorpion_shell_slot = slot;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = SCORPION_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, SCORPION_SHELL_MAX_HEALTH);
         }
@@ -2133,7 +2230,7 @@ impl GameLogic {
             o.scorpion_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(SCORPION_MISSILE_FUEL_FRAMES));
             o.scorpion_missile_slot = slot;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = SCORPION_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, SCORPION_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -2243,5 +2340,56 @@ End
         let field = logic.objects.get(&created[0]).expect("created field");
         assert_eq!(field.template_name, "FireFieldSmall");
         assert_eq!(field.team, Team::China);
+    }
+
+    /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
+    #[test]
+    fn overlord_gattling_independent_acquire_not_stacked_primary() {
+        use crate::game_logic::{AIState, KindOf, Team};
+        let mut logic = GameLogic::new();
+        let mut overlord = ThingTemplate::new("ChinaTankOverlord");
+        overlord
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1100.0);
+        logic
+            .templates
+            .insert("ChinaTankOverlord".to_string(), overlord);
+        let mut enemy = ThingTemplate::new("UsaRanger");
+        enemy
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic.templates.insert("UsaRanger".to_string(), enemy);
+
+        let tank = logic
+            .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("overlord");
+        {
+            let o = logic.host_object_mut(tank).unwrap();
+            o.install_overlord_gattling_addon();
+            o.set_ai_state(AIState::Idle);
+            o.target = None;
+            if let Some(w) = o.weapon_slot_mut(1) {
+                w.last_fire_time = -10.0;
+                w.reload_time = 0.1;
+            }
+        }
+        let victim = logic
+            .create_object("UsaRanger", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+            .expect("victim");
+        let hp_before = logic.host_object(victim).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_overlord_gattling_addon_independent_fire(tank);
+        let hp_after = logic.host_object(victim).unwrap().health.current;
+        let dealt = hp_before - hp_after;
+        assert!(
+            (dealt - crate::game_logic::host_overlord_addons::OVERLORD_GATTLING_GROUND_DAMAGE).abs()
+                < 0.2,
+            "independent gattling deals 10 not stacked primary+10, dealt={dealt}"
+        );
+        assert!(logic.overlord_addons.gattling_ground_fires > 0);
     }
 }

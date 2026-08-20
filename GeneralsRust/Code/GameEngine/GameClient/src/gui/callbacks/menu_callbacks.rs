@@ -507,15 +507,18 @@ impl OptionsMenu {
     }
 
     fn slider_value(id: i32) -> i32 {
-        Self::find_window(id)
-            .and_then(|window| {
-                let guard = window.borrow();
-                match guard.widget() {
-                    Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
-                    _ => None,
-                }
-            })
-            .unwrap_or(0)
+        Self::slider_value_opt(id).unwrap_or(0)
+    }
+
+    /// C++ `GadgetSliderGetPosition` — `None` matches retail `-1` (missing gadget).
+    fn slider_value_opt(id: i32) -> Option<i32> {
+        Self::find_window(id).and_then(|window| {
+            let guard = window.borrow();
+            match guard.widget() {
+                Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
+                _ => None,
+            }
+        })
     }
 
     fn set_combo_items(id: i32, items: &[String], selected_index: usize) {
@@ -916,31 +919,86 @@ impl OptionsMenu {
     }
 
     fn apply_options(&mut self) -> bool {
-        let detail_index = Self::combo_selected_index(self.combo_detail_id).unwrap_or(1);
-        let anti_aliasing =
-            Self::combo_selected_index(self.combo_anti_aliasing_id).unwrap_or(0) as i32;
-        let resolution = self
-            .resolution_modes
-            .get(Self::combo_selected_index(self.combo_resolution_id).unwrap_or(0))
-            .copied()
-            .unwrap_or((1024, 768));
-        let (old_resolution, windowed) = {
+        crate::display::display_fx::install_default_display_gamma_hook();
+        let host = take_host_options_apply();
+        let mut pref = UserPreferences::new();
+        let _ = pref.load("Options.ini");
+        let (
+            old_resolution,
+            windowed,
+            default_scroll,
+            default_music,
+            default_sfx,
+            default_voice,
+            default_res,
+        ) = {
             let global = runtime_global_data::read();
             (
                 (global.writable.x_resolution, global.writable.y_resolution),
                 global.writable.windowed,
+                (global.keyboard_scroll_factor * 100.0) as i32,
+                (global.music_volume_factor * 100.0) as i32,
+                (global.sfx_volume_factor * 100.0) as i32,
+                (global.voice_volume_factor * 100.0) as i32,
+                (global.writable.x_resolution, global.writable.y_resolution),
             )
         };
 
-        let alternate_mouse = Self::checkbox_value(self.check_alternate_mouse_id);
-        let retaliation = Self::checkbox_value(self.check_retaliation_id);
-        let double_click_attack_move = Self::checkbox_value(self.check_double_click_attack_move_id);
-        let language_filter = Self::checkbox_value(self.check_language_filter_id);
+        let detail_index = host
+            .as_ref()
+            .map(|h| h.detail_index)
+            .or_else(|| Self::combo_selected_index(self.combo_detail_id))
+            .unwrap_or(1);
+        let anti_aliasing = host
+            .as_ref()
+            .map(|h| h.anti_aliasing)
+            .or_else(|| Self::combo_selected_index(self.combo_anti_aliasing_id).map(|i| i as i32))
+            .unwrap_or_else(|| pref.get_int_or("AntiAliasing", 0));
+        let resolution = host
+            .as_ref()
+            .map(|h| h.resolution)
+            .or_else(|| {
+                self.resolution_modes
+                    .get(Self::combo_selected_index(self.combo_resolution_id).unwrap_or(0))
+                    .copied()
+            })
+            .unwrap_or_else(|| {
+                parse_resolution_pref(pref.get_string("Resolution").map(|s| s.as_str()))
+                    .unwrap_or(default_res)
+            });
+
+        let alternate_mouse = host
+            .as_ref()
+            .map(|h| h.alternate_mouse)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_alternate_mouse_id));
+        let retaliation = host
+            .as_ref()
+            .map(|h| h.retaliation)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_retaliation_id));
+        let double_click_attack_move = host.as_ref().map(|h| h.double_click_attack_move).unwrap_or_else(|| {
+            Self::checkbox_value(self.check_double_click_attack_move_id)
+        });
+        let language_filter = host
+            .as_ref()
+            .map(|h| h.language_filter)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_language_filter_id));
         let send_delay = Self::checkbox_value(self.check_send_delay_id);
-        let save_camera = Self::checkbox_value(self.check_save_camera_id);
-        let use_camera = Self::checkbox_value(self.check_use_camera_id);
-        let draw_anchor = Self::checkbox_value(self.check_draw_anchor_id);
-        let move_anchor = Self::checkbox_value(self.check_move_anchor_id);
+        let save_camera = host
+            .as_ref()
+            .map(|h| h.save_camera)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_save_camera_id));
+        let use_camera = host
+            .as_ref()
+            .map(|h| h.use_camera)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_use_camera_id));
+        let draw_anchor = host
+            .as_ref()
+            .map(|h| h.draw_anchor)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_draw_anchor_id));
+        let move_anchor = host
+            .as_ref()
+            .map(|h| h.move_anchor)
+            .unwrap_or_else(|| Self::checkbox_value(self.check_move_anchor_id));
         let use_shadow_volumes = Self::checkbox_value(self.check_3d_shadows_id);
         let use_shadow_decals = Self::checkbox_value(self.check_2d_shadows_id);
         let use_cloud_map = Self::checkbox_value(self.check_cloud_shadows_id);
@@ -953,20 +1011,36 @@ impl OptionsMenu {
         let building_occlusion = Self::checkbox_value(self.check_building_occlusion_id);
         let show_props = Self::checkbox_value(self.check_props_id);
 
-        let scroll_speed = Self::slider_value(self.slider_scroll_speed_id).clamp(0, 100);
-        let music_volume = Self::slider_value(self.slider_music_volume_id).clamp(0, 100);
-        let sfx_volume = Self::slider_value(self.slider_sfx_volume_id).clamp(0, 100);
-        let voice_volume = Self::slider_value(self.slider_voice_volume_id).clamp(0, 100);
+        // C++ OptionsMenu.cpp:1168-1241 `if (val != -1)` — missing slider keeps pref.
+        let scroll_speed = Self::slider_value_opt(self.slider_scroll_speed_id)
+            .or_else(|| host.as_ref().map(|h| h.scroll_speed))
+            .unwrap_or_else(|| pref.get_int_or("ScrollFactor", default_scroll))
+            .clamp(0, 100);
+        let music_volume = Self::slider_value_opt(self.slider_music_volume_id)
+            .or_else(|| host.as_ref().map(|h| h.music_volume))
+            .unwrap_or_else(|| pref.get_int_or("MusicVolume", default_music))
+            .clamp(0, 100);
+        let sfx_volume = Self::slider_value_opt(self.slider_sfx_volume_id)
+            .or_else(|| host.as_ref().map(|h| h.sfx_volume))
+            .unwrap_or_else(|| pref.get_int_or("SFXVolume", default_sfx))
+            .clamp(0, 100);
+        let voice_volume = Self::slider_value_opt(self.slider_voice_volume_id)
+            .or_else(|| host.as_ref().map(|h| h.voice_volume))
+            .unwrap_or_else(|| pref.get_int_or("VoiceVolume", default_voice))
+            .clamp(0, 100);
         let (sfx_2d_volume, sfx_3d_volume, sfx_2d_factor, sfx_3d_factor) =
             Self::split_sfx_volume_for_relative(sfx_volume, Self::current_relative_2d_volume());
-        let gamma_slider = Self::slider_value(self.slider_gamma_id).clamp(0, 100);
-        let texture_resolution = Self::slider_value(self.slider_texture_resolution_id).clamp(0, 2);
-        let particle_cap = Self::slider_value(self.slider_particle_cap_id).max(100);
+        let gamma_slider = Self::slider_value_opt(self.slider_gamma_id)
+            .or_else(|| host.as_ref().map(|h| h.gamma_slider))
+            .unwrap_or_else(|| pref.get_int_or("Gamma", 50))
+            .clamp(0, 100);
+        let texture_resolution = Self::slider_value_opt(self.slider_texture_resolution_id)
+            .unwrap_or(2)
+            .clamp(0, 2);
+        let particle_cap = Self::slider_value_opt(self.slider_particle_cap_id).unwrap_or(5000).max(100);
         let texture_reduction = 2 - texture_resolution;
         let detail_name = Self::detail_name_from_index(detail_index);
 
-        let mut pref = UserPreferences::new();
-        let _ = pref.load("Options.ini");
         pref.set_string("Resolution", format!("{} {}", resolution.0, resolution.1));
         pref.set_int("AntiAliasing", anti_aliasing);
         pref.set_string("StaticGameLOD", detail_name.to_string());
@@ -2132,6 +2206,96 @@ pub fn residual_options_menu_is_bound() -> bool {
     RESIDUAL_OPTIONS_BOUND.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// In-game / host snapshot applied through C++ `saveOptions` (OptionsMenu.cpp:1047-1264).
+#[derive(Debug, Clone)]
+pub struct HostOptionsApply {
+    pub resolution: (i32, i32),
+    pub music_volume: i32,
+    pub sfx_volume: i32,
+    pub voice_volume: i32,
+    pub gamma_slider: i32,
+    pub scroll_speed: i32,
+    pub alternate_mouse: bool,
+    pub retaliation: bool,
+    pub double_click_attack_move: bool,
+    pub language_filter: bool,
+    pub save_camera: bool,
+    pub use_camera: bool,
+    pub draw_anchor: bool,
+    pub move_anchor: bool,
+    pub anti_aliasing: i32,
+    pub detail_index: usize,
+}
+
+impl Default for HostOptionsApply {
+    fn default() -> Self {
+        Self {
+            resolution: (1024, 768),
+            music_volume: 60,
+            sfx_volume: 55,
+            voice_volume: 70,
+            gamma_slider: 50,
+            scroll_speed: 50,
+            alternate_mouse: false,
+            retaliation: true,
+            double_click_attack_move: false,
+            language_filter: true,
+            save_camera: true,
+            use_camera: true,
+            draw_anchor: true,
+            move_anchor: true,
+            anti_aliasing: 0,
+            detail_index: 1,
+        }
+    }
+}
+
+thread_local! {
+    static HOST_OPTIONS_APPLY: std::cell::RefCell<Option<HostOptionsApply>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn take_host_options_apply() -> Option<HostOptionsApply> {
+    HOST_OPTIONS_APPLY.with(|slot| slot.borrow_mut().take())
+}
+
+fn parse_resolution_pref(raw: Option<&str>) -> Option<(i32, i32)> {
+    let raw = raw?;
+    let mut parts = raw.split(|c: char| c.is_ascii_whitespace() || c == 'x' || c == 'X');
+    let w = parts.next()?.parse::<i32>().ok()?;
+    let h = parts.next()?.parse::<i32>().ok()?;
+    if w > 0 && h > 0 {
+        Some((w, h))
+    } else {
+        None
+    }
+}
+
+/// C++ Accept: `TheDisplay->setGamma` + flat Options.ini + live volumes.
+pub fn apply_options_menu_like_cpp() -> bool {
+    crate::display::display_fx::install_default_display_gamma_hook();
+    with_options_menu_mut(|menu| {
+        if !menu.initialized {
+            menu.init_ids();
+            menu.ignore_selected = false;
+            menu.initialized = true;
+            RESIDUAL_OPTIONS_BOUND.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        residual_options_action_store(ResidualOptionsMenuAction::Accept);
+        let _ = menu.apply_options();
+        true
+    })
+}
+
+/// In-game stub / host Accept: same `apply_options` path with explicit values.
+pub fn apply_options_from_host(apply: HostOptionsApply) -> bool {
+    crate::display::display_fx::install_default_display_gamma_hook();
+    HOST_OPTIONS_APPLY.with(|slot| {
+        *slot.borrow_mut() = Some(apply);
+    });
+    apply_options_menu_like_cpp()
+}
+
 fn with_options_menu_mut<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
     let menu = {
         let manager = get_menu_manager();
@@ -2273,7 +2437,7 @@ fn drive_os_wnd_options_named(name: &str, latch: impl FnOnce() -> bool) -> bool 
 pub fn drive_os_wnd_options_menu_accept_like_cpp() -> bool {
     drive_os_wnd_options_named(
         "OptionsMenu.wnd:ButtonAccept",
-        simulate_options_menu_accept_button_gadget_selected,
+        apply_options_menu_like_cpp,
     )
 }
 
@@ -2344,6 +2508,21 @@ mod options_os_wnd_tests {
             ResidualOptionsMenuAction::Accept
         );
         assert!(!drive_os_wnd_options_menu_back_like_cpp());
+    }
+
+    #[test]
+    fn apply_options_from_host_sets_gamma_and_music_volume_like_cpp() {
+        // C++ OptionsMenu.cpp:1180-1262 MusicVolume 0-100 + TheDisplay->setGamma.
+        crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
+        let mut apply = HostOptionsApply::default();
+        apply.music_volume = 80;
+        apply.gamma_slider = 100;
+        apply.resolution = (1024, 768);
+        assert!(apply_options_from_host(apply));
+        let gamma = crate::display::display_fx::gamma_state();
+        assert!((gamma.gamma - 2.0).abs() < 0.01);
+        assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
+        crate::display::display_fx::set_gamma_state(1.0, 0.0, 1.0);
     }
 
     #[test]

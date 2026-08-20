@@ -869,8 +869,90 @@ pub struct HackerDisableBuildingMetadata {
     pub persistent_prep_time_ms: u32,
     pub effect_duration_ms: u32,
     pub pack_time_ms: u32,
+    /// `SpecialAbilityUpdate::PackUnpackVariationFactor`.
+    #[serde(default)]
+    pub pack_unpack_variation_factor: f32,
     /// `SpecialAbilityUpdate::PersistenceRequiresRecharge`.
     pub persistence_requires_recharge: bool,
+}
+
+/// Exact `SpecialAbilityUpdate` data for Burton C4 / Tank Hunter TNT plants.
+///
+/// C++ `SpecialAbilityUpdate::startUnpacking` then `triggerAbilityEffect`
+/// then `finishAbility` (`SpecialAbilityUpdate.cpp:770-794`, `1733-1818`).
+/// Missing metadata fails closed to instant plant with no flee.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ChargePlantAbilityMetadata {
+    pub special_power_template: String,
+    /// `SpecialAbilityUpdate::UnpackTime` milliseconds.
+    pub unpack_time_ms: u32,
+    /// `SpecialAbilityUpdate::PackTime` milliseconds.
+    pub pack_time_ms: u32,
+    /// `SpecialAbilityUpdate::PackUnpackVariationFactor`.
+    pub pack_unpack_variation_factor: f32,
+    /// `SpecialAbilityUpdate::FleeRangeAfterCompletion`.
+    pub flee_range_after_completion: f32,
+    /// `SpecialAbilityUpdate::FlipOwnerAfterUnpacking`.
+    pub flip_object_after_unpacking: bool,
+    /// `SpecialAbilityUpdate::FlipOwnerAfterPacking`.
+    pub flip_object_after_packing: bool,
+}
+
+impl ChargePlantAbilityMetadata {
+    pub fn is_timed_charge_power(&self) -> bool {
+        let name = self.special_power_template.to_ascii_lowercase();
+        name.contains("timedcharges") || name.contains("tntattack")
+    }
+
+    pub fn is_remote_charge_power(&self) -> bool {
+        self.special_power_template
+            .to_ascii_lowercase()
+            .contains("remotecharges")
+    }
+}
+
+/// C++ `SpecialAbilityUpdate.cpp:721` / `:774`:
+/// `m_animFrames = time * GameLogicRandomValueReal(1-factor, 1+factor)`.
+/// `unit_sample` is 0..1 along that inclusive range (0 → 1-factor).
+pub fn pack_unpack_variation_multiplier(factor: f32, unit_sample: f32) -> f32 {
+    let factor = if factor.is_finite() { factor.max(0.0) } else { 0.0 };
+    let sample = if unit_sample.is_finite() {
+        unit_sample.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+    (1.0 - factor) + (2.0 * factor * sample)
+}
+
+/// Apply a C++ pack/unpack variation multiplier to a millisecond duration.
+/// Unsigned conversion truncates toward zero like C++ `UnsignedInt` assign.
+pub fn apply_pack_unpack_variation_ms(base_ms: u32, variation: f32) -> u32 {
+    if base_ms == 0 {
+        return 0;
+    }
+    let variation = if variation.is_finite() {
+        variation.max(0.0)
+    } else {
+        1.0
+    };
+    (base_ms as f32 * variation) as u32
+}
+
+/// Live-path pack/unpack duration. Factor 0 is deterministic (C++ range is 1..1).
+pub fn vary_pack_unpack_duration_ms(base_ms: u32, factor: f32) -> u32 {
+    if base_ms == 0 {
+        return 0;
+    }
+    let factor = if factor.is_finite() { factor.max(0.0) } else { 0.0 };
+    let variation = if factor <= 0.0 {
+        1.0
+    } else {
+        game_engine::common::random_value::get_game_logic_random_value_real(
+            1.0 - factor,
+            1.0 + factor,
+        )
+    };
+    apply_pack_unpack_variation_ms(base_ms, variation)
 }
 
 /// The concrete C++ `SpecialPowerModule` subclass that owns a parsed
@@ -1056,6 +1138,9 @@ pub struct ThingTemplate {
     pub max_health: f32,
     pub armor: f32,
     pub sight_range: f32,
+    /// C++ `ThingTemplate::m_shroudClearingRange`. `-1` means use `sight_range`.
+    #[serde(default = "default_template_shroud_clearing_range")]
+    pub shroud_clearing_range: f32,
     pub build_cost: Resources,
     pub build_time: f32,
     /// C++ `ThingTemplate::m_refundValue` from Object INI `RefundValue`.
@@ -1137,6 +1222,10 @@ pub struct ThingTemplate {
     /// fallback may populate this capability.
     #[serde(default)]
     pub hacker_disable_building: Option<HackerDisableBuildingMetadata>,
+    /// Authored `SpecialAbilityUpdate` rows for timed/remote C4 / TNT plants.
+    #[serde(default)]
+    pub charge_plant_abilities: Vec<ChargePlantAbilityMetadata>,
+
     /// Source-ordered SpecialPowerModule interfaces.  This is generic module
     /// identity, not a replacement for the HDB paired-channel metadata above.
     #[serde(default)]
@@ -1213,6 +1302,10 @@ pub struct ThingTemplate {
     /// ability active through this post-trigger phase before returning idle.
     #[serde(default)]
     pub capture_pack_time_ms: Option<u32>,
+    /// `SpecialAbilityUpdate::PackUnpackVariationFactor` for the capture pair.
+    #[serde(default)]
+    pub capture_pack_unpack_variation_factor: f32,
+
     pub special_power_cooldown: f32,
     /// C++ parity: XP awarded to the killer when this object is destroyed.
     /// Rookie/Regular token; prefer `experience_values` when authored.
@@ -1351,6 +1444,7 @@ impl ThingTemplate {
             max_health: 100.0,
             armor: 0.0,
             sight_range: 150.0,
+            shroud_clearing_range: default_template_shroud_clearing_range(),
             build_cost: Resources::default(),
             build_time: 1.0,
             refund_value: 0,
@@ -1374,6 +1468,7 @@ impl ThingTemplate {
             eject_pilot_die: None,
             hack_internet_ai_update: None,
             hacker_disable_building: None,
+            charge_plant_abilities: Vec::new(),
             special_power_modules: Vec::new(),
             energy_production: None,
             max_simultaneous_link_key: None,
@@ -1392,7 +1487,9 @@ impl ThingTemplate {
             capture_unpack_time_ms: None,
             capture_preparation_time_ms: None,
             capture_pack_time_ms: None,
+            capture_pack_unpack_variation_factor: 0.0,
             special_power_cooldown: 10.0,
+
             experience_value: 0.0,
             experience_values: [0.0; 4],
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
@@ -1446,6 +1543,19 @@ impl ThingTemplate {
             self.experience_value
         }
     }
+
+    pub fn charge_plant_ability_for_timed(&self) -> Option<&ChargePlantAbilityMetadata> {
+        self.charge_plant_abilities
+            .iter()
+            .find(|ability| ability.is_timed_charge_power())
+    }
+
+    pub fn charge_plant_ability_for_remote(&self) -> Option<&ChargePlantAbilityMetadata> {
+        self.charge_plant_abilities
+            .iter()
+            .find(|ability| ability.is_remote_charge_power())
+    }
+
 
 
     /// Preserve a drawable authored C++ asset scale. Retail Object INIs use
@@ -1859,6 +1969,16 @@ impl ThingTemplate {
         self.kind_of.contains(&kind)
     }
 
+    /// C++ Object ctor: `m_shroudClearingRange == -1` → `m_visionRange`.
+    pub fn resolved_shroud_clearing_range(&self) -> f32 {
+        if self.shroud_clearing_range < 0.0 {
+            self.sight_range
+        } else {
+            self.shroud_clearing_range
+        }
+    }
+
+
     pub fn add_kind_of(&mut self, kind: KindOf) -> &mut Self {
         self.kind_of.insert(kind);
         self
@@ -1972,6 +2092,11 @@ fn parse_preferred_against_value(value: &str) -> Option<(u8, Vec<KindOf>)> {
     } else {
         Some((slot, kinds))
     }
+}
+
+fn default_template_shroud_clearing_range() -> f32 {
+    // C++ ThingTemplate m_shroudClearingRange default -1 → use VisionRange.
+    -1.0
 }
 
 fn default_asset_scale() -> f32 {
@@ -2175,6 +2300,26 @@ mod weapon_resolve_tests {
         assert_eq!(bind.continuous_fire_one_shots, u32::MAX);
         assert_eq!(bind.continuous_fire_two_shots, u32::MAX);
     }
+
+    #[test]
+    fn pack_unpack_variation_matches_cpp_inclusive_range() {
+        // SpecialAbilityUpdate.cpp:721/774 GameLogicRandomValueReal(1-f, 1+f).
+        assert_eq!(
+            apply_pack_unpack_variation_ms(5500, pack_unpack_variation_multiplier(0.2, 0.0)),
+            4400
+        );
+        assert_eq!(
+            apply_pack_unpack_variation_ms(5500, pack_unpack_variation_multiplier(0.2, 1.0)),
+            6600
+        );
+        assert_eq!(
+            apply_pack_unpack_variation_ms(5500, pack_unpack_variation_multiplier(0.0, 0.37)),
+            5500
+        );
+        assert_eq!(vary_pack_unpack_duration_ms(0, 0.5), 0);
+        assert_eq!(vary_pack_unpack_duration_ms(5500, 0.0), 5500);
+    }
+
 }
 
 /// Base Thing class - common functionality for all game entities

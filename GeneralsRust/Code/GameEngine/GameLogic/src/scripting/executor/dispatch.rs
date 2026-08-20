@@ -8,7 +8,23 @@ use super::*;
 impl ScriptActionDispatcher {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => {
+            THE_PLAYER => {
+                if !is_generals_challenge_campaign() {
+                    raw.to_string()
+                } else {
+                    player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_local_player().cloned())
+                        .and_then(|p| {
+                            p.read().ok().and_then(|p| {
+                                NameKeyGenerator::key_to_name(p.get_player_name_key())
+                            })
+                        })
+                        .unwrap_or_else(|| raw.to_string())
+                }
+            }
+            THIS_PLAYER => {
                 with_script_engine_ref(|engine| engine.get_current_player_name())
                     .flatten()
                     .unwrap_or_else(|| raw.to_string())
@@ -37,16 +53,14 @@ impl ScriptActionDispatcher {
             .flatten()
             .unwrap_or_else(|| raw.to_string()),
             TEAM_THE_PLAYER => {
-                let current_player =
-                    with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
-                let Some(player_name) = current_player else {
+                // C++ ScriptEngine::getTeamNamed (ScriptEngine.cpp:5935-5939).
+                if !is_generals_challenge_campaign() {
                     return raw.to_string();
-                };
-
+                }
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.find_player_by_name(&player_name))
+                    .and_then(|list| list.get_local_player().cloned())
                     .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
                     .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
                     .unwrap_or_else(|| raw.to_string())
@@ -964,6 +978,15 @@ impl ScriptActionDispatcher {
                 continue;
             };
             if player_guard.get_player_type() == PlayerType::Human {
+                // C++ ScriptEngine.cpp:5789-5791: Challenge dummy ThePlayer is not the enemy.
+                if is_generals_challenge_campaign() {
+                    let is_dummy = NameKeyGenerator::key_to_name(player_guard.get_player_name_key())
+                        .as_deref()
+                        == Some(THE_PLAYER);
+                    if is_dummy {
+                        continue;
+                    }
+                }
                 return Some(player_arc.clone());
             }
         }

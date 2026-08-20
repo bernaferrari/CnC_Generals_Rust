@@ -1275,7 +1275,7 @@ impl GameLogic {
             o.rocket_buggy_missile_travelled = 0.0;
             o.rocket_buggy_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(BUGGY_MISSILE_FUEL_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = BUGGY_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, BUGGY_MISSILE_MAX_HEALTH);
             o.movement.velocity = vel;
@@ -1643,7 +1643,7 @@ impl GameLogic {
             o.scud_launcher_missile_travelled = 0.0;
             o.scud_launcher_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(SCUD_MISSILE_FUEL_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = SCUD_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, SCUD_MISSILE_MAX_HEALTH);
             o.movement.velocity = vel;

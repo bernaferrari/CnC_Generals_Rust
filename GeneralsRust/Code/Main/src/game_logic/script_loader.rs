@@ -624,6 +624,14 @@ pub struct MapMetadata {
     pub fog_color: Option<[f32; 3]>,
     pub fog_start: Option<f32>,
     pub fog_end: Option<f32>,
+    /// C++ `m_terrainObjectsLighting[tod][0]` — unit/shadow scene light.
+    pub objects_ambient_color: Option<[f32; 3]>,
+    pub objects_sun_color: Option<[f32; 3]>,
+    pub objects_sun_direction: Option<[f32; 3]>,
+    /// Extra object lights 1..2 for the map TOD (chunk v2+).
+    pub objects_extra_lights: Vec<[f32; 9]>,
+    /// Extra terrain lights 1..2 for the map TOD (chunk v3+).
+    pub terrain_extra_lights: Vec<[f32; 9]>,
 }
 
 #[derive(Debug, Clone)]
@@ -915,18 +923,30 @@ fn parse_lighting_payload_for_settings(
     }
     let time_of_day = reader.read_i32()?;
 
-    let mut terrain_primary = [[0.0f32; 9]; 4];
-    for tod_row in &mut terrain_primary {
+    // C++ writes both arrays for Morning..Night (WorldHeightMap.cpp:772-820).
+    let mut terrain_lights = [[[0.0f32; 9]; 3]; 4];
+    let mut objects_lights = [[[0.0f32; 9]; 3]; 4];
+    for tod in 0..4 {
         if reader.remaining() < 9 * 4 * 2 {
             break;
         }
-        *tod_row = read_global_lighting_row(&mut reader)?;
-        let _objects_primary = read_global_lighting_row(&mut reader)?;
+        terrain_lights[tod][0] = read_global_lighting_row(&mut reader)?;
+        objects_lights[tod][0] = read_global_lighting_row(&mut reader)?;
         if version >= 2 {
-            skip_extra_global_lights(&mut reader)?;
+            for extra in 1..3 {
+                if reader.remaining() < 9 * 4 {
+                    break;
+                }
+                objects_lights[tod][extra] = read_global_lighting_row(&mut reader)?;
+            }
         }
         if version >= 3 {
-            skip_extra_global_lights(&mut reader)?;
+            for extra in 1..3 {
+                if reader.remaining() < 9 * 4 {
+                    break;
+                }
+                terrain_lights[tod][extra] = read_global_lighting_row(&mut reader)?;
+            }
         }
     }
 
@@ -938,10 +958,28 @@ fn parse_lighting_payload_for_settings(
         4 => 3,
         _ => 1,
     };
-    let row = terrain_primary[row_index];
-    meta.ambient_color = Some([row[0], row[1], row[2]]);
-    meta.sun_color = Some([row[3], row[4], row[5]]);
-    meta.sun_direction = Some([row[6], row[7], row[8]]);
+    let terrain = terrain_lights[row_index][0];
+    let objects = objects_lights[row_index][0];
+    meta.ambient_color = Some([terrain[0], terrain[1], terrain[2]]);
+    meta.sun_color = Some([terrain[3], terrain[4], terrain[5]]);
+    meta.sun_direction = Some([terrain[6], terrain[7], terrain[8]]);
+    // Units/shadows use the objects row (C++ W3DDisplay.cpp:2128-2147).
+    meta.objects_ambient_color = Some([objects[0], objects[1], objects[2]]);
+    meta.objects_sun_color = Some([objects[3], objects[4], objects[5]]);
+    meta.objects_sun_direction = Some([objects[6], objects[7], objects[8]]);
+    if version >= 2 {
+        meta.objects_extra_lights = vec![
+            objects_lights[row_index][1],
+            objects_lights[row_index][2],
+        ];
+    }
+    if version >= 3 {
+        meta.terrain_extra_lights = vec![
+            terrain_lights[row_index][1],
+            terrain_lights[row_index][2],
+        ];
+    }
+    apply_map_lighting_to_global_data(time_of_day, version, &terrain_lights, &objects_lights);
     // Never invent fog/sky from this chunk — C++ FogEnabled defaults false
     // and GlobalLighting has no fog fields.
     meta.fog_color = None;
@@ -965,11 +1003,58 @@ fn read_global_lighting_row(reader: &mut BinaryReader<'_>) -> LoaderResult<[f32;
     ])
 }
 
-fn skip_extra_global_lights(reader: &mut BinaryReader<'_>) -> LoaderResult<()> {
-    for _ in 0..2 {
-        let _ = read_global_lighting_row(reader)?;
+fn lighting_row_to_authored(
+    row: [f32; 9],
+) -> game_engine::common::ini::ini_game_data::TerrainLighting {
+    use game_engine::common::ini::ini_game_data::{Coord3D, RGBColor, TerrainLighting};
+    TerrainLighting {
+        ambient: RGBColor::new(row[0], row[1], row[2]),
+        diffuse: RGBColor::new(row[3], row[4], row[5]),
+        light_pos: Coord3D::new(row[6], row[7], row[8]),
     }
-    Ok(())
+}
+
+/// C++ `WorldHeightMap::ParseLightingDataChunk` writes both lighting arrays
+/// into `TheWritableGlobalData` for every TOD slot.
+fn apply_map_lighting_to_global_data(
+    time_of_day: i32,
+    version: u16,
+    terrain_lights: &[[[f32; 9]; 3]; 4],
+    objects_lights: &[[[f32; 9]; 3]; 4],
+) {
+    use game_engine::common::ini::ini_game_data::{
+        ensure_global_data, TimeOfDay, MAX_GLOBAL_LIGHTS, TIME_OF_DAY_FIRST,
+    };
+    let handle = ensure_global_data();
+    let mut data = handle.write();
+    data.time_of_day = match time_of_day {
+        1 => TimeOfDay::Morning,
+        2 => TimeOfDay::Afternoon,
+        3 => TimeOfDay::Evening,
+        4 => TimeOfDay::Night,
+        _ => data.time_of_day,
+    };
+    for tod in 0..4 {
+        let dest_tod = tod + TIME_OF_DAY_FIRST;
+        if dest_tod >= data.terrain_lighting.len() {
+            continue;
+        }
+        data.terrain_lighting[dest_tod][0] = lighting_row_to_authored(terrain_lights[tod][0]);
+        data.terrain_objects_lighting[dest_tod][0] =
+            lighting_row_to_authored(objects_lights[tod][0]);
+        if version >= 2 {
+            for light in 1..MAX_GLOBAL_LIGHTS {
+                data.terrain_objects_lighting[dest_tod][light] =
+                    lighting_row_to_authored(objects_lights[tod][light]);
+            }
+        }
+        if version >= 3 {
+            for light in 1..MAX_GLOBAL_LIGHTS {
+                data.terrain_lighting[dest_tod][light] =
+                    lighting_row_to_authored(terrain_lights[tod][light]);
+            }
+        }
+    }
 }
 
 
@@ -3391,6 +3476,59 @@ fn push_unique(vec: &mut Vec<PathBuf>, candidate: PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn push_f32s(buf: &mut Vec<u8>, values: [f32; 9]) {
+        for v in values {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn global_lighting_keeps_objects_row_for_units_and_shadows() {
+        // C++ WorldHeightMap.cpp:772-804 — terrain[0] then objects[0] per TOD.
+        use game_engine::common::ini::ini_game_data::ensure_global_data;
+        let handle = ensure_global_data();
+        let previous = handle.read().clone();
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&4i32.to_le_bytes()); // Night
+        for tod in 0..4 {
+            let t = tod as f32;
+            push_f32s(&mut payload, [0.1 + t, 0.2, 0.3, 0.4, 0.5, 0.6, 1.0, 2.0, 3.0]);
+            push_f32s(&mut payload, [0.9, 0.8, 0.7, 0.15, 0.25, 0.35, 9.0, 8.0, 7.0]);
+        }
+        let mut meta = MapMetadata::default();
+        parse_lighting_payload_for_settings(1, &payload, &mut meta).expect("parse lighting");
+        // Night = index 3 of the four TOD rows.
+        assert_eq!(meta.ambient_color, Some([3.1, 0.2, 0.3]));
+        assert_eq!(meta.sun_color, Some([0.4, 0.5, 0.6]));
+        assert_eq!(meta.sun_direction, Some([1.0, 2.0, 3.0]));
+        assert_eq!(meta.objects_ambient_color, Some([0.9, 0.8, 0.7]));
+        assert_eq!(meta.objects_sun_color, Some([0.15, 0.25, 0.35]));
+        assert_eq!(meta.objects_sun_direction, Some([9.0, 8.0, 7.0]));
+        let objects = handle.read().terrain_objects_lighting[4][0].clone();
+        assert!((objects.ambient.r - 0.9).abs() < 1e-5);
+        assert!((objects.light_pos.x - 9.0).abs() < 1e-5);
+        *handle.write() = previous;
+    }
+
+    #[test]
+    fn set_weather_visible_reaches_snow_manager() {
+        // C++ ScriptActions.cpp:3804 TheSnowManager->setVisible
+        #[cfg(feature = "game_client")]
+        {
+            let snow = game_client::snow::initialize_snow_manager();
+            snow.lock().expect("snow lock").set_visible(true);
+            let mut logic = crate::game_logic::GameLogic::new();
+            logic.set_weather_visible(false);
+            assert!(!logic.weather_state().visible);
+            assert!(
+                !snow.lock().expect("snow lock").is_visible(),
+                "script Weather must hide SnowManager flakes"
+            );
+            logic.set_weather_visible(true);
+            assert!(snow.lock().expect("snow lock").is_visible());
+        }
+    }
+
 
     #[test]
     fn retail_shell_map_terrain_chunks_decode_when_present() {
