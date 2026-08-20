@@ -23,8 +23,11 @@
 //! - Horde residual: ExactMatch **Yes**, KindOf **VEHICLE**, Radius **75**, Count **5**,
 //!   UpdateRate **1000**ms → **30**f; Nuclear Tanks death weapon residual honesty.
 //!
-//! Fail-closed honesty:
-//! - Not full HordeUpdate RubOffRadius honorary-member / terrain-decal flag matrix
+//! Horde residual:
+//! - RubOffRadius honorary membership (default **20**)
+//! - Terrain-decal type / vehicle size / fade-in-out
+//! - ExactMatch vehicle horde is not Battlemaster-only (Dragon / Inferno /
+//!   Gattling / Overlord chassis share HordeUpdate)
 //! - Not full Fanaticism infantry-general nationalism branch
 //! - BattleMasterTankShell DumbProjectile Bezier flight residual closed
 //! - ScatterRadiusVsInfantry **10** residual miss cone closed (deterministic aim offset)
@@ -105,6 +108,21 @@ pub const BATTLE_MASTER_HORDE_UPDATE_FRAMES: u32 = 30;
 pub const BATTLE_MASTER_HORDE_EXACT_MATCH: bool = true;
 /// Retail HordeUpdate KindOf residual.
 pub const BATTLE_MASTER_HORDE_KIND_OF: &str = "VEHICLE";
+/// C++ HordeUpdateModuleData default `m_rubOffRadius` (INI `RubOffRadius` override).
+pub const BATTLE_MASTER_HORDE_RUB_OFF_RADIUS: f32 = 20.0;
+/// C++ vehicle terrain-decal size = `3.5 * majorRadius`.
+pub const VEHICLE_HORDE_DECAL_SIZE_MULT: f32 = 3.5;
+/// C++ `setTerrainDecalFadeTarget(1.0f, 0.03f)` on join.
+pub const HORDE_DECAL_FADE_IN_RATE: f32 = 0.03;
+/// C++ `setTerrainDecalFadeTarget(0.0f, -0.03f)` on leave.
+pub const HORDE_DECAL_FADE_OUT_RATE: f32 = -0.03;
+
+/// Leftover `TerrainDecalType` ordinals (wave 111 `TERRAIN_DECAL_TYPE_NAMES`).
+pub const TERRAIN_DECAL_HORDE: u8 = 1;
+pub const TERRAIN_DECAL_HORDE_WITH_NATIONALISM: u8 = 2;
+pub const TERRAIN_DECAL_HORDE_VEHICLE: u8 = 3;
+pub const TERRAIN_DECAL_HORDE_WITH_FANATICISM: u8 = 6;
+pub const TERRAIN_DECAL_NONE: u8 = 8;
 
 /// Residual fire audio.
 pub const BATTLE_MASTER_FIRE_AUDIO: &str = "BattlemasterTankWeapon";
@@ -366,6 +384,265 @@ pub fn counts_toward_battlemaster_horde(
         && distance >= 0.0
 }
 
+/// C++ `HordeUpdate` membership: Count-1 neighbors → true member; else honorary
+/// if 2D-center distance to a true member ≤ `RubOffRadius`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LeftoverHordeMembership {
+    pub in_horde: bool,
+    pub true_member: bool,
+}
+
+pub fn evaluate_leftover_horde_membership(
+    nearby_within_radius: u32,
+    min_count: u32,
+    nearest_true_member_dist: Option<f32>,
+    rub_off_radius: f32,
+) -> LeftoverHordeMembership {
+    if nearby_within_radius + 1 >= min_count {
+        LeftoverHordeMembership {
+            in_horde: true,
+            true_member: true,
+        }
+    } else if nearest_true_member_dist
+        .map(|d| d >= 0.0 && d <= rub_off_radius)
+        .unwrap_or(false)
+    {
+        LeftoverHordeMembership {
+            in_horde: true,
+            true_member: false,
+        }
+    } else {
+        LeftoverHordeMembership {
+            in_horde: false,
+            true_member: false,
+        }
+    }
+}
+
+/// Two-pass leftover blob: true members first, then RubOff honorary.
+/// `counts_toward(self_idx, other_idx, dist)` is PartitionFilterHordeMember + Radius.
+pub fn evaluate_leftover_horde_blob<F>(
+    units: &[(f32, f32, bool)],
+    min_count: u32,
+    radius: f32,
+    rub_off_radius: f32,
+    mut counts_toward: F,
+) -> Vec<LeftoverHordeMembership>
+where
+    F: FnMut(usize, usize, f32) -> bool,
+{
+    let n = units.len();
+    let mut nearby = vec![0u32; n];
+    let mut true_member = vec![false; n];
+    let mut out = vec![
+        LeftoverHordeMembership {
+            in_horde: false,
+            true_member: false,
+        };
+        n
+    ];
+    for i in 0..n {
+        if !units[i].2 {
+            continue;
+        }
+        for j in 0..n {
+            if i == j {
+                continue;
+            }
+            let dist = distance_2d(units[i].0, units[i].1, units[j].0, units[j].1);
+            if counts_toward(i, j, dist) {
+                nearby[i] = nearby[i].saturating_add(1);
+            }
+        }
+        if nearby[i] + 1 >= min_count {
+            true_member[i] = true;
+            out[i] = LeftoverHordeMembership {
+                in_horde: true,
+                true_member: true,
+            };
+        }
+    }
+    for i in 0..n {
+        if out[i].true_member || !units[i].2 {
+            continue;
+        }
+        for j in 0..n {
+            if i == j || !true_member[j] {
+                continue;
+            }
+            let dist = distance_2d(units[i].0, units[i].1, units[j].0, units[j].1);
+            if dist <= radius && dist <= rub_off_radius && counts_toward(i, j, dist) {
+                out[i] = LeftoverHordeMembership {
+                    in_horde: true,
+                    true_member: false,
+                };
+                break;
+            }
+        }
+    }
+    out
+}
+
+fn leftover_vehicle_name_excluded(n: &str) -> bool {
+    n.contains("weapon")
+        || n.contains("shell")
+        || n.contains("projectile")
+        || n.contains("missile")
+        || n.contains("debris")
+        || n.contains("hulk")
+        || n.contains("dead")
+        || n.starts_with("upgrade")
+        || n.contains("science")
+        || n.contains("training")
+        || n.contains("locomotor")
+        || n.contains("crate")
+}
+
+fn is_dragon_horde_template(n: &str) -> bool {
+    if n.contains("firewall") || n.contains("firestorm") || n.contains("segment") {
+        return false;
+    }
+    n.contains("dragontank")
+        || n.contains("tankdragon")
+        || n == "china_dragontank"
+        || n == "testdragontank"
+        || (n.contains("dragon") && (n.contains("tank") || n.contains("vehicle")))
+}
+
+fn is_inferno_horde_template(n: &str) -> bool {
+    if n.contains("firefield") || n.contains("fire_field") {
+        return false;
+    }
+    n.contains("infernocannon")
+        || n.contains("inferno_cannon")
+        || n.contains("vehicleinferno")
+        || n == "testinfernocannon"
+        || n == "test_inferno_cannon"
+}
+
+fn is_gattling_tank_horde_template(n: &str) -> bool {
+    if n.contains("overlord") || n.contains("helix") || n.contains("gun") {
+        return false;
+    }
+    if n.contains("cannon") && !n.contains("tank") && !n.contains("vehicle") {
+        return false;
+    }
+    n.contains("gattlingtank")
+        || n.contains("gatlingtank")
+        || n.contains("tankgattling")
+        || n.contains("tankgatling")
+        || n.contains("vehiclegattling")
+        || n.contains("vehiclegatling")
+        || n == "china_gattlingtank"
+        || n == "testgattlingtank"
+        || n == "testgatlingtank"
+}
+
+fn is_overlord_horde_template(n: &str) -> bool {
+    if n.contains("gattling")
+        || n.contains("gatling")
+        || n.contains("propaganda")
+        || n.contains("bunker")
+        || n.contains("helix")
+        || n.contains("command")
+        || n.contains("minigun")
+        || n.ends_with("gun")
+        || n.contains("tankgun")
+        || n.contains("exhaust")
+    {
+        return false;
+    }
+    n == "testoverlord"
+        || n == "testemperor"
+        || n == "china_overlordtank"
+        || n == "china_overlord"
+        || n == "tank_chinatankemperor"
+        || n.contains("tankoverlord")
+        || n.contains("overlordtank")
+        || n.contains("tankemperor")
+        || n.contains("emperortank")
+        || (n.contains("overlord")
+            && (n.contains("tank") || n.contains("vehicle") || n.contains("china")))
+        || (n.contains("emperor")
+            && (n.contains("tank") || n.contains("vehicle") || n.contains("china")))
+}
+
+/// C++ KINDOF_PORTABLE_STRUCTURE ride-on (Overlord/Helix bunker / gattling / speaker).
+pub fn is_portable_structure_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    (n.contains("overlord") || n.contains("helix") || n.contains("emperor"))
+        && (n.contains("bunker")
+            || n.contains("gattling")
+            || n.contains("gatling")
+            || n.contains("propaganda"))
+}
+
+/// Retail China ExactMatch HordeUpdate vehicles, not Battlemaster-only.
+pub fn is_china_vehicle_horde_unit(template_name: &str) -> bool {
+    if is_battlemaster_template(template_name) {
+        return true;
+    }
+    let n = template_name.to_ascii_lowercase();
+    if n.is_empty() || leftover_vehicle_name_excluded(&n) {
+        return false;
+    }
+    if is_portable_structure_template(template_name) {
+        return false;
+    }
+    is_dragon_horde_template(&n)
+        || is_inferno_horde_template(&n)
+        || is_gattling_tank_horde_template(&n)
+        || is_overlord_horde_template(&n)
+}
+
+/// ExactMatch family: Battlemasters together, Dragons together, etc.
+pub fn same_vehicle_horde_family(a: &str, b: &str) -> bool {
+    if is_battlemaster_template(a) && is_battlemaster_template(b) {
+        return true;
+    }
+    let na = a.to_ascii_lowercase();
+    let nb = b.to_ascii_lowercase();
+    (is_dragon_horde_template(&na) && is_dragon_horde_template(&nb))
+        || (is_inferno_horde_template(&na) && is_inferno_horde_template(&nb))
+        || (is_gattling_tank_horde_template(&na) && is_gattling_tank_horde_template(&nb))
+        || (is_overlord_horde_template(&na) && is_overlord_horde_template(&nb))
+}
+
+/// C++ HordeUpdate infantry/vehicle terrain-decal matrix.
+pub fn leftover_horde_decal_type(
+    is_infantry: bool,
+    has_nationalism: bool,
+    has_fanaticism: bool,
+) -> u8 {
+    if has_nationalism {
+        if has_fanaticism {
+            TERRAIN_DECAL_HORDE_WITH_FANATICISM
+        } else {
+            TERRAIN_DECAL_HORDE_WITH_NATIONALISM
+        }
+    } else if is_infantry {
+        TERRAIN_DECAL_HORDE
+    } else {
+        TERRAIN_DECAL_HORDE_VEHICLE
+    }
+}
+
+pub fn leftover_vehicle_horde_decal_size(major_radius: f32) -> f32 {
+    VEHICLE_HORDE_DECAL_SIZE_MULT * major_radius.max(0.0)
+}
+
+/// C++ join/leave fade. `None` when membership did not change.
+pub fn leftover_horde_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Option<(f32, f32)> {
+    if !was_in_horde && now_in_horde {
+        Some((1.0, HORDE_DECAL_FADE_IN_RATE))
+    } else if was_in_horde && !now_in_horde {
+        Some((0.0, HORDE_DECAL_FADE_OUT_RATE))
+    } else {
+        None
+    }
+}
+
+
 // --- Wave 67 residual honesty packs ---
 
 /// Wave 67 residual honesty: Battlemaster weapon residual peel.
@@ -405,6 +682,7 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
             == battlemaster_ms_to_frames(BATTLE_MASTER_HORDE_UPDATE_MS)
         && BATTLE_MASTER_HORDE_EXACT_MATCH
         && BATTLE_MASTER_HORDE_KIND_OF == "VEHICLE"
+        && (BATTLE_MASTER_HORDE_RUB_OFF_RADIUS - 20.0).abs() < 0.01
         && (BATTLE_MASTER_HORDE_ROF_MULT - 1.5).abs() < 0.001
         && (BATTLE_MASTER_NATIONALISM_ROF_MULT - 1.25).abs() < 0.001
         && UPGRADE_NATIONALISM == "Upgrade_Nationalism"
@@ -412,6 +690,17 @@ pub fn honesty_battlemaster_horde_residual_ok() -> bool {
         && battlemaster_delay_frames(true, true) == 32
         && is_in_horde(4)
         && !is_in_horde(3)
+        && evaluate_leftover_horde_membership(3, 5, Some(15.0), 20.0).in_horde
+        && !evaluate_leftover_horde_membership(3, 5, Some(15.0), 20.0).true_member
+        && !evaluate_leftover_horde_membership(3, 5, Some(25.0), 20.0).in_horde
+        && is_china_vehicle_horde_unit("ChinaTankDragon")
+        && is_china_vehicle_horde_unit("ChinaVehicleInfernoCannon")
+        && is_china_vehicle_horde_unit("ChinaTankGattling")
+        && is_china_vehicle_horde_unit("ChinaTankOverlord")
+        && !is_china_vehicle_horde_unit("OverlordGattlingCannon")
+        && leftover_horde_decal_type(false, false, false) == TERRAIN_DECAL_HORDE_VEHICLE
+        && leftover_horde_decal_type(true, true, true) == TERRAIN_DECAL_HORDE_WITH_FANATICISM
+        && (leftover_vehicle_horde_decal_size(13.0) - 45.5).abs() < 0.01
 }
 
 /// Wave 67 residual honesty: Battlemaster body residual peel.
@@ -617,6 +906,69 @@ mod tests {
             true, false, true, true, 10.0, 75.0
         ));
     }
+
+    #[test]
+    fn vehicle_horde_not_battlemaster_only() {
+        assert!(is_china_vehicle_horde_unit("ChinaTankBattleMaster"));
+        assert!(is_china_vehicle_horde_unit("ChinaTankDragon"));
+        assert!(is_china_vehicle_horde_unit("ChinaVehicleInfernoCannon"));
+        assert!(is_china_vehicle_horde_unit("ChinaTankGattling"));
+        assert!(is_china_vehicle_horde_unit("ChinaTankOverlord"));
+        assert!(!is_china_vehicle_horde_unit("OverlordGattlingCannon"));
+        assert!(!is_china_vehicle_horde_unit("ChinaInfantryRedguard"));
+        assert!(same_vehicle_horde_family(
+            "ChinaTankDragon",
+            "Nuke_ChinaTankDragon"
+        ));
+        assert!(!same_vehicle_horde_family(
+            "ChinaTankDragon",
+            "ChinaTankBattleMaster"
+        ));
+    }
+
+    #[test]
+    fn rub_off_honorary_membership() {
+        let units = [(0.0, 0.0, true), (10.0, 0.0, true), (15.0, 0.0, true)];
+        // Three units all within radius of each other but Count=5 → no true members.
+        let none = evaluate_leftover_horde_blob(&units, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
+        assert!(none.iter().all(|m| !m.in_horde && !m.true_member));
+
+        // Five clustered + one 15 units away (inside RubOff of a true member).
+        let blob = [
+            (0.0, 0.0, true),
+            (5.0, 0.0, true),
+            (10.0, 0.0, true),
+            (0.0, 5.0, true),
+            (5.0, 5.0, true),
+            (18.0, 0.0, true),
+        ];
+        let mem = evaluate_leftover_horde_blob(&blob, 5, 75.0, 20.0, |_, _, dist| dist <= 75.0);
+        assert!(mem[0].true_member);
+        assert!(mem[5].in_horde && !mem[5].true_member);
+
+        let edge = evaluate_leftover_horde_membership(1, 5, Some(25.0), 20.0);
+        assert!(!edge.in_horde);
+    }
+
+    #[test]
+    fn horde_decal_matrix() {
+        assert_eq!(
+            leftover_horde_decal_type(true, false, false),
+            TERRAIN_DECAL_HORDE
+        );
+        assert_eq!(
+            leftover_horde_decal_type(false, false, false),
+            TERRAIN_DECAL_HORDE_VEHICLE
+        );
+        assert_eq!(
+            leftover_horde_decal_type(false, true, false),
+            TERRAIN_DECAL_HORDE_WITH_NATIONALISM
+        );
+        assert_eq!(leftover_horde_decal_fade(false, true), Some((1.0, 0.03)));
+        assert_eq!(leftover_horde_decal_fade(true, false), Some((0.0, -0.03)));
+        assert_eq!(leftover_horde_decal_fade(true, true), None);
+    }
+
 
     #[test]
     fn battlemaster_residual_pack_honesty_wave67() {

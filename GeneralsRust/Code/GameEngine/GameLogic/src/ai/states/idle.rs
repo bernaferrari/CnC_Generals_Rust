@@ -85,6 +85,34 @@ pub struct AIIdleState {
     /// Whether initialization has been done
     pub(crate) inited: bool,
 }
+/// C++ `AIIdleState::doInitIdleState` (`AIStates.cpp:1323-1347`).
+/// The first pathfinder `updateGoal` is independent of locomotor / ultraAccurate.
+/// `ultraAccurate` (loco non-null AND `isUltraAccurate()`) only gates the later snap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct IdlePathfinderRestakePlan {
+    pub first_restake: bool,
+    pub snap: bool,
+}
+
+pub(crate) fn idle_pathfinder_restake_plan(
+    is_idle: bool,
+    is_doing_ground_movement: bool,
+    pos: Coord3D,
+    ultra_accurate: bool,
+) -> IdlePathfinderRestakePlan {
+    let pos_valid = pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0;
+    if !(is_idle && is_doing_ground_movement && pos_valid) {
+        return IdlePathfinderRestakePlan {
+            first_restake: false,
+            snap: false,
+        };
+    }
+    IdlePathfinderRestakePlan {
+        first_restake: true,
+        snap: !ultra_accurate,
+    }
+}
+
 
 impl AIIdleState {
     /// Create new idle state
@@ -102,6 +130,7 @@ impl AIIdleState {
         true
     }
 
+
     /// Initialize idle state - C++ AIIdleState::doInitIdleState() from AIStates.cpp line 1311
     pub(crate) fn do_init_idle_state(&mut self) {
         if !self.inited {
@@ -114,44 +143,57 @@ impl AIIdleState {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
-                        // Pathfinder grid snapping (C++ lines 1325-1358):
-                        // When a unit is stopped mid-movement, snap to the nearest pathfind grid.
-                        // Requires pathfinder updateGoal/goalPosition APIs.
-                        if ai_guard.is_idle() && ai_guard.is_doing_ground_movement() {
-                            if let Some(loco) = ai_guard.get_cur_locomotor() {
-                                let ultra_accurate =
-                                    loco.lock().map(|l| l.is_ultra_accurate()).unwrap_or(false);
-                                if !ultra_accurate {
-                                    let pos = owner_guard.get_position();
-                                    if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
-                                        let owner_id = owner_guard.get_id();
-                                        let _ = crate::ai::pathfind::update_goal_for_object(
-                                            owner_id,
-                                            &pos,
-                                            crate::ai::pathfind::PathfindLayerEnum::Ground,
-                                        );
-                                        if let Some(snapped) =
-                                            crate::ai::pathfind::goal_position(&pos)
-                                        {
-                                            let frame = TheGameLogic::get_frame();
-                                            if frame <= 1 {
-                                                drop(owner_guard);
-                                                if let Ok(mut obj_w) = owner.write() {
-                                                    if let Err(err) = obj_w.set_position(&snapped) {
-                                                        log::warn!(
-                                                            "Failed to snap AI owner position: {}",
-                                                            err
-                                                        );
-                                                    }
-                                                }
+                        // Pathfinder grid restake (C++ AIStates.cpp:1320-1358):
+                        // first updateGoal always runs; ultraAccurate only gates the snap.
+                        let ultra_accurate = ai_guard
+                            .get_cur_locomotor()
+                            .and_then(|loco| loco.lock().ok().map(|l| l.is_ultra_accurate()))
+                            .unwrap_or(false);
+                        let pos = *owner_guard.get_position();
+                        let plan = idle_pathfinder_restake_plan(
+                            ai_guard.is_idle(),
+                            ai_guard.is_doing_ground_movement(),
+                            pos,
+                            ultra_accurate,
+                        );
+                        if plan.first_restake {
+                            let owner_id = owner_guard.get_id();
+                            let layer = match owner_guard.get_layer() {
+                                PathfindLayerEnum::Top
+                                | PathfindLayerEnum::Bridge1
+                                | PathfindLayerEnum::Bridge2
+                                | PathfindLayerEnum::Bridge3
+                                | PathfindLayerEnum::Bridge4 => {
+                                    crate::ai::pathfind::PathfindLayerEnum::Top
+                                }
+                                PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
+                                PathfindLayerEnum::Invalid | PathfindLayerEnum::Last => {
+                                    crate::ai::pathfind::PathfindLayerEnum::Invalid
+                                }
+                                _ => crate::ai::pathfind::PathfindLayerEnum::Ground,
+                            };
+                            let _ = crate::ai::pathfind::update_goal_for_object(
+                                owner_id, &pos, layer,
+                            );
+                            if plan.snap {
+                                if let Some(snapped) =
+                                    crate::ai::pathfind::goal_position(&pos)
+                                {
+                                    let frame = TheGameLogic::get_frame();
+                                    if frame <= 1 {
+                                        drop(owner_guard);
+                                        if let Ok(mut obj_w) = owner.write() {
+                                            if let Err(err) = obj_w.set_position(&snapped) {
+                                                log::warn!(
+                                                    "Failed to snap AI owner position: {}",
+                                                    err
+                                                );
                                             }
-                                            let _ = crate::ai::pathfind::update_goal_for_object(
-                                                owner_id,
-                                                &snapped,
-                                                crate::ai::pathfind::PathfindLayerEnum::Ground,
-                                            );
                                         }
                                     }
+                                    let _ = crate::ai::pathfind::update_goal_for_object(
+                                        owner_id, &snapped, layer,
+                                    );
                                 }
                             }
                         }
@@ -410,3 +452,32 @@ impl Snapshotable for AIIdleState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_restake_runs_without_loco_and_for_ultra_accurate() {
+        let pos = Coord3D::new(10.0, 20.0, 0.0);
+        let loco_less = idle_pathfinder_restake_plan(true, true, pos, false);
+        assert!(loco_less.first_restake);
+        assert!(loco_less.snap);
+
+        let ultra = idle_pathfinder_restake_plan(true, true, pos, true);
+        assert!(ultra.first_restake);
+        assert!(!ultra.snap);
+    }
+
+    #[test]
+    fn restake_skips_when_not_idle_or_zero_pos() {
+        let pos = Coord3D::new(10.0, 0.0, 0.0);
+        let not_idle = idle_pathfinder_restake_plan(false, true, pos, false);
+        assert!(!not_idle.first_restake);
+        assert!(!not_idle.snap);
+
+        let zero = idle_pathfinder_restake_plan(true, true, Coord3D::new(0.0, 0.0, 0.0), false);
+        assert!(!zero.first_restake);
+    }
+}
+

@@ -362,9 +362,11 @@ impl WeaponBonus {
         self.fields.fill(1.0);
     }
 
+    /// C++ `WeaponBonus::appendBonuses` (Weapon.cpp:3463-3468) adds field
+    /// deltas (`bonus += other - 1`) so stacked bonuses compose additively.
     pub fn append_bonuses(&mut self, other: &WeaponBonus) {
         for (i, field) in self.fields.iter_mut().enumerate() {
-            *field *= other.fields[i];
+            *field += other.fields[i] - 1.0;
         }
     }
 }

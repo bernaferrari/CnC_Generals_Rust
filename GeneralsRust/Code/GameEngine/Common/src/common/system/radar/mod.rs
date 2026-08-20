@@ -1234,10 +1234,12 @@ impl RadarSystem {
             &mut self.object_list
         };
 
-        // Insert sorted by priority
+        // C++ Radar.cpp:457-507 inserts at the *head* of the matching priority
+        // section (`currPriority >= newPriority`), so newer same-priority
+        // objects paint first and later list entries overwrite them.
         let insert_pos = list
             .iter()
-            .position(|obj| obj.priority > radar_obj.priority)
+            .position(|obj| obj.priority >= radar_obj.priority)
             .unwrap_or(list.len());
 
         list.insert(insert_pos, radar_obj.clone());
@@ -1430,8 +1432,12 @@ impl RadarSystem {
     }
 
     /// Try to create infiltration event (matches C++ Radar::tryInfiltrationEvent).
+    ///
+    /// C++ always has an `Object*` and returns immediately unless the victim
+    /// is the local player. A location-only call has no victim identity, so
+    /// it must not fail-open and warn the local player of AI-vs-AI hijacks.
     pub fn try_infiltration_event(&mut self, world_loc: &Coord3D) {
-        self.try_infiltration_event_for(world_loc, None);
+        let _ = world_loc;
     }
 
     /// Object-aware infiltration: only the local victim gets ping + UI + audio.
@@ -1440,16 +1446,16 @@ impl RadarSystem {
         world_loc: &Coord3D,
         victim: Option<&RadarVictimInfo>,
     ) {
-        if let Some(v) = victim {
-            if !v.is_local_player {
-                return;
-            }
+        let Some(v) = victim else {
+            return;
+        };
+        if !v.is_local_player {
+            return;
         }
         self.create_event(world_loc, RadarEventType::Infiltration, 4.0);
         if let Some(fb) = radar_feedback() {
-            let player_index = victim.map(|v| v.player_index).unwrap_or(-1);
             fb.show_radar_message("RADAR:Infiltration");
-            fb.play_radar_audio("RadarInfiltrationSound", player_index);
+            fb.play_radar_audio("RadarInfiltrationSound", v.player_index);
         }
     }
 
@@ -1793,7 +1799,9 @@ impl RadarSystem {
         let expected_len = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
         let mut texture = vec![0; expected_len * 4];
 
-        for obj in self.get_all_objects() {
+        // C++ W3DRadar draws the regular list first, then the local list so
+        // local blips overwrite enemy blips on a shared cell.
+        for obj in self.object_list.iter().chain(self.local_object_list.iter()) {
             if !self.should_render_object_overlay_blip(obj) {
                 continue;
             }
@@ -3752,5 +3760,101 @@ mod tests {
         assert!(!radar.try_event(RadarEventType::UnderAttack, &far));
         radar.update(400);
         assert!(radar.try_event(RadarEventType::UnderAttack, &far));
+    }
+
+    #[test]
+    fn add_object_inserts_at_head_of_priority_section() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+
+        let mut first = RadarObject::new(1);
+        first.world_pos = Coord3D::new(100.0, 100.0, 0.0);
+        first.priority = RadarPriorityType::Unit;
+        radar.add_object(first);
+
+        let mut second = RadarObject::new(2);
+        second.world_pos = Coord3D::new(200.0, 200.0, 0.0);
+        second.priority = RadarPriorityType::Unit;
+        radar.add_object(second);
+
+        // C++ inserts at the head of the Unit section.
+        assert_eq!(radar.object_list[0].object_id, 2);
+        assert_eq!(radar.object_list[1].object_id, 1);
+    }
+
+    #[test]
+    fn overlay_draws_local_last_so_own_blips_win_shared_cells() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut enemy = RadarObject::new(1);
+        enemy.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        enemy.priority = RadarPriorityType::Unit;
+        enemy.color = 0xFFFF0000;
+        enemy.is_local = false;
+        radar.add_object(enemy);
+
+        let mut local = RadarObject::new(2);
+        local.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        local.priority = RadarPriorityType::Unit;
+        local.color = 0xFF0000FF;
+        local.is_local = true;
+        radar.add_object(local);
+
+        let texture = radar.build_object_overlay_texture_rgba();
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(&texture[idx..idx + 4], &[0x00, 0x00, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn try_infiltration_without_local_victim_is_fail_closed() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        let loc = Coord3D::new(40.0, 50.0, 0.0);
+        radar.try_infiltration_event(&loc);
+        assert!(radar.get_last_event_loc().is_none());
+
+        let remote = RadarVictimInfo {
+            is_local_player: false,
+            player_index: 2,
+            ..Default::default()
+        };
+        radar.try_infiltration_event_for(&loc, Some(&remote));
+        assert!(radar.get_last_event_loc().is_none());
+
+        let local = RadarVictimInfo {
+            is_local_player: true,
+            player_index: 0,
+            ..Default::default()
+        };
+        radar.try_infiltration_event_for(&loc, Some(&local));
+        assert!(radar.get_last_event_loc().is_some());
+    }
+
+    #[test]
+    fn try_under_attack_creates_under_attack_event() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        let loc = Coord3D::new(12.0, 34.0, 0.0);
+        assert!(radar.try_under_attack_event(&loc));
+        assert_eq!(radar.get_last_event_loc(), Some(loc));
+        assert!(!radar.try_under_attack_event(&loc));
     }
 }

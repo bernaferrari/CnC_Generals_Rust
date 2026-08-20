@@ -463,6 +463,10 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::set_is_recruitable(self, recruitable)
     }
 
+    fn is_recruitable(&self) -> bool {
+        self.is_recruitable
+    }
+
     fn get_goal_object_id(&self) -> ObjectID {
         UnitAIUpdate::get_goal_object_id(self)
     }

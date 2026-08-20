@@ -82,6 +82,8 @@ impl SupplyCenterDockUpdate {
         upgraded_supply_boost: u32,
         player_money: &mut Money,
         player_color: Color,
+        ground_z: Real,
+        hide_stealth_cash: bool,
     ) -> Result<bool, String> {
         let mut value = 0u32;
 
@@ -114,13 +116,20 @@ impl SupplyCenterDockUpdate {
 
             // Display floating text showing money gained
             // Matches C++ SupplyCenterDockUpdate.cpp:112-137
-            // Format: "GUI:AddCash" = "+$%d"
-            if let Some(ui) = &self.ui_system {
-                let text = format!("+${}", value);
-                // Color combines player color with alpha=230
-                // Matches C++ SupplyCenterDockUpdate.cpp:134
-                let color_with_alpha = player_color | 0xE6000000;
-                ui.add_floating_text(&text, docker_position, color_with_alpha);
+            // Hide only when the *center* is STEALTHED, not locally controlled, not DETECTED.
+            if !hide_stealth_cash {
+                if let Some(ui) = &self.ui_system {
+                    let text = format_gui_add_cash(value);
+                    let pos = Coord3D {
+                        x: docker_position.x,
+                        y: docker_position.y,
+                        z: ground_z,
+                    };
+                    // Color combines player color with alpha=230
+                    // Matches C++ SupplyCenterDockUpdate.cpp:134
+                    let color_with_alpha = player_color | 0xE6000000;
+                    ui.add_floating_text(&text, &pos, color_with_alpha);
+                }
             }
         }
 

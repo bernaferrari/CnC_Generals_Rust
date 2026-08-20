@@ -5,6 +5,9 @@
 use std::sync::Arc;
 
 use super::super::xfer::{Xfer, XferMode, XferStatus, XferVersion};
+use super::super::xfer_load::XferLoad;
+use super::super::xfer_save::XferSave;
+use std::path::PathBuf;
 
 /// C++ `GameInfo.h` / `NetworkDefs.h`: `MAX_SLOTS = 8`.
 pub const CHALLENGE_MAX_SLOTS: usize = 8;
@@ -122,6 +125,63 @@ impl ChallengeGameInfoXfer {
         }
         Ok(())
     }
+
+    /// C++ `SkirmishGameInfo::xfer` (GameInfo.cpp:1488) version-4 byte stream.
+    /// Production save hooks must speak this, not bincode.
+    pub fn encode_xfer_bytes(&self) -> Vec<u8> {
+        let path = unique_skirmish_xfer_path("enc");
+        let mut copy = self.clone();
+        {
+            let mut xfer = XferSave::new();
+            if xfer.open(path.to_string_lossy().into_owned()).is_err() {
+                return Vec::new();
+            }
+            if copy.xfer(&mut xfer).is_err() {
+                let _ = xfer.close();
+                let _ = std::fs::remove_file(&path);
+                return Vec::new();
+            }
+            let _ = xfer.close();
+        }
+        let bytes = std::fs::read(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        bytes
+    }
+
+    /// Inverse of `encode_xfer_bytes`. Rejects bincode / length-prefixed blobs.
+    pub fn decode_xfer_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.first().copied() != Some(SKIRMISH_GAME_INFO_VERSION) || bytes.len() < 16 {
+            return None;
+        }
+        let path = unique_skirmish_xfer_path("dec");
+        std::fs::write(&path, bytes).ok()?;
+        let mut info = Self::default();
+        let decoded = {
+            let mut xfer = XferLoad::new();
+            if xfer.open(path.to_string_lossy().into_owned()).is_err() {
+                None
+            } else {
+                let ok = info.xfer(&mut xfer).is_ok();
+                let _ = xfer.close();
+                ok.then_some(info)
+            }
+        };
+        let _ = std::fs::remove_file(&path);
+        decoded
+    }
+}
+
+fn unique_skirmish_xfer_path(label: &str) -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "skirmish_lobby_xfer_{}_{}_{}.bin",
+        label,
+        std::process::id(),
+        stamp
+    ))
 }
 
 /// C++ `CampaignManager::xfer` version 5 payload (CampaignManager.cpp).

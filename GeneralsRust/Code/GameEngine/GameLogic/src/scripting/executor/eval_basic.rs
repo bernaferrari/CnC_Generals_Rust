@@ -594,30 +594,29 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let player_name = self.get_condition_string_param(condition, 0)?;
+        // C++ ScriptConditions::evaluatePlayerHasCredits (ScriptConditions.cpp:952-972)
+        // Template [INT, COMPARISON, SIDE]; compare credits param to countMoney().
+        let target_credits = self.get_condition_int_param(condition, 0)?;
         let comparison = self.get_condition_comparison_param(condition, 1)?;
-        let target_credits = self.get_condition_int_param(condition, 2)?;
+        let player_name = self.get_condition_string_param(condition, 2)?;
         log::debug!(
-            "Evaluating if player '{}' credits {:?} {}",
-            player_name,
+            "Evaluating if {} {:?} player '{}' credits",
+            target_credits,
             comparison,
-            target_credits
+            player_name
         );
 
-        // Look up the player and get their credits
-        let current_credits = if let Ok(players) = player_list().read() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    player.get_money().get_money()
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-        } else {
-            0
+        // C++ returns false when playerFromParam cannot resolve the Side.
+        let Ok(players) = player_list().read() else {
+            return Ok(ScriptConditionResult::False);
         };
+        let Some(player_arc) = players.find_player_by_name(&player_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(player) = player_arc.read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let current_credits = player.get_money().get_money();
 
         let result = match comparison {
             ComparisonType::LessThan => target_credits < current_credits,

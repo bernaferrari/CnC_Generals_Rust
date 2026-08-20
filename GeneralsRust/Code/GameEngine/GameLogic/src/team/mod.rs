@@ -27,22 +27,23 @@ use game_engine::common::well_known_keys::{
     key_team_aggressiveness, key_team_all_clear_script, key_team_attack_common_target,
     key_team_auto_reinforce, key_team_avoid_threats, key_team_destroyed_threshold,
     key_team_enemy_sighted_script, key_team_executes_actions_on_create,
-    key_team_generic_script_hook, key_team_initial_idle_frames, key_team_is_ai_recruitable,
-    key_team_is_base_defense, key_team_is_perimeter_defense, key_team_max_instances, key_team_name,
-    key_team_on_create_script, key_team_on_destroyed_script, key_team_on_idle_script,
-    key_team_on_unit_destroyed_script, key_team_owner, key_team_production_condition,
-    key_team_production_priority, key_team_production_priority_failure_decrease,
-    key_team_production_priority_success_increase, key_team_reinforcement_origin,
-    key_team_starts_full, key_team_transport, key_team_transports_exit, key_team_transports_return,
-    key_team_unit_max_count1, key_team_unit_max_count2, key_team_unit_max_count3,
-    key_team_unit_max_count4, key_team_unit_max_count5, key_team_unit_max_count6,
-    key_team_unit_max_count7, key_team_unit_min_count1, key_team_unit_min_count2,
-    key_team_unit_min_count3, key_team_unit_min_count4, key_team_unit_min_count5,
-    key_team_unit_min_count6, key_team_unit_min_count7, key_team_unit_type1, key_team_unit_type2,
-    key_team_unit_type3, key_team_unit_type4, key_team_unit_type5, key_team_unit_type6,
-    key_team_unit_type7,
+    key_team_generic_script_hook, key_team_home, key_team_initial_idle_frames,
+    key_team_is_ai_recruitable, key_team_is_base_defense, key_team_is_perimeter_defense,
+    key_team_max_instances, key_team_name, key_team_on_create_script, key_team_on_destroyed_script,
+    key_team_on_idle_script, key_team_on_unit_destroyed_script, key_team_owner,
+    key_team_production_condition, key_team_production_priority,
+    key_team_production_priority_failure_decrease, key_team_production_priority_success_increase,
+    key_team_reinforcement_origin, key_team_starts_full, key_team_transport,
+    key_team_transports_exit, key_team_transports_return, key_team_unit_max_count1,
+    key_team_unit_max_count2, key_team_unit_max_count3, key_team_unit_max_count4,
+    key_team_unit_max_count5, key_team_unit_max_count6, key_team_unit_max_count7,
+    key_team_unit_min_count1, key_team_unit_min_count2, key_team_unit_min_count3,
+    key_team_unit_min_count4, key_team_unit_min_count5, key_team_unit_min_count6,
+    key_team_unit_min_count7, key_team_unit_type1, key_team_unit_type2, key_team_unit_type3,
+    key_team_unit_type4, key_team_unit_type5, key_team_unit_type6, key_team_unit_type7,
 };
 use std::any::Any;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::sync::{

@@ -650,7 +650,8 @@ impl Weapon {
 
         if self.status == WeaponStatus::PreAttack && current_frame >= self.when_pre_attack_finished
         {
-            if self.ammo_in_clip > 0 || self.template.clip_size <= 0 {
+            // C++ Weapon::getStatus (Weapon.cpp:2743-2748): Ready only with ammo.
+            if self.ammo_in_clip > 0 {
                 self.status = WeaponStatus::ReadyToFire;
             } else {
                 self.status = WeaponStatus::OutOfAmmo;

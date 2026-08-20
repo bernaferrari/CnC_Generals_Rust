@@ -997,9 +997,32 @@ impl InGameUI {
     // ── Drawable lifecycle ─────────────────────────────────────────────
     // C++: InGameUI.cpp:3415 (disregardDrawable)
 
-    pub fn disregard_drawable(&mut self, drawable_id: u32) {
-        self.deselect_object(drawable_id);
+    pub fn disregard_from_selection_state(state: &mut SelectionState, drawable_id: u32) {
+        // C++ InGameUI::disregardDrawable -> deselectDrawable (InGameUI.cpp:3415-3420)
+        state.deselect(DrawableID(drawable_id));
     }
+
+    pub fn disregard_live_drawable(object_id: u32) {
+        if object_id == 0 {
+            return;
+        }
+        if let Ok(mut manager) = get_selection_manager().write() {
+            for player_id in 0..MAX_PLAYER_COUNT as i32 {
+                if let Some(selection) = manager.get_player_selection(player_id) {
+                    selection.select_objects(vec![object_id as ObjectID], SelectionType::Remove);
+                }
+            }
+        }
+    }
+
+    pub fn disregard_drawable(&mut self, drawable_id: u32) {
+        Self::disregard_from_selection_state(&mut self.selection_state, drawable_id);
+        self.presentation_selected
+            .retain(|unit| unit.object_id != drawable_id);
+        self.deselect_object(drawable_id);
+        Self::disregard_live_drawable(drawable_id);
+    }
+
 
     // ── Selection change tracking ──────────────────────────────────────
 

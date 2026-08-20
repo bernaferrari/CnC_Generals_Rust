@@ -10,12 +10,16 @@
 **  pipeline.
 */
 
-use crate::display::view::{with_tactical_view, with_tactical_view_ref, Point3};
+use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;
+use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use crate::gui::control_bar::{
-    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
+    host_control_bar_input_provenance_for_current_dispatch, CommandOption,
+    HostControlBarInputProvenance,
 };
+
 use crate::gui::load_screen::{
     init_load_screen, pump_load_screen_presentation, reset_load_screen, run_load_screen_prelude,
     select_load_screen, update_load_screen as update_game_load_screen, LoadScreenGameMode,
@@ -32,6 +36,8 @@ use gamelogic::helpers::{
     register_game_pause_hooks, register_load_screen_hooks as register_logic_load_screen_hooks,
     GamePauseHooks, TheGameLogic, TheScriptEngine,
 };
+use game_engine::common::recorder::with_recorder;
+
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -126,6 +132,7 @@ pub trait InGameUiHooks: Send + Sync {
     fn is_movie_playing(&self, _movie_name: &str) -> bool {
         false
     }
+    fn trigger_double_click_attack_move_guard_hint(&self) {}
 }
 
 fn backend_slot() -> &'static Mutex<Option<Arc<dyn InGameUiHooks>>> {
@@ -1020,6 +1027,9 @@ struct InGameUIStatusState {
     draw_rmb_scroll_anchor: bool,
     move_rmb_scroll_anchor: bool,
     max_select_count: i32,
+    double_click_attack_move_guard_timer: u32,
+    guard_hint_stashed_position: (f32, f32, f32),
+
 }
 
 impl Default for InGameUIStatusState {
@@ -1042,6 +1052,9 @@ impl Default for InGameUIStatusState {
             draw_rmb_scroll_anchor: false,
             move_rmb_scroll_anchor: false,
             max_select_count: -1,
+            double_click_attack_move_guard_timer: 0,
+            guard_hint_stashed_position: (0.0, 0.0, 0.0),
+
         }
     }
 }
@@ -1229,17 +1242,34 @@ impl TheInGameUI {
     }
 
     pub fn set_input_enabled(enabled: bool) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.input_enabled = enabled;
-        if !enabled {
-            guard.scrolling = false;
-            guard.scroll_amount_x = 0.0;
-            guard.scroll_amount_y = 0.0;
+        let was_enabled = {
+            let mut guard = in_game_ui_status_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !enabled {
+                guard.selecting = false;
+                guard.scrolling = false;
+                guard.scroll_amount_x = 0.0;
+                guard.scroll_amount_y = 0.0;
+            }
+            let was_enabled = guard.input_enabled;
+            guard.input_enabled = enabled;
+            was_enabled
+        };
+        if was_enabled && !enabled {
+            // C++ InGameUI::setInputEnabled falling edge (InGameUI.cpp:3391-3408)
+            Self::set_force_attack_mode(false);
+            Self::set_force_move_to_mode(false);
+            Self::set_waypoint_mode(false);
+            Self::set_prefer_selection_mode(false);
+            Self::set_camera_rotate_left(false);
+            Self::set_camera_rotate_right(false);
+            Self::set_camera_zoom_in(false);
+            Self::set_camera_zoom_out(false);
         }
         gamelogic::helpers::TheGameLogic::set_input_enabled(enabled);
     }
+
 
     pub fn is_selecting() -> bool {
         let guard = in_game_ui_status_state()
@@ -1526,11 +1556,56 @@ impl TheInGameUI {
         guard.pending_command.clone()
     }
 
+    pub fn command_option_need_target(options: u32) -> bool {
+        let mut mask = CommandOption::NeedTargetEnemyObject as u32
+            | CommandOption::NeedTargetNeutralObject as u32
+            | CommandOption::NeedTargetAllyObject as u32
+            | CommandOption::NeedTargetPos as u32
+            | CommandOption::ContextmodeCommand as u32;
+        #[cfg(feature = "allow_surrender")]
+        {
+            mask |= CommandOption::NeedTargetPrisoner as u32;
+        }
+        options & mask != 0
+    }
+
+    fn recorder_playback_active() -> bool {
+        with_recorder(|recorder| recorder.is_playback()).unwrap_or(false)
+    }
+
+    fn arm_gui_command_mouse_mode(pending: &PendingCommand) {
+        Self::set_mouse_mode(MouseMode::GuiCommand);
+        Self::set_mouse_cursor(MouseCursor::Arrow);
+        let is_context =
+            pending.options & (CommandOption::ContextmodeCommand as u32) != 0;
+        if !is_context
+            && !pending.radius_cursor_type.is_empty()
+            && !pending.radius_cursor_type.eq_ignore_ascii_case("NONE")
+        {
+            Self::set_radius_cursor_active_with_type(&pending.radius_cursor_type);
+        } else {
+            Self::set_radius_cursor_none();
+        }
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.mouse_mode_cursor = MouseCursor::Arrow;
+    }
+
+    fn restore_default_mouse_mode_after_gui_command() {
+        Self::set_mouse_mode(MouseMode::Default);
+        Self::set_mouse_cursor(MouseCursor::Arrow);
+        Self::set_radius_cursor_none();
+    }
+
     pub fn set_pending_command(
         command_type: gamelogic::commands::command::CommandType,
         options: u32,
         source_object_id: u32,
     ) {
+        if Self::recorder_playback_active() {
+            return;
+        }
         let pending = PendingCommand {
             command_type,
             options,
@@ -1539,13 +1614,17 @@ impl TheInGameUI {
             invalid_cursor_name: String::new(),
             radius_cursor_type: String::new(),
         };
-        if with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
+        if !Self::command_option_need_target(pending.options) {
+            Self::restore_default_mouse_mode_after_gui_command();
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_command = Some(pending);
+        if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
+            let mut guard = fallback_placement_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            guard.pending_command = Some(pending.clone());
+        }
+        Self::arm_gui_command_mouse_mode(&pending);
     }
 
     pub fn set_pending_command_with_visual(
@@ -1556,6 +1635,9 @@ impl TheInGameUI {
         invalid_cursor_name: String,
         radius_cursor_type: String,
     ) {
+        if Self::recorder_playback_active() {
+            return;
+        }
         let pending = PendingCommand {
             command_type,
             options,
@@ -1564,24 +1646,29 @@ impl TheInGameUI {
             invalid_cursor_name,
             radius_cursor_type,
         };
-        if with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
+        if !Self::command_option_need_target(pending.options) {
+            Self::restore_default_mouse_mode_after_gui_command();
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_command = Some(pending);
+        if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
+            let mut guard = fallback_placement_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            guard.pending_command = Some(pending.clone());
+        }
+        Self::arm_gui_command_mouse_mode(&pending);
     }
 
     pub fn clear_pending_command() {
-        if with_backend(|backend| backend.clear_pending_command()) {
-            return;
+        if !with_backend(|backend| backend.clear_pending_command()) {
+            let mut guard = fallback_placement_state()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            guard.pending_command = None;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_command = None;
+        Self::restore_default_mouse_mode_after_gui_command();
     }
+
 
     pub fn is_placement_anchored() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_placement_anchored()) {
@@ -1891,6 +1978,9 @@ impl TheInGameUI {
         host_popup_generation: Option<usize>,
     ) {
         Self::clear_popup_message_data();
+        // C++ InGameUI::popupMessage (InGameUI.cpp:5150)
+        update_diplomacy_briefing_text(identifier, false);
+
 
         let message = GameText::fetch(identifier);
         let x_percent = x.clamp(0, 100);
@@ -2239,6 +2329,55 @@ impl TheInGameUI {
         }
         0
     }
+
+    pub fn arm_double_click_attack_move_guard_hint(x: f32, y: f32, z: f32) {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.double_click_attack_move_guard_timer = 11;
+        guard.guard_hint_stashed_position = (x, y, z);
+    }
+
+    pub fn trigger_double_click_attack_move_guard_hint() {
+        // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
+        let (mx, my) = crate::input::mouse::with_mouse(|mouse| mouse.state().position());
+        let screen = IPoint2::new(mx as i32, my as i32);
+        let pos = with_tactical_view_ref(|view| {
+            view.screen_to_terrain(&screen)
+                .ok()
+                .map(|point| (point.x, point.y, point.z))
+        })
+        .unwrap_or((0.0, 0.0, 0.0));
+        Self::arm_double_click_attack_move_guard_hint(pos.0, pos.1, pos.2);
+        Self::set_mouse_cursor(MouseCursor::ForceAttackGround);
+        Self::set_radius_cursor_active_with_type("GUARD_AREA");
+    }
+
+    pub fn consume_double_click_attack_move_guard_hint() -> bool {
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if guard.double_click_attack_move_guard_timer == 0 {
+            return false;
+        }
+        guard.double_click_attack_move_guard_timer -= 1;
+        guard.double_click_attack_move_guard_timer > 0
+    }
+
+    pub fn double_click_attack_move_guard_timer() -> u32 {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.double_click_attack_move_guard_timer
+    }
+
+    pub fn guard_hint_stashed_position() -> (f32, f32, f32) {
+        let guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.guard_hint_stashed_position
+    }
+
 }
 
 /// Minimal stand-in for classic `TheControlBar` singleton.
@@ -2489,5 +2628,64 @@ impl gamelogic::helpers::CameraViewBridge for TacticalViewBridge {
         with_tactical_view(|v| {
             v.rotate_camera_toward_position(&pos, milliseconds, ease_in, ease_out, reverse)
         });
+    }
+}
+
+#[cfg(test)]
+mod in_game_ui_input_and_guard_hint_tests {
+    use super::*;
+
+    #[test]
+    fn set_input_enabled_false_clears_force_waypoint_shift_camera_modes() {
+        // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
+        let prior_logic = TheGameLogic::is_input_enabled();
+        TheInGameUI::set_input_enabled(true);
+        TheInGameUI::set_selecting(true);
+        TheInGameUI::set_force_attack_mode(true);
+        TheInGameUI::set_force_move_to_mode(true);
+        TheInGameUI::set_waypoint_mode(true);
+        TheInGameUI::set_prefer_selection_mode(true);
+        TheInGameUI::set_camera_rotate_left(true);
+        TheInGameUI::set_camera_rotate_right(true);
+        TheInGameUI::set_camera_zoom_in(true);
+        TheInGameUI::set_camera_zoom_out(true);
+
+        TheInGameUI::set_input_enabled(false);
+
+        assert!(!TheInGameUI::is_selecting());
+        assert!(!TheInGameUI::is_in_force_attack_mode());
+        assert!(!TheInGameUI::is_in_force_move_to_mode());
+        assert!(!TheInGameUI::is_in_waypoint_mode());
+        assert!(!TheInGameUI::is_in_prefer_selection_mode());
+        assert!(!TheInGameUI::is_camera_rotating_left());
+        assert!(!TheInGameUI::is_camera_rotating_right());
+        assert!(!TheInGameUI::is_camera_zooming_in());
+        assert!(!TheInGameUI::is_camera_zooming_out());
+
+        // Already-disabled: C++ does not re-clear on a second FALSE.
+        TheInGameUI::set_force_attack_mode(true);
+        TheInGameUI::set_input_enabled(false);
+        assert!(TheInGameUI::is_in_force_attack_mode());
+
+        TheInGameUI::set_force_attack_mode(false);
+        TheInGameUI::set_input_enabled(prior_logic);
+    }
+
+    #[test]
+    fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
+        // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
+        TheInGameUI::arm_double_click_attack_move_guard_hint(12.0, 24.0, 3.0);
+        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 11);
+        assert_eq!(
+            TheInGameUI::guard_hint_stashed_position(),
+            (12.0, 24.0, 3.0)
+        );
+        assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
+        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
+        assert_eq!(TheInGameUI::guard_hint_stashed_position(), (12.0, 24.0, 3.0));
+
+        while TheInGameUI::double_click_attack_move_guard_timer() > 0 {
+            let _ = TheInGameUI::consume_double_click_attack_move_guard_hint();
+        }
     }
 }

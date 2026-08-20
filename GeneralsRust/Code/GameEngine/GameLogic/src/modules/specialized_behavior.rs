@@ -188,6 +188,16 @@ pub trait ExitInterface {
         Ok(None)
     }
 
+    /// C++ `ExitInterface::getExitPosition`. ParkingPlace returns `HeliPark01`.
+    fn get_exit_position(&self, _exit_position: &mut Coord3D) -> bool {
+        false
+    }
+
+    /// C++ `ExitInterface::getNaturalRallyPoint`. ParkingPlace returns `HeliPark01`.
+    fn get_natural_rally_point(&self, _rally_point: &mut Coord3D, _offset: bool) -> bool {
+        false
+    }
+
     // Additional methods needed by SpawnBehavior
     fn reserve_door_for_exit(
         &mut self,

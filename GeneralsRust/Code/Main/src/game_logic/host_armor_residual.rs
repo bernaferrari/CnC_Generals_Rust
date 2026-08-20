@@ -1273,6 +1273,9 @@ mod tests {
             H::StealthJetMissiles
         );
         assert_eq!(map_store_damage_type(G::ComancheVulcan), H::ComancheVulcan);
+        assert_eq!(map_store_damage_type(G::Microwave), H::Microwave);
+        assert_eq!(map_host_damage_type(H::Microwave), DamageType::Microwave);
+        assert_eq!(map_host_damage_type(H::EMP), DamageType::Microwave);
         assert_ne!(map_store_damage_type(G::SubdualMissile), H::Unresistable);
         assert_ne!(map_store_damage_type(G::Gattling), H::Bullet);
         assert_eq!(

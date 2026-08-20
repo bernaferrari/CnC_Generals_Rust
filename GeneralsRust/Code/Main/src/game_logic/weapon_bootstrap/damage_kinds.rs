@@ -171,9 +171,9 @@ pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static st
 }
 
 fn object_status_bit_name(status: gamelogic::common::ObjectStatusTypes) -> Option<&'static str> {
-    use gamelogic::common::ObjectStatusTypes::*;
+    use gamelogic::common::ObjectStatusTypes::{self, *};
     match status {
-        None => None,
+        ObjectStatusTypes::None => Option::<&str>::None,
         Destroyed => Some("DESTROYED"),
         CanAttack => Some("CAN_ATTACK"),
         UnderConstruction => Some("UNDER_CONSTRUCTION"),

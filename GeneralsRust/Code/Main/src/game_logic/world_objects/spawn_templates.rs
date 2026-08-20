@@ -596,6 +596,9 @@ impl GameLogic {
         if has_kind("crate") {
             template.add_kind_of(KindOf::Crate);
         }
+        if has_kind("ignores_select_all") {
+            template.add_kind_of(KindOf::IgnoresSelectAll);
+        }
         if has_kind("salvager") {
             template.add_kind_of(KindOf::Salvager);
         }
@@ -1185,8 +1188,14 @@ impl GameLogic {
             .collect();
         let [module] = modules.as_slice() else {
             template.supply_truck_metadata = None;
+            template.supplies_depleted_voice.clear();
             return;
         };
+        template.supplies_depleted_voice = module
+            .attribute("SuppliesDepletedVoice")
+            .unwrap_or("")
+            .trim()
+            .to_string();
         template.supply_truck_metadata = Some(SupplyTruckMetadata {
             max_boxes: module.attribute("MaxBoxes").and_then(unsigned).unwrap_or(1),
             warehouse_scan_distance: module
@@ -1202,6 +1211,7 @@ impl GameLogic {
                 .and_then(duration_frames)
                 .unwrap_or(0),
         });
+
     }
 
     /// Retain exactly one source production-exit declaration.  The producer's C++ exit

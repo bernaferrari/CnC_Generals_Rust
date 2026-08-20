@@ -159,6 +159,30 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// C++ PhysicsBehavior::setStickToGround (PhysicsUpdate.h:155).
+    fn set_stick_to_ground(&mut self, stick: bool) {
+        let _ = stick;
+    }
+
+    /// Readable STICK_TO_GROUND flag (C++ PhysicsFlagsType::STICK_TO_GROUND).
+    fn get_stick_to_ground(&self) -> bool {
+        false
+    }
+
+    /// C++ PhysicsBehavior::getForwardSpeed2D (PhysicsUpdate.cpp:939-957).
+    /// Signed speed along facing; negative when moving backwards.
+    fn get_forward_speed_2d(&self) -> Real {
+        let vel = self.get_velocity();
+        signed_forward_speed_2d(vel.x, vel.y, 1.0, 0.0)
+    }
+
+    /// C++ PhysicsBehavior::getForwardSpeed3D (PhysicsUpdate.cpp:964-980).
+    fn get_forward_speed_3d(&self) -> Real {
+        let vel = self.get_velocity();
+        signed_forward_speed_3d(vel.x, vel.y, vel.z, 1.0, 0.0, 0.0)
+    }
+
+
 
     /// Clear current acceleration (matches C++ clearAcceleration).
     fn clear_acceleration(&mut self) {}
@@ -166,7 +190,7 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     /// Scrub horizontal velocity to desired speed (matches C++ scrubVelocity2D).
     fn scrub_velocity_2d(&mut self, desired_velocity: Real) {
         let mut velocity = self.get_velocity();
-        if desired_velocity.abs() < 0.001 {
+        if desired_velocity < 0.001 {
             velocity.x = 0.0;
             velocity.y = 0.0;
             self.set_velocity(&velocity);
@@ -224,6 +248,39 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     }
 }
 
+/// C++ PhysicsUpdate.cpp:939-957 — signed 2D speed along `dir`.
+pub fn signed_forward_speed_2d(vel_x: Real, vel_y: Real, dir_x: Real, dir_y: Real) -> Real {
+    let vx = vel_x * dir_x;
+    let vy = vel_y * dir_y;
+    let speed = (vx * vx + vy * vy).sqrt();
+    if vx + vy >= 0.0 {
+        speed
+    } else {
+        -speed
+    }
+}
+
+/// C++ PhysicsUpdate.cpp:964-980 — signed 3D speed along `dir`.
+pub fn signed_forward_speed_3d(
+    vel_x: Real,
+    vel_y: Real,
+    vel_z: Real,
+    dir_x: Real,
+    dir_y: Real,
+    dir_z: Real,
+) -> Real {
+    let vx = vel_x * dir_x;
+    let vy = vel_y * dir_y;
+    let vz = vel_z * dir_z;
+    let speed = (vx * vx + vy * vy + vz * vz).sqrt();
+    if vx + vy + vz >= 0.0 {
+        speed
+    } else {
+        -speed
+    }
+}
+
+
 /// Extension trait for Arc<Mutex<dyn PhysicsBehavior>> to provide convenient methods
 pub trait PhysicsBehaviorExt {
     fn get_velocity(&self) -> Vec3D;
@@ -244,6 +301,10 @@ pub trait PhysicsBehaviorExt {
     fn allow_to_fall(&self) -> bool;
     fn set_is_in_freefall(&self, allow: bool);
     fn get_is_in_freefall(&self) -> bool;
+    fn set_stick_to_ground(&self, stick: bool);
+    fn get_stick_to_ground(&self) -> bool;
+    fn get_forward_speed_2d(&self) -> Real;
+    fn get_forward_speed_3d(&self) -> Real;
     fn get_center_of_mass_offset(&self) -> Real;
     fn set_turning(&self, turning: i32);
     fn set_angles(&self, yaw: Real, pitch: Real, roll: Real);
@@ -375,6 +436,36 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
         }
     }
 
+    fn set_stick_to_ground(&self, stick: bool) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.set_stick_to_ground(stick);
+        }
+    }
+
+    fn get_stick_to_ground(&self) -> bool {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_stick_to_ground()
+        } else {
+            false
+        }
+    }
+
+    fn get_forward_speed_2d(&self) -> Real {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_forward_speed_2d()
+        } else {
+            0.0
+        }
+    }
+
+    fn get_forward_speed_3d(&self) -> Real {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_forward_speed_3d()
+        } else {
+            0.0
+        }
+    }
+
     fn set_turning(&self, turning: i32) {
         if let Ok(mut guard) = self.try_lock() {
             guard.set_turning(turning);
@@ -467,3 +558,61 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
         }
     }
 }
+
+#[cfg(test)]
+mod physics_behavior_default_tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct DummyPhysics {
+        vel: Vec3D,
+        stick: bool,
+    }
+
+    impl PhysicsBehavior for DummyPhysics {
+        fn update(&mut self, _dt: f32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn get_velocity(&self) -> Vec3D {
+            self.vel
+        }
+        fn set_velocity(&mut self, velocity: &Vec3D) {
+            self.vel = *velocity;
+        }
+        fn is_on_ground(&self) -> bool {
+            true
+        }
+        fn set_stick_to_ground(&mut self, stick: bool) {
+            self.stick = stick;
+        }
+        fn get_stick_to_ground(&self) -> bool {
+            self.stick
+        }
+    }
+
+    #[test]
+    fn scrub_velocity_2d_negative_desired_zeros_xy_not_reverse() {
+        // C++ PhysicsUpdate.cpp:1012-1027 — desired < 0.001 zeroes x/y.
+        let mut physics = DummyPhysics {
+            vel: Vec3D::new(5.0, 3.0, 1.0),
+            stick: false,
+        };
+        physics.scrub_velocity_2d(-2.0);
+        assert_eq!(physics.vel.x, 0.0);
+        assert_eq!(physics.vel.y, 0.0);
+        assert_eq!(physics.vel.z, 1.0);
+    }
+
+    #[test]
+    fn get_forward_speed_2d_is_signed_along_facing() {
+        let mut physics = DummyPhysics {
+            vel: Vec3D::new(-4.0, 0.0, 0.0),
+            stick: false,
+        };
+        // Default facing +X, so backward vel is negative.
+        assert!((physics.get_forward_speed_2d() + 4.0).abs() < 1.0e-5);
+        physics.vel = Vec3D::new(3.0, 0.0, 0.0);
+        assert!((physics.get_forward_speed_2d() - 3.0).abs() < 1.0e-5);
+    }
+}
+

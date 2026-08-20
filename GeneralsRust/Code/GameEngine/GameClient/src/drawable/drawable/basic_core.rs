@@ -150,10 +150,16 @@ impl BasicDrawable {
             }
             return BodyDamageType::Pristine;
         }
-        self.object_id
-            .and_then(|obj_id| OBJECT_REGISTRY.get_object(obj_id))
-            .and_then(|arc| arc.read().ok())
-            .and_then(|obj| obj.get_body_module())
+        let Some(obj_id) = self.object_id else {
+            return BodyDamageType::Pristine;
+        };
+        let Some(arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return BodyDamageType::Pristine;
+        };
+        let Ok(obj) = arc.read() else {
+            return BodyDamageType::Pristine;
+        };
+        obj.get_body_module()
             .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
             .unwrap_or(BodyDamageType::Pristine)
     }
@@ -306,8 +312,15 @@ impl BasicDrawable {
     }
 
     pub(super) fn apply_pending_time_of_day(&mut self) {
-        let Some(tod) = self.pending_time_of_day.take() else {
-            return;
+        let tod = match self
+            .pending_time_of_day
+            .swap(0, std::sync::atomic::Ordering::Relaxed)
+        {
+            1 => TimeOfDay::Morning,
+            2 => TimeOfDay::Afternoon,
+            3 => TimeOfDay::Evening,
+            4 => TimeOfDay::Night,
+            _ => return,
         };
         let mut flags = self.model_condition_flags.clone();
         flags.set(ModelConditionFlags::NIGHT, matches!(tod, TimeOfDay::Night));

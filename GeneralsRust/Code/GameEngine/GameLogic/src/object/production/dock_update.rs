@@ -5,7 +5,8 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::*;
-use crate::helpers::{FindPositionOptions, ThePartitionManager};
+use crate::helpers::{FindPositionOptions, TheGameText, TheInGameUI, ThePartitionManager, TheTerrainLogic};
+
 use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterface};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
@@ -1531,8 +1532,21 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
             }
 
             if display_money {
-                let pos = docker_guard.get_position();
-                let text = format!("+${}", value);
+                let docker_pos = docker_guard.get_position();
+                let mut pos = *docker_pos;
+                pos.z = TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
+                    .unwrap_or(pos.z);
+                let template = TheGameText::fetch("GUI:AddCash");
+                let text = if template.contains("%d") {
+                    template.replace("%d", &value.to_string())
+                } else if template.contains("%i") {
+                    template.replace("%i", &value.to_string())
+                } else if template.is_empty() || template == "GUI:AddCash" {
+                    format!("+${}", value)
+                } else {
+                    format!("{}{}", template, value)
+                };
                 let color = if let Some(owner) =
                     crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
                 {
@@ -1554,7 +1568,7 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
                     Color::white()
                 };
 
-                let _ = crate::helpers::TheInGameUI::add_floating_text(&text, &pos, color);
+                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
             }
         }
 

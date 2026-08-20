@@ -254,14 +254,17 @@ pub use super::host_hacker_income::{
     HACKER_XP_PER_CASH_UPDATE,
 };
 pub use super::host_heal::{
-    ambulance_embarked_heal_hp_per_sec, honesty_ambulance_auto_heal_constants_ok,
-    is_ambulance_healer, is_legal_ambulance_infantry_heal_target,
-    is_legal_ambulance_vehicle_heal_target, HostAmbulanceHealExclusivity,
+    ambulance_embarked_heal_hp_per_sec, ambulance_heal_is_ally, ambulance_pulse_ready,
+    honesty_ambulance_auto_heal_constants_ok, is_ambulance_healer,
+    is_legal_ambulance_infantry_heal_target, is_legal_ambulance_vehicle_heal_target,
+    HostAmbulanceHealExclusivity, HostDefaultAutoHealData, AMBULANCE_HEAL_DELAY_FRAMES,
     AMBULANCE_INFANTRY_HEAL_AMOUNT, AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC,
     AMBULANCE_TRANSPORT_SLOTS, AMBULANCE_VEHICLE_HEAL_AMOUNT,
-    AMBULANCE_VEHICLE_SKIP_SELF_FOR_HEALING, HOST_AMBULANCE_HEAL_RADIUS,
+    AMBULANCE_VEHICLE_SKIP_SELF_FOR_HEALING, DEFAULT_AUTO_HEAL_AMOUNT,
+    DEFAULT_AUTO_HEAL_DELAY_FRAMES, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES, HOST_AMBULANCE_HEAL_RADIUS,
     HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC, HOST_AMBULANCE_VEHICLE_HEAL_HP_PER_SEC,
 };
+
 pub use super::host_helix_minigun::{
     helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
     HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DELAY_FRAMES, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,

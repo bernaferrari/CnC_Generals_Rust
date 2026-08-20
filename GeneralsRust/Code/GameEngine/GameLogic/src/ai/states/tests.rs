@@ -777,3 +777,111 @@ fn temporary_state_frame_end_uses_saturating_add() {
     assert_eq!(ret, StateReturnType::Continue);
     assert_eq!(machine.temporary_state_frame_end, u32::MAX);
 }
+
+#[test]
+fn idle_restake_plan_runs_for_ultra_accurate_and_loco_less() {
+    // C++ AIIdleState::doInitIdleState (AIStates.cpp:1323-1347):
+    // first updateGoal always runs; ultraAccurate only gates the snap.
+    let pos = Coord3D::new(10.0, 20.0, 0.0);
+    let ultra = idle_pathfinder_restake_plan(true, true, pos, true);
+    assert!(ultra.first_restake, "ultra-accurate units still restake");
+    assert!(!ultra.snap, "ultraAccurate gates only the snap");
+
+    let loco_less = idle_pathfinder_restake_plan(true, true, pos, false);
+    assert!(loco_less.first_restake, "loco-less ultraAccurate==false still restakes");
+    assert!(loco_less.snap);
+
+    let zero = idle_pathfinder_restake_plan(true, true, Coord3D::new(0.0, 0.0, 0.0), false);
+    assert!(!zero.first_restake);
+    assert!(!zero.snap);
+
+    let not_idle = idle_pathfinder_restake_plan(false, true, pos, false);
+    assert!(!not_idle.first_restake);
+}
+
+#[test]
+fn fire_weapon_seeds_attack_common_target_only_when_empty() {
+    // C++ AIAttackFireWeaponState::onEnter (AIStates.cpp:5153-5156).
+    assert!(should_seed_attack_common_target(true, true, INVALID_ID));
+    assert!(!should_seed_attack_common_target(true, true, 99));
+    assert!(!should_seed_attack_common_target(true, false, INVALID_ID));
+    assert!(!should_seed_attack_common_target(false, true, INVALID_ID));
+}
+
+#[test]
+fn team_change_abort_clears_matching_team_target() {
+    // C++ AIAttackState::update (AIStates.cpp:5620-5623 / 5605-5607).
+    assert!(team_target_matches_victim(55, 55));
+    assert!(!team_target_matches_victim(INVALID_ID, 55));
+    assert!(!team_target_matches_victim(55, 99));
+    let mut team = Team::new(AsciiString::from("AbortTeam"), 7);
+    assert_eq!(team.get_team_target_object(), INVALID_ID);
+    clear_team_target_object_if_victim(&mut team, 55);
+    assert_eq!(team.get_team_target_object(), INVALID_ID);
+}
+
+
+#[test]
+fn nested_attack_machine_picks_up_parent_goal_change() {
+    // C++ AIAttackState::update (AIStates.cpp:5629-5633).
+    let mut machine = AttackStateMachine::new(Weak::new(), "nested-goal", false, true, false);
+    machine.set_goal_object(Some(11));
+    assert_eq!(machine.get_goal_object_id(), 11);
+    forward_parent_goal_to_nested_machine(&mut machine, 22);
+    assert_eq!(machine.get_goal_object_id(), 22);
+    forward_parent_goal_to_nested_machine(&mut machine, 22);
+    assert_eq!(machine.get_goal_object_id(), 22);
+    forward_parent_goal_to_nested_machine(&mut machine, INVALID_ID);
+    assert_eq!(machine.get_goal_object_id(), 22);
+}
+
+#[test]
+fn attack_on_exit_clears_leech_range_mode() {
+    // C++ AIAttackState::onExit (AIStates.cpp:5690).
+    let _guard = test_guard();
+    let id = 9_101_001;
+    let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    OBJECT_REGISTRY.register_object(id, &object);
+    {
+        let mut owner = object.write().expect("owner write");
+        let mut tmpl = crate::weapon::WeaponTemplate::new("LeechTest".to_string());
+        tmpl.leech_range_weapon = true;
+        let mut set = crate::weapon::WeaponTemplateSet::new();
+        set.weapon_templates[0] = Some(Arc::new(tmpl));
+        owner.weapon_set.add_weapon_template_set(set);
+        let flags = crate::weapon::WeaponSetFlags::new();
+        owner
+            .weapon_set
+            .update_weapon_set(id, &flags)
+            .expect("update weapon set");
+        owner
+            .weapon_set
+            .get_weapon_in_slot_mut(WeaponSlotType::Primary)
+            .expect("primary weapon")
+            .set_leech_range_active(true);
+        assert!(owner
+            .weapon_set
+            .get_weapon_in_slot(WeaponSlotType::Primary)
+            .expect("primary")
+            .has_leech_range());
+    }
+
+    let machine = StateMachine::new(Some(Arc::downgrade(&object)), "leech-exit");
+    let mut state = AIAttackObjectState::new(&machine, false, false);
+    state
+        .classic_on_exit(StateExitType::Normal)
+        .expect("classic_on_exit");
+    {
+        let owner = object.read().expect("owner read");
+        let weapon = owner
+            .weapon_set
+            .get_weapon_in_slot(WeaponSlotType::Primary)
+            .expect("primary after exit");
+        assert!(
+            !weapon.has_leech_range(),
+            "onExit must clear leech-range mode"
+        );
+    }
+    OBJECT_REGISTRY.unregister_object(id);
+}
+

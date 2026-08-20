@@ -526,7 +526,6 @@ impl SliderBase {
         }
 
         let step = self.config.step_size.unwrap_or(1).max(1);
-        let large_step = self.config.page_size;
 
         let new_value = match (self.orientation, key) {
             (SliderOrientation::Horizontal, KeyCode::Right) => self.current_value - (step * 2),
@@ -547,16 +546,10 @@ impl SliderBase {
             }
             (SliderOrientation::Vertical, KeyCode::Up) => self.current_value + (step * 2),
             (SliderOrientation::Vertical, KeyCode::Down) => self.current_value - (step * 2),
-            (_, KeyCode::PageUp) => match self.orientation {
-                SliderOrientation::Horizontal => self.current_value + large_step,
-                SliderOrientation::Vertical => self.current_value - large_step,
-            },
-            (_, KeyCode::PageDown) => match self.orientation {
-                SliderOrientation::Horizontal => self.current_value - large_step,
-                SliderOrientation::Vertical => self.current_value + large_step,
-            },
-            (_, KeyCode::Home) => self.config.min_value,
-            (_, KeyCode::End) => self.config.max_value,
+            // C++ Gadget*SliderInput GWM_CHAR default: Home/End/PgUp/PgDn MSG_IGNORED.
+            (_, KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home | KeyCode::End) => {
+                return Vec::new();
+            }
             _ => return Vec::new(),
         };
 
@@ -1467,4 +1460,21 @@ mod tests {
         slider.set_value(150);
         assert_eq!(slider.value(), 150); // Now within range
     }
+
+    #[test]
+    fn home_end_page_keys_are_ignored_like_cpp() {
+        let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
+            .with_range(0, 10)
+            .with_value(5);
+        slider.set_focus(true);
+        for key in [KeyCode::Home, KeyCode::End, KeyCode::PageUp, KeyCode::PageDown] {
+            let messages = slider.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(messages.is_empty(), "key {key:?} should be ignored");
+            assert_eq!(slider.value(), 5);
+        }
+    }
+
 }

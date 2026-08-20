@@ -612,12 +612,14 @@ impl XferData for CollectorRuntimeSnapshot {
             1 => SupplyTruckState::Wanting,
             2 => SupplyTruckState::DockingWarehouse,
             3 => SupplyTruckState::DockingCenter,
+            4 => SupplyTruckState::Regrouping,
             other => {
                 return Err(SaveLoadError::Corrupted(format!(
                     "Invalid SupplyTruckState value in snapshot: {other}"
                 )))
             }
         };
+
         xfer.xfer_marker_label("SupplyTruckForcePending")?;
         xfer.xfer_bool(&mut self.supply_truck_force_pending)?;
         xfer.xfer_marker_label("SupplyTruckNextDockActionFrame")?;

@@ -3091,6 +3091,10 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 capture_target_effectively_stealthed: false,
                 is_crate: false,
                 is_salvage_crate: false,
+                is_vehicle: false,
+                is_aircraft: false,
+                is_drone: false,
+                is_carbomb: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,

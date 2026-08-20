@@ -1,30 +1,28 @@
 //! Armor Upgrade Module
 //!
-//! Increases unit armor/defense when upgrade is researched.
-//! Matches C++ ArmorUpgrade from ArmorUpgrade.h/.cpp
+//! C++ `ArmorUpgrade` (ArmorUpgrade.h / ArmorUpgrade.cpp). Module data is
+//! UpgradeMux only (`MAKE_STANDARD_MODULE_MACRO`); `upgradeImplementation`
+//! sets `ARMORSET_PLAYER_UPGRADE`. No ArmorBonus / IsMultiplier fields.
 //!
 //! Original C++ Author: Chris Brue, July 2002
 
-use super::super::UpgradeMask;
 use super::upgrade_mux::{UpgradeModuleInterface, UpgradeMux, UpgradeMuxData};
+use crate::upgrade::mask::UpgradeMask;
 use crate::common::*;
 use crate::object::body::ArmorSetType;
 use crate::object::draw::TerrainDecalType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::sync::Arc;
 
-/// Module data for armor upgrade
+/// Module data for armor upgrade.
+/// C++ `ArmorUpgrade.h`: no fields beyond `UpgradeMux` / `UpgradeModule`.
 #[derive(Debug, Clone)]
 pub struct ArmorUpgradeModuleData {
     module_tag_name_key: NameKeyType,
     /// Upgrade mux configuration
     pub upgrade_mux_data: UpgradeMuxData,
-    /// Amount to add to armor
-    pub armor_bonus: Real,
-    /// Whether to multiply armor instead of add
-    pub is_multiplier: bool,
 }
 
 impl Default for ArmorUpgradeModuleData {
@@ -32,15 +30,14 @@ impl Default for ArmorUpgradeModuleData {
         Self {
             module_tag_name_key: 0,
             upgrade_mux_data: UpgradeMuxData::default(),
-            armor_bonus: 0.0,
-            is_multiplier: false,
         }
     }
 }
 
 impl ArmorUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        ini.init_from_ini_with_fields(self, ARMOR_UPGRADE_FIELDS)
+        // C++ ArmorUpgrade.h: MAKE_STANDARD_MODULE_MACRO → UpgradeMux fields only.
+        self.upgrade_mux_data.parse_from_ini(ini)
     }
 }
 
@@ -205,153 +202,22 @@ impl Snapshotable for ArmorUpgrade {
     }
 }
 
-// INI parsing
-fn parse_armor_bonus(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.armor_bonus = INI::parse_real(value)?;
-    Ok(())
-}
-
-fn parse_is_multiplier(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.is_multiplier = INI::parse_bool(value)?;
-    Ok(())
-}
-
-fn parse_triggered_by(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .activation_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_conflicts_with(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .conflicting_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_removes_upgrades(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .removal_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
-}
-
-fn parse_requires_all_triggers(
-    _ini: &mut INI,
-    data: &mut ArmorUpgradeModuleData,
-    tokens: &[&str],
-) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
-    Ok(())
-}
-
-const ARMOR_UPGRADE_FIELDS: &[FieldParse<ArmorUpgradeModuleData>] = &[
-    FieldParse {
-        token: "TriggeredBy",
-        parse: parse_triggered_by,
-    },
-    FieldParse {
-        token: "ConflictsWith",
-        parse: parse_conflicts_with,
-    },
-    FieldParse {
-        token: "RemovesUpgrades",
-        parse: parse_removes_upgrades,
-    },
-    FieldParse {
-        token: "RequiresAllTriggers",
-        parse: parse_requires_all_triggers,
-    },
-    FieldParse {
-        token: "ArmorBonus",
-        parse: parse_armor_bonus,
-    },
-    FieldParse {
-        token: "IsMultiplier",
-        parse: parse_is_multiplier,
-    },
-];
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_armor_upgrade_data_default() {
+    fn test_armor_upgrade_data_has_no_invented_fields() {
+        // C++ ArmorUpgrade.h:45-60 — UpgradeMux only; no ArmorBonus/IsMultiplier.
         let data = ArmorUpgradeModuleData::default();
-        assert_eq!(data.armor_bonus, 0.0);
-        assert!(!data.is_multiplier);
+        assert!(data.upgrade_mux_data.activation_upgrade_names.is_empty());
+        assert!(!data.upgrade_mux_data.requires_all_triggers);
     }
 
     #[test]
-    fn test_armor_upgrade_additive() {
-        let mut data = ArmorUpgradeModuleData::default();
-        data.armor_bonus = 5.0;
-        data.is_multiplier = false;
-
-        let data = Arc::new(data);
-        let mut upgrade = ArmorUpgrade::new(1, data, 100);
-
-        let mut obj = Object::new_test(100, 100.0);
-        upgrade.upgrade_implementation(&mut obj);
-        assert!(!upgrade.is_already_upgraded());
-    }
-
-    #[test]
-    fn test_armor_upgrade_multiplier() {
-        let mut data = ArmorUpgradeModuleData::default();
-        data.armor_bonus = 0.5; // 50% increase
-        data.is_multiplier = true;
-
-        let data = Arc::new(data);
+    fn test_armor_upgrade_sets_player_upgrade_flag() {
+        // C++ ArmorUpgrade::upgradeImplementation (ArmorUpgrade.cpp:63-74).
+        let data = Arc::new(ArmorUpgradeModuleData::default());
         let mut upgrade = ArmorUpgrade::new(1, data, 100);
 
         let mut obj = Object::new_test(100, 100.0);

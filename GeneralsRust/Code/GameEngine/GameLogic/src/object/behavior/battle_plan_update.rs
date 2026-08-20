@@ -740,6 +740,29 @@ impl BattlePlanUpdate {
         stop_audio(&mut self.hold_the_line_pack);
     }
 
+    /// C++ `BattlePlanUpdate::onDelete` (`BattlePlanUpdate.cpp:164-191`).
+    /// Vision object teardown + invert army bonuses. Not `onDie`.
+    fn on_delete(&mut self) {
+        if let Some(vision_id) = self.vision_object_id {
+            let _ = TheGameLogic::destroy_object_by_id(vision_id);
+        }
+
+        if self.plan_affecting_army != BattlePlanStatus::None {
+            let Some(player) = self.with_object(|object| object.get_controlling_player()) else {
+                return;
+            };
+            if let Some(player) = player {
+                let plan_type = match self.plan_affecting_army {
+                    BattlePlanStatus::Bombardment => BattlePlanType::Bombard,
+                    BattlePlanStatus::HoldTheLine => BattlePlanType::HoldTheLine,
+                    BattlePlanStatus::SearchAndDestroy => BattlePlanType::SearchAndDestroy,
+                    BattlePlanStatus::None => unreachable!(),
+                };
+                player.change_battle_plan(plan_type, -1, &self.bonuses);
+            }
+        }
+    }
+
     fn set_battle_plan(&mut self, plan: BattlePlanStatus) {
         let Some(player) = self.with_object(|object| object.get_controlling_player()) else {
             return;
@@ -1145,33 +1168,6 @@ impl BehaviorModuleInterface for BattlePlanUpdate {
         Ok(())
     }
 
-    fn on_die(
-        &mut self,
-        _damage_info: &crate::damage::DamageInfo,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.stop_all_transition_audio();
-
-        if let Some(vision_id) = self.vision_object_id {
-            let _ = TheGameLogic::destroy_object_by_id(vision_id);
-        }
-
-        if self.plan_affecting_army != BattlePlanStatus::None {
-            let Some(player) = self.with_object(|object| object.get_controlling_player()) else {
-                return Ok(());
-            };
-            if let Some(player) = player {
-                let plan_type = match self.plan_affecting_army {
-                    BattlePlanStatus::Bombardment => BattlePlanType::Bombard,
-                    BattlePlanStatus::HoldTheLine => BattlePlanType::HoldTheLine,
-                    BattlePlanStatus::SearchAndDestroy => BattlePlanType::SearchAndDestroy,
-                    BattlePlanStatus::None => unreachable!(),
-                };
-                player.change_battle_plan(plan_type, -1, &self.bonuses);
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for BattlePlanUpdate {
@@ -1551,5 +1547,114 @@ impl Module for BattlePlanUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        // C++ BattlePlanUpdate::onObjectCreated (BattlePlanUpdate.cpp:196-240)
+        // Live dispatch is Module::on_object_created, not BehaviorModuleInterface.
+        let _ = BehaviorModuleInterface::on_object_created(&mut self.behavior);
+    }
+
+    fn on_delete(&mut self) {
+        // C++ BattlePlanUpdate::onDelete (BattlePlanUpdate.cpp:164-191)
+        // Object::onDestroy walks Module::on_delete; BattlePlanUpdate is not a Die module.
+        self.behavior.on_delete();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::registry::{test_isolation_lock, OBJECT_REGISTRY};
+    use crate::player::{player_list, Player};
+    use crate::team::Team;
+
+    fn make_module(
+        object: Arc<RwLock<GameObject>>,
+        special_power_template: Option<SpecialPowerTemplateId>,
+    ) -> BattlePlanUpdateModule {
+        let mut data = BattlePlanUpdateModuleData::default();
+        data.special_power_template = special_power_template;
+        let data = Arc::new(data);
+        let engine_data: Arc<dyn ModuleData> = data.clone();
+        let behavior = BattlePlanUpdate::new(object, engine_data).expect("BattlePlanUpdate");
+        BattlePlanUpdateModule::new(behavior, &AsciiString::from("BattlePlanUpdate"), data)
+    }
+
+    #[test]
+    fn module_on_object_created_sets_veteran_weapon_set_like_cpp() {
+        // C++ BattlePlanUpdate::onObjectCreated (BattlePlanUpdate.cpp:232)
+        // Live Object::invoke_on_object_created_after_install calls Module::on_object_created.
+        let _lock = test_isolation_lock().lock().unwrap();
+        OBJECT_REGISTRY.clear();
+        let id: ObjectID = 0x00B0_7001;
+        let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        OBJECT_REGISTRY.register_object(id, &object);
+
+        let mut module = make_module(Arc::clone(&object), Some(1));
+        assert!(!object.read().unwrap().test_weapon_set_flag(WeaponSetType::Veteran));
+
+        Module::on_object_created(&mut module);
+
+        assert!(
+            object.read().unwrap().test_weapon_set_flag(WeaponSetType::Veteran),
+            "Strategy Center must select WEAPONSET_VETERAN on create"
+        );
+
+        OBJECT_REGISTRY.unregister_object(id);
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn module_on_delete_clears_army_battle_plan_like_cpp() {
+        // C++ BattlePlanUpdate::onDelete (BattlePlanUpdate.cpp:186-189)
+        // Cleanup is onDelete, not onDie. Object::onDestroy walks Module::on_delete.
+        let _lock = test_isolation_lock().lock().unwrap();
+        OBJECT_REGISTRY.clear();
+        let id: ObjectID = 0x00B0_7002;
+        let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+        OBJECT_REGISTRY.register_object(id, &object);
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        let player_index = {
+            let mut list = player_list().write().unwrap();
+            list.add_player(Arc::clone(&player));
+            (list.get_player_count() - 1) as u32
+        };
+
+        let team = Arc::new(RwLock::new(Team::new("BattlePlanTest".into(), 0x00B0_7102)));
+        team.write()
+            .unwrap()
+            .set_controlling_player_id(Some(player_index));
+        object
+            .write()
+            .unwrap()
+            .set_team(Some(team))
+            .expect("set_team");
+
+        let mut module = make_module(Arc::clone(&object), Some(1));
+        module.behavior.plan_affecting_army = BattlePlanStatus::Bombardment;
+        module.behavior.bonuses.bombardment = 1;
+
+        player.write().unwrap().change_battle_plan(
+            BattlePlanType::Bombard,
+            1,
+            &module.behavior.bonuses,
+        );
+        assert_eq!(
+            player.read().unwrap().get_battle_plan_count(BattlePlanType::Bombard),
+            1
+        );
+
+        Module::on_delete(&mut module);
+
+        assert_eq!(
+            player.read().unwrap().get_battle_plan_count(BattlePlanType::Bombard),
+            0,
+            "selling/destroying Strategy Center must invert army battle-plan bonuses"
+        );
+
+        OBJECT_REGISTRY.unregister_object(id);
+        OBJECT_REGISTRY.clear();
     }
 }

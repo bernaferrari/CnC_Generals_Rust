@@ -586,13 +586,23 @@ impl InGameUI {
     // C++: InGameUI::createAttackHint() (InGameUI.cpp:2176)
     // C++: InGameUI::expireHint() (InGameUI.cpp:3812)
 
+    /// C++ `InGameUI::setInputEnabled` (InGameUI.cpp:3382-3409).
+    /// `!enable` always cancels rubber-band select. Modes clear only on the
+    /// `wasEnabled && !enable` edge so pause cannot leave Ctrl/Alt/Shift/numpad
+    /// camera stuck after the key is released while input is disabled.
+    pub fn set_input_enabled(&mut self, enabled: bool) {
+        self.set_input_enabled_and_clear_modes(enabled);
+    }
+
     pub fn set_input_enabled_and_clear_modes(&mut self, enabled: bool) {
         if !enabled {
             self.set_selecting(false);
         }
 
-        if !enabled {
-            // C++: Clear all special modes when input is disabled (cinematic safety)
+        let was_enabled = self.enabled;
+        self.enabled = enabled;
+
+        if Self::should_clear_modes_on_input_disable(was_enabled, enabled) {
             self.force_attack_mode = false;
             self.force_move_to_mode = false;
             self.waypoint_mode = false;
@@ -602,8 +612,58 @@ impl InGameUI {
             self.camera_zooming_in = false;
             self.camera_zooming_out = false;
         }
-        self.enabled = enabled;
     }
+
+    /// C++ `InGameUI.cpp:3391` — falling edge of `m_inputEnabled`.
+    pub(crate) fn should_clear_modes_on_input_disable(was_enabled: bool, enable: bool) -> bool {
+        was_enabled && !enable
+    }
+
+    /// C++ `InGameUI::triggerDoubleClickAttackMoveGuardHint` (InGameUI.cpp:1314-1318).
+    pub fn trigger_double_click_attack_move_guard_hint(&mut self) {
+        let pos = Self::mouse_screen_to_terrain_for_guard_hint();
+        Self::arm_double_click_attack_move_guard_hint(
+            &mut self.double_click_attack_move_guard_timer,
+            &mut self.guard_hint_stashed_position,
+            pos,
+        );
+        TheInGameUI::trigger_double_click_attack_move_guard_hint();
+        // createCommandHint (InGameUI.cpp:2526-2534) holds these after the trigger;
+        // arm them here so leftover handleRadiusCursor has a decal to fade.
+        self.set_mouse_cursor(MouseCursor::ForceAttackGround);
+        self.set_radius_cursor(RadiusCursorType::GuardArea, pos, 1.0);
+    }
+
+    fn mouse_screen_to_terrain_for_guard_hint() -> Coord3D {
+        let (mx, my) = with_mouse(|mouse| mouse.state().position());
+        let screen = IPoint2::new(mx as i32, my as i32);
+        with_tactical_view_ref(|view| {
+            view.screen_to_terrain(&screen)
+                .ok()
+                .map(|point| Coord3D::new(point.x, point.y, point.z))
+        })
+        .unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
+    }
+
+    /// C++ `InGameUI.cpp:1316` — timer is hard-coded to 11 frames.
+    pub(crate) fn arm_double_click_attack_move_guard_hint(
+        timer: &mut u32,
+        stash: &mut Coord3D,
+        pos: Coord3D,
+    ) {
+        Self::arm_double_click_attack_move_guard_timer(timer);
+        *stash = pos;
+    }
+
+    pub fn arm_double_click_attack_move_guard_timer(timer: &mut u32) {
+        *timer = DOUBLE_CLICK_ATTACK_MOVE_GUARD_HINT_FRAMES;
+    }
+
+    pub fn should_clear_modes_on_input_enable_change(was_enabled: bool, enable: bool) -> bool {
+        Self::should_clear_modes_on_input_disable(was_enabled, enable)
+    }
+
+
     fn ignored_gui_slaver_id_from_presentation(&self, object_id: ObjectID) -> Option<ObjectID> {
         // Wave 1000: host empty dual-world → presentation catalog slaver residual.
         let entry = self
@@ -744,12 +804,13 @@ impl InGameUI {
 
     fn consume_double_click_attack_move_guard_hint(timer: &mut u32) -> bool {
         if *timer == 0 {
-            return false;
+            return TheInGameUI::consume_double_click_attack_move_guard_hint();
         }
 
         *timer -= 1;
         *timer > 0
     }
+
 
     fn default_command_hint_blocked_by_source(source_locally_controlled: Option<bool>) -> bool {
         source_locally_controlled == Some(false)
@@ -1013,7 +1074,8 @@ impl InGameUI {
         // after a double-click attack-move to prevent spurious cursor flicker.
         if Self::consume_double_click_attack_move_guard_hint(
             &mut self.double_click_attack_move_guard_timer,
-        ) {
+        ) || TheInGameUI::consume_double_click_attack_move_guard_hint()
+        {
             self.set_mouse_cursor(MouseCursor::ForceAttackGround);
             self.set_radius_cursor(
                 RadiusCursorType::GuardArea,
@@ -1033,7 +1095,13 @@ impl InGameUI {
 
         let under_window = Self::cursor_is_under_opaque_window();
 
-        match self.mouse_mode {
+        let mouse_mode = if TheInGameUI::get_mouse_mode() == MouseMode::GuiCommand {
+            MouseMode::GuiCommand
+        } else {
+            self.mouse_mode
+        };
+        match mouse_mode {
+
             MouseMode::Default => {
                 // C++: InGameUI.cpp:2585-2688
                 // This section only applies when there is no specific cursor mode happening.

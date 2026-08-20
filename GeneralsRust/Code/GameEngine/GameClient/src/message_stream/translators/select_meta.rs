@@ -1,4 +1,4 @@
-//! C++ CommandXlat.cpp MSG_META_SELECT_NEXT/PREV_UNIT and MSG_META_SELECT_ALL.
+//! C++ CommandXlat.cpp MSG_META_SELECT_NEXT/PREV_UNIT, NEXT/PREV_WORKER, and MSG_META_SELECT_ALL.
 
 use super::*;
 
@@ -71,6 +71,62 @@ pub(super) fn handle_select_next_or_prev_unit(next: bool) -> Vec<GameMessageType
         if let Some(idx) = candidates.iter().position(|(id, _)| *id == current_id) {
             if next {
                 // Drawable list is prepended; NEXT walks backwards.
+                candidates[(idx + candidates.len() - 1) % candidates.len()].clone()
+            } else {
+                candidates[(idx + 1) % candidates.len()].clone()
+            }
+        } else if next {
+            candidates[candidates.len() - 1].clone()
+        } else {
+            candidates[0].clone()
+        }
+    } else if next {
+        candidates[candidates.len() - 1].clone()
+    } else {
+        candidates[0].clone()
+    };
+
+    apply_single_selection(pick.0);
+    look_at_object_position(&pick.1);
+    vec![GameMessageType::CreateSelectedGroup(true, vec![pick.0])]
+}
+
+fn is_select_worker_candidate(obj: &gamelogic::object::Object, require_mobile: bool) -> bool {
+    if require_mobile && !obj.is_mobile() {
+        return false;
+    }
+    obj.is_locally_controlled() && !obj.is_contained() && obj.is_kind_of(KindOf::Dozer)
+}
+
+fn collect_select_worker_candidates(require_mobile: bool) -> Vec<(ObjectID, Coord3D)> {
+    let mut out = Vec::new();
+    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+        let Ok(obj) = obj_ref.read() else {
+            continue;
+        };
+        if !is_select_worker_candidate(&obj, require_mobile) {
+            continue;
+        }
+        let pos = obj.get_position();
+        out.push((obj.get_id(), Coord3D::new(pos.x, pos.y, pos.z)));
+    }
+    out
+}
+
+/// C++ CommandXlat.cpp:2573-2798 `MSG_META_SELECT_NEXT/PREV_WORKER`.
+/// Next walks the prepended drawable list backwards and accepts KINDOF_DOZER.
+/// Prev also requires `isMobile()`. Neither path includes harvesters.
+pub(super) fn handle_select_next_or_prev_worker(next: bool) -> Vec<GameMessageType> {
+    let candidates = collect_select_worker_candidates(!next);
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let current = current_selected_ids();
+    let current_id = current.first().copied();
+    let pick = if let Some(current_id) = current_id {
+        if let Some(idx) = candidates.iter().position(|(id, _)| *id == current_id) {
+            if next {
                 candidates[(idx + candidates.len() - 1) % candidates.len()].clone()
             } else {
                 candidates[(idx + 1) % candidates.len()].clone()

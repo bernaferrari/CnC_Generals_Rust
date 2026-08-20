@@ -400,8 +400,39 @@ impl ModuleData for W3DModelDrawModuleData {
         self.module_tag_name_key
     }
 
+    fn get_as_w3d_model_draw_module_data(&self) -> Option<&dyn Any> {
+        Some(self)
+    }
+
+    fn get_minimum_required_game_lod(&self) -> game_engine::thing::StaticGameLodLevel {
+        match self.min_lod_required {
+            1 => game_engine::thing::StaticGameLodLevel::Medium,
+            n if n >= 2 => game_engine::thing::StaticGameLodLevel::High,
+            _ => game_engine::thing::StaticGameLodLevel::Low,
+        }
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+impl W3DModelDrawModuleData {
+    /// C++ Drawable ctor: skip when Extra Animations is off and this module needs a higher LOD.
+    pub fn should_skip_for_draw_module_lod(&self) -> bool {
+        let use_lod = game_engine::common::global_data::read().use_draw_module_lod;
+        if !use_lod {
+            return false;
+        }
+        let current = match game_engine::common::game_lod::get_static_lod()
+            .to_ascii_uppercase()
+            .as_str()
+        {
+            "LOW" => 0,
+            "HIGH" => 2,
+            _ => 1,
+        };
+        self.min_lod_required > current
     }
 }
 

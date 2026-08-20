@@ -10,16 +10,20 @@ use crate::radius_decal::{
 use crate::terrain::terrain_tracks::TerrainTrackHeightProvider;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use crate::terrain::TerrainVisual;
-use gamelogic::common::{Coord3D, ObjectID, Real};
+use crate::render_bridge::THE_RENDER_BRIDGE;
+use gamelogic::common::{Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
-    register_preload_asset_hook, register_terrain_decal_client, register_terrain_track_client,
-    register_texture_aspect_hook, TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient,
+    register_preload_asset_hook, register_pristine_bone_lookup_hook,
+    register_terrain_decal_client, register_terrain_track_client, register_texture_aspect_hook,
+    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient,
 };
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::{Arc, Once};
+use ww3d_assets::prototypes::HlodPrototype;
+
 
 struct TerrainHeight;
 impl TerrainTrackHeightProvider for TerrainHeight {
@@ -194,6 +198,41 @@ fn texture_aspect(name: &str) -> Option<f32> {
     None
 }
 
+fn pivot_name(bytes: &[u8; 16]) -> String {
+    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+/// C++ `Create_Render_Obj` + `Get_Bone_Index` / `Get_Bone_Transform` at identity×scale.
+fn lookup_pristine_bone(
+    model: &str,
+    scale: Real,
+    _frame: i32,
+    bone: &str,
+) -> Option<(i32, Matrix3D)> {
+    let guard = THE_RENDER_BRIDGE.lock().ok()?;
+    let bridge = guard.as_ref()?;
+    let assets = bridge.asset_manager();
+    let hierarchy = assets.get_hierarchy_prototype(model).or_else(|| {
+        assets
+            .get_prototype_as::<HlodPrototype>(model)
+            .and_then(|hlod| assets.get_hierarchy_prototype(&hlod.hierarchy_name))
+    })?;
+    let idx = hierarchy
+        .pivots
+        .iter()
+        .position(|pivot| pivot_name(&pivot.name).eq_ignore_ascii_case(bone))?;
+    let mut mtx = hierarchy
+        .bind_transforms
+        .get(idx)
+        .copied()
+        .unwrap_or(Mat4::IDENTITY);
+    if scale.is_finite() && (scale - 1.0).abs() > f32::EPSILON {
+        mtx = Mat4::from_scale(Vec3::splat(scale)) * mtx;
+    }
+    Some((idx as i32, mtx))
+}
+
 fn preload_asset(name: &str) {
     log::debug!("W3DModelDraw preload_assets: {name}");
 }
@@ -210,6 +249,7 @@ pub fn ensure_logic_draw_hooks() {
         }));
         register_texture_aspect_hook(texture_aspect);
         register_preload_asset_hook(preload_asset);
+        register_pristine_bone_lookup_hook(Some(Arc::new(lookup_pristine_bone)));
         let _ = TheGameLogic::get_frame();
     });
 }

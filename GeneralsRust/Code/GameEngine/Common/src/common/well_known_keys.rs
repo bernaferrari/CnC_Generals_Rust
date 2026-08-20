@@ -55,6 +55,7 @@ static OBJECT_SOUND_AMBIENT_PRIORITY: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_NAME: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_OWNER: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_IS_SINGLETON: OnceCell<NameKeyType> = OnceCell::new();
+static TEAM_HOME: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_IS_AI_RECRUITABLE: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_IS_BASE_DEFENSE: OnceCell<NameKeyType> = OnceCell::new();
 static TEAM_IS_PERIMETER_DEFENSE: OnceCell<NameKeyType> = OnceCell::new();
@@ -300,6 +301,10 @@ pub fn key_team_owner() -> NameKeyType {
 
 pub fn key_team_is_singleton() -> NameKeyType {
     key_for("teamIsSingleton", &TEAM_IS_SINGLETON)
+}
+
+pub fn key_team_home() -> NameKeyType {
+    key_for("teamHome", &TEAM_HOME)
 }
 
 pub fn key_team_is_ai_recruitable() -> NameKeyType {

@@ -1073,6 +1073,27 @@ impl UpgradeMuxData {
         self.requires_all_triggers = value;
     }
 
+    pub fn add_activation_upgrade_name(&mut self, name: AsciiString) {
+        self.activation_upgrade_names.push(name);
+    }
+
+    pub fn add_conflicting_upgrade_name(&mut self, name: AsciiString) {
+        self.conflicting_upgrade_names.push(name);
+    }
+
+    pub fn add_removal_upgrade_name(&mut self, name: AsciiString) {
+        self.removal_upgrade_names.push(name);
+    }
+
+    pub fn set_fx_list_upgrade_name(&mut self, name: AsciiString) {
+        if name.is_empty() || name.as_str().eq_ignore_ascii_case("None") {
+            self.fx_list_upgrade = None;
+        } else {
+            self.fx_list_upgrade = Some(Arc::new(name));
+        }
+    }
+
+
     pub fn activation_upgrade_names(&self) -> &[AsciiString] {
         &self.activation_upgrade_names
     }

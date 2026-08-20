@@ -45,16 +45,10 @@ pub fn with_create_owner_mut(object_id: ObjectID, f: impl FnOnce(&mut Object)) {
     if object_id == 0 {
         return;
     }
-    let applied = CREATE_OWNER.with(|cell| {
-        if let Some(ptr) = cell.get() {
-            // SAFETY: `with_create_owner_object` keeps `&mut Object` live on this thread.
-            f(unsafe { &mut *ptr.as_ptr() });
-            true
-        } else {
-            false
-        }
-    });
-    if applied {
+    let owner_ptr = CREATE_OWNER.with(|cell| cell.get());
+    if let Some(ptr) = owner_ptr {
+        // SAFETY: `with_create_owner_object` keeps `&mut Object` live on this thread.
+        f(unsafe { &mut *ptr.as_ptr() });
         return;
     }
     let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {

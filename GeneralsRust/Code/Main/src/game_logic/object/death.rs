@@ -465,6 +465,7 @@ impl Object {
         &mut self,
         actual_damage: f32,
         current_frame: u32,
+        damage_type_ordinal: u32,
     ) -> Option<String> {
         self.ensure_fire_weapon_when_damaged();
         let Some(fw) = self.fire_weapon_when_damaged.as_mut() else {
@@ -475,6 +476,7 @@ impl Object {
             self.health.current,
             self.health.maximum.max(self.max_health).max(1.0),
             current_frame,
+            damage_type_ordinal,
         )
     }
 

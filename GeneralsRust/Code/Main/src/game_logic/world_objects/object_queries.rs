@@ -36,11 +36,21 @@ impl GameLogic {
 
     /// Find the nearest supply center (refinery/supply dropzone) for a team.
 
-    /// Nearest alive harvestable supply pile residual for gather re-target.
     pub(in super::super) fn find_nearest_harvestable_supply(
         &self,
         team: Team,
         from: Vec3,
+    ) -> Option<ObjectId> {
+        self.find_nearest_harvestable_supply_within(team, from, None)
+    }
+
+    /// C++ `ResourceGatheringManager::findBestSupplyWarehouse` scan cap.
+    /// `max_scan` is already AI-doubled via `warehouse_scan_distance`.
+    pub(in super::super) fn find_nearest_harvestable_supply_within(
+        &self,
+        team: Team,
+        from: Vec3,
+        max_scan: Option<f32>,
     ) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
                       // Pure residual acquire: nearest harvestable supply pile (3D distance).
@@ -64,8 +74,6 @@ impl GameLogic {
                         || obj.is_kind_of(KindOf::Harvestable)
                         || obj.object_type == ObjectType::Supply)
                 {
-                    // Some piles use infinite residual; only skip if explicitly zero and
-                    // Harvestable with supplies field used as stock. Fail-open if never depleted.
                     if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
                         return None;
                     }
@@ -86,12 +94,13 @@ impl GameLogic {
                 )
             })
             .collect();
+        let scan = max_scan.filter(|d| *d > 0.0).unwrap_or(f32::MAX);
         crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
             ObjectId(u32::MAX),
             Team::Neutral,
             from,
             candidates,
-            |_| f32::MAX,
+            |_| scan,
             |_| true,
         )
         .map(|(id, _, _)| id)

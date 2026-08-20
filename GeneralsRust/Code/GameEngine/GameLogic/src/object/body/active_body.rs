@@ -178,7 +178,6 @@ fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     let Some(partition) = ThePartitionManager::get() else {
         return;
     };
-    let victim_player_id = victim.get_controlling_player_id();
     let damager_id = damager.get_id();
     let candidates = partition.get_objects_in_range_boundary_2d(victim.get_position(), friends_radius);
     for friend_id in candidates {
@@ -186,7 +185,7 @@ fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
             continue;
         }
         let _ = OBJECT_REGISTRY.with_object(friend_id, |them| {
-            if them.get_controlling_player_id() != victim_player_id {
+            if them.relationship_to(victim) != Relationship::Allies {
                 return;
             }
             if !should_retaliate(them) {
@@ -1087,9 +1086,8 @@ impl ActiveBody {
     /// Perform damage FX using the resolved template, respecting throttling.
     fn do_damage_fx(&mut self, damage_info: &DamageInfo) -> BodyResult<()> {
         let dealt = damage_info.output.actual_damage_dealt;
-        if dealt <= 0.0 {
-            return Ok(());
-        }
+        // C++ ActiveBody.cpp:297-316 doDamageFX records last type + throttle
+        // even when actualDamageDealt is 0. Do not drop bookkeeping first.
 
         // C++ ActiveBody::doDamageFX applies visual override when requested.
         let mut damage_type_to_use = damage_info.input.damage_type;
@@ -1176,6 +1174,50 @@ impl ActiveBody {
         }
 
         OBJECT_REGISTRY.get_object(self.owner_id)
+    }
+
+    /// C++ ActiveBody::setIndestructible mirrors the flag onto KINDOF_BRIDGE towers.
+    fn mirror_indestructible_to_bridge_towers(&mut self, indestructible: bool) {
+        use crate::object::behavior::behavior_module::BridgeTowerType;
+        let Some(owner) = self.get_owner() else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        if !owner_guard.is_kind_of(KindOf::Bridge) {
+            return;
+        }
+        let mut tower_ids = Vec::new();
+        for behavior in owner_guard.get_behavior_modules() {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(interface) = guard.get_bridge_behavior_interface() {
+                for tower_type in [
+                    BridgeTowerType::North,
+                    BridgeTowerType::South,
+                    BridgeTowerType::East,
+                    BridgeTowerType::West,
+                ] {
+                    let id = interface.get_tower_id(tower_type);
+                    if id != INVALID_ID {
+                        tower_ids.push(id);
+                    }
+                }
+                break;
+            }
+        }
+        drop(owner_guard);
+        for id in tower_ids {
+            let _ = OBJECT_REGISTRY.with_object(id, |tower| {
+                if let Some(body) = tower.get_body() {
+                    if let Ok(mut body_guard) = body.lock() {
+                        let _ = body_guard.set_indestructible(indestructible);
+                    }
+                }
+            });
+        }
     }
 
     fn for_each_damage_module_mut(
@@ -2000,8 +2042,16 @@ impl BodyModuleInterface for ActiveBody {
                 return Ok(0.0);
             }
             DamageType::Sniper => {
-                // Sniper damage is a normal damage type for units; special casing for
-                // under-construction structures is handled at a higher level.
+                // C++ ActiveBody.cpp:281-287 — pathfinder vs stinger site.
+                if let Some(owner) = self.get_owner() {
+                    if let Ok(owner_guard) = owner.read() {
+                        if owner_guard.is_kind_of(KindOf::Structure)
+                            && owner_guard.test_status(ObjectStatusTypes::UnderConstruction)
+                        {
+                            return Ok(0.0);
+                        }
+                    }
+                }
             }
             _ => {}
         }
@@ -2121,11 +2171,26 @@ impl BodyModuleInterface for ActiveBody {
 
         // Handle promotion (increase in level)
         if old_level < new_level {
-            if provide_feedback {
-                // Play appropriate promotion sound
+            if let Some(owner) = self.get_owner() {
+                if let Ok(owner_guard) = owner.read() {
+                    if provide_feedback {
+                        let event = match new_level {
+                            VeterancyLevel::Veteran => {
+                                owner_guard.get_template().get_sound_promoted_veteran()
+                            }
+                            VeterancyLevel::Elite => {
+                                owner_guard.get_template().get_sound_promoted_elite()
+                            }
+                            VeterancyLevel::Heroic => {
+                                owner_guard.get_template().get_sound_promoted_hero()
+                            }
+                            _ => crate::common::audio::AudioEventRts::default(),
+                        };
+                        play_object_template_sound(&owner_guard, event);
+                    }
+                    crate::control_bar::mark_ui_dirty();
+                }
             }
-
-            // Mark UI dirty if object is selected
         }
 
         let (old_bonus, new_bonus) = if let Some(data) = game_engine::common::ini::get_global_data()
@@ -2412,7 +2477,17 @@ impl BodyModuleInterface for ActiveBody {
         }
 
         if changed_state {
-            self.evaluate_visual_condition()?;
+            // C++ ActiveBody.cpp:1219 — skip damaged-art while building.
+            let under_construction = match self.get_owner() {
+                Some(owner) => owner
+                    .read()
+                    .map(|guard| guard.test_status(ObjectStatusTypes::UnderConstruction))
+                    .unwrap_or(false),
+                None => false,
+            };
+            if !under_construction {
+                self.evaluate_visual_condition()?;
+            }
         }
 
         Ok(())
@@ -2421,14 +2496,12 @@ impl BodyModuleInterface for ActiveBody {
     fn set_indestructible(&mut self, indestructible: bool) -> BodyResult<()> {
         if let Ok(mut state) = self.state.write() {
             state.indestructible = indestructible;
-
-            // For bridges, would mirror this state on towers
-            // This would involve looking up tower objects and setting their indestructible flag
-
-            Ok(())
         } else {
-            Err(BodyError::OperationNotSupported)
+            return Err(BodyError::OperationNotSupported);
         }
+        // C++ ActiveBody.cpp:1350-1384 — bridges mirror to towers.
+        self.mirror_indestructible_to_bridge_towers(indestructible);
+        Ok(())
     }
 
     fn is_indestructible(&self) -> bool {

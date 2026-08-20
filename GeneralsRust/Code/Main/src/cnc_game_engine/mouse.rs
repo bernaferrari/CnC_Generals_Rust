@@ -372,13 +372,21 @@ impl CnCGameEngine {
         let ctrl_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
         let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
-        if is_double_click && clicked_object.is_some() && !ctrl_down {
-            // C++ SelectionXlat.cpp:453-501 — double-click type-select; ALT is map-wide.
-            if let Some(object_id) = clicked_object {
-                self.select_similar_units_for_double_click(object_id, alt_down);
+        if is_double_click && !ctrl_down {
+            // C++ SelectionXlat.cpp:453-521 consumes LEFT_DOUBLE_CLICK when a
+            // mass-selectable unit is picked. CommandXlat.cpp:3698-3713 only
+            // sees leftover terrain clicks for DoGuardPosition.
+            if clicked_object.is_some() {
+                if let Some(object_id) = clicked_object {
+                    self.select_similar_units_for_double_click(object_id, alt_down);
+                }
+                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+                return;
             }
-            self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
-            return;
+            if self.host_try_double_click_guard_command(false) {
+                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
+                return;
+            }
         }
 
         let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
@@ -524,6 +532,10 @@ impl CnCGameEngine {
             return;
         }
 
+        if !self.host_selection_can_force_attack(location, target_object) {
+            return;
+        }
+
         let command_type = if let Some(tid) = target_object {
             crate::command_system::CommandType::ForceAttackObject { target_id: tid }
         } else {
@@ -542,6 +554,87 @@ impl CnCGameEngine {
             },
         });
         self.host_process_commands_with_command_sound();
+    }
+
+    fn host_note_right_double_click(&mut self) -> bool {
+        let now = Instant::now();
+        let mouse_pos = self.mouse_world_position;
+        let is_double = if let (Some(last_time), Some(last_pos)) =
+            (self.last_right_click_time, self.last_right_click_position)
+        {
+            let time_delta = now.duration_since(last_time).as_millis();
+            let pos_delta = (mouse_pos - last_pos).length();
+            time_delta < 500 && pos_delta < 10.0
+        } else {
+            false
+        };
+        self.last_right_click_time = Some(now);
+        self.last_right_click_position = Some(mouse_pos);
+        is_double
+    }
+
+    /// C++ CommandXlat.cpp:3635-3713 double-click attack-move → MSG_DO_GUARD_POSITION.
+    fn host_try_double_click_guard_command(&mut self, right_click: bool) -> bool {
+        let double_click_attack_move =
+            game_engine::common::global_data::read().double_click_attack_move;
+        if !double_click_attack_move {
+            return false;
+        }
+        let should_issue_guard = if right_click {
+            self.use_alternate_mouse
+        } else {
+            !self.use_alternate_mouse
+        };
+        if !should_issue_guard {
+            return false;
+        }
+
+        let mut selected = self.ui_selected_ids(self.current_player_id);
+        if selected.is_empty() {
+            selected = self.selected_objects.clone();
+        }
+        if !selected.is_empty() {
+            self.host_queue_command(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::Guard {
+                    target: crate::command_system::GuardTarget::Position(self.mouse_world_position),
+                    mode: crate::game_logic::GuardMode::Normal,
+                },
+                player_id: self.current_player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: selected,
+                modifier_keys: crate::command_system::ModifierKeys {
+                    ctrl: false,
+                    shift: false,
+                    alt: false,
+                },
+            });
+            self.host_process_commands_with_command_sound();
+        }
+        #[cfg(feature = "game_client")]
+        game_client::helpers::TheInGameUI::trigger_double_click_attack_move_guard_hint();
+        true
+    }
+
+    /// C++ `canAnyForceAttack` / `canObjectForceAttack` (CommandXlat.cpp:152-267).
+    fn host_selection_can_force_attack(
+        &self,
+        location: Vec3,
+        target_object: Option<ObjectId>,
+    ) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        let selected = self.ui_selected_ids(self.current_player_id);
+        for id in selected {
+            let Some(attacker) = frame.objects.iter().find(|o| o.id == id) else {
+                continue;
+            };
+            if presentation_object_can_force_attack(frame, attacker, target_object, location) {
+                return true;
+            }
+        }
+        false
     }
 
     pub(super) fn select_similar_units(&mut self, clicked_object_id: ObjectId) {
@@ -743,6 +836,9 @@ impl CnCGameEngine {
         origin: MouseInputOrigin,
         physical_rmb_gesture: bool,
     ) -> bool {
+        if self.host_note_right_double_click() && self.host_try_double_click_guard_command(true) {
+            return true;
+        }
         self.handle_context_click(origin, physical_rmb_gesture)
     }
 
@@ -798,6 +894,9 @@ impl CnCGameEngine {
                     winit::keyboard::Key::Named(winit::keyboard::NamedKey::Alt)
                 )
             });
+        if ctrl && !self.host_selection_can_force_attack(mouse_pos, target_object) {
+            return false;
+        }
 
         let context = crate::command_system::MouseCommandContext {
             world_position: mouse_pos,
@@ -832,6 +931,17 @@ impl CnCGameEngine {
         );
 
         if let Some(mut command) = command {
+            let is_force_attack = matches!(
+                command.command_type,
+                crate::command_system::CommandType::ForceAttackObject { .. }
+                    | crate::command_system::CommandType::ForceAttackGround { .. }
+            );
+            if is_force_attack
+                && !self.host_selection_can_force_attack(mouse_pos, target_object)
+            {
+                // C++ evaluateForceAttack DO_COMMAND posts nothing when not possible.
+                return false;
+            }
             let crate_pickup = target_object
                 .and_then(|id| self.presentation_target_hint(id))
                 .is_some_and(|hint| hint.is_crate && !hint.is_salvage_crate);
@@ -2281,6 +2391,19 @@ impl CnCGameEngine {
             capture_target_effectively_stealthed: o.effectively_stealthed,
             is_crate: o.is_crate,
             is_salvage_crate: o.is_salvage_crate,
+            is_vehicle: crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Vehicle,
+            ),
+            is_aircraft: crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Aircraft,
+            ),
+            is_drone: crate::presentation_frame::PresentationFrame::object_has_kind(
+                o,
+                crate::game_logic::KindOf::Drone,
+            ),
+            is_carbomb: o.is_carbomb,
         })
     }
 
@@ -2583,6 +2706,111 @@ impl CnCGameEngine {
 
 }
 
+fn presentation_closest_spawn_or_rider<'a>(
+    frame: &'a crate::presentation_frame::PresentationFrame,
+    attacker: &crate::presentation_frame::RenderableObject,
+    pos: Vec3,
+    slaves: bool,
+) -> Option<&'a crate::presentation_frame::RenderableObject> {
+    let mut best: Option<(&crate::presentation_frame::RenderableObject, f32)> = None;
+    for other in &frame.objects {
+        if other.destroyed {
+            continue;
+        }
+        let is_match = if slaves {
+            other.producer_id == Some(attacker.id)
+        } else {
+            other.contained_by == Some(attacker.id)
+                || attacker.garrisoned_units.iter().any(|id| *id == other.id)
+        };
+        if !is_match {
+            continue;
+        }
+        let dx = other.position.x - pos.x;
+        let dz = other.position.z - pos.z;
+        let dist_sq = dx * dx + dz * dz;
+        if best.map(|(_, d)| dist_sq < d).unwrap_or(true) {
+            best = Some((other, dist_sq));
+        }
+    }
+    best.map(|(obj, _)| obj)
+}
+
+fn presentation_weapon_reaches(
+    attacker: &crate::presentation_frame::RenderableObject,
+    pos: Vec3,
+) -> bool {
+    if !attacker.has_weapon {
+        return false;
+    }
+    if attacker.weapon_range <= 0.0 {
+        return true;
+    }
+    let dx = attacker.position.x - pos.x;
+    let dz = attacker.position.z - pos.z;
+    (dx * dx + dz * dz).sqrt() <= attacker.weapon_range
+}
+
+/// C++ `canObjectForceAttack` (CommandXlat.cpp:152-244) on the presentation freeze.
+fn presentation_is_spawns_are_the_weapons(
+    attacker: &crate::presentation_frame::RenderableObject,
+) -> bool {
+    attacker.hive_slave_count > 0
+        || crate::game_logic::host_base_defense::is_stinger_site_structure(&attacker.template_name)
+        || crate::game_logic::host_fire_base::is_fire_base_template(&attacker.template_name)
+}
+
+fn presentation_object_can_force_attack(
+    frame: &crate::presentation_frame::PresentationFrame,
+    attacker: &crate::presentation_frame::RenderableObject,
+    victim: Option<ObjectId>,
+    pos: Vec3,
+) -> bool {
+    use crate::game_logic::KindOf;
+    use crate::presentation_frame::PresentationFrame;
+
+    if let Some(victim_id) = victim {
+        let Some(target) = frame.objects.iter().find(|o| o.id == victim_id) else {
+            return false;
+        };
+        if target.destroyed || target.sold {
+            return false;
+        }
+        let target_pos = target.position;
+        let mut possible = attacker.has_weapon;
+        if presentation_is_spawns_are_the_weapons(attacker) {
+            if !possible {
+                if let Some(slave) =
+                    presentation_closest_spawn_or_rider(frame, attacker, target_pos, true)
+                {
+                    possible = slave.has_weapon;
+                }
+            } else if let Some(rider) =
+                presentation_closest_spawn_or_rider(frame, attacker, target_pos, false)
+            {
+                if rider.has_weapon {
+                    return true;
+                }
+            }
+        }
+        return possible;
+    }
+
+    let mut test = attacker;
+    if PresentationFrame::object_has_kind(attacker, KindOf::Immobile)
+        || presentation_is_spawns_are_the_weapons(attacker)
+    {
+        if let Some(slave) = presentation_closest_spawn_or_rider(frame, attacker, pos, true) {
+            test = slave;
+        } else if !presentation_weapon_reaches(attacker, pos) {
+            if let Some(rider) = presentation_closest_spawn_or_rider(frame, attacker, pos, false) {
+                test = rider;
+            }
+        }
+    }
+    presentation_weapon_reaches(test, pos)
+}
+
 #[cfg(test)]
 mod camera_pick_tests {
     use super::*;
@@ -2689,5 +2917,23 @@ mod camera_pick_tests {
         let after_reset_target = look_at;
         assert_ne!(after_reset_target, Vec3::ZERO);
         assert!((LOOKAT_DEFAULT_PITCH_DEG - 37.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn force_attack_and_double_click_guard_follow_command_xlat() {
+        // C++ CommandXlat.cpp:152-244 / 3635-3713.
+        let src = include_str!("mouse.rs");
+        assert!(
+            src.contains("fn host_selection_can_force_attack")
+                && src.contains("presentation_is_spawns_are_the_weapons")
+                && src.contains("presentation_closest_spawn_or_rider"),
+            "live force-attack must gate on canObjectForceAttack spawn/rider"
+        );
+        assert!(
+            src.contains("fn host_try_double_click_guard_command")
+                && src.contains("CommandType::Guard")
+                && src.contains("GuardMode::Normal"),
+            "double-click attack-move must post DoGuardPosition / Guard Normal"
+        );
     }
 }

@@ -263,6 +263,7 @@ impl CnCGameEngine {
                 science_names,
                 special_power_name,
                 special_power_id: _,
+                exit_object_id: _,
             } => self.host_apply_control_bar_direct(
                 &command_name,
                 command_type,

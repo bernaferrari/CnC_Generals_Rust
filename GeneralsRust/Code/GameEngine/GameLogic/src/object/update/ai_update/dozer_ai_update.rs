@@ -824,6 +824,11 @@ impl DozerAIUpdate {
         if !ActionManager::can_repair_object(&*owner_guard, &*target_guard, cmd_source) {
             return;
         }
+        // C++ DozerAIUpdate::privateRepair — sole healer, not builder_id.
+        let sole = target_guard.get_sole_healing_benefactor();
+        if sole != INVALID_ID && sole != self.object_id {
+            return;
+        }
         self.new_task(DozerTask::Repair, target_id);
         self.dozer_task = Some(DozerActionTask {
             task_type: DozerTask::Repair,
@@ -860,14 +865,23 @@ impl DozerAIUpdate {
         if !ActionManager::can_resume_construction_of(&*owner_guard, &*target_guard, cmd_source) {
             return;
         }
+        // C++ privateResumeConstruction -> newTask(DOZER_TASK_BUILD) uses
+        // calcTimeToBuild, not a 1-frame collapse (DozerAIUpdate.cpp:515).
+        let frames = target_guard.get_template().calc_time_to_build(None).max(1) as u32;
+        let max_health = target_guard
+            .get_body_module()
+            .and_then(|body| body.lock().ok().map(|g| g.get_max_health()))
+            .unwrap_or(0.0);
+        drop(owner_guard);
+        drop(target_guard);
         self.new_task(DozerTask::Build, target_id);
         self.dozer_task = Some(DozerActionTask {
             task_type: DozerTask::Build,
             target_id,
             dock_point: None,
             failed_attempts: 0,
-            build_total_frames: 0,
-            build_max_health: 0.0,
+            build_total_frames: frames,
+            build_max_health: max_health,
             is_rebuild: false,
             started_construction: false,
         });
@@ -1123,6 +1137,7 @@ impl DozerAIUpdate {
             .get_geometry_info()
             .get_bounding_sphere_radius();
         let target_builder_id = target_guard.get_builder_id();
+        let target_sole = target_guard.get_sole_healing_benefactor();
         let target_is_bridge_tower = target_guard.is_kind_of(KindOf::BridgeTower);
         let target_body = target_guard.get_body_module();
         let target_body_max = target_body
@@ -1181,7 +1196,7 @@ impl DozerAIUpdate {
             }
             DozerActionState::DoAction => match task.task_type {
                 DozerTask::Repair => {
-                    if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
+                    if target_sole != INVALID_ID && target_sole != self.object_id {
                         self.internal_task_complete(DozerTask::Repair);
                         return;
                     }
@@ -1195,29 +1210,42 @@ impl DozerAIUpdate {
                             return;
                         }
                     }
-                    if let Some(body) = target_body.as_ref() {
-                        if let Ok(mut body_guard) = body.lock() {
-                            let max_health = body_guard.get_max_health();
-                            let current = body_guard.get_health();
-                            if max_health > 0.0 {
-                                let delta = max_health
-                                    * self.get_repair_health_per_second()
-                                    * SECONDS_PER_LOGICFRAME_REAL;
-                                let new_health = (current + delta).min(max_health);
-                                let _ = body_guard.set_health(new_health);
-                                if new_health >= max_health {
-                                    if target_is_bridge_tower {
-                                        self.remove_bridge_scaffolding(task.target_id);
-                                    }
-                                    self.internal_task_complete(DozerTask::Repair);
-                                    return;
-                                }
-                            }
-                        } else {
-                            self.internal_task_complete(DozerTask::Repair);
-                            return;
+                    let health = target_body_max
+                        * self.get_repair_health_per_second()
+                        * SECONDS_PER_LOGICFRAME_REAL;
+                    let healed = if let (Ok(owner_guard), Ok(mut target_write)) =
+                        (owner.read(), target.write())
+                    {
+                        match target_write.attempt_healing_from_sole_benefactor(
+                            health,
+                            Some(&*owner_guard),
+                            2,
+                        ) {
+                            Ok(ok) => ok,
+                            Err(_) => false,
                         }
                     } else {
+                        false
+                    };
+                    if !healed {
+                        self.internal_task_complete(DozerTask::Repair);
+                        return;
+                    }
+                    let full = target
+                        .read()
+                        .ok()
+                        .and_then(|g| g.get_body_module())
+                        .and_then(|b| {
+                            b.lock().ok().map(|body| {
+                                body.get_max_health() > 0.0
+                                    && body.get_health() >= body.get_max_health() - 0.01
+                            })
+                        })
+                        .unwrap_or(false);
+                    if full {
+                        if target_is_bridge_tower {
+                            self.remove_bridge_scaffolding(task.target_id);
+                        }
                         self.internal_task_complete(DozerTask::Repair);
                         return;
                     }
@@ -1240,11 +1268,18 @@ impl DozerAIUpdate {
                         } else {
                             target_body_max
                         };
+                        let frames = if task.build_total_frames > 0 {
+                            task.build_total_frames
+                        } else if let Ok(tg) = target.read() {
+                            tg.get_template().calc_time_to_build(None).max(1) as u32
+                        } else {
+                            1
+                        };
                         let _ = manager.start_construction(
                             task.target_id,
                             self.object_id,
                             max_health,
-                            task.build_total_frames.max(1),
+                            frames,
                             task.is_rebuild,
                         );
                         task.started_construction = true;

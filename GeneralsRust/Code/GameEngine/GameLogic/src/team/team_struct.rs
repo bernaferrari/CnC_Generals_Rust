@@ -48,7 +48,7 @@ pub struct Team {
     script_on_unit_destroyed: AsciiString,
 
     // Common attack target
-    common_attack_target: ObjectID,
+    common_attack_target: Cell<ObjectID>,
 
     // Current waypoint for group pathing (matches C++ Team::setCurrentWaypoint)
     current_waypoint_id: Option<WaypointId>,

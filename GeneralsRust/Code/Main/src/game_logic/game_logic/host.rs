@@ -292,7 +292,9 @@ pub struct GameLogic {
     /// ambulance: radius AutoHeal infantry HP ticks (AmericaVehicleMedic residual).
     /// heal_pad: SeekingHealing HP ticks at HealPad.
     pub(super) heal_residual_ambulance_heals: u32,
+    pub(super) ambulance_auto_heal_pulse_accum: f32,
     pub(super) heal_residual_heal_pad_heals: u32,
+
 
     /// Host China Propaganda / Speaker Tower residual honesty counters.
     /// Fail-closed: not full PropagandaTowerBehavior sole-benefactor / upgrade FX matrix.
@@ -316,6 +318,13 @@ pub struct GameLogic {
         std::collections::HashMap<ObjectId, Vec<AirfieldParkingSpace>>,
     /// C++ ParkingPlaceBehavior runway in-use residual (airfield → runway slots → jet).
     pub(super) runway_reservations: std::collections::HashMap<ObjectId, Vec<Option<ObjectId>>>,
+    /// C++ `RunwayInfo::m_nextInLineForTakeoff` (same length as `runway_reservations`).
+    pub(super) airfield_runway_next_in_line:
+        std::collections::HashMap<ObjectId, Vec<Option<ObjectId>>>,
+    /// C++ `RunwayInfo::m_wasInLine` (same length as `runway_reservations`).
+    pub(super) airfield_runway_was_in_line: std::collections::HashMap<ObjectId, Vec<bool>>,
+    /// Produced-at-helipad exits waiting for the next airfield tick (`HeliPark01` + rally).
+    pub(super) airfield_pending_helipad_exits: std::collections::HashMap<ObjectId, ObjectId>,
 
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.
@@ -791,7 +800,7 @@ pub struct GameLogic {
     pub(super) jarmen_kell_residual_ap_upgrades: u32,
 
     /// Host residual: China Battlemaster tank gun + Uranium / horde / nationalism honesty.
-    /// Fail-closed: not full HordeUpdate RubOff / Nuclear Tanks death residual.
+    /// HordeUpdate RubOff + terrain-decal fade residual closed.
     pub(super) battlemaster_residual_fires: u32,
     pub(super) battlemaster_residual_units_hit: u32,
     pub(super) battlemaster_residual_uranium_upgrades: u32,
@@ -799,7 +808,8 @@ pub struct GameLogic {
     pub(crate) battlemaster_residual_horde_grants: u32,
 
     /// Host residual: China Red Guard gun + bayonet + horde / nationalism honesty.
-    /// Fail-closed: not full WeaponSet tertiary auto-choose / RubOff matrix.
+    /// Fail-closed: not full WeaponSet tertiary auto-choose matrix.
+
     pub(super) red_guard_residual_fires: u32,
     pub(super) red_guard_residual_bayonet_kills: u32,
     pub(super) red_guard_residual_nationalism_upgrades: u32,

@@ -46,6 +46,10 @@ pub struct Locomotor {
 
     /// Last 3D motive acceleration (wu/frame^2) from appearance movers.
     last_motive_accel: Coord3D,
+    /// C++ `moveTowardsPositionWheels` turnFactor (Locomotor.cpp:1438-1444).
+    /// 1.0 except on the wheels move-towards path, where it is |speed|/turnSpeed in [0, 1].
+    wheeled_turn_factor: Real,
+
 
     /// Flags
     flags: u32,
@@ -107,6 +111,7 @@ impl Locomotor {
             last_obstacle_check: 0,
             donut_timer,
             last_motive_accel: Coord3D::new(0.0, 0.0, 0.0),
+            wheeled_turn_factor: 1.0,
             flags: if template.is_close_enough_dist_3d {
                 FLAG_CLOSE_ENOUGH_3D
                     | (if offset_increasing {

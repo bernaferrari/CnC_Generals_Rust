@@ -801,12 +801,12 @@ impl CnCGameEngine {
                 self.cycle_idle_military_selection(-1);
             }
             Key::Character(c) if (c == "." || c == ">") && !ctrl_down => {
-                // Retail-ish next idle worker residual (period key).
-                self.cycle_friendly_worker_selection(1);
+                // Retail SELECT_IDLE_WORKER residual (period key).
+                self.host_select_next_idle_worker_from_control_bar();
             }
             Key::Character(c) if c == "," || c == "<" => {
-                // Previous idle worker residual (comma key).
-                self.cycle_friendly_worker_selection(-1);
+                // Previous idle worker residual (comma key) — same C++ idle list.
+                self.host_select_next_idle_worker_from_control_bar();
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("w")
@@ -1673,7 +1673,7 @@ fn os_key_to_command_map_vk(key: &winit::keyboard::Key) -> Option<u32> {
         Key::Named(NamedKey::F10) => Some(0x79),
         Key::Named(NamedKey::F11) => Some(0x7A),
         Key::Named(NamedKey::F12) => Some(0x7B),
-        Key::Named(NamedKey::Numpad5) => Some(0x65),
+        Key::Character(ch) if ch.as_str() == "5" => Some(0x65),
         _ => None,
     }
 }

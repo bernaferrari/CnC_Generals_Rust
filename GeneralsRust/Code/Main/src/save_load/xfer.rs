@@ -229,6 +229,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // Append-only identifier.  Crate click salvage/pickup must survive
         // save/load without occupying a presentation KindOf bit.
         KindOf::Crate => 54,
+        KindOf::IgnoresSelectAll => 55,
     }
 }
 
@@ -289,6 +290,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         52 => Ok(KindOf::SupplySource),
         53 => Ok(KindOf::CannotBuildNearSupplies),
         54 => Ok(KindOf::Crate),
+        55 => Ok(KindOf::IgnoresSelectAll),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

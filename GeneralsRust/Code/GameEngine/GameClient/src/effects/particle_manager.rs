@@ -820,12 +820,6 @@ impl ParticleSystemManager {
 
         if let Some(system) = self.active_systems.get_mut(&system_id) {
             system.attach_to_object(object_id);
-            if let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(guard) = object.read() {
-                    let pos = *guard.get_position();
-                    system.set_position(nalgebra::Point3::new(pos.x, pos.y, pos.z));
-                }
-            }
         }
 
         Ok(system_id)
@@ -958,7 +952,6 @@ impl ParticleSystemManager {
                             particle.controlled_system = Some(att_id);
                             if let Some(att) = self.active_systems.get_mut(&att_id) {
                                 att.set_control_particle_position(particle.position);
-                                att.set_position(particle.position);
                             }
                         }
                     }
@@ -1005,7 +998,6 @@ impl ParticleSystemManager {
         for (att_id, pos) in control_pairs {
             if let Some(att) = self.active_systems.get_mut(&att_id) {
                 att.set_control_particle_position(pos);
-                att.set_position(pos);
             }
         }
 

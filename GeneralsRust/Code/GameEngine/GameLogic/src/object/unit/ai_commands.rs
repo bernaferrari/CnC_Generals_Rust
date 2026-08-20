@@ -76,6 +76,16 @@ impl UnitAIUpdate {
             }
         }
 
+        // C++ POWTruckAIUpdate::aiDoCommand: any CMD_FROM_PLAYER first
+        // aiIdle(CMD_FROM_AI) + setTask(WAITING), then the new command.
+        #[cfg(feature = "allow_surrender")]
+        if command.cmd_source == crate::ai::CommandSourceType::FromPlayer {
+            if let Some(pow_ai) = self.pow_truck_ai.as_mut() {
+                pow_ai.on_player_command();
+            }
+        }
+
+
         self.last_command_source = command.cmd_source;
         self.current_command = Some(command.cmd);
         if self.jet_ai.is_some() {
@@ -598,6 +608,13 @@ impl UnitAIUpdate {
                                         command.int_value,
                                         command.cmd_source,
                                     );
+                                }
+                            }
+                            drop(guard);
+                            let clearing_mines = self.is_clearing_mines();
+                            if let Some(worker_ai) = self.worker_ai.as_mut() {
+                                if clearing_mines {
+                                    worker_ai.drop_all_boxes_if_carrying();
                                 }
                             }
                             return Ok(());
@@ -1368,6 +1385,15 @@ impl UnitAIUpdate {
                 }
             }
             _ => {}
+        }
+
+        drop(guard);
+        // C++ WorkerAIUpdate::aiDoCommand (WorkerAIUpdate.cpp:1043-1050).
+        let clearing_mines = self.is_clearing_mines();
+        if let Some(worker_ai) = self.worker_ai.as_mut() {
+            if clearing_mines {
+                worker_ai.drop_all_boxes_if_carrying();
+            }
         }
 
         Ok(())

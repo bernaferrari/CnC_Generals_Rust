@@ -134,11 +134,11 @@ impl ControlBar {
             let score_create_bit = 1u64 << 46;
             let score_destroy_bit = 1u64 << 47;
 
-            let num_units = player.count_objects_by_kindof(score_bit, struct_bit);
+            let num_units = player.count_objects_by_kindof(score_bit as u128, struct_bit as u128);
 
-            let num_buildings = player.count_objects_by_kindof(score_bit | struct_bit, 0)
-                + player.count_objects_by_kindof(score_create_bit | struct_bit, 0)
-                + player.count_objects_by_kindof(score_destroy_bit | struct_bit, 0);
+            let num_buildings = player.count_objects_by_kindof((score_bit | struct_bit) as u128, 0)
+                + player.count_objects_by_kindof((score_create_bit | struct_bit) as u128, 0)
+                + player.count_objects_by_kindof((score_destroy_bit | struct_bit) as u128, 0);
 
             let score_keeper = player.get_score_keeper();
             let units_killed = score_keeper.get_total_units_destroyed();

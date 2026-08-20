@@ -169,6 +169,8 @@ pub struct ListBox {
     audio_feedback: bool,
     scroll_if_at_end: bool,
     force_select: bool,
+    up_button: bool,
+    down_button: bool,
     columns: u32,
     column_width_percentages: Vec<u32>,
     last_right_click: Option<ListBoxRightClick>,
@@ -196,7 +198,7 @@ impl ListBox {
             hovered_index: None,
             scroll_offset: 0,
             item_height: 18,
-            double_click_ms: 500,
+            double_click_ms: os_double_click_time_ms(),
             last_click: None,
             last_double_click_index: None,
             callback: None,
@@ -215,6 +217,8 @@ impl ListBox {
             one_line: false,
             wrap_font_height: 18,
             wrap_char_width: 8,
+            up_button: false,
+            down_button: false,
         }
     }
 
@@ -374,6 +378,12 @@ impl ListBox {
 
     pub fn set_force_select(&mut self, force_select: bool) {
         self.force_select = force_select;
+    }
+
+    /// C++ listboxes only wheel-simulate `upButton`/`downButton` in multi-select.
+    pub fn set_scroll_buttons(&mut self, up_button: bool, down_button: bool) {
+        self.up_button = up_button;
+        self.down_button = down_button;
     }
 
     pub fn set_columns(&mut self, columns: u32) {
@@ -1269,6 +1279,33 @@ impl ListBox {
         }]
     }
 
+    /// C++ single-list wheel always scrolls; multi-list only if up/down buttons exist.
+    fn handle_wheel(&mut self, wheel_down: bool) -> Vec<GadgetMessage> {
+        if self.items.is_empty() {
+            return Vec::new();
+        }
+        if self.selection_mode == SelectionMode::Multiple {
+            let has_button = if wheel_down {
+                self.down_button
+            } else {
+                self.up_button
+            };
+            if !has_button {
+                return Vec::new();
+            }
+        }
+        let before = self.scroll_offset;
+        self.scroll_by(if wheel_down { 1 } else { -1 });
+        if self.scroll_offset == before {
+            Vec::new()
+        } else {
+            vec![GadgetMessage::Custom {
+                gadget_id: self.id,
+                data: "input_handled".to_string(),
+            }]
+        }
+    }
+
     fn select_next_matching_initial(&mut self, ch: char) -> bool {
         if self.selection_mode != SelectionMode::Single || self.items.is_empty() {
             return false;
@@ -1528,6 +1565,8 @@ impl Gadget for ListBox {
             }
             InputEvent::MouseDown { x, y, button } => {
                 if *button == MouseButton::Left && self.bounds.contains_point(*x, *y) {
+                    // C++ GadgetListBox LEFT_UP/RIGHT_UP call winSetFocus.
+                    self.set_focus(true);
                     self.state = GadgetState::Pressed;
                     if self.audio_feedback {
                         if let Some(audio) = TheAudio::get() {
@@ -1535,26 +1574,47 @@ impl Gadget for ListBox {
                             audio.add_audio_event(&event);
                         }
                     }
+                    return vec![GadgetMessage::FocusChanged {
+                        gadget_id: self.id,
+                        has_focus: true,
+                    }];
                 }
                 if *button == MouseButton::Right {
+                    self.set_focus(true);
                     if self.audio_feedback {
                         if let Some(audio) = TheAudio::get() {
                             let event = AudioEventRts::new("GUIComboBoxClick");
                             audio.add_audio_event(&event);
                         }
                     }
-                    return vec![GadgetMessage::Custom {
-                        gadget_id: self.id,
-                        data: "input_handled".to_string(),
-                    }];
+                    return vec![
+                        GadgetMessage::FocusChanged {
+                            gadget_id: self.id,
+                            has_focus: true,
+                        },
+                        GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "input_handled".to_string(),
+                        },
+                    ];
                 }
                 Vec::new()
             }
             InputEvent::MouseUp { x, y, button } => {
                 self.state = GadgetState::Normal;
                 if *button == MouseButton::Left {
-                    self.handle_click(*x, *y, KeyModifiers::none())
+                    self.set_focus(true);
+                    let mut messages = self.handle_click(*x, *y, KeyModifiers::none());
+                    messages.insert(
+                        0,
+                        GadgetMessage::FocusChanged {
+                            gadget_id: self.id,
+                            has_focus: true,
+                        },
+                    );
+                    messages
                 } else if *button == MouseButton::Right {
+                    self.set_focus(true);
                     let index = self
                         .item_at_position(*x, *y)
                         .map(|idx| idx as i32)
@@ -1564,7 +1624,20 @@ impl Gadget for ListBox {
                         mouse_x: *x,
                         mouse_y: *y,
                     });
-                    vec![GadgetMessage::RightClicked { gadget_id: self.id }]
+                    vec![
+                        GadgetMessage::FocusChanged {
+                            gadget_id: self.id,
+                            has_focus: true,
+                        },
+                        GadgetMessage::RightClicked { gadget_id: self.id },
+                    ]
+                } else {
+                    Vec::new()
+                }
+            }
+            InputEvent::MouseWheel { x, y, delta } => {
+                if self.bounds.contains_point(*x, *y) {
+                    self.handle_wheel(*delta < 0)
                 } else {
                     Vec::new()
                 }
@@ -1629,59 +1702,9 @@ impl Gadget for ListBox {
                             value: GadgetValue::Integer(next as i32),
                         }];
                     }
-                    KeyCode::Home => {
-                        if self.selection_mode == SelectionMode::Multiple {
-                            return Vec::new();
-                        }
-                        if !self.items.is_empty() && self.select_index(0, *modifiers) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(0),
-                            }];
-                        }
-                    }
-                    KeyCode::End => {
-                        if self.selection_mode == SelectionMode::Multiple {
-                            return Vec::new();
-                        }
-                        if !self.items.is_empty() {
-                            let last = self.items.len() - 1;
-                            if self.select_index(last, *modifiers) {
-                                return vec![GadgetMessage::ValueChanged {
-                                    gadget_id: self.id,
-                                    value: GadgetValue::Integer(last as i32),
-                                }];
-                            }
-                        }
-                    }
-
-                    KeyCode::PageUp => {
-                        if self.selection_mode == SelectionMode::Multiple {
-                            return Vec::new();
-                        }
-                        let visible = self.visible_rows();
-                        let current = self.selected_indices.first().copied().unwrap_or(0);
-                        let next = current.saturating_sub(visible);
-                        if self.select_index(next, *modifiers) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(next as i32),
-                            }];
-                        }
-                    }
-                    KeyCode::PageDown => {
-                        if self.selection_mode == SelectionMode::Multiple {
-                            return Vec::new();
-                        }
-                        let visible = self.visible_rows();
-                        let current = self.selected_indices.first().copied().unwrap_or(0);
-                        let next = (current + visible).min(self.items.len().saturating_sub(1));
-                        if self.select_index(next, *modifiers) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(next as i32),
-                            }];
-                        }
+                    // C++ GadgetListBoxInput ignores Home/End/PgUp/PgDn (default MSG_IGNORED).
+                    KeyCode::Home | KeyCode::End | KeyCode::PageUp | KeyCode::PageDown => {
+                        return Vec::new();
                     }
                     KeyCode::Char(ch) => {
                         self.select_next_matching_initial(*ch);
@@ -2585,4 +2608,79 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn single_select_home_end_page_keys_are_ignored_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.add_item_with_id(30, "Charlie");
+        listbox.set_focus(true);
+        listbox.select_index(1, KeyModifiers::none());
+
+        for key in [KeyCode::Home, KeyCode::End, KeyCode::PageUp, KeyCode::PageDown] {
+            let messages = listbox.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(messages.is_empty(), "key {key:?} should be ignored");
+            assert_eq!(listbox.selected_indices(), &[1]);
+        }
+    }
+
+    #[test]
+    fn click_sets_keyboard_focus_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.add_item_with_id(10, "Alpha");
+        assert!(!listbox.has_focus());
+
+        let messages = listbox.handle_input(&InputEvent::MouseDown {
+            x: 1,
+            y: 1,
+            button: MouseButton::Left,
+        });
+        assert!(listbox.has_focus());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::FocusChanged {
+                gadget_id: 7,
+                has_focus: true
+            }]
+        ));
+    }
+
+    #[test]
+    fn double_click_window_uses_os_get_double_click_time() {
+        let listbox = ListBox::new(7, 0, 0, 100, 40);
+        assert_eq!(listbox.double_click_ms, os_double_click_time_ms());
+        assert_ne!(listbox.double_click_ms, 0);
+    }
+
+    #[test]
+    fn multi_list_wheel_requires_buttons_like_cpp() {
+        let mut listbox =
+            ListBox::new(7, 0, 0, 100, 36).with_selection_mode(SelectionMode::Multiple);
+        for i in 0..8 {
+            listbox.add_item_with_id(i, format!("Row {i}"));
+        }
+        assert_eq!(listbox.scroll_offset(), 0);
+
+        let without = listbox.handle_input(&InputEvent::MouseWheel {
+            x: 1,
+            y: 1,
+            delta: -1,
+        });
+        assert!(without.is_empty());
+        assert_eq!(listbox.scroll_offset(), 0);
+
+        listbox.set_scroll_buttons(true, true);
+        let with_buttons = listbox.handle_input(&InputEvent::MouseWheel {
+            x: 1,
+            y: 1,
+            delta: -1,
+        });
+        assert_eq!(custom_message(&with_buttons, "input_handled"), Some("input_handled"));
+        assert_eq!(listbox.scroll_offset(), 1);
+    }
+
 }

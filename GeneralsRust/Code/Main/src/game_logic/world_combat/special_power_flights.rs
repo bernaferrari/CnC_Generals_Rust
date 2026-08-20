@@ -1272,6 +1272,53 @@ impl GameLogic {
         self.combat_chinook.record_unload();
     }
 
+    /// C++ `ChinookAIUpdate::update` residual: auto-land / evac / HeadOffMap / combat-drop height.
+    pub fn tick_chinook_ai(&mut self, dt: f32) {
+        let step = (dt * crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_LOCOMOTOR_SPEED)
+            .max(1.0);
+        let ids: Vec<_> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.chinook_ai.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let wanting = self.objects.values().any(|o| {
+                o.target == Some(id)
+                    && matches!(o.ai_state, AIState::Entering | AIState::Docking)
+            }) || self
+                .objects
+                .get(&id)
+                .is_some_and(|c| c.pending_evacuate_on_stop);
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let Some(ai) = obj.chinook_ai.as_mut() else {
+                continue;
+            };
+            let p = obj.get_position();
+            ai.pos = [p.x, p.z, p.y];
+            ai.parent_idle = !obj.status.moving && obj.movement.path.is_empty();
+            ai.wanting_enter_or_exit = wanting;
+            ai.contained_count = obj.contained_units().len() as u32;
+            ai.tick(step);
+            obj.set_position(glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]));
+            obj.loco_preferred_height = if matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                    | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+            ) {
+                0.0
+            } else {
+                ai.preferred_height
+            };
+            if ai.destroyed {
+                obj.status.destroyed = true;
+            }
+        }
+    }
+
+
     /// Residual honesty: Combat Chinook load → docked → unload path.
     pub fn honesty_combat_chinook_load_unload_ok(&self) -> bool {
         self.combat_chinook.honesty_load_unload_ok()

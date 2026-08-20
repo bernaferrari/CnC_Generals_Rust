@@ -18,6 +18,8 @@ impl Locomotor {
         mut object: Option<&mut crate::object::Object>,
     ) -> (Coord3D, Real, Real) {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
+        self.wheeled_turn_factor = 1.0;
+
 
         let max_speed = self.get_max_speed_for_condition(condition);
         let desired_speed = desired_speed.min(max_speed);
@@ -54,6 +56,11 @@ impl Locomotor {
         if let Some(physics) = physics.as_mut() {
             physics.apply_motive_force(&Coord3D::new(0.0, 0.0, 0.0));
         }
+
+        let current_speed = physics
+            .as_ref()
+            .map(|p| p.get_forward_speed_2d())
+            .unwrap_or(current_speed);
 
         let mut blocked = blocked;
         if blocked {
@@ -161,6 +168,10 @@ impl Locomotor {
         }
 
         if was_braking {
+            let cheat_speed = physics
+                .as_ref()
+                .map(|p| p.get_forward_speed_2d())
+                .unwrap_or(speed);
             let cheat = self.braking_cheat_step(
                 current,
                 target,
@@ -168,7 +179,7 @@ impl Locomotor {
                 dy,
                 dz,
                 dist_2d,
-                speed,
+                cheat_speed,
                 object
                     .as_ref()
                     .map(|obj| obj.is_kind_of(crate::common::KindOf::Projectile))

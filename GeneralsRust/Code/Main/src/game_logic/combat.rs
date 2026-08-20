@@ -16,6 +16,9 @@ pub enum DamageType {
     Toxin,
     Radiation,
     EMP,
+    /// C++ DAMAGE_MICROWAVE (Damage.h:63) — ordinary HP through armor.
+    /// Not IsSubdualDamage. Host EMP remains a leftover alias of this type.
+    Microwave,
     Flame,
     Anthrax,
     Unresistable,
@@ -104,7 +107,7 @@ impl DamageType {
             G::SubdualVehicle => Self::SubdualVehicle,
             G::SubdualBuilding => Self::SubdualBuilding,
             G::SubdualUnresistable => Self::SubdualUnresistable,
-            G::Microwave => Self::EMP,
+            G::Microwave => Self::Microwave,
             G::KillGarrisoned => Self::KillGarrisoned,
             G::Status => Self::Status,
             G::DamageNumTypes => Self::Unresistable,
@@ -121,7 +124,7 @@ impl DamageType {
             Self::Laser => G::Laser,
             Self::Toxin | Self::Anthrax => G::Poison,
             Self::Radiation => G::Radiation,
-            Self::EMP => G::Microwave,
+            Self::EMP | Self::Microwave => G::Microwave,
             Self::Unresistable => G::Unresistable,
             Self::Falling => G::Falling,
             Self::Status => G::Status,
@@ -165,6 +168,21 @@ impl DamageType {
                 | Self::SubdualVehicle
                 | Self::SubdualBuilding
                 | Self::SubdualUnresistable
+        )
+    }
+
+    /// C++ `IsHealthDamagingDamage` (Damage.h:110-127).
+    #[inline]
+    pub fn is_health_damaging(self) -> bool {
+        !matches!(
+            self,
+            Self::Status
+                | Self::SubdualMissile
+                | Self::SubdualVehicle
+                | Self::SubdualBuilding
+                | Self::SubdualUnresistable
+                | Self::KillPilot
+                | Self::KillGarrisoned
         )
     }
 }
@@ -540,6 +558,8 @@ pub struct CombatSystem {
     next_projectile_id: ObjectId,
     /// Impacts carrying ProjectileDetonationFX residual (drained by GameLogic).
     impact_fx: Vec<ProjectileImpactFx>,
+    /// C++ TheRadar->tryUnderAttackEvent victims from this projectile pass.
+    pending_under_attack: Vec<ObjectId>,
     /// Parsed fire-time FX/OCL references accepted with queued projectile shots.
     fire_ocl: Vec<WeaponFireOcl>,
 }
@@ -902,6 +922,7 @@ impl CombatSystem {
             projectiles: HashMap::new(),
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
+            pending_under_attack: Vec::new(),
             fire_ocl: Vec::new(),
         }
     }
@@ -914,6 +935,11 @@ impl CombatSystem {
     /// Drain ProjectileDetonationFX residual events produced by the last update.
     pub fn take_impact_fx(&mut self) -> Vec<ProjectileImpactFx> {
         std::mem::take(&mut self.impact_fx)
+    }
+
+    /// Drain victims that took live projectile/area damage this pass.
+    pub fn take_pending_under_attack(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.pending_under_attack)
     }
 
     /// Drain FireOCL events emitted while pending shots were materialized.
@@ -1466,6 +1492,7 @@ impl CombatSystem {
                             *damage_type,
                             *death_type,
                         );
+                        self.pending_under_attack.push(*target_id);
                         if destroyed {
                             log::debug!(
                                 "Projectile destroyed object {} (damage: {:.1}, type: {:?})",
@@ -1547,6 +1574,7 @@ impl CombatSystem {
                                     *damage_type,
                                     *death_type,
                                 );
+                                self.pending_under_attack.push(*vid);
                             }
                         }
                         // C++ ShockWave residual: push mobile units outward from blast.

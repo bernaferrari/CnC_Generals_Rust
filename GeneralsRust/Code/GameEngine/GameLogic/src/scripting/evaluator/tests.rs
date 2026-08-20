@@ -212,6 +212,39 @@ fn named_destroyed_uses_host_snapshot_when_registry_empty() {
     );
     crate::scripting::clear_host_script_query_snapshot();
 }
+
+#[test]
+fn named_destroyed_false_when_name_never_existed_like_cxx() {
+    // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:285)
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("OtherHero".into(), 8)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 8,
+            name: "OtherHero".into(),
+            team: 1,
+            x: 0.0,
+            z: 0.0,
+            alive: true,
+        }],
+        ..Default::default()
+    });
+    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let mut condition = Condition::new(ConditionType::NamedDestroyed);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "TypoHero".into(),
+        ))
+        .unwrap();
+    assert!(
+        !evaluator.evaluate_condition(&mut condition).unwrap(),
+        "C++ evaluateNamedUnitDestroyed: never existed → FALSE"
+    );
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
 #[test]
 fn evaluator_uses_active_engine_before_its_private_handle() {
     let _test_lock = crate::test_sync::lock();

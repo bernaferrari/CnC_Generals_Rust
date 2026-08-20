@@ -224,6 +224,11 @@ pub struct ModelConditionInfo {
     pub weapon_muzzle_bones: [Option<String>; WEAPONSLOT_COUNT],
     pub hide_show_list: Vec<(String, bool)>,
     pub weapon_projectile_hide_show_name: [Option<String>; WEAPONSLOT_COUNT],
+    pub particle_sys_bones: Vec<(String, String)>,
+    /// Minimum static LOD required to instantiate this module.
+    pub min_lod_required: i32,
+    pub receives_dynamic_lights: bool,
+    pub ok_to_change_model_color: bool,
     pub weapon_projectile_launch_bone: [Option<String>; WEAPONSLOT_COUNT],
 
     pub valid_stuff: u32,
@@ -259,6 +264,11 @@ impl ModelConditionInfo {
             hide_show_list: Vec::new(),
             weapon_projectile_hide_show_name: Default::default(),
             weapon_projectile_launch_bone: Default::default(),
+            particle_sys_bones: Vec::new(),
+            min_lod_required: 0,
+            receives_dynamic_lights: true,
+            ok_to_change_model_color: false,
+
 
             valid_stuff: 0,
         }
@@ -273,6 +283,38 @@ impl ModelConditionInfo {
         if !self.public_bones.contains(&lower_name) {
             self.public_bones.push(lower_name);
         }
+    }
+
+    /// C++ `ModelConditionInfo::validateCachedBones`.
+    pub fn validate_cached_bones(
+        &mut self,
+        scale: f32,
+        extra_public_bones: &[String],
+        lookup: impl Fn(&str) -> Option<(i32, Matrix4<f32>)>,
+    ) {
+        const PRISTINE_BONES_VALID: u32 = 0x01;
+        const PUBLIC_BONES_VALID: u32 = 0x10;
+        if (self.valid_stuff & PRISTINE_BONES_VALID) != 0 {
+            return;
+        }
+        self.pristine_bones.clear();
+        self.valid_stuff |= PRISTINE_BONES_VALID;
+        for bone in extra_public_bones {
+            self.add_public_bone(bone);
+        }
+        self.valid_stuff |= PUBLIC_BONES_VALID;
+        if self.model_name.is_empty() {
+            return;
+        }
+        let public = self.public_bones.clone();
+        for bone in &public {
+            leftover_do_single_bone_name(&mut self.pristine_bones, bone, &lookup);
+        }
+        let _ = scale;
+    }
+
+    pub fn get_minimum_required_game_lod(&self) -> i32 {
+        self.min_lod_required
     }
 
     /// Check if condition matches mode (night/snow)
@@ -297,6 +339,45 @@ impl ModelConditionInfo {
         self.animations.get(index)
     }
 }
+
+fn leftover_do_single_bone_name(
+    map: &mut HashMap<String, PristineBoneInfo>,
+    bone_name: &str,
+    lookup: &impl Fn(&str) -> Option<(i32, Matrix4<f32>)>,
+) -> bool {
+    if bone_name.is_empty() {
+        return false;
+    }
+    let bone_name = bone_name.to_lowercase();
+    let mut found = false;
+    if let Some((bone_index, matrix)) = lookup(&bone_name) {
+        map.insert(
+            bone_name.clone(),
+            PristineBoneInfo {
+                matrix,
+                bone_index,
+            },
+        );
+        found = true;
+    }
+    for index in 1..=99 {
+        let numbered = format!("{bone_name}{index:02}");
+        if let Some((bone_index, matrix)) = lookup(&numbered) {
+            map.insert(
+                numbered,
+                PristineBoneInfo {
+                    matrix,
+                    bone_index,
+                },
+            );
+            found = true;
+        } else {
+            break;
+        }
+    }
+    found
+}
+
 
 /// Turret state
 #[derive(Debug, Clone)]
@@ -335,6 +416,8 @@ pub struct ModelDrawState {
     pub frame_for_next_anim: u32,
     pub next_anim_duration: u32,
     pub skip_next_anim_restart: bool,
+    /// +1 forward / -1 reverse for `AnimationMode::Pingpong`.
+    pub anim_direction: f32,
 
     // Turret states
     pub turret_states: [TurretState; WEAPONSLOT_COUNT],
@@ -363,6 +446,7 @@ impl Default for ModelDrawState {
             frame_for_next_anim: 0,
             next_anim_duration: NO_NEXT_DURATION,
             skip_next_anim_restart: false,
+            anim_direction: 1.0,
             turret_states: Default::default(),
             construction_percent: 1.0,
             hide_sub_objects: Vec::new(),
@@ -409,6 +493,9 @@ pub struct W3DModelDraw {
     pub condition_states_vec: Vec<ModelConditionInfo>,
     pub transition_map: HashMap<u64, usize>,
     pub ignore_condition_states: u128,
+    pub min_lod_required: i32,
+    pub receives_dynamic_lights: bool,
+    pub ok_to_change_model_color: bool,
 }
 
 impl Default for W3DModelDraw {
@@ -440,6 +527,9 @@ impl W3DModelDraw {
             condition_states_vec: Vec::new(),
             transition_map: HashMap::new(),
             ignore_condition_states: 0,
+            min_lod_required: 0,
+            receives_dynamic_lights: true,
+            ok_to_change_model_color: false,
         }
     }
 
@@ -465,6 +555,9 @@ impl W3DModelDraw {
             condition_states_vec: Vec::new(),
             transition_map: HashMap::new(),
             ignore_condition_states: 0,
+            min_lod_required: 0,
+            receives_dynamic_lights: true,
+            ok_to_change_model_color: false,
         }
     }
 
@@ -663,6 +756,34 @@ impl W3DModelDraw {
                             self.draw_state.current_anim_frame -= num_frames;
                         }
                     }
+                    AnimationMode::Pingpong => {
+                        let last = anim.num_frames.saturating_sub(1) as f32;
+                        if last <= 0.0 {
+                            self.draw_state.current_anim_frame = 0.0;
+                        } else {
+                            let mut frame = self.draw_state.current_anim_frame;
+                            let mut direction = if self.draw_state.anim_direction >= 0.0 {
+                                1.0
+                            } else {
+                                -1.0
+                            };
+                            if direction >= 0.0 && frame >= last {
+                                frame = last * 2.0 - frame;
+                                if frame >= last {
+                                    frame = last;
+                                }
+                                direction = -1.0;
+                            } else if direction < 0.0 && frame < 0.0 {
+                                frame = -frame;
+                                if frame >= last {
+                                    frame = 0.0;
+                                }
+                                direction = 1.0;
+                            }
+                            self.draw_state.current_anim_frame = frame.clamp(0.0, last);
+                            self.draw_state.anim_direction = direction;
+                        }
+                    }
                     AnimationMode::Once | AnimationMode::OnceBackwards => {
                         let num_frames = anim.num_frames as f32;
                         if self.draw_state.current_anim_frame >= num_frames {
@@ -729,6 +850,31 @@ impl W3DModelDraw {
     pub fn recover_dst_state(sig: u64) -> u32 {
         (sig & 0xFFFFFFFF) as u32
     }
+
+    pub fn get_minimum_required_game_lod(&self) -> i32 {
+        self.min_lod_required
+    }
+
+    pub fn apply_receives_dynamic_lights(&self) -> bool {
+        self.receives_dynamic_lights
+    }
+
+    pub fn validate_all_cached_bones(
+        &mut self,
+        lookup: impl Fn(&str) -> Option<(i32, Matrix4<f32>)>,
+    ) {
+        let extra = self.extra_public_bones.clone();
+        let scale = self.scale;
+        for state in self.condition_states.values_mut() {
+            state.validate_cached_bones(scale, &extra, &lookup);
+        }
+        self.default_condition
+            .validate_cached_bones(scale, &extra, &lookup);
+        for state in &mut self.condition_states_vec {
+            state.validate_cached_bones(scale, &extra, &lookup);
+        }
+    }
+
 
     /// Preload model assets
     pub fn preload_assets(&mut self) {
@@ -845,5 +991,38 @@ mod tests {
         info.add_public_bone("Turret"); // Duplicate
 
         assert_eq!(info.public_bones.len(), 2);
+    }
+
+    #[test]
+    fn test_validate_cached_bones_fills_pristine_map() {
+        let mut info = ModelConditionInfo::new();
+        info.model_name = "radar".to_string();
+        info.add_public_bone("turret");
+        info.validate_cached_bones(1.0, &[], |name| {
+            if name == "turret" {
+                Some((3, Matrix4::from_translation(Vector3::new(1.0, 2.0, 3.0))))
+            } else {
+                None
+            }
+        });
+        let bone = info.pristine_bones.get("turret").expect("cached");
+        assert_eq!(bone.bone_index, 3);
+        assert_eq!(info.valid_stuff & 0x01, 0x01);
+    }
+
+    #[test]
+    fn test_pingpong_reverses_at_end() {
+        let mut model = W3DModelDraw::new();
+        let mut state = ModelConditionInfo::new();
+        let mut anim = W3DAnimationInfo::with_name("sweep", false, 0.0);
+        anim.num_frames = 5;
+        anim.natural_duration_msec = 1000;
+        state.animations.push(anim);
+        model.add_condition_state(0, state);
+        model.set_anim_mode(AnimationMode::Pingpong);
+        model.draw_state.current_anim_frame = 4.5;
+        model.draw_state.anim_direction = 1.0;
+        model.update_animation(100.0);
+        assert!(model.draw_state.anim_direction < 0.0);
     }
 }

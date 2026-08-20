@@ -83,13 +83,11 @@ impl ScriptCondition for NamedUnitDestroyedCondition {
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         // Empty dual-world: host snapshot is the named-unit source of truth.
+        // C++ evaluateNamedUnitDestroyed: never existed → false.
         if dual_world_registry_unavailable() {
             let unit_name = get_str_param(parameters, "unit_name")?;
             if let Some(alive) = super::helpers::host_script_named_unit_alive(&unit_name) {
                 return Ok(!alive);
-            }
-            if super::helpers::host_script_query_has_any() {
-                return Ok(true);
             }
             return Ok(false);
         }

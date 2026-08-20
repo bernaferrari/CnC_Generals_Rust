@@ -9,7 +9,7 @@ use crate::action_manager::TheActionManager;
 use crate::ai::object_registry::get_legacy_object;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{ObjectID, Real, UnsignedInt, INVALID_ID, LOGICFRAMES_PER_SECOND};
-use crate::helpers::{TheGameLogic, TheGlobalData, TheInGameUI, ThePartitionManager};
+use crate::helpers::{TheGameLogic, TheGameText, TheGlobalData, TheInGameUI, ThePartitionManager};
 use crate::modules::{AIUpdateInterface, POWTruckAIUpdateInterface};
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -21,6 +21,36 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
+
+/// C++ `obj->getTemplate()->calcCostToBuild(prisonerOwningPlayer)`.
+fn prisoner_calc_cost_to_build(prisoner: &Object) -> f32 {
+    let player_arc = prisoner.get_controlling_player();
+    let cost = match player_arc.as_ref().and_then(|player| player.read().ok()) {
+        Some(player_guard) => prisoner
+            .get_template()
+            .calc_cost_to_build(Some(&*player_guard as &dyn std::any::Any)),
+        None => prisoner.get_template().calc_cost_to_build(None),
+    };
+    cost.max(0) as f32
+}
+
+/// C++ `moneyString.format(TheGameText->fetch("GUI:AddCash"), bounty)`.
+fn format_gui_add_cash(amount: u32) -> String {
+    let template = TheGameText::fetch("GUI:AddCash");
+    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
+        template
+            .replace("%d", &amount.to_string())
+            .replace("%i", &amount.to_string())
+            .replace("%u", &amount.to_string())
+    } else if template.contains("%f") {
+        template.replace("%f", &format!("{:.0}", amount))
+    } else if template == "GUI:AddCash" {
+        format!("+${}", amount)
+    } else {
+        format!("{}{}", template, amount)
+    }
+}
+
 
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug, Clone)]
@@ -171,6 +201,46 @@ mod tests {
         assert_eq!(data.base.bored_time_in_frames, 45);
         assert_eq!(data.base.hang_around_prison_distance, 23.5);
     }
+
+    #[test]
+    fn find_best_target_requires_quick_path() {
+        let src = include_str!("pow_truck_ai_update.rs");
+        let start = src
+            .find("fn find_best_target(")
+            .expect("find_best_target");
+        let body = &src[start..start + 2200];
+        assert!(
+            body.contains("is_quick_path_available"),
+            "C++ isQuickPathAvailable gate missing: {body}"
+        );
+        assert!(
+            body.contains("client_safe_quick_does_path_exist"),
+            "C++ quickDoesPathExist gate missing: {body}"
+        );
+        assert!(
+            !body.contains("if true {"),
+            "placeholder path gate must not remain"
+        );
+    }
+
+    #[test]
+    fn unload_bounty_uses_calc_cost_score_and_add_cash() {
+        let src = include_str!("pow_truck_ai_update.rs");
+        assert!(src.contains("prisoner_calc_cost_to_build"));
+        assert!(src.contains("calc_cost_to_build"));
+        assert!(src.contains("get_score_keeper_mut"));
+        assert!(src.contains("format_gui_add_cash"));
+        assert!(src.contains("GUI:AddCash"));
+        assert!(!src.contains("format!(\"+{}\", bounty)"));
+    }
+
+    #[test]
+    fn player_command_cancels_pow_task() {
+        let src = include_str!("pow_truck_ai_update.rs");
+        assert!(src.contains("pub fn on_player_command"));
+        assert!(src.contains("POWTruckTask::Waiting"));
+    }
+
 }
 
 /// Module wrapper for POWTruckAIUpdate to align with module system expectations.
@@ -320,6 +390,12 @@ impl POWTruckAIUpdate {
     pub fn get_current_task(&self) -> POWTruckTask {
         self.current_task
     }
+
+    /// C++ `POWTruckAIUpdate::aiDoCommand` player branch: idle + `setTask(WAITING)`.
+    pub fn on_player_command(&mut self) {
+        self.set_task(POWTruckTask::Waiting, None);
+    }
+
 
     pub fn update(
         &mut self,
@@ -800,6 +876,13 @@ impl POWTruckAIUpdate {
 
         let owner_arc = TheGameLogic::find_object_by_id(owner_id)?;
         let owner_guard = owner_arc.read().ok()?;
+        let owner_pos = *owner_guard.get_position();
+        let owner_ai = owner_guard.get_ai_update_interface();
+        let loco_set = owner_ai.as_ref().and_then(|ai| {
+            ai.lock()
+                .ok()
+                .and_then(|guard| guard.get_locomotor_set_clone())
+        });
 
         let mut closest_target: Option<ObjectID> = None;
         let mut closest_dist_sq: Real = Real::MAX;
@@ -832,13 +915,32 @@ impl POWTruckAIUpdate {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            if true {
-                let dist_sq = ThePartitionManager::get_distance_squared(
-                    &owner_guard,
-                    &obj_guard,
-                    crate::common::FROM_CENTER_2D,
-                );
-                if closest_target.is_none() || dist_sq < closest_dist_sq {
+            let dest = *obj_guard.get_position();
+            let quick_ok = owner_ai
+                .as_ref()
+                .and_then(|ai| ai.lock().ok())
+                .map(|guard| guard.is_quick_path_available(&dest))
+                .unwrap_or(false);
+            if !quick_ok {
+                continue;
+            }
+
+            let dist_sq = ThePartitionManager::get_distance_squared(
+                &owner_guard,
+                &obj_guard,
+                crate::common::FROM_CENTER_2D,
+            );
+            if closest_target.is_none() || dist_sq < closest_dist_sq {
+                let path_ok = loco_set.as_ref().is_some_and(|loco| {
+                    crate::ai::THE_AI
+                        .read()
+                        .ok()
+                        .and_then(|the_ai| the_ai.pathfinder())
+                        .and_then(|pf| pf.read().ok())
+                        .map(|pf| pf.client_safe_quick_does_path_exist(loco, &owner_pos, &dest))
+                        .unwrap_or(false)
+                });
+                if path_ok {
                     closest_target = Some(obj_id);
                     closest_dist_sq = dist_sq;
                 }
@@ -940,7 +1042,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
             }
 
             if let Ok(prisoner_guard) = prisoner_arc.read() {
-                let cost = prisoner_guard.get_build_cost().max(0) as f32;
+                let cost = prisoner_calc_cost_to_build(&prisoner_guard);
                 let multiplier = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_multiplier())
                     .unwrap_or(0.0);
@@ -953,7 +1055,9 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 if let Some(player) = owner_guard.get_controlling_player() {
                     if let Ok(mut player_guard) = player.write() {
                         let _ = player_guard.get_money_mut().deposit(bounty);
-                        player_guard.get_money_mut().add_money_earned(bounty as i32);
+                        player_guard
+                            .get_score_keeper_mut()
+                            .add_money_earned(bounty);
                     }
                 }
 
@@ -964,7 +1068,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 let color = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_text_color())
                     .unwrap_or_else(crate::common::Color::white);
-                let text = format!("+{}", bounty);
+                let text = format_gui_add_cash(bounty);
                 let _ = TheInGameUI::add_floating_text(&text, &pos, color);
             }
         }

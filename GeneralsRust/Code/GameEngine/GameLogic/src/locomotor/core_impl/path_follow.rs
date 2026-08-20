@@ -19,8 +19,12 @@ impl Locomotor {
         self.active_path = None;
     }
 
-    /// Update path following - main locomotor update for path-based movement
-    /// Matches C++ Locomotor::Move and path following logic
+    /// Update path following — waypoint advance then C++ `locoUpdate_moveTowardsPosition`.
+    ///
+    /// C++ `AIUpdate::doLocomotor` (AIUpdate.cpp:2219-2221) calls
+    /// `Locomotor::locoUpdate_moveTowardsPosition` (Locomotor.cpp:929-1141), which owns
+    /// IS_BRAKING, braking-cheat setPosition, and `handleBehaviorZ`. Do not appearance-step
+    /// with an invented `speed_limit_z` Z integrator.
     pub fn update_path_following(
         &mut self,
         current_pos: Coord3D,
@@ -62,220 +66,38 @@ impl Locomotor {
         // Get next target after advancing
         let target = self.active_path.as_ref()?.current_target()?;
 
-        // Calculate distance remaining on path
+        // C++ uses onPathDistToGoal from the path, then the dispatcher raises it to the
+        // actual 2D distance when farther (Locomotor.cpp:980-992).
         let on_path_dist_to_goal = self
             .active_path
             .as_ref()
             .map(|p| p.distance_remaining())
-            .unwrap_or(distance_to_target);
+            .unwrap_or(distance_to_target)
+            .max(distance_to_target);
 
-        // Desired speed based on path following and AI constraints
         let max_speed = self.get_max_speed_for_condition(condition);
         let desired_speed = desired_speed.min(max_speed);
+        let _ = current_frame;
 
-        // Use locomotor-specific movement based on appearance
-        match self.template.appearance {
-            LocomotorAppearance::Treads => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_treads_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::FourWheels | LocomotorAppearance::Motorcycle => {
-                let (_pos, desired_angle, acceleration, move_backwards) = self
-                    .move_towards_position_wheels_physics(
-                        current_pos,
-                        current_angle,
-                        target,
-                        on_path_dist_to_goal,
-                        desired_speed,
-                        current_speed,
-                        condition,
-                        self.close_enough_dist, // major_radius proxy
-                        current_frame,
-                    );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed =
-                    (current_speed + acceleration * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    move_backwards,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::TwoLegs => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_legs_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::Hover => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_hover_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::Thrust => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_thrust_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::Wings => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_wings_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::Climber => {
-                let (_pos, desired_angle, accel, move_backwards) = self
-                    .move_towards_position_climber_physics(
-                        current_pos,
-                        current_angle,
-                        target,
-                        on_path_dist_to_goal,
-                        desired_speed,
-                        current_speed,
-                        condition,
-                    );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    move_backwards,
-                );
-                Some((new_pos, new_angle, new_speed))
-            }
-            LocomotorAppearance::Other => {
-                let (_pos, desired_angle, accel) = self.move_towards_position_other_physics(
-                    current_pos,
-                    current_angle,
-                    target,
-                    on_path_dist_to_goal,
-                    desired_speed,
-                    current_speed,
-                    condition,
-                );
-                let max_speed = self.get_max_speed_for_condition(condition);
-                let new_speed = (current_speed + accel * delta_time.max(0.0)).clamp(0.0, max_speed);
-                let new_angle =
-                    self.step_angle(current_angle, desired_angle, condition, delta_time);
-                let mut new_pos = self.advance_position(
-                    current_pos,
-                    target,
-                    new_angle,
-                    new_speed,
-                    delta_time,
-                    false,
-                );
-                if (self.template.surfaces & SURFACE_CLIFF) != 0 {
-                    new_pos.z = current_pos.z.min(new_pos.z);
-                }
-                Some((new_pos, new_angle, new_speed))
-            }
+        let (mut new_pos, new_angle, new_speed) = self.loco_update_move_towards_position(
+            current_pos,
+            current_angle,
+            current_speed,
+            target,
+            on_path_dist_to_goal,
+            desired_speed,
+            condition,
+            delta_time,
+            false,
+            None,
+            None,
+        );
+        if self.template.appearance == LocomotorAppearance::Other
+            && (self.template.surfaces & SURFACE_CLIFF) != 0
+        {
+            new_pos.z = current_pos.z.min(new_pos.z);
         }
+        Some((new_pos, new_angle, new_speed))
     }
 
     /// Check for obstacles and request path replan if needed
@@ -648,7 +470,9 @@ impl Locomotor {
             return current_angle;
         }
 
-        let mut max_turn = self.get_max_turn_rate(condition) * delta_time.max(0.0);
+        let mut max_turn = self.get_max_turn_rate(condition)
+            * delta_time.max(0.0)
+            * self.wheeled_turn_factor.clamp(0.0, 1.0);
         if matches!(
             self.template.appearance,
             LocomotorAppearance::Wings | LocomotorAppearance::Thrust
@@ -667,44 +491,5 @@ impl Locomotor {
         current_angle + diff.clamp(-max_turn, max_turn)
     }
 
-    fn advance_position(
-        &self,
-        current: Coord3D,
-        target: Coord3D,
-        angle: Real,
-        speed: Real,
-        delta_time: Real,
-        move_backwards: bool,
-    ) -> Coord3D {
-        let mut new_pos = current;
-        let step = speed.max(0.0) * delta_time.max(0.0);
-        if step > 0.0 {
-            let dir_sign = if move_backwards { -1.0 } else { 1.0 };
-            new_pos.x += angle.cos() * step * dir_sign;
-            new_pos.y += angle.sin() * step * dir_sign;
-        }
-
-        if let Some(z_target) = self.compute_z_target(current, target) {
-            let z_delta = z_target - current.z;
-            if z_delta.abs() > f32::EPSILON {
-                let mut z_speed = self.template.speed_limit_z.max(0.0);
-                if matches!(
-                    self.template.appearance,
-                    LocomotorAppearance::Wings | LocomotorAppearance::Thrust
-                ) && self.template.elevator_correction_rate > 0.0
-                {
-                    z_speed = z_speed.min(self.template.elevator_correction_rate).max(0.0);
-                }
-                let z_step = if z_speed > 0.0 {
-                    z_delta.signum() * (z_speed * delta_time.max(0.0)).min(z_delta.abs())
-                } else {
-                    z_delta
-                };
-                new_pos.z += z_step;
-            }
-        }
-
-        new_pos
-    }
 
 }

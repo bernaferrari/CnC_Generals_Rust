@@ -3099,6 +3099,38 @@ fn try_infiltration_event_queues_victim_radar() {
 }
 
 #[test]
+fn try_infiltration_event_ignores_ai_vs_ai() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.players.insert(
+        0,
+        crate::game_logic::Player::new(0, Team::USA, "LocalUSA", true),
+    );
+    logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, Team::China, "AIChina", false),
+    );
+    let mut st = ThingTemplate::new("ChinaPowerPlant");
+    st.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSPower)
+        .set_health(500.0);
+    logic.templates.insert("ChinaPowerPlant".into(), st);
+    let id = logic
+        .create_object(
+            "ChinaPowerPlant",
+            Team::China,
+            glam::Vec3::new(25.0, 0.0, 40.0),
+        )
+        .expect("pp");
+    logic.try_infiltration_event(id);
+    assert!(
+        !logic.saboteur.honesty_infiltration_event_ok(),
+        "AI-vs-AI must not warn the local player"
+    );
+    assert!(logic.last_radar_message_text().is_none());
+}
+
+#[test]
 fn fake_building_sabotage_uses_unresistable_detonated() {
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
@@ -4057,7 +4089,8 @@ fn create_crate_die_arms_deletion_lifetime() {
         .insert(1, Player::new(1, Team::China, "AI", false));
     let mut kt = ThingTemplate::new("K");
     kt.add_kind_of(KindOf::Infantry);
-    let kid = ObjectId(4910);
+    kt.add_kind_of(KindOf::Salvager);
+
     logic.objects.insert(kid, Object::new(kt, kid, Team::China));
     let mut vt = ThingTemplate::new("V");
     vt.add_create_crate_data("SalvageCrateData");
@@ -4187,10 +4220,11 @@ fn create_crate_die_spawns_salvage_and_notifies_ai() {
         .players
         .insert(1, Player::new(1, Team::China, "AI", false));
 
-    // Killer AI unit
+    // Killer AI unit — retail SalvageCrateData KilledByType = SALVAGER
     let mut kt = ThingTemplate::new("AiKiller");
     kt.add_kind_of(KindOf::Infantry);
-    let kid = ObjectId(4701);
+    kt.add_kind_of(KindOf::Salvager);
+
     logic.objects.insert(kid, {
         let mut o = Object::new(kt, kid, Team::China);
         o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
@@ -4250,6 +4284,38 @@ fn create_crate_die_skips_ally_killer() {
     logic.process_destroy_list();
     assert_eq!(logic.host_money_crates.crate_count(), 0);
 }
+
+#[test]
+fn create_crate_die_skips_non_salvager_for_salvage_crate() {
+    // C++ CreateCrateDie.cpp:72-73 — SalvageCrateData KilledByType = SALVAGER.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(1, Player::new(1, Team::China, "AI", false));
+    let mut kt = ThingTemplate::new("RangerKiller");
+    kt.add_kind_of(KindOf::Infantry);
+    let kid = ObjectId(4720);
+    logic.objects.insert(kid, Object::new(kt, kid, Team::China));
+
+    let mut vt = ThingTemplate::new("VicNoSalvage");
+    vt.add_create_crate_data("SalvageCrateData");
+    let vid = ObjectId(4721);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::USA);
+        o.last_damage_source = Some(kid);
+        o.status.destroyed = true;
+        o
+    });
+    logic.mark_object_for_destruction(vid, Some(Team::China));
+    logic.process_destroy_list();
+    assert_eq!(
+        logic.host_money_crates.crate_count(),
+        0,
+        "infantry non-salvager must not spawn SalvageCrateData"
+    );
+}
+
 
 #[test]
 fn notify_crate_and_check_pickup_clears_marker() {

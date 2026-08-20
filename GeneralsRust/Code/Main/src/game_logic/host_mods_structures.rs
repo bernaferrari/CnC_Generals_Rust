@@ -77,6 +77,10 @@ pub(super) mod host_sub_objects_upgrade;
 #[path = "host_supply_drop_zone.rs"]
 pub mod host_supply_drop_zone;
 
+#[path = "host_supply_gather.rs"]
+pub mod host_supply_gather;
+
+
 #[path = "host_tunnel_network.rs"]
 pub mod host_tunnel_network;
 

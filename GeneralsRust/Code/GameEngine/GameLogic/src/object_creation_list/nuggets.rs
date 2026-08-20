@@ -303,17 +303,21 @@ impl GenericObjectCreationNugget {
             return None;
         }
 
-        // Check if player is alive (for unit spawning)
-        // Matches C++ ObjectCreationList.cpp:1298-1299
+        // C++ ObjectCreationList.cpp:1298-1299:
+        // if (m_requiresLivePlayer && (!sourceObj || !sourceObj->getControllingPlayer()
+        //     || !sourceObj->getControllingPlayer()->isPlayerActive())) return NULL;
         if self.requires_live_player {
-            if let Some(obj) = source_obj {
-                if let Some(player) = obj.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        if !player_guard.is_player_active() {
-                            return None; // Don't spawn useful objects for dead players
-                        }
-                    }
-                }
+            let Some(obj) = source_obj else {
+                return None;
+            };
+            let Some(player) = obj.get_controlling_player() else {
+                return None;
+            };
+            let Ok(player_guard) = player.read() else {
+                return None;
+            };
+            if !player_guard.is_player_active() {
+                return None;
             }
         }
 
@@ -1236,7 +1240,7 @@ mod tests {
     use crate::object::draw::W3DDebrisDraw;
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object_creation_list::store::{
-        get_object_creation_list_store, load_object_creation_lists_from_str,
+        get_object_creation_list_store, load_object_creation_lists_from_str, ObjectCreationList,
     };
     use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use crate::player::{Player, PlayerType, ThePlayerList};
@@ -1708,6 +1712,133 @@ mod tests {
         assert_eq!(factory.created.lock().unwrap().len(), 1);
     }
 
+    fn register_dummy_for_team_control() -> ObjectID {
+        let dummy_id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
+        let dummy = Arc::new(RwLock::new(Object::new_test(dummy_id, 1.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(dummy_id, &dummy);
+        dummy_id
+    }
+
+    fn source_with_live_player(defeated: bool) -> Object {
+        let list_index = ThePlayerList()
+            .read()
+            .expect("player list")
+            .get_player_count() as i32;
+        let mut player = Player::new(list_index);
+        player.set_defeated(defeated);
+        ThePlayerList()
+            .write()
+            .expect("player list")
+            .add_player(Arc::new(RwLock::new(player)));
+
+        let team = Arc::new(RwLock::new(Team::new(
+            AsciiString::from("teamOclRequiresLive"),
+            9_200 + list_index as u32,
+        )));
+        team.write()
+            .unwrap()
+            .set_controlling_player_id(Some(list_index as u32));
+
+        let id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
+        let mut source = Object::new_test(id, 100.0);
+        source.set_team(Some(team)).unwrap();
+        source
+    }
+
+    #[test]
+    fn requires_live_player_returns_none_when_source_is_missing() {
+        // C++ ObjectCreationList.cpp:1298-1299 — missing sourceObj is NULL.
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions::default());
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("UsefulPilot");
+        nugget.requires_live_player = true;
+        let pos = Coord3D::new(0.0, 0.0, 0.0);
+        assert!(nugget.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0).is_none());
+        assert!(factory.created.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn requires_live_player_returns_none_when_controlling_player_is_missing() {
+        // C++ ObjectCreationList.cpp:1298-1299 — source without getControllingPlayer().
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions::default());
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("UsefulPilot");
+        nugget.requires_live_player = true;
+        let source = Object::new_test(70_010, 100.0);
+        let pos = *source.get_position();
+        assert!(nugget
+            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+            .is_none());
+        assert!(factory.created.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn requires_live_player_returns_none_when_player_is_inactive() {
+        // C++ ObjectCreationList.cpp:1298-1299 — !isPlayerActive().
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let dummy = register_dummy_for_team_control();
+        let factory = TestFactory::new(FactoryOptions::default());
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("UsefulPilot");
+        nugget.requires_live_player = true;
+        let source = source_with_live_player(true);
+        assert!(
+            source.get_controlling_player().is_some(),
+            "test setup must attach a controlling player"
+        );
+        let pos = *source.get_position();
+        assert!(nugget
+            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+            .is_none());
+        assert!(factory.created.lock().unwrap().is_empty());
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(dummy);
+    }
+
+    #[test]
+    fn requires_live_player_creates_when_player_is_active() {
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let dummy = register_dummy_for_team_control();
+        let factory = TestFactory::new(FactoryOptions::default());
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("UsefulPilot");
+        nugget.requires_live_player = true;
+        let source = source_with_live_player(false);
+        let pos = *source.get_position();
+        assert!(nugget
+            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+            .is_some());
+        assert_eq!(factory.created.lock().unwrap().len(), 1);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(dummy);
+    }
+
+    #[test]
+    fn create_internal_still_runs_later_nuggets_when_one_needs_live_player() {
+        // C++ ObjectCreationList.cpp:1524-1534 createInternal runs every nugget.
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions::default());
+        let ctx = test_ctx(&factory);
+        let mut gated = object_nugget("DeadPilot");
+        gated.requires_live_player = true;
+        let live = object_nugget("FireFieldSmall");
+        let mut ocl = ObjectCreationList::new();
+        ocl.add_nugget(Arc::new(gated));
+        ocl.add_nugget(Arc::new(live));
+        let pos = Coord3D::new(1.0, 2.0, 0.0);
+        let created = ocl.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0);
+        assert!(
+            created.is_some(),
+            "later CreateObject must still run after RequiresLivePlayer NULL"
+        );
+        assert_eq!(factory.created.lock().unwrap().len(), 1);
+    }
+
     #[test]
     fn floating_disposition_enables_float_update_if_present() {
         let _guard = TEST_GLOBALS.lock().unwrap();
@@ -1905,7 +2036,8 @@ End
         assert!(nugget.disposition.has(DebrisDisposition::SEND_IT_OUT));
         assert!(nugget.fade_in);
         assert_eq!(nugget.fade_frames, 30);
-        assert!((nugget.extra_friction + 0.3).abs() < 1e-5);
+        // C++ parseFrictionPerSec stores ExtraFriction * SECONDS_PER_LOGICFRAME_REAL (1/30).
+        assert!((nugget.extra_friction + 0.01).abs() < 1e-5);
 
         let factory = TestFactory::new(FactoryOptions {
             attach_float: true,
@@ -1922,7 +2054,7 @@ End
         assert!(obj
             .with_update_behavior_downcast::<FloatUpdate, _, _>("FloatUpdate", |fu| fu.is_enabled())
             .unwrap());
-        assert!((*factory.extra_friction.lock().unwrap() + 0.3).abs() < 1e-5);
+        assert!((*factory.extra_friction.lock().unwrap() + 0.01).abs() < 1e-5);
         let drawable = obj.get_drawable().unwrap();
         assert_eq!(drawable.read().unwrap().fading_mode(), Drawable::FADING_IN);
     }

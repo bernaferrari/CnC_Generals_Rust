@@ -10,8 +10,22 @@ impl Team {
             return;
         }
 
+        let new_team_arc = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| factory.find_team_by_id(new_team.id));
+
         let members = self.members.clone();
         for object_id in members {
+            // C++ obj->setTeam(newTeam) updates team pointer, player membership,
+            // and becomingTeamMember. Member lists are still patched here because
+            // set_or_restore_team uses try_write and this caller already holds
+            // both team write locks.
+            if let Some(team_arc) = &new_team_arc {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                    let _ = object.set_team(Some(Arc::clone(team_arc)));
+                });
+            }
             new_team.add_member(object_id);
             self.remove_member(object_id);
         }

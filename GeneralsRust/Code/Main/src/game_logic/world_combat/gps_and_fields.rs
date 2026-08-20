@@ -1046,28 +1046,23 @@ impl GameLogic {
     /// - ModuleTag_22: HealingAmount=4, HealingDelay=1000ms, Radius=100, KindOf=INFANTRY.
     /// - ModuleTag_23: HealingAmount=5, HealingDelay=1000ms, Radius=100, KindOf=VEHICLE,
     ///   ForbiddenKindOf=AIRCRAFT, SkipSelfForHealing=Yes.
-    /// Fail-closed: continuous flat rate, same-team only (not full ally relationship filter),
-    /// first-healer-wins sole-benefactor residual (not multi-module pulse phase).
+    /// Pulse every HealingDelay (not continuous HP/s). ALLOW_ALLIES (player relationship,
+    /// leftover same-team fallback). Sole-benefactor lasts HealingDelay frames.
     pub fn update_ambulance_auto_heal(&mut self, dt: f32) {
         use crate::game_logic::host_heal::{
-            in_heal_radius_2d, is_ambulance_healer, is_legal_ambulance_infantry_heal_target,
-            is_legal_ambulance_vehicle_heal_target, HostAmbulanceHealExclusivity,
-            HOST_AMBULANCE_HEAL_RADIUS, HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC,
-            HOST_AMBULANCE_VEHICLE_HEAL_HP_PER_SEC,
+            ambulance_heal_is_ally, ambulance_pulse_ready, in_heal_radius_2d, is_ambulance_healer,
+            is_legal_ambulance_infantry_heal_target, is_legal_ambulance_vehicle_heal_target,
+            AMBULANCE_HEAL_DELAY_FRAMES, AMBULANCE_INFANTRY_HEAL_AMOUNT,
+            AMBULANCE_VEHICLE_HEAL_AMOUNT, HOST_AMBULANCE_HEAL_RADIUS,
         };
+        use gamelogic::common::Relationship;
 
-        if dt <= 0.0 {
-            return;
-        }
-
-        let infantry_heal = HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC * dt;
-        let vehicle_heal = HOST_AMBULANCE_VEHICLE_HEAL_HP_PER_SEC * dt;
-        if infantry_heal <= 0.0 && vehicle_heal <= 0.0 {
+        if !ambulance_pulse_ready(&mut self.ambulance_auto_heal_pulse_accum, dt) {
             return;
         }
 
         // Snapshot healers: alive ambulance/medic residual units.
-        let healers: Vec<(ObjectId, Team, f32, f32)> = self
+        let healers: Vec<(ObjectId, Team, Option<u32>, f32, f32)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -1075,7 +1070,7 @@ impl GameLogic {
                     return None;
                 }
                 let pos = obj.get_position();
-                Some((*id, obj.team, pos.x, pos.z))
+                Some((*id, obj.team, obj.owner_player_id, pos.x, pos.z))
             })
             .collect();
 
@@ -1084,8 +1079,7 @@ impl GameLogic {
         }
 
         // Snapshot damaged candidates: infantry (ModuleTag_22) or ground vehicles (ModuleTag_23).
-        // Kind residual: infantry OR (vehicle && !aircraft).
-        let candidates: Vec<(ObjectId, Team, f32, f32, bool, bool, bool)> = self
+        let candidates: Vec<(ObjectId, Team, Option<u32>, f32, f32, bool, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
@@ -1109,6 +1103,7 @@ impl GameLogic {
                 Some((
                     *id,
                     obj.team,
+                    obj.owner_player_id,
                     pos.x,
                     pos.z,
                     is_infantry,
@@ -1122,24 +1117,38 @@ impl GameLogic {
             return;
         }
 
-        // First-healer-wins residual (Wave 48 sole-benefactor map).
-        let mut exclusivity = HostAmbulanceHealExclusivity::new();
+        let now = self.frame as u32;
         let mut heal_ticks: u32 = 0;
-        for (healer_id, healer_team, hx, hz) in &healers {
-            for (target_id, target_team, tx, tz, is_infantry, is_vehicle, is_aircraft) in
-                &candidates
+        for (healer_id, healer_team, healer_owner, hx, hz) in &healers {
+            for (
+                target_id,
+                target_team,
+                target_owner,
+                tx,
+                tz,
+                is_infantry,
+                is_vehicle,
+                is_aircraft,
+            ) in &candidates
             {
                 let same_team = *healer_team == *target_team;
+                let player_allies = match (healer_owner, target_owner) {
+                    (Some(a), Some(b)) => {
+                        Some(self.player_relationship(*a, *b) == Relationship::Allies)
+                    }
+                    _ => None,
+                };
+                let allies = ambulance_heal_is_ally(same_team, player_allies);
                 let is_self = *healer_id == *target_id;
                 let legal = if *is_infantry {
-                    is_legal_ambulance_infantry_heal_target(true, true, true, same_team, is_self)
+                    is_legal_ambulance_infantry_heal_target(true, true, true, allies, is_self)
                 } else {
                     is_legal_ambulance_vehicle_heal_target(
                         *is_vehicle,
                         *is_aircraft,
                         true,
                         true,
-                        same_team,
+                        allies,
                         is_self,
                     )
                 };
@@ -1149,14 +1158,10 @@ impl GameLogic {
                 if !in_heal_radius_2d((*hx, *hz), (*tx, *tz), HOST_AMBULANCE_HEAL_RADIUS) {
                     continue;
                 }
-                // Sole-benefactor residual: first ambulance wins this pulse.
-                if !exclusivity.try_claim(*target_id, *healer_id) {
-                    continue;
-                }
                 let amount = if *is_infantry {
-                    infantry_heal
+                    AMBULANCE_INFANTRY_HEAL_AMOUNT
                 } else {
-                    vehicle_heal
+                    AMBULANCE_VEHICLE_HEAL_AMOUNT
                 };
                 if amount <= 0.0 {
                     continue;
@@ -1165,12 +1170,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let before = target.health.current;
-                    if before + 0.01 >= target.health.maximum {
-                        continue;
-                    }
-                    target.heal(amount);
-                    if target.health.current > before + 0.0001 {
+                    if target.attempt_healing_from_sole_benefactor(
+                        amount,
+                        *healer_id,
+                        AMBULANCE_HEAL_DELAY_FRAMES,
+                        now,
+                    ) {
                         heal_ticks = heal_ticks.saturating_add(1);
                     }
                 }
@@ -1181,6 +1186,35 @@ impl GameLogic {
             self.record_ambulance_residual_heal();
         }
     }
+
+    /// Host leftover DefaultAutoHealBehavior: trainable units self-heal after StartHealingDelay.
+    /// HELD / garrisoned units still pulse (C++ DISABLED_HELD).
+    pub fn update_default_auto_heal(&mut self) {
+        let frame = self.frame as u32;
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive() && o.default_auto_heal.is_some())
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                continue;
+            };
+            let max_h = obj.health.maximum.max(obj.max_health).max(1.0);
+            let cur = obj.health.current;
+            let amount = {
+                let Some(ah) = obj.default_auto_heal.as_mut() else {
+                    continue;
+                };
+                ah.tick_heal_amount(frame, cur, max_h)
+            };
+            if amount > 0.0 {
+                obj.heal(amount);
+            }
+        }
+    }
+
 
     // -----------------------------------------------------------------------
     // Hero special-ability residual (snipe / timed C4 / cash hack)

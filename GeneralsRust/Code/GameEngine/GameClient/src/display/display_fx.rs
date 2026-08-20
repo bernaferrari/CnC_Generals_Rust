@@ -119,6 +119,40 @@ pub fn gamma_is_identity() -> bool {
     (s.gamma - 1.0).abs() < 0.001 && s.bright.abs() < 0.001 && (s.contrast - 1.0).abs() < 0.001
 }
 
+pub fn set_copyright_overlay(overlay: Option<CopyrightOverlay>) {
+    if let Ok(mut g) = COPYRIGHT_OVERLAY.lock() {
+        *g = overlay;
+    }
+}
+
+pub fn present_copyright_overlay(screen_w: u32, screen_h: u32) -> bool {
+    let Some(overlay) = COPYRIGHT_OVERLAY.lock().ok().and_then(|g| g.clone()) else {
+        return false;
+    };
+    if overlay.text.is_empty() {
+        return false;
+    }
+    draw_copyright_hint(screen_w, screen_h, &overlay.text, overlay.width, overlay.height);
+    true
+}
+
+pub fn set_clip_region(lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
+    if let Ok(mut g) = CLIP_REGION.lock() {
+        *g = Some([lo_x, lo_y, hi_x, hi_y]);
+    }
+}
+
+pub fn enable_clipping(enabled: bool) {
+    CLIP_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn clip_region() -> Option<[f32; 4]> {
+    if !CLIP_ENABLED.load(Ordering::Relaxed) {
+        return None;
+    }
+    CLIP_REGION.lock().ok().and_then(|g| *g)
+}
+
 /// C++ `DX8Wrapper::Set_Gamma` ramp applied as a color-space transform.
 pub fn apply_gamma_rgba(r: f32, g: f32, b: f32) -> [f32; 3] {
     let state = gamma_state();

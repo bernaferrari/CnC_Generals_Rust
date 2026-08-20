@@ -119,6 +119,11 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_terrain_decal_none() -> u8 {
+    8
+}
+
+
 fn default_pitch_roll_yaw_factor() -> f32 {
     2.0
 }
@@ -909,6 +914,18 @@ pub struct Object {
     /// C++ TERRAIN_DECAL_CHEMSUIT residual (ArmorUpgrade ChemicalSuits unique case).
     #[serde(default)]
     pub terrain_decal_chemsuit: bool,
+    /// C++ Drawable terrain-decal type residual (HordeUpdate rings).
+    #[serde(default = "default_terrain_decal_none")]
+    pub terrain_decal_type: u8,
+    /// C++ Drawable::setTerrainDecalSize residual (vehicles: 3.5 * majorRadius).
+    #[serde(default)]
+    pub terrain_decal_size: f32,
+    /// C++ Drawable::setTerrainDecalFadeTarget residual.
+    #[serde(default)]
+    pub terrain_decal_fade_target: f32,
+    #[serde(default)]
+    pub terrain_decal_fade_rate: f32,
+
     /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
     #[serde(default)]
     pub sub_object_visibility: crate::game_logic::host_sub_objects_upgrade::HostSubObjectVisibility,
@@ -995,6 +1012,10 @@ pub struct Object {
     /// armed-riders + ListeningOutpost dummy). Distinct from vanilla Chinook
     /// (no PassengersAllowedToFire) and from Battle Bus for honesty counters.
     pub is_combat_chinook_transport: bool,
+    /// C++ ChinookAIUpdate residual (flight status / auto-land / evac / combat drop).
+    #[serde(default)]
+    pub chinook_ai: Option<crate::game_logic::host_combat_chinook::HostChinookAI>,
+
 
     /// C++ parity (Object::m_containedBy): when this unit is inside a
     /// transport/garrison, stores the container's ID.  None when free.
@@ -1886,9 +1907,13 @@ pub struct Object {
     /// C++ BaseRegenerateUpdate residual (structure auto-heal).
     #[serde(default)]
     pub base_regenerate: Option<crate::game_logic::host_base_regenerate::HostBaseRegenerateData>,
+    /// C++ ModuleTag_DefaultAutoHealBehavior residual (trainable self-heal).
+    #[serde(default)]
+    pub default_auto_heal: Option<crate::game_logic::host_heal::HostDefaultAutoHealData>,
     /// C++ EnemyNearUpdate residual (MODELCONDITION_ENEMYNEAR).
     #[serde(default)]
     pub enemy_near: Option<crate::game_logic::host_enemy_near::HostEnemyNearData>,
+
     /// C++ AnimationSteeringUpdate residual (Battle Bus turn anims).
     #[serde(default)]
     pub animation_steering:
@@ -1976,7 +2001,7 @@ pub struct Object {
     pub weapon_bonus_subliminal: bool,
 
     /// Host residual HORDE weapon bonus (C++ WEAPONBONUSCONDITION_HORDE via HordeUpdate).
-    /// Fail-closed: not full RubOffRadius honorary / terrain-decal flag matrix.
+    /// RubOffRadius honorary + leftover terrain-decal type/size/fade.
     #[serde(default)]
     pub weapon_bonus_horde: bool,
     /// Host residual NATIONALISM weapon bonus (only while in horde + upgrade).

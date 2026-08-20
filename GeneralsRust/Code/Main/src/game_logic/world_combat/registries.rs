@@ -410,6 +410,32 @@ impl GameLogic {
         if !container.is_alive() {
             return false;
         }
+        if container.is_combat_chinook_style_container() {
+            if let Some(ai) = container.chinook_ai.as_ref() {
+                if ai.ai_free_to_exit(false)
+                    != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+                {
+                    if let Some(c) = self.objects.get_mut(&container_id) {
+                        if let Some(ai) = c.chinook_ai.as_mut() {
+                            let p = c.get_position();
+                            ai.pos = [p.x, p.z, p.y];
+                            ai.wanting_enter_or_exit = true;
+                            ai.parent_idle = true;
+                            ai.contained_count = c.contained_units().len() as u32;
+                            if and_exit {
+                                ai.command_evac([p.x, p.z, 0.0], true);
+                            } else {
+                                ai.tick_idle_auto_land();
+                            }
+                        }
+                        c.pending_evacuate_on_stop = true;
+                        c.pending_exit_after_evacuate = and_exit;
+                    }
+                    return false;
+                }
+            }
+        }
+
         let origin = container
             .building_data
             .as_ref()
@@ -450,6 +476,15 @@ impl GameLogic {
         if let Some(c) = self.objects.get_mut(&container_id) {
             c.pending_evacuate_on_stop = false;
             c.pending_exit_after_evacuate = false;
+            if let Some(ai) = c.chinook_ai.as_mut() {
+                ai.contained_count = 0;
+                ai.wanting_enter_or_exit = false;
+                if and_exit {
+                    let p = c.get_position();
+                    ai.command_evac([p.x, p.z, 0.0], true);
+                    return any;
+                }
+            }
         }
 
         if and_exit {

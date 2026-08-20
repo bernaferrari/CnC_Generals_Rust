@@ -8,6 +8,12 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 const CMD_CONTEXTMODE_COMMAND: u32 = 0x0000_0200;
+// C++ ControlBar.h COMMAND_OPTION_NEED_TARGET (enemy|neutral|ally|pos|context).
+const COMMAND_OPTION_NEED_TARGET: u32 =
+    0x0000_0001 | 0x0000_0002 | 0x0000_0004 | 0x0000_0020 | 0x0000_0200;
+/// C++ InGameUI::triggerDoubleClickAttackMoveGuardHint timer (InGameUI.cpp:1316).
+const DOUBLE_CLICK_ATTACK_MOVE_GUARD_HINT_FRAMES: u32 = 11;
+
 
 /// In-game UI errors
 #[derive(Error, Debug)]

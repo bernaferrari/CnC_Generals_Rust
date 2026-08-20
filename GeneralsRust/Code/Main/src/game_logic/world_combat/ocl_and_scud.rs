@@ -3,9 +3,9 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-/// Whether this host bridge can reproduce a parsed generic OCL nugget without
-/// silently dropping behavior.  Unsupported physics/container/debris nuggets
-/// remain fail-closed until their matching host object behavior exists.
+/// Whether this host bridge can reproduce a parsed generic OCL nugget.
+/// Unsupported physics/container/debris nuggets are skipped individually —
+/// C++ `ObjectCreationList::createInternal` still runs every later nugget.
 fn supports_host_weapon_generic_ocl(
     nugget: &gamelogic::object_creation_list::GenericObjectCreationNugget,
 ) -> bool {
@@ -69,29 +69,20 @@ impl GameLogic {
             return Vec::new();
         };
 
-        // An OCL is an ordered, indivisible authored effect.  Do not create
-        // only its easy generic subset when a later nugget needs unsupported
-        // payload/physics behavior: that would be a new hybrid effect rather
-        // than C++ semantics.  Simple retail field/firewall OCLs pass this
-        // gate; mixed lists wait until every typed nugget has a host bridge.
-        if !ocl.nuggets().iter().all(|nugget| {
-            nugget
-                .as_any()
-                .downcast_ref::<GenericObjectCreationNugget>()
-                .is_some_and(supports_host_weapon_generic_ocl)
-        }) {
-            return Vec::new();
-        }
-
+        // C++ ObjectCreationList.cpp:1524-1534 createInternal walks every nugget
+        // independently. A leftover-physics CreateDebris/FireWeapon/etc. must not
+        // discard earlier CreateObject results from the same authored list.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
             let Some(generic) = nugget
                 .as_any()
                 .downcast_ref::<GenericObjectCreationNugget>()
             else {
-                // Pre-validation above proves this branch is unreachable.
-                return Vec::new();
+                continue;
             };
+            if !supports_host_weapon_generic_ocl(generic) {
+                continue;
+            }
 
             // `GenericObjectCreationNugget::create` checks source altitude
             // before spawning.  The host coordinate system is Y-up, whereas
@@ -2202,5 +2193,55 @@ mod tests {
         assert_eq!(field.team, Team::China);
         assert_eq!(field.producer_id, Some(source));
         assert_eq!(field.get_position(), Vec3::new(10.0, 3.0, 20.0));
+    }
+
+    #[test]
+    fn mixed_ocl_still_creates_supported_nuggets_when_one_needs_leftover_physics() {
+        // C++ ObjectCreationList.cpp:1524-1534 createInternal runs every nugget.
+        // A leftover-physics CreateDebris must not drop the CreateObject spawn.
+        let ini = r#"
+ObjectCreationList OCL_HostMixedParity
+  CreateObject
+    ObjectNames = FireFieldSmall
+    Count = 1
+  End
+  CreateDebris
+    ModelNames = EXRockChunk
+    Count = 1
+    Disposition = SEND_IT_FLYING
+    ExtraFriction = -0.3
+  End
+End
+"#;
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
+            .expect("mixed OCL must parse");
+
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "__OclBridgeSource".into(),
+            ThingTemplate::new("__OclBridgeSource"),
+        );
+        logic.templates.insert(
+            "FireFieldSmall".into(),
+            ThingTemplate::new("FireFieldSmall"),
+        );
+        let source = logic
+            .create_object("__OclBridgeSource", Team::China, Vec3::new(4.0, 1.0, 8.0))
+            .expect("source object");
+
+        let created = logic.execute_parsed_weapon_ocl_at(
+            "OCL_HostMixedParity",
+            Some(source),
+            Team::China,
+            VeterancyLevel::Regular,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(4.0, 1.0, 8.0),
+        );
+
+        assert_eq!(created.len(), 1);
+        let field = logic.objects.get(&created[0]).expect("created field");
+        assert_eq!(field.template_name, "FireFieldSmall");
+        assert_eq!(field.team, Team::China);
     }
 }

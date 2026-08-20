@@ -447,6 +447,33 @@ mod tests {
     }
 
     #[test]
+    fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
+        // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
+        let mut timer = 0;
+        let mut stash = Coord3D::new(0.0, 0.0, 0.0);
+        InGameUI::arm_double_click_attack_move_guard_hint(
+            &mut timer,
+            &mut stash,
+            Coord3D::new(40.0, 50.0, 6.0),
+        );
+        assert_eq!(timer, 11);
+        assert_eq!(stash.x, 40.0);
+        assert_eq!(stash.y, 50.0);
+        assert_eq!(stash.z, 6.0);
+        assert!(InGameUI::consume_double_click_attack_move_guard_hint(&mut timer));
+        assert_eq!(timer, 10);
+    }
+
+    #[test]
+    fn set_input_enabled_clears_modes_only_on_falling_edge() {
+        // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
+        assert!(InGameUI::should_clear_modes_on_input_disable(true, false));
+        assert!(!InGameUI::should_clear_modes_on_input_disable(false, false));
+        assert!(!InGameUI::should_clear_modes_on_input_disable(true, true));
+        assert!(!InGameUI::should_clear_modes_on_input_disable(false, true));
+    }
+
+    #[test]
     fn default_command_hints_are_blocked_by_nonlocal_selected_source() {
         assert!(InGameUI::default_command_hint_blocked_by_source(Some(
             false
@@ -789,4 +816,114 @@ mod tests {
         let faded = InGameUI::floating_text_draw_rgba((0, 255, 0), 0);
         assert_eq!(faded[3], 0.0);
     }
+
+    #[test]
+
+    fn set_gui_command_skips_playback_and_rejects_non_target() {
+        assert!(InGameUI::should_skip_gui_command_during_playback(true));
+        assert!(!InGameUI::should_skip_gui_command_during_playback(false));
+        assert!(InGameUI::command_option_need_target(0x20));
+        assert!(InGameUI::command_option_need_target(0x227));
+        assert!(!InGameUI::command_option_need_target(0));
+        assert_eq!(
+            InGameUI::mouse_mode_for_gui_command(true, true),
+            MouseMode::GuiCommand
+        );
+        assert_eq!(
+            InGameUI::mouse_mode_for_gui_command(true, false),
+            MouseMode::Default
+        );
+        assert_eq!(
+            InGameUI::mouse_mode_for_gui_command(false, true),
+            MouseMode::Default
+        );
+    }
+
+    #[test]
+    fn trigger_double_click_arms_eleven_frame_guard_timer() {
+        let mut timer = 0;
+        InGameUI::arm_double_click_attack_move_guard_timer(&mut timer);
+        assert_eq!(timer, 11);
+        TheInGameUI::arm_double_click_attack_move_guard_hint(12.0, 34.0, 5.0);
+        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 11);
+        assert_eq!(TheInGameUI::guard_hint_stashed_position(), (12.0, 34.0, 5.0));
+        assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
+        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
+    }
+
+    #[test]
+    fn set_input_enabled_clears_modes_only_on_disable_edge() {
+        assert!(InGameUI::should_clear_modes_on_input_enable_change(true, false));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(false, false));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(true, true));
+        assert!(!InGameUI::should_clear_modes_on_input_enable_change(false, true));
+
+        TheInGameUI::set_force_attack_mode(true);
+        TheInGameUI::set_waypoint_mode(true);
+        TheInGameUI::set_prefer_selection_mode(true);
+        TheInGameUI::set_input_enabled(true);
+        TheInGameUI::set_input_enabled(false);
+        assert!(!TheInGameUI::is_in_force_attack_mode());
+        assert!(!TheInGameUI::is_in_waypoint_mode());
+        assert!(!TheInGameUI::is_in_prefer_selection_mode());
+        TheInGameUI::set_input_enabled(true);
+    }
+
+    #[test]
+    fn radar_movie_targets_left_hud_window() {
+        assert_eq!(
+            InGameUI::radar_movie_window_name(),
+            "ControlBar.wnd:LeftHUD"
+        );
+    }
+
+    #[test]
+    fn popup_message_appends_diplomacy_briefing_identifier() {
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
+        TheInGameUI::popup_message("SCRIPT:Wave6InGameUIPopup", 10, 20, 80, false, false);
+        assert!(
+            crate::gui::callbacks::diplomacy::get_briefing_text_list()
+                .iter()
+                .any(|line| line.contains("SCRIPT:Wave6InGameUIPopup")),
+            "popupMessage must UpdateDiplomacyBriefingText before opening the modal"
+        );
+    }
+
+    #[test]
+    fn live_set_pending_command_enters_gui_command_mouse_mode() {
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::set_pending_command_with_visual(
+            CommandType::PlaceBeacon,
+            0x20,
+            0,
+            "ARROW".to_string(),
+            "GENERIC_INVALID".to_string(),
+            "GUARD_AREA".to_string(),
+        );
+        assert_eq!(TheInGameUI::get_mouse_mode(), MouseMode::GuiCommand);
+        TheInGameUI::clear_pending_command();
+        assert_eq!(TheInGameUI::get_mouse_mode(), MouseMode::Default);
+    }
+
+    #[test]
+    fn disregard_drawable_deselects_like_cpp_deselect_drawable() {
+        // C++ InGameUI::disregardDrawable (InGameUI.cpp:3415-3420) calls deselectDrawable
+        // so a dying drawable leaves the selected list.
+        let mut state = SelectionState::new(10);
+        state.select(DrawableID(77), false);
+        state.select(DrawableID(88), true);
+        assert!(state.is_selected(DrawableID(77)));
+        assert!(state.is_selected(DrawableID(88)));
+
+        InGameUI::disregard_from_selection_state(&mut state, 77);
+        assert!(
+            !state.is_selected(DrawableID(77)),
+            "destroyed drawable must leave the InGameUI selection list"
+        );
+        assert!(state.is_selected(DrawableID(88)));
+
+        InGameUI::disregard_live_drawable(77);
+    }
+
+
 }

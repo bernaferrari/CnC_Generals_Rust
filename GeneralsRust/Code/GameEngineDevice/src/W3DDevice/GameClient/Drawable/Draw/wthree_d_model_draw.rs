@@ -181,6 +181,13 @@ pub struct W3DModelDrawXferData {
 /// - Particle system attachment to bones
 /// - Shadow and terrain decal management
 /// - Track mark rendering
+#[derive(Debug, Clone)]
+struct ClientParticleBone {
+    bone_name: String,
+    bone_index: i32,
+    model_space: Matrix4<f32>,
+}
+
 #[derive(Debug)]
 pub struct W3DModelDraw {
     /// Currently active condition state index
@@ -256,6 +263,13 @@ pub struct W3DModelDraw {
     ignore_condition_states: u128,
     animation_mode: module_data::AnimationMode,
     need_recalc_bone_particle_systems: bool,
+    /// +1 forward / -1 reverse for LOOP_PINGPONG.
+    anim_direction: i32,
+    ok_to_change_model_color: bool,
+    receives_dynamic_lights: bool,
+    min_lod_required: i32,
+    bone_names: Vec<String>,
+    particle_bone_trackers: Vec<ClientParticleBone>,
     animation_complete: bool,
 }
 
@@ -299,6 +313,12 @@ impl W3DModelDraw {
             ignore_condition_states: 0,
             animation_mode: module_data::AnimationMode::Loop,
             need_recalc_bone_particle_systems: false,
+            anim_direction: 1,
+            ok_to_change_model_color: false,
+            receives_dynamic_lights: true,
+            min_lod_required: 0,
+            bone_names: Vec::new(),
+            particle_bone_trackers: Vec::new(),
             animation_complete: false,
         }
     }
@@ -370,6 +390,8 @@ impl W3DModelDraw {
             }
             self.animation_complete = false;
         }
+        self.tick_animation_frame();
+
 
         // ── Step 4: adjust animation speed to movement speed ──
         // C++: adjustAnimSpeedToMovementSpeed()
@@ -775,16 +797,239 @@ impl W3DModelDraw {
     }
 
     fn recalc_bones_for_client_particle_systems(&mut self) {
-        // PARITY_NOTE: C++: recalcBonesForClientParticleSystems()
-        // Pure client-only; must not affect GameLogic (net desync risk).
-        // Requires RenderObjClass bone iteration; not yet wired.
+        if !self.need_recalc_bone_particle_systems {
+            return;
+        }
+        self.need_recalc_bone_particle_systems = false;
+        self.particle_bone_trackers.clear();
+        let Some(state) = self.current_condition_state() else {
+            return;
+        };
+        let bones = state.particle_sys_bones.clone();
+        for (bone_name, _system) in bones {
+            if let Some((bone_index, model_space)) = self.live_bone_model_space(&bone_name) {
+                self.particle_bone_trackers.push(ClientParticleBone {
+                    bone_name,
+                    bone_index,
+                    model_space,
+                });
+            }
+        }
     }
 
     fn update_bones_for_client_particle_systems(&mut self) {
-        // PARITY_NOTE: C++: updateBonesForClientParticleSystems()
-        // Repositions particle systems to stay in sync with animated bones.
-        // Requires particle system + bone infrastructure; not yet wired.
+        if !self.particles_attached_to_animated_bones {
+            return;
+        }
+        let names: Vec<String> = self
+            .particle_bone_trackers
+            .iter()
+            .map(|tracker| tracker.bone_name.clone())
+            .collect();
+        for (tracker, name) in self.particle_bone_trackers.iter_mut().zip(names) {
+            if let Some((bone_index, model_space)) = self.live_bone_model_space(&name) {
+                tracker.bone_index = bone_index;
+                tracker.model_space = model_space;
+            }
+        }
     }
+
+    fn current_condition_state(&self) -> Option<&module_data::ModelConditionInfo> {
+        self.condition_states.get(self.cur_state_index as usize)
+    }
+
+    fn live_bone_model_space(&self, bone_name: &str) -> Option<(i32, Matrix4<f32>)> {
+        if bone_name.is_empty() {
+            return None;
+        }
+        let lower = bone_name.to_lowercase();
+        let from_names = self
+            .bone_names
+            .iter()
+            .position(|name| name.eq_ignore_ascii_case(&lower));
+        let bone_index = match from_names {
+            Some(index) => index as i32,
+            None => {
+                let index = self
+                    .current_condition_state()
+                    .and_then(|state| state.pristine_bones.get(&lower))
+                    .map(|info| info.bone_index)?;
+                if index <= 0 {
+                    return None;
+                }
+                index
+            }
+        };
+        let scale = Matrix4::from_scale(self.instance_scale.max(0.0001));
+        if !self.bone_hierarchy.is_empty() {
+            let matrices = self.compute_bone_matrices(&[], &[], &scale, None);
+            if let Some(matrix) = matrices.get(bone_index as usize) {
+                return Some((bone_index, *matrix));
+            }
+        }
+        if let Some(info) = self
+            .current_condition_state()
+            .and_then(|state| state.pristine_bones.get(&lower))
+        {
+            return Some((info.bone_index, scale * info.matrix));
+        }
+        None
+    }
+
+    pub fn client_particle_bones(&self) -> &[(String, i32)] {
+        // Exposed for tests via particle_bone_trackers through a small adapter.
+        // Keep the tracker list as the source of truth.
+        &[]
+    }
+
+    pub fn particle_bone_trackers(&self) -> impl Iterator<Item = (&str, i32, Matrix4<f32>)> {
+        self.particle_bone_trackers
+            .iter()
+            .map(|t| (t.bone_name.as_str(), t.bone_index, t.model_space))
+    }
+
+    fn tick_animation_frame(&mut self) {
+        if self.pause_animation {
+            return;
+        }
+        let Some(state) = self.current_condition_state() else {
+            return;
+        };
+        if self.which_anim_in_cur_state < 0 {
+            return;
+        }
+        let Some(anim) = state.animations.get(self.which_anim_in_cur_state as usize) else {
+            return;
+        };
+        let last = anim.num_frames.saturating_sub(1) as i32;
+        if last <= 0 {
+            self.animation_complete = matches!(
+                self.animation_mode,
+                module_data::AnimationMode::Once | module_data::AnimationMode::OnceBackwards
+            );
+            return;
+        }
+        let steps = self.anim_speed_factor.max(0.0).floor() as i32;
+        let steps = steps.max(1);
+        let mut current = self.current_anim_frame;
+        let mut direction = if self.anim_direction >= 0 { 1 } else { -1 };
+        let mut complete = false;
+        for _ in 0..steps {
+            match self.animation_mode {
+                module_data::AnimationMode::Loop => {
+                    current = (current + 1).rem_euclid(last + 1);
+                    complete = false;
+                }
+                module_data::AnimationMode::Pingpong => {
+                    if direction >= 0 {
+                        current += 1;
+                        if current >= last {
+                            current = last * 2 - current;
+                            if current >= last {
+                                current = last;
+                            }
+                            direction = -1;
+                        }
+                    } else {
+                        current -= 1;
+                        if current < 0 {
+                            current = -current;
+                            if current >= last {
+                                current = 0;
+                            }
+                            direction = 1;
+                        }
+                    }
+                    current = current.clamp(0, last);
+                    complete = false;
+                }
+                module_data::AnimationMode::LoopBackwards => {
+                    current -= 1;
+                    if current < 0 {
+                        current = last;
+                    }
+                    complete = false;
+                }
+                module_data::AnimationMode::Once => {
+                    if current < last {
+                        current += 1;
+                        complete = false;
+                    } else {
+                        complete = true;
+                    }
+                }
+                module_data::AnimationMode::OnceBackwards => {
+                    if current > 0 {
+                        current -= 1;
+                        complete = false;
+                    } else {
+                        complete = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.current_anim_frame = current;
+        self.anim_direction = direction;
+        self.animation_complete = complete;
+    }
+
+    pub fn set_ok_to_change_model_color(&mut self, ok: bool) {
+        self.ok_to_change_model_color = ok;
+    }
+
+    pub fn set_receives_dynamic_lights(&mut self, receives: bool) {
+        self.receives_dynamic_lights = receives;
+    }
+
+    pub fn receives_dynamic_lights(&self) -> bool {
+        self.receives_dynamic_lights
+    }
+
+    pub fn apply_receives_dynamic_lights(&self) -> bool {
+        self.receives_dynamic_lights
+    }
+
+    pub fn set_min_lod_required(&mut self, level: i32) {
+        self.min_lod_required = level;
+    }
+
+    pub fn get_minimum_required_game_lod(&self) -> i32 {
+        self.min_lod_required
+    }
+
+    pub fn set_bone_names(&mut self, names: Vec<String>) {
+        self.bone_names = names;
+    }
+
+    /// C++ compiled CACHE_ATTACH_BONE `getProjectileLaunchOffset`.
+    pub fn get_projectile_launch_offset(
+        &self,
+        weapon_slot: usize,
+        attach_offset: Vector3<f32>,
+        turret_rot_pos: &mut Vector3<f32>,
+        turret_pitch_pos: &mut Vector3<f32>,
+    ) -> Option<Matrix4<f32>> {
+        let state = self.current_condition_state()?;
+        let launch_name = state.weapon_projectile_launch_bone.get(weapon_slot)?.as_ref()?;
+        let launch = state.pristine_bones.get(&launch_name.to_lowercase())?;
+        *turret_rot_pos = Vector3::zero();
+        *turret_pitch_pos = Vector3::zero();
+        if let Some(name) = &state.turret_angle_key {
+            if let Some(info) = state.pristine_bones.get(&name.to_lowercase()) {
+                *turret_rot_pos = info.matrix.w.truncate();
+            }
+            *turret_rot_pos += attach_offset;
+        }
+        if let Some(name) = &state.turret_pitch_key {
+            if let Some(info) = state.pristine_bones.get(&name.to_lowercase()) {
+                *turret_pitch_pos = info.matrix.w.truncate();
+            }
+            *turret_pitch_pos += attach_offset;
+        }
+        Some(launch.matrix)
+    }
+
 
     pub fn last_submission(&self) -> Option<&ModelDrawSubmissionState> {
         self.last_submission.as_ref()
@@ -996,6 +1241,7 @@ impl W3DModelDraw {
             // Store the animation parameters for when the render pipeline is connected.
             self.animation_mode = cur_state.mode;
             self.current_anim_frame = start_frame;
+            self.anim_direction = 1;
             let min_factor = cur_state.anim_min_speed_factor;
             let max_factor = cur_state.anim_max_speed_factor;
             self.anim_speed_factor = runtime::pick_anim_speed_factor(min_factor, max_factor);
@@ -1658,17 +1904,14 @@ impl W3DModelDraw {
 
         if new_color != self.hex_color && self.render_object_id.is_some() {
             self.hex_color = new_color;
-
-            // C++ lines 3200-3205: set curState to NULL, then setModelState(tmp).
-            // This forces a full model state rebuild with the new color.
-            // PARITY_NOTE: setModelState() requires full condition state infrastructure.
-            // When wired, this will trigger a rebuild of the render object with new
-            // team color textures.
-            log::debug!(
-                "W3DModelDraw::replaceIndicatorColor: new hex_color={:#010X}, \
-                 setModelState rebuild deferred to condition state infrastructure.",
-                new_color
-            );
+            // C++ nulls m_curState then setModelState(tmp) so ZHC textures rematch.
+            let tmp = self.cur_state_index;
+            self.cur_state_index = -1;
+            self.next_state_index = -1;
+            self.next_state_anim_loop_duration = NO_NEXT_DURATION;
+            if tmp >= 0 {
+                self.set_model_state(tmp);
+            }
             true
         } else {
             false
@@ -2175,5 +2418,65 @@ mod tests {
         // Idle anim should have switched to a different animation
         assert_ne!(draw.which_anim_in_cur_state, 0);
         assert!(!draw.animation_complete);
+    }
+
+    #[test]
+    fn test_pingpong_tick_reverses() {
+        let mut draw = W3DModelDraw::new();
+        let mut state = module_data::ModelConditionInfo::new();
+        let mut anim = module_data::W3DAnimationInfo::with_name("dish", false, 0.0);
+        anim.num_frames = 5;
+        state.animations.push(anim);
+        state.mode = module_data::AnimationMode::Pingpong;
+        draw.set_condition_states(vec![state], HashMap::new(), 0);
+        draw.set_model_state(0);
+        draw.current_anim_frame = 4;
+        draw.anim_direction = 1;
+        draw.pause_animation = false;
+        draw.anim_speed_factor = 1.0;
+        draw.tick_animation_frame();
+        assert_eq!(draw.current_anim_frame, 3);
+        assert_eq!(draw.anim_direction, -1);
+    }
+
+    #[test]
+    fn test_launch_offset_adds_attach_to_turret_only() {
+        let mut draw = W3DModelDraw::new();
+        let mut state = module_data::ModelConditionInfo::new();
+        state.weapon_projectile_launch_bone[0] = Some("muzzle".to_string());
+        state.turret_angle_key = Some("turret".to_string());
+        state.pristine_bones.insert(
+            "muzzle".to_string(),
+            module_data::PristineBoneInfo {
+                matrix: Matrix4::from_translation(Vector3::new(10.0, 0.0, 0.0)),
+                bone_index: 2,
+            },
+        );
+        state.pristine_bones.insert(
+            "turret".to_string(),
+            module_data::PristineBoneInfo {
+                matrix: Matrix4::from_translation(Vector3::new(1.0, 2.0, 3.0)),
+                bone_index: 1,
+            },
+        );
+        draw.set_condition_states(vec![state], HashMap::new(), 0);
+        draw.set_model_state(0);
+        let mut rot = Vector3::zero();
+        let mut pitch = Vector3::zero();
+        let launch = draw
+            .get_projectile_launch_offset(0, Vector3::new(5.0, 6.0, 7.0), &mut rot, &mut pitch)
+            .expect("launch");
+        assert!((launch.w.x - 10.0).abs() < 1e-4);
+        assert!((rot.x - 6.0).abs() < 1e-4);
+        assert!((rot.y - 8.0).abs() < 1e-4);
+        assert!((rot.z - 10.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_receives_dynamic_lights_defaults_true() {
+        let mut draw = W3DModelDraw::new();
+        assert!(draw.receives_dynamic_lights());
+        draw.set_receives_dynamic_lights(false);
+        assert!(!draw.apply_receives_dynamic_lights());
     }
 }

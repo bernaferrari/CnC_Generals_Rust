@@ -1368,6 +1368,15 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
+        if let Some(special) = estimate_weapon_targetability_specials(
+            self.damage_type,
+            self.death_type,
+            self.allow_attack_garrisoned_bldgs,
+            &*victim_guard,
+        ) {
+            return special;
+        }
+
         let damage_info = crate::damage::DamageInfoInput {
             damage_type: crate::damage::DamageType::from_u32(self.damage_type as u32),
             death_type: crate::damage::DeathType::from_u32(self.death_type as u32),
@@ -1530,6 +1539,57 @@ impl WeaponTemplate {
         self.projectile_has_behavior("DumbProjectileBehavior")
     }
 }
+
+/// C++ WeaponTemplate::estimateWeaponTemplateDamage specials (Weapon.cpp:562-614).
+fn estimate_weapon_targetability_specials(
+    damage_type: DamageType,
+    death_type: DeathType,
+    allow_attack_garrisoned_bldgs: bool,
+    victim: &crate::object::Object,
+) -> Option<f32> {
+    if victim.is_kind_of(KindOf::Shrubbery) {
+        return Some(if death_type == DeathType::Burned {
+            1.0
+        } else {
+            0.0
+        });
+    }
+    if victim.is_kind_of(KindOf::Structure) && damage_type == DamageType::Sniper {
+        if let Some(contain) = victim.get_contain() {
+            if let Ok(guard) = contain.try_lock() {
+                if guard.get_contained_count() == 0 {
+                    return Some(0.0);
+                }
+            }
+        }
+    }
+    if damage_type == DamageType::Surrender || allow_attack_garrisoned_bldgs {
+        if let Some(contain) = victim.get_contain() {
+            if let Ok(guard) = contain.try_lock() {
+                if guard.get_contained_count() > 0
+                    && guard.is_garrisonable()
+                    && !guard.is_immune_to_clear_building_attacks()
+                {
+                    return Some(1.0);
+                }
+            }
+        }
+    }
+    if damage_type == DamageType::Disarm {
+        if victim.is_kind_of(KindOf::Mine)
+            || victim.is_kind_of(KindOf::BoobyTrap)
+            || victim.is_kind_of(KindOf::Demotrap)
+        {
+            return Some(1.0);
+        }
+        return Some(0.0);
+    }
+    if damage_type == DamageType::Deploy && !victim.is_airborne_target() {
+        return Some(1.0);
+    }
+    None
+}
+
 
 /// Weapon.ini `HistoricBonusWeapon` is stored on the Common parser template
 /// even when the GameLogic Weak has not been wired yet.

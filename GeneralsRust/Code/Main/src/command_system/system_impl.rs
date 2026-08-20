@@ -1149,6 +1149,25 @@ impl CommandSystem {
         {
             return Some(CommandType::Gather { target_id });
         }
+        // C++ CommandXlat.cpp:1856-1918 — hijack / carbomb / sabotage before
+        // enter (:1941) and attack (:1962). C++ emits MSG_ENTER; live Enter is
+        // garrison, so issue the dedicated executor commands instead.
+        if !hint.sold && hint.is_alive && !hint.under_construction {
+            if selection_can_hijack_target(selected_presentation, units, hint, game_logic) {
+                return Some(CommandType::Hijack { target_id });
+            }
+            if selection_can_convert_to_carbomb_target(
+                selected_presentation,
+                units,
+                hint,
+                game_logic,
+            ) {
+                return Some(CommandType::ConvertToCarbomb { target_id });
+            }
+            if selection_can_sabotage_target(selected_presentation, units, hint, game_logic) {
+                return Some(CommandType::Sabotage { target_id });
+            }
+        }
         // C++ `CommandXlat::translateMouseButton`: normal Enter is evaluated
         // before attack.  A non-owner *empty*, non-faction garrison remains a
         // valid C++ `canEnterObject(..., CHECK_CAPACITY)` target, so this must
@@ -1632,4 +1651,88 @@ impl CommandSystem {
     pub fn get_command_history(&self) -> &[GameCommand] {
         &self.command_history
     }
+}
+
+fn selected_unit_template_names(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    game_logic: Option<&GameLogic>,
+) -> Vec<String> {
+    if !selected_presentation.is_empty() {
+        return selected_presentation
+            .iter()
+            .filter(|u| u.is_alive)
+            .map(|u| u.template_name.clone())
+            .collect();
+    }
+    game_logic
+        .map(|gl| {
+            units
+                .iter()
+                .copied()
+                .filter(|&id| gl.unit_is_alive(id))
+                .filter_map(|id| gl.unit_template_name(id))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn is_hijacker_unit_template(name: &str) -> bool {
+    crate::game_logic::host_squish_collide::template_has_hijacker_update(name)
+}
+
+fn target_is_hijackable_vehicle(hint: &PresentationTargetHint) -> bool {
+    hint.is_alive
+        && !hint.sold
+        && hint.is_enemy_of_local
+        && hint.is_vehicle
+        && !hint.is_aircraft
+        && !hint.is_drone
+}
+
+fn target_is_carbombable_vehicle(hint: &PresentationTargetHint) -> bool {
+    // C++ ConvertToCarBombCrateCollide allows neutrals; already-bombs are rejected.
+    hint.is_alive && !hint.sold && hint.is_vehicle && !hint.is_aircraft && !hint.is_carbomb
+}
+
+fn selection_can_hijack_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !target_is_hijackable_vehicle(hint) {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| is_hijacker_unit_template(name))
+}
+
+fn selection_can_convert_to_carbomb_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !target_is_carbombable_vehicle(hint) {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| crate::game_logic::is_terrorist_template(name))
+}
+
+fn selection_can_sabotage_target(
+    selected_presentation: &[PresentationSelectedUnitHint],
+    units: &[ObjectId],
+    hint: &PresentationTargetHint,
+    game_logic: Option<&GameLogic>,
+) -> bool {
+    if !hint.is_alive || !hint.is_enemy_of_local || !hint.is_structure || hint.sold {
+        return false;
+    }
+    selected_unit_template_names(selected_presentation, units, game_logic)
+        .iter()
+        .any(|name| crate::game_logic::is_saboteur_template(name))
 }

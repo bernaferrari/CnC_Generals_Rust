@@ -569,6 +569,10 @@ impl CollisionManager {
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), CollisionError> {
+        // C++ Object::onCollide (Object.cpp:2369-2389) iterates every behavior
+        // getCollide() — PhysicsBehaviorUpdate is one of those modules.
+        dispatch_behavior_collides(object_id, other);
+
         let mut modules = self
             .modules
             .lock()
@@ -653,6 +657,42 @@ impl Default for CollisionManager {
         Self::new()
     }
 }
+
+/// C++ Object.cpp:2369 — call CollideModuleInterface on each behavior module.
+fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject>) {
+    let obj = crate::helpers::TheGameLogic::find_object_by_id(object_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
+    let Some(obj) = obj else {
+        return;
+    };
+    let Ok(guard) = obj.try_read() else {
+        return;
+    };
+    if guard.test_status(ObjectStatusTypes::NoCollisions) {
+        return;
+    }
+    let behaviors = guard.get_behavior_modules();
+    drop(guard);
+    let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
+    for behavior in behaviors {
+        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        {
+            if let Ok(guard) = obj.try_read() {
+                if guard.test_status(ObjectStatusTypes::NoCollisions) {
+                    break;
+                }
+            }
+        }
+        let Ok(mut module) = behavior.try_lock() else {
+            continue;
+        };
+        if let Some(collide) = module.get_collide() {
+            collide.on_collision(object_id, other_id);
+        }
+    }
+}
+
 
 // Global collision manager instance
 lazy_static::lazy_static! {

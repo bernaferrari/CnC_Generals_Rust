@@ -487,6 +487,9 @@ impl<'a> CommandExecutor<'a> {
             let _ = self
                 .game_logic
                 .unit_command_set_order_target(unit_id, Some(mine_id));
+            // C++ WorkerAIUpdate.cpp:1043-1050: drop carried boxes when clearing mines.
+            self.game_logic
+                .drop_worker_supply_boxes_for_mine_clear(unit_id);
             if self.path_to_goal_with_state(unit_id, mpos, AIState::Moving) {
                 any = true;
             }

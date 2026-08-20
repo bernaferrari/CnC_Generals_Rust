@@ -57,8 +57,10 @@ pub fn is_highlander_body_template(name: &str) -> bool {
     {
         return true;
     }
-    // Trail remnant markers that use HighlanderBody in retail WeaponObjects.
-    n.contains("trailremnant")
+    // System.ini ParticleUplinkCannonTrailRemnant is authored ImmortalBody
+    // (never-dead floor), not HighlanderBody (UNRESISTABLE still kills).
+    // Matching "trailremnant" here dual-applies both leftovers.
+    false
 }
 
 /// C++ HighlanderBody clamp: non-unresistable lethal → leave 1 HP.
@@ -101,5 +103,9 @@ mod tests {
         assert!(is_highlander_body_template("AlpineTree02"));
         assert!(!is_highlander_body_template("AmericaTankCrusader"));
         assert!(!is_highlander_body_template("GLAVehicleBattleBus"));
+        assert!(!is_highlander_body_template(
+            "ParticleUplinkCannonTrailRemnant"
+        ));
+        assert!(!is_highlander_body_template("SomeTrailRemnantMarker"));
     }
 }

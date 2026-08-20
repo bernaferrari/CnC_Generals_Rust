@@ -136,4 +136,15 @@ mod tests {
         assert_eq!(state.key_press("Up", true), VerticalSliderAction::Track);
         assert_eq!(state.position, start + 2);
     }
+
+    #[test]
+    fn home_end_page_keys_are_ignored_like_cpp() {
+        let mut state = VerticalSliderState::default();
+        let start = state.position;
+        for key in ["Home", "End", "PgUp", "PgDn", "PageUp", "PageDown"] {
+            assert_eq!(state.key_press(key, true), VerticalSliderAction::Ignored);
+            assert_eq!(state.position, start);
+        }
+    }
+
 }

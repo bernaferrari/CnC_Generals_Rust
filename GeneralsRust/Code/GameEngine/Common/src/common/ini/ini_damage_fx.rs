@@ -13,7 +13,11 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
 use crate::common::audio::AudioEventRts;
 use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
-use crate::common::ini::ini_fx_list::get_fx_list_store;
+use crate::common::ini::ini_fx_list::{
+    fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, record_dispatched_fx_nugget,
+    FXNugget,
+};
+use crate::common::game_common::ObjectShroudStatus;
 
 /// Damage types enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,6 +75,10 @@ pub trait Object {
     fn get_id(&self) -> u32;
     fn get_veterancy_level(&self) -> usize {
         0
+    }
+    /// C++ `Object::getShroudedStatus`. Default None = unknown (treated visible).
+    fn get_shrouded_status(&self) -> Option<ObjectShroudStatus> {
+        None
     }
 }
 
@@ -159,19 +167,58 @@ impl DamageFX {
         source: Option<&dyn Object>,
         victim: Option<&dyn Object>,
     ) {
+        // C++ DamageFX.cpp:73 — FXList::doFXObj(fx, victim, source)
+        let victim_id = victim.map(|obj| obj.get_id());
+        let source_id = source.map(|obj| obj.get_id());
+        let victim_shroud = victim.and_then(|obj| obj.get_shrouded_status());
+
+        if let Some(runtime) = fx_list_obj_runtime() {
+            if runtime.do_fx_obj(fx_list_name, victim_id, source_id) {
+                return;
+            }
+        }
+
         let store = get_fx_list_store();
         let Some(fx_list) = store.find_fx_list(fx_list_name) else {
             return;
         };
 
+        // C++ FXList.cpp:796-797 — fogged/shrouded primary skips every nugget.
+        if !fx_obj_is_visible(victim_id, victim_shroud) {
+            return;
+        }
+
         for nugget in &fx_list.nuggets {
-            match nugget {
-                crate::common::ini::ini_fx_list::FXNugget::Sound { name } => {
-                    self.play_sound_nugget(name, source, victim);
+            self.dispatch_nugget(nugget, source, victim);
+        }
+    }
+
+    fn dispatch_nugget(
+        &self,
+        nugget: &FXNugget,
+        source: Option<&dyn Object>,
+        victim: Option<&dyn Object>,
+    ) {
+        record_dispatched_fx_nugget(nugget.dispatched_kind());
+        match nugget {
+            FXNugget::Sound { name } => {
+                self.play_sound_nugget(name.as_str(), source, victim);
+            }
+            FXNugget::FXListAtBonePos { fx_name, .. } => {
+                let nested = fx_name.as_str();
+                if !nested.is_empty() && !nested.eq_ignore_ascii_case("None") {
+                    self.execute_fx_list(nested, source, victim);
                 }
-                _ => {
-                    // Other nugget types are ignored until their subsystems are wired.
-                }
+            }
+            FXNugget::Tracer { .. }
+            | FXNugget::RayEffect { .. }
+            | FXNugget::LightPulse { .. }
+            | FXNugget::ViewShake { .. }
+            | FXNugget::TerrainScorch { .. }
+            | FXNugget::ParticleSystem { .. } => {
+                // Visuals are owned by the GameClient FXList::doFXObj runner when
+                // registered. Common still visits every nugget (C++ FXList.cpp:799-803)
+                // so DamageFX is no longer Sound-only when the runner is absent.
             }
         }
     }
@@ -426,7 +473,9 @@ fn parse_time_common(
     let (vet_first, vet_last, damage_first, damage_last, idx) =
         parse_common_stuff(args, expect_veterancy)?;
     let value = args.get(idx).ok_or(INIError::InvalidData)?;
-    let throttle = INI::parse_unsigned_int(value)?;
+    // C++ DamageFX.cpp:223-224 parseTime → INI::parseDurationUnsignedInt
+    // (INI.cpp:1693-1697) = ceil(msec * 30 / 1000).
+    let throttle = INI::parse_duration_unsigned_int(value)?;
 
     for damage_index in damage_first..=damage_last {
         for vet_index in vet_first..=vet_last {
@@ -664,6 +713,7 @@ mod tests {
     struct TestObject {
         name: String,
         id: u32,
+        shroud: Option<ObjectShroudStatus>,
     }
 
     impl Object for TestObject {
@@ -673,6 +723,18 @@ mod tests {
 
         fn get_id(&self) -> u32 {
             self.id
+        }
+
+        fn get_shrouded_status(&self) -> Option<ObjectShroudStatus> {
+            self.shroud
+        }
+    }
+
+    fn test_object(name: &str, id: u32) -> TestObject {
+        TestObject {
+            name: name.to_string(),
+            id,
+            shroud: None,
         }
     }
 
@@ -731,16 +793,135 @@ mod tests {
     }
 
     #[test]
+    fn throttle_time_parses_msec_as_frames_like_cpp() {
+        // C++ DamageFX.cpp:214-224 parseTime → INI::parseDurationUnsignedInt.
+        // 1000 msec @ 30 fps = 30 frames (ceil(1000*30/1000)).
+        let mut damage_fx = DamageFX::new();
+        let mut ini = INI::new();
+        parse_time(&mut ini, &mut damage_fx, &["Default", "1000"]).unwrap();
+        assert_eq!(
+            damage_fx.get_damage_fx_throttle_time(DamageType::Explosion, None),
+            30
+        );
+        let mut one_second = DamageFX::new();
+        parse_time(&mut ini, &mut one_second, &["Default", "1s"]).unwrap();
+        assert_eq!(
+            one_second.get_damage_fx_throttle_time(DamageType::Explosion, None),
+            30
+        );
+    }
+
+    #[test]
+    fn do_damage_fx_runs_all_nuggets_and_respects_shroud() {
+        // C++ DamageFX.cpp:73 → FXList::doFXObj (FXList.cpp:794-804).
+        use crate::common::ascii_string::AsciiString;
+        use crate::common::ini::ini_fx_list::{
+            clear_fx_list_obj_runtime, get_fx_list_store_mut, take_dispatched_fx_nuggets,
+            CameraShakeType, DispatchedFxNugget, FXList, ScorchType,
+        };
+
+        clear_fx_list_obj_runtime();
+        let _ = take_dispatched_fx_nuggets();
+
+        let mut fx_list = FXList::new(AsciiString::from("DamageFX_AllNuggets"));
+        fx_list.add_nugget(FXNugget::Sound {
+            name: AsciiString::from("BuildingLightDamage"),
+        });
+        fx_list.add_nugget(FXNugget::LightPulse {
+            color: (1.0, 0.0, 0.0),
+            radius: 20.0,
+            radius_as_percent_of_object_size: 0.0,
+            increase_frames: 3,
+            decrease_frames: 6,
+        });
+        fx_list.add_nugget(FXNugget::ViewShake {
+            shake_type: CameraShakeType::Normal,
+        });
+        fx_list.add_nugget(FXNugget::TerrainScorch {
+            scorch_type: ScorchType::Scorch1,
+            radius: 12.0,
+        });
+        fx_list.add_nugget(FXNugget::ParticleSystem {
+            name: AsciiString::from("Sparks"),
+            count: 1,
+            offset: (0.0, 0.0, 0.0),
+            radius: 0.0,
+            height: 0.0,
+            initial_delay: 0.0,
+            rotate_x: 0.0,
+            rotate_y: 0.0,
+            rotate_z: 0.0,
+            orient_to_object: false,
+            ricochet: false,
+            attach_to_object: false,
+            create_at_ground_height: false,
+            use_callers_radius: false,
+        });
+        get_fx_list_store_mut().add_fx_list(fx_list);
+
+        let mut damage_fx = DamageFX::new();
+        damage_fx.dfx[DamageType::Explosion as usize][0].major_damage_fx_list =
+            Some("DamageFX_AllNuggets".to_string());
+
+        let source = test_object("Attacker", 1);
+        let victim = test_object("Victim", 2);
+        damage_fx.do_damage_fx(DamageType::Explosion, 50.0, Some(&source), Some(&victim));
+
+        let dispatched = take_dispatched_fx_nuggets();
+        assert!(
+            dispatched.iter().any(|n| matches!(n, DispatchedFxNugget::Sound(_))),
+            "Sound nugget must run"
+        );
+        assert!(
+            dispatched.contains(&DispatchedFxNugget::LightPulse),
+            "LightPulse must run, not Sound-only"
+        );
+        assert!(
+            dispatched.contains(&DispatchedFxNugget::ViewShake(CameraShakeType::Normal)),
+            "ViewShake must run"
+        );
+        assert!(
+            dispatched.contains(&DispatchedFxNugget::TerrainScorch(ScorchType::Scorch1)),
+            "TerrainScorch must run"
+        );
+        assert!(
+            dispatched
+                .iter()
+                .any(|n| matches!(n, DispatchedFxNugget::ParticleSystem(name) if name == "Sparks")),
+            "ParticleSystem must run"
+        );
+
+        let fogged = TestObject {
+            name: "Fogged".to_string(),
+            id: 3,
+            shroud: Some(ObjectShroudStatus::Fogged),
+        };
+        damage_fx.do_damage_fx(DamageType::Explosion, 50.0, Some(&source), Some(&fogged));
+        assert!(
+            take_dispatched_fx_nuggets().is_empty(),
+            "C++ FXList.cpp:796 skips every nugget when primary is fogged"
+        );
+    }
+
+    #[test]
+    fn negative_damage_picks_minor_fx_list() {
+        // C++ DamageFX.cpp:84-91: only exact 0.0 nulls the list; negative uses minor.
+        let mut damage_fx = DamageFX::new();
+        let entry = &mut damage_fx.dfx[DamageType::Explosion as usize][0];
+        entry.amount_for_major_fx = 10.0;
+        entry.major_damage_fx_list = Some("MajorExplosionFX".to_string());
+        entry.minor_damage_fx_list = Some("MinorExplosionFX".to_string());
+        assert_eq!(
+            damage_fx.get_damage_fx_list(DamageType::Explosion, -1.0, None),
+            Some("MinorExplosionFX".to_string())
+        );
+    }
+
+    #[test]
     fn test_do_damage_fx() {
         let damage_fx = DamageFX::new();
-        let source = TestObject {
-            name: "Attacker".to_string(),
-            id: 1,
-        };
-        let victim = TestObject {
-            name: "Victim".to_string(),
-            id: 2,
-        };
+        let source = test_object("Attacker", 1);
+        let victim = test_object("Victim", 2);
 
         // This should not panic
         damage_fx.do_damage_fx(DamageType::Explosion, 50.0, Some(&source), Some(&victim));

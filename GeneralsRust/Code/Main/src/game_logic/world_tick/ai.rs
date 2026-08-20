@@ -282,7 +282,11 @@ impl GameLogic {
                     .filter(|event| event.target == object_id)
                     .collect();
                 for event in damage_events {
-                    let _ = self.execute_temporary_weapon_on_damage(object_id, event.amount, 0);
+                    let _ = self.execute_temporary_weapon_on_damage(
+                        object_id,
+                        event.amount,
+                        event.damage_type_ordinal,
+                    );
                 }
                 let _ = self.execute_temporary_weapon_continuous(object_id);
             } else if let Some(wname) = self
@@ -481,6 +485,9 @@ impl GameLogic {
         self.tick_hijacker_updates();
         // C++ UndeadBody + BattleBusSlowDeathBehavior residual.
         self.tick_battle_bus_slow_deaths();
+        // C++ ChinookAIUpdate idle auto-land / evac / combat-drop residual.
+        self.tick_chinook_ai(1.0 / 30.0);
+
         // C++ AssaultTransportAIUpdate wounded-retrieve residual.
         self.tick_assault_transport_updates();
         // C++ DeployStyleAIUpdate pack/unpack residual.

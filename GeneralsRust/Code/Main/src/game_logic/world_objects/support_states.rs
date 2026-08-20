@@ -1329,7 +1329,10 @@ impl GameLogic {
                         continue;
                     }
 
-                    if position.distance(repair_target_pos) > INTERACT_RANGE {
+                    let interact = crate::game_logic::host_repair::repair_action_range(
+                        repair_target_selection_radius,
+                    );
+                    if position.distance(repair_target_pos) > interact {
                         // Do not replace a live A* route every support tick.
                         // Re-path only if its endpoint is no longer a viable
                         // interaction point, or the mover has stopped; that
@@ -1340,12 +1343,12 @@ impl GameLogic {
                                 obj.status.moving
                                     && obj.movement.current_path_index < obj.movement.path.len()
                                     && obj.movement.path.last().is_some_and(|endpoint| {
-                                        endpoint.distance(repair_target_pos) <= INTERACT_RANGE
+                                        endpoint.distance(repair_target_pos) <= interact
                                     })
                             });
                         if can_move && !has_valid_active_approach_path {
                             let approach =
-                                crate::game_logic::host_repair::support_approach_position(
+                                crate::game_logic::host_repair::dozer_repair_approach_position(
                                     position,
                                     repair_target_pos,
                                     repair_target_selection_radius,
@@ -1359,9 +1362,8 @@ impl GameLogic {
                     }
 
                     // Dozer structure-repair residual: heal HP over time while in range.
-                    // C++ DozerAIUpdate DOZER_TASK_REPAIR + MODELCONDITION_ACTIVELY_CONSTRUCTING.
-                    // RepairHealthPercentPerSecond residual (2% max HP / sec).
-                    // Fail-closed: multi-dozer both allowed (not full sole-benefactor reject).
+                    // C++ DozerAIUpdate.cpp:694-699 percent heal, no 8.75 HP/s floor.
+                    // C++ DozerAIUpdate.cpp:670: ACTIVELY_CONSTRUCTING only at the dock.
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_actively_constructing(true);
                     }
@@ -1371,8 +1373,7 @@ impl GameLogic {
                         .map(|t| t.health.maximum)
                         .unwrap_or(0.0);
                     let heal_per_sec =
-                        crate::game_logic::host_repair::dozer_repair_hp_per_sec(max_hp)
-                            .max(REPAIR_RATE * 0.25);
+                        crate::game_logic::host_repair::dozer_repair_hp_per_sec(max_hp);
                     let heal_amount = heal_per_sec * dt;
                     // C++ attemptHealingFromSoleBenefactor(health, dozer, 2) residual.
                     let now = self.frame;
@@ -1911,6 +1912,26 @@ impl GameLogic {
                             obj.set_target(None);
                         }
                         continue;
+                    }
+
+                    // C++ ChinookAIUpdate::getAiFreeToExit — WAIT_TO_EXIT while flying.
+                    if container_is_combat_chinook {
+                        let allow = self.objects.get_mut(&container_id).is_some_and(|c| {
+                            if let Some(ai) = c.chinook_ai.as_mut() {
+                                let p = c.get_position();
+                                ai.pos = [p.x, p.z, p.y];
+                                ai.wanting_enter_or_exit = true;
+                                ai.parent_idle = !c.status.moving;
+                                ai.tick_idle_auto_land();
+                                ai.ai_free_to_exit(false)
+                                    == crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+                            } else {
+                                true
+                            }
+                        });
+                        if !allow {
+                            continue;
+                        }
                     }
 
                     let entered = if container_has_unit {
@@ -3327,8 +3348,11 @@ impl GameLogic {
                         .unwrap_or((false, position, 0, false, false));
 
                     if !source_alive {
-                        // C++ supply truck residual: find another warehouse when pile empties.
-                        if let Some(next) = self.find_nearest_harvestable_supply(team, position) {
+                        // C++ wanting: findBestSupplyWarehouse with scan; fail → Regrouping.
+                        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
+                        if let Some(next) =
+                            self.find_nearest_harvestable_supply_within(team, position, scan)
+                        {
                             if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
                                 if let Some(obj) = self.objects.get_mut(&object_id) {
                                     obj.set_target(Some(next));
@@ -3337,15 +3361,54 @@ impl GameLogic {
                                 continue;
                             }
                         }
-                        self.stop_attack_decision_aware(object_id);
-                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        self.begin_supply_regroup(object_id, team, owner_player_id, position);
                         continue;
                     }
 
-                    if can_move && position.distance(source_pos) > INTERACT_RANGE {
+                    let collector_metadata_early = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|object| object.thing.template.supply_truck_metadata);
+                    if source_is_warehouse && collector_metadata_early.is_some() {
+                        let docker_r = self
+                            .objects
+                            .get(&object_id)
+                            .map(|o| o.thing.geometry.radius.max(1.0))
+                            .unwrap_or(1.0);
+                        if crate::game_logic::host_supply_gather::warehouse_too_far_2d(
+                            (position.x, position.z),
+                            (source_pos.x, source_pos.z),
+                            docker_r,
+                        ) {
+                            let close = docker_r * 2.0;
+                            if can_move && position.distance(source_pos) > close + 1.0 {
+                                self.path_approach_with_state(
+                                    object_id,
+                                    source_pos,
+                                    AIState::Gathering,
+                                );
+                                continue;
+                            }
+                            let (dx, dz) = crate::game_logic::host_supply_gather::warehouse_twitch_delta(
+                                crate::game_logic::host_supply_gather::twitch_seed(
+                                    object_id,
+                                    self.frame,
+                                ),
+                                1,
+                            );
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                let mut pos = obj.get_position();
+                                pos.x += dx;
+                                pos.z += dz;
+                                obj.set_position(pos);
+                            }
+                            continue;
+                        }
+                    } else if can_move && position.distance(source_pos) > INTERACT_RANGE {
                         self.path_approach_with_state(object_id, source_pos, AIState::Gathering);
                         continue;
                     }
+
 
                     // C++ AIDock waits for the authored warehouse action
                     // delay, then SupplyWarehouseDockUpdate transfers one
@@ -3396,13 +3459,64 @@ impl GameLogic {
                     } else {
                         gather_amount
                     };
+                    if source_is_warehouse {
+                        let crippled = self.objects.get(&source_id).is_some_and(|s| {
+                            matches!(
+                                s.body_damage_state,
+                                crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+                                    | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                            )
+                        });
+                        if crippled {
+                            let airborne = self.objects.get(&object_id).is_some_and(|o| {
+                                o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target
+                            });
+                            let docker_r = self
+                                .objects
+                                .get(&object_id)
+                                .map(|o| o.thing.geometry.radius.max(1.0))
+                                .unwrap_or(1.0);
+                            let inside = !crate::game_logic::host_supply_gather::warehouse_too_far_2d(
+                                (position.x, position.z),
+                                (source_pos.x, source_pos.z),
+                                docker_r,
+                            );
+                            match crate::game_logic::host_supply_gather::dock_cripple_victim_action(
+                                true, inside, airborne,
+                            ) {
+                                crate::game_logic::host_supply_gather::DockCrippleVictimAction::KillGround => {
+                                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                                        Self::mark_object_destroyed_authority_aware(obj, None);
+                                    }
+                                    self.mark_object_for_destruction(object_id, None);
+                                }
+                                crate::game_logic::host_supply_gather::DockCrippleVictimAction::IdleAndForceWanting => {
+                                    if let Some(obj) = self.objects.get_mut(&object_id) {
+                                        obj.supply_truck_force_pending = true;
+                                        obj.supply_truck_state = SupplyTruckState::Wanting;
+                                    }
+                                    self.stop_attack_decision_aware(object_id);
+                                    self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                                }
+                                crate::game_logic::host_supply_gather::DockCrippleVictimAction::None => {}
+                            }
+                            continue;
+                        }
+                    }
                     if source_is_warehouse && taken == 0 {
-                        // C++ returns FALSE from SupplyWarehouseDockUpdate
-                        // when its boxes are exhausted; it does not credit the
-                        // docker.  Stop this explicit dock order rather than
-                        // inventing more supply or treating it as Enter.
-                        self.stop_attack_decision_aware(object_id);
-                        self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                        let scan = self.collector_warehouse_scan(object_id, owner_player_id);
+                        if let Some(next) =
+                            self.find_nearest_harvestable_supply_within(team, position, scan)
+                        {
+                            if let Some(dest) = self.objects.get(&next).map(|s| s.get_position()) {
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.set_target(Some(next));
+                                }
+                                self.path_approach_with_state(object_id, dest, AIState::Gathering);
+                                continue;
+                            }
+                        }
+                        self.begin_supply_regroup(object_id, team, owner_player_id, position);
                         continue;
                     }
                     let max_carry = collector_metadata
@@ -3429,18 +3543,39 @@ impl GameLogic {
                         }
                     }
 
+                    let remaining_after = source_supplies.saturating_sub(taken);
                     // Deplete the supply source.
                     if let Some(source) = self.objects.get_mut(&source_id) {
-                        source.set_stored_supplies(
-                            source.stored_resources.supplies.saturating_sub(taken),
-                        );
-                        if source.stored_resources.supplies == 0
-                            && (!source_is_warehouse || delete_when_empty)
-                        {
+                        source.set_stored_supplies(remaining_after);
+                        if remaining_after == 0 && (!source_is_warehouse || delete_when_empty) {
                             Self::mark_object_destroyed_authority_aware(source, None);
                             self.mark_object_for_destruction(source_id, None);
                         }
                     }
+                    if remaining_after == 0 && collector_metadata.is_some() {
+                        let scan = self
+                            .collector_warehouse_scan(object_id, owner_player_id)
+                            .unwrap_or(0.0);
+                        let next_dist = self
+                            .find_nearest_harvestable_supply_within(team, position, Some(scan).filter(|d| *d > 0.0))
+                            .and_then(|nid| self.objects.get(&nid).map(|s| s.get_position().distance(position)));
+                        let voice = self
+                            .objects
+                            .get(&object_id)
+                            .map(|o| o.thing.template.supplies_depleted_voice.clone())
+                            .unwrap_or_default();
+                        if crate::game_logic::host_supply_gather::should_play_supplies_depleted_voice(
+                            next_dist, scan, &voice,
+                        ) {
+                            self.queue_audio_event(
+                                crate::game_logic::AudioEventRequest::new(&voice)
+                                    .with_object(object_id)
+                                    .with_position(position)
+                                    .with_priority(160),
+                            );
+                        }
+                    }
+
 
                     if is_full {
                         // Full — `SupplyTruckAIUpdate::m_preferredDock` wins
@@ -3603,7 +3738,51 @@ impl GameLogic {
                                             carried_amount: deposit_amount,
                                         },
                                     );
+                                    let center_status = self
+                                        .objects
+                                        .get(&refinery_id.expect("checked above"))
+                                        .map(|c| (c.status.stealthed, c.status.detected));
+                                    let local = self
+                                        .players
+                                        .get(&player_id)
+                                        .map(|p| p.is_local)
+                                        .unwrap_or(false);
+                                    let hide = center_status.is_some_and(|(stealth, detected)| {
+                                        crate::game_logic::host_supply_gather::hide_stealth_supply_cash(
+                                            stealth, local, detected,
+                                        )
+                                    });
+
+                                    if !hide && credited > 0 {
+                                        let ground_y = self
+                                            .terrain_height_at(position)
+                                            .unwrap_or(position.y);
+                                        let color = self
+                                            .players
+                                            .get(&player_id)
+                                            .map(|p| p.color_rgb)
+                                            .unwrap_or((0, 255, 0));
+                                        self.oil_derricks.record_floating_text(
+                                            crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText {
+                                                text: crate::game_logic::host_supply_gather::format_gui_add_cash(credited),
+                                                text_key: crate::game_logic::host_supply_gather::SUPPLY_CENTER_ADD_CASH_KEY
+                                                    .to_string(),
+                                                position: glam::Vec3::new(position.x, ground_y, position.z),
+                                                color_rgba: (
+                                                    color.0,
+                                                    color.1,
+                                                    color.2,
+                                                    crate::game_logic::host_supply_gather::SUPPLY_CENTER_FLOATING_TEXT_ALPHA,
+                                                ),
+                                                amount: credited,
+                                                spawn_frame: self.frame,
+                                                source_id: object_id,
+                                                is_capture_bonus: false,
+                                            },
+                                        );
+                                    }
                                 }
+
                             }
                             if supply_lines_boost > 0 {
                                 self.supply_lines_bonus_cash_total = self
@@ -3627,9 +3806,11 @@ impl GameLogic {
                                     object.supply_truck_next_dock_action_frame = 0;
                                 }
                                 self.path_approach_with_state(object_id, dest, AIState::Gathering);
-                            } else if let Some(next) =
-                                self.find_nearest_harvestable_supply(team, position)
-                            {
+                            } else if let Some(next) = self.find_nearest_harvestable_supply_within(
+                                team,
+                                position,
+                                self.collector_warehouse_scan(object_id, owner_player_id),
+                            ) {
                                 if let Some(dest) =
                                     self.objects.get(&next).map(|s| s.get_position())
                                 {
@@ -3643,9 +3824,14 @@ impl GameLogic {
                                     );
                                 }
                             } else {
-                                self.stop_attack_decision_aware(object_id);
-                                self.set_ai_state_decision_aware(object_id, AIState::Idle);
+                                self.begin_supply_regroup(
+                                    object_id,
+                                    team,
+                                    owner_player_id,
+                                    position,
+                                );
                             }
+
                         }
                     } else if can_move {
                         // Still heading to refinery.
@@ -3765,4 +3951,95 @@ impl GameLogic {
             self.mark_object_for_destruction(object_id, None);
         }
     }
+
+    fn collector_warehouse_scan(&self, object_id: ObjectId, owner_player_id: Option<u32>) -> Option<f32> {
+        let authored = self
+            .objects
+            .get(&object_id)
+            .and_then(|object| object.thing.template.supply_truck_metadata)
+            .map(|metadata| metadata.warehouse_scan_distance)?;
+        let is_computer =
+            owner_player_id.is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
+        Some(crate::game_logic::host_supply_gather::warehouse_scan_distance(
+            authored,
+            is_computer,
+        ))
+    }
+
+    fn begin_supply_regroup(
+        &mut self,
+        object_id: ObjectId,
+        team: Team,
+        owner_player_id: Option<u32>,
+        from: Vec3,
+    ) {
+        use crate::game_logic::host_supply_gather::{
+            REGROUP_FIND_POSITION_RADIUS, REGROUP_SUCCESS_DISTANCE_SQUARED,
+        };
+        let dest = self.find_supply_regroup_target(team, owner_player_id, from);
+        if let Some(dest_pos) = dest {
+            let dx = dest_pos.x - from.x;
+            let dz = dest_pos.z - from.z;
+            if dx * dx + dz * dz > REGROUP_SUCCESS_DISTANCE_SQUARED {
+                let offset = REGROUP_FIND_POSITION_RADIUS * 0.15;
+                let approach = Vec3::new(dest_pos.x + offset, dest_pos.y, dest_pos.z);
+                self.path_approach_with_state(object_id, approach, AIState::Idle);
+            }
+            if let Some(object) = self.objects.get_mut(&object_id) {
+                object.supply_truck_state = SupplyTruckState::Regrouping;
+                object.supply_truck_force_pending = true;
+                object.supply_truck_next_dock_action_frame = 0;
+            }
+        } else {
+            self.stop_attack_decision_aware(object_id);
+            self.set_ai_state_decision_aware(object_id, AIState::Idle);
+        }
+    }
+
+    fn find_supply_regroup_target(
+        &self,
+        team: Team,
+        owner_player_id: Option<u32>,
+        from: Vec3,
+    ) -> Option<Vec3> {
+        let mut best_cash: Option<(f32, Vec3)> = None;
+        let mut best_cc: Option<(f32, Vec3)> = None;
+        let mut best_struct: Option<(f32, Vec3)> = None;
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.destroyed || obj.team != team {
+                continue;
+            }
+            if owner_player_id.is_some()
+                && self.player_owner_for_host_object(obj) != owner_player_id
+            {
+                continue;
+            }
+            if !obj.is_constructed() {
+                continue;
+            }
+            let pos = obj.get_position();
+            let dx = pos.x - from.x;
+            let dz = pos.z - from.z;
+            let dist2 = dx * dx + dz * dz;
+            let is_cash = obj.is_kind_of(KindOf::SupplyCenter)
+                || obj.is_kind_of(KindOf::FSSupplyCenter)
+                || obj.thing.template.dock_kind == crate::game_logic::DockKind::SupplyCenter;
+            let is_cc = obj.is_kind_of(KindOf::CommandCenter);
+            let is_struct = obj.is_kind_of(KindOf::Structure);
+            if is_cash && best_cash.is_none_or(|(d, _)| dist2 < d) {
+                best_cash = Some((dist2, pos));
+            }
+            if is_cc && best_cc.is_none_or(|(d, _)| dist2 < d) {
+                best_cc = Some((dist2, pos));
+            }
+            if is_struct && best_struct.is_none_or(|(d, _)| dist2 < d) {
+                best_struct = Some((dist2, pos));
+            }
+        }
+        best_cash
+            .or(best_cc)
+            .or(best_struct)
+            .map(|(_, pos)| pos)
+    }
+
 }

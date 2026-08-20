@@ -18,8 +18,9 @@ impl GameWorldShadow {
         let mut changed = false;
         let sticky_booby_targets = &snaps.sticky_booby_targets;
         let underpowered_team_ords = &snaps.underpowered_team_ords;
-        let battlemaster_snapshot = &snaps.battlemaster_snapshot;
-        let infantry_snapshot = &snaps.infantry_snapshot;
+        let _battlemaster_snapshot = &snaps.battlemaster_snapshot;
+        let _infantry_snapshot = &snaps.infantry_snapshot;
+
         // Wave 806: Spectre howitzer shell / flare / laser-beam lifetimes.
         if e.spectre_howitzer_shell {
             let height_die = e.transform.position.y <= 1.0;
@@ -314,35 +315,11 @@ impl GameWorldShadow {
             }
         }
 
-        // Wave 812: Battlemaster horde status residual.
-        if crate::game_logic::host_battlemaster::is_battlemaster_template(e.template_name()) {
-            use crate::game_logic::host_battlemaster::{
-                counts_toward_battlemaster_horde, distance_2d, is_in_horde,
-                BATTLE_MASTER_HORDE_RADIUS,
-            };
+        // Wave 812: China vehicle HordeUpdate residual (not Battlemaster-only).
+        if crate::game_logic::host_battlemaster::is_china_vehicle_horde_unit(e.template_name()) {
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let x = e.transform.position.x;
-                let z = e.transform.position.z;
-                let team = e.team_ordinal;
-                let mut nearby = 0u32;
-                for (oid, oteam, ox, oz, oalive) in battlemaster_snapshot {
-                    if *oid == hid {
-                        continue;
-                    }
-                    let dist = distance_2d(x, z, *ox, *oz);
-                    if counts_toward_battlemaster_horde(
-                        alive,
-                        *oalive,
-                        team == *oteam,
-                        true,
-                        dist,
-                        BATTLE_MASTER_HORDE_RADIUS,
-                    ) {
-                        nearby = nearby.saturating_add(1);
-                    }
-                }
-                let now_horde = alive && is_in_horde(nearby);
+                let now_horde = alive && snaps.vehicle_horde_now.get(&hid).copied().unwrap_or(false);
                 let was = e.weapon_bonus_horde;
                 if e.weapon_bonus_horde != now_horde || now_horde {
                     e.weapon_bonus_horde = now_horde;
@@ -358,35 +335,11 @@ impl GameWorldShadow {
             }
         }
 
-        // Wave 813: China infantry horde status residual.
+        // Wave 813: China infantry HordeUpdate residual (HordeUpdate infantry only).
         if crate::game_logic::host_red_guard::is_china_infantry_horde_unit(e.template_name()) {
-            use crate::game_logic::host_red_guard::{
-                counts_toward_infantry_horde, distance_2d, is_in_infantry_horde,
-                INFANTRY_HORDE_RADIUS,
-            };
             let alive = e.health > 0.0 && !e.destroyed;
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                let x = e.transform.position.x;
-                let z = e.transform.position.z;
-                let team = e.team_ordinal;
-                let mut nearby = 0u32;
-                for (oid, oteam, ox, oz, oalive) in infantry_snapshot {
-                    if *oid == hid {
-                        continue;
-                    }
-                    let dist = distance_2d(x, z, *ox, *oz);
-                    if counts_toward_infantry_horde(
-                        alive,
-                        *oalive,
-                        team == *oteam,
-                        true,
-                        dist,
-                        INFANTRY_HORDE_RADIUS,
-                    ) {
-                        nearby = nearby.saturating_add(1);
-                    }
-                }
-                let now_horde = alive && is_in_infantry_horde(nearby);
+                let now_horde = alive && snaps.infantry_horde_now.get(&hid).copied().unwrap_or(false);
                 let was = e.weapon_bonus_horde;
                 if e.weapon_bonus_horde != now_horde || now_horde {
                     e.weapon_bonus_horde = now_horde;
@@ -410,6 +363,7 @@ impl GameWorldShadow {
                 }
             }
         }
+
 
         // Wave 814: Stinger hive slave respawn residual.
         if crate::game_logic::host_base_defense::is_stinger_site_structure(e.template_name()) {

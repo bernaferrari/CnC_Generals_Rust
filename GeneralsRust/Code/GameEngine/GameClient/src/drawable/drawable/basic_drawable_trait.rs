@@ -213,7 +213,14 @@ impl Drawable for BasicDrawable {
 
     fn set_time_of_day(&self, time_of_day: TimeOfDay) -> Result<(), Box<dyn Error>> {
         // C++ Drawable::setTimeOfDay (`Drawable.cpp:4344-4354`).
-        self.pending_time_of_day.set(Some(time_of_day));
+        let code = match time_of_day {
+            TimeOfDay::Morning => 1,
+            TimeOfDay::Afternoon => 2,
+            TimeOfDay::Evening => 3,
+            TimeOfDay::Night => 4,
+        };
+        self.pending_time_of_day
+            .store(code, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 

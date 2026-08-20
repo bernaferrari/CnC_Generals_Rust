@@ -21,11 +21,9 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 378: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
+/// Host-only leftover ticks still drive membership when the dual-world
+/// factory registry is empty. The live module must keep running (C++
+/// `HordeUpdate::update` never Forever-sleeps on an empty client list).
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum HordeActionType {
@@ -124,6 +122,27 @@ fn horde_terrain_decal_type(
         TerrainDecalType::Horde
     } else {
         TerrainDecalType::HordeVehicle
+    }
+}
+
+/// C++ `HordeUpdate.cpp:362-365` join/leave fade. `None` when membership did not change.
+fn horde_terrain_decal_fade(was_in_horde: bool, now_in_horde: bool) -> Option<(Real, Real)> {
+    if !was_in_horde && now_in_horde {
+        Some((1.0, 0.03))
+    } else if was_in_horde && !now_in_horde {
+        Some((0.0, -0.03))
+    } else {
+        None
+    }
+}
+
+/// C++ `HordeUpdate.cpp:369` — infantry `UPDATE_SLEEP(UpdateRate)`, vehicle `UPDATE_SLEEP_NONE`.
+/// Empty `OBJECT_REGISTRY` is not a reason to Forever-sleep.
+fn horde_update_sleep_after_tick(is_infantry: bool, update_rate: UnsignedInt) -> UpdateSleepTime {
+    if is_infantry {
+        UpdateSleepTime::from_u32(update_rate)
+    } else {
+        UpdateSleepTime::None
     }
 }
 
@@ -370,11 +389,7 @@ impl HordeUpdate {
 
     #[allow(dead_code)]
     fn show_hide_flag(&mut self, show: Bool) {
-        // Wave 378: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // C++ showHideFlag always walks FlagSubObjectNames when present.
         self.has_flag = show;
         if self.module_data.flag_sub_obj_names.is_empty() {
             return;
@@ -401,11 +416,7 @@ impl HordeUpdate {
     }
 
     fn check_horde_status(&mut self) {
-        // Wave 378: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // C++ PartitionFilterHordeMember + Radius scan always run.
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -507,11 +518,7 @@ impl HordeUpdate {
 
 impl UpdateModuleInterface for HordeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 378: empty dual-world → Forever.
-        if dual_world_registry_unavailable() {
-            return UpdateSleepTime::Forever;
-        }
-
+        // C++ HordeUpdate::update always runs membership + decals.
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -562,19 +569,13 @@ impl UpdateModuleInterface for HordeUpdate {
                     drawable.set_terrain_decal(TerrainDecalType::None);
                 }
 
-                if !was_in_horde && self.in_horde {
-                    drawable.set_terrain_decal_fade_target(1.0, 0.03);
-                } else if was_in_horde && !self.in_horde {
-                    drawable.set_terrain_decal_fade_target(0.0, -0.03);
+                if let Some((target, rate)) = horde_terrain_decal_fade(was_in_horde, self.in_horde) {
+                    drawable.set_terrain_decal_fade_target(target, rate);
                 }
             }
         }
 
-        if is_infantry {
-            UpdateSleepTime::from_u32(self.module_data.update_rate)
-        } else {
-            UpdateSleepTime::None
-        }
+        horde_update_sleep_after_tick(is_infantry, self.module_data.update_rate)
     }
 }
 
@@ -741,6 +742,34 @@ mod tests {
         assert_eq!(
             horde_terrain_decal_type(false, true, true),
             TerrainDecalType::HordeWithFanaticismUpgrade
+        );
+    }
+
+    #[test]
+    fn horde_decal_fade_matches_cpp_join_leave() {
+        // C++ HordeUpdate.cpp:362-365
+        assert_eq!(horde_terrain_decal_fade(false, true), Some((1.0, 0.03)));
+        assert_eq!(horde_terrain_decal_fade(true, false), Some((0.0, -0.03)));
+        assert_eq!(horde_terrain_decal_fade(true, true), None);
+        assert_eq!(horde_terrain_decal_fade(false, false), None);
+    }
+
+    #[test]
+    fn horde_update_sleep_never_forever_because_registry_empty() {
+        // C++ HordeUpdate.cpp:369 — infantry UpdateRate, vehicle UPDATE_SLEEP_NONE.
+        // Constructor only random-sleeps the first wake (`:146-147`). Empty
+        // OBJECT_REGISTRY is not a Forever-sleep reason.
+        assert_ne!(
+            horde_update_sleep_after_tick(true, 30),
+            UpdateSleepTime::Forever
+        );
+        assert_eq!(
+            horde_update_sleep_after_tick(false, 30),
+            UpdateSleepTime::None
+        );
+        assert_eq!(
+            horde_update_sleep_after_tick(true, 30),
+            UpdateSleepTime::from_u32(30)
         );
     }
 }

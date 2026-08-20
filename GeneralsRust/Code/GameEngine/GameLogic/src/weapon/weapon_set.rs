@@ -748,16 +748,9 @@ impl WeaponSet {
             }
 
             let damage = weapon.estimate_weapon_damage(source_obj, Some(target_obj), None);
-            // C++ WeaponSet.cpp:706-709 — hero KILLPILOT is not auto-chosen.
-            if weapon.get_damage_type() == DamageType::KillPilot
-                && crate::object::registry::OBJECT_REGISTRY
-                    .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
-                    .unwrap_or(false)
-                && self.current_weapon == WeaponSlotType::Primary
-            {
-                continue;
-            }
-
+            // C++ WeaponSet::chooseBestWeaponForTarget (WeaponSet.cpp:764-948)
+            // does not skip DAMAGE_KILLPILOT. The hero/Jarmen-Kell cursor skip
+            // lives only in getAbleToUseWeaponAgainstTarget (WeaponSet.cpp:706).
             // C++ line 847: Check if weapon is ready to fire
             let mut weapon_is_ready = weapon.get_status() == WeaponStatus::ReadyToFire;
 

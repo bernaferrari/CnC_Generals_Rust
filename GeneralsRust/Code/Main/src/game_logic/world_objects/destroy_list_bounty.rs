@@ -249,7 +249,9 @@ impl GameLogic {
                         is_toxin_tractor_template, UPGRADE_GLA_ANTHRAX_BETA,
                         UPGRADE_GLA_ANTHRAX_GAMMA, UPGRADE_GLA_ANTHRAX_GAMMA_ALT,
                     };
-                    if is_toxin_tractor_template(&obj.template_name) {
+                    if !obj.fire_weapon_when_dead_fired
+                        && is_toxin_tractor_template(&obj.template_name)
+                    {
                         let has_gamma = obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA)
                             || obj.has_upgrade_tag(UPGRADE_GLA_ANTHRAX_GAMMA_ALT)
                             || obj.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma")
@@ -284,7 +286,9 @@ impl GameLogic {
                         is_bomb_truck_template, BombTruckDetonationProfile, UPGRADE_BOMB_TRUCK_BIO,
                         UPGRADE_BOMB_TRUCK_HE, UPGRADE_GLA_ANTHRAX_BETA,
                     };
-                    if is_bomb_truck_template(&obj.template_name) {
+                    if !obj.fire_weapon_when_dead_fired
+                        && is_bomb_truck_template(&obj.template_name)
+                    {
                         let he = obj.has_upgrade_tag(UPGRADE_BOMB_TRUCK_HE)
                             || obj.has_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
                         let bio = obj.has_upgrade_tag(UPGRADE_BOMB_TRUCK_BIO)
@@ -313,7 +317,8 @@ impl GameLogic {
                         has_nuclear_tanks_upgrade, is_nuclear_tanks_eligible,
                         is_nuke_general_nuclear_tanks,
                     };
-                    if is_nuclear_tanks_eligible(&obj.template_name)
+                    if !obj.fire_weapon_when_dead_fired
+                        && is_nuclear_tanks_eligible(&obj.template_name)
                         && has_nuclear_tanks_upgrade(&obj.applied_upgrades)
                     {
                         let nuke_gen = is_nuke_general_nuclear_tanks(&obj.template_name);
@@ -331,7 +336,8 @@ impl GameLogic {
                         has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
                     };
                     use crate::game_logic::host_terrorist::is_terrorist_template;
-                    if !obj.demo_suicided_detonating
+                    if !obj.fire_weapon_when_dead_fired
+                        && !obj.demo_suicided_detonating
                         && is_demo_suicide_bomb_eligible_template(&obj.template_name)
                         && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
                         && !is_terrorist_template(&obj.template_name)

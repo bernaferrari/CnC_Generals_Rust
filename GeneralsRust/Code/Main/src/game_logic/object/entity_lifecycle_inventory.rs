@@ -150,7 +150,9 @@ pub(crate) fn collect_module_states(
     push_opt(&mut out, TAG_TENSILE_FORMATION, &object.tensile_formation)?;
     push_opt(&mut out, TAG_FIRE_SPREAD, &object.fire_spread)?;
     push_opt(&mut out, TAG_BASE_REGENERATE, &object.base_regenerate)?;
+    push_opt(&mut out, TAG_DEFAULT_AUTO_HEAL, &object.default_auto_heal)?;
     push_opt(&mut out, TAG_ENEMY_NEAR, &object.enemy_near)?;
+
     push_opt(&mut out, TAG_ANIMATION_STEERING, &object.animation_steering)?;
     push_opt(&mut out, TAG_FLOAT_UPDATE, &object.float_update)?;
     push_opt(&mut out, TAG_PRONE_UPDATE, &object.prone_update)?;

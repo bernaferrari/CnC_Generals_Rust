@@ -394,9 +394,79 @@ impl InGameUI {
     // C++: InGameUI::setGUICommand() (InGameUI.cpp:2865)
     // C++: InGameUI::getGUICommand() (InGameUI.cpp:2923)
 
-    pub fn set_gui_command(&mut self, command: Option<String>) {
-        self.gui_command = command;
+    pub fn command_option_need_target(options: u32) -> bool {
+        options & COMMAND_OPTION_NEED_TARGET != 0
     }
+
+    pub fn should_skip_gui_command_during_playback(playback_active: bool) -> bool {
+        playback_active
+    }
+
+    pub fn mouse_mode_for_gui_command(has_command: bool, needs_target: bool) -> MouseMode {
+        if has_command && needs_target {
+            MouseMode::GuiCommand
+        } else {
+            MouseMode::Default
+        }
+    }
+
+    pub fn set_gui_command(&mut self, command: Option<String>) {
+        // C++ InGameUI::setGUICommand (InGameUI.cpp:2865-2918)
+        if Self::should_skip_gui_command_during_playback(
+            self.recorder_playback_active
+                || with_recorder(|recorder| recorder.is_playback()).unwrap_or(false),
+        ) {
+            return;
+        }
+
+        let pending = TheInGameUI::get_pending_command();
+        // String-only leftover API: no pending options means the caller already
+        // chose a targeting command. Default to NEED_TARGET_POS (non-context).
+        let options = pending
+            .as_ref()
+            .map(|cmd| cmd.options)
+            .unwrap_or(if command.is_some() { 0x0000_0020 } else { 0 });
+        let needs_target = Self::command_option_need_target(options);
+
+        if command.is_some() && !needs_target {
+            self.gui_command = None;
+            self.set_mouse_mode(MouseMode::Default);
+            TheInGameUI::set_mouse_mode(MouseMode::Default);
+            return;
+        }
+
+        let mode = Self::mouse_mode_for_gui_command(command.is_some(), needs_target);
+        self.set_mouse_mode(mode);
+        TheInGameUI::set_mouse_mode(mode);
+        self.gui_command = command;
+
+        let is_context = options & CMD_CONTEXTMODE_COMMAND != 0;
+        self.set_mouse_cursor(MouseCursor::Arrow);
+        TheInGameUI::set_mouse_cursor(MouseCursor::Arrow);
+        if self.gui_command.is_some() && needs_target && !is_context {
+            if let Some(pending) = pending {
+                if let Some(cursor_type) =
+                    RadiusCursorType::from_name(&pending.radius_cursor_type)
+                {
+                    if cursor_type != RadiusCursorType::None {
+                        TheInGameUI::set_radius_cursor_active_with_type(
+                            &pending.radius_cursor_type,
+                        );
+                        self.set_radius_cursor(
+                            cursor_type,
+                            Coord3D::new(0.0, 0.0, 0.0),
+                            1.0,
+                        );
+                    }
+                }
+            }
+        } else {
+            self.clear_radius_cursor();
+            TheInGameUI::set_radius_cursor_none();
+        }
+        self.mouse_mode_cursor = self.current_cursor;
+    }
+
 
     pub fn get_gui_command(&self) -> Option<&String> {
         self.gui_command.as_ref()
@@ -629,6 +699,10 @@ impl InGameUI {
     // C++: InGameUI.cpp:3333 (isAnySelectedKindOf)
     // C++: InGameUI.cpp:3357 (isAllSelectedKindOf)
 
+    pub fn radar_movie_window_name() -> &'static str {
+        "ControlBar.wnd:LeftHUD"
+    }
+
     pub fn play_movie(&mut self, movie_name: &str) {
         self.stop_movie();
         let Some(player) = crate::video_player::get_video_player() else {
@@ -653,9 +727,15 @@ impl InGameUI {
         self.video_stream = Some(stream);
         self.video_buffer = Some(crate::video_buffer::VideoBufferHandle::new(buffer));
         self.currently_playing_movie = Some(movie_name.to_string());
+        self.attach_window_video_buffer(
+            Self::radar_movie_window_name(),
+            self.video_buffer.clone(),
+        );
     }
 
+
     pub fn stop_movie(&mut self) {
+        self.attach_window_video_buffer(Self::radar_movie_window_name(), None);
         if let Some(stream) = self.video_stream.take() {
             stream.close();
         }
@@ -665,6 +745,7 @@ impl InGameUI {
         }
         self.currently_playing_movie = None;
     }
+
 
     pub fn is_movie_playing(&self) -> bool {
         self.currently_playing_movie.is_some() && self.video_stream.is_some()
@@ -718,9 +799,13 @@ impl InGameUI {
         self.cameo_movie_playing.is_some() && self.cameo_video_stream.is_some()
     }
 
-    fn attach_cameo_video_buffer(&self, buffer: Option<crate::video_buffer::VideoBufferHandle>) {
+    fn attach_window_video_buffer(
+        &self,
+        window_name: &str,
+        buffer: Option<crate::video_buffer::VideoBufferHandle>,
+    ) {
         let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            "ControlBar.wnd:RightHUD",
+            window_name,
         );
         with_window_manager_ref(|manager| {
             if let Some(window) = manager.get_window_by_id(key as i32) {
@@ -728,6 +813,28 @@ impl InGameUI {
             }
         });
     }
+
+    fn attach_cameo_video_buffer(&self, buffer: Option<crate::video_buffer::VideoBufferHandle>) {
+        self.attach_window_video_buffer("ControlBar.wnd:RightHUD", buffer);
+    }
+
+    pub fn video_buffer(&self) -> Option<crate::video_buffer::VideoBufferHandle> {
+        self.video_buffer.clone()
+    }
+
+    pub fn popup_message(
+        &mut self,
+        identifier: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        pause: bool,
+        pause_music: bool,
+    ) {
+        // C++ InGameUI::popupMessage always UpdateDiplomacyBriefingText first.
+        TheInGameUI::popup_message(identifier, x, y, width, pause, pause_music);
+    }
+
 
     fn update_movie_playback(&mut self) {
         let mut stop_main = false;

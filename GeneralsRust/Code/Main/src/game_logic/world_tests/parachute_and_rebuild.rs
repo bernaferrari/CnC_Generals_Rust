@@ -173,6 +173,138 @@ fn resume_construction_assigns_dozer_and_model_bits() {
 }
 
 #[test]
+fn resume_construction_allows_allied_dozer() {
+    // C++ ActionManager.cpp:442-446 relationship ALLIES.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut p0 = Player::new(0, Team::USA, "USA", true);
+    p0.alliance_team = 7;
+    let mut p1 = Player::new(1, Team::China, "China", false);
+    p1.alliance_team = 7;
+    logic.add_player(p0);
+    logic.add_player(p1);
+    let mut st = ThingTemplate::new("AmericaPowerPlant");
+    st.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("AmericaPowerPlant".into(), st);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+
+    let sid = logic
+        .create_object_for_player("AmericaPowerPlant", 1, glam::Vec3::ZERO)
+        .expect("pp");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(true);
+        o.construction_percent = 0.2;
+    }
+    let did = logic
+        .create_object_for_player(
+            "AmericaVehicleDozer",
+            0,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .expect("dozer");
+    assert!(logic.can_resume_construction_of(did, sid));
+    assert!(logic.resume_construction(&[did], sid));
+}
+
+#[test]
+fn resume_construction_paths_distant_dozer_without_constructing_anim() {
+    // C++ DozerAIUpdate.cpp:211 move; :511 anim only at dock.
+    use crate::game_logic::host_enum_table_residual::{
+        actively_constructing_model_bit, host_model_condition_has,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut st = ThingTemplate::new("AmericaPowerPlant");
+    st.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("AmericaPowerPlant".into(), st);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+
+    let sid = logic
+        .create_object(
+            "AmericaPowerPlant",
+            Team::USA,
+            glam::Vec3::ZERO,
+        )
+        .expect("pp");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(true);
+        o.construction_percent = 0.1;
+    }
+    let did = logic
+        .create_object(
+            "AmericaVehicleDozer",
+            Team::USA,
+            glam::Vec3::new(400.0, 0.0, 0.0),
+        )
+        .expect("dozer");
+    assert!(logic.resume_construction(&[did], sid));
+    let d = logic.host_object(did).expect("d");
+    assert_eq!(d.ai_state, AIState::Constructing);
+    assert_eq!(d.target, Some(sid));
+    assert!(
+        d.movement.target_position.is_some()
+            || !d.movement.path.is_empty()
+            || d.target_location.is_some(),
+        "player resume must path the dozer to the scaffold"
+    );
+    assert!(
+        !host_model_condition_has(d.model_condition_bits, actively_constructing_model_bit()),
+        "ACTIVELY_CONSTRUCTING only at the dock"
+    );
+}
+
+#[test]
+fn mine_clear_drops_worker_supply_boxes() {
+    // C++ WorkerAIUpdate.cpp:1043-1050.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut worker_t = ThingTemplate::new("GLAInfantryWorker");
+    worker_t
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Harvester)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryWorker".into(), worker_t);
+    let wid = logic
+        .create_object(
+            "GLAInfantryWorker",
+            Team::GLA,
+            glam::Vec3::ZERO,
+        )
+        .expect("worker");
+    if let Some(w) = logic.host_object_mut(wid) {
+        w.set_stored_supplies(2);
+    }
+    logic.drop_worker_supply_boxes_for_mine_clear(wid);
+    assert_eq!(
+        logic.host_object(wid).unwrap().stored_resources.supplies,
+        0
+    );
+}
+
+
+#[test]
 fn cancel_construction_clears_dozer_actively_constructing() {
     use crate::game_logic::host_enum_table_residual::{
         actively_constructing_model_bit, host_model_condition_has,

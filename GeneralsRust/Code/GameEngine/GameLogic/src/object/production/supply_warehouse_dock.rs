@@ -214,12 +214,8 @@ impl SupplyWarehouseDockUpdate {
         drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
     }
 
-    /// Handle supply truck docking and loading.
     fn perform_supply_transfer(&mut self, docker: &Arc<RwLock<Object>>) -> Result<bool, String> {
-        // Wave 405: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
+        // Resolve owner/docker via TheGameLogic even when OBJECT_REGISTRY is empty.
 
         if self.boxes_stored == 0 {
             return Ok(false);
@@ -429,11 +425,6 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 405: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
         // Perform supply transfer to truck
         {
             let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
@@ -475,10 +466,9 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         &mut self,
         crippled: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 405: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+        // C++ SupplyWarehouseDockUpdate::setDockCrippled — kill inside ground
+        // dockers / idle+force-wanting approachers, even on the host path.
+
 
         if crippled {
             let active_id = self.base.active_docker_id();

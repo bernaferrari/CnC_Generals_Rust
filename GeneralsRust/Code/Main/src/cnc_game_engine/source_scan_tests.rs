@@ -684,7 +684,7 @@ fn idle_worker_period_key_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
         src.contains("c == \".\"")
-            && src.contains("cycle_friendly_worker_selection(1)")
+            && src.contains("host_select_next_idle_worker_from_control_bar")
             && src.contains("SELECT_IDLE_WORKER"),
         "period key must cycle idle workers residual"
     );
@@ -693,8 +693,8 @@ fn idle_worker_period_key_residual() {
         .expect("cycle_friendly_worker_selection");
     let body = &src[start..start + 2200];
     assert!(
-        body.contains("idle_workers") && body.contains("AIState::Idle"),
-        "worker cycle must prefer idle workers residual"
+        body.contains("KindOf::Dozer") && body.contains("host_center_camera_on"),
+        "SELECT_NEXT/PREV_WORKER must be KINDOF_DOZER + lookAt (CommandXlat.cpp:2573-2798)"
     );
 }
 

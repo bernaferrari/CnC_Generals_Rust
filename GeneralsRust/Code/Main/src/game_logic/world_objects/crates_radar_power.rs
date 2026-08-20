@@ -290,10 +290,8 @@ impl GameLogic {
                     return None;
                 }
                 let is_projectile = obj.is_kind_of(KindOf::Projectile);
-                // C++ rejects KINDOF_PARACHUTE pickers; host residual: parachuting flag
-                // or template name containing "parachute".
-                let is_parachute_picker = obj.is_parachuting()
-                    || obj.template_name.to_ascii_lowercase().contains("parachute");
+                // C++ rejects `other->isKindOf(KINDOF_PARACHUTE)`, not OBJECT_STATUS_PARACHUTING.
+                let is_parachute_picker = obj.is_kind_of(KindOf::Parachute);
                 let is_structure =
                     obj.is_kind_of(KindOf::Structure) || obj.object_type == ObjectType::Building;
                 let constructed = obj.is_constructed() && !obj.status.under_construction;
@@ -344,6 +342,20 @@ impl GameLogic {
                 if *is_salvage && !*is_salvager {
                     continue;
                 }
+                if *is_salvage {
+                    let has_science = picker_owner
+                        .and_then(|pid| self.players.get(&pid))
+                        .is_some_and(|player| {
+                            crate::game_logic::host_supply_gather::player_has_science(
+                                player.unlocked_sciences.iter().map(|s| s.as_str()),
+                                crate::game_logic::host_gamedata_lobby_residual::SALVAGE_PICKUP_SCIENCE_RESIDUAL,
+                            )
+                        });
+                    if !has_science {
+                        continue;
+                    }
+                }
+
                 // Salvage crates are not building-pickup residual.
                 if *is_salvage && *is_structure {
                     continue;

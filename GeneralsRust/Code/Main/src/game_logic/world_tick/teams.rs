@@ -277,11 +277,19 @@ impl GameLogic {
         if damager.status.airborne_target || damager.is_kind_of(KindOf::Aircraft) {
             return false;
         }
-        // Enemies only.
-        if damager.team == victim.team
-            || damager.team == Team::Neutral
-            || victim.team == Team::Neutral
-        {
+        // C++ ActiveBody.cpp:717 — damager->getRelationship(obj) != ENEMIES.
+        let enemies = match (damager.owner_player_id, victim.owner_player_id) {
+            (Some(_), Some(_)) => {
+                self.object_relationship(damager, victim)
+                    == gamelogic::common::Relationship::Enemies
+            }
+            _ => {
+                damager.team != victim.team
+                    && damager.team != Team::Neutral
+                    && victim.team != Team::Neutral
+            }
+        };
+        if !enemies {
             return false;
         }
         let vp = victim.get_position();
@@ -361,12 +369,22 @@ impl GameLogic {
             .objects
             .iter()
             .filter(|(id, o)| {
-                **id != victim_id && **id != damager_id && o.team == vteam && o.is_alive() && {
-                    let p = o.get_position();
-                    let dx = p.x - vpos.x;
-                    let dz = p.z - vpos.z;
-                    dx * dx + dz * dz <= range_sq
+                if **id == victim_id || **id == damager_id || !o.is_alive() {
+                    return false;
                 }
+                // C++ PartitionFilterPlayerAffiliation ALLOW_ALLIES.
+                let allied = self.object_relationship(o, &self.objects[&victim_id])
+                    == gamelogic::common::Relationship::Allies
+                    || (o.owner_player_id.is_none()
+                        && o.team == vteam
+                        && o.team != Team::Neutral);
+                if !allied {
+                    return false;
+                }
+                let p = o.get_position();
+                let dx = p.x - vpos.x;
+                let dz = p.z - vpos.z;
+                dx * dx + dz * dz <= range_sq
             })
             .map(|(id, _)| *id)
             .collect();

@@ -820,7 +820,9 @@ impl GameLogic {
         let Some(structure_owner_player_id) = self.player_owner_for_host_object(structure) else {
             return false;
         };
-        if structure_owner_player_id != dozer_owner_player_id {
+        if self.player_relationship(dozer_owner_player_id, structure_owner_player_id)
+            != gamelogic::common::Relationship::Allies
+        {
             return false;
         }
         if !structure.status.under_construction || structure.status.sold {
@@ -862,8 +864,26 @@ impl GameLogic {
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_set_state(dozer_id, 7);
                 }
-                dozer.set_actively_constructing(true);
+                // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
+                // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
             }
+            let approach = {
+                let dozer_pos = self
+                    .objects
+                    .get(&dozer_id)
+                    .map(|d| d.get_position())
+                    .unwrap_or(glam::Vec3::ZERO);
+                let (st_pos, st_radius) = self
+                    .objects
+                    .get(&structure_id)
+                    .map(|s| (s.get_position(), s.selection_radius))
+                    .unwrap_or((glam::Vec3::ZERO, 0.0));
+                crate::game_logic::host_repair::dozer_repair_approach_position(
+                    dozer_pos, st_pos, st_radius,
+                )
+            };
+            // C++ DozerActionPickActionPosState::update aiMoveToPosition (DozerAIUpdate.cpp:211).
+            self.path_approach_with_state(dozer_id, approach, AIState::Constructing);
             // Structure awaiting → actively being constructed residual when dozer assigned.
             if let Some(st) = self.objects.get_mut(&structure_id) {
                 st.set_under_construction_model_conditions(true);
@@ -891,6 +911,39 @@ impl GameLogic {
         self.repair_complete_events > 0
     }
 
+    /// C++ `DozerAIUpdate::getBoredRange` (DozerAIUpdate.cpp:2305-2312).
+    /// Computer *dozers* scan 2×; `WorkerAIUpdate::getBoredRange` is unmodified.
+    fn dozer_bored_scan_range(&self, dozer_id: ObjectId) -> f32 {
+        let Some(dozer) = self.objects.get(&dozer_id) else {
+            return crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        };
+        if dozer.is_resource_collector()
+            || dozer.template_name.to_ascii_lowercase().contains("worker")
+        {
+            return crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        }
+        let is_computer = self
+            .player_owner_for_host_object(dozer)
+            .is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
+        crate::game_logic::host_repair::dozer_bored_range(is_computer)
+    }
+
+    /// C++ `WorkerAIUpdate::aiDoCommand` drop-boxes-on-clear-mines tail.
+    pub(crate) fn drop_worker_supply_boxes_for_mine_clear(&mut self, id: ObjectId) {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if obj.stored_resources.supplies == 0 {
+            return;
+        }
+        if !(obj.is_resource_collector()
+            || obj.template_name.to_ascii_lowercase().contains("worker"))
+        {
+            return;
+        }
+        obj.set_stored_supplies(0);
+    }
+
     /// C++ DozerAIUpdate findObjectToRepair residual (same player, structure, damaged).
     pub fn find_dozer_bored_repair_target(&self, dozer_id: ObjectId) -> Option<ObjectId> {
         let dozer = self.objects.get(&dozer_id)?;
@@ -900,7 +953,7 @@ impl GameLogic {
         let pos = dozer.get_position();
         let team = dozer.team;
         let dozer_owner_player_id = self.player_owner_for_host_object(dozer)?;
-        let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        let range = self.dozer_bored_scan_range(dozer_id);
         // Pure residual service acquire (2D/XZ bored range).
         let candidates: Vec<_> = self
             .objects
@@ -954,7 +1007,7 @@ impl GameLogic {
         let pos = dozer.get_position();
         let team = dozer.team;
         let dozer_owner_player_id = self.player_owner_for_host_object(dozer);
-        let range = crate::game_logic::host_repair::DOZER_BORED_RANGE;
+        let range = self.dozer_bored_scan_range(dozer_id);
         // Pure residual acquire (enemy/neutral mines in BoredRange, XZ).
         let candidates: Vec<_> = self
             .objects
@@ -1027,7 +1080,6 @@ impl GameLogic {
         if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.target = Some(target_id);
-                obj.set_actively_constructing(true);
                 obj.idle_since_frame = 0;
             }
             self.set_ai_state_decision_aware(id, AIState::Repairing);
@@ -1044,6 +1096,7 @@ impl GameLogic {
                 obj.idle_since_frame = 0;
             }
             if self.apply_engagement_decision_aware(id, mine_id) {
+                self.drop_worker_supply_boxes_for_mine_clear(id);
                 self.path_approach_with_state(id, mine_pos, AIState::Attacking);
                 self.dozer_bored_mine_clear_events =
                     self.dozer_bored_mine_clear_events.saturating_add(1);
@@ -1082,7 +1135,6 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     // Repair target is non-combat host association (not AttackTarget).
                     obj.target = Some(target_id);
-                    obj.set_actively_constructing(true);
                     obj.idle_since_frame = 0;
                 }
                 self.set_ai_state_decision_aware(id, AIState::Repairing);
@@ -1102,6 +1154,7 @@ impl GameLogic {
                 }
                 // Combat engagement via decision authority; path_approach logs Attacking too.
                 if self.apply_engagement_decision_aware(id, mine_id) {
+                    self.drop_worker_supply_boxes_for_mine_clear(id);
                     // Approach residual — attack resolution happens in combat update.
                     self.path_approach_with_state(id, mine_pos, AIState::Attacking);
                     self.dozer_bored_mine_clear_events =

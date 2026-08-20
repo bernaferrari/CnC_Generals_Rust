@@ -103,8 +103,15 @@ impl Object {
             }
             // C++ PoisonedBehavior::onHealing residual (heal path).
             self.clear_poisoned_on_healing();
-            // amount is heal strength; negative ignored by heal().
-            self.heal(damage.max(0.0));
+            // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801):
+            // amount = m_curArmor.adjustDamage(DAMAGE_HEALING, in.m_amount)
+            // before internalChangeHealth. Armor.cpp:43-55 apply coefficient.
+            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+                self,
+                damage_type,
+                damage,
+            );
+            self.heal(amount.max(0.0));
             // Optional: record healer without treating as hostile damage source.
             let _ = source;
             return false;
@@ -136,11 +143,12 @@ impl Object {
                         );
                         self.set_ai_state(AIState::Idle);
                         self.target = None;
-                        crate::game_logic::host_damage_log::record(
+                        crate::game_logic::host_damage_log::record_typed(
                             self.id,
                             self.health.maximum.max(self.max_health).max(1.0),
                             source,
                             true,
+                            damage_type.to_store() as u32,
                         );
                         let _ = damage;
                         return true;
@@ -164,13 +172,10 @@ impl Object {
             return false;
         }
 
-        // C++ IsSubdualDamage residual (Damage.h:95-107). Microwave/EMP stays the
-        // existing host EMP peel (before armor — TankArmor MICROWAVE is 0%).
-        if matches!(damage_type, crate::game_logic::combat::DamageType::EMP) {
-            self.apply_subdual_damage(damage.max(0.0));
-            let _ = (source, death_type);
-            return false;
-        }
+        // C++ DAMAGE_MICROWAVE (Damage.h:63) is ordinary HP through armor.
+        // IsSubdualDamage is false (Damage.h:95-107). Do not peel EMP/Microwave
+        // into the subdual pool — TankArmor MICROWAVE 0% zeros HP, infantry
+        // take armor-scaled HP. Host EMP is a leftover alias of Microwave.
         // C++ SUBDUAL_* is not HP and is not DAMAGE_UNRESISTABLE.
         if damage_type.is_subdual() {
             let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
@@ -184,7 +189,14 @@ impl Object {
         }
         // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
-            let frames = ((damage.max(0.0) * 30.0) / 1000.0).ceil() as u32;
+            // C++ ActiveBody.cpp:351 adjustDamage first; 460-464 convert the
+            // ARMOR-ADJUSTED msec via ConvertDurationFromMsecsToFrames.
+            let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
+                self,
+                damage_type,
+                damage,
+            );
+            let frames = ((amount.max(0.0) * 30.0) / 1000.0).ceil() as u32;
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
             // Default status peel when caller didn't already apply a named status.
             // FAERIE_FIRE is the primary retail STATUS residual.
@@ -225,7 +237,11 @@ impl Object {
             if let Some(br) = self.base_regenerate.as_mut() {
                 br.mark_damaged();
             }
+            if let Some(ah) = self.default_auto_heal.as_mut() {
+                ah.mark_damaged();
+            }
             // C++ ProneUpdate::goProne residual.
+
             if let Some(pu) = self.prone_update.as_mut() {
                 let _ = pu.go_prone_damage(damage);
             }
@@ -332,7 +348,13 @@ impl Object {
         } else {
             false
         };
-        crate::game_logic::host_damage_log::record(self.id, actual_damage, source, destroyed);
+        crate::game_logic::host_damage_log::record_typed(
+            self.id,
+            actual_damage,
+            source,
+            destroyed,
+            damage_type.to_store() as u32,
+        );
 
 
 
@@ -347,18 +369,7 @@ impl Object {
             self.notify_poisoned_on_damage(frame, damage_type, actual_damage, death_type);
         }
         // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
-        if actual_damage > 0.0
-            && !matches!(
-                damage_type,
-                crate::game_logic::combat::DamageType::Healing
-                    | crate::game_logic::combat::DamageType::Status
-                    | crate::game_logic::combat::DamageType::Hack
-                    | crate::game_logic::combat::DamageType::Deploy
-                    | crate::game_logic::combat::DamageType::Disarm
-                    | crate::game_logic::combat::DamageType::KillPilot
-                    | crate::game_logic::combat::DamageType::KillGarrisoned
-            )
-        {
+        if actual_damage > 0.0 {
             // Wave 779: under damage authority, FWWDB onDamage reaction is owned by
             // GW apply_host_damage_events + host_fwwd_reaction_log drain (post-HP).
             if !(crate::gameworld_shadow::gameworld_damage_authority_live() && !force_host_hp) {
@@ -370,6 +381,7 @@ impl Object {
                         self.health.current,
                         self.health.maximum.max(self.max_health).max(1.0),
                         fw.last_reaction_frame.saturating_add(2),
+                        damage_type.to_store() as u32,
                     ) {
                         self.pending_fire_when_damaged_weapon = Some(w);
                     }
@@ -545,6 +557,143 @@ mod tests {
         assert!(tank.health.current <= 0.0);
         assert!(tank.status.destroyed);
         crate::gameworld_shadow::end_shadow_coupled_tick();
+    }
+
+    #[test]
+    fn supply_warehouse_and_firewall_use_immortal_body_floor() {
+        // C++ ImmortalBody.cpp:31-37 + CivilianBuilding.ini SupplyWarehouse
+        // / FireWallSegment ImmortalBody. Live host take_damage is attemptDamage.
+        let mut warehouse = Object::new(
+            ThingTemplate::new("SupplyWarehouse"),
+            ObjectId(31),
+            Team::Neutral,
+        );
+        warehouse.health.current = 1000.0;
+        warehouse.health.maximum = 1000.0;
+        assert!(warehouse.uses_immortal_body());
+        assert!(!warehouse.take_damage_from_typed(50_000.0, None, DamageType::Explosive));
+        assert!(
+            (warehouse.health.current - 1.0).abs() < 1e-3,
+            "SupplyWarehouse must stay at 1 HP, got {}",
+            warehouse.health.current
+        );
+        assert!(!warehouse.status.destroyed);
+        assert!(!warehouse.take_damage_from_typed(99.0, None, DamageType::Unresistable));
+        assert!((warehouse.health.current - 1.0).abs() < 1e-3);
+        assert!(!warehouse.status.destroyed);
+
+        let mut segment = Object::new(
+            ThingTemplate::new("FireWallSegment"),
+            ObjectId(32),
+            Team::China,
+        );
+        segment.health.current = 50.0;
+        segment.health.maximum = 50.0;
+        segment.firewall_segment = true;
+        assert!(segment.uses_immortal_body());
+        assert!(!segment.take_damage_from_typed(500.0, None, DamageType::Explosive));
+        assert!((segment.health.current - 1.0).abs() < 1e-3);
+        assert!(!segment.status.destroyed);
+
+        let mut tank = vehicle("AmericaTankCrusader", 33, 400.0);
+        assert!(!tank.uses_immortal_body());
+        assert!(tank.take_damage_from_typed(400.0, None, DamageType::Unresistable));
+        assert!(tank.status.destroyed);
+    }
+
+    fn register_coeff_armor(name: &str, dt: gamelogic::damage::DamageType, coeff: f32) {
+        let mut t = gamelogic::object::armor::ArmorTemplate::new();
+        t.set_default(1.0);
+        t.set_coefficient(dt, coeff);
+        gamelogic::object::armor::TheArmorStore::register_template(
+            &gamelogic::common::AsciiString::from(name),
+            t,
+        );
+    }
+
+    #[test]
+    fn healing_applies_armor_coefficient() {
+        // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801) + Armor.cpp:43-55.
+        register_coeff_armor("HealHalfArmor", gamelogic::damage::DamageType::Healing, 0.5);
+        let mut tmpl = ThingTemplate::new("HealHalf");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        tmpl.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("HealHalfArmor".into()),
+            damage_fx: None,
+        });
+        let mut unit = Object::new(tmpl, ObjectId(41), Team::USA);
+        unit.health.current = 40.0;
+        unit.health.maximum = 100.0;
+        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing));
+        assert!(
+            (unit.health.current - 50.0).abs() < 1e-3,
+            "HEALING must use armor coeff 0.5 (heal 10), got {}",
+            unit.health.current
+        );
+    }
+
+    #[test]
+    fn microwave_is_hp_through_armor_not_subdual() {
+        // C++ Damage.h:63 DAMAGE_MICROWAVE; IsSubdualDamage false (Damage.h:95-107).
+        // TankArmor MICROWAVE 0%; HumanArmor default 100%.
+        let mut tank = vehicle("MicrowaveTank", 42, 100.0);
+        assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Microwave));
+        assert!(
+            (tank.health.current - 100.0).abs() < 1e-3,
+            "TankArmor MICROWAVE 0% must deal 0 HP, got {}",
+            tank.health.current
+        );
+        assert!(
+            tank.subdual_damage.abs() < 1e-3,
+            "MICROWAVE must not enter EMP subdual pool, got {}",
+            tank.subdual_damage
+        );
+
+        let mut inf = ThingTemplate::new("Ranger");
+        inf.set_health(100.0);
+        inf.add_kind_of(KindOf::Infantry);
+        let mut ranger = Object::new(inf, ObjectId(43), Team::USA);
+        ranger.health.current = 100.0;
+        ranger.health.maximum = 100.0;
+        assert!(!ranger.take_damage_from_typed(40.0, None, DamageType::Microwave));
+        assert!(
+            (ranger.health.current - 60.0).abs() < 1e-3,
+            "infantry MICROWAVE is armor-scaled HP, got {}",
+            ranger.health.current
+        );
+        assert!(ranger.subdual_damage.abs() < 1e-3);
+
+        // Leftover host EMP alias is the same store type (Microwave).
+        let mut tank2 = vehicle("EmpAliasTank", 44, 100.0);
+        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP));
+        assert!((tank2.health.current - 100.0).abs() < 1e-3);
+        assert!(tank2.subdual_damage.abs() < 1e-3);
+    }
+
+    #[test]
+    fn status_duration_applies_armor_coefficient() {
+        // C++ ActiveBody.cpp:351 adjustDamage; 460-464 ConvertDurationFromMsecsToFrames
+        // on the armor-adjusted msec.
+        register_coeff_armor("StatusHalfArmor", gamelogic::damage::DamageType::Status, 0.5);
+        let mut tmpl = ThingTemplate::new("StatusHalf");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("StatusHalfArmor".into()),
+            damage_fx: None,
+        });
+        let mut o = Object::new(tmpl, ObjectId(45), Team::GLA);
+        o.health.current = 100.0;
+        o.health.maximum = 100.0;
+        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        // 2000 msec * 0.5 armor = 1000 msec → 30 frames @ 30 FPS.
+        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status));
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+        assert!(o.is_faerie_fire());
+        assert_eq!(o.faerie_fire_until_frame, frame.saturating_add(30));
     }
 
 

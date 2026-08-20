@@ -64,6 +64,8 @@ static TERRAIN_DECAL_CLIENT: OnceLock<Arc<dyn TerrainDecalClient>> = OnceLock::n
 static TERRAIN_TRACK_CLIENT: OnceLock<Arc<dyn TerrainTrackClient>> = OnceLock::new();
 static TEXTURE_ASPECT_HOOK: RwLock<Option<fn(&str) -> Option<Real>>> = RwLock::new(None);
 static PRELOAD_ASSET_HOOK: RwLock<Option<fn(&str)>> = RwLock::new(None);
+static RECEIVES_DYNAMIC_LIGHTS_HOOK: RwLock<Option<fn(ObjectID, bool)>> = RwLock::new(None);
+
 
 pub fn register_terrain_decal_client(client: Arc<dyn TerrainDecalClient>) {
     let _ = TERRAIN_DECAL_CLIENT.set(client);
@@ -80,6 +82,17 @@ pub fn register_texture_aspect_hook(hook: fn(&str) -> Option<Real>) {
 pub fn register_preload_asset_hook(hook: fn(&str)) {
     *PRELOAD_ASSET_HOOK.write() = Some(hook);
 }
+pub fn register_receives_dynamic_lights_hook(hook: fn(ObjectID, bool)) {
+    *RECEIVES_DYNAMIC_LIGHTS_HOOK.write() = Some(hook);
+}
+
+/// C++ `Drawable::setReceivesDynamicLights`.
+pub fn set_receives_dynamic_lights(object_id: ObjectID, receives: bool) {
+    if let Some(hook) = *RECEIVES_DYNAMIC_LIGHTS_HOOK.read() {
+        hook(object_id, receives);
+    }
+}
+
 
 pub fn terrain_decal_client() -> Option<&'static Arc<dyn TerrainDecalClient>> {
     TERRAIN_DECAL_CLIENT.get()

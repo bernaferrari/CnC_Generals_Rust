@@ -309,6 +309,18 @@ impl PhysicsBehaviorHandle {
         self.module_data.center_of_mass_offset
     }
 
+    fn forward_dir_from_angles(&self) -> (Real, Real, Real) {
+        let rot = glam::Quat::from_euler(
+            glam::EulerRot::XYZ,
+            self.state.roll_angle,
+            self.state.pitch_angle,
+            self.state.yaw_angle,
+        );
+        let x = rot * glam::Vec3::X;
+        (x.x, x.y, x.z)
+    }
+
+
     fn add_overlap(&mut self, obj_id: ObjectID) {
         if obj_id != crate::common::INVALID_ID {
             self.state.current_overlap = obj_id;
@@ -608,6 +620,39 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         PhysicsBehaviorHandle::get_center_of_mass_offset(self)
     }
 
+    fn set_stick_to_ground(&mut self, stick: bool) {
+        self.state.set_flag(FLAG_STICK_TO_GROUND, stick);
+    }
+
+    fn get_stick_to_ground(&self) -> bool {
+        self.state.has_flag(FLAG_STICK_TO_GROUND)
+    }
+
+    fn get_forward_speed_2d(&self) -> Real {
+        let vel = self.state.vel;
+        let (dir_x, dir_y) = self
+            .object_arc()
+            .and_then(|arc| arc.try_read().ok().map(|o| o.get_unit_direction_vector_2d()))
+            .unwrap_or((1.0, 0.0));
+        crate::modules::signed_forward_speed_2d(vel.x, vel.y, dir_x, dir_y)
+    }
+
+    fn get_forward_speed_3d(&self) -> Real {
+        let vel = self.state.vel;
+        let (dir_x, dir_y, dir_z) = if let Some(arc) = self.object_arc() {
+            if let Ok(obj) = arc.try_read() {
+                let x = obj.get_transform_matrix().transform_vector3(glam::Vec3::X);
+                (x.x, x.y, x.z)
+            } else {
+                self.forward_dir_from_angles()
+            }
+        } else {
+            self.forward_dir_from_angles()
+        };
+        crate::modules::signed_forward_speed_3d(vel.x, vel.y, vel.z, dir_x, dir_y, dir_z)
+    }
+
+
     fn clear_acceleration(&mut self) {
         self.state.accel = Coord3D::ZERO;
         self.state.prev_accel = Coord3D::ZERO;
@@ -786,6 +831,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         let prev_pos = *obj.get_position();
 
         let mut active_vel_z = 0.0;
+
         let mut ground_z = 0.0;
         let mut got_ground = false;
         let mut bounce_force: Option<Coord3D> = None;
@@ -820,6 +866,17 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             } else {
                 pos += state.vel;
             }
+
+            if !pos.x.is_finite() || !pos.y.is_finite() || !pos.z.is_finite() {
+                // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroys the object.
+                let object_id = self.object_id;
+                state.set_flag(FLAG_IS_IN_UPDATE, false);
+                drop(handle);
+                drop(obj);
+                let _ = TheGameLogic::destroy_object_by_id(object_id);
+                return UpdateSleepTime::None;
+            }
+
 
             if let Some(terrain) = TheTerrainLogic::get() {
                 ground_z = terrain.get_layer_height(pos.x, pos.y, obj.get_layer());
@@ -917,22 +974,29 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         }
         let bounce_sound = handle.bounce_sound.clone();
         let cargo_mass = handle.mass_with_cargo(Some(&obj));
-        let state = &mut handle.state;
-
         let airborne_at_end = obj.is_above_terrain();
-        let projectile_ground_collide = state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
-            && !airborne_at_end
-            && obj.is_kind_of(KindOf::Projectile);
+        let was_airborne = handle.state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME);
+        let immune_fall = handle.state.has_flag(FLAG_IMMUNE_TO_FALLING_DAMAGE);
+        let projectile_ground_collide =
+            was_airborne && !airborne_at_end && obj.is_kind_of(KindOf::Projectile);
 
-        if state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME)
-            && !airborne_at_end
-            && !state.has_flag(FLAG_IMMUNE_TO_FALLING_DAMAGE)
-        {
+        if was_airborne && !airborne_at_end && !immune_fall {
             physics_bounce::do_bounce_sound(&obj, bounce_sound.as_ref(), prev_pos, cargo_mass);
             let normal = Coord3D::new(0.0, 0.0, -1.0);
             let collision_pos = *obj.get_position();
+            // C++ PhysicsUpdate.cpp:831 — obj->onCollide(NULL) reaches PhysicsBehavior::onCollide.
+            // Handle is already locked here, so call on_collide directly (try_lock would miss).
+            physics_collide::on_collide(
+                &mut handle,
+                self.object_id,
+                crate::common::INVALID_ID,
+                &self.module_data,
+            );
             obj.on_collide(None, &collision_pos, &normal);
+        }
 
+        let state = &mut handle.state;
+        if was_airborne && !airborne_at_end && !immune_fall {
             let net_speed = -active_vel_z - self.module_data.min_fall_speed_for_damage;
             if net_speed > 0.0 && !obj.is_kind_of(KindOf::Projectile) {
                 if (state.vel.x.abs() <= TINY_DELTA
@@ -1053,7 +1117,7 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
 
 impl CollideModuleInterface for PhysicsBehaviorUpdate {
     fn on_collision(&mut self, _object_id: ObjectID, other_id: ObjectID) {
-        let Ok(mut handle) = self.physics_handle.lock() else {
+        let Ok(mut handle) = self.physics_handle.try_lock() else {
             return;
         };
         physics_collide::on_collide(
@@ -1405,6 +1469,42 @@ mod tests {
         assert!(!handle.get_is_in_freefall());
         assert!(handle.is_on_ground());
     }
+
+    #[test]
+    fn set_stick_to_ground_sets_flag() {
+        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        assert!(!PhysicsBehaviorTrait::get_stick_to_ground(&handle));
+        PhysicsBehaviorTrait::set_stick_to_ground(&mut handle, true);
+        assert!(handle.state.has_flag(FLAG_STICK_TO_GROUND));
+        assert!(PhysicsBehaviorTrait::get_stick_to_ground(&handle));
+        PhysicsBehaviorTrait::set_stick_to_ground(&mut handle, false);
+        assert!(!handle.state.has_flag(FLAG_STICK_TO_GROUND));
+    }
+
+    #[test]
+    fn get_forward_speed_2d_is_signed() {
+        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        handle.set_velocity(&Coord3D::new(-6.0, 0.0, 0.0));
+        // No object: default facing +X, so backward vel is negative.
+        assert!((PhysicsBehaviorTrait::get_forward_speed_2d(&handle) + 6.0).abs() < 1.0e-5);
+        handle.set_velocity(&Coord3D::new(4.0, 0.0, 0.0));
+        assert!((PhysicsBehaviorTrait::get_forward_speed_2d(&handle) - 4.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn scrub_velocity_2d_negative_desired_zeros_xy() {
+        let data = Arc::new(PhysicsBehaviorModuleData::default());
+        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        handle.set_velocity(&Coord3D::new(5.0, -3.0, 2.0));
+        PhysicsBehaviorTrait::scrub_velocity_2d(&mut handle, -1.0);
+        let vel = handle.get_velocity();
+        assert_eq!(vel.x, 0.0);
+        assert_eq!(vel.y, 0.0);
+        assert_eq!(vel.z, 2.0);
+    }
+
 
     #[test]
     fn physics_real_fields_use_cpp_ini_token_handling() {

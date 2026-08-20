@@ -10,8 +10,8 @@ use crate::action_manager::{ActionManager, CanEnterType};
 use crate::ai::states::AICommandParmsStorage;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, Bool, Coord3D, DrawableID, Int, KindOf, Matrix3D, ObjectID, Real, UnsignedInt,
-    INVALID_ID, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Coord3D, DrawableID, Int, KindOf, Matrix3D, ObjectID, ObjectStatusMaskType,
+    PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, LOGICFRAMES_PER_SECOND,
 };
 use crate::helpers::{
     get_game_logic_random_value, get_game_logic_random_value_real, TheGameClient, TheGameLogic,
@@ -56,6 +56,126 @@ pub enum ChinookFlightStatus {
     Landing = 3,
     Landed = 4,
 }
+
+/// C++ `ChinookAIStateType` (numerically distinct from `AIStateType`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ChinookAIState {
+    #[default]
+    None,
+    TakingOff,
+    Landing,
+    MoveToAndLand,
+    MoveToAndEvac,
+    LandAndEvac,
+    EvacAndTakeoff,
+    MoveToAndEvacAndExitInit,
+    MoveToAndEvacAndExit,
+    LandAndEvacAndExit,
+    EvacAndExit,
+    TakeoffAndExit,
+    HeadOffMap,
+    MoveToCombatDrop,
+    DoCombatDrop,
+}
+
+/// C++ `ChinookTakeoffOrLandingState` / `ChinookMoveToBldgState` 3-unit threshold.
+const CHINOOK_ARRIVE_THRESH: Real = 3.0;
+const CHINOOK_ARRIVE_THRESH_SQR: Real = CHINOOK_ARRIVE_THRESH * CHINOOK_ARRIVE_THRESH;
+/// C++ `BIGNUM` used to restore lift after takeoff/landing.
+const CHINOOK_BIGNUM: Real = 99999.0;
+
+fn chinook_dist_sqr(a: &Coord3D, b: &Coord3D) -> Real {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    let dz = a.z - b.z;
+    dx * dx + dy * dy + dz * dz
+}
+
+/// C++ `getObject()->isKindOf(KINDOF_CAN_ATTACK)` — not `OBJECT_STATUS_CAN_ATTACK`.
+fn chinook_kind_of_can_attack(owner: &Object) -> bool {
+    chinook_attack_allowed_by_kind_of(owner.is_kind_of(KindOf::CanAttack))
+}
+
+/// C++ passenger follow: only riders with `getCurrentVictim()==NULL`.
+fn chinook_passenger_should_follow_attack(passenger_has_victim: bool) -> bool {
+    !passenger_has_victim
+}
+
+/// C++ `ChinookAIUpdate.cpp:1408` — KindOf CAN_ATTACK, never garrison ObjectStatus.
+pub fn chinook_attack_allowed_by_kind_of(kind_of_can_attack: bool) -> bool {
+    kind_of_can_attack
+}
+
+/// C++ `ChinookAIUpdate.cpp:1070-1082` idle + want enter/exit + not landed → LANDING.
+pub fn chinook_should_auto_land(parent_idle: bool, waiting: bool, landed: bool) -> bool {
+    parent_idle && waiting && !landed
+}
+
+/// C++ `ChinookAIUpdate.cpp:1084-1086` idle + empty want + landed + no heal pad → TAKING_OFF.
+pub fn chinook_should_auto_takeoff(
+    parent_idle: bool,
+    waiting: bool,
+    landed: bool,
+    healing_airfield: bool,
+) -> bool {
+    parent_idle && !waiting && landed && !healing_airfield
+}
+
+/// C++ `ChinookAIUpdate.cpp:1022-1028` `getAiFreeToExit`.
+pub fn chinook_free_to_exit(landed: bool, doing_combat_drop: bool, exiter_can_rappel: bool) -> bool {
+    landed || (doing_combat_drop && exiter_can_rappel)
+}
+
+/// C++ `ChinookMoveToBldgState::onEnter` preferred-height raise.
+pub fn chinook_move_to_bldg_preferred_height(
+    old_preferred: Real,
+    live_structure: bool,
+    geom_max_height_above: Real,
+    min_drop_height: Real,
+) -> Real {
+    if !live_structure {
+        return old_preferred;
+    }
+    let raised = geom_max_height_above + min_drop_height;
+    if raised < old_preferred {
+        old_preferred
+    } else {
+        raised
+    }
+}
+
+/// C++ `ChinookMoveToBldgState::update` — 2D arrival **and** `|z-destZ|<=3`.
+pub fn chinook_move_to_bldg_arrived(arrived_2d: bool, z: Real, dest_z: Real) -> bool {
+    arrived_2d && (z - dest_z).abs() <= CHINOOK_ARRIVE_THRESH
+}
+
+/// C++ `aiDoCommand` evac: take off first when landed and dest farther than 3.
+pub fn chinook_evac_needs_takeoff_first(landed: bool, dist_sqr: Real) -> bool {
+    landed && dist_sqr > CHINOOK_ARRIVE_THRESH_SQR
+}
+
+/// C++ `MOVE_TO_AND_EVAC` → `LAND_AND_EVAC` → `EVAC_AND_TAKEOFF` → `TAKING_OFF`.
+pub fn chinook_evac_pipeline() -> [&'static str; 4] {
+    [
+        "MoveToAndEvac",
+        "LandAndEvac",
+        "EvacAndTakeoff",
+        "TakingOff",
+    ]
+}
+
+/// C++ evac-and-exit init → move → land → dump → takeoff → `HEAD_OFF_MAP`.
+pub fn chinook_evac_and_exit_pipeline() -> [&'static str; 6] {
+    [
+        "MoveToAndEvacAndExitInit",
+        "MoveToAndEvacAndExit",
+        "LandAndEvacAndExit",
+        "EvacAndExit",
+        "TakeoffAndExit",
+        "HeadOffMap",
+    ]
+}
+
 
 /// Module data for ChinookAIUpdate (INI-driven).
 #[derive(Debug, Clone)]
@@ -630,6 +750,14 @@ pub struct ChinookAIUpdate {
     combat_drop_target: Option<ObjectID>,
     combat_drop_pos: Coord3D,
     combat_drop_state: Option<ChinookCombatDropState>,
+    machine_state: ChinookAIState,
+    goal_object: Option<ObjectID>,
+    goal_pos: Coord3D,
+    takeoff_landing_dest: Coord3D,
+    takeoff_landing_is_landing: bool,
+    move_to_bldg_old_preferred: Real,
+    move_to_bldg_new_preferred: Real,
+    move_to_bldg_dest_z: Real,
 }
 
 impl ChinookAIUpdate {
@@ -647,6 +775,14 @@ impl ChinookAIUpdate {
             combat_drop_target: None,
             combat_drop_pos: Coord3D::ZERO,
             combat_drop_state: None,
+            machine_state: ChinookAIState::None,
+            goal_object: None,
+            goal_pos: Coord3D::ZERO,
+            takeoff_landing_dest: Coord3D::ZERO,
+            takeoff_landing_is_landing: false,
+            move_to_bldg_old_preferred: 0.0,
+            move_to_bldg_new_preferred: 0.0,
+            move_to_bldg_dest_z: 0.0,
         }
     }
 
@@ -897,6 +1033,9 @@ impl ChinookAIUpdate {
 
                     if let Ok(rappeller_guard) = rappeller.read() {
                         if let Some(ai) = rappeller_guard.get_ai_update_interface() {
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                ai_guard.set_desired_speed(self.data.rappel_speed);
+                            }
                             let mut params = AiCommandParams::new(
                                 AiCommandType::RappelInto,
                                 CommandSourceType::FromAi,
@@ -1050,6 +1189,402 @@ impl ChinookAIUpdate {
         }
     }
 
+    /// C++ `ChinookAIUpdate::setMyState`.
+    fn set_my_state(
+        &mut self,
+        state: ChinookAIState,
+        target: Option<ObjectID>,
+        pos: Option<Coord3D>,
+        _cmd_source: CommandSourceType,
+        ai: &mut dyn AIUpdateInterface,
+    ) {
+        self.machine_state = state;
+        self.goal_object = target;
+        if let Some(pos) = pos {
+            self.goal_pos = pos;
+        }
+        self.enter_machine_state(ai);
+    }
+
+    fn enter_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+        match self.machine_state {
+            ChinookAIState::None => {}
+            ChinookAIState::TakingOff | ChinookAIState::TakeoffAndExit => {
+                self.enter_takeoff_or_landing(false, ai);
+            }
+            ChinookAIState::Landing
+            | ChinookAIState::LandAndEvac
+            | ChinookAIState::LandAndEvacAndExit => {
+                self.enter_takeoff_or_landing(true, ai);
+            }
+            ChinookAIState::MoveToAndLand
+            | ChinookAIState::MoveToAndEvac
+            | ChinookAIState::MoveToAndEvacAndExit => {
+                let _ = ai.set_movement_target(&self.goal_pos);
+            }
+            ChinookAIState::MoveToAndEvacAndExitInit => {
+                if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
+                    if let Ok(guard) = owner.read() {
+                        self.record_original_position(*guard.get_position());
+                    }
+                }
+                self.set_my_state(
+                    ChinookAIState::MoveToAndEvacAndExit,
+                    None,
+                    Some(self.goal_pos),
+                    CommandSourceType::FromAi,
+                    ai,
+                );
+            }
+            ChinookAIState::EvacAndTakeoff | ChinookAIState::EvacAndExit => {
+                self.enter_evacuate();
+                let next = if self.machine_state == ChinookAIState::EvacAndTakeoff {
+                    ChinookAIState::TakingOff
+                } else {
+                    ChinookAIState::TakeoffAndExit
+                };
+                self.set_my_state(next, None, None, CommandSourceType::FromAi, ai);
+            }
+            ChinookAIState::HeadOffMap => {
+                self.enter_head_off_map(ai);
+            }
+            ChinookAIState::MoveToCombatDrop => {
+                self.enter_move_to_bldg(ai);
+            }
+            ChinookAIState::DoCombatDrop => {
+                self.flight_status = ChinookFlightStatus::DoingCombatDrop;
+                self.combat_drop_started = false;
+                self.combat_drop_state = None;
+            }
+        }
+    }
+
+    /// C++ `ChinookEvacuateState::onEnter`: `removeAllContained(FALSE)` + `team->setActive()`.
+    fn enter_evacuate(&mut self) {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return;
+        };
+        if let Ok(owner_guard) = owner.read() {
+            if let Some(contain) = owner_guard.get_contain() {
+                if let Ok(mut contain_guard) = contain.lock() {
+                    let _ = contain_guard.remove_all_contained(false);
+                }
+            }
+            if let Some(team) = owner_guard.get_team() {
+                if let Ok(mut team_guard) = team.write() {
+                    team_guard.set_active();
+                }
+            }
+        }
+    }
+
+    /// C++ `ChinookHeadOffMapState::onEnter`.
+    fn enter_head_off_map(&mut self, ai: &mut dyn AIUpdateInterface) {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.set_status(ObjectStatusMaskType::RIDER8, true);
+            }
+        }
+        let _ = ai.set_movement_target(&self.original_pos);
+        let _ = ai.set_allow_invalid_position(true);
+    }
+
+    /// C++ `ChinookTakeoffOrLandingState::onEnter`.
+    fn enter_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AIUpdateInterface) {
+        self.takeoff_landing_is_landing = landing;
+        self.set_flight_status(
+            if landing {
+                ChinookFlightStatus::Landing
+            } else {
+                ChinookFlightStatus::TakingOff
+            },
+            ai,
+        );
+        if landing {
+            while self.base.lose_one_box() {}
+        }
+
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return;
+        };
+        let Ok(mut owner_guard) = owner.write() else {
+            return;
+        };
+        if let Some(physics) = owner_guard.get_physics() {
+            if let Ok(mut physics_guard) = physics.lock() {
+                physics_guard.scrub_velocity_2d(0.0);
+            }
+        }
+
+        let mut dest = *owner_guard.get_position();
+        let preferred = ai.get_preferred_height().unwrap_or(0.0);
+        if let Some(terrain) = TheTerrainLogic::get() {
+            let layer = terrain.get_highest_layer_for_destination(&dest);
+            dest.z = terrain.get_layer_height(dest.x, dest.y, layer);
+            if landing {
+                let mut tmp = dest;
+                let mut options = crate::helpers::FindPositionOptions::default();
+                options.max_radius =
+                    owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
+                if let Some(partition) = ThePartitionManager::get() {
+                    if partition.find_position_around_with_options(&dest, &options, &mut tmp) {
+                        dest = tmp;
+                        if let Ok(ai_guard) = crate::ai::THE_AI.read() {
+                            if let Some(pathfinder) = ai_guard.pathfinder() {
+                                if let Ok(pf) = pathfinder.read() {
+                                    pf.adjust_to_landing_destination(&*owner_guard, &mut dest);
+                                }
+                            }
+                        }
+                    }
+                }
+                let mut tmp = dest;
+                tmp.z = owner_guard.get_position().z;
+                let layer = terrain.get_highest_layer_for_destination(&tmp);
+                dest.z = terrain.get_layer_height(dest.x, dest.y, layer);
+                owner_guard.set_layer(layer);
+            } else {
+                dest.z += preferred;
+                owner_guard.set_layer(PathfindLayerEnum::Ground);
+            }
+        } else if !landing {
+            dest.z += preferred;
+        }
+        self.takeoff_landing_dest = dest;
+    }
+
+    /// C++ `ChinookTakeoffOrLandingState::onExit`.
+    fn exit_takeoff_or_landing(&mut self, landing: bool, ai: &mut dyn AIUpdateInterface) {
+        self.set_flight_status(
+            if landing {
+                ChinookFlightStatus::Landed
+            } else {
+                ChinookFlightStatus::Flying
+            },
+            ai,
+        );
+        if let Some(locomotor) = ai.get_cur_locomotor() {
+            if let Ok(mut guard) = locomotor.lock() {
+                guard.set_precise_z_pos(false);
+                guard.set_ultra_accurate(false);
+                let owner_dead = TheGameLogic::find_object_by_id(self.object_id)
+                    .and_then(|owner| owner.read().ok().map(|g| g.is_effectively_dead()))
+                    .unwrap_or(false);
+                if !owner_dead {
+                    guard.set_max_lift(CHINOOK_BIGNUM);
+                }
+            }
+        }
+        if landing {
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Taxiing);
+        } else if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.set_layer(PathfindLayerEnum::Ground);
+            }
+        }
+    }
+
+    /// C++ `ChinookTakeoffOrLandingState::update` — 3-unit 3D threshold.
+    fn update_takeoff_or_landing(&mut self, ai: &mut dyn AIUpdateInterface) -> bool {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return true;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return true;
+        };
+        if owner_guard.is_effectively_dead() {
+            return true;
+        }
+        ai.set_locomotor_goal_position_explicit(self.takeoff_landing_dest);
+        chinook_dist_sqr(owner_guard.get_position(), &self.takeoff_landing_dest)
+            <= CHINOOK_ARRIVE_THRESH_SQR
+    }
+
+    fn update_move_to_goal(&self, ai: &mut dyn AIUpdateInterface) -> bool {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return true;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return true;
+        };
+        let pos = *owner_guard.get_position();
+        let dx = pos.x - self.goal_pos.x;
+        let dy = pos.y - self.goal_pos.y;
+        let arrived_2d = dx * dx + dy * dy <= CHINOOK_ARRIVE_THRESH_SQR;
+        if !arrived_2d {
+            let _ = ai.set_movement_target(&self.goal_pos);
+        }
+        arrived_2d
+    }
+
+    /// C++ `ChinookMoveToBldgState::onEnter`.
+    fn enter_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
+        if let Some(locomotor) = ai.get_cur_locomotor() {
+            if let Ok(mut guard) = locomotor.lock() {
+                guard.set_ultra_accurate(true);
+                self.move_to_bldg_old_preferred = guard.preferred_height;
+            }
+        }
+        self.move_to_bldg_new_preferred = self.move_to_bldg_old_preferred;
+        let mut dest_pos = self.goal_pos;
+        if let Some(target_id) = self.goal_object {
+            if let Some(bldg) = TheGameLogic::find_object_by_id(target_id) {
+                if let Ok(bldg_guard) = bldg.read() {
+                    if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure)
+                    {
+                        dest_pos = *bldg_guard.get_position();
+                        self.move_to_bldg_new_preferred = chinook_move_to_bldg_preferred_height(
+                            self.move_to_bldg_old_preferred,
+                            true,
+                            bldg_guard
+                                .get_geometry_info()
+                                .get_max_height_above_position(),
+                            self.data.min_drop_height,
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(locomotor) = ai.get_cur_locomotor() {
+            if let Ok(mut guard) = locomotor.lock() {
+                guard.set_preferred_height(self.move_to_bldg_new_preferred);
+            }
+        }
+        let ground = TheTerrainLogic::get()
+            .map(|terrain| terrain.get_ground_height(dest_pos.x, dest_pos.y, None))
+            .unwrap_or(0.0);
+        self.move_to_bldg_dest_z = ground + self.move_to_bldg_new_preferred;
+        self.goal_pos = dest_pos;
+        let _ = ai.set_movement_target(&self.goal_pos);
+    }
+
+    /// C++ `ChinookMoveToBldgState::update` — 2D arrival **and** `|z-destZ|<=3`.
+    fn update_move_to_bldg(&self, ai: &mut dyn AIUpdateInterface) -> bool {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return true;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return true;
+        };
+        let pos = *owner_guard.get_position();
+        let dx = pos.x - self.goal_pos.x;
+        let dy = pos.y - self.goal_pos.y;
+        let arrived_2d = dx * dx + dy * dy <= CHINOOK_ARRIVE_THRESH_SQR;
+        if !arrived_2d {
+            let _ = ai.set_movement_target(&self.goal_pos);
+            return false;
+        }
+        chinook_move_to_bldg_arrived(true, pos.z, self.move_to_bldg_dest_z)
+    }
+
+    fn exit_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
+        if let Some(locomotor) = ai.get_cur_locomotor() {
+            if let Ok(mut guard) = locomotor.lock() {
+                guard.set_preferred_height(self.move_to_bldg_old_preferred);
+                guard.set_ultra_accurate(false);
+            }
+        }
+    }
+
+    /// C++ `ChinookHeadOffMapState::update`.
+    fn update_head_off_map(&mut self) -> bool {
+        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return true;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return true;
+        };
+        let Some(terrain) = TheTerrainLogic::get() else {
+            return false;
+        };
+        let extent = terrain.get_extent_including_border();
+        let pos = owner_guard.get_position();
+        if pos.x < extent.lo.x || pos.x > extent.hi.x || pos.y < extent.lo.y || pos.y > extent.hi.y
+        {
+            drop(owner_guard);
+            let _ = TheGameLogic::destroy_object_by_id(self.object_id);
+            return true;
+        }
+        false
+    }
+
+    fn exit_head_off_map(&mut self) {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.set_status(ObjectStatusMaskType::RIDER8, false);
+            }
+        }
+    }
+
+    fn succeed_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+        let next = match self.machine_state {
+            ChinookAIState::TakingOff => {
+                self.exit_takeoff_or_landing(false, ai);
+                ChinookAIState::None
+            }
+            ChinookAIState::Landing => {
+                self.exit_takeoff_or_landing(true, ai);
+                ChinookAIState::None
+            }
+            ChinookAIState::MoveToAndLand => ChinookAIState::Landing,
+            ChinookAIState::MoveToAndEvac => ChinookAIState::LandAndEvac,
+            ChinookAIState::LandAndEvac => {
+                self.exit_takeoff_or_landing(true, ai);
+                ChinookAIState::EvacAndTakeoff
+            }
+            ChinookAIState::EvacAndTakeoff => ChinookAIState::TakingOff,
+            ChinookAIState::MoveToAndEvacAndExit => ChinookAIState::LandAndEvacAndExit,
+            ChinookAIState::LandAndEvacAndExit => {
+                self.exit_takeoff_or_landing(true, ai);
+                ChinookAIState::EvacAndExit
+            }
+            ChinookAIState::EvacAndExit => ChinookAIState::TakeoffAndExit,
+            ChinookAIState::TakeoffAndExit => {
+                self.exit_takeoff_or_landing(false, ai);
+                ChinookAIState::HeadOffMap
+            }
+            ChinookAIState::HeadOffMap => {
+                self.exit_head_off_map();
+                ChinookAIState::None
+            }
+            ChinookAIState::MoveToCombatDrop => {
+                self.exit_move_to_bldg(ai);
+                ChinookAIState::DoCombatDrop
+            }
+            ChinookAIState::DoCombatDrop => ChinookAIState::None,
+            ChinookAIState::MoveToAndEvacAndExitInit | ChinookAIState::None => ChinookAIState::None,
+        };
+        if next != self.machine_state {
+            self.set_my_state(next, self.goal_object, Some(self.goal_pos), CommandSourceType::FromAi, ai);
+        } else {
+            self.machine_state = ChinookAIState::None;
+        }
+    }
+
+    fn update_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
+        let done = match self.machine_state {
+            ChinookAIState::None => false,
+            ChinookAIState::TakingOff
+            | ChinookAIState::Landing
+            | ChinookAIState::LandAndEvac
+            | ChinookAIState::LandAndEvacAndExit
+            | ChinookAIState::TakeoffAndExit => self.update_takeoff_or_landing(ai),
+            ChinookAIState::MoveToAndLand
+            | ChinookAIState::MoveToAndEvac
+            | ChinookAIState::MoveToAndEvacAndExit => self.update_move_to_goal(ai),
+            ChinookAIState::MoveToCombatDrop => self.update_move_to_bldg(ai),
+            ChinookAIState::HeadOffMap => self.update_head_off_map(),
+            ChinookAIState::DoCombatDrop
+            | ChinookAIState::EvacAndTakeoff
+            | ChinookAIState::EvacAndExit
+            | ChinookAIState::MoveToAndEvacAndExitInit => false,
+        };
+        if done {
+            self.succeed_machine_state(ai);
+        }
+    }
+
+
     pub fn is_idle(&self) -> bool {
         // Wave 349: empty dual-world → false.
         if dual_world_registry_unavailable() {
@@ -1116,10 +1651,11 @@ impl ChinookAIUpdate {
         &self,
         exiter: &Object,
     ) -> crate::object::production::AIFreeToExitType {
-        if self.flight_status == ChinookFlightStatus::Landed
-            || (self.flight_status == ChinookFlightStatus::DoingCombatDrop
-                && exiter.is_kind_of(KindOf::CanRappel))
-        {
+        if chinook_free_to_exit(
+            self.flight_status == ChinookFlightStatus::Landed,
+            self.flight_status == ChinookFlightStatus::DoingCombatDrop,
+            exiter.is_kind_of(KindOf::CanRappel),
+        ) {
             crate::object::production::AIFreeToExitType::FreeToExit
         } else {
             crate::object::production::AIFreeToExitType::WaitToExit
@@ -1193,20 +1729,39 @@ impl ChinookAIUpdate {
                 let Ok(owner_guard) = owner.read() else {
                     return true;
                 };
-                let delta = *owner_guard.get_position() - params.pos;
-                let dist_sqr = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-                let thresh = 3.0;
-                if dist_sqr > thresh * thresh && self.flight_status == ChinookFlightStatus::Landed {
+                let dist_sqr = chinook_dist_sqr(owner_guard.get_position(), &params.pos);
+                if chinook_evac_needs_takeoff_first(
+                    self.flight_status == ChinookFlightStatus::Landed,
+                    dist_sqr,
+                ) {
                     self.pending_command = Some(params.clone());
-                    self.set_flight_status(ChinookFlightStatus::TakingOff, ai);
+                    self.set_my_state(
+                        ChinookAIState::TakingOff,
+                        None,
+                        None,
+                        CommandSourceType::FromAi,
+                        ai,
+                    );
                     return true;
                 }
-                false
+                let evac_state = if params.cmd == AiCommandType::MoveToPositionAndEvacuate {
+                    ChinookAIState::MoveToAndEvac
+                } else {
+                    ChinookAIState::MoveToAndEvacAndExitInit
+                };
+                self.set_my_state(evac_state, None, Some(params.pos), CommandSourceType::FromAi, ai);
+                true
             }
             AiCommandType::Exit | AiCommandType::Evacuate => {
                 if self.flight_status != ChinookFlightStatus::Landed {
                     self.pending_command = Some(params.clone());
-                    self.set_flight_status(ChinookFlightStatus::Landing, ai);
+                    self.set_my_state(
+                        ChinookAIState::Landing,
+                        None,
+                        None,
+                        CommandSourceType::FromAi,
+                        ai,
+                    );
                     return true;
                 }
                 false
@@ -1214,7 +1769,13 @@ impl ChinookAIUpdate {
             _ => {
                 if self.flight_status != ChinookFlightStatus::Flying {
                     self.pending_command = Some(params.clone());
-                    self.set_flight_status(ChinookFlightStatus::TakingOff, ai);
+                    self.set_my_state(
+                        ChinookAIState::TakingOff,
+                        None,
+                        None,
+                        CommandSourceType::FromAi,
+                        ai,
+                    );
                     return true;
                 }
                 false
@@ -1265,7 +1826,7 @@ impl ChinookAIUpdate {
 
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
-                if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
+                if !chinook_kind_of_can_attack(&*guard) {
                     return;
                 }
                 if let Some(contain) = guard.get_contain() {
@@ -1334,7 +1895,7 @@ impl ChinookAIUpdate {
         }
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
-                if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
+                if !chinook_kind_of_can_attack(&*guard) {
                     return;
                 }
                 if let Some(contain) = guard.get_contain() {
@@ -1433,7 +1994,7 @@ impl ChinookAIUpdate {
 
         if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(guard) = owner.read() {
-                if !guard.test_status(crate::common::ObjectStatusTypes::CanAttack) {
+                if !chinook_kind_of_can_attack(&*guard) {
                     return;
                 }
                 if let Some(contain) = guard.get_contain() {
@@ -1592,8 +2153,13 @@ impl ChinookAIUpdate {
                 pos = tmp;
             }
         }
-        let _ = ai.set_movement_target(&pos);
-        self.set_flight_status(ChinookFlightStatus::Landing, ai);
+        self.set_my_state(
+            ChinookAIState::MoveToAndLand,
+            None,
+            Some(pos),
+            cmd_source,
+            ai,
+        );
     }
 
     pub fn private_combat_drop(
@@ -1646,12 +2212,15 @@ impl ChinookAIUpdate {
             }
         }
 
-        let _ = ai.set_movement_target(&local_pos);
-        self.flight_status = ChinookFlightStatus::DoingCombatDrop;
-        self.combat_drop_started = false;
-        self.combat_drop_state = None;
         self.combat_drop_target = target_id;
         self.combat_drop_pos = local_pos;
+        self.set_my_state(
+            ChinookAIState::MoveToCombatDrop,
+            target_id,
+            Some(local_pos),
+            cmd_source,
+            ai,
+        );
     }
 
     pub fn is_doing_combat_drop(&self) -> bool {
@@ -1722,7 +2291,7 @@ impl ChinookAIUpdate {
             return Ok(());
         }
 
-        self.update_flight_status(ai);
+        self.update_machine_state(ai);
 
         if self.airfield_for_healing != INVALID_ID {
             if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
@@ -1747,7 +2316,13 @@ impl ChinookAIUpdate {
                         let _ = airfield_guard.with_parking_place_behavior(|pp| {
                             pp.set_healee(Some(self.object_id), false);
                         });
-                        self.set_flight_status(ChinookFlightStatus::TakingOff, ai);
+                        self.set_my_state(
+                            ChinookAIState::TakingOff,
+                            None,
+                            None,
+                            CommandSourceType::FromAi,
+                            ai,
+                        );
                     } else {
                         let landed = self.flight_status == ChinookFlightStatus::Landed;
                         let _ = airfield_guard.with_parking_place_behavior(|pp| {
@@ -1767,13 +2342,31 @@ impl ChinookAIUpdate {
                         let waiting = contain.has_objects_wanting_to_enter_or_exit();
                         if let Some(command) = self.pending_command.take() {
                             let _ = ai.execute_command(&command);
-                        } else if waiting && self.flight_status != ChinookFlightStatus::Landed {
-                            self.set_flight_status(ChinookFlightStatus::Landing, ai);
-                        } else if !waiting
-                            && self.flight_status == ChinookFlightStatus::Landed
-                            && self.airfield_for_healing == INVALID_ID
-                        {
-                            self.set_flight_status(ChinookFlightStatus::TakingOff, ai);
+                        } else if chinook_should_auto_land(
+                            true,
+                            waiting,
+                            self.flight_status == ChinookFlightStatus::Landed,
+                        ) {
+                            self.set_my_state(
+                                ChinookAIState::Landing,
+                                None,
+                                None,
+                                CommandSourceType::FromAi,
+                                ai,
+                            );
+                        } else if chinook_should_auto_takeoff(
+                            true,
+                            waiting,
+                            self.flight_status == ChinookFlightStatus::Landed,
+                            self.airfield_for_healing != INVALID_ID,
+                        ) {
+                            self.set_my_state(
+                                ChinookAIState::TakingOff,
+                                None,
+                                None,
+                                CommandSourceType::FromAi,
+                                ai,
+                            );
                         }
                     }
 
@@ -1791,6 +2384,11 @@ impl ChinookAIUpdate {
                                                     if let Some(pass_ai) =
                                                         pass_guard.get_ai_update_interface()
                                                     {
+                                                        if !chinook_passenger_should_follow_attack(
+                                                            pass_ai.get_current_victim().is_some(),
+                                                        ) {
+                                                            continue;
+                                                        }
                                                         pass_ai.ai_attack_object_id(
                                                             victim_id,
                                                             999,
@@ -1837,33 +2435,8 @@ impl ChinookAIUpdate {
         if dual_world_registry_unavailable() {
             return;
         }
-
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
-            return;
-        };
-        let Ok(guard) = owner.read() else {
-            return;
-        };
-        let Some(terrain) = TheTerrainLogic::get() else {
-            return;
-        };
-        let pos = *guard.get_position();
-        let ground = terrain.get_ground_height(pos.x, pos.y, None);
-        let height = pos.z - ground;
-        let preferred = ai.get_preferred_height().unwrap_or(0.0);
-        match self.flight_status {
-            ChinookFlightStatus::TakingOff => {
-                if height >= preferred - 1.0 {
-                    self.set_flight_status(ChinookFlightStatus::Flying, ai);
-                }
-            }
-            ChinookFlightStatus::Landing => {
-                if height <= 1.0 {
-                    self.set_flight_status(ChinookFlightStatus::Landed, ai);
-                }
-            }
-            _ => {}
-        }
+        // C++ ChinookTakeoffOrLandingState uses a 3-unit 3D pad dest, not height-only.
+        self.update_machine_state(ai);
     }
 }
 
@@ -2232,4 +2805,90 @@ mod tests {
         assert_eq!(pending.coords, vec![Coord3D::new(1.0, 2.0, 3.0)]);
         assert_eq!(pending.int_value, 99);
     }
+
+    #[test]
+    fn chinook_arrival_uses_three_unit_3d_threshold() {
+        let a = Coord3D::new(0.0, 0.0, 0.0);
+        let inside = Coord3D::new(2.0, 2.0, 1.0);
+        let outside = Coord3D::new(3.0, 0.0, 1.0);
+        assert!(chinook_dist_sqr(&a, &inside) <= CHINOOK_ARRIVE_THRESH_SQR);
+        assert!(chinook_dist_sqr(&a, &outside) > CHINOOK_ARRIVE_THRESH_SQR);
+    }
+
+    #[test]
+    fn chinook_passenger_follow_skips_engaged_riders() {
+        assert!(chinook_passenger_should_follow_attack(false));
+        assert!(!chinook_passenger_should_follow_attack(true));
+    }
+
+    /// C++ ChinookAIUpdate.cpp:1408 KindOf CAN_ATTACK, not ObjectStatus.
+    #[test]
+    fn chinook_attack_gate_is_kind_of_not_status() {
+        assert!(chinook_attack_allowed_by_kind_of(true));
+        assert!(!chinook_attack_allowed_by_kind_of(false));
+    }
+
+    /// C++ ChinookAIUpdate.cpp:1067-1087 idle + want enter/exit auto-lands.
+    #[test]
+    fn chinook_idle_want_enter_exit_auto_lands() {
+        assert!(chinook_should_auto_land(true, true, false));
+        assert!(!chinook_should_auto_land(true, true, true));
+        assert!(!chinook_should_auto_land(false, true, false));
+        assert!(!chinook_should_auto_land(true, false, false));
+        assert!(chinook_should_auto_takeoff(true, false, true, false));
+        assert!(!chinook_should_auto_takeoff(true, false, true, true));
+        assert!(!chinook_free_to_exit(false, false, false));
+        assert!(chinook_free_to_exit(true, false, false));
+        assert!(chinook_free_to_exit(false, true, true));
+        assert!(!chinook_free_to_exit(false, true, false));
+    }
+
+    /// C++ ChinookAIStateMachine.cpp:817-833 evac land/dump/takeoff/HeadOffMap.
+    #[test]
+    fn chinook_evac_is_land_dump_takeoff_headoffmap() {
+        assert_eq!(
+            chinook_evac_pipeline(),
+            [
+                "MoveToAndEvac",
+                "LandAndEvac",
+                "EvacAndTakeoff",
+                "TakingOff",
+            ]
+        );
+        assert_eq!(
+            chinook_evac_and_exit_pipeline(),
+            [
+                "MoveToAndEvacAndExitInit",
+                "MoveToAndEvacAndExit",
+                "LandAndEvacAndExit",
+                "EvacAndExit",
+                "TakeoffAndExit",
+                "HeadOffMap",
+            ]
+        );
+        assert!(chinook_evac_needs_takeoff_first(true, 16.0));
+        assert!(!chinook_evac_needs_takeoff_first(true, 4.0));
+        assert!(!chinook_evac_needs_takeoff_first(false, 100.0));
+    }
+
+    /// C++ ChinookMoveToBldgState.cpp:692-745 height before DO_COMBAT_DROP ropes.
+    #[test]
+    fn chinook_combat_drop_waits_for_move_to_bldg_height() {
+        assert_eq!(
+            chinook_move_to_bldg_preferred_height(100.0, true, 50.0, 40.0),
+            100.0
+        );
+        assert_eq!(
+            chinook_move_to_bldg_preferred_height(100.0, true, 80.0, 40.0),
+            120.0
+        );
+        assert_eq!(
+            chinook_move_to_bldg_preferred_height(100.0, false, 80.0, 40.0),
+            100.0
+        );
+        assert!(!chinook_move_to_bldg_arrived(true, 10.0, 140.0));
+        assert!(chinook_move_to_bldg_arrived(true, 140.0, 141.0));
+        assert!(!chinook_move_to_bldg_arrived(false, 140.0, 140.0));
+    }
+
 }

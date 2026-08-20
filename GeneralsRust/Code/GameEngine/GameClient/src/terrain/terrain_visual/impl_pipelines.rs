@@ -411,7 +411,18 @@ impl TerrainVisualImpl {
         ));
         self.water_additive_pipeline = Some(make_pipeline(
             "Water Additive Pipeline",
-            wgpu::BlendState::ADD,
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            },
         ));
 
         Ok(())

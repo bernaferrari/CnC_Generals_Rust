@@ -35,8 +35,20 @@ pub const HOST_REPAIR_RATE_HP_PER_SEC: f32 = 35.0;
 /// Host residual HP/sec for infantry heal-pad residual (paired with repair pad path).
 pub const HOST_HEAL_RATE_HP_PER_SEC: f32 = 25.0;
 
-/// Interact range residual for dozer/pad repair (world units).
+/// Interact range residual for **pad / vehicle** repair (world units).
+/// Dozer *structure* repair uses [`repair_action_range`] (C++ MIN_ACTION_TOLERANCE).
 pub const HOST_REPAIR_INTERACT_RANGE: f32 = 14.0;
+
+/// C++ `MIN_ACTION_TOLERANCE` (DozerAIUpdate.cpp:321-322).
+pub const DOZER_MIN_ACTION_TOLERANCE: f32 = 70.0;
+/// C++ dock arrival slop added to the dozer bounding sphere.
+pub const DOZER_ACTION_SLOP: f32 = 15.0;
+/// C++ `PATHFIND_CELL_SIZE_F`.
+pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+/// C++ `DozerAIUpdate::newTask` END dock is 5 pathfind cells past the action dock.
+pub const DOZER_END_DOCK_CELLS: f32 = 5.0;
+/// C++ `TAiData::m_aiDozerBoredRadiusModifier` default (AI.cpp:920).
+pub const AI_DOZER_BORED_RADIUS_MODIFIER: f32 = 2.0;
 
 /// C++ `DozerAIUpdate::findGoodBuildOrRepairPosition` seed for a support
 /// order.  A dozer does not path to a structure's centre: it starts from the
@@ -62,6 +74,52 @@ pub fn support_approach_position(
     }
     let side_offset = (target_selection_radius.max(0.0) * 0.5).min(HOST_REPAIR_INTERACT_RANGE);
     target_position + direction * side_offset
+}
+
+/// C++ `findGoodBuildOrRepairPosition` dock seed: half major radius, **not**
+/// clamped to the 14-unit pad interact range. Dozer repair/build uses this.
+#[inline]
+pub fn dozer_repair_approach_position(
+    source_position: Vec3,
+    target_position: Vec3,
+    target_selection_radius: f32,
+) -> Vec3 {
+    let offset = source_position - target_position;
+    let direction = offset.normalize_or_zero();
+    if direction.length_squared() <= f32::EPSILON {
+        return target_position;
+    }
+    let side_offset = target_selection_radius.max(0.0) * 0.5;
+    target_position + direction * side_offset
+}
+
+/// C++ arrival window: `max(MIN_ACTION_TOLERANCE, boundingSphere + 15)`.
+#[inline]
+pub fn repair_action_range(target_selection_radius: f32) -> f32 {
+    DOZER_MIN_ACTION_TOLERANCE.max(target_selection_radius.max(0.0) + DOZER_ACTION_SLOP)
+}
+
+/// C++ `DozerAIUpdate::getBoredRange`: computer dozers scan `modifier * BoredRange`.
+#[inline]
+pub fn dozer_bored_range(is_computer_dozer: bool) -> f32 {
+    if is_computer_dozer {
+        DOZER_BORED_RANGE * AI_DOZER_BORED_RADIUS_MODIFIER
+    } else {
+        DOZER_BORED_RANGE
+    }
+}
+
+/// C++ `DozerAIUpdate::newTask` END dock: `dock + normalize(dock - target) * 5 * cell`.
+#[inline]
+pub fn dozer_end_dock_position(dock_position: Vec3, building_position: Vec3) -> Vec3 {
+    let mut offset = dock_position - building_position;
+    offset.y = 0.0;
+    let direction = offset.normalize_or_zero();
+    let push = DOZER_END_DOCK_CELLS * PATHFIND_CELL_SIZE_F;
+    if direction.length_squared() <= f32::EPSILON {
+        return dock_position + Vec3::new(push, 0.0, 0.0);
+    }
+    dock_position + direction * push
 }
 
 /// Retail DozerAIUpdate / WorkerAIUpdate RepairHealthPercentPerSecond residual (= 2%).
@@ -154,11 +212,16 @@ pub fn honesty_repair_residual_ok() -> bool {
         && DOZER_BORED_TIME_MS == 5000
         && DOZER_BORED_TIME_FRAMES == repair_ms_to_frames(DOZER_BORED_TIME_MS)
         && (DOZER_BORED_RANGE - 150.0).abs() < 0.01
+        && (AI_DOZER_BORED_RADIUS_MODIFIER - 2.0).abs() < 0.01
+        && (dozer_bored_range(true) - 300.0).abs() < 0.01
+        && (dozer_bored_range(false) - 150.0).abs() < 0.01
+        && (DOZER_MIN_ACTION_TOLERANCE - 70.0).abs() < 0.01
         && HOST_REPAIR_RATE_HP_PER_SEC > 0.0
         && HOST_REPAIR_INTERACT_RANGE > 0.0
         && TECH_REPAIR_PAD_TEMPLATE == "TechRepairPad"
         && (dozer_repair_hp_per_sec(1000.0) - 20.0).abs() < 0.01
         && (repair_dock_hp_per_sec(1000.0) - 200.0).abs() < 0.01
+        && (dozer_repair_hp_per_sec(200.0) - 4.0).abs() < 0.01
 }
 /// Combined residual honesty pack (Wave 71).
 pub fn honesty_repair_residual_pack_ok() -> bool {
@@ -199,6 +262,37 @@ mod tests {
             Vec3::new(HOST_REPAIR_INTERACT_RANGE, 0.0, 0.0),
             "the approach seed must remain within the live support range"
         );
+    }
+
+    #[test]
+    fn dozer_repair_docks_at_half_radius_not_fourteen() {
+        // C++ DozerAIUpdate.cpp:1855-1866 / 316-322.
+        let target = Vec3::ZERO;
+        let source = Vec3::new(200.0, 0.0, 0.0);
+        assert_eq!(
+            dozer_repair_approach_position(source, target, 80.0),
+            Vec3::new(40.0, 0.0, 0.0)
+        );
+        assert!((repair_action_range(80.0) - 95.0).abs() < 0.01);
+        assert!((repair_action_range(10.0) - 70.0).abs() < 0.01);
+        assert!((dozer_repair_hp_per_sec(200.0) - 4.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn dozer_end_dock_is_five_cells_away_from_building() {
+        // C++ DozerAIUpdate.cpp:1992-1998.
+        let building = Vec3::ZERO;
+        let dock = Vec3::new(20.0, 0.0, 0.0);
+        let end = dozer_end_dock_position(dock, building);
+        assert!((end.x - 70.0).abs() < 0.01);
+        assert!((end.z).abs() < 0.01);
+    }
+
+    #[test]
+    fn computer_dozer_bored_range_is_double() {
+        // C++ DozerAIUpdate.cpp:2305-2312; AI.cpp:920.
+        assert!((dozer_bored_range(false) - 150.0).abs() < 0.01);
+        assert!((dozer_bored_range(true) - 300.0).abs() < 0.01);
     }
 
     #[test]

@@ -194,7 +194,10 @@ impl GameClient {
             Some(Arc::new(Self::set_global_drawable_id_counter)),
         );
         register_save_load_mission_hooks(
-            None,
+            Some(Arc::new(|| {
+                // C++ GameState.cpp:699-700 — clearGameData(FALSE) only if isInGame.
+                let _ = TheGameLogic::clear_game_data();
+            })),
             Some(Arc::new(|| {
                 let campaign_manager = get_campaign_manager();
                 (
@@ -223,18 +226,16 @@ impl GameClient {
 
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
-                let setup = get_skirmish_setup();
-                setup.game_info().to_bytes().ok()
+                // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4.
+                let bytes = crate::gui::skirmish_setup::snapshot_skirmish_lobby().encode_xfer_bytes();
+                if bytes.is_empty() {
+                    None
+                } else {
+                    Some(bytes)
+                }
             })),
             Some(Arc::new(|payload| {
-                let mut setup = get_skirmish_setup();
-                if let Some(bytes) = payload {
-                    if let Ok(info) = game_network::SkirmishGameInfo::from_bytes(&bytes) {
-                        *setup.game_info_mut() = info;
-                    }
-                } else {
-                    *setup.game_info_mut() = game_network::SkirmishGameInfo::default();
-                }
+                crate::gui::skirmish_setup::restore_skirmish_lobby(payload);
             })),
         );
     }

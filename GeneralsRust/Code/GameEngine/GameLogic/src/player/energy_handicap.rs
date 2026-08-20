@@ -267,7 +267,7 @@ impl PlayerHandicap {
         self.build_time_multiplier = self.build_time_generic;
     }
 
-    pub fn get_cost_multiplier_for_template(&self, template: &dyn ThingTemplate) -> Real {
+    pub fn get_cost_multiplier_for_template<T: ThingTemplate + ?Sized>(&self, template: &T) -> Real {
         if template.is_kind_of(KindOf::Structure) {
             self.build_cost_buildings
         } else {
@@ -275,7 +275,10 @@ impl PlayerHandicap {
         }
     }
 
-    pub fn get_build_time_multiplier_for_template(&self, template: &dyn ThingTemplate) -> Real {
+    pub fn get_build_time_multiplier_for_template<T: ThingTemplate + ?Sized>(
+        &self,
+        template: &T,
+    ) -> Real {
         if template.is_kind_of(KindOf::Structure) {
             self.build_time_buildings
         } else {

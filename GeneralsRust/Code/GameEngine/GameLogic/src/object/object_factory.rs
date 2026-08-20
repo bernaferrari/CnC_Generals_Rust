@@ -1010,6 +1010,11 @@ impl ObjectFactory {
                 let module_data_for_entry = Arc::clone(&module_data);
                 let interface_mask = entry.interface_flags();
 
+                if draw_module_below_min_lod(module_data.as_ref()) {
+                    continue;
+                }
+
+
                 if factory.find_module_interface_mask(&module_name, ModuleType::Draw)
                     == ModuleInterfaceType::NONE
                 {
@@ -1198,4 +1203,21 @@ lazy_static::lazy_static! {
 /// Convenience function to get the global object factory
 pub fn get_object_factory() -> Arc<RwLock<ObjectFactory>> {
     THE_OBJECT_FACTORY.clone()
+}
+
+/// C++ Drawable ctor: skip when Extra Animations is off and MinLODRequired is above static LOD.
+fn draw_module_below_min_lod(data: &dyn ModuleData) -> bool {
+    if !game_engine::common::global_data::read().use_draw_module_lod {
+        return false;
+    }
+    let required = data.get_minimum_required_game_lod() as i32;
+    let current = match game_engine::common::game_lod::get_static_lod()
+        .to_ascii_uppercase()
+        .as_str()
+    {
+        "LOW" => 0,
+        "HIGH" => 2,
+        _ => 1,
+    };
+    required > current
 }

@@ -7,7 +7,7 @@ bitflags! {
     /// Model condition flags — bit positions match C++ ModelState enum exactly.
     /// Bit N corresponds to C++ ModelConditionType enum value N.
     /// Authoritative source: Common/src/common/bit_flags.rs
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct ModelConditionFlags: u128 {
         // --- C++ ModelConditionType enum values 0-117 (authoritative) ---
         // Bit 0: TOPPLED

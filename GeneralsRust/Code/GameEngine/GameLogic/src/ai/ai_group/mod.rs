@@ -2,7 +2,7 @@
 //!
 //! Keep `AIGroup` methods in `group.rs` (residual include_str scans).
 
-use crate::common::coord::Coord3D;
+use crate::common::Coord3D;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::terrain::get_terrain_logic;
 

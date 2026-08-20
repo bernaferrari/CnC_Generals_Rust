@@ -579,15 +579,19 @@ impl TransportContain {
         if let Ok(rider) = obj.read() {
             if rider.is_kind_of(KindOf::Hero) && rider.is_kind_of(KindOf::Salvager) {
                 if let Some(rider_weapon) =
-                    rider.get_weapon_in_slot(crate::weapon::WeaponSlotType::Secondary)
+                    rider.get_weapon_in_slot(WeaponSlotType::Secondary.into())
                 {
-                    let rider_weapon = rider_weapon.clone();
+                    let when_we_can_fire_again = rider_weapon.when_we_can_fire_again;
+                    let when_pre_attack_finished = rider_weapon.when_pre_attack_finished;
+                    let when_last_reload_started = rider_weapon.when_last_reload_started;
                     let _ = self.with_owner_object_mut(|owner| {
                         if owner.is_kind_of(KindOf::CliffJumper) {
-                            if let Some(bike_weapon) = owner
-                                .get_weapon_in_slot_mut(crate::weapon::WeaponSlotType::Secondary)
+                            if let Some(bike_weapon) =
+                                owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into())
                             {
-                                bike_weapon.transfer_next_shot_stats_from(&rider_weapon);
+                                bike_weapon.when_we_can_fire_again = when_we_can_fire_again;
+                                bike_weapon.when_pre_attack_finished = when_pre_attack_finished;
+                                bike_weapon.when_last_reload_started = when_last_reload_started;
                             }
                         }
                     });
@@ -674,8 +678,14 @@ impl TransportContain {
             let velocity = physics.as_ref().map(|p| p.get_velocity());
             let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
                 owner
-                    .get_weapon_in_slot(WeaponSlotType::Secondary)
-                    .cloned()
+                    .get_weapon_in_slot(WeaponSlotType::Secondary.into())
+                    .map(|w| {
+                        (
+                            w.when_we_can_fire_again,
+                            w.when_pre_attack_finished,
+                            w.when_last_reload_started,
+                        )
+                    })
             } else {
                 None
             };
@@ -737,11 +747,13 @@ impl TransportContain {
                     && rider.is_kind_of(KindOf::Hero)
                     && rider.is_kind_of(KindOf::Salvager)
                 {
-                    if let (Some(bike_weapon), Some(rider_weapon)) = (
-                        bike_secondary.as_ref(),
-                        rider.get_weapon_in_slot_mut(WeaponSlotType::Secondary),
+                    if let (Some((when_fire, when_pre, when_reload)), Some(rider_weapon)) = (
+                        bike_secondary,
+                        rider.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into()),
                     ) {
-                        rider_weapon.transfer_next_shot_stats_from(bike_weapon);
+                        rider_weapon.when_we_can_fire_again = when_fire;
+                        rider_weapon.when_pre_attack_finished = when_pre;
+                        rider_weapon.when_last_reload_started = when_reload;
                     }
                 }
             }
@@ -994,8 +1006,10 @@ impl TransportContain {
             {
                 if let Ok(parent_guard) = parent.read() {
                     if let Some(contain) = parent_guard.get_contain() {
-                        if contain.is_special_overlord_style_container() {
-                            return contain.is_passenger_allowed_to_fire(id);
+                        if let Ok(contain_guard) = contain.lock() {
+                            if contain_guard.is_special_overlord_style_container() {
+                                return contain_guard.is_passenger_allowed_to_fire(id);
+                            }
                         }
                     }
                 }
@@ -1112,11 +1126,11 @@ impl TransportContain {
 
                         // Check all weapon slots
                         for weapon_slot in [
-                            crate::weapon::WeaponSlotType::Primary,
-                            crate::weapon::WeaponSlotType::Secondary,
-                            crate::weapon::WeaponSlotType::Tertiary,
+                            WeaponSlotType::Primary,
+                            WeaponSlotType::Secondary,
+                            WeaponSlotType::Tertiary,
                         ] {
-                            if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot) {
+                            if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot.into()) {
                                 // Weapon must be non-contact and damage-dealing
                                 if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
                                     any_rider_has_viable_weapon = true;

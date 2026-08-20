@@ -2185,10 +2185,12 @@ impl GameLogic {
     }
 
     fn transfer_side_build_lists_to_players(&self) {
-        let Ok(mut sides) = get_sides_list().try_write() else {
+        let sides_list = get_sides_list();
+        let Ok(mut sides) = sides_list.try_write() else {
             return;
         };
-        let Ok(mut players) = ThePlayerList().try_write() else {
+        let player_list = ThePlayerList();
+        let Ok(mut players) = player_list.try_write() else {
             return;
         };
         for index in 0..sides.get_num_sides() {

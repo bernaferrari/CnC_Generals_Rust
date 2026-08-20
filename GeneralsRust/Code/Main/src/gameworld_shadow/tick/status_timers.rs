@@ -7,7 +7,10 @@ use gamelogic::world::entities::EntityId;
 pub(super) struct StatusTimerSnapshots {
     pub eids: Vec<EntityId>,
     pub infantry_snapshot: Vec<(u32, u8, f32, f32, bool)>,
-    pub battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool)>,
+    pub battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool, String)>,
+    pub infantry_horde_now: std::collections::HashMap<u32, bool>,
+    pub vehicle_horde_now: std::collections::HashMap<u32, bool>,
+
     pub underpowered_team_ords: std::collections::HashSet<u8>,
     pub sticky_booby_targets: std::collections::HashMap<u32, (glam::Vec3, bool, bool)>,
     pub scorpion_retarget: std::collections::HashMap<u32, glam::Vec3>,
@@ -23,8 +26,7 @@ pub(super) enum EntityTickControl {
 impl GameWorldShadow {
     fn collect_status_timer_snapshots(&self) -> StatusTimerSnapshots {
         let eids: Vec<EntityId> = self.host_to_entity.values().copied().collect();
-        // Wave 813: snapshot living infantry + China horde units (borrow-safe).
-        const INFANTRY_BIT: u32 = 1u32 << 1; // KindOf::Infantry in presentation ORDER
+        // Wave 813: snapshot living HordeUpdate infantry only (C++ getHUI).
         let mut infantry_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
@@ -37,7 +39,9 @@ impl GameWorldShadow {
             let Some(&hid) = self.entity_to_host.get(&eid.get()) else {
                 continue;
             };
-            if (e.kind_of_bits & INFANTRY_BIT) != 0 {
+            if crate::game_logic::host_red_guard::leftover_infantry_is_horde_neighbor(
+                e.template_name(),
+            ) {
                 infantry_snapshot.push((
                     hid,
                     e.team_ordinal,
@@ -48,8 +52,8 @@ impl GameWorldShadow {
             }
         }
 
-        // Wave 812: snapshot living Battlemasters for horde residual (borrow-safe).
-        let mut battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool)> = Vec::new();
+        // Wave 812: snapshot living China HordeUpdate vehicles (not Battlemaster-only).
+        let mut battlemaster_snapshot: Vec<(u32, u8, f32, f32, bool, String)> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
                 continue;
@@ -58,7 +62,8 @@ impl GameWorldShadow {
             if !alive {
                 continue;
             }
-            if !crate::game_logic::host_battlemaster::is_battlemaster_template(e.template_name()) {
+            if !crate::game_logic::host_battlemaster::is_china_vehicle_horde_unit(e.template_name())
+            {
                 continue;
             }
             if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
@@ -68,9 +73,72 @@ impl GameWorldShadow {
                     e.transform.position.x,
                     e.transform.position.z,
                     alive,
+                    e.template_name().to_string(),
                 ));
             }
         }
+
+        use crate::game_logic::host_battlemaster::{
+            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob,
+            same_vehicle_horde_family, BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+        };
+        use crate::game_logic::host_red_guard::{
+            counts_toward_infantry_horde, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
+            INFANTRY_HORDE_RUB_OFF_RADIUS,
+        };
+        let inf_units: Vec<(f32, f32, bool)> = infantry_snapshot
+            .iter()
+            .map(|(_, _, x, z, a)| (*x, *z, *a))
+            .collect();
+        let inf_mem = evaluate_leftover_horde_blob(
+            &inf_units,
+            INFANTRY_HORDE_COUNT,
+            INFANTRY_HORDE_RADIUS,
+            INFANTRY_HORDE_RUB_OFF_RADIUS,
+            |i, j, dist| {
+                counts_toward_infantry_horde(
+                    infantry_snapshot[i].4,
+                    infantry_snapshot[j].4,
+                    infantry_snapshot[i].1 == infantry_snapshot[j].1,
+                    true,
+                    dist,
+                    INFANTRY_HORDE_RADIUS,
+                )
+            },
+        );
+        let mut infantry_horde_now = std::collections::HashMap::new();
+        for (idx, (hid, _, _, _, _)) in infantry_snapshot.iter().enumerate() {
+            infantry_horde_now.insert(*hid, inf_mem[idx].in_horde);
+        }
+        let veh_units: Vec<(f32, f32, bool)> = battlemaster_snapshot
+            .iter()
+            .map(|(_, _, x, z, a, _)| (*x, *z, *a))
+            .collect();
+        let veh_mem = evaluate_leftover_horde_blob(
+            &veh_units,
+            BATTLE_MASTER_HORDE_COUNT,
+            BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+            |i, j, dist| {
+                counts_toward_battlemaster_horde(
+                    battlemaster_snapshot[i].4,
+                    battlemaster_snapshot[j].4,
+                    battlemaster_snapshot[i].1 == battlemaster_snapshot[j].1,
+                    same_vehicle_horde_family(
+                        &battlemaster_snapshot[i].5,
+                        &battlemaster_snapshot[j].5,
+                    ),
+                    dist,
+                    BATTLE_MASTER_HORDE_RADIUS,
+                )
+            },
+        );
+        let mut vehicle_horde_now = std::collections::HashMap::new();
+        for (idx, (hid, _, _, _, _, _)) in battlemaster_snapshot.iter().enumerate() {
+            vehicle_horde_now.insert(*hid, veh_mem[idx].in_horde);
+        }
+
 
         // Wave 811: underpowered teams from shadow player economy (borrow-safe).
         let mut underpowered_team_ords: std::collections::HashSet<u8> =
@@ -156,11 +224,14 @@ impl GameWorldShadow {
             eids,
             infantry_snapshot,
             battlemaster_snapshot,
+            infantry_horde_now,
+            vehicle_horde_now,
             underpowered_team_ords,
             sticky_booby_targets,
             scorpion_retarget,
             fire_spread_candidates,
         }
+
     }
 
     /// Wave 761: expire faerie/repulsor/disable/frenzy/continuous-fire/selection flash.

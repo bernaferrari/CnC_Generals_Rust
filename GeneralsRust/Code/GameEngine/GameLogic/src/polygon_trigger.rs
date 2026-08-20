@@ -6,6 +6,8 @@ use crate::common::{
     AsciiString, Bool, Coord2D, Coord3D, ICoord2D, ICoord3D, IRegion2D, Int, Real, Snapshot,
     MAP_XY_FACTOR,
 };
+use crate::helpers::TheTerrainLogic;
+
 use game_engine::common::ini::get_global_data;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use std::collections::HashMap;

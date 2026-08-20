@@ -347,6 +347,10 @@ pub trait ObjectDrawInterface {
     /// * `condition` - New model condition flags
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags);
 
+    /// C++ `ObjectDrawInterface::replaceIndicatorColor`.
+    fn replace_indicator_color(&mut self, _color: i32) {}
+
+
     /// Handle weapon fire FX
     ///
     /// # Arguments

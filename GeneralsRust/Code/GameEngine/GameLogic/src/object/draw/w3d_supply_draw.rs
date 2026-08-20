@@ -315,6 +315,10 @@ impl ObjectDrawInterface for W3DSupplyDraw {
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags) {
         self.base.replace_model_condition_state(condition);
     }
+    fn replace_indicator_color(&mut self, color: i32) {
+        self.base.replace_indicator_color(color);
+    }
+
     fn handle_weapon_fire_fx(
         &mut self,
         weapon_slot: usize,

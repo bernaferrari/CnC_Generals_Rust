@@ -154,12 +154,32 @@ impl ScriptEvaluator {
         Ok(player_mask.intersects(player_guard.get_player_mask()))
     }
 
-    /// Evaluate named not destroyed condition
+    /// C++ NAMED_NOT_DESTROYED → evaluateNamedUnitExists (ScriptConditions.cpp:291-299)
     fn evaluate_named_not_destroyed_condition(
         &self,
         condition: &Condition,
     ) -> GameLogicResult<bool> {
-        Ok(!self.evaluate_named_destroyed_condition(condition)?)
+        let unit_param = condition.get_parameter(0).ok_or_else(|| {
+            GameLogicError::Configuration(
+                "NamedNotDestroyed condition missing unit parameter".to_string(),
+            )
+        })?;
+        let unit_name = unit_param.get_string();
+        if dual_world_registry_unavailable() {
+            return Ok(crate::scripting::host_script_named_unit_alive(unit_name).unwrap_or(false));
+        }
+
+        let tracker = get_named_object_tracker();
+        let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
+            return Ok(false);
+        };
+        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            return Ok(false);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return Ok(false);
+        };
+        Ok(!obj.is_effectively_dead())
     }
 
     fn evaluate_named_discovered_condition(&self, condition: &Condition) -> GameLogicResult<bool> {

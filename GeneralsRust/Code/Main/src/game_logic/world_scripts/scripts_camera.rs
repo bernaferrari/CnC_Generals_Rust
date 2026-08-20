@@ -1148,6 +1148,20 @@ impl GameLogic {
                 .unwrap_or(false)
     }
 
+    /// C++ `W3DView::setDefaultView`: pitch + max-height scale; angle ignored.
+    pub(in super::super) fn apply_script_camera_default(
+        &mut self,
+        request: CameraSetDefaultRequest,
+    ) {
+        self.script_default_camera_pitch = request.pitch;
+        self.script_default_camera_angle = 0.0;
+        self.script_default_camera_max_height = if request.max_height.is_finite() {
+            request.max_height
+        } else {
+            1.0
+        };
+    }
+
     pub(in super::super) fn apply_script_camera_mod_freeze_time(&mut self) {
         let mut applied = false;
         if let Some(move_to) = self.script_camera_move_to.as_mut() {
@@ -1241,56 +1255,89 @@ impl GameLogic {
             }
         }
 
-        if let Some(move_to) = self.script_camera_move_to.as_mut() {
-            self.mission_scripts.set_camera_movement_finished(false);
-
+        let move_step = self.script_camera_move_to.as_mut().map(|move_to| {
             if move_to.is_finished() {
-                let focus = move_to.final_focus();
+                (true, move_to.final_focus(), false, None, 0.0)
+            } else if let Some(focus) = move_to.advance(dt) {
+                let look = if move_to.freeze_angle() {
+                    None
+                } else {
+                    let dir = move_to.target - move_to.start;
+                    Some(Vec3::new(focus.x + dir.x, focus.y, focus.z + dir.z))
+                };
+                (
+                    false,
+                    focus,
+                    move_to.freeze_angle(),
+                    look,
+                    move_to.remaining_time_seconds(),
+                )
+            } else {
+                (false, Vec3::ZERO, true, None, 0.0)
+            }
+        });
+        if let Some((finished, focus, freeze_angle, look, remaining)) = move_step {
+            self.mission_scripts.set_camera_movement_finished(false);
+            if finished {
                 self.request_camera_focus(focus);
                 self.script_camera_move_to = None;
                 self.mission_scripts.set_camera_movement_finished(true);
                 return;
             }
-
-            if let Some(focus) = move_to.advance(dt) {
+            if focus != Vec3::ZERO || look.is_some() {
                 self.request_camera_focus(focus);
-                if !move_to.freeze_angle() && !self.is_script_camera_angle_frozen() {
-                    let dir = move_to.target - move_to.start;
-                    let look = Vec3::new(focus.x + dir.x, focus.y, focus.z + dir.z);
-                    self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                        position: look,
-                        duration_seconds: move_to.remaining_time_seconds(),
-                        ease_in_seconds: 0.0,
-                        ease_out_seconds: 0.0,
-                        reverse_rotation: false,
-                    });
+                if !freeze_angle && !self.is_script_camera_angle_frozen() {
+                    if let Some(look) = look {
+                        self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                            position: look,
+                            duration_seconds: remaining,
+                            ease_in_seconds: 0.0,
+                            ease_out_seconds: 0.0,
+                            reverse_rotation: false,
+                        });
+                    }
                 }
             }
             return;
         }
 
-        let Some(path_move) = self.script_camera_path.as_mut() else {
+        let path_step = self.script_camera_path.as_mut().map(|path_move| {
+            if path_move.is_finished() {
+                (true, path_move.final_focus(), None, 0.0)
+            } else if let Some(focus) = path_move.advance(dt) {
+                let look = if path_move.freeze_angle() {
+                    None
+                } else {
+                    path_move.travel_look_toward()
+                };
+                (
+                    false,
+                    focus,
+                    look,
+                    path_move.remaining_time_seconds().max(0.05),
+                )
+            } else {
+                (false, Vec3::ZERO, None, 0.0)
+            }
+        });
+        let Some((finished, focus, look, remaining)) = path_step else {
             self.mission_scripts.set_camera_movement_finished(true);
             return;
         };
-
         self.mission_scripts.set_camera_movement_finished(false);
-
-        if path_move.is_finished() {
-            let focus = path_move.final_focus();
+        if finished {
             self.request_camera_focus(focus);
             self.script_camera_path = None;
             self.mission_scripts.set_camera_movement_finished(true);
             return;
         }
-
-        if let Some(focus) = path_move.advance(dt) {
+        if focus != Vec3::ZERO || look.is_some() {
             self.request_camera_focus(focus);
-            if !path_move.freeze_angle() && !self.is_script_camera_angle_frozen() {
-                if let Some(look) = path_move.travel_look_toward() {
+            if look.is_some() && !self.is_script_camera_angle_frozen() {
+                if let Some(look) = look {
                     self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
                         position: look,
-                        duration_seconds: path_move.remaining_time_seconds().max(0.05),
+                        duration_seconds: remaining,
                         ease_in_seconds: 0.0,
                         ease_out_seconds: 0.0,
                         reverse_rotation: false,

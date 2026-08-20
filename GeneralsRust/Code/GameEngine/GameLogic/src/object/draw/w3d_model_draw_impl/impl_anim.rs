@@ -5,7 +5,12 @@ impl W3DModelDraw {
             return;
         }
         let extra_public_bones = self.data.extra_public_bones.clone();
-        self.data.condition_states[state_index].validate_runtime_caches(&extra_public_bones);
+        let scale = self
+            .with_owner_drawable(|drawable| drawable.get_world_scale().x)
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0);
+        self.data.condition_states[state_index]
+            .validate_runtime_caches_scaled(&extra_public_bones, scale);
 
         let mut new_state_ref = ActiveModelState::Condition(state_index);
         let mut pending_next_state: Option<usize> = None;
@@ -47,8 +52,9 @@ impl W3DModelDraw {
         }
 
         if let Some(state) = self.resolve_state_mut(new_state_ref) {
-            state.validate_runtime_caches(&extra_public_bones);
+            state.validate_runtime_caches_scaled(&extra_public_bones, scale);
         }
+
 
         let prev_state = self.cur_state;
         let prev_anim_fraction = self.get_current_anim_fraction();
@@ -165,6 +171,7 @@ impl W3DModelDraw {
                 1.0
             };
         self.anim_frame_accumulator = 0.0;
+        self.anim_direction = 1;
         self.current_anim_complete = false;
     }
 

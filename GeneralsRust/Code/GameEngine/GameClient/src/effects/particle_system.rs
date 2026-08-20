@@ -155,11 +155,11 @@ impl Particle {
             lifetime_left: info.lifetime,
             create_timestamp,
 
-            alpha: 1.0,
+            alpha: info.alpha_keys[0].value,
             alpha_rate: 0.0,
             alpha_target_key: 1,
 
-            color: [1.0, 1.0, 1.0],
+            color: info.color_keys[0].color,
             color_rate: [0.0, 0.0, 0.0],
             color_target_key: 1,
 
@@ -177,16 +177,9 @@ impl Particle {
             in_overall_list: false,
         };
 
-        // Set initial alpha and color from first keyframes
-        if particle.alpha_keys[0].frame > 0 {
-            particle.alpha = particle.alpha_keys[0].value;
-            particle.compute_alpha_rate();
-        }
-
-        if particle.color_keys[0].frame > 0 {
-            particle.color = particle.color_keys[0].color;
-            particle.compute_color_rate();
-        }
+        // C++ Particle::Particle always seeds from key 0 (frame 0 is the start pose).
+        particle.compute_alpha_rate();
+        particle.compute_color_rate();
 
         particle
     }
@@ -802,10 +795,10 @@ impl Snapshotable for ParticleSystem {
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.is_local_identity)
             .map_err(|e| e.to_string())?;
-        xfer_matrix3(xfer, &mut self.local_transform)?;
+        xfer_matrix3(xfer, &mut self.local_transform, &mut self.local_translation)?;
         xfer.xfer_bool(&mut self.is_identity)
             .map_err(|e| e.to_string())?;
-        xfer_matrix3(xfer, &mut self.transform)?;
+        xfer_matrix3(xfer, &mut self.transform, &mut self.transform_translation)?;
         xfer.xfer_unsigned_int(&mut self.burst_delay_left)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut self.delay_left)
@@ -955,18 +948,75 @@ fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Point3<f32>) -> Result<(), Strin
     Ok(())
 }
 
-fn xfer_matrix3(xfer: &mut dyn Xfer, value: &mut Matrix3<f32>) -> Result<(), String> {
+fn xfer_matrix3(
+    xfer: &mut dyn Xfer,
+    value: &mut Matrix3<f32>,
+    translation: &mut Vector3<f32>,
+) -> Result<(), String> {
     for row in 0..3 {
         for col in 0..3 {
             xfer.xfer_real(&mut value[(row, col)])
                 .map_err(|e| e.to_string())?;
         }
-        let mut translation = 0.0f32;
-        xfer.xfer_real(&mut translation)
+        xfer.xfer_real(&mut translation[row])
             .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
+
+/// C++ ParticleSystem::computePointOnUnitSphere — cube-reject, not polar.
+fn compute_point_on_unit_sphere(rng: &mut impl Rng) -> Vector3<f32> {
+    loop {
+        let x = rng.gen_range(-1.0..=1.0);
+        let y = rng.gen_range(-1.0..=1.0);
+        let z = rng.gen_range(-1.0..=1.0);
+        if x != 0.0 || y != 0.0 || z != 0.0 {
+            return Vector3::new(x, y, z).normalize();
+        }
+    }
+}
+
+/// C++ HEMISPHERICAL velocity: cube-octant reject (z in [0,1]) then normalize.
+fn compute_point_on_unit_hemisphere(rng: &mut impl Rng) -> Vector3<f32> {
+    loop {
+        let x = rng.gen_range(-1.0..=1.0);
+        let y = rng.gen_range(-1.0..=1.0);
+        let z = rng.gen_range(0.0..=1.0);
+        if x != 0.0 || y != 0.0 || z != 0.0 {
+            return Vector3::new(x, y, z).normalize();
+        }
+    }
+}
+
+/// Extract nalgebra rotation + translation from a glam/SAGE 4x4 (column-major).
+fn affine_from_glam_cols(cols: [f32; 16]) -> (Matrix3<f32>, Vector3<f32>) {
+    let rot = Matrix3::from_column_slice(&[
+        cols[0], cols[1], cols[2], cols[4], cols[5], cols[6], cols[8], cols[9], cols[10],
+    ]);
+    let trans = Vector3::new(cols[12], cols[13], cols[14]);
+    (rot, trans)
+}
+
+/// C++ drawable attach uses getFullyObscuredByShroud, synced from object fog.
+fn drawable_state_is_shrouded(
+    state: &gamelogic::helpers::DrawableState,
+    local_player_index: i32,
+) -> bool {
+    if state.shroud_status_object_id == 0 {
+        return false;
+    }
+    let Some(object) =
+        gamelogic::helpers::TheGameLogic::find_object_by_id(state.shroud_status_object_id)
+    else {
+        return false;
+    };
+    let Ok(guard) = object.read() else {
+        return false;
+    };
+    use gamelogic::common::types::ObjectShroudStatus;
+    (guard.get_shrouded_status(local_player_index) as u8) >= (ObjectShroudStatus::Fogged as u8)
+}
+
 
 fn xfer_random_variable(
     xfer: &mut dyn Xfer,
@@ -1233,9 +1283,11 @@ pub struct ParticleSystem {
     attached_drawable_id: DrawableId,
     attached_object_id: ObjectId,
 
-    // Transform
+    // Transform (C++ Matrix3D is 3x4: rotation + translation)
     local_transform: Matrix3<f32>,
+    local_translation: Vector3<f32>,
     transform: Matrix3<f32>,
+    transform_translation: Vector3<f32>,
     position: Point3<f32>,
     last_position: Point3<f32>,
 
@@ -1328,7 +1380,9 @@ impl ParticleSystem {
             attached_object_id: 0,
 
             local_transform: Matrix3::identity(),
+            local_translation: Vector3::zeros(),
             transform: Matrix3::identity(),
+            transform_translation: Vector3::zeros(),
             position: Point3::origin(),
             last_position: Point3::origin(),
 
@@ -1479,20 +1533,18 @@ impl ParticleSystem {
         false
     }
 
-    /// Set position (matches C++ ParticleSystem::setPosition)
+    /// Set position (matches C++ ParticleSystem::setPosition).
+    /// Writes local Matrix3D translation and clears local-identity.
     pub fn set_position(&mut self, pos: Point3<f32>) {
-        if self.is_first_pos {
-            self.last_position = pos;
-            self.is_first_pos = false;
-        } else {
-            self.last_position = self.position;
-        }
-        self.position = pos;
+        self.local_translation = pos.coords;
+        self.is_local_identity = false;
+        self.update_transform();
     }
 
-    /// Get position (matches C++ ParticleSystem::getPosition)
+    /// World emission origin for callers (LOD / manager). C++ getPosition
+    /// returns local translation; after compose this is parent*local origin.
     pub fn position(&self) -> Point3<f32> {
-        self.position
+        Point3::from(self.transform_translation)
     }
 
     /// Get emission volume type (uses overrides if present).
@@ -1522,7 +1574,8 @@ impl ParticleSystem {
     /// Set local transform (matches C++ ParticleSystem::setLocalTransform)
     pub fn set_local_transform(&mut self, matrix: Matrix3<f32>) {
         self.local_transform = matrix;
-        self.is_local_identity = matrix == Matrix3::identity();
+        self.is_local_identity =
+            matrix == Matrix3::identity() && self.local_translation == Vector3::zeros();
         self.update_transform();
     }
 
@@ -1691,6 +1744,8 @@ impl ParticleSystem {
         };
         self.last_position = self.position;
         self.position = pos;
+        // C++ ParticleSys.cpp:1953-1956 — override world translation, not local.
+        self.transform_translation = pos.coords;
         self.is_identity = false;
     }
 
@@ -1700,14 +1755,31 @@ impl ParticleSystem {
             if let Some(client) = gamelogic::helpers::TheGameClient::get() {
                 if let Some(state) = client.find_drawable_by_id(self.attached_drawable_id.0) {
                     self.last_position = self.position;
-                    self.position = Point3::new(
-                        state.position.x,
-                        state.position.y,
-                        state.position.z,
-                    );
-                    let (s, c) = state.orientation.sin_cos();
-                    self.parent_transform =
-                        Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
+                    if let Some(draw) = state.drawable.as_ref() {
+                        if let Ok(guard) = draw.read() {
+                            let (rot, trans) = affine_from_glam_cols(
+                                guard.get_transform_matrix().to_cols_array(),
+                            );
+                            self.parent_transform = Some(rot);
+                            self.position = Point3::from(trans);
+                        } else {
+                            self.apply_yaw_parent_pose(
+                                state.position.x,
+                                state.position.y,
+                                state.position.z,
+                                state.orientation,
+                            );
+                        }
+                    } else {
+                        self.apply_yaw_parent_pose(
+                            state.position.x,
+                            state.position.y,
+                            state.position.z,
+                            state.orientation,
+                        );
+                    }
+                    self.is_shrouded =
+                        drawable_state_is_shrouded(&state, local_player_index);
                     return;
                 }
             }
@@ -1724,18 +1796,39 @@ impl ParticleSystem {
                     use gamelogic::common::types::ObjectShroudStatus;
                     let status = guard.get_shrouded_status(local_player_index);
                     self.is_shrouded = (status as u8) >= (ObjectShroudStatus::Fogged as u8);
-                    let pos = *guard.get_position();
                     self.last_position = self.position;
-                    self.position = Point3::new(pos.x, pos.y, pos.z);
-                    let (s, c) = guard.get_orientation().sin_cos();
-                    self.parent_transform =
-                        Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
+                    if let Some(draw) = guard.get_drawable() {
+                        if let Ok(draw_guard) = draw.read() {
+                            let (rot, trans) = affine_from_glam_cols(
+                                draw_guard.get_transform_matrix().to_cols_array(),
+                            );
+                            self.parent_transform = Some(rot);
+                            self.position = Point3::from(trans);
+                        } else {
+                            let (rot, trans) = affine_from_glam_cols(
+                                guard.get_transform_matrix().to_cols_array(),
+                            );
+                            self.parent_transform = Some(rot);
+                            self.position = Point3::from(trans);
+                        }
+                    } else {
+                        let (rot, trans) =
+                            affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
+                        self.parent_transform = Some(rot);
+                        self.position = Point3::from(trans);
+                    }
                 }
                 return;
             }
             self.attached_object_id = 0;
             self.destroy();
         }
+    }
+
+    fn apply_yaw_parent_pose(&mut self, x: f32, y: f32, z: f32, yaw: f32) {
+        self.position = Point3::new(x, y, z);
+        let (s, c) = yaw.sin_cos();
+        self.parent_transform = Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
     }
     fn read_particle_scale_from_global_data() -> f32 {
         match game_engine::common::ini::ini_game_data::get_global_data() {
@@ -1789,11 +1882,10 @@ impl ParticleSystem {
         self.local_transform
     }
 
-    /// Set lifetime range
+    /// Set lifetime range (C++ ParticleSystem::setLifetimeRange → m_lifetime.setRange).
     pub fn set_lifetime_range(&mut self, min: f32, max: f32) {
-        let info = self.template.info();
-        let mut info = info.clone();
-        info.lifetime = GameClientRandomVariable::new(min, max);
+        Arc::make_mut(&mut self.template).info_mut().lifetime =
+            GameClientRandomVariable::new(min, max);
     }
 
     /// Rotate local transform X (matches C++ ParticleSystem::rotateLocalTransformX)
@@ -1916,7 +2008,8 @@ impl ParticleSystem {
         let wind_angle = self.wind_angle();
         let wind_motion = self.template.info().wind_motion;
         let shader_type = self.template.info().shader_type;
-        let system_pos = self.position;
+        // C++ doWindMotion: local translation + attached parent pos (unrotated add).
+        let system_pos = Point3::from(self.position.coords + self.local_translation);
 
         while i < self.particles.len() {
             let mut remove_particle = false;
@@ -1930,15 +2023,11 @@ impl ParticleSystem {
                     particle.apply_force(Vector3::new(0.0, 0.0, gravity));
                 }
 
-                // Do wind motion if enabled (applied directly to position, not as force)
-                // C++ handles this in Particle::doWindMotion, called from Particle::update
-                if wind_motion != WindMotion::NotUsed {
-                    particle.do_wind_motion(wind_angle, system_pos);
-                }
-
-                // Update particle with correct parameters matching C++ signature
+                // C++ Particle::update: accel→vel, pos+=vel+drift, THEN doWindMotion.
                 if !particle.update(drift_velocity, current_frame, shader_type) {
                     remove_particle = true;
+                } else if wind_motion != WindMotion::NotUsed {
+                    particle.do_wind_motion(wind_angle, system_pos);
                 }
             }
             if remove_particle {
@@ -1989,6 +2078,8 @@ impl ParticleSystem {
 
         // Reset burst delay after the first immediate burst (C++ m_burstDelayLeft starts at 0)
         self.burst_delay_left = (info.burst_delay.sample() * self.delay_coeff) as u32;
+        // C++ generateParticleInfo seeds m_lastPos on first non-identity generate.
+        self.is_first_pos = false;
 
         // C++ never reads m_isOneShot at runtime — emission continues until SystemLifetime.
     }
@@ -2004,17 +2095,29 @@ impl ParticleSystem {
 
         let mut particle_info = ParticleInfo::default();
 
-        // Position
+        // C++ computeParticlePosition/Velocity stay in local space; transform is
+        // applied below only when m_isIdentity is false (ParticleSys.cpp:1724-1771).
         particle_info.position = self.compute_particle_position();
-        particle_info.emitter_position = self.position;
+        particle_info.emitter_position = Point3::from(self.transform_translation);
 
-        // C++ parity: ParticleSys.cpp lines 1518-1520
-        // C++: newVel *= m_velCoeff * (0.5f + m_particleScale/2.0f)
         particle_info.velocity = self.compute_particle_velocity(&particle_info.position);
         let vel_scale = 0.5 + self.particle_scale / 2.0;
         particle_info.velocity.component_mul_assign(&self.vel_coeff);
         particle_info.velocity *= vel_scale;
 
+        if !self.is_identity {
+            let last = if self.is_first_pos {
+                self.position
+            } else {
+                self.last_position
+            };
+            let denom = particle_count.max(1) as f32;
+            let spread = 1.0 - (particle_num as f32 / denom);
+            let adjustment = (self.position - last) * spread;
+            let world = self.transform * particle_info.position.coords + self.transform_translation;
+            particle_info.position = Point3::from(world) - adjustment;
+            particle_info.velocity = self.transform * particle_info.velocity;
+        }
         // Lifetime
         particle_info.lifetime = info.lifetime.sample() as u32;
 
@@ -2069,7 +2172,7 @@ impl ParticleSystem {
 
             EmissionVolume::Line { start, end } => {
                 let t = rng.r#gen::<f32>();
-                (end - start) * t
+                start.coords + (end - start) * t
             }
 
             EmissionVolume::Box { half_size } => {
@@ -2109,51 +2212,32 @@ impl ParticleSystem {
             }
 
             EmissionVolume::Sphere { radius } => {
-                if info.is_emission_volume_hollow {
-                    // On sphere surface
-                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-                    Vector3::new(
-                        radius * phi.sin() * theta.cos(),
-                        radius * phi.sin() * theta.sin(),
-                        radius * phi.cos(),
-                    )
+                let unit = compute_point_on_unit_sphere(&mut rng);
+                let r = if info.is_emission_volume_hollow {
+                    radius
                 } else {
-                    // Inside sphere
-                    let r = rng.r#gen::<f32>().powf(1.0 / 3.0) * radius;
-                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-                    Vector3::new(
-                        r * phi.sin() * theta.cos(),
-                        r * phi.sin() * theta.sin(),
-                        r * phi.cos(),
-                    )
-                }
+                    rng.gen_range(0.0..=radius)
+                };
+                unit * r
             }
 
             EmissionVolume::Cylinder { radius, length } => {
                 let half_length = length * 0.5;
                 let z = rng.gen_range(-half_length..=half_length);
-
-                if info.is_emission_volume_hollow {
-                    // On cylinder surface
-                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    Vector3::new(radius * theta.cos(), radius * theta.sin(), z)
+                let r = if info.is_emission_volume_hollow {
+                    radius
                 } else {
-                    // Inside cylinder
-                    let r = rng.r#gen::<f32>().sqrt() * radius;
-                    let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                    Vector3::new(r * theta.cos(), r * theta.sin(), z)
-                }
+                    rng.gen_range(0.0..=radius)
+                };
+                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+                Vector3::new(r * theta.cos(), r * theta.sin(), z)
             }
         };
 
         // C++ parity: ParticleSys.cpp lines 1644-1646
         // C++: newPos *= (0.5f + m_particleScale/2.0f)
         let pos_scale = 0.5 + self.particle_scale / 2.0;
-
-        // Transform to world space
-        self.position + self.transform * (local_pos * pos_scale)
+        Point3::from(local_pos * pos_scale)
     }
 
     fn effective_emission_volume(&self) -> EmissionVolume {
@@ -2170,25 +2254,11 @@ impl ParticleSystem {
             EmissionVelocity::Ortho { x, y, z } => Vector3::new(x.sample(), y.sample(), z.sample()),
 
             EmissionVelocity::Spherical { speed } => {
-                let speed_val = speed.sample();
-                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-                Vector3::new(
-                    speed_val * phi.sin() * theta.cos(),
-                    speed_val * phi.sin() * theta.sin(),
-                    speed_val * phi.cos(),
-                )
+                speed.sample() * compute_point_on_unit_sphere(&mut rng)
             }
 
             EmissionVelocity::Hemispherical { speed } => {
-                let speed_val = speed.sample();
-                let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                let phi = rng.r#gen::<f32>() * std::f32::consts::PI * 0.5; // Only upper hemisphere
-                Vector3::new(
-                    speed_val * phi.sin() * theta.cos(),
-                    speed_val * phi.sin() * theta.sin(),
-                    speed_val * phi.cos(),
-                )
+                speed.sample() * compute_point_on_unit_hemisphere(&mut rng)
             }
 
             EmissionVelocity::Cylindrical { radial, normal } => {
@@ -2209,8 +2279,8 @@ impl ParticleSystem {
                 match info.emission_volume_type {
                     EmissionVolumeType::Invalid => Vector3::zeros(),
                     EmissionVolumeType::Cylinder => {
-                        let dx = position.x - self.position.x;
-                        let dy = position.y - self.position.y;
+                        let dx = position.x;
+                        let dy = position.y;
                         let len = (dx * dx + dy * dy).sqrt();
                         if len > 0.0 {
                             Vector3::new(
@@ -2223,24 +2293,12 @@ impl ParticleSystem {
                         }
                     }
                     EmissionVolumeType::Box | EmissionVolumeType::Sphere => {
-                        let dx = position.x - self.position.x;
-                        let dy = position.y - self.position.y;
-                        let dz = position.z - self.position.z;
-                        let len = (dx * dx + dy * dy + dz * dz).sqrt();
+                        let dir = position.coords;
+                        let len = dir.norm();
                         if len > 0.0 {
-                            Vector3::new(
-                                speed_val * dx / len,
-                                speed_val * dy / len,
-                                speed_val * dz / len,
-                            )
+                            dir * (speed_val / len)
                         } else {
-                            let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                            let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-                            Vector3::new(
-                                speed_val * phi.sin() * theta.cos(),
-                                speed_val * phi.sin() * theta.sin(),
-                                speed_val * phi.cos(),
-                            )
+                            speed_val * compute_point_on_unit_sphere(&mut rng)
                         }
                     }
                     EmissionVolumeType::Line => {
@@ -2256,13 +2314,7 @@ impl ParticleSystem {
                         }
                     }
                     EmissionVolumeType::Point => {
-                        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-                        let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-                        Vector3::new(
-                            speed_val * phi.sin() * theta.cos(),
-                            speed_val * phi.sin() * theta.sin(),
-                            speed_val * phi.cos(),
-                        )
+                        speed_val * compute_point_on_unit_sphere(&mut rng)
                     }
                 }
             }
@@ -2272,28 +2324,33 @@ impl ParticleSystem {
     /// Update transform matrix
     fn update_transform(&mut self) {
         self.transform = self.local_transform;
+        self.transform_translation = self.local_translation;
         self.is_identity = self.is_local_identity;
     }
 
     // C++ parity: ParticleSys.cpp lines 1910-1946
     fn update_transform_from_parent(&mut self) {
-        if let Some(ref parent_xfrm) = self.parent_transform {
+        if let Some(parent_xfrm) = &self.parent_transform {
             if self.skip_parent_transform {
                 self.transform = self.local_transform;
+                self.transform_translation = self.local_translation;
             } else if !self.is_local_identity {
                 self.transform = parent_xfrm * self.local_transform;
+                self.transform_translation =
+                    parent_xfrm * self.local_translation + self.position.coords;
             } else {
                 self.transform = *parent_xfrm;
+                self.transform_translation = self.position.coords;
             }
             self.is_identity = false;
+        } else if !self.is_local_identity {
+            self.transform = self.local_transform;
+            self.transform_translation = self.local_translation;
+            self.is_identity = false;
         } else {
-            if !self.is_local_identity {
-                self.transform = self.local_transform;
-                self.is_identity = false;
-            } else {
-                self.transform = Matrix3::identity();
-                self.is_identity = true;
-            }
+            self.transform = Matrix3::identity();
+            self.transform_translation = Vector3::zeros();
+            self.is_identity = true;
         }
     }
 
@@ -2411,7 +2468,119 @@ mod tests {
 
         assert_eq!(particle.personality, 1);
         assert_eq!(particle.lifetime_left, 30);
-        assert_eq!(particle.alpha, 1.0);
+        // Unset Color1/Alpha1 are {0} / 0 — C++ newborns start from key 0.
+        assert_eq!(particle.alpha, 0.0);
+        assert_eq!(particle.color, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn particle_new_applies_frame_zero_keyframes() {
+        let mut info = ParticleInfo::default();
+        info.alpha_keys[0] = Keyframe {
+            value: 0.25,
+            frame: 0,
+        };
+        info.color_keys[0] = RGBColorKeyframe {
+            color: [0.1, 0.2, 0.3],
+            frame: 0,
+        };
+        let particle = Particle::new(&info, 1, 0);
+        assert_eq!(particle.alpha, 0.25);
+        assert_eq!(particle.color, [0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn set_position_writes_local_translation() {
+        let template = Arc::new(ParticleSystemTemplate::new("Offset".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.set_position(Point3::new(10.0, 20.0, 30.0));
+        assert_eq!(system.position(), Point3::new(10.0, 20.0, 30.0));
+        assert!(!system.is_local_identity);
+
+        let info = system.generate_particle_info(0, 1).unwrap();
+        assert_eq!(info.position, Point3::new(10.0, 20.0, 30.0));
+    }
+
+    #[test]
+    fn attached_parent_applies_set_position_through_full_rotation() {
+        // C++ ParticleSys.cpp:1281-1286 + :1919-1924 + :1746-1758
+        // setPosition is local Matrix3D translation; update concatenates
+        // parent 4x4 * local (including pitch/roll, not yaw-only).
+        let template = Arc::new(ParticleSystemTemplate::new("BoneFx".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.set_position(Point3::new(0.0, 0.0, 10.0));
+        system.position = Point3::new(100.0, 200.0, 0.0);
+        let (s, c) = std::f32::consts::FRAC_PI_2.sin_cos();
+        // Rotate +90° about X: (0,0,10) → (0,-10,0)
+        system.parent_transform = Some(Matrix3::new(1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c));
+        system.update_transform_from_parent();
+
+        let info = system.generate_particle_info(0, 1).unwrap();
+        assert!((info.position.x - 100.0).abs() < 1e-5);
+        assert!((info.position.y - 190.0).abs() < 1e-5);
+        assert!(info.position.z.abs() < 1e-5);
+        // Yaw-only parent would leave the +Z offset unrotated → z=10.
+        assert!(info.position.z.abs() < 1.0);
+    }
+
+    #[test]
+    fn skip_parent_xfrm_keeps_local_set_position() {
+        // C++ ParticleSys.cpp:1912-1915 — skipParentXfrm uses m_localTransform only.
+        let template = Arc::new(ParticleSystemTemplate::new("SkipParent".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.set_position(Point3::new(0.0, 0.0, 10.0));
+        system.position = Point3::new(100.0, 200.0, 0.0);
+        system.parent_transform = Some(Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0));
+        system.set_skip_parent_xfrm(true);
+        system.update_transform_from_parent();
+
+        let info = system.generate_particle_info(0, 1).unwrap();
+        assert_eq!(info.position, Point3::new(0.0, 0.0, 10.0));
+    }
+
+
+    #[test]
+    fn generate_spreads_burst_along_parent_motion() {
+        let template = Arc::new(ParticleSystemTemplate::new("Trail".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.set_position(Point3::origin());
+        system.position = Point3::new(10.0, 0.0, 0.0);
+        system.last_position = Point3::new(0.0, 0.0, 0.0);
+        system.is_first_pos = false;
+        system.is_identity = false;
+        system.transform = Matrix3::identity();
+        system.transform_translation = Vector3::new(10.0, 0.0, 0.0);
+
+        let first = system.generate_particle_info(0, 2).unwrap();
+        let last = system.generate_particle_info(1, 2).unwrap();
+        // i=0: subtract full (pos-last) → 0. i=1: subtract half → 5.
+        assert_eq!(first.position.x, 0.0);
+        assert_eq!(last.position.x, 5.0);
+    }
+
+    #[test]
+    fn set_lifetime_range_samples_on_generate() {
+        let template = Arc::new(ParticleSystemTemplate::new("Weld".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+        system.set_lifetime_range(99.0, 99.0);
+        let info = system.generate_particle_info(0, 1).unwrap();
+        assert_eq!(info.lifetime, 99);
+    }
+
+    #[test]
+    fn line_volume_includes_vol_line_start() {
+        let mut template = ParticleSystemTemplate::new("Beam".to_string());
+        {
+            let info = template.info_mut();
+            info.emission_volume_type = EmissionVolumeType::Line;
+            info.emission_volume = EmissionVolume::Line {
+                start: Point3::new(5.0, 0.0, 0.0),
+                end: Point3::new(5.0, 0.0, 0.0),
+            };
+        }
+        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        let info = system.generate_particle_info(0, 1).unwrap();
+        assert_eq!(info.position, Point3::new(5.0, 0.0, 0.0));
     }
 
     #[test]

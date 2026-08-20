@@ -1745,6 +1745,12 @@ impl Drawable {
 
     pub fn set_indicator_color(&mut self, color: Color) {
         self.indicator_color = color;
+        let packed = ((color.r as i32) << 16) | ((color.g as i32) << 8) | (color.b as i32);
+        self.for_each_draw_module_mut(|draw| {
+            if let Some(interface) = draw.get_object_draw_interface_mut() {
+                interface.replace_indicator_color(packed);
+            }
+        });
     }
 
     pub fn get_indicator_color(&self) -> Color {

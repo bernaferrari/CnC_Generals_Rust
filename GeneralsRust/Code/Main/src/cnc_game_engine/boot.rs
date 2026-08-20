@@ -494,6 +494,8 @@ impl CnCGameEngine {
             selection_start_screen: None,
             last_click_time: None,
             last_click_position: None,
+            last_right_click_time: None,
+            last_right_click_position: None,
             left_click_release_behavior: LeftMouseReleaseBehavior::Selection,
             lmb_context_started_physically: false,
             is_windowed: window.fullscreen().is_none(),

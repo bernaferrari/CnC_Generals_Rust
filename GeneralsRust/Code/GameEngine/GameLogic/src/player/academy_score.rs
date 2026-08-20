@@ -16,12 +16,16 @@ pub struct AcademyStats {
     pub(super) salvage_collected: Int,
     pub(super) special_powers_used: Int,
     pub(super) vehicles_sniped: Int,
+    /// C++ AcademyStats::m_vehiclesDisguised
+    pub(super) vehicles_disguised: Int,
     /// Total money earned (for scoreboard / academy stats).
     pub(super) total_income: Int,
     pub(super) mines: Int,
     pub(super) mines_cleared: Int,
     /// C++ AcademyStats::m_choseAStrategyForCenter
     pub(super) chose_a_strategy_for_center: Bool,
+    /// C++ AcademyStats::m_doubleClickAttackMoveOrdersGiven
+    pub(super) double_click_attack_move_orders_given: Int,
 }
 
 impl AcademyStats {
@@ -39,10 +43,12 @@ impl AcademyStats {
             salvage_collected: 0,
             special_powers_used: 0,
             vehicles_sniped: 0,
+            vehicles_disguised: 0,
             total_income: 0,
             mines: 0,
             mines_cleared: 0,
             chose_a_strategy_for_center: false,
+            double_click_attack_move_orders_given: 0,
         }
     }
 
@@ -125,6 +131,15 @@ impl AcademyStats {
         self.vehicles_sniped
     }
 
+    /// Record a vehicle disguise (C++ AcademyStats::recordVehicleDisguised).
+    pub fn record_vehicle_disguised(&mut self) {
+        self.vehicles_disguised = self.vehicles_disguised.saturating_add(1);
+    }
+
+    pub fn get_vehicles_disguised(&self) -> Int {
+        self.vehicles_disguised
+    }
+
     /// Record collecting a salvage crate (matches C++ AcademyStats::recordSalvageCollected).
     pub fn record_salvage_collected(&mut self) {
         self.salvage_collected += 1;
@@ -150,6 +165,12 @@ impl AcademyStats {
     /// Record a mine/booby-trap/demotrap disarm (C++ AcademyStats::recordMineCleared).
     pub fn record_mine_cleared(&mut self) {
         self.mines_cleared = self.mines_cleared.saturating_add(1);
+    }
+
+    /// C++ AcademyStats::recordDoubleClickAttackMoveOrderGiven.
+    pub fn record_double_click_attack_move_order_given(&mut self) {
+        self.double_click_attack_move_orders_given =
+            self.double_click_attack_move_orders_given.saturating_add(1);
     }
 
     /// C++ AcademyStats::recordBattlePlanSelected — sets m_choseAStrategyForCenter.

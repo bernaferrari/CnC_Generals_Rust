@@ -159,7 +159,9 @@ fn present_groups(object: &Object) -> Vec<&'static str> {
         (TAG_TENSILE_FORMATION, object.tensile_formation.is_some()),
         (TAG_FIRE_SPREAD, object.fire_spread.is_some()),
         (TAG_BASE_REGENERATE, object.base_regenerate.is_some()),
+        (TAG_DEFAULT_AUTO_HEAL, object.default_auto_heal.is_some()),
         (TAG_ENEMY_NEAR, object.enemy_near.is_some()),
+
         (TAG_ANIMATION_STEERING, object.animation_steering.is_some()),
         (TAG_FLOAT_UPDATE, object.float_update.is_some()),
         (TAG_PRONE_UPDATE, object.prone_update.is_some()),

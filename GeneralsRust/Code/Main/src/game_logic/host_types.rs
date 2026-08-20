@@ -191,6 +191,8 @@ pub enum KindOf {
     /// presentation KindOf bank is already full, so crate identity is also
     /// frozen as dedicated presentation booleans for physical click routing.
     Crate,
+    /// C++ `KINDOF_IGNORES_SELECT_ALL` — excluded from SELECT_ALL / matching.
+    IgnoresSelectAll,
 }
 
 /// Object status flags

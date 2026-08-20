@@ -200,10 +200,8 @@ impl SupplyTruckAIUpdate {
     /// Gain one box (when collecting from warehouse)
     /// Matches C++ SupplyTruckAIUpdate::gainOneBox() - SupplyTruckAIUpdate.cpp:132
     pub fn gain_one_box(&mut self, remaining_stock: i32) -> bool {
-        // Wave 298: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
+        // Wave 298: empty dual-world only skips drawable status, not the box
+        // increment or SuppliesDepletedVoice (C++ gainOneBox.cpp:132-171).
 
         if self.number_boxes >= self.data.max_boxes {
             return false;

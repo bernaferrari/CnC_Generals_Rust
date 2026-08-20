@@ -443,7 +443,6 @@ fn garrison_fire_goal(
     source_id: ObjectID,
     target_pos: &Coord3D,
 ) -> Option<Coord3D> {
-    let _ = target_pos;
     crate::object::registry::OBJECT_REGISTRY
         .with_object(container_id, |container| {
             let Some(contain) = container.get_contain() else {
@@ -463,7 +462,14 @@ fn garrison_fire_goal(
             if !enclosing {
                 return None;
             }
-            Some(*container.get_position())
+            // C++ WeaponSet.cpp:636-641 — fire-goal is calcBestGarrisonPosition,
+            // not the container origin.
+            let mut goal = *container.get_position();
+            if contain_guard.calc_best_garrison_position(&mut goal, target_pos) {
+                Some(goal)
+            } else {
+                None
+            }
         })
         .flatten()
 }
@@ -514,15 +520,24 @@ fn spawn_slave_result(
     pos: &Coord3D,
     command_source: CommandSourceType,
 ) -> Option<CanAttackResult> {
-    let Some(target_id) = target_obj else {
-        return None;
-    };
     let source_arc = crate::helpers::TheGameLogic::find_object_by_id(source_obj)?;
-    let victim_arc = crate::helpers::TheGameLogic::find_object_by_id(target_id)?;
     let source_guard = source_arc.read().ok()?;
     let spawn_mod = source_guard.get_spawn_behavior_interface_public()?;
     drop(source_guard);
     let mut spawn_guard = spawn_mod.lock().ok()?;
+
+    // C++ WeaponSet.cpp:741-744 + SpawnBehavior.cpp:424-432: victim may be
+    // NULL for ground attacks; slaves still run getAbleToUseWeaponAgainstTarget.
+    let Some(target_id) = target_obj else {
+        let spawn = spawn_guard.get_spawn_behavior_interface()?;
+        let ids: Vec<ObjectID> = (0..spawn.get_spawn_count())
+            .filter_map(|i| spawn.get_spawn_object(i))
+            .collect();
+        drop(spawn_guard);
+        return spawn_slave_ground_result(ids, attack_type, pos, command_source);
+    };
+
+    let victim_arc = crate::helpers::TheGameLogic::find_object_by_id(target_id)?;
     let spawn = spawn_guard.get_spawn_behavior_full_interface()?;
     let victim_guard = victim_arc.read().ok()?;
     Some(spawn.get_can_any_slaves_use_weapon_against_target(
@@ -531,4 +546,37 @@ fn spawn_slave_result(
         pos,
         command_source,
     ))
+}
+
+fn spawn_slave_ground_result(
+    spawn_ids: Vec<ObjectID>,
+    attack_type: AbleToAttackType,
+    pos: &Coord3D,
+    command_source: CommandSourceType,
+) -> Option<CanAttackResult> {
+    let mut invalid_shot = false;
+    for spawn_id in spawn_ids {
+        let result = crate::object::registry::OBJECT_REGISTRY.with_object(spawn_id, |member| {
+            member.weapon_set.get_able_to_use_weapon_against_target(
+                attack_type,
+                spawn_id,
+                None,
+                Some(pos),
+                command_source,
+                None,
+            )
+        });
+        match result {
+            Some(CanAttackResult::Possible) | Some(CanAttackResult::PossibleAfterMoving) => {
+                return result;
+            }
+            Some(CanAttackResult::InvalidShot) => invalid_shot = true,
+            _ => {}
+        }
+    }
+    Some(if invalid_shot {
+        CanAttackResult::InvalidShot
+    } else {
+        CanAttackResult::NotPossible
+    })
 }

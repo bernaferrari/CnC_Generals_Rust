@@ -146,8 +146,16 @@ static THE_TEAM_FACTORY: OnceLock<TeamFactoryMutex> = OnceLock::new();
 
 /// Get global team factory instance
 pub fn get_team_factory() -> &'static TeamFactoryMutex {
-    THE_TEAM_FACTORY.get_or_init(TeamFactoryMutex::new)
+    THE_TEAM_FACTORY.get_or_init(|| {
+        // Leftover Common `TeamTemplateInfo::from_dict` resolves teamHome via this hook.
+        game_engine::common::rts::team::set_team_home_waypoint_resolver(
+            leftover_resolve_team_home_waypoint,
+        );
+
+        TeamFactoryMutex::new()
+    })
 }
+
 
 /// Convenience alias for C++ compatibility
 pub use get_team_factory as TheTeamFactory;

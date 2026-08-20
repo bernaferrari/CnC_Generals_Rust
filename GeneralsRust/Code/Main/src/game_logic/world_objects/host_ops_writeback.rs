@@ -682,6 +682,7 @@ impl GameLogic {
                     let was = obj.weapon_bonus_horde;
                     obj.weapon_bonus_horde = now_horde;
                     obj.record_host_weapon_bonus();
+                    obj.apply_horde_terrain_decal(was, now_horde, true);
                     if now_horde && !was {
                         match grant {
                             HordeGrantCounter::Battlemaster => {
@@ -704,6 +705,7 @@ impl GameLogic {
                         }
                     }
                 }
+
                 if now_horde != was_horde || now_horde {
                     match grant {
                         HordeGrantCounter::Battlemaster => {

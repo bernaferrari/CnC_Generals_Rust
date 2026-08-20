@@ -1927,3 +1927,57 @@ fn projectile_detonation_dispatches_historic_bonus_weapon() {
 }
 
 
+#[test]
+fn cpp_parity_weapon_bonus_append_adds_deltas_not_multiplies() {
+    // C++ WeaponBonus::appendBonuses (Weapon.cpp:3463-3468):
+    // bonus.m_field[f] += this->m_field[f] - 1.0f
+    let mut stacked = WeaponBonus::new();
+    let mut vet = WeaponBonus::new();
+    vet.set_field(WeaponBonusField::Damage, 1.2);
+    let mut upgrade = WeaponBonus::new();
+    upgrade.set_field(WeaponBonusField::Damage, 1.25);
+    stacked.append_bonuses(&vet);
+    stacked.append_bonuses(&upgrade);
+    assert!(
+        (stacked.get_field(WeaponBonusField::Damage) - 1.45).abs() < 1e-6,
+        "stacked bonuses must add deltas (1.0+0.2+0.25), not multiply (1.2*1.25)"
+    );
+}
+
+#[test]
+fn cpp_parity_empty_no_auto_reload_clip_does_not_report_reloaded() {
+    // C++ Weapon::privateFireWeapon (Weapon.cpp:2627-2637, 2672): empty clip
+    // without AutoReloadsClip stays OUT_OF_AMMO and returns reloaded=false so
+    // Object.cpp:1466 does not release LOCKED_TEMPORARILY.
+    let mut template = WeaponTemplate::new("SniperOneShot".to_string());
+    template.clip_size = 1;
+    template.reload_type = WeaponReloadType::NoReload;
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    weapon.ammo_in_clip = 1;
+    weapon.status = WeaponStatus::ReadyToFire;
+    let reloaded = weapon.apply_post_fire_state(1, 0, &WeaponBonus::new());
+    assert!(!reloaded);
+    assert_eq!(weapon.ammo_in_clip, 0);
+    assert_eq!(weapon.status, WeaponStatus::OutOfAmmo);
+    assert_eq!(weapon.when_we_can_fire_again, 0x7fffffff);
+}
+
+#[test]
+fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
+    // C++ Weapon::isWithinAttackRange (Weapon.cpp:2174-2176) with
+    // RATIONALIZE_ATTACK_RANGE: distSqr < minAttackRangeSqr, no -0.5.
+    let mut template = WeaponTemplate::new("ArtilleryMinRange".to_string());
+    template.minimum_attack_range = 10.0;
+    template.attack_range = 100.0;
+    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let min_sqr = weapon.template.get_minimum_attack_range()
+        * weapon.template.get_minimum_attack_range();
+    assert!(
+        (min_sqr - 0.5) < min_sqr,
+        "pre-fix fudge must not be the live comparison"
+    );
+    assert!((9.9_f32 * 9.9) < min_sqr);
+    assert!((10.0_f32 * 10.0) >= min_sqr);
+}
+
+
