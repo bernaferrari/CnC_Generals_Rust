@@ -45,7 +45,8 @@ pub(self) use authority::DestructionEvent;
 pub(self) use crate_tick::{CRATE_EMPTY_NOOP_TICKS, GAME_LOGIC, note_crate_empty_noop_if_any};
 pub(self) use host::PathfindingHeightSamples;
 pub(self) use player::{
-    capture_upgrade_names_for_team, normalize_upgrade_name, AirfieldParkingSpace, ObjectSellInfo,
+    capture_upgrade_names_for_team, normalize_upgrade_name, AirfieldParkingSpace,
+    HostHeliTakeoffOrLanding, ObjectSellInfo,
     FRAMES_TO_ALLOW_SCAFFOLD_RESIDUAL, REBUILD_HOLE_HEALTH_REGEN_PERCENT_PER_SEC,
     REBUILD_HOLE_MAX_HEALTH_RESIDUAL, REBUILD_HOLE_WORKER_RESPAWN_FRAMES,
     REBUILD_HOLE_WORKER_TEMPLATE, SELL_CONSTRUCTION_DECREMENT_RESIDUAL,

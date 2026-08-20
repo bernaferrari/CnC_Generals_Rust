@@ -451,13 +451,7 @@ impl GameLogic {
             self.apply_script_camera_mod_freeze_time();
         }
 
-        if !self
-            .mission_scripts
-            .drain_camera_mod_freeze_angle_requests()
-            .is_empty()
-        {
-            self.apply_script_camera_mod_freeze_angle();
-        }
+
 
         if let Some(last) = self
             .mission_scripts
@@ -568,14 +562,31 @@ impl GameLogic {
         {
             self.camera_follow_target = None;
             self.pending_camera_zoom_reset = true;
+            self.pending_camera_zoom_reset_duration = last.duration_seconds.max(0.0);
+            self.pending_camera_zoom_reset_ease_in = last.ease_in_seconds.max(0.0);
+            self.pending_camera_zoom_reset_ease_out = last.ease_out_seconds.max(0.0);
             let request = CameraMoveToRequest {
                 position: last.position,
                 seconds: last.duration_seconds,
                 camera_stutter_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+                ease_in_seconds: last.ease_in_seconds.max(0.0),
+                ease_out_seconds: last.ease_out_seconds.max(0.0),
             };
             self.start_camera_move_to(request);
+            if let Some(move_to) = self.script_camera_move_to.as_mut() {
+                move_to.set_suppress_travel_look(true);
+            }
+        }
+
+        // C++ mods apply to the in-flight animation. Drain MOVE/PATH/RESET first so
+        // same-frame CAMERA_MOVE_TO + CAMERA_MOD_FREEZE_ANGLE pins the new move
+        // without arming a later unrelated move.
+        if !self
+            .mission_scripts
+            .drain_camera_mod_freeze_angle_requests()
+            .is_empty()
+        {
+            self.apply_script_camera_mod_freeze_angle();
         }
 
         if let Some(last) = self
@@ -602,11 +613,9 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if !self.is_script_camera_angle_frozen() {
-                self.pending_camera_rotate = Some(last);
-            } else {
-                log::debug!("Camera rotate ignored due to active CAMERA_MOD_FREEZE_ANGLE");
-            }
+            // C++ rotateCamera replaces any current animation. FREEZE_ANGLE only
+            // pins the in-flight move/path and must not swallow later rotates.
+            self.pending_camera_rotate = Some(last);
         }
 
         if let Some(last) = self
@@ -661,16 +670,14 @@ impl GameLogic {
                 ease_in_seconds: 0.0,
                 ease_out_seconds: 0.0,
             });
-            if !self.is_script_camera_angle_frozen() {
-                self.pending_camera_rotate = None;
-                self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                    position: last.look_toward,
-                    duration_seconds: 0.0,
-                    ease_in_seconds: 0.0,
-                    ease_out_seconds: 0.0,
-                    reverse_rotation: false,
-                });
-            }
+            self.pending_camera_rotate = None;
+            self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                position: last.look_toward,
+                duration_seconds: 0.0,
+                ease_in_seconds: 0.0,
+                ease_out_seconds: 0.0,
+                reverse_rotation: false,
+            });
         }
 
         if let Some(last) = self
@@ -679,14 +686,8 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if !self.is_script_camera_angle_frozen() {
-                self.pending_camera_rotate = None;
-                self.pending_camera_look_toward = Some(last);
-            } else {
-                log::debug!(
-                    "Camera look toward waypoint ignored due to active CAMERA_MOD_FREEZE_ANGLE"
-                );
-            }
+            self.pending_camera_rotate = None;
+            self.pending_camera_look_toward = Some(last);
         }
         if let Some(last) = self
             .mission_scripts
@@ -694,11 +695,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if self.is_script_camera_angle_frozen() {
-                log::debug!(
-                    "Camera look toward object ignored due to active CAMERA_MOD_FREEZE_ANGLE"
-                );
-            } else if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
+            if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
                 self.pending_camera_rotate = None;
                 self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
                     position: obj.get_position(),
@@ -723,18 +720,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if !self.is_script_camera_angle_frozen() {
-                self.pending_camera_rotate = None;
-                self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                    position: last.position,
-                    duration_seconds: 0.0,
-                    ease_in_seconds: 0.0,
-                    ease_out_seconds: 0.0,
-                    reverse_rotation: false,
-                });
-            } else {
-                log::debug!("Camera mod look toward ignored due to active CAMERA_MOD_FREEZE_ANGLE");
-            }
+            self.apply_script_camera_mod_look_toward(last.position, false);
         }
 
         if let Some(last) = self
@@ -743,22 +729,9 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            if !self.is_script_camera_angle_frozen() {
-                let remaining = self.script_camera_remaining_seconds();
-                self.pending_camera_rotate = None;
-                self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                    position: last.position,
-                    duration_seconds: remaining,
-                    ease_in_seconds: 0.0,
-                    ease_out_seconds: 0.0,
-                    reverse_rotation: false,
-                });
-            } else {
-                log::debug!(
-                    "Camera mod final look toward ignored due to active CAMERA_MOD_FREEZE_ANGLE"
-                );
-            }
+            self.apply_script_camera_mod_look_toward(last.position, true);
         }
+
 
         if let Some(last) = self
             .mission_scripts
@@ -1237,9 +1210,42 @@ impl GameLogic {
             path.set_freeze_angle(true);
             applied = true;
         }
-        if !applied {
-            self.script_camera_freeze_angle_armed = true;
+        if applied {
+            // Pin the in-flight move/path. Do not leave a queued travel look.
+            self.pending_camera_look_toward = None;
         }
+        // C++ cameraModFreezeAngle is a no-op when no movement is active.
+        // Never arm for the next move — a later ROTATE_CAMERA must replace.
+    }
+
+    /// C++ `cameraModLookToward` / `cameraModFinalLookToward`: rewrite the
+    /// active waypoint-path (or simple moveCameraTo) look. No-op if idle.
+    pub(in super::super) fn apply_script_camera_mod_look_toward(
+        &mut self,
+        position: Vec3,
+        _final_look: bool,
+    ) {
+        let mut applied = false;
+        if let Some(move_to) = self.script_camera_move_to.as_mut() {
+            move_to.set_look_toward(position);
+            applied = true;
+        }
+        if let Some(path) = self.script_camera_path.as_mut() {
+            path.set_look_toward(position);
+            applied = true;
+        }
+        if !applied {
+            return;
+        }
+        let remaining = self.script_camera_remaining_seconds();
+        self.pending_camera_rotate = None;
+        self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+            position,
+            duration_seconds: remaining,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+            reverse_rotation: false,
+        });
     }
 
     pub(in super::super) fn apply_script_camera_mod_final_speed_multiplier(
@@ -1309,7 +1315,9 @@ impl GameLogic {
             if move_to.is_finished() {
                 (true, move_to.final_focus(), false, None, 0.0)
             } else if let Some(focus) = move_to.advance(dt) {
-                let look = if move_to.freeze_angle() {
+                let look = if let Some(look) = move_to.look_toward() {
+                    Some(look)
+                } else if move_to.freeze_angle() || move_to.suppress_travel_look() {
                     None
                 } else {
                     let dir = move_to.target - move_to.start;
@@ -1326,7 +1334,7 @@ impl GameLogic {
                 (false, Vec3::ZERO, true, None, 0.0)
             }
         });
-        if let Some((finished, focus, freeze_angle, look, remaining)) = move_step {
+        if let Some((finished, focus, _freeze_angle, look, remaining)) = move_step {
             self.mission_scripts.set_camera_movement_finished(false);
             if finished {
                 self.request_camera_focus(focus);
@@ -1336,16 +1344,14 @@ impl GameLogic {
             }
             if focus != Vec3::ZERO || look.is_some() {
                 self.request_camera_focus(focus);
-                if !freeze_angle && !self.is_script_camera_angle_frozen() {
-                    if let Some(look) = look {
-                        self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                            position: look,
-                            duration_seconds: remaining,
-                            ease_in_seconds: 0.0,
-                            ease_out_seconds: 0.0,
-                            reverse_rotation: false,
-                        });
-                    }
+                if let Some(look) = look {
+                    self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                        position: look,
+                        duration_seconds: remaining,
+                        ease_in_seconds: 0.0,
+                        ease_out_seconds: 0.0,
+                        reverse_rotation: false,
+                    });
                 }
             }
             return;
@@ -1355,7 +1361,9 @@ impl GameLogic {
             if path_move.is_finished() {
                 (true, path_move.final_focus(), None, 0.0)
             } else if let Some(focus) = path_move.advance(dt) {
-                let look = if path_move.freeze_angle() {
+                let look = if let Some(look) = path_move.look_toward() {
+                    Some(look)
+                } else if path_move.freeze_angle() || path_move.suppress_travel_look() {
                     None
                 } else {
                     path_move.travel_look_toward()
@@ -1383,16 +1391,14 @@ impl GameLogic {
         }
         if focus != Vec3::ZERO || look.is_some() {
             self.request_camera_focus(focus);
-            if look.is_some() && !self.is_script_camera_angle_frozen() {
-                if let Some(look) = look {
-                    self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
-                        position: look,
-                        duration_seconds: remaining,
-                        ease_in_seconds: 0.0,
-                        ease_out_seconds: 0.0,
-                        reverse_rotation: false,
-                    });
-                }
+            if let Some(look) = look {
+                self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                    position: look,
+                    duration_seconds: remaining,
+                    ease_in_seconds: 0.0,
+                    ease_out_seconds: 0.0,
+                    reverse_rotation: false,
+                });
             }
         }
     }

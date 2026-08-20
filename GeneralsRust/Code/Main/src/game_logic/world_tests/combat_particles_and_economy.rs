@@ -799,12 +799,29 @@ fn spy_satellite_special_power_reveals_fow() {
     });
     game_logic.process_commands();
 
+    // C++ DynamicShroudClearingRangeUpdate: grow 0 → 300 over 1000ms (30f).
+    assert_eq!(game_logic.spy_satellites().activations(), 1);
+    assert_eq!(game_logic.spy_satellites().active_count(), 1);
+    assert!(
+        game_logic.spy_satellites().active_scans()[0].radius < 1.0,
+        "scan must start at 0, not instant 300"
+    );
+    {
+        let shroud = get_shroud_manager().lock().expect("shroud");
+        assert!(
+            !shroud.is_position_visible(0, &near_center),
+            "offset cell must stay fogged until grow covers it"
+        );
+    }
+    for _ in 0..crate::game_logic::host_spy_satellite::SPY_SATELLITE_GROW_TIME_FRAMES {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_spy_satellites();
+    }
+
     assert!(
         game_logic.honesty_spy_satellite_ok(),
         "SpySatellite host residual path honesty (activate + FOW)"
     );
-    assert_eq!(game_logic.spy_satellites().activations(), 1);
-    assert_eq!(game_logic.spy_satellites().active_count(), 1);
     assert!(
         game_logic
             .spy_satellites()
@@ -813,10 +830,10 @@ fn spy_satellite_special_power_reveals_fow() {
     );
     assert!(
         (game_logic.spy_satellites().active_scans()[0].radius - SPY_SATELLITE_RADIUS).abs() < 0.01,
-        "retail residual radius 300"
+        "retail residual radius 300 after grow"
     );
 
-    // FOW observable: center cell visible after spy satellite.
+    // FOW observable: center cell visible after grow.
     {
         let shroud = get_shroud_manager().lock().expect("shroud");
         assert!(

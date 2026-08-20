@@ -95,6 +95,15 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
+        // C++ JetAIUpdate::privateEnter → doLandingCommand.
+        let jet_landed = units.iter().copied().any(|unit_id| {
+            self.game_logic
+                .try_jet_enter_or_repair_airfield(unit_id, target_id)
+        });
+        if jet_landed {
+            return CommandResult::Success;
+        }
+
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
         // A non-container target is legal only when at least one selected
         // source passes the parsed `VeterancyCrateCollide IsPilot` authority

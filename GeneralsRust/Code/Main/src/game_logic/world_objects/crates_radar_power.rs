@@ -876,7 +876,7 @@ impl GameLogic {
     }
 
     /// C++ VeterancyCrateCollide::isValidToExecute for the collider.
-    /// Heroic / untrainable / levels<=0 leave the crate on the ground.
+    /// Heroic / untrainable / levels<=0 / airborne leave the crate on the ground.
     fn veterancy_crate_is_valid_to_execute(&self, picker_id: ObjectId, levels: u8) -> bool {
         let Some(picker) = self.objects.get(&picker_id) else {
             return false;
@@ -885,6 +885,10 @@ impl GameLogic {
             return false;
         }
         if levels == 0 {
+            return false;
+        }
+        // C++ VeterancyCrateCollide.cpp:59-62 — flying / jumping pickers skip.
+        if picker.is_significantly_above_terrain() {
             return false;
         }
         if !picker.is_trainable() {

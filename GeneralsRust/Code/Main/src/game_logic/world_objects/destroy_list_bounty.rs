@@ -92,6 +92,7 @@ impl GameLogic {
             }
         }
         let mut destroyed_structure = false;
+        let mut rubble_stamps: Vec<(glam::Vec3, i32)> = Vec::new();
         while let Some(event) = self.objects_to_destroy.pop_front() {
             self.pending_special_abilities.remove(&event.id);
             self.pending_special_abilities
@@ -148,6 +149,11 @@ impl GameLogic {
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 if is_structure {
                     destroyed_structure = true;
+                    let gs = self.pathfinding_system.grid.grid_size();
+                    let r = ((obj.selection_radius / gs.max(1.0)).ceil() as i32)
+                        .max(1)
+                        .min(4);
+                    rubble_stamps.push((death_pos, r));
                 }
                 let victim_team = obj.team;
                 // C++ Object::onDie EVA residual (local, non-self-inflicted).
@@ -178,14 +184,21 @@ impl GameLogic {
                 );
                 let frame = self.frame;
                 let death_type = obj.status.death_type;
-                let _ = self.combat_particles.spawn_death_fx_for_type(
-                    death_pos,
-                    frame,
-                    event.id,
-                    is_structure,
-                    victim_team,
-                    death_type,
-                );
+                let skip_generic_death_fx = obj
+                    .slow_death
+                    .as_ref()
+                    .map(|s| s.has_authored_phase_fx())
+                    .unwrap_or(false);
+                if !skip_generic_death_fx {
+                    let _ = self.combat_particles.spawn_death_fx_for_type(
+                        death_pos,
+                        frame,
+                        event.id,
+                        is_structure,
+                        victim_team,
+                        death_type,
+                    );
+                }
 
                 // Audio residual (hq-7zxm slice): unit/structure death → AudioEventRequest.
                 // DeathType residual selects die cue family (not full voice bank).
@@ -524,6 +537,9 @@ impl GameLogic {
         if destroyed_structure {
             // Rebuild static path/LOS mask without the destroyed footprint.
             self.sync_structure_path_blocks();
+            for (pos, radius) in rubble_stamps {
+                self.pathfinding_system.stamp_rubble_at_world(pos, radius);
+            }
         }
     }
 
@@ -595,6 +611,7 @@ impl GameLogic {
                 // without assigning it a player.
                 _ => team != victim_team && team != Team::Neutral && victim_team != Team::Neutral,
             };
+            let score_counts = self.score_the_kill_victim_counts(destroyed_object);
             if let Some(player_id) = killer_owner_player_id {
                 if let Some(player) = self.players.get_mut(&player_id) {
                     if destroyed_is_structure {
@@ -610,7 +627,8 @@ impl GameLogic {
 
                     // C++ Player::addSkillPointsForKill (scoreTheKill).
                     // Skill value is victim template SkillPointValue / ExperienceValue.
-                    if enemy_kill && !under_construction {
+                    // C++ Object.cpp:2898-2905: skip non-playable and IGNORED_IN_GUI.
+                    if enemy_kill && !under_construction && score_counts {
                         let skill = destroyed_object.kill_skill_point_value();
                         if skill != 0 {
                             let _leveled = player.add_skill_points_for_kill(skill);
@@ -645,6 +663,39 @@ impl GameLogic {
                 }
             }
         }
+    }
+
+    /// C++ Object::scoreTheKill playable-side + KINDOF_IGNORED_IN_GUI gate.
+    pub(in super::super) fn score_the_kill_victim_counts(&self, victim: &Object) -> bool {
+        if victim.is_kind_of(KindOf::IgnoredInGui) {
+            return false;
+        }
+        if let Some(player_id) = self.player_owner_for_host_object(victim) {
+            return self.player_is_playable_side(player_id);
+        }
+        // Unowned Neutral is civilian / observer leftover.
+        victim.team != Team::Neutral
+    }
+
+    /// C++ Player::isPlayableSide — America/China/GLA, not Civilian/Observer.
+    pub(in super::super) fn player_is_playable_side(&self, player_id: u32) -> bool {
+        let Some(player) = self.players.get(&player_id) else {
+            return false;
+        };
+        if player.team == Team::Neutral {
+            return false;
+        }
+        if let Some(ident) = self.player_template_identity(player_id) {
+            let n = ident.template_name.to_ascii_lowercase();
+            if n.contains("civilian") || n.contains("observer") {
+                return false;
+            }
+        }
+        let name = player.name.to_ascii_lowercase();
+        if name.contains("observer") || name.contains("civilian") {
+            return false;
+        }
+        true
     }
 
     /// Set cash bounty percent on a player (residual / tests).

@@ -29,6 +29,22 @@ impl TheFXList {
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
         manager.do_fx_pos(fx_id, pos, None);
     }
+
+    /// C++ `FXList::doFXPos` with victim/secondary so Tracer/RayEffect nuggets run.
+    pub fn do_fx_at_position_ex(
+        &self,
+        fx_template: &str,
+        pos: &Coord3D,
+        secondary: Option<&Coord3D>,
+        primary_speed: f32,
+        override_radius: f32,
+    ) {
+        let Some(manager) = FX_LIST_MANAGER.get() else {
+            return;
+        };
+        let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
+        manager.do_fx_pos_ex(fx_id, pos, None, primary_speed, secondary, override_radius);
+    }
 }
 
 /// Particle system manager bridge to the client-side implementation.

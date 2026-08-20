@@ -87,8 +87,7 @@ impl CnCGameEngine {
 
     pub(super) fn apply_pending_script_camera_requests(&mut self) {
         // Prefer presentation-frozen camera residual when a frame is installed (InGame).
-        // Live take_* path is boot/menu residual only. Fail-closed: ease curves not frozen
-        // on PresentationFrame (duration-only zoom/pitch/rotate).
+        // Live take_* path is boot/menu residual only.
         // Wave 572: freeze vs boot split via helpers.
         if let Some(pres) = self.last_presentation_frame.clone() {
             self.apply_presentation_camera_residual(&pres);
@@ -192,7 +191,12 @@ impl CnCGameEngine {
         }
 
         // Wave 216: presentation-frozen follow only (no live camera_follow dual-read residual).
-        if let Some(follow) = pres.camera_follow_position {
+        // hq-1kgx8: player scroll breaks LOCK_FOLLOW; skip until the lock is released.
+        if self.look_at_player_broke_camera_lock() {
+            if pres.camera_follow_position.is_none() {
+                self.look_at_clear_player_broke_camera_lock();
+            }
+        } else if let Some(follow) = pres.camera_follow_position {
             let target = Vec3::new(follow[0], follow[1], follow[2]);
             self.apply_camera_follow_or_tether(target, pres.camera_tether_play);
         } else {
@@ -200,25 +204,59 @@ impl CnCGameEngine {
         }
 
         if pres.camera_zoom_reset {
-            self.camera_zoom = self.compute_default_camera_zoom_for_target(
+            // C++ W3DView::resetCamera: zoom/pitch/heading animate over script duration.
+            let duration = pres.camera_zoom_reset_duration.max(0.0);
+            let (ease_in, ease_out) = pres.camera_zoom_reset_ease;
+            let zoom = self.compute_default_camera_zoom_for_target(
                 self.camera_target,
                 self.ui_script_default_camera_max_height(),
             );
-            self.camera_zoom_target = None;
-            self.camera_zoom_start = self.camera_zoom;
-            self.camera_zoom_duration = 0.0;
-            self.camera_zoom_elapsed = 0.0;
-            self.camera_zoom_ease_in = 0.0;
-            self.camera_zoom_ease_out = 0.0;
+            if duration <= 0.0 {
+                self.camera_zoom = zoom;
+                self.camera_zoom_target = None;
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_duration = 0.0;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = 0.0;
+                self.camera_zoom_ease_out = 0.0;
+            } else {
+                self.camera_zoom_start = self.camera_zoom;
+                self.camera_zoom_target = Some(zoom);
+                self.camera_zoom_duration = duration;
+                self.camera_zoom_elapsed = 0.0;
+                self.camera_zoom_ease_in = ease_in;
+                self.camera_zoom_ease_out = ease_out;
+            }
             self.apply_script_camera_pitch_request(CameraPitchRequest {
-                pitch: self.ui_script_default_camera_pitch(),
-                duration_seconds: 0.0,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+                // C++ pitchCamera(1.0, milliseconds, easeIn, easeOut)
+                pitch: 1.0,
+                duration_seconds: duration,
+                ease_in_seconds: ease_in,
+                ease_out_seconds: ease_out,
             });
+            // C++ m_mcwpInfo.cameraAngle[2] = 0.0 — animate heading to default.
+            let target_yaw = 0.0;
+            if duration <= 0.0 {
+                self.camera_yaw_radians = target_yaw;
+                self.camera_yaw_target = None;
+                self.camera_yaw_start = self.camera_yaw_radians;
+                self.camera_yaw_duration = 0.0;
+                self.camera_yaw_elapsed = 0.0;
+                self.camera_yaw_ease_in = 0.0;
+                self.camera_yaw_ease_out = 0.0;
+                self.apply_camera_orbit_transform();
+            } else {
+                self.camera_yaw_start = self.camera_yaw_radians;
+                self.camera_yaw_target = Some(target_yaw);
+                self.camera_yaw_duration = duration;
+                self.camera_yaw_elapsed = 0.0;
+                self.camera_yaw_ease_in = ease_in;
+                self.camera_yaw_ease_out = ease_out;
+            }
         }
 
         if let Some((zoom, duration_seconds)) = pres.camera_zoom {
+            let (ease_in, ease_out) = pres.camera_zoom_ease;
             if duration_seconds <= 0.0 {
                 self.camera_zoom = zoom;
                 self.camera_zoom_target = None;
@@ -232,35 +270,38 @@ impl CnCGameEngine {
                 self.camera_zoom_target = Some(zoom);
                 self.camera_zoom_duration = duration_seconds;
                 self.camera_zoom_elapsed = 0.0;
-                self.camera_zoom_ease_in = 0.0;
-                self.camera_zoom_ease_out = 0.0;
+                self.camera_zoom_ease_in = ease_in;
+                self.camera_zoom_ease_out = ease_out;
             }
         }
 
         if let Some((pitch, duration_seconds)) = pres.camera_pitch {
+            let (ease_in, ease_out) = pres.camera_pitch_ease;
             self.apply_script_camera_pitch_request(CameraPitchRequest {
                 pitch,
                 duration_seconds,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+                ease_in_seconds: ease_in,
+                ease_out_seconds: ease_out,
             });
         }
 
         if let Some((rotations, duration_seconds)) = pres.camera_rotate {
+            let (ease_in, ease_out) = pres.camera_rotate_ease;
             self.apply_script_camera_rotate_request(CameraRotateRequest {
                 rotations,
                 duration_seconds,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+                ease_in_seconds: ease_in,
+                ease_out_seconds: ease_out,
             });
         }
 
         if let Some(look) = pres.camera_look_toward {
+            let (ease_in, ease_out) = pres.camera_look_toward_ease;
             self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
                 position: Vec3::new(look[0], look[1], look[2]),
                 duration_seconds: pres.camera_look_toward_duration,
-                ease_in_seconds: 0.0,
-                ease_out_seconds: 0.0,
+                ease_in_seconds: ease_in,
+                ease_out_seconds: ease_out,
                 reverse_rotation: false,
             });
         }

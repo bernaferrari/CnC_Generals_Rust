@@ -829,6 +829,7 @@ impl GameLogic {
             exhausts.sort_by_key(|(projectile_id, _, _, _)| *projectile_id);
             self.combat_particles
                 .sync_projectile_exhausts(frame, &exhausts);
+            self.sync_live_state_particles();
             // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
             // Re-adding every live shot each frame must not flip-flop targets (that
             // would punch a hole every particle). Lock the stream to the newest

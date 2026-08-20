@@ -597,6 +597,17 @@ impl GameLogic {
         self.pending_camera_zoom_reset
     }
 
+    pub fn peek_pending_camera_zoom_reset_duration(&self) -> f32 {
+        self.pending_camera_zoom_reset_duration
+    }
+
+    pub fn peek_pending_camera_zoom_reset_ease(&self) -> (f32, f32) {
+        (
+            self.pending_camera_zoom_reset_ease_in,
+            self.pending_camera_zoom_reset_ease_out,
+        )
+    }
+
     pub fn peek_pending_camera_pitch(
         &self,
     ) -> Option<&crate::game_logic::mission_scripts::CameraPitchRequest> {
@@ -644,6 +655,9 @@ impl GameLogic {
 
     pub fn queue_pending_camera_zoom_reset(&mut self) {
         self.pending_camera_zoom_reset = true;
+        self.pending_camera_zoom_reset_duration = 0.0;
+        self.pending_camera_zoom_reset_ease_in = 0.0;
+        self.pending_camera_zoom_reset_ease_out = 0.0;
     }
 
     pub fn queue_pending_camera_pitch(&mut self, pitch: f32, duration_seconds: f32) {
@@ -806,6 +820,9 @@ impl GameLogic {
     }
 
     pub fn take_camera_zoom_reset(&mut self) -> bool {
+        self.pending_camera_zoom_reset_duration = 0.0;
+        self.pending_camera_zoom_reset_ease_in = 0.0;
+        self.pending_camera_zoom_reset_ease_out = 0.0;
         std::mem::take(&mut self.pending_camera_zoom_reset)
     }
 

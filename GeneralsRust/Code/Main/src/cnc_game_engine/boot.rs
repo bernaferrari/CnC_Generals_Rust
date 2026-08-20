@@ -467,6 +467,7 @@ impl CnCGameEngine {
             camera_yaw_ease_in: 0.0,
             camera_yaw_ease_out: 0.0,
             camera_shake_offset: Vec3::ZERO,
+            camera_shake_rotation: Vec3::ZERO,
             screen_shake_intensity: 0.0,
             screen_shake_angle_cos: 0.0,
             screen_shake_angle_sin: 0.0,
@@ -505,6 +506,10 @@ impl CnCGameEngine {
             move_rmb_scroll_anchor: false,
             draw_rmb_scroll_anchor: false,
             rmb_scroll_started_physically: false,
+            rmb_deselect_down_at: None,
+            rmb_deselect_down_screen: None,
+            rmb_deselect_down_camera: None,
+
             is_mmb_rotating: false,
             mmb_anchor: None,
             selected_objects: Vec::new(),

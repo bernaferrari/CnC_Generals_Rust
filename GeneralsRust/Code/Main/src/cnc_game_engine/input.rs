@@ -473,6 +473,17 @@ impl CnCGameEngine {
                 self.ui_manager.handle_mouse_move(x, y);
             }
         }
+        // C++ GameWinBlockInput GWM_LEFT_UP: drag released on the control bar
+        // is a clean cancel. Do this even when WND/cameo consume the release
+        // so `is_dragging` / the yellow marquee cannot stay latched.
+        if in_world
+            && matches!(button, MouseButton::Left)
+            && !pressed
+            && (wnd_used || hud_cameo_consumed)
+        {
+            self.cancel_area_select_from_control_bar();
+        }
+
 
         if in_world && !wnd_used && !hud_cameo_consumed {
             let targeting_active =
@@ -494,6 +505,7 @@ impl CnCGameEngine {
                 (MouseButton::Right, true) => {
                     // C++ LookAtXlat.cpp:197-207 setScrolling(SCROLL_RMB):
                     // save cursor, InGameUI scrolling, tactical mouse lock.
+                    self.note_rmb_deselect_anchor();
                     self.start_rmb_lookat_scroll();
                     self.rmb_scroll_started_physically =
                         matches!(origin, MouseInputOrigin::Physical);
@@ -502,11 +514,7 @@ impl CnCGameEngine {
                     let physical_rmb_gesture = matches!(origin, MouseInputOrigin::Physical)
                         && self.rmb_scroll_started_physically;
                     if self.is_rmb_scrolling || self.rmb_scroll_anchor.is_some() {
-                        const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
-                        if let Some(anchor) = self.rmb_scroll_anchor {
-                            let dx = self.mouse_position.0 - anchor.0;
-                            let dy = self.mouse_position.1 - anchor.1;
-                            if dx * dx + dy * dy < DRAG_THRESHOLD_SQ {
+                        if self.rmb_release_is_deselect_click() {
                                 let had_selection = !self.selected_objects.is_empty()
                                     || !self.ui_selected_ids(self.current_player_id).is_empty();
                                 // SelectionXlat cancels an armed GUI/build
@@ -546,7 +554,6 @@ impl CnCGameEngine {
                                 }
                             }
                         }
-                    }
                     self.stop_rmb_lookat_scroll();
                     self.rmb_scroll_started_physically = false;
                 }

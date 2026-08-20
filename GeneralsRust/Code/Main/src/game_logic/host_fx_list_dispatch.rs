@@ -33,6 +33,20 @@ fn is_none_fx_list(name: &str) -> bool {
 /// playback, including Sound nuggets). Returns `false` when the runner is
 /// absent so callers can fall back to Sound-nugget audio names.
 pub fn dispatch_fx_list_at_pos(name: &str, pos: Vec3) -> bool {
+    dispatch_fx_list_at_pos_ex(name, pos, None, 0.0, 0.0)
+}
+
+/// C++ `FXList::doFXPos(fxl, pos, mtx, weaponSpeed, victimPos, damageRadius)`.
+///
+/// Tracer and RayEffect nuggets require a secondary endpoint. The 2-arg helper
+/// keeps non-weapon callers unchanged (secondary = None).
+pub fn dispatch_fx_list_at_pos_ex(
+    name: &str,
+    pos: Vec3,
+    secondary: Option<Vec3>,
+    primary_speed: f32,
+    override_radius: f32,
+) -> bool {
     let name = strip_fx_list_prefix(name);
     if is_none_fx_list(name) {
         return false;
@@ -40,7 +54,7 @@ pub fn dispatch_fx_list_at_pos(name: &str, pos: Vec3) -> bool {
     let Some(fx) = gamelogic::helpers::TheFXList::get() else {
         return false;
     };
-    fx.do_fx_at_position(name, &pos);
+    fx.do_fx_at_position_ex(name, &pos, secondary.as_ref(), primary_speed, override_radius);
     gamelogic::helpers::get_fx_list_manager().is_some()
 }
 
@@ -85,6 +99,40 @@ fn common_ini_sound_names(name: &str) -> Vec<String> {
         .collect()
 }
 
+/// Authored ParticleSystem nugget names inside `name`.
+///
+/// C++ `ParticleSystemFXNugget::reallyDoFX` creates these templates. The live
+/// host uses them instead of a generic `MuzzleFlash` preset.
+pub fn particle_template_names_for_fx_list(name: &str) -> Vec<String> {
+    let name = strip_fx_list_prefix(name);
+    if is_none_fx_list(name) {
+        return Vec::new();
+    }
+    common_ini_particle_names(name)
+}
+
+fn common_ini_particle_names(name: &str) -> Vec<String> {
+    use game_engine::common::ini::ini_fx_list::{get_fx_list_store, FXNugget};
+    let store = get_fx_list_store();
+    let Some(fx) = store.find_fx_list(name) else {
+        return Vec::new();
+    };
+    fx.nuggets
+        .iter()
+        .filter_map(|nugget| match nugget {
+            FXNugget::ParticleSystem { name, .. } => {
+                let particle = name.as_str().trim();
+                if particle.is_empty() || particle.eq_ignore_ascii_case("None") {
+                    None
+                } else {
+                    Some(particle.to_string())
+                }
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Map an audio-queue name to the Miles events that should actually play.
 ///
 /// FXList template names expand to their Sound nuggets. Unknown FXList
@@ -102,4 +150,23 @@ pub fn resolve_audio_event_names(event_type: &str) -> Vec<String> {
         return Vec::new();
     }
     vec![event_type.to_string()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn none_fx_list_does_not_dispatch() {
+        assert!(!dispatch_fx_list_at_pos("None", Vec3::ZERO));
+        assert!(!dispatch_fx_list_at_pos_ex(
+            "",
+            Vec3::ZERO,
+            Some(Vec3::ONE),
+            1.0,
+            2.0
+        ));
+        assert!(particle_template_names_for_fx_list("None").is_empty());
+        assert!(particle_template_names_for_fx_list("FX:None").is_empty());
+    }
 }

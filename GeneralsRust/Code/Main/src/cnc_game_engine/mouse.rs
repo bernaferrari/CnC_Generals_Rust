@@ -10,6 +10,17 @@ const LOOKAT_MMB_CLICK_PIXEL_OFFSET: f32 = 5.0;
 const LOOKAT_MMB_YAW_FACTOR: f32 = 0.01;
 /// C++ `View.cpp` / `W3DView` default pitch when GameData CameraPitch is ~0.
 const LOOKAT_DEFAULT_PITCH_DEG: f32 = 37.5;
+/// C++ `LookAtXlat.cpp:45` `edgeScrollSize`.
+pub(super) const EDGE_SCROLL_SIZE: f32 = 3.0;
+/// C++ `View.cpp:78-79` / `W3DView::setZoom` clamp.
+pub(super) const W3D_MIN_ZOOM: f32 = 0.2;
+pub(super) const W3D_MAX_ZOOM: f32 = 1.3;
+/// C++ `PATHFIND_CELL_SIZE_F`.
+pub(super) const PATHFIND_CELL_SIZE_F: f32 = 10.0;
+/// C++ CameraShakerSystem axis caps (radians).
+pub(super) const SHAKE_AXIS_PITCH: f32 = 7.5 * std::f32::consts::PI / 180.0;
+pub(super) const SHAKE_AXIS_YAW: f32 = 15.0 * std::f32::consts::PI / 180.0;
+pub(super) const SHAKE_AXIS_ROLL: f32 = 5.0 * std::f32::consts::PI / 180.0;
 
 /// C++ `Mouse.cpp` `m_dragTolerance` default / leftover `selection_xlat.rs` `DRAG_TOLERANCE`.
 const DRAG_TOLERANCE_PX: f32 = 5.0;
@@ -51,6 +62,13 @@ struct LookAtHostModes {
     views: [Option<CameraViewLocation>; 8],
     /// C++ `m_scrollType` — exclusive RMB / key / screen-edge.
     scroll_type: LookAtScrollType,
+    /// C++ `LookAtTranslator::m_lastMouseMoveFrame`.
+    last_mouse_move_frame: u32,
+    last_mouse_pixel: (f32, f32),
+    /// C++ `View::m_heightAboveGround` desired HAG (wheel/key zoom).
+    desired_height_above_ground: Option<f32>,
+    /// Player scroll cleared camera lock (C++ `setScrolling` + `setCameraLock`).
+    camera_follow_lock_broken: bool,
 }
 
 fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
@@ -63,6 +81,10 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
                 mmb_press_frame: 0,
                 views: [None; 8],
                 scroll_type: LookAtScrollType::None,
+                last_mouse_move_frame: 0,
+                last_mouse_pixel: (0.0, 0.0),
+                desired_height_above_ground: None,
+                camera_follow_lock_broken: false,
             })
         });
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -71,6 +93,96 @@ fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
 pub(crate) fn look_at_host_mouse_locked() -> bool {
     look_at_host_modes().mouse_locked
 }
+
+fn clamp_w3d_zoom(zoom: f32) -> f32 {
+    zoom.clamp(W3D_MIN_ZOOM, W3D_MAX_ZOOM)
+}
+
+fn lookat_note_mouse_moved(frame: u32, pixel: (f32, f32)) {
+    let mut modes = look_at_host_modes();
+    if modes.last_mouse_pixel != pixel {
+        modes.last_mouse_move_frame = frame;
+        modes.last_mouse_pixel = pixel;
+    }
+}
+
+fn lookat_has_mouse_moved_recently(frame: u32) -> bool {
+    let last = look_at_host_modes().last_mouse_move_frame;
+    let last = if last > frame { 0 } else { last };
+    last + game_engine::common::game_common::LOGICFRAMES_PER_SECOND as u32 >= frame
+}
+
+/// C++ `W3DView::calcCameraConstraints` inset: |center-95%| pick at ground Y.
+pub(super) fn w3d_camera_constraint_offset(
+    view: Mat4,
+    projection: Mat4,
+    viewport: (f32, f32),
+    ground_y: f32,
+) -> f32 {
+    let (width, height) = viewport;
+    if width <= 1.0 || height <= 1.0 {
+        return 0.0;
+    }
+    let Some((c_near, c_far)) =
+        unproject_mouse_ray(view, projection, (width * 0.5, height * 0.5), width, height)
+    else {
+        return 0.0;
+    };
+    let Some((b_near, b_far)) =
+        unproject_mouse_ray(view, projection, (width * 0.5, height * 0.95), width, height)
+    else {
+        return 0.0;
+    };
+    let Some(center) = ray_hit_height(c_near, c_far, ground_y) else {
+        return 0.0;
+    };
+    let Some(bottom) = ray_hit_height(b_near, b_far, ground_y) else {
+        return 0.0;
+    };
+    Vec2::new(center.x - bottom.x, center.z - bottom.z).length()
+}
+
+fn ray_hit_height(near: Vec3, far: Vec3, height: f32) -> Option<Vec3> {
+    let dy = far.y - near.y;
+    if dy.abs() <= PICK_RAY_EPSILON {
+        return None;
+    }
+    let t = (height - near.y) / dy;
+    if !t.is_finite() {
+        return None;
+    }
+    Some(near + (far - near) * t)
+}
+
+pub(super) fn airborne_look_at_ground(
+    eye: Vec3,
+    object_pos: Vec3,
+    far_clip: f32,
+    world_min: Vec3,
+    world_max: Vec3,
+    world_env: Option<&crate::presentation_frame::PresentationWorldEnv>,
+) -> Option<Vec3> {
+    let mut dir = object_pos - eye;
+    if dir.length_squared() <= PICK_RAY_EPSILON {
+        dir = -Vec3::Y;
+    }
+    let dir = dir.normalize() * far_clip.max(1.0);
+    let start = object_pos;
+    let end = start + dir;
+    raycast_frozen_terrain(start, end, world_min, world_max, world_env)
+        .or_else(|| raycast_ground_plane_clamped(start, end, world_min, world_max, world_env))
+}
+
+fn normalize_signed_angle(mut angle: f32) -> f32 {
+    while angle > std::f32::consts::PI {
+        angle -= std::f32::consts::TAU;
+    }
+    while angle < -std::f32::consts::PI {
+        angle += std::f32::consts::TAU;
+    }
+    angle
+}
+
 
 /// C++ `LookAtXlat.cpp:174-175`: arrow keys cannot start while box-selecting
 /// or while a non-key scroll (RMB / screen-edge) is already active.
@@ -217,6 +329,35 @@ fn host_screen_drag_is_click(dx: f32, dy: f32) -> bool {
     let tol = host_mouse_drag_tolerance_px();
     dx.abs() <= tol && dy.abs() <= tol
 }
+
+/// C++ `Mouse.ini` `DragToleranceMS`. Leftover default is 250ms.
+fn host_mouse_drag_tolerance_ms() -> u128 {
+    game_engine::common::ini::get_mouse_settings()
+        .map(|s| s.drag_tolerance_ms)
+        .filter(|&v| v > 0)
+        .unwrap_or(250) as u128
+}
+
+/// C++ `Mouse.ini` `DragTolerance3D`. Leftover default is 5 world units.
+fn host_mouse_drag_tolerance_3d() -> f32 {
+    game_engine::common::ini::get_mouse_settings()
+        .map(|s| s.drag_tolerance_3d)
+        .filter(|&v| v > 0)
+        .unwrap_or(5) as f32
+}
+
+/// C++ `SelectionXlat.cpp:982-1000` RMB click vs look-at/scroll.
+fn host_rmb_release_is_click(
+    dx: f32,
+    dy: f32,
+    elapsed_ms: u128,
+    camera_delta_len: f32,
+) -> bool {
+    host_screen_drag_is_click(dx, dy)
+        && elapsed_ms <= host_mouse_drag_tolerance_ms()
+        && camera_delta_len <= host_mouse_drag_tolerance_3d()
+}
+
 
 /// Physical input metadata held only across the synchronous context-command
 /// execution boundary. `issued_at` is part of the command's own immutable
@@ -532,6 +673,45 @@ fn raycast_ground_plane_clamped(
 }
 
 impl CnCGameEngine {
+    /// C++ `GameWinBlockInput` `GWM_LEFT_UP` (`GameWindow.cpp:1480-1491`):
+    /// release over the control bar cancels the marquee without applying
+    /// the area selection.
+    pub(super) fn cancel_area_select_from_control_bar(&mut self) {
+        self.is_dragging = false;
+        self.selection_start = None;
+        self.selection_start_screen = None;
+        self.left_click_release_behavior = LeftMouseReleaseBehavior::Selection;
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::set_selecting(false);
+        }
+    }
+
+    /// C++ `SelectionXlat.cpp:953-961` RMB-down click-vs-scroll samples.
+    pub(super) fn note_rmb_deselect_anchor(&mut self) {
+        self.rmb_deselect_down_at = Some(Instant::now());
+        self.rmb_deselect_down_screen = Some(self.mouse_position);
+        self.rmb_deselect_down_camera = Some(self.camera_position);
+    }
+
+    /// C++ `SelectionXlat.cpp:982-1000`: pixel + time + camera 3D gates.
+    pub(super) fn rmb_release_is_deselect_click(&self) -> bool {
+        let Some(anchor) = self.rmb_deselect_down_screen else {
+            return false;
+        };
+        let dx = self.mouse_position.0 - anchor.0;
+        let dy = self.mouse_position.1 - anchor.1;
+        let elapsed_ms = self
+            .rmb_deselect_down_at
+            .map(|started| started.elapsed().as_millis())
+            .unwrap_or(u128::MAX);
+        let camera_delta = self
+            .rmb_deselect_down_camera
+            .map(|down| (self.camera_position - down).length())
+            .unwrap_or(f32::MAX);
+        host_rmb_release_is_click(dx, dy, elapsed_ms, camera_delta)
+    }
+
     pub(super) fn handle_left_click(&mut self) {
         self.is_dragging = true;
         self.selection_start = Some(self.mouse_world_position);
@@ -1574,20 +1754,22 @@ impl CnCGameEngine {
             )
         };
         const SCROLL_AMT: f32 = 100.0;
-        const EDGE_SCROLL_SIZE: f32 = 5.0;
+        lookat_note_mouse_moved(self.frame_counter, self.mouse_position);
         let scroll_dt = dt.max(0.0).min(2.0 / logic_frames_per_second);
         let scroll_step = SCROLL_AMT * keyboard_scroll_factor * scroll_dt * logic_frames_per_second;
-        let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
-            || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
-            || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
+        let input_enabled = self.lookat_input_enabled();
         let ui_modal = self.chat_panel.is_open() || self.diplomacy_panel.is_active();
         let key_up = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp));
         let key_down = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowDown));
         let key_left = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowLeft));
         let key_right = self.keys_pressed.contains(&Key::Named(NamedKey::ArrowRight));
-        let key_dirs = !mods_down && !ui_modal && (key_up || key_down || key_left || key_right);
+        // C++ LookAtXlat RAW_KEY: no Ctrl/Shift/Alt gate (hq-ysbqc).
+        let key_dirs =
+            input_enabled && !ui_modal && (key_up || key_down || key_left || key_right);
         let (mut edge_dx, mut edge_dy) = (0.0f32, 0.0f32);
-        let edge_allowed = matches!(self.current_state, GameState::InGame | GameState::Paused)
+        let edge_allowed = input_enabled
+            && !self.is_windowed
+            && matches!(self.current_state, GameState::InGame | GameState::Paused)
             && !self.runtime_host_headless
             && self.mouse_cursor_seen
             && !self.chat_panel.is_open()
@@ -1609,15 +1791,19 @@ impl CnCGameEngine {
             }
         }
         let at_screen_edge = edge_dx != 0.0 || edge_dy != 0.0;
+        let prev_scroll = look_at_host_modes().scroll_type;
         let scroll_type = lookat_resolve_scroll_type(
-            look_at_host_modes().scroll_type,
-            self.lookat_input_enabled(),
+            prev_scroll,
+            input_enabled,
             self.is_dragging,
             self.is_rmb_scrolling,
             key_dirs,
             at_screen_edge,
         );
         look_at_host_modes().scroll_type = scroll_type;
+        if scroll_type.is_scrolling() && !prev_scroll.is_scrolling() {
+            self.break_camera_follow_lock();
+        }
         let mut screen_scroll = Vec2::ZERO;
         if self.camera_slave_mode.is_none() {
             match scroll_type {
@@ -1674,19 +1860,26 @@ impl CnCGameEngine {
                 LookAtScrollType::None => {}
             }
         }
-        if should_apply_host_replay_camera() {
+        if should_apply_host_replay_camera() && self.host_camera_movement_finished() {
             if let Some(pose) = crate::command_system::take_pending_replay_camera() {
-                // C++ GameLogicDispatch.cpp:1801-1815 setLocation during playback.
+                // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
                 let clamped = self.clamp_to_world_bounds(pose.pos);
                 self.camera_target = clamped;
                 self.camera_yaw_radians = pose.yaw;
-                if pose.pitch.abs() > f32::EPSILON {
-                    self.camera_pitch_radians = pose.pitch;
-                }
-                self.camera_zoom = pose.zoom;
+                self.camera_pitch_radians = pose.pitch;
+                self.camera_zoom = clamp_w3d_zoom(pose.zoom);
                 self.camera_yaw_target = None;
                 self.camera_pitch_target = None;
                 self.camera_zoom_target = None;
+                look_at_host_modes().desired_height_above_ground = None;
+                if !lookat_has_mouse_moved_recently(self.frame_counter) {
+                    self.mouse_position = (pose.pixel.0 as f32, pose.pixel.1 as f32);
+                    self.mouse_cursor_seen = true;
+                    #[cfg(feature = "game_client")]
+                    if let Some(cursor) = game_client::gui::MouseCursor::from_i32(pose.cursor) {
+                        game_client::helpers::TheInGameUI::set_mouse_cursor(cursor);
+                    }
+                }
                 self.apply_camera_orbit_transform();
             }
         }
@@ -1744,24 +1937,11 @@ impl CnCGameEngine {
 
 
 
-        if let Some(mode) = self.camera_slave_mode.as_ref() {
-            // Prefer dual-tick presentation pose so camera follow does not re-read live transforms.
-            let target = if let Some(frame) = self.last_presentation_frame.as_ref() {
-                frame.first_alive_position_for_template(&mode.thing_template_name)
-            } else {
-                // Presentation required (no live get_objects dual-read).
-                None
-            };
-            if let Some(target) = target {
-                let clamped = self.clamp_to_world_bounds(target);
-                if (self.camera_target.x - clamped.x).abs() > 0.001
-                    || (self.camera_target.z - clamped.z).abs() > 0.001
-                {
-                    self.camera_target.x = clamped.x;
-                    self.camera_target.z = clamped.z;
-                    camera_changed = true;
-                }
-            }
+        if self.apply_host_slave_camera() {
+            camera_changed = true;
+        }
+        if self.apply_airborne_follow_yaw() {
+            camera_changed = true;
         }
 
         if let Some(target) = self.camera_zoom_target {
@@ -1864,12 +2044,24 @@ impl CnCGameEngine {
             }
         }
         if should_emit_host_replay_camera(self.current_state, self.game_logic.game_mode()) {
+            let cursor = {
+                #[cfg(feature = "game_client")]
+                {
+                    game_client::helpers::TheInGameUI::get_mouse_cursor() as i32
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    0
+                }
+            };
             crate::command_system::tap_replay_camera_for_recorder(
                 crate::command_system::ReplayCameraPose {
                     pos: self.camera_target,
                     yaw: self.camera_yaw_radians,
                     pitch: self.camera_pitch_radians,
                     zoom: self.camera_zoom,
+                    cursor,
+                    pixel: (self.mouse_position.0 as i32, self.mouse_position.1 as i32),
                 },
             );
         }
@@ -1919,13 +2111,12 @@ impl CnCGameEngine {
         if basis <= f32::EPSILON {
             return;
         }
-        let current_hag = self.camera_zoom * basis;
+        let current_hag = look_at_host_modes()
+            .desired_height_above_ground
+            .unwrap_or(self.camera_zoom * basis);
         let new_hag = (current_hag + steps * 10.0).clamp(min_h, max_h);
-        let new_zoom = new_hag / basis;
-        if (new_zoom - self.camera_zoom).abs() > 0.0001 {
-            self.camera_zoom = new_zoom;
-            self.apply_camera_orbit_transform();
-        }
+        look_at_host_modes().desired_height_above_ground = Some(new_hag);
+        // C++ View::zoomIn/Out only changes HAG; W3DView eases zoom at CameraAdjustSpeed.
     }
 
     /// C++ `W3DView::update` height follow (W3DView.cpp:1308-1339).
@@ -1979,8 +2170,10 @@ impl CnCGameEngine {
             changed = true;
         }
 
-        // Honor GameData min/max camera height via zoom (C++ desiredZoom).
-        let mut desired_hag = height_above_ground;
+        // C++ W3DView.cpp:1334-1343 eases m_zoom toward (terrain+HAG)/offset.z.
+        let mut desired_hag = look_at_host_modes()
+            .desired_height_above_ground
+            .unwrap_or(height_above_ground);
         if min_height.is_finite() && desired_hag < min_height {
             desired_hag = min_height;
         }
@@ -2807,22 +3000,13 @@ impl CnCGameEngine {
         position: Vec3,
         command_context: bool,
     ) -> Option<ObjectId> {
-        const BASE_SELECTION_RADIUS: f32 = 20.0;
         // Wave 222: presentation-only pick (no GameLogic dual-read residual).
-
-        let frame = self.last_presentation_frame.as_ref()?;
-        let player_team = Some(frame.local_team());
-        let has_selected_units = !self.selected_objects.is_empty();
-        let prioritize_enemy_targets = command_context && has_selected_units;
-
-        crate::unit_control::UnitControlSystem::pick_object_id_at_world_from_presentation(
-            frame,
-            position,
-            player_team,
-            prioritize_enemy_targets,
-            BASE_SELECTION_RADIUS,
-        )
+        // hq-bzidj: widen with mines/shrubbery via SelectionInfo pick types.
+        self.host_find_object_at_position(position, command_context)
     }
+
+
+
 
     /// Path following is authoritative in `GameLogic::update_movement`.
     /// Retained as a no-op compatibility hook for older call sites.
@@ -2935,6 +3119,131 @@ impl CnCGameEngine {
         }
     }
 
+    pub(super) fn look_at_player_broke_camera_lock(&self) -> bool {
+        look_at_host_modes().camera_follow_lock_broken
+    }
+
+    pub(super) fn look_at_clear_player_broke_camera_lock(&self) {
+        look_at_host_modes().camera_follow_lock_broken = false;
+    }
+
+    fn host_camera_movement_finished(&self) -> bool {
+        self.camera_zoom_target.is_none()
+            && self.camera_pitch_target.is_none()
+            && self.camera_yaw_target.is_none()
+    }
+
+    fn break_camera_follow_lock(&mut self) {
+        look_at_host_modes().camera_follow_lock_broken = true;
+        self.host_set_camera_follow_object(None);
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.set_camera_lock(None);
+            });
+        }
+    }
+
+    /// C++ `W3DView::cameraEnableSlaveMode` + bone matrix slam.
+    fn apply_host_slave_camera(&mut self) -> bool {
+        let Some(mode) = self.camera_slave_mode.clone() else {
+            return false;
+        };
+        let origin = self.last_presentation_frame.as_ref().and_then(|frame| {
+            frame.first_alive_position_for_template(&mode.thing_template_name)
+        });
+        let mut eye = None;
+        let mut look = origin;
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::with_tactical_view(|view| {
+                view.camera_enable_slave_mode(&mode.thing_template_name, &mode.bone_name);
+            });
+            let slaved = game_client::display::view::with_tactical_view_ref(|view| {
+                view.is_camera_slaved()
+            });
+            if slaved {
+                let p = game_client::display::view::with_tactical_view_ref(|view| {
+                    view.get_3d_camera_position()
+                });
+                // Leftover View is C++ Z-up; live host is Y-up.
+                eye = Some(Vec3::new(p.x, p.z, p.y));
+            }
+        }
+        let Some(origin) = origin else {
+            return false;
+        };
+        if let Some(eye_pos) = eye {
+            self.camera_position = eye_pos;
+            self.camera_target = look.unwrap_or(origin);
+            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+            true
+        } else if !mode.bone_name.is_empty() {
+            // Bone missing: still parent the camera at the unit, not an orbit look-at.
+            self.camera_position = origin + Vec3::Y * 2.0;
+            self.camera_target = origin;
+            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+            true
+        } else {
+            let clamped = self.clamp_to_world_bounds(origin);
+            if (self.camera_target.x - clamped.x).abs() > 0.001
+                || (self.camera_target.z - clamped.z).abs() > 0.001
+            {
+                self.camera_target.x = clamped.x;
+                self.camera_target.z = clamped.z;
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// C++ `W3DView.cpp:1224-1247` LOCK_FOLLOW airborne yaw ease.
+    fn apply_airborne_follow_yaw(&mut self) -> bool {
+        if self.look_at_player_broke_camera_lock() {
+            return false;
+        }
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        if frame.camera_follow_position.is_none() {
+            return false;
+        }
+        let follow = frame.camera_follow_position.unwrap();
+        let follow = Vec3::new(follow[0], follow[1], follow[2]);
+        let Some(obj) = frame.objects.iter().min_by(|a, b| {
+            let da = (a.position - follow).length_squared();
+            let db = (b.position - follow).length_squared();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        }) else {
+            return false;
+        };
+        let airborne = obj.airborne_target
+            || matches!(
+                obj.object_type,
+                crate::presentation_frame::PresentationObjectType::Aircraft
+            );
+        if !airborne {
+            return false;
+        }
+        let ground = if obj.ground_height_from_terrain {
+            obj.ground_height
+        } else {
+            self.sample_presentation_height_under(obj.position)
+        };
+        if obj.position.y <= PATHFIND_CELL_SIZE_F + ground {
+            return false;
+        }
+        let ideal = normalize_signed_angle(obj.orientation - std::f32::consts::FRAC_PI_2);
+        let diff = normalize_signed_angle(ideal - self.camera_yaw_radians);
+        if diff.abs() < 1.0e-4 {
+            return false;
+        }
+        self.camera_yaw_radians = normalize_signed_angle(self.camera_yaw_radians + diff * 0.1);
+        true
+    }
+
+
     /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
     pub(super) fn start_rmb_lookat_scroll(&mut self) {
         self.rmb_scroll_anchor = Some(self.mouse_position);
@@ -2954,6 +3263,7 @@ impl CnCGameEngine {
         modes.scroll_type = LookAtScrollType::Rmb;
         drop(modes);
         self.is_rmb_scrolling = true;
+        self.break_camera_follow_lock();
         #[cfg(feature = "game_client")]
         {
             game_client::helpers::TheInGameUI::set_scrolling(true);
@@ -3084,10 +3394,11 @@ impl CnCGameEngine {
             self.camera_target = clamped;
             self.camera_yaw_radians = loc.yaw;
             self.camera_pitch_radians = loc.pitch;
-            self.camera_zoom = loc.zoom;
+            self.camera_zoom = clamp_w3d_zoom(loc.zoom);
             self.camera_yaw_target = None;
             self.camera_pitch_target = None;
             self.camera_zoom_target = None;
+            look_at_host_modes().desired_height_above_ground = None;
             self.apply_camera_orbit_transform();
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                 self.update_mouse_world_position();
@@ -3518,5 +3829,109 @@ mod camera_pick_tests {
         assert!(src.contains("if boxed_any"));
         assert!(src.contains("host_mouse_drag_tolerance_px()"));
     }
+
+    #[test]
+    fn rmb_click_gates_match_cpp_selection_xlat() {
+        // C++ SelectionXlat.cpp:982-1000 + Mouse.ini defaults 5px / 250ms / 5wu.
+        assert!(host_rmb_release_is_click(0.0, 0.0, 0, 0.0));
+        assert!(host_rmb_release_is_click(5.0, 5.0, 250, 5.0));
+        assert!(!host_rmb_release_is_click(6.0, 0.0, 0, 0.0));
+        assert!(!host_rmb_release_is_click(0.0, 0.0, 251, 0.0));
+        assert!(!host_rmb_release_is_click(0.0, 0.0, 0, 5.1));
+        assert!((host_mouse_drag_tolerance_ms() as f32 - 250.0).abs() < f32::EPSILON);
+        assert!((host_mouse_drag_tolerance_3d() - 5.0).abs() < f32::EPSILON);
+
+        let src = include_str!("mouse.rs");
+        assert!(src.contains("fn cancel_area_select_from_control_bar"));
+        assert!(src.contains("fn note_rmb_deselect_anchor"));
+        assert!(src.contains("fn rmb_release_is_deselect_click"));
+        assert!(src.contains("host_find_object_at_position"));
+        let input = include_str!("input.rs");
+        assert!(input.contains("cancel_area_select_from_control_bar"));
+        assert!(input.contains("rmb_release_is_deselect_click"));
+        assert!(!input.contains("DRAG_THRESHOLD_SQ"));
+    }
+
+    #[test]
+    fn w3d_set_zoom_clamps_to_view_min_max() {
+        // C++ View.cpp:78-79 / W3DView::setZoom [0.2, 1.3].
+        assert!((clamp_w3d_zoom(0.1) - 0.2).abs() < f32::EPSILON);
+        assert!((clamp_w3d_zoom(2.0) - 1.3).abs() < f32::EPSILON);
+        assert!((clamp_w3d_zoom(1.0) - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn lookat_mouse_moved_recently_is_one_logic_second() {
+        look_at_host_modes().last_mouse_move_frame = 10;
+        assert!(lookat_has_mouse_moved_recently(10));
+        assert!(lookat_has_mouse_moved_recently(40));
+        assert!(!lookat_has_mouse_moved_recently(41));
+    }
+
+    #[test]
+    fn disable_input_blocks_key_and_edge_scroll() {
+        // C++ LookAtXlat setScrolling / RAW_MOUSE_POSITION gate on input enabled.
+        assert_eq!(
+            lookat_resolve_scroll_type(
+                LookAtScrollType::None,
+                false,
+                false,
+                false,
+                true,
+                true
+            ),
+            LookAtScrollType::None
+        );
+    }
+
+    #[test]
+    fn update_camera_does_not_gate_arrows_on_modifiers() {
+        let src = include_str!("mouse.rs");
+        let start = src.find("fn update_camera(&mut self, dt: f32)").expect("update_camera");
+        let end = src[start..]
+            .find("fn is_character_key_pressed")
+            .map(|i| start + i)
+            .unwrap_or(src.len());
+        let body = &src[start..end];
+        assert!(
+            !body.contains("mods_down"),
+            "C++ RAW_KEY has no Ctrl/Shift/Alt gate"
+        );
+        assert!(
+            body.contains("break_camera_follow_lock"),
+            "player scroll must clear camera lock"
+        );
+        assert!(
+            body.contains("clamp_w3d_zoom"),
+            "replay/bookmark zoom must clamp"
+        );
+        assert!(
+            body.contains("apply_host_slave_camera") && body.contains("apply_airborne_follow_yaw"),
+            "slave bone + airborne follow yaw must be live"
+        );
+    }
+
+    #[test]
+    fn airborne_look_at_ray_hits_ground_plane() {
+        let hit = airborne_look_at_ground(
+            Vec3::new(0.0, 120.0, 120.0),
+            Vec3::new(0.0, 80.0, 0.0),
+            2_000.0,
+            Vec3::new(-1_000.0, 0.0, -1_000.0),
+            Vec3::new(1_000.0, 0.0, 1_000.0),
+            None,
+        )
+        .expect("airborne look-at must hit ground");
+        assert!(
+            hit.y.abs() < 0.02,
+            "ground hit Y must be the plane, got {hit:?}"
+        );
+        assert!(
+            hit.z.abs() > 1.0,
+            "ray through an elevated unit must land past the XY origin, got {hit:?}"
+        );
+    }
+
+
 
 }

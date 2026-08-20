@@ -12,8 +12,8 @@
 //! - Template peels for DamagedFXList / SoundOnDamaged / VoiceFear
 //!
 //! Fail-closed:
-//! - Not full bone-local FX positions / random bone prefix
-//! - Not full particle system ID tracking / destroy-on-heal
+//! - Bone-local offsets stored; drawable bone lookup is identity residual
+//! - Particle IDs tracked so previous-state systems are destroyed
 //! - Not full DamageTypeFlags restriction matrix
 
 use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
@@ -32,6 +32,21 @@ pub struct HostTransitionDamageFxData {
     /// Audio residual keyed by body state ordinal.
     pub audio_for_state: [Option<String>; TRANSITION_DAMAGE_FX_SLOTS],
     pub enabled: bool,
+    /// C++ `m_particleSystem[state][slot]` authored PSys names + loc.
+    #[serde(default)]
+    pub particles_for_state: [Vec<HostTransitionParticle>; TRANSITION_DAMAGE_FX_SLOTS],
+    /// Live attached combat-particle ids per body state.
+    #[serde(default)]
+    pub attached_ids: [Vec<u32>; TRANSITION_DAMAGE_FX_SLOTS],
+}
+
+/// C++ `FXDamageParticleSystemInfo` residual.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct HostTransitionParticle {
+    pub name: String,
+    pub bone: Option<String>,
+    pub loc: [f32; 3],
+    pub random_bone: bool,
 }
 
 impl HostTransitionDamageFxData {
@@ -45,6 +60,23 @@ impl HostTransitionDamageFxData {
                 Some("FX_StructureRubbleTransition".into()),
             ],
             audio_for_state: [None, None, None, None],
+            particles_for_state: [
+                Vec::new(),
+                vec![HostTransitionParticle {
+                    name: "BuildingDamageSmoke".into(),
+                    bone: Some("Smoke01".into()),
+                    loc: [0.0, 0.0, 0.0],
+                    random_bone: false,
+                }],
+                vec![HostTransitionParticle {
+                    name: "BuildingDamageFire".into(),
+                    bone: Some("Fire01".into()),
+                    loc: [0.0, 0.0, 0.0],
+                    random_bone: false,
+                }],
+                Vec::new(),
+            ],
+            attached_ids: Default::default(),
         }
     }
 
@@ -58,6 +90,7 @@ impl HostTransitionDamageFxData {
                 Some("FX_ToxicBunkerRubble".into()),
             ],
             audio_for_state: [None, None, None, None],
+            ..Self::default()
         }
     }
 
@@ -71,6 +104,7 @@ impl HostTransitionDamageFxData {
                 Some("FX_VehicleRubbleTransition".into()),
             ],
             audio_for_state: [None, None, None, None],
+            ..Self::default()
         }
     }
 
@@ -79,6 +113,22 @@ impl HostTransitionDamageFxData {
             enabled: true,
             fx_for_state: [None, None, None, None],
             audio_for_state: [None, None, None, None],
+            ..Self::default()
+        }
+    }
+
+    pub fn take_attached_ids(&mut self, state_ordinal: u8) -> Vec<u32> {
+        let idx = state_ordinal as usize;
+        if idx >= TRANSITION_DAMAGE_FX_SLOTS {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.attached_ids[idx])
+    }
+
+    pub fn store_attached_ids(&mut self, state_ordinal: u8, ids: Vec<u32>) {
+        let idx = state_ordinal as usize;
+        if idx < TRANSITION_DAMAGE_FX_SLOTS {
+            self.attached_ids[idx] = ids;
         }
     }
 
@@ -94,12 +144,16 @@ impl HostTransitionDamageFxData {
 }
 
 /// One transition residual event (presentation/audio consumers).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct HostTransitionDamageFxEvent {
     pub old_state: u8,
     pub new_state: u8,
     pub fx_name: Option<String>,
     pub audio_name: Option<String>,
+    #[serde(default)]
+    pub particles: Vec<HostTransitionParticle>,
+    #[serde(default)]
+    pub clear_old_state: Option<u8>,
 }
 
 /// C++ IS_CONDITION_WORSE(a,b) := a > b (BodyDamageType ordinal).
@@ -113,16 +167,47 @@ pub fn transition_event(
     old_state: HostBodyDamageType,
     new_state: HostBodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
-    if !data.enabled || !is_condition_worse(new_state, old_state) {
+    on_body_damage_state_change(data, old_state, new_state).and_then(|ev| {
+        if ev.fx_name.is_none() && ev.audio_name.is_none() && ev.particles.is_empty() {
+            None
+        } else {
+            Some(ev)
+        }
+    })
+}
+
+/// C++ `TransitionDamageFX::onBodyDamageStateChange` — always destroy old
+/// state's particle systems; create new ones only when `IS_CONDITION_WORSE`.
+pub fn on_body_damage_state_change(
+    data: &HostTransitionDamageFxData,
+    old_state: HostBodyDamageType,
+    new_state: HostBodyDamageType,
+) -> Option<HostTransitionDamageFxEvent> {
+    if !data.enabled || old_state == new_state {
         return None;
     }
+    let worse = is_condition_worse(new_state, old_state);
     let idx = new_state.ordinal() as usize;
-    if idx >= TRANSITION_DAMAGE_FX_SLOTS {
-        return None;
+    let (fx, audio, particles) = if worse && idx < TRANSITION_DAMAGE_FX_SLOTS {
+        (
+            data.fx_for_state[idx].clone(),
+            data.audio_for_state[idx].clone(),
+            data.particles_for_state[idx].clone(),
+        )
+    } else {
+        (None, None, Vec::new())
+    };
+    if !worse && fx.is_none() && audio.is_none() && particles.is_empty() {
+        return Some(HostTransitionDamageFxEvent {
+            old_state: old_state.ordinal(),
+            new_state: new_state.ordinal(),
+            fx_name: None,
+            audio_name: None,
+            particles: Vec::new(),
+            clear_old_state: Some(old_state.ordinal()),
+        });
     }
-    let fx = data.fx_for_state[idx].clone();
-    let audio = data.audio_for_state[idx].clone();
-    if fx.is_none() && audio.is_none() {
+    if fx.is_none() && audio.is_none() && particles.is_empty() && !worse {
         return None;
     }
     Some(HostTransitionDamageFxEvent {
@@ -130,6 +215,8 @@ pub fn transition_event(
         new_state: new_state.ordinal(),
         fx_name: fx,
         audio_name: audio,
+        particles,
+        clear_old_state: Some(old_state.ordinal()),
     })
 }
 
@@ -155,7 +242,148 @@ pub fn transition_damage_fx_config_for_template(
         HostTransitionDamageFxData::infantry_audio_residual()
     };
     data.overlay_template_audio(name);
+    overlay_authored_transition_particles(&mut data, name);
     Some(data)
+}
+
+fn overlay_authored_transition_particles(data: &mut HostTransitionDamageFxData, name: &str) {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return;
+    };
+    let Ok(manager) = manager.lock() else {
+        return;
+    };
+    let Some(definition) = manager.get_object_definition(name) else {
+        return;
+    };
+    for module in &definition.behavior_modules {
+        if !module
+            .class_name
+            .eq_ignore_ascii_case("TransitionDamageFX")
+        {
+            continue;
+        }
+        for (state, prefix) in [
+            (HostBodyDamageType::Damaged, "DamagedParticleSystem"),
+            (
+                HostBodyDamageType::ReallyDamaged,
+                "ReallyDamagedParticleSystem",
+            ),
+            (HostBodyDamageType::Rubble, "RubbleParticleSystem"),
+        ] {
+            let idx = state.ordinal() as usize;
+            let mut parsed = Vec::new();
+            for slot in 1..=12 {
+                let key = format!("{prefix}{slot}");
+                if let Some(raw) = module.attribute(&key) {
+                    if let Some(p) = parse_transition_particle_attr(raw) {
+                        parsed.push(p);
+                    }
+                }
+            }
+            if !parsed.is_empty() {
+                data.particles_for_state[idx] = parsed;
+            }
+        }
+    }
+}
+
+/// `Bone:Name RandomBone:No PSys:Template` or `Loc: X:0 Y:0 Z:0 PSys:Template`.
+pub fn parse_transition_particle_attr(raw: &str) -> Option<HostTransitionParticle> {
+    let mut bone = None;
+    let mut random_bone = false;
+    let mut loc = [0.0_f32, 0.0, 0.0];
+    let mut name = None;
+    let tokens: Vec<&str> = raw.split_whitespace().collect();
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = tokens[i];
+        let (key, val) = match tok.split_once(':') {
+            Some((k, v)) => (k, Some(v)),
+            None => (tok, None),
+        };
+        if key.eq_ignore_ascii_case("bone") {
+            let b = if let Some(v) = val.filter(|s| !s.is_empty()) {
+                v.to_string()
+            } else {
+                i += 1;
+                tokens.get(i)?.to_string()
+            };
+            bone = Some(b);
+        } else if key.eq_ignore_ascii_case("randombone") {
+            let v = val
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    i += 1;
+                    tokens.get(i).map(|s| s.to_string())
+                })?;
+            random_bone = v.eq_ignore_ascii_case("yes") || v.eq_ignore_ascii_case("true");
+        } else if key.eq_ignore_ascii_case("psys") {
+            let v = if let Some(v) = val.filter(|s| !s.is_empty()) {
+                v.to_string()
+            } else {
+                i += 1;
+                tokens.get(i)?.to_string()
+            };
+            if !v.eq_ignore_ascii_case("none") {
+                name = Some(v);
+            }
+        } else if key.eq_ignore_ascii_case("loc") || key.eq_ignore_ascii_case("x") {
+            // Consume X:/Y:/Z: tokens.
+            let mut start = i;
+            if key.eq_ignore_ascii_case("loc") {
+                start = i + 1;
+            }
+            for t in tokens.iter().skip(start) {
+                if let Some((axis, num)) = t.split_once(':') {
+                    if let Ok(v) = num.parse::<f32>() {
+                        match axis.to_ascii_lowercase().as_str() {
+                            "x" => loc[0] = v,
+                            "y" => loc[1] = v,
+                            "z" => loc[2] = v,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    Some(HostTransitionParticle {
+        name: name?,
+        bone,
+        loc,
+        random_bone,
+    })
+}
+
+/// C++ createParticleSystem + attachToObject for DamagedParticleSystemN.
+pub fn spawn_transition_particles(
+    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+    particles: &[HostTransitionParticle],
+    position: glam::Vec3,
+    frame: u32,
+    owner: crate::game_logic::ObjectId,
+) -> Vec<u32> {
+    let mut ids = Vec::new();
+    for p in particles {
+        if p.name.is_empty() || p.name.eq_ignore_ascii_case("none") {
+            continue;
+        }
+        let loc = glam::Vec3::new(position.x + p.loc[0], position.y + p.loc[1], position.z + p.loc[2]);
+        let id = registry.spawn(
+            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
+            loc,
+            frame,
+            Some(owner),
+            None,
+        );
+        if let Some(entry) = registry.get_mut(id) {
+            entry.template_name = p.name.clone();
+        }
+        ids.push(id);
+    }
+    ids
 }
 
 /// C++ `ActiveBody.cpp` `#define YELLOW_DAMAGE_PERCENT (0.25f)`.
@@ -451,6 +679,8 @@ pub fn queue_voice_fear_event(
         new_state: new_state.ordinal(),
         fx_name: None,
         audio_name: Some(fear),
+        particles: Vec::new(),
+        clear_old_state: None,
     });
 }
 
@@ -477,8 +707,37 @@ mod tests {
         assert_eq!(e.new_state, 1);
         assert!(e.fx_name.unwrap().contains("Damaged"));
         assert!(e.audio_name.is_none(), "must not invent BuildingDamaged");
+        assert_eq!(e.particles.len(), 1);
+        assert_eq!(e.particles[0].name, "BuildingDamageSmoke");
+        assert_eq!(e.clear_old_state, Some(0));
     }
 
+    #[test]
+    fn heal_clears_old_state_particles() {
+        let d = HostTransitionDamageFxData::generic_structure_residual();
+        let e = on_body_damage_state_change(
+            &d,
+            HostBodyDamageType::ReallyDamaged,
+            HostBodyDamageType::Damaged,
+        )
+        .expect("heal still destroys old PSys");
+        assert!(e.particles.is_empty());
+        assert_eq!(
+            e.clear_old_state,
+            Some(HostBodyDamageType::ReallyDamaged.ordinal())
+        );
+    }
+
+    #[test]
+    fn parse_damaged_particle_bone_psys() {
+        let p = parse_transition_particle_attr(
+            "Bone:Fire01 RandomBone:No PSys:BuildingDamageFire",
+        )
+        .expect("parse");
+        assert_eq!(p.name, "BuildingDamageFire");
+        assert_eq!(p.bone.as_deref(), Some("Fire01"));
+        assert!(!p.random_bone);
+    }
     #[test]
     fn template_sound_on_damaged_not_invented_names() {
         // C++ ActiveBody.cpp:605-621 getSoundOnDamaged / getSoundOnReallyDamaged.

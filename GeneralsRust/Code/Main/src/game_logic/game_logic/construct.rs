@@ -160,6 +160,8 @@ impl GameLogic {
             airfield_runway_next_in_line: std::collections::HashMap::new(),
             airfield_runway_was_in_line: std::collections::HashMap::new(),
             airfield_pending_helipad_exits: std::collections::HashMap::new(),
+            heli_takeoff_or_landing: std::collections::HashMap::new(),
+
             flight_decks: std::collections::HashMap::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             baikonur_launches:
@@ -586,6 +588,9 @@ impl GameLogic {
             script_time_frozen_by_script: false,
             pending_script_fps_limit: None,
             pending_camera_zoom_reset: false,
+            pending_camera_zoom_reset_duration: 0.0,
+            pending_camera_zoom_reset_ease_in: 0.0,
+            pending_camera_zoom_reset_ease_out: 0.0,
             pending_camera_zoom: None,
             pending_camera_pitch: None,
             pending_camera_rotate: None,
@@ -752,6 +757,8 @@ impl GameLogic {
         self.airfield_runway_next_in_line.clear();
         self.airfield_runway_was_in_line.clear();
         self.airfield_pending_helipad_exits.clear();
+        self.heli_takeoff_or_landing.clear();
+
         self.flight_decks.clear();
         self.emp_pulses.clear();
         self.baikonur_launches =
@@ -1151,6 +1158,9 @@ impl GameLogic {
         self.script_time_frozen_by_script = false;
         self.pending_script_fps_limit = None;
         self.pending_camera_zoom_reset = false;
+        self.pending_camera_zoom_reset_duration = 0.0;
+        self.pending_camera_zoom_reset_ease_in = 0.0;
+        self.pending_camera_zoom_reset_ease_out = 0.0;
         self.pending_camera_zoom = None;
         self.pending_camera_pitch = None;
         self.pending_camera_rotate = None;

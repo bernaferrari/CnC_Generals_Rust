@@ -1913,8 +1913,8 @@ impl GameLogic {
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
             self.host_radar_add_object(id);
-            // C++ Player::friend_applyDifficultyBonusesForObject (Player.cpp:3338).
             self.apply_difficulty_bonuses_for_object(id);
+            self.spawn_particle_sys_bones_for_object(id);
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);

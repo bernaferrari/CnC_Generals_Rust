@@ -8,7 +8,7 @@ impl GameLogic {
     ///
     /// Matches retail SuperweaponGPSScrambler → GPSScrambler_InvisibleMarker:
     /// - FinalRadius residual 100 (RadiusCursorRadius / GrantStealth FinalRadius)
-    /// - KindOf VEHICLE | INFANTRY, same-team residual
+    /// - KindOf VEHICLE | INFANTRY, C++ ALLOW_ALLIES (same player or allied players)
     /// - receiveGrant only when the target already has StealthUpdate
     ///   (host proxy: `innate_stealth`) — C++ GrantStealthBehavior.cpp:170-179
     /// - Skips bomb-truck disguise residual by name (C++ canDisguise skip)
@@ -53,7 +53,7 @@ impl GameLogic {
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
                 let is_infantry = obj.is_kind_of(KindOf::Infantry);
-                let same_team = obj.team == caster_team;
+                let is_ally = self.gps_grant_is_ally(player_id, caster_id, caster_team, obj);
                 let under_construction =
                     obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                 let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
@@ -62,7 +62,7 @@ impl GameLogic {
                     *id,
                     is_vehicle,
                     is_infantry,
-                    same_team,
+                    is_ally,
                     under_construction,
                     is_disguise,
                     has_stealth_module,
@@ -75,7 +75,7 @@ impl GameLogic {
             id,
             is_vehicle,
             is_infantry,
-            same_team,
+            is_ally,
             under_construction,
             is_disguise,
             has_stealth_module,
@@ -85,7 +85,7 @@ impl GameLogic {
                 is_vehicle,
                 is_infantry,
                 true,
-                same_team,
+                is_ally,
                 under_construction,
                 is_disguise,
                 has_stealth_module,
@@ -140,6 +140,27 @@ impl GameLogic {
         );
 
         true
+    }
+
+    /// C++ PartitionFilterRelationship(self, ALLOW_ALLIES).
+    /// Same player or allied players; leftover fallback is same non-neutral team.
+    pub(in super::super) fn gps_grant_is_ally(
+        &self,
+        caster_player_id: u32,
+        caster_id: Option<ObjectId>,
+        caster_team: Team,
+        obj: &Object,
+    ) -> bool {
+        use gamelogic::common::Relationship;
+        let caster_owner = caster_id
+            .and_then(|id| self.objects.get(&id))
+            .and_then(|c| self.player_owner_for_host_object(c))
+            .or(Some(caster_player_id));
+        let obj_owner = self.player_owner_for_host_object(obj);
+        match (caster_owner, obj_owner) {
+            (Some(a), Some(b)) => self.player_relationship(a, b) == Relationship::Allies,
+            _ => obj.team == caster_team && caster_team != Team::Neutral,
+        }
     }
 
     /// Host China ECM Tank / jammer residual: jam enemy weapons in radius.
@@ -1520,5 +1541,76 @@ mod tests {
         );
         assert!(!logic.host_object(pal).unwrap().innate_stealth);
         assert!(!logic.host_object(rng).unwrap().innate_stealth);
+    }
+
+    /// C++ GrantStealthBehavior ALLOW_ALLIES — mixed-faction coop teammate.
+    #[test]
+    fn gps_grants_allied_other_faction_not_same_faction_enemy() {
+        let mut logic = GameLogic::new();
+        let mut gla = Player::new(2, Team::GLA, "GLA", true);
+        gla.alliance_team = 7;
+        logic.players.insert(2, gla);
+        let mut usa = Player::new(0, Team::USA, "USA", false);
+        usa.alliance_team = 7;
+        logic.players.insert(0, usa);
+        let mut china = Player::new(1, Team::China, "China", false);
+        china.alliance_team = 9;
+        logic.players.insert(1, china);
+
+        let mut scorp = ThingTemplate::new("GLATankScorpion");
+        scorp.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("GLATankScorpion".into(), scorp);
+        let mut crusader = ThingTemplate::new("AmericaTankCrusader");
+        crusader.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic
+            .templates
+            .insert("AmericaTankCrusader".into(), crusader);
+        let mut battlemaster = ThingTemplate::new("ChinaTankBattleMaster");
+        battlemaster.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic
+            .templates
+            .insert("ChinaTankBattleMaster".into(), battlemaster);
+
+        let caster = logic
+            .create_object("GLATankScorpion", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("caster");
+        let ally = logic
+            .create_object(
+                "AmericaTankCrusader",
+                Team::USA,
+                Vec3::new(8.0, 0.0, 0.0),
+            )
+            .expect("ally");
+        let enemy = logic
+            .create_object(
+                "ChinaTankBattleMaster",
+                Team::China,
+                Vec3::new(10.0, 0.0, 0.0),
+            )
+            .expect("enemy");
+        for id in [caster, ally, enemy] {
+            if let Some(o) = logic.host_object_mut(id) {
+                o.innate_stealth = true;
+            }
+        }
+        if let Some(o) = logic.host_object_mut(caster) {
+            o.owner_player_id = Some(2);
+        }
+        if let Some(o) = logic.host_object_mut(ally) {
+            o.owner_player_id = Some(0);
+        }
+        if let Some(o) = logic.host_object_mut(enemy) {
+            o.owner_player_id = Some(1);
+        }
+
+        assert!(logic.activate_gps_scrambler(2, Vec3::ZERO, Some(caster)));
+        assert!(
+            logic.host_object(ally).unwrap().is_effectively_stealthed(),
+            "allied USA tank must receive GPS grant"
+        );
+        assert!(
+            !logic.host_object(enemy).unwrap().is_effectively_stealthed(),
+            "enemy China tank must not receive GPS grant"
+        );
     }
 }

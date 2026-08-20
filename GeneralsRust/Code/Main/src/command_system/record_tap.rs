@@ -24,6 +24,10 @@ pub struct ReplayCameraPose {
     pub yaw: f32,
     pub pitch: f32,
     pub zoom: f32,
+    /// C++ `TheMouse->getMouseCursor()` integer recorded with the pose.
+    pub cursor: i32,
+    /// C++ `LookAtTranslator::m_currentPos` pixel.
+    pub pixel: (i32, i32),
 }
 
 static PENDING_REPLAY_COMMANDS: Mutex<Vec<GameCommand>> = Mutex::new(Vec::new());
@@ -130,14 +134,10 @@ fn host_logic_frame() -> u32 {
 
 fn host_replay_mouse_snapshot() -> (i32, ICoord2D) {
     #[cfg(feature = "game_client")]
-    {
-        let cursor = game_client::helpers::TheInGameUI::get_mouse_cursor() as i32;
-        (cursor, ICoord2D { x: 0, y: 0 })
-    }
+    let leftover_cursor = game_client::helpers::TheInGameUI::get_mouse_cursor() as i32;
     #[cfg(not(feature = "game_client"))]
-    {
-        (0, ICoord2D { x: 0, y: 0 })
-    }
+    let leftover_cursor = 0;
+    (leftover_cursor, ICoord2D { x: 0, y: 0 })
 }
 
 fn cull_host_command_list() {
@@ -224,7 +224,17 @@ pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
         pose.yaw,
         pose.zoom,
     ));
-    let (cursor, pixel) = host_replay_mouse_snapshot();
+    let (cursor, pixel) = if pose.pixel != (0, 0) || pose.cursor != 0 {
+        (
+            pose.cursor,
+            ICoord2D {
+                x: pose.pixel.0,
+                y: pose.pixel.1,
+            },
+        )
+    } else {
+        host_replay_mouse_snapshot()
+    };
     message.append_location_argument(coord);
     message.append_real_argument(pose.yaw);
     message.append_real_argument(pose.pitch);
@@ -292,12 +302,22 @@ fn apply_replay_messages_to_host(messages: &[GameMessage]) {
                     Some(GameMessageArgumentType::Real(value)) => *value,
                     _ => *zoom,
                 };
+                let cursor = match message.get_argument(4) {
+                    Some(GameMessageArgumentType::Integer(value)) => *value,
+                    _ => 0,
+                };
+                let pixel = match message.get_argument(5) {
+                    Some(GameMessageArgumentType::Pixel(value)) => (value.x, value.y),
+                    _ => (0, 0),
+                };
                 if let Ok(mut slot) = PENDING_REPLAY_CAMERA.lock() {
                     *slot = Some(ReplayCameraPose {
                         pos: vec3_from_coord(coord),
                         yaw: angle,
                         pitch,
                         zoom: zoom_v,
+                        cursor,
+                        pixel,
                     });
                 }
             }
@@ -521,6 +541,8 @@ mod tests {
             yaw: 0.25,
             pitch: 0.5,
             zoom: 1.5,
+            cursor: 4,
+            pixel: (12, 34),
         });
         let snap = snapshot_command_list();
         let camera = snap
@@ -553,11 +575,14 @@ mod tests {
             other => panic!("expected zoom, got {other:?}"),
         }
         match camera.get_argument(4) {
-            Some(GameMessageArgumentType::Integer(_)) => {}
+            Some(GameMessageArgumentType::Integer(cursor)) => assert_eq!(*cursor, 4),
             other => panic!("expected cursor int, got {other:?}"),
         }
         match camera.get_argument(5) {
-            Some(GameMessageArgumentType::Pixel(_)) => {}
+            Some(GameMessageArgumentType::Pixel(pixel)) => {
+                assert_eq!(pixel.x, 12);
+                assert_eq!(pixel.y, 34);
+            }
             other => panic!("expected pixel, got {other:?}"),
         }
     }

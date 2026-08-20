@@ -778,7 +778,10 @@ impl PresentationFrame {
                 CombatParticleKind::DeathSmoke => vec!["DeathSmoke".to_string()],
                 CombatParticleKind::WeaponMuzzleFlash
                 | CombatParticleKind::WeaponImpact
-                | CombatParticleKind::ProjectileExhaust => continue,
+                | CombatParticleKind::ProjectileExhaust
+                | CombatParticleKind::ParticleSysBone
+                | CombatParticleKind::BodyFire
+                | CombatParticleKind::BodySmoke => continue,
             };
             for event_name in event_names {
                 let event_name = event_name.as_str();

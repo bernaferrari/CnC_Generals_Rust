@@ -98,6 +98,8 @@ pub struct CameraTetherRequest {
 pub struct CameraResetRequest {
     pub position: Vec3,
     pub duration_seconds: f32,
+    pub ease_in_seconds: f32,
+    pub ease_out_seconds: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -2031,6 +2033,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         self.hooks.push_camera_reset(CameraResetRequest {
             position: camera_coord3d_to_world(x, y, z),
             duration_seconds,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
         });
         Ok(())
     }

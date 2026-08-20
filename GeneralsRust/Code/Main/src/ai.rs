@@ -268,6 +268,29 @@ impl AIBuildingInfo {
 
 }
 
+/// One AIData `SkirmishBuildList` / `SideBuildList` pad.
+#[derive(Debug, Clone)]
+struct SideBuildPad {
+    template: String,
+    position: Vec3,
+    rebuilds: i32,
+    initially_built: bool,
+    automatically_build: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ReinforceUnit {
+    thing: String,
+    max_units: i32,
+}
+
+#[derive(Debug, Clone)]
+struct ReinforceCandidate {
+    name: String,
+    priority: i32,
+    units: Vec<ReinforceUnit>,
+}
+
 /// Base AI Player implementation
 #[derive(Debug)]
 pub struct AIPlayer {
@@ -335,6 +358,10 @@ pub struct AIPlayer {
     cur_left_flank_right_defense_angle: f32,
     cur_right_flank_left_defense_angle: f32,
     cur_right_flank_right_defense_angle: f32,
+    /// C++ `AISkirmishPlayer::newMap` applied once (AIData SideBuildList).
+    skirmish_new_map_applied: bool,
+    /// C++ `AIPlayer::m_curWarehouseID` for `buildBySupplies`.
+    current_warehouse_id: Option<ObjectId>,
 }
 
 /// AI strategic states
@@ -402,6 +429,8 @@ impl AIPlayer {
             cur_left_flank_right_defense_angle: 0.0,
             cur_right_flank_left_defense_angle: 0.0,
             cur_right_flank_right_defense_angle: 0.0,
+            skirmish_new_map_applied: false,
+            current_warehouse_id: None,
         }
     }
 
@@ -437,6 +466,9 @@ impl AIPlayer {
         if !self.is_active {
             return;
         }
+
+        // C++ AISkirmishPlayer::newMap — AIData SideBuildList replaces invented pads.
+        self.ensure_skirmish_new_map(game_logic);
 
         self.last_update_time = current_time;
         self.update_enemy_assessment(game_logic, current_time);
@@ -571,6 +603,262 @@ impl AIPlayer {
 
         // C++ `AISkirmishPlayer::buildAIBaseDefense` — first front-fan slot.
         self.queue_front_base_defense(None);
+    }
+
+    /// C++ `AISkirmishPlayer::newMap` — replace invented pads with AIData list.
+    fn ensure_skirmish_new_map(&mut self, game_logic: &mut GameLogic) {
+        if self.skirmish_new_map_applied {
+            return;
+        }
+        self.skirmish_new_map_applied = true;
+        if game_logic
+            .get_player(self.player_id)
+            .is_some_and(|p| !p.map_side.build_list.is_empty())
+        {
+            // Campaign/map SidesList already consumed by feed_host_ai.
+            return;
+        }
+        let _ = self.apply_skirmish_new_map(game_logic);
+    }
+
+    /// C++ `AISkirmishPlayer::newMap` + `adjustBuildList`.
+    pub fn apply_skirmish_new_map(&mut self, game_logic: &mut GameLogic) -> bool {
+        let Some(side) = self.side_info_name() else {
+            return false;
+        };
+        let Some(entries) = Self::aidata_side_build_entries(side) else {
+            return false;
+        };
+        if entries.is_empty() {
+            return false;
+        }
+
+        let start_pos = self.destroy_owned_command_center(game_logic);
+        let Some(start_pos) = start_pos.or(Some(self.base_center)) else {
+            return false;
+        };
+
+        let mut list_cc: Option<Vec3> = None;
+        let mut marked: Vec<SideBuildPad> = Vec::new();
+        for mut entry in entries {
+            if Self::template_is_command_center(game_logic, &entry.template) {
+                entry.initially_built = true;
+                if list_cc.is_none() {
+                    list_cc = Some(entry.position);
+                }
+            }
+            marked.push(entry);
+        }
+        let Some(build_pos) = list_cc else {
+            return false;
+        };
+
+        let rotate = Self::aidata_rotate_skirmish_bases();
+        let (lo, hi) = game_logic.world_bounds();
+        let width = (hi.x - lo.x).max(1.0);
+        let height = (hi.z - lo.z).max(1.0);
+        let mut grid_index = 0;
+        if start_pos.x > lo.x + width / 3.0 {
+            grid_index += 1;
+        }
+        if start_pos.x > lo.x + 2.0 * width / 3.0 {
+            grid_index += 1;
+        }
+        if start_pos.z > lo.z + height / 3.0 {
+            grid_index += 3;
+        }
+        if start_pos.z > lo.z + 2.0 * height / 3.0 {
+            grid_index += 3;
+        }
+        let mut angle = if rotate {
+            match grid_index {
+                0 => 0.0,
+                1 => std::f32::consts::PI / 4.0,
+                2 => std::f32::consts::PI / 2.0,
+                3 => -std::f32::consts::PI / 4.0,
+                4 => 0.0,
+                5 => 3.0 * std::f32::consts::PI / 4.0,
+                6 => -std::f32::consts::PI / 2.0,
+                7 => -3.0 * std::f32::consts::PI / 4.0,
+                _ => std::f32::consts::PI,
+            }
+        } else {
+            0.0
+        };
+        angle += 3.0 * std::f32::consts::PI / 4.0;
+        let s = angle.sin();
+        let c = angle.cos();
+
+        self.building_queue.clear();
+        self.reset_base_defense_fan();
+        let mut sum = Vec3::ZERO;
+        let mut n = 0u32;
+        for entry in marked {
+            let mut pos = entry.position;
+            pos.x -= build_pos.x;
+            pos.z -= build_pos.z;
+            let new_x = pos.x * c - pos.z * s;
+            let new_z = pos.z * c + pos.x * s;
+            pos.x = new_x + start_pos.x;
+            pos.z = new_z + start_pos.z;
+            pos.y = 0.0;
+
+            let rebuilds = if entry.rebuilds < 0 {
+                UNLIMITED_REBUILDS
+            } else {
+                entry.rebuilds as u32
+            };
+            let mut building = AIBuildingInfo::new(entry.template.clone(), pos, rebuilds);
+            building.automatic_build = entry.automatically_build;
+            building.is_priority = false;
+            if entry.initially_built {
+                // C++ buildStructureNow — do not incrementNumRebuilds on CC.
+                building.is_built = true;
+                if let Some(id) = game_logic.create_object(&entry.template, self.team, pos) {
+                    if let Some(obj) = game_logic.host_object_mut(id) {
+                        obj.owner_player_id = Some(self.player_id);
+                    }
+                    building.object_id = Some(id);
+                }
+            } else {
+                building.increment_num_rebuilds();
+            }
+            sum += pos;
+            n = n.saturating_add(1);
+            self.building_queue.push(building);
+        }
+        if n > 0 {
+            self.base_center = sum / n as f32;
+            let mut radius = 1.0f32;
+            for b in &self.building_queue {
+                radius = radius.max((b.position - self.base_center).length());
+            }
+            self.base_radius = radius;
+        }
+        true
+    }
+
+    fn destroy_owned_command_center(&mut self, game_logic: &mut GameLogic) -> Option<Vec3> {
+        let mut found = None;
+        for (&id, object) in game_logic.host_objects() {
+            if !object.is_alive() {
+                continue;
+            }
+            let ours = object.owner_player_id == Some(self.player_id)
+                || (object.owner_player_id.is_none() && object.team == self.team);
+            if !ours || !object.is_kind_of(KindOf::CommandCenter) {
+                continue;
+            }
+            found = Some((id, object.get_position()));
+            break;
+        }
+        let (id, pos) = found?;
+        game_logic.destroy_object(id);
+        Some(pos)
+    }
+
+    fn template_is_command_center(game_logic: &GameLogic, template_name: &str) -> bool {
+        if let Some(template) = game_logic.templates.get(template_name) {
+            return template.is_kind_of(KindOf::CommandCenter);
+        }
+        template_name.contains("CommandCenter")
+    }
+
+    fn aidata_rotate_skirmish_bases() -> bool {
+        let store = game_engine::common::ini::get_ai_data_store();
+        if let Some(data) = store.get_active() {
+            return data.rotate_skirmish_bases;
+        }
+        drop(store);
+        gamelogic::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|d| d.rotate_skirmish_bases)
+            })
+            .unwrap_or(false)
+    }
+
+    fn aidata_max_recruit_distance() -> f32 {
+        let from_store = (|| {
+            let store = game_engine::common::ini::get_ai_data_store();
+            store.get_active().map(|d| d.max_recruit_distance)
+        })();
+        let dist = from_store
+            .or_else(|| {
+                gamelogic::ai::THE_AI.read().ok().and_then(|ai| {
+                    ai.get_ai_data()
+                        .read()
+                        .ok()
+                        .map(|d| d.max_recruit_distance)
+                })
+            })
+            .unwrap_or(0.0);
+        if dist > 0.0 {
+            dist
+        } else {
+            99_999.0
+        }
+    }
+
+    fn aidata_side_build_entries(side: &str) -> Option<Vec<SideBuildPad>> {
+        {
+            let store = game_engine::common::ini::get_ai_data_store();
+            if let Some(data) = store.get_active() {
+                if let Some(list) = data
+                    .side_build_lists
+                    .iter()
+                    .find(|l| l.side.eq_ignore_ascii_case(side))
+                {
+                    if !list.entries.is_empty() {
+                        return Some(
+                            list.entries
+                                .iter()
+                                .map(|e| SideBuildPad {
+                                    template: e.template_name.clone(),
+                                    position: Vec3::new(e.location.0, 0.0, e.location.1),
+                                    rebuilds: e.rebuilds,
+                                    initially_built: e.initially_built,
+                                    automatically_build: e.automatically_build,
+                                })
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
+        let ai = gamelogic::ai::THE_AI.read().ok()?;
+        let data_arc = ai.get_ai_data();
+        let data = data_arc.read().ok()?;
+        let entry = data
+            .side_build_lists
+            .iter()
+            .find(|e| e.side.eq_ignore_ascii_case(side))?;
+        let list = entry.build_list.as_ref()?;
+        let mut out = Vec::new();
+        let mut cur = Some(list.as_ref());
+        while let Some(info) = cur {
+            let name = info.get_template_name().to_string();
+            if !name.is_empty() {
+                let loc = info.get_location().clone();
+                out.push(SideBuildPad {
+                    template: name,
+                    position: Vec3::new(loc.x, loc.z, loc.y),
+                    rebuilds: info.get_num_rebuilds() as i32,
+                    initially_built: info.is_initially_built(),
+                    automatically_build: info.is_automatic_build(),
+                });
+            }
+            cur = info.get_next();
+        }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// C++ `AIData.ini` `SideInfo` name for the live host team.
@@ -1273,17 +1561,50 @@ impl AIPlayer {
             }
         }
 
-        // Update building status
+        // C++ processBaseBuilding: captured pads unbind; missing pads scan GLA holes.
+        self.sync_build_list_object_status(game_logic, current_time);
+    }
+
+    fn pad_object_still_ours(object: &crate::game_logic::Object, player_id: u32, team: Team) -> bool {
+        match object.owner_player_id {
+            Some(owner) => owner == player_id,
+            None => object.team == team,
+        }
+    }
+
+    fn find_rebuild_hole_for_spawner(game_logic: &GameLogic, prior_id: ObjectId) -> Option<ObjectId> {
+        game_logic.host_objects().iter().find_map(|(&id, object)| {
+            (object.is_rebuild_hole && object.rebuild_spawner_id == Some(prior_id)).then_some(id)
+        })
+    }
+
+    fn sync_build_list_object_status(&mut self, game_logic: &GameLogic, current_time: f32) {
         for building in &mut self.building_queue {
-            if let Some(object_id) = building.object_id {
-                if let Some(object) = game_logic.host_object(object_id) {
-                    building.is_built = object.is_constructed();
-                } else {
-                    // Building was destroyed — stamp rebuild delay (AIData RebuildDelaySeconds).
+            let Some(object_id) = building.object_id else {
+                continue;
+            };
+            let prior_id = object_id;
+            match game_logic.host_object(object_id) {
+                Some(object) => {
+                    if Self::pad_object_still_ours(object, self.player_id, self.team) {
+                        building.is_built = object.is_constructed() && !object.is_rebuild_hole;
+                    } else {
+                        // C++: captured — clear objectID + stamp timestamp.
+                        building.object_id = None;
+                        building.is_built = false;
+                        if building.destroyed_at_time.is_none() {
+                            building.destroyed_at_time = Some(current_time);
+                        }
+                    }
+                }
+                None => {
                     building.object_id = None;
                     building.is_built = false;
                     if building.destroyed_at_time.is_none() {
                         building.destroyed_at_time = Some(current_time);
+                    }
+                    if let Some(hole_id) = Self::find_rebuild_hole_for_spawner(game_logic, prior_id) {
+                        building.object_id = Some(hole_id);
                     }
                 }
             }
@@ -1387,67 +1708,90 @@ impl AIPlayer {
         false
     }
 
-    /// Try to build a supply center for resource generation
-    fn try_build_supply_center(&mut self, _game_logic: &mut GameLogic) {
-        let supply_center_name = match self.team {
-            Team::USA => "AmericaSupplyCenter",
-            Team::China => "ChinaSupplyCenter",
-            Team::GLA => "GLASupplyStash",
-            _ => return,
+    /// C++ `AIPlayer::buildBySupplies` — named template near `findSupplyCenter`.
+    /// Never invents a random offset around base center.
+    pub fn build_by_supplies(
+        &mut self,
+        game_logic: &GameLogic,
+        minimum_cash: i32,
+        thing_name: &str,
+    ) -> bool {
+        let Some(warehouse_id) = self.find_supply_center(game_logic, minimum_cash) else {
+            return false;
         };
-
-        // Check if we already have enough supply centers building
-        let existing_count = self
-            .building_queue
-            .iter()
-            .filter(|b| {
-                b.template_name == supply_center_name && (!b.is_built || b.object_id.is_some())
-            })
-            .count();
-
-        if existing_count < 3 {
-            // Limit to 3 supply centers
-            let position = self.base_center
-                + Vec3::new(
-                    self.placement_rng.next_real(-80.0, 80.0),
-                    0.0,
-                    self.placement_rng.next_real(-80.0, 80.0),
-                );
-
-            self.add_building(supply_center_name, position, 2);
+        let Some(warehouse) = game_logic.host_object(warehouse_id) else {
+            return false;
+        };
+        let warehouse_pos = warehouse.get_position();
+        let is_cash = game_logic
+            .templates
+            .get(thing_name)
+            .map(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter))
+            .unwrap_or_else(|| {
+                thing_name.contains("SupplyCenter") || thing_name.contains("SupplyStash")
+            });
+        let mut offset = warehouse_pos - self.base_center;
+        let mut radius = 30.0;
+        if !is_cash {
+            if let Some(enemy_id) = self.enemy_player_id {
+                if let Some(enemy) = game_logic.get_player(enemy_id) {
+                    let enemy_center = self.find_enemy_base_center(game_logic, enemy.team);
+                    offset = warehouse_pos - enemy_center;
+                }
+            }
+            radius = warehouse.selection_radius.max(20.0);
         }
+        let len = Vec3::new(offset.x, 0.0, offset.z).length();
+        if len > 0.0001 {
+            offset.x /= len;
+            offset.z /= len;
+        } else {
+            offset = Vec3::new(1.0, 0.0, 0.0);
+        }
+        let position = Vec3::new(
+            warehouse_pos.x - offset.x * radius,
+            0.0,
+            warehouse_pos.z - offset.z * radius,
+        );
+        self.add_building(thing_name, position, 2);
+        self.current_warehouse_id = Some(warehouse_id);
+        true
     }
 
-    /// Try to build a power plant for energy
-    fn try_build_power_plant(&mut self, _game_logic: &mut GameLogic) {
-        let power_plant_name = match self.team {
-            Team::USA => "AmericaPowerPlant",
-            Team::China => "ChinaPowerPlant",
-            Team::GLA => return, // GLA doesn't use power
-            _ => return,
-        };
-
-        // Check if we already have enough power plants
-        let existing_count = self
-            .building_queue
-            .iter()
-            .filter(|b| {
-                b.template_name == power_plant_name && (!b.is_built || b.object_id.is_some())
-            })
-            .count();
-
-        if existing_count < 2 {
-            let position = self.base_center
-                + Vec3::new(
-                    self.placement_rng.next_real(-60.0, 60.0),
-                    0.0,
-                    self.placement_rng.next_real(-60.0, 60.0),
-                );
-
-            self.add_building(power_plant_name, position, 1);
+    /// C++ `AIPlayer::findSupplyCenter`.
+    fn find_supply_center(&self, game_logic: &GameLogic, minimum_cash: i32) -> Option<ObjectId> {
+        if let Some(id) = self.current_warehouse_id {
+            if game_logic.host_object(id).is_some() {
+                return Some(id);
+            }
         }
+        let floor = minimum_cash.max(0) as u32;
+        let mut best: Option<(f32, ObjectId)> = None;
+        for (&id, source) in game_logic.host_objects() {
+            if !source.is_alive() {
+                continue;
+            }
+            let is_source = source.is_kind_of(KindOf::SupplySource)
+                || source.is_kind_of(KindOf::Harvestable)
+                || source.is_kind_of(KindOf::Resource);
+            if !is_source {
+                continue;
+            }
+            if source.team != Team::Neutral && source.team != self.team {
+                continue;
+            }
+            let cash = source.stored_resources.supplies;
+            if cash < floor && cash < 100 {
+                continue;
+            }
+            let pos = source.get_position();
+            let dist = (pos - self.base_center).length_squared();
+            if best.map(|(d, _)| dist < d).unwrap_or(true) {
+                best = Some((dist, id));
+            }
+        }
+        best.map(|(_, id)| id)
     }
-
     /// Default/AIData.ini `SideInfo::* ResourceGatherers*` plus the free
     /// SupplyCenter/Stash SpawnBehavior collector.  All three difficulty
     /// entries use these same values in the retail data.
@@ -1897,6 +2241,8 @@ impl AIPlayer {
         // TeamInQueue work orders.  Its priority order therefore gets an idle
         // SupplyCenter and pays through ordinary ProductionUpdate immediately.
         self.queue_supply_truck(game_logic, current_time);
+        // C++ queueUnits: tryToRecruit existing map units before startTraining.
+        self.recruit_waiting_work_orders(game_logic);
 
         // Collect all factory assignments needed
         let mut factory_assignments = Vec::new();
@@ -2656,46 +3002,48 @@ impl AIPlayer {
         min_priority: i32,
         current_time: f32,
     ) -> bool {
-        let Ok(list) = gamelogic::player::player_list().read() else {
-            return false;
-        };
-        let Some(player) = list.get_player(self.player_id as i32) else {
-            return false;
-        };
-        let Ok(pg) = player.read() else {
-            return false;
-        };
-        let mut best: Option<(String, String)> = None;
+        let candidates = self.collect_auto_reinforce_candidates();
+        let mut best: Option<(String, String, i32)> = None;
         let mut cur = min_priority;
-        for proto in pg.get_player_team_prototypes() {
-            if !proto.automatically_reinforce() {
+        for cand in candidates {
+            if cand.priority <= cur {
                 continue;
             }
-            let pri = proto.get_production_priority();
-            if pri <= cur {
+            if self.team_queue.iter().any(|t| t.name == cand.name) {
                 continue;
             }
-            let name = proto.get_name().to_string();
-            if self.team_queue.iter().any(|t| t.name == name) {
+            if !self.player_has_any_units(game_logic, self.team) {
                 continue;
             }
-            for unit in proto.units_info() {
-                if unit.max_units < 1 || unit.unit_thing_name.is_empty() {
+            for unit in &cand.units {
+                if unit.max_units < 1 || unit.thing.is_empty() {
                     continue;
                 }
-                best = Some((name.clone(), unit.unit_thing_name.to_string()));
-                cur = pri;
+                let count = self.count_owned_template_units(game_logic, &unit.thing);
+                if count >= unit.max_units as u32 {
+                    continue;
+                }
+                if Self::find_factory_for_unit_ex(game_logic, &unit.thing, self.team, false)
+                    .is_none()
+                {
+                    continue;
+                }
+                best = Some((cand.name.clone(), unit.thing.clone(), cand.priority));
+                cur = cand.priority;
             }
         }
-        drop(pg);
-        drop(list);
-        let Some((team_name, thing)) = best else {
+        let Some((team_name, thing, _)) = best else {
             return false;
         };
-        if !self.is_possible_to_build_team(game_logic, &team_name) {
-            return false;
+        let mut order = AIWorkOrder::new(thing.clone(), 1, 100);
+        let home = self.team_home_or_base(&team_name);
+        if let Some(unit_id) = self.try_to_recruit(game_logic, &thing, home, None) {
+            order.num_completed = 1;
+            order.observed_unit_ids.push(unit_id);
+            if let Some(obj) = game_logic.host_object_mut(unit_id) {
+                obj.set_ai_state(AIState::Idle);
+            }
         }
-        let order = AIWorkOrder::new(thing, 1, 100);
         let mut q = AITeamQueue::new(
             team_name,
             vec![order],
@@ -2703,7 +3051,288 @@ impl AIPlayer {
             (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
         );
         q.reinforcement = true;
+        if let Some(id) = q.work_orders.first().and_then(|o| o.observed_unit_ids.first()) {
+            q.reinforcement_id = Some(*id);
+        }
         self.team_queue.push_front(q);
+        // C++ m_teamDelay = 0
+        self.next_team_queue_time = current_time;
+        self.activity_count = self.activity_count.saturating_add(1);
+        true
+    }
+
+    fn collect_auto_reinforce_candidates(&self) -> Vec<ReinforceCandidate> {
+        let mut out = Vec::new();
+        if let Ok(list) = gamelogic::player::player_list().read() {
+            if let Some(player) = list.get_player(self.player_id as i32) {
+                if let Ok(pg) = player.read() {
+                    for proto in pg.get_player_team_prototypes() {
+                        if !proto.automatically_reinforce() {
+                            continue;
+                        }
+                        out.push(ReinforceCandidate {
+                            name: proto.get_name().to_string(),
+                            priority: proto.get_production_priority(),
+                            units: proto
+                                .units_info()
+                                .iter()
+                                .map(|u| ReinforceUnit {
+                                    thing: u.unit_thing_name.to_string(),
+                                    max_units: u.max_units,
+                                })
+                                .collect(),
+                        });
+                    }
+                }
+            }
+        }
+        if out.is_empty() {
+            if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+                // Host tests / unsynced player list: scan factory prototypes.
+                for proto in factory.list_team_prototypes() {
+                    if !proto.automatically_reinforce() {
+                        continue;
+                    }
+                    out.push(ReinforceCandidate {
+                        name: proto.get_name().to_string(),
+                        priority: proto.get_production_priority(),
+                        units: proto
+                            .units_info()
+                            .iter()
+                            .map(|u| ReinforceUnit {
+                                thing: u.unit_thing_name.to_string(),
+                                max_units: u.max_units,
+                            })
+                            .collect(),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    fn count_owned_template_units(&self, game_logic: &GameLogic, template_name: &str) -> u32 {
+        game_logic
+            .host_objects()
+            .values()
+            .filter(|object| {
+                Self::pad_object_still_ours(object, self.player_id, self.team)
+                    && object.is_alive()
+                    && !object.is_kind_of(KindOf::Structure)
+                    && object.template_name.eq_ignore_ascii_case(template_name)
+            })
+            .count() as u32
+    }
+
+    fn team_home_or_base(&self, team_name: &str) -> Vec3 {
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(team_name) {
+                if proto.has_home_location() {
+                    let loc = proto.home_location();
+                    return Vec3::new(loc.x, loc.z, loc.y);
+                }
+            }
+        }
+        self.base_center
+    }
+
+    fn try_to_recruit(
+        &self,
+        game_logic: &GameLogic,
+        template_name: &str,
+        home: Vec3,
+        max_dist: Option<f32>,
+    ) -> Option<ObjectId> {
+        let mut assigned: HashSet<ObjectId> = HashSet::new();
+        for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
+            for order in &team.work_orders {
+                assigned.extend(order.observed_unit_ids.iter().copied());
+            }
+        }
+        self.try_to_recruit_excluding(
+            game_logic,
+            template_name,
+            home,
+            max_dist.unwrap_or_else(Self::aidata_max_recruit_distance),
+            &assigned,
+        )
+    }
+
+    fn try_to_recruit_excluding(
+        &self,
+        game_logic: &GameLogic,
+        template_name: &str,
+        home: Vec3,
+        max_dist: f32,
+        assigned: &HashSet<ObjectId>,
+    ) -> Option<ObjectId> {
+        let max_d2 = max_dist * max_dist;
+        let mut best: Option<(f32, ObjectId)> = None;
+        for (&id, object) in game_logic.host_objects() {
+            if !Self::pad_object_still_ours(object, self.player_id, self.team) {
+                continue;
+            }
+            if !object.is_alive() || object.is_kind_of(KindOf::Structure) {
+                continue;
+            }
+            if !object.template_name.eq_ignore_ascii_case(template_name) {
+                continue;
+            }
+            if assigned.contains(&id) {
+                continue;
+            }
+            let pos = object.get_position();
+            let d2 = (pos - home).length_squared();
+            if d2 > max_d2 {
+                continue;
+            }
+            if best.map(|(d, _)| d2 < d).unwrap_or(true) {
+                best = Some((d2, id));
+            }
+        }
+        best.map(|(_, id)| id)
+    }
+
+    fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
+        let max_dist = Self::aidata_max_recruit_distance();
+        let mut assigned: HashSet<ObjectId> = HashSet::new();
+        for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
+            for order in &team.work_orders {
+                assigned.extend(order.observed_unit_ids.iter().copied());
+            }
+        }
+        let jobs: Vec<(usize, usize, String, Vec3, bool, u32)> = self
+            .team_queue
+            .iter()
+            .enumerate()
+            .flat_map(|(ti, team)| {
+                let home = self.team_home_or_base(&team.name);
+                let has_home = gamelogic::team::get_team_factory()
+                    .lock()
+                    .ok()
+                    .and_then(|f| f.find_team_prototype(&team.name).map(|p| p.has_home_location()))
+                    .unwrap_or(false);
+                team.work_orders
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(oi, order)| {
+                        if order.num_completed < order.num_required && order.factory_id.is_none() {
+                            Some((
+                                ti,
+                                oi,
+                                order.template_name.clone(),
+                                home,
+                                has_home,
+                                order.num_required - order.num_completed,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut found: Vec<(usize, usize, ObjectId, Vec3, bool)> = Vec::new();
+        for (ti, oi, thing, home, has_home, need) in jobs {
+            let mut got = 0u32;
+            while got < need {
+                let Some(unit_id) =
+                    self.try_to_recruit_excluding(game_logic, &thing, home, max_dist, &assigned)
+                else {
+                    break;
+                };
+                assigned.insert(unit_id);
+                found.push((ti, oi, unit_id, home, has_home));
+                got = got.saturating_add(1);
+            }
+        }
+        for (ti, oi, unit_id, home, has_home) in found {
+            if let Some(order) = self
+                .team_queue
+                .get_mut(ti)
+                .and_then(|t| t.work_orders.get_mut(oi))
+            {
+                order.num_completed = order.num_completed.saturating_add(1);
+                order.observed_unit_ids.push(unit_id);
+            }
+            if has_home {
+                let _ = game_logic.unit_command_move_to(unit_id, home);
+            } else if let Some(obj) = game_logic.host_object_mut(unit_id) {
+                obj.set_ai_state(AIState::Idle);
+            }
+        }
+    }
+
+    /// C++ `AIPlayer::recruitSpecificAITeam`.
+    pub fn recruit_specific_ai_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_name: &str,
+        recruit_radius: f32,
+    ) -> bool {
+        let radius = if recruit_radius < 1.0 {
+            99_999.0
+        } else {
+            recruit_radius
+        };
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(team_name) {
+                if proto.is_singleton() {
+                    if let Some(existing) = factory.find_team_instances(team_name).into_iter().next() {
+                        if let Ok(eg) = existing.read() {
+                            if eg.has_any_objects() {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut orders = self.create_work_orders_for_team(team_name);
+        if orders.is_empty() {
+            if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+                if let Some(proto) = factory.find_team_prototype(team_name) {
+                    for unit in proto.units_info() {
+                        if unit.max_units < 1 || unit.unit_thing_name.is_empty() {
+                            continue;
+                        }
+                        orders.push(AIWorkOrder::new(
+                            unit.unit_thing_name.to_string(),
+                            unit.max_units.max(0) as u32,
+                            100,
+                        ));
+                    }
+                }
+            }
+        }
+        if orders.is_empty() {
+            return false;
+        }
+        let home = self.team_home_or_base(team_name);
+        let mut recruited = 0u32;
+        for order in &mut orders {
+            while order.num_completed < order.num_required {
+                let Some(unit_id) =
+                    self.try_to_recruit(game_logic, &order.template_name, home, Some(radius))
+                else {
+                    break;
+                };
+                order.num_completed = order.num_completed.saturating_add(1);
+                order.observed_unit_ids.push(unit_id);
+                recruited = recruited.saturating_add(1);
+                let _ = game_logic.unit_command_move_to(unit_id, home);
+            }
+        }
+        if recruited == 0 {
+            return false;
+        }
+        let q = AITeamQueue::new(
+            team_name.to_string(),
+            orders,
+            false,
+            0,
+        );
+        self.team_ready_queue.push_back(q);
         self.activity_count = self.activity_count.saturating_add(1);
         true
     }
@@ -4500,6 +5129,32 @@ impl AIManager {
             .any(|id| self.build_specific_ai_building(id, thing_name))
     }
 
+    /// C++ `AIPlayer::buildBySupplies` live host entry.
+    pub fn build_by_supplies(
+        &mut self,
+        game_logic: &GameLogic,
+        player_id: u32,
+        minimum_cash: i32,
+        thing_name: &str,
+    ) -> bool {
+        self.ai_players
+            .get_mut(&player_id)
+            .is_some_and(|ai| ai.build_by_supplies(game_logic, minimum_cash, thing_name))
+    }
+
+    /// C++ `AIPlayer::recruitSpecificAITeam` live host entry.
+    pub fn recruit_specific_ai_team(
+        &mut self,
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        team_name: &str,
+        recruit_radius: f32,
+    ) -> bool {
+        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
+            ai.recruit_specific_ai_team(game_logic, team_name, recruit_radius)
+        })
+    }
+
     /// Clear all pending AI commands
     pub fn clear_pending_commands(&mut self) {
         log::info!("AI Manager: Clearing all pending commands...");
@@ -5569,6 +6224,290 @@ mod cpp_parity_tests {
             ));
         }
     }
+
+    #[test]
+    fn captured_pad_unbinds_and_gla_hole_rebinds() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 10_000;
+        logic.add_player(player);
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_cost(500, 0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+
+        let factory_id = logic
+            .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
+            .expect("pad");
+        if let Some(obj) = logic.host_object_mut(factory_id) {
+            obj.owner_player_id = Some(1);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.add_building("AmericaBarracks", Vec3::ZERO, 3);
+        ai.building_queue[0].object_id = Some(factory_id);
+        ai.building_queue[0].is_built = true;
+
+        // Capture: new owner, same live object.
+        if let Some(obj) = logic.host_object_mut(factory_id) {
+            obj.owner_player_id = Some(0);
+            obj.set_team(Team::China);
+        }
+        ai.sync_build_list_object_status(&logic, 12.0);
+        assert!(ai.building_queue[0].object_id.is_none());
+        assert!(!ai.building_queue[0].is_built);
+        assert_eq!(ai.building_queue[0].destroyed_at_time, Some(12.0));
+
+        // Destroyed + GLA hole with matching spawner.
+        let hole_id = logic
+            .create_object("AmericaBarracks", Team::GLA, Vec3::new(4.0, 0.0, 0.0))
+            .expect("hole");
+        if let Some(hole) = logic.host_object_mut(hole_id) {
+            hole.is_rebuild_hole = true;
+            hole.rebuild_spawner_id = Some(factory_id);
+            hole.owner_player_id = Some(1);
+            hole.set_team(Team::USA);
+        }
+        ai.building_queue[0].object_id = Some(factory_id);
+        logic.destroy_object(factory_id);
+        ai.sync_build_list_object_status(&logic, 13.0);
+        assert_eq!(ai.building_queue[0].object_id, Some(hole_id));
+    }
+
+    #[test]
+    fn economic_update_does_not_invent_random_supply_or_power_pads() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 10;
+        player.power_available = -40;
+        logic.add_player(player);
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.add_building("AmericaBarracks", Vec3::ZERO, 1);
+        let before = ai.building_queue.len();
+        ai.next_building_time = 0.0;
+        ai.update_economic_management(&mut logic, 0.0);
+        assert_eq!(
+            ai.building_queue.len(),
+            before,
+            "low cash / brown-out must not append invented SupplyCenter/PowerPlant pads"
+        );
+        assert!(
+            !ai.building_queue
+                .iter()
+                .any(|b| b.template_name.contains("SupplyCenter")
+                    || b.template_name.contains("PowerPlant")),
+            "no extra supply/power pads outside the authored list"
+        );
+    }
+
+    #[test]
+    fn build_by_supplies_places_named_template_near_warehouse() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 10_000;
+        logic.add_player(player);
+        let mut pile = crate::game_logic::ThingTemplate::new("SupplyWarehouse");
+        pile.add_kind_of(crate::game_logic::KindOf::Harvestable)
+            .add_kind_of(crate::game_logic::KindOf::Resource)
+            .add_kind_of(crate::game_logic::KindOf::SupplySource);
+        logic.templates.insert("SupplyWarehouse".into(), pile);
+        let mut sc = crate::game_logic::ThingTemplate::new("AmericaSupplyCenter");
+        sc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::SupplyCenter);
+        logic.templates.insert("AmericaSupplyCenter".into(), sc);
+
+        let warehouse = logic
+            .create_object("SupplyWarehouse", Team::Neutral, Vec3::new(200.0, 0.0, 0.0))
+            .expect("warehouse");
+        if let Some(obj) = logic.host_object_mut(warehouse) {
+            obj.stored_resources.supplies = 5_000;
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.base_center = Vec3::ZERO;
+        assert!(ai.build_by_supplies(&logic, 100, "AmericaSupplyCenter"));
+        let pad = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name == "AmericaSupplyCenter")
+            .expect("named pad");
+        assert!(
+            (pad.position - Vec3::new(200.0, 0.0, 0.0)).length() < 80.0,
+            "depot must sit near the warehouse, not a random base-center offset: {:?}",
+            pad.position
+        );
+        assert!(pad.is_priority);
+    }
+
+    #[test]
+    fn skirmish_new_map_uses_aidata_side_build_list() {
+        {
+            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            store.ensure_base();
+            if let Some(data) = store.get_active_mut() {
+                data.rotate_skirmish_bases = false;
+                data.side_build_lists.retain(|l| !l.side.eq_ignore_ascii_case("America"));
+                let mut list = game_engine::common::ini::AiSideBuildList::new("America".into());
+                list.entries.push(game_engine::common::ini::BuildListEntry {
+                    building_name: "CC".into(),
+                    template_name: "AmericaCommandCenter".into(),
+                    location: (0.0, 0.0),
+                    rebuilds: 0,
+                    angle_radians: 0.0,
+                    initially_built: false,
+                    rally_point_offset: (0.0, 0.0),
+                    automatically_build: true,
+                });
+                list.entries.push(game_engine::common::ini::BuildListEntry {
+                    building_name: "WF".into(),
+                    template_name: "AmericaWarFactory".into(),
+                    location: (80.0, 0.0),
+                    rebuilds: 1,
+                    angle_radians: 0.0,
+                    initially_built: false,
+                    rally_point_offset: (0.0, 0.0),
+                    automatically_build: true,
+                });
+                data.side_build_lists.push(list);
+            }
+        }
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        wf.add_kind_of(crate::game_logic::KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), wf);
+
+        let start_cc = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::new(-40.0, 0.0, -40.0))
+            .expect("map CC");
+        if let Some(obj) = logic.host_object_mut(start_cc) {
+            obj.owner_player_id = Some(1);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.initialize(Vec3::new(-40.0, 0.0, -40.0));
+        assert!(ai.apply_skirmish_new_map(&mut logic));
+        assert!(
+            logic.host_object(start_cc).is_none(),
+            "map-placed CC must be destroyed"
+        );
+        let cc_pad = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name.contains("CommandCenter"))
+            .expect("list CC");
+        assert!(cc_pad.is_built, "list CC is InitiallyBuilt / buildStructureNow");
+        let wf_pad = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name.contains("WarFactory"))
+            .expect("list WF");
+        assert!(!wf_pad.is_built);
+        assert!(
+            wf_pad.is_buildable(),
+            "non-CC entries incrementNumRebuilds so first build does not spend the last slot"
+        );
+        {
+            let mut store = game_engine::common::ini::get_ai_data_store_mut();
+            if let Some(data) = store.get_active_mut() {
+                data.side_build_lists
+                    .retain(|l| !l.side.eq_ignore_ascii_case("America"));
+            }
+        }
+    }
+
+    #[test]
+    fn queue_units_recruits_existing_idle_units() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut ranger = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(crate::game_logic::KindOf::Infantry);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let existing = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("idle ranger");
+        if let Some(obj) = logic.host_object_mut(existing) {
+            obj.owner_player_id = Some(1);
+            obj.set_ai_state(crate::game_logic::AIState::Idle);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
+        ai.team_queue
+            .push_back(AITeamQueue::new("USA_RangerSquad".into(), vec![order], false, 0));
+        ai.process_team_queue(&mut logic, 0.0);
+        let team = ai.team_queue.front().expect("queued team");
+        assert_eq!(team.work_orders[0].num_completed, 1);
+        assert_eq!(team.work_orders[0].observed_unit_ids, vec![existing]);
+        assert!(
+            team.work_orders[0].factory_id.is_none(),
+            "recruited unit must not also startTraining"
+        );
+    }
+
+    #[test]
+    fn select_team_to_reinforce_tops_up_short_auto_team() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+        player.resources.supplies = 50_000;
+        logic.add_player(player);
+        let mut tank = crate::game_logic::ThingTemplate::new("AmericaTankCrusader");
+        tank.add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_cost(100, 0);
+        logic.templates.insert("AmericaTankCrusader".into(), tank);
+        let mut wf = crate::game_logic::ThingTemplate::new("AmericaWarFactory");
+        wf.add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSWarFactory);
+        logic.templates.insert("AmericaWarFactory".into(), wf);
+
+        let _tank_id = logic
+            .create_object("AmericaTankCrusader", Team::USA, Vec3::ZERO)
+            .expect("live crusader");
+        if let Some(obj) = logic.host_object_mut(_tank_id) {
+            obj.owner_player_id = Some(1);
+        }
+        let factory = logic
+            .create_object("AmericaWarFactory", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("idle factory");
+        if let Some(obj) = logic.host_object_mut(factory) {
+            obj.owner_player_id = Some(1);
+        }
+
+        if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+            let mut proto = gamelogic::team::TeamPrototype::new("USA_TankTeam".into());
+            proto.set_automatically_reinforce(true);
+            proto.set_production_priority(50);
+            proto.set_units_info(
+                0,
+                gamelogic::team::CreateUnitsInfo {
+                    min_units: 1,
+                    max_units: 3,
+                    unit_thing_name: "AmericaTankCrusader",
+                },
+            );
+            tf.replace_team_prototype(proto);
+        }
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert!(ai.select_team_to_reinforce(&mut logic, 0, 1.0));
+        let team = ai.team_queue.front().expect("reinforce order");
+        assert!(team.reinforcement);
+        assert_eq!(team.work_orders[0].num_required, 1);
+        assert_eq!(team.work_orders[0].template_name, "AmericaTankCrusader");
+        assert_eq!(ai.next_team_queue_time, 1.0);
+    }
+
 
     #[test]
     fn unlimited_rebuilds_do_not_spend_budget_on_first_build() {

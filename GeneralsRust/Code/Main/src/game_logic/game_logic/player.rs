@@ -1313,6 +1313,16 @@ pub(super) struct AirfieldParkingSpace {
     pub(super) reserved_for_exit: bool,
 }
 
+/// C++ `HeliTakeoffOrLandingState` two-point path (JetAIUpdate.cpp:961-1125).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct HostHeliTakeoffOrLanding {
+    pub(super) path: [glam::Vec3; 2],
+    pub(super) index: u8,
+    pub(super) landing: bool,
+    pub(super) airfield_id: ObjectId,
+}
+
+
 /// Fat-object ID store as its **own field** so a tick can mut-borrow objects
 /// without `&mut self` on the whole [`GameLogic`] (`self.objects.get_mut` +
 /// `self.frame` split-borrow).

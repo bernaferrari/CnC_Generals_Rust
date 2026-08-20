@@ -182,11 +182,17 @@ impl GameLogic {
         if !unit.can_attack() {
             return false;
         }
+        unit.mark_jet_command_for_reload_interrupt(false);
         unit.set_force_attack(false);
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_ai_state(AIState::Attacking);
+        drop(unit);
+        if let Some(tgt) = self.objects.get_mut(&target_id) {
+            tgt.add_jet_targeter(id, true, self.frame);
+        }
         true
+
     }
 
     /// Wave 230/232: force-attack target (records host attack log).
@@ -212,11 +218,17 @@ impl GameLogic {
         if !unit.can_attack() {
             return false;
         }
+        unit.mark_jet_command_for_reload_interrupt(false);
         unit.set_target(Some(target_id));
         crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_force_attack(true);
         unit.set_ai_state(AIState::Attacking);
+        drop(unit);
+        if let Some(tgt) = self.objects.get_mut(&target_id) {
+            tgt.add_jet_targeter(id, true, self.frame);
+        }
         true
+
     }
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
@@ -231,6 +243,29 @@ impl GameLogic {
         }
 
         self.note_hacker_ai_command(id);
+        let should_land = self.objects.get(&id).is_some_and(|unit| {
+            unit.is_alive()
+                && (unit.is_kind_of(KindOf::Aircraft) || unit.object_type == ObjectType::Aircraft)
+                && unit.status.airborne_target
+                && !Self::object_is_produced_at_helipad(unit)
+        });
+        if should_land {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.stop();
+                unit.set_target(None);
+                unit.set_force_attack(false);
+                unit.set_guard_position(None);
+                unit.set_guard_target(None);
+                crate::game_logic::host_attack_log::record(id, None);
+                crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
+                unit.end_guard_retaliate();
+                unit.hunting = false;
+                unit.return_to_base_requested = true;
+                unit.jet_ai.allow_interrupt_for_reload = false;
+            }
+            let _ = self.try_return_to_base_rearm(id);
+            return true;
+        }
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -245,6 +280,7 @@ impl GameLogic {
         unit.hunting = false;
         unit.set_ai_state(AIState::Idle);
         true
+
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
@@ -264,6 +300,8 @@ impl GameLogic {
         unit.set_guard_position(Some(pos));
         unit.hunting = false;
         unit.set_ai_state(AIState::GuardingArea);
+        unit.mark_jet_command_for_reload_interrupt(true);
+
         true
     }
 
@@ -275,6 +313,8 @@ impl GameLogic {
         unit.set_guard_target(Some(target_id));
         unit.hunting = false;
         unit.set_ai_state(AIState::GuardingObject);
+        unit.mark_jet_command_for_reload_interrupt(true);
+
         true
     }
 
@@ -655,6 +695,8 @@ impl GameLogic {
             unit.auto_acquire_when_idle = true;
             unit.hunting = true;
             unit.set_ai_state(AIState::Patrolling);
+            unit.mark_jet_command_for_reload_interrupt(true);
+
             unit.set_status_moving(false);
             return true;
         }
@@ -936,7 +978,7 @@ impl GameLogic {
         if !self
             .pathfinding_system
             .grid
-            .quick_path_exists_for_ui(from, location)
+            .quick_path_exists(from, location)
         {
             #[cfg(feature = "game_client")]
             game_client::helpers::TheInGameUI::message("GUI:RallyPointNoPath");

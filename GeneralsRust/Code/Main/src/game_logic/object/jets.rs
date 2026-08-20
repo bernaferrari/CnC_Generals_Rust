@@ -1,5 +1,68 @@
 use super::*;
 
+/// C++ `JetAIUpdate` live-host residual (Wave 12).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct HostJetAi {
+    /// C++ `m_returnToBaseFrame` (0 = unset).
+    pub return_to_base_frame: u32,
+    /// C++ `m_attackersMissExpireFrame`.
+    pub attackers_miss_expire_frame: u32,
+    /// C++ `m_untargetableExpireFrame`.
+    pub untargetable_expire_frame: u32,
+    /// C++ `m_targetedBy`.
+    pub targeted_by: Vec<ObjectId>,
+    /// C++ `ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD`.
+    pub allow_interrupt_for_reload: bool,
+    /// C++ `HAS_PENDING_COMMAND`.
+    pub has_pending_command: bool,
+    /// Guard/hunt reconstitution after `RELOAD_AMMO`.
+    pub pending_resume: HostJetPendingResume,
+    /// C++ `TAKEOFF_IN_PROGRESS`.
+    pub takeoff_in_progress: bool,
+    /// C++ `LANDING_IN_PROGRESS`.
+    pub landing_in_progress: bool,
+    /// C++ afterburner model/sound latch.
+    pub afterburners_on: bool,
+    /// C++ `JetPauseBeforeTakeoffState::m_when`.
+    pub takeoff_pause_until: u32,
+    /// C++ `m_whenTransfer`.
+    pub takeoff_pause_transfer: u32,
+    pub takeoff_pause_armed: bool,
+    /// Locomotor max lift captured on takeoff enter.
+    pub takeoff_max_lift: f32,
+    pub takeoff_runway_end: Option<[f32; 3]>,
+    pub takeoff_runway_dist: f32,
+    /// C++ lock-on drawable world position.
+    pub lockon_pos: Option<[f32; 3]>,
+    pub lockon_hidden: bool,
+    pub lockon_tick_pending: bool,
+}
+
+/// Pending command reconstituted after airfield reload.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostJetPendingResume {
+    #[default]
+    None,
+    GuardArea,
+    GuardObject,
+    Hunt,
+    GuardRetaliate,
+}
+
+/// Retail AmericaJetStealthFighter `LockonTime` 1500ms → 45 frames.
+pub const STEALTH_FIGHTER_LOCKON_TIME_MS: u32 = 1500;
+pub const STEALTH_FIGHTER_LOCKON_TIME_FRAMES: u32 = 45;
+pub const STEALTH_FIGHTER_LOCKON_CURSOR: &str = "GenericLockon";
+pub const STEALTH_FIGHTER_LOCKON_INITIAL_DIST: f32 = 300.0;
+pub const STEALTH_FIGHTER_LOCKON_FREQ: f32 = 0.5;
+pub const STEALTH_FIGHTER_LOCKON_ANGLE_SPIN: f32 = 1440.0_f32.to_radians();
+pub const STEALTH_FIGHTER_LOCKON_BLINKY: bool = true;
+/// Retail `TakeoffPause` 500ms → 15 frames for runway jets.
+pub const JET_TAKEOFF_PAUSE_MS: u32 = 500;
+pub const JET_TAKEOFF_PAUSE_FRAMES: u32 = 15;
+pub const JET_LOCKON_TICK_SOUND: &str = "LockonTickSound";
+pub const JET_AFTERBURNER_SOUND: &str = "Afterburner";
+
 impl Object {
     /// C++ JetSlowDeathBehavior residual begin.
     /// Returns true when air crash should defer destroy.
@@ -206,4 +269,405 @@ impl Object {
         self.jet_circling_dead_airfield = false;
         self.jet_circling_airfield_check_frame = 0;
     }
+
+    pub fn is_runway_jet(&self) -> bool {
+        (self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft)
+            && !crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+                &self.template_name,
+            )
+    }
+
+    pub fn jet_return_to_base_idle_frames(&self) -> u32 {
+        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
+            crate::game_logic::host_aurora_bomb::AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
+        } else if self.is_runway_jet() {
+            // Retail Raptor / MIG / Stealth share Aurora's 10000ms idle RTB.
+            crate::game_logic::host_aurora_bomb::AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
+        } else {
+            0
+        }
+    }
+
+    pub fn jet_sneaky_offset_when_attacking(&self) -> f32 {
+        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
+            crate::game_logic::host_aurora_bomb::AURORA_JET_SNEAKY_OFFSET
+        } else {
+            0.0
+        }
+    }
+
+    pub fn jet_attackers_miss_persist_frames(&self) -> u32 {
+        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
+            // 2000ms → 60 frames @ 30 FPS.
+            60
+        } else {
+            0
+        }
+    }
+
+    pub fn jet_lockon_time_frames(&self) -> u32 {
+        if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
+        {
+            STEALTH_FIGHTER_LOCKON_TIME_FRAMES
+        } else {
+            0
+        }
+    }
+
+    pub fn jet_takeoff_pause_frames(&self) -> u32 {
+        if self.is_runway_jet() {
+            JET_TAKEOFF_PAUSE_FRAMES.max(1)
+        } else {
+            1
+        }
+    }
+
+    pub fn is_jet_guard_or_hunt(&self) -> bool {
+        self.hunting
+            || matches!(
+                self.ai_state,
+                AIState::GuardingArea
+                    | AIState::GuardingObject
+                    | AIState::GuardRetaliating
+                    | AIState::Patrolling
+            )
+    }
+
+    pub fn mark_jet_command_for_reload_interrupt(&mut self, allow: bool) {
+        if !self.is_runway_jet() {
+            return;
+        }
+        self.jet_ai.allow_interrupt_for_reload = allow;
+        if allow {
+            self.jet_ai.pending_resume = if self.hunting
+                || matches!(self.ai_state, AIState::Patrolling)
+            {
+                HostJetPendingResume::Hunt
+            } else if matches!(self.ai_state, AIState::GuardingObject) {
+                HostJetPendingResume::GuardObject
+            } else if matches!(self.ai_state, AIState::GuardRetaliating) {
+                HostJetPendingResume::GuardRetaliate
+            } else {
+                HostJetPendingResume::GuardArea
+            };
+        } else if !self.jet_ai.has_pending_command {
+            self.jet_ai.pending_resume = HostJetPendingResume::None;
+        }
+    }
+
+    /// C++ `JetAIUpdate::getSneakyTargetingOffset`.
+    pub fn get_sneaky_targeting_offset(&self, now: u32) -> Option<Vec3> {
+        let expire = self.jet_ai.attackers_miss_expire_frame;
+        if expire == 0 || now >= expire {
+            return None;
+        }
+        let offset = self.jet_sneaky_offset_when_attacking();
+        if offset.abs() < f32::EPSILON {
+            return None;
+        }
+        let dir = self.unit_direction_vector_2d();
+        Some(Vec3::new(dir.x * offset, 0.0, dir.y * offset))
+    }
+
+    pub fn apply_sneaky_targeting_offset(&self, pos: Vec3, now: u32) -> Vec3 {
+        match self.get_sneaky_targeting_offset(now) {
+            Some(off) => pos + off,
+            None => pos,
+        }
+    }
+
+    /// C++ `JetAIUpdate::addTargeter`.
+    pub fn add_jet_targeter(&mut self, id: ObjectId, add: bool, now: u32) {
+        let lockon_time = self.jet_lockon_time_frames();
+        if lockon_time == 0 {
+            return;
+        }
+        if add {
+            if !self.jet_ai.targeted_by.contains(&id) {
+                self.jet_ai.targeted_by.push(id);
+                if self.jet_ai.untargetable_expire_frame == 0 && self.jet_ai.targeted_by.len() == 1
+                {
+                    self.jet_ai.untargetable_expire_frame = now.saturating_add(lockon_time);
+                }
+            }
+        } else if let Some(pos) = self.jet_ai.targeted_by.iter().position(|entry| *entry == id) {
+            self.jet_ai.targeted_by.remove(pos);
+            if self.jet_ai.targeted_by.is_empty() {
+                self.jet_ai.untargetable_expire_frame = 0;
+                self.jet_ai.lockon_pos = None;
+            }
+        }
+    }
+
+    /// C++ `JetAIUpdate::isTemporarilyPreventingAimSuccess`.
+    pub fn is_temporarily_preventing_aim_success(&self, now: u32) -> bool {
+        self.jet_ai.untargetable_expire_frame != 0 && now < self.jet_ai.untargetable_expire_frame
+    }
+
+    /// C++ `JetAIUpdate::notifyVictimIsDead`.
+    pub fn notify_jet_victim_is_dead(&mut self, now: u32) {
+        if self.is_runway_jet() {
+            self.jet_ai.return_to_base_frame = now;
+        }
+    }
+
+    pub fn enable_jet_afterburners(&mut self, enable: bool) -> bool {
+        let changed = self.jet_ai.afterburners_on != enable;
+        self.jet_ai.afterburners_on = enable;
+        let bit = crate::game_logic::host_enum_table_residual::jetafterburner_model_bit();
+        if bit < 128 {
+            if enable {
+                self.model_condition_bits |= 1u128 << bit;
+            } else {
+                self.model_condition_bits &= !(1u128 << bit);
+            }
+        }
+        changed && enable
+    }
+
+    pub fn begin_jet_runway_takeoff(
+        &mut self,
+        now: u32,
+        runway_end: Vec3,
+        runway_dist: f32,
+        waited_for_taxi: bool,
+    ) {
+        self.jet_ai.takeoff_in_progress = true;
+        self.jet_ai.takeoff_pause_armed = true;
+        self.jet_ai.takeoff_pause_until = now.saturating_add(self.jet_takeoff_pause_frames());
+        self.jet_ai.takeoff_pause_transfer = now.saturating_add(if waited_for_taxi { 2 } else { 1 });
+        if self.jet_ai.takeoff_max_lift <= 0.0 {
+            self.jet_ai.takeoff_max_lift = self.max_lift.max(self.get_max_lift());
+        }
+        self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
+        self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
+        self.max_lift = 0.0;
+        let _ = self.enable_jet_afterburners(true);
+    }
+
+    /// C++ `JetTakeoffOrLandingState::update` takeoff lift ramp.
+    pub fn tick_jet_takeoff_lift(&mut self, now: u32) -> bool {
+        if !self.jet_ai.takeoff_in_progress {
+            return false;
+        }
+        if self.jet_ai.takeoff_pause_armed && now < self.jet_ai.takeoff_pause_until {
+            self.max_lift = 0.0;
+            return false;
+        }
+        let Some(end) = self.jet_ai.takeoff_runway_end else {
+            return true;
+        };
+        let end = Vec3::new(end[0], end[1], end[2]);
+        let pos = self.get_position();
+        let dist = (end - pos).length();
+        let mut ratio = 1.0 - (dist / self.jet_ai.takeoff_runway_dist.max(1.0));
+        ratio *= ratio;
+        ratio = ratio.clamp(0.0, 1.0);
+        let base = self.jet_ai.takeoff_max_lift.max(0.0);
+        self.max_lift = base * ratio;
+        if dist <= 8.0 || ratio >= 0.98 {
+            self.finish_jet_takeoff();
+            return true;
+        }
+        false
+    }
+
+    pub fn finish_jet_takeoff(&mut self) {
+        self.jet_ai.takeoff_in_progress = false;
+        self.jet_ai.takeoff_pause_armed = false;
+        self.jet_ai.takeoff_pause_until = 0;
+        self.jet_ai.takeoff_pause_transfer = 0;
+        self.jet_ai.takeoff_runway_end = None;
+        if self.jet_ai.takeoff_max_lift > 0.0 {
+            self.max_lift = self.jet_ai.takeoff_max_lift;
+        }
+        let _ = self.enable_jet_afterburners(false);
+    }
+
+    pub fn jet_should_transfer_runway(&self, now: u32) -> bool {
+        if !self.jet_ai.takeoff_in_progress {
+            return false;
+        }
+        if self.jet_ai.takeoff_pause_armed {
+            return now >= self.jet_ai.takeoff_pause_transfer;
+        }
+        true
+    }
+
+    /// C++ idle / reload empty-clip RTB + idle timer + sneaky persist + lockon.
+    pub fn tick_jet_ai_update(&mut self, now: u32) -> JetAiTickAction {
+        if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
+            return JetAiTickAction::None;
+        }
+        if self.jet_ai.afterburners_on {
+            let _ = self.enable_jet_afterburners(true);
+        }
+        let _ = self.tick_jet_takeoff_lift(now);
+        self.position_jet_lockon(now);
+
+        if self.status.attacking {
+            let persist = self.jet_attackers_miss_persist_frames();
+            if persist > 0 {
+                self.jet_ai.attackers_miss_expire_frame = now.saturating_add(persist);
+            }
+        } else if self.jet_ai.attackers_miss_expire_frame != 0
+            && now >= self.jet_ai.attackers_miss_expire_frame
+        {
+            self.jet_ai.attackers_miss_expire_frame = 0;
+        }
+
+        let airborne = self.status.airborne_target
+            && self.contained_by.is_none()
+            && !matches!(
+                self.ai_state,
+                AIState::Docked | AIState::Docking | AIState::Entering
+            );
+        if !airborne {
+            self.jet_ai.return_to_base_frame = 0;
+            if self.contained_by.is_some() {
+                self.jet_ai.landing_in_progress = false;
+                if self.jet_ai.has_pending_command
+                    && self.jet_ai.pending_resume != HostJetPendingResume::None
+                    && !self.needs_return_to_base_rearm()
+                    && self.airfield_rearm_ready_frame.is_none()
+                {
+                    return JetAiTickAction::ResumePending;
+                }
+            }
+            return JetAiTickAction::None;
+        }
+
+
+        let idle = matches!(self.ai_state, AIState::Idle)
+            && self.target.is_none()
+            && !self.hunting
+            && self.guard_position.is_none()
+            && self.guard_target.is_none();
+
+        if idle {
+            if self.needs_return_to_base_rearm() {
+                self.jet_ai.return_to_base_frame = 0;
+                return JetAiTickAction::ReturnToBase;
+            }
+            if self.jet_ai.has_pending_command
+                && self.jet_ai.pending_resume != HostJetPendingResume::None
+                && !self.needs_return_to_base_rearm()
+            {
+                return JetAiTickAction::ResumePending;
+            }
+            if self.jet_ai.return_to_base_frame != 0 && now >= self.jet_ai.return_to_base_frame {
+                self.jet_ai.return_to_base_frame = 0;
+                return JetAiTickAction::ReturnToBase;
+            }
+            if self.jet_ai.return_to_base_frame == 0 {
+                let idle_time = self.jet_return_to_base_idle_frames();
+                if idle_time > 0 {
+                    self.jet_ai.return_to_base_frame = now.saturating_add(idle_time);
+                }
+            }
+            return JetAiTickAction::None;
+        }
+
+        self.jet_ai.return_to_base_frame = 0;
+        if self.jet_ai.allow_interrupt_for_reload && self.needs_return_to_base_rearm() {
+            self.jet_ai.has_pending_command = true;
+            if self.jet_ai.pending_resume == HostJetPendingResume::None {
+                self.jet_ai.pending_resume = if self.hunting
+                    || matches!(self.ai_state, AIState::Patrolling)
+                {
+                    HostJetPendingResume::Hunt
+                } else if matches!(self.ai_state, AIState::GuardingObject) {
+                    HostJetPendingResume::GuardObject
+                } else if matches!(self.ai_state, AIState::GuardRetaliating) {
+                    HostJetPendingResume::GuardRetaliate
+                } else {
+                    HostJetPendingResume::GuardArea
+                };
+            }
+            self.jet_ai.allow_interrupt_for_reload = false;
+            return JetAiTickAction::ReturnToBase;
+        }
+        JetAiTickAction::None
+    }
+
+    fn position_jet_lockon(&mut self, now: u32) {
+        let lockon_time = self.jet_lockon_time_frames();
+        if self.jet_ai.untargetable_expire_frame == 0 || lockon_time == 0 {
+            self.jet_ai.lockon_pos = None;
+            self.jet_ai.lockon_tick_pending = false;
+            return;
+        }
+        if now >= self.jet_ai.untargetable_expire_frame {
+            self.jet_ai.untargetable_expire_frame = 0;
+            self.jet_ai.lockon_pos = None;
+            return;
+        }
+        let remaining = self.jet_ai.untargetable_expire_frame.saturating_sub(now);
+        let elapsed = lockon_time.saturating_sub(remaining);
+        let owner = self.get_position();
+        let final_dist = self.selection_radius.max(1.0);
+        let frac = remaining as f32 / lockon_time.max(1) as f32;
+        let dist = final_dist + (STEALTH_FIGHTER_LOCKON_INITIAL_DIST - final_dist) * frac;
+        let angle = STEALTH_FIGHTER_LOCKON_ANGLE_SPIN * frac;
+        let mut pos = owner;
+        pos.x += angle.cos() * dist;
+        pos.z += angle.sin() * dist;
+        self.jet_ai.lockon_pos = Some([pos.x, pos.y, pos.z]);
+
+        let elapsed_prev = elapsed.saturating_sub(1);
+        let elapsed_time_sum_prev = 0.5 * (elapsed_prev as f32) * (elapsed as f32);
+        let elapsed_time_sum_curr = elapsed_time_sum_prev + elapsed as f32;
+        let factor = STEALTH_FIGHTER_LOCKON_FREQ / lockon_time.max(1) as f32;
+        let last_phase = ((factor * elapsed_time_sum_prev) as i32 & 1) != 0;
+        let this_phase = ((factor * elapsed_time_sum_curr) as i32 & 1) != 0;
+        if last_phase && !this_phase {
+            self.jet_ai.lockon_tick_pending = true;
+            self.jet_ai.lockon_hidden = false;
+        } else {
+            self.jet_ai.lockon_hidden = STEALTH_FIGHTER_LOCKON_BLINKY;
+        }
+    }
+
+    pub fn take_jet_lockon_tick(&mut self) -> bool {
+        let pending = self.jet_ai.lockon_tick_pending;
+        self.jet_ai.lockon_tick_pending = false;
+        pending
+    }
+
+    pub fn apply_pending_jet_resume(&mut self) {
+        let resume = self.jet_ai.pending_resume;
+        self.jet_ai.has_pending_command = false;
+        self.jet_ai.pending_resume = HostJetPendingResume::None;
+        match resume {
+            HostJetPendingResume::None => {}
+            HostJetPendingResume::GuardArea => {
+                self.hunting = false;
+                self.set_ai_state(AIState::GuardingArea);
+                self.jet_ai.allow_interrupt_for_reload = true;
+            }
+            HostJetPendingResume::GuardObject => {
+                self.hunting = false;
+                self.set_ai_state(AIState::GuardingObject);
+                self.jet_ai.allow_interrupt_for_reload = true;
+            }
+            HostJetPendingResume::Hunt => {
+                self.hunting = true;
+                self.auto_acquire_when_idle = true;
+                self.set_ai_state(AIState::Patrolling);
+                self.jet_ai.allow_interrupt_for_reload = true;
+            }
+            HostJetPendingResume::GuardRetaliate => {
+                self.hunting = false;
+                self.set_ai_state(AIState::GuardRetaliating);
+                self.jet_ai.allow_interrupt_for_reload = true;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JetAiTickAction {
+    None,
+    ReturnToBase,
+    ResumePending,
 }

@@ -598,7 +598,7 @@ impl GameLogic {
         };
 
         // Collect grow work without holding registry mut across object mut.
-        let work: Vec<(u32, Vec3, f32, Team, Option<ObjectId>)> = {
+        let work: Vec<(u32, Vec3, f32, Team, Option<ObjectId>, u32)> = {
             let mut out = Vec::new();
             for a in self.gps_scramblers.growing_missions_mut() {
                 if a.grow_index >= GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL {
@@ -619,12 +619,12 @@ impl GameLogic {
                     .caster_id
                     .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
                     .unwrap_or(Team::GLA);
-                out.push((a.id, a.location, radius, team, a.caster_id));
+                out.push((a.id, a.location, radius, team, a.caster_id, a.player_id));
             }
             out
         };
 
-        for (_aid, location, radius, team, caster_id) in work {
+        for (_aid, location, radius, team, caster_id, player_id) in work {
             self.gps_scramblers.record_grow_pulse();
             let center = (location.x, location.z);
             let candidates: Vec<(ObjectId, bool, bool, bool, bool, bool, bool)> = self
@@ -643,7 +643,7 @@ impl GameLogic {
                     }
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
                     let is_infantry = obj.is_kind_of(KindOf::Infantry);
-                    let same_team = obj.team == team;
+                    let is_ally = self.gps_grant_is_ally(player_id, caster_id, team, obj);
                     let under_construction =
                         obj.status.under_construction || obj.construction_percent + 0.001 < 1.0;
                     let is_disguise = is_gps_scrambler_disguise_name(&obj.template_name);
@@ -652,7 +652,7 @@ impl GameLogic {
                         *id,
                         is_vehicle,
                         is_infantry,
-                        same_team,
+                        is_ally,
                         under_construction,
                         is_disguise,
                         has_stealth_module,
@@ -665,7 +665,7 @@ impl GameLogic {
                 id,
                 is_vehicle,
                 is_infantry,
-                same_team,
+                is_ally,
                 under_construction,
                 is_disguise,
                 has_stealth_module,
@@ -675,7 +675,7 @@ impl GameLogic {
                     is_vehicle,
                     is_infantry,
                     true,
-                    same_team,
+                    is_ally,
                     under_construction,
                     is_disguise,
                     has_stealth_module,

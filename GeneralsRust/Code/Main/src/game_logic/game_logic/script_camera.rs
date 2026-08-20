@@ -69,6 +69,8 @@ pub(super) struct ScriptCameraMoveTo {
     pub(in super) last_ease: f32,
     pub(in super) freeze_time: bool,
     pub(in super) freeze_angle: bool,
+    pub(in super) look_toward: Option<Vec3>,
+    pub(in super) suppress_travel_look: bool,
     pub(in super) speed_ramp_start_t: f32,
     pub(in super) speed_ramp_start_multiplier: f32,
     pub(in super) speed_ramp_final_multiplier: f32,
@@ -101,6 +103,8 @@ impl ScriptCameraMoveTo {
             last_ease: 0.0,
             freeze_time: false,
             freeze_angle: false,
+            look_toward: None,
+            suppress_travel_look: false,
             speed_ramp_start_t: 0.0,
             speed_ramp_start_multiplier: 1.0,
             speed_ramp_final_multiplier: 1.0,
@@ -134,6 +138,28 @@ impl ScriptCameraMoveTo {
     pub(super) fn freeze_angle(&self) -> bool {
         self.freeze_angle
     }
+
+    pub(super) fn set_look_toward(&mut self, position: Vec3) {
+        self.look_toward = Some(position);
+        self.freeze_angle = false;
+        self.suppress_travel_look = false;
+    }
+
+    pub(super) fn look_toward(&self) -> Option<Vec3> {
+        self.look_toward
+    }
+
+    pub(super) fn set_suppress_travel_look(&mut self, suppress: bool) {
+        self.suppress_travel_look = suppress;
+        if suppress {
+            self.look_toward = None;
+        }
+    }
+
+    pub(super) fn suppress_travel_look(&self) -> bool {
+        self.suppress_travel_look
+    }
+
 
     pub(super) fn current_speed_multiplier(&self, progress: f32) -> f32 {
         let progress = progress.clamp(0.0, 1.0);
@@ -191,6 +217,8 @@ pub(super) struct ScriptCameraPathMove {
     pub(in super) last_ease: f32,
     pub(in super) freeze_time: bool,
     pub(in super) freeze_angle: bool,
+    pub(in super) look_toward: Option<Vec3>,
+    pub(in super) suppress_travel_look: bool,
     pub(in super) rolling_average_frames: i32,
     pub(in super) smoothed_focus: Option<Vec3>,
     pub(in super) speed_ramp_start_t: f32,
@@ -305,6 +333,8 @@ impl ScriptCameraPathMove {
             last_ease: 0.0,
             freeze_time: false,
             freeze_angle: false,
+            look_toward: None,
+            suppress_travel_look: false,
             rolling_average_frames: 1,
             smoothed_focus: None,
             speed_ramp_start_t: 0.0,
@@ -341,6 +371,28 @@ impl ScriptCameraPathMove {
     pub(super) fn freeze_angle(&self) -> bool {
         self.freeze_angle
     }
+
+    pub(super) fn set_look_toward(&mut self, position: Vec3) {
+        self.look_toward = Some(position);
+        self.freeze_angle = false;
+        self.suppress_travel_look = false;
+    }
+
+    pub(super) fn look_toward(&self) -> Option<Vec3> {
+        self.look_toward
+    }
+
+    pub(super) fn set_suppress_travel_look(&mut self, suppress: bool) {
+        self.suppress_travel_look = suppress;
+        if suppress {
+            self.look_toward = None;
+        }
+    }
+
+    pub(super) fn suppress_travel_look(&self) -> bool {
+        self.suppress_travel_look
+    }
+
 
     pub(super) fn travel_look_toward(&self) -> Option<Vec3> {
         let i = self.cur_segment.max(1);

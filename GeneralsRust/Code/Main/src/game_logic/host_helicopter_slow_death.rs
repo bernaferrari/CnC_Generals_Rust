@@ -14,6 +14,7 @@
 //! - SoundDeathLoop `ComancheDamagedLoop`
 //!
 //! Fail-closed: not full blade OCL, particle attach bones, eject pilot OCL matrix.
+//! AttachParticle is created and attached on begin (C++ :215-250).
 
 use serde::{Deserialize, Serialize};
 
@@ -69,7 +70,6 @@ pub const HELI_GROUND_SETTLE_FRAMES: u32 = 30;
 pub const HELI_SOUND_DEATH_LOOP: &str = "ComancheDamagedLoop";
 /// Retail AttachParticle peel.
 pub const HELI_ATTACH_PARTICLE: &str = "SootySmokeTrail";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostHelicopterSlowDeathData {
     pub active: bool,
@@ -86,6 +86,21 @@ pub struct HostHelicopterSlowDeathData {
     pub orientation_delta: f32,
     pub blade_flew_off: bool,
     pub done: bool,
+    /// C++ `m_attachParticleSystem` template name.
+    #[serde(default = "default_heli_attach_particle")]
+    pub attach_particle: String,
+    #[serde(default)]
+    pub attach_particle_bone: String,
+    #[serde(default)]
+    pub attach_particle_loc: [f32; 3],
+    #[serde(default)]
+    pub pending_attach: bool,
+    #[serde(default)]
+    pub attach_system_id: Option<u32>,
+}
+
+fn default_heli_attach_particle() -> String {
+    HELI_ATTACH_PARTICLE.to_string()
 }
 
 impl Default for HostHelicopterSlowDeathData {
@@ -104,6 +119,11 @@ impl Default for HostHelicopterSlowDeathData {
             orientation_delta: 0.0,
             blade_flew_off: false,
             done: false,
+            attach_particle: HELI_ATTACH_PARTICLE.to_string(),
+            attach_particle_bone: String::new(),
+            attach_particle_loc: [0.0, 0.0, 0.0],
+            pending_attach: false,
+            attach_system_id: None,
         }
     }
 }
@@ -127,6 +147,71 @@ impl HostHelicopterSlowDeathData {
         self.frames_since_spin_update = 0;
         self.orientation_delta = 0.0;
         self.blade_flew_off = false;
+        // C++ HelicopterSlowDeathUpdate.cpp:215-250 create + attachToObject.
+        if self.attach_particle.is_empty() {
+            self.attach_particle = HELI_ATTACH_PARTICLE.to_string();
+        }
+        self.pending_attach = !self.attach_particle.is_empty();
+    }
+
+    pub fn take_pending_attach_particle(&mut self) -> Option<String> {
+        if !self.pending_attach {
+            return None;
+        }
+        self.pending_attach = false;
+        let name = self.attach_particle.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(name.to_string())
+        }
+    }
+
+    /// C++ createParticleSystem + attachToObject. Uses public spawn + template stamp.
+    pub fn spawn_attach_particle(
+        &mut self,
+        registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        position: glam::Vec3,
+        frame: u32,
+        owner: crate::game_logic::ObjectId,
+    ) -> Option<u32> {
+        let name = self.take_pending_attach_particle()?;
+        let loc = glam::Vec3::new(
+            position.x + self.attach_particle_loc[0],
+            position.y + self.attach_particle_loc[1],
+            position.z + self.attach_particle_loc[2],
+        );
+        let id = registry.spawn(
+            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
+            loc,
+            frame,
+            Some(owner),
+            None,
+        );
+        if let Some(entry) = registry.get_mut(id) {
+            entry.template_name = name;
+        }
+        self.attach_system_id = Some(id);
+        Some(id)
+    }
+
+    pub fn sync_attach_particle_position(
+        &self,
+        registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
+        position: glam::Vec3,
+    ) {
+        let Some(id) = self.attach_system_id else {
+            return;
+        };
+        if let Some(entry) = registry.get_mut(id) {
+            if entry.active {
+                entry.position = glam::Vec3::new(
+                    position.x + self.attach_particle_loc[0],
+                    position.y + self.attach_particle_loc[1],
+                    position.z + self.attach_particle_loc[2],
+                );
+            }
+        }
     }
 
     pub fn is_active(&self) -> bool {
@@ -218,6 +303,7 @@ pub fn honesty_helicopter_slow_death_update_residual_ok() -> bool {
         && HELI_BLADE_FLY_OFF_FRAMES == heli_ms_to_frames(1500)
         && HELI_SELF_SPIN_UPDATE_DELAY_FRAMES == heli_ms_to_frames(100)
         && HELI_SOUND_DEATH_LOOP == "ComancheDamagedLoop"
+        && HELI_ATTACH_PARTICLE == "SootySmokeTrail"
         && is_helicopter_slow_death_template("AmericaHelicopterComanche")
         && !is_helicopter_slow_death_template("AmericaTankCrusader")
 }
@@ -260,5 +346,16 @@ mod tests {
             assert!(h.self_spin >= HELI_MIN_SELF_SPIN - 1e-4);
             assert!(h.self_spin <= HELI_MAX_SELF_SPIN + 1e-4);
         }
+    }
+
+    #[test]
+    fn begin_queues_sooty_smoke_trail() {
+        let mut h = HostHelicopterSlowDeathData::default();
+        h.begin_at_frame(0);
+        assert_eq!(
+            h.take_pending_attach_particle().as_deref(),
+            Some(HELI_ATTACH_PARTICLE)
+        );
+        assert!(h.take_pending_attach_particle().is_none());
     }
 }

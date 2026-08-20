@@ -279,6 +279,30 @@ impl Object {
                 .is_some_and(|w| empty_rtb(w, self.tertiary_weapon_name()))
     }
 
+    /// C++ `JetAIUpdate::isOutOfSpecialReloadAmmo` — all ReturnToBase clips empty.
+    pub fn is_out_of_special_reload_ammo(&self) -> bool {
+        self.needs_return_to_base_rearm()
+    }
+
+    /// Attack orders keep flying; only idle / guard-hunt interrupt auto-RTB.
+    pub fn jet_empty_clip_should_auto_rtb(&self) -> bool {
+        if !self.needs_return_to_base_rearm() {
+            return false;
+        }
+        if self.return_to_base_requested {
+            return true;
+        }
+        if self.jet_ai.allow_interrupt_for_reload || self.jet_ai.has_pending_command {
+            return true;
+        }
+        matches!(self.ai_state, AIState::Idle)
+            && self.target.is_none()
+            && !self.hunting
+            && self.guard_position.is_none()
+            && self.guard_target.is_none()
+    }
+
+
     pub fn rearm_return_to_base_weapons(&mut self) -> bool {
         use crate::game_logic::weapon_bootstrap::{
             host_reload_type_for_weapon_name, HostReloadType,

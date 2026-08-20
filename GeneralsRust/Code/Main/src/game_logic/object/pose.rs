@@ -738,9 +738,11 @@ impl Object {
         if show_health_visuals {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
-                if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
-                    cfg, old_state, state,
-                ) {
+                if let Some(ev) =
+                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change(
+                        cfg, old_state, state,
+                    )
+                {
                     self.pending_transition_damage_fx.push(ev);
                 }
             }
@@ -798,9 +800,11 @@ impl Object {
         if show_health_visuals {
             self.ensure_transition_damage_fx();
             if let Some(cfg) = self.transition_damage_fx.as_ref() {
-                if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
-                    cfg, old_state, state,
-                ) {
+                if let Some(ev) =
+                    crate::game_logic::host_transition_damage_fx::on_body_damage_state_change(
+                        cfg, old_state, state,
+                    )
+                {
                     self.pending_transition_damage_fx.push(ev);
                 }
             }

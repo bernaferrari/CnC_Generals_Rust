@@ -1351,9 +1351,11 @@ impl GameLogic {
 
     /// C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
     /// ActionManager.cpp:1696-1710 rejects STRUCTURE and non-ENEMIES;
-    /// Object.cpp:6111-6132 `defect` returns if contained / UNDER_CONSTRUCTION / SOLD.
+    /// Object.cpp:6111-6220 `defect` after those guards.
     pub fn activate_defector(&mut self, caster_id: ObjectId, victim_id: ObjectId) -> bool {
-        use crate::game_logic::host_defector_special_power::DEFECTOR_DETECTION_FRAMES;
+        use crate::game_logic::host_defector_special_power::{
+            DEFECTOR_DETECTION_FRAMES, DEFECTOR_TIMER_TICK_AUDIO, DEFECTOR_VOICE_AUDIO,
+        };
         if caster_id == victim_id {
             return false;
         }
@@ -1367,6 +1369,7 @@ impl GameLogic {
         if caster_team == Team::Neutral {
             return false;
         }
+        let caster_owner = self.player_owner_for_host_object(caster);
         let Some(victim) = self.objects.get(&victim_id) else {
             return false;
         };
@@ -1389,14 +1392,76 @@ impl GameLogic {
         {
             return false;
         }
+        let old_team = victim.team;
+        let old_owner = self.player_owner_for_host_object(victim);
+        let victim_pos = victim.get_position();
+        let frames = DEFECTOR_DETECTION_FRAMES;
+        let now = self.frame;
+
+        // C++ Object::defect before switch: refund production, radar ping.
+        self.cancel_all_production(victim_id);
+        let old_playable = old_owner
+            .map(|id| self.player_is_playable_side(id))
+            .unwrap_or(false);
+        let new_playable = caster_owner
+            .map(|id| self.player_is_playable_side(id))
+            .unwrap_or(caster_team != Team::Neutral);
+        if old_playable && new_playable {
+            self.try_infiltration_event(victim_id);
+        }
+
         let Some(victim) = self.objects.get_mut(&victim_id) else {
             return false;
         };
-        let frames = DEFECTOR_DETECTION_FRAMES;
-        let now = self.frame;
-        victim.defect(caster_team, now, frames);
+        victim.set_team_and_owner(caster_team, caster_owner);
+        victim.begin_undetected_defection(now, frames, true);
+
+        // C++ after switch: handlePartitionCellMaintenance + aiIdle.
+        if let Some(victim) = self.objects.get_mut(&victim_id) {
+            victim.stop_moving();
+            victim.set_status_moving(false);
+            victim.set_status_attacking(false);
+            victim.set_target(None);
+            victim.set_ai_state(AIState::Idle);
+            victim.flash_as_selected();
+        }
+        self.stop_attack_decision_aware(victim_id);
+        self.clear_target_decision_aware(victim_id);
+
+        // C++ VoiceDefect + defector timer tick.
+        self.queue_audio_event(
+            AudioEventRequest::new(DEFECTOR_VOICE_AUDIO)
+                .with_object(victim_id)
+                .with_position(victim_pos)
+                .with_priority(180),
+        );
+        self.queue_audio_event(
+            AudioEventRequest::new(DEFECTOR_TIMER_TICK_AUDIO)
+                .with_object(victim_id)
+                .with_position(victim_pos)
+                .with_priority(160),
+        );
+
+        // C++ kickOutOnCapture removeAllContained (tunnels/caves skip).
+        self.on_capture_kick_passengers(victim_id, old_team, caster_team);
+
+        // C++ ParkingPlaceBehavior::defectAllParkedUnits.
+        self.defect_all_parked_units(victim_id);
+
+        // C++ world walk: KINDOF_MINE whose producer is this object setTeam.
+        let mine_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_kind_of(KindOf::Mine) && o.producer_id == Some(victim_id))
+            .map(|(id, _)| *id)
+            .collect();
+        for mine_id in mine_ids {
+            if let Some(mine) = self.objects.get_mut(&mine_id) {
+                mine.set_team_and_owner(caster_team, caster_owner);
+            }
+        }
+
         self.defector_special.record(victim_id.0 as u32, frames);
-        // Reveal residual: optional FOW around victim (FatCursorRadius).
         true
     }
 
@@ -2843,6 +2908,67 @@ mod tests {
         assert_eq!(logic.host_object(contained).unwrap().team, Team::GLA);
         assert!(!logic.activate_defector(caster, sold));
         assert_eq!(logic.host_object(sold).unwrap().team, Team::GLA);
+    }
+
+    /// C++ Object.cpp:6167-6192 — idle + VoiceDefect + kickOutOnCapture.
+    #[test]
+    fn defector_idles_and_kicks_cargo() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "GLA", false));
+        let mut cc = ThingTemplate::new("AmericaCommandCenter");
+        cc.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), cc);
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee.add_kind_of(KindOf::Vehicle).set_health(200.0);
+        logic.templates.insert("AmericaVehicleHumvee".into(), humvee);
+        let mut ranger = ThingTemplate::new("AmericaInfantryRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger);
+
+        let caster = logic
+            .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let victim = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::GLA,
+                Vec3::new(40.0, 0.0, 0.0),
+            )
+            .unwrap();
+        let cargo = logic
+            .create_object(
+                "AmericaInfantryRanger",
+                Team::GLA,
+                Vec3::new(42.0, 0.0, 0.0),
+            )
+            .unwrap();
+        if let Some(v) = logic.host_object_mut(victim) {
+            v.set_ai_state(AIState::Attacking);
+            v.set_target(Some(caster));
+            v.set_status_attacking(true);
+            v.occupants.push(cargo);
+        }
+        if let Some(c) = logic.host_object_mut(cargo) {
+            c.set_contained_by(Some(victim));
+        }
+
+        assert!(logic.activate_defector(caster, victim));
+        let v = logic.host_object(victim).unwrap();
+        assert_eq!(v.team, Team::USA);
+        assert!(matches!(v.ai_state, AIState::Idle));
+        assert!(!v.status.attacking);
+        assert!(v.target.is_none());
+        assert!(v.is_undetected_defector());
+        let rider = logic.host_object(cargo).unwrap();
+        assert!(rider.contained_by.is_none());
+        assert_eq!(rider.team, Team::GLA);
     }
 }
 

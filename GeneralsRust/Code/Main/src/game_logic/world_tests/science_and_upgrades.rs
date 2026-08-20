@@ -4113,6 +4113,44 @@ fn heroic_unit_does_not_consume_promotion_crate() {
     );
 }
 
+#[test]
+fn flying_unit_does_not_consume_promotion_crate() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    let mut ut = ThingTemplate::new("AmericaJetRaptor");
+    ut.add_kind_of(KindOf::Aircraft);
+    ut.add_kind_of(KindOf::Vehicle);
+    ut.is_trainable = true;
+    let uid = ObjectId(5022);
+    logic.objects.insert(uid, {
+        let mut o = Object::new(ut, uid, Team::USA);
+        o.set_position(glam::Vec3::new(0.0, 700.0, 0.0));
+        o.ground_height = 0.0;
+        o.experience.level = VeterancyLevel::Rookie;
+        o
+    });
+    let cid = ObjectId(5023);
+    let ct = ThingTemplate::new("SmallLevelUpCrate");
+    logic
+        .templates
+        .insert("SmallLevelUpCrate".into(), ct.clone());
+    logic.objects.insert(cid, {
+        let mut o = Object::new(ct, cid, Team::Neutral);
+        o.set_position(glam::Vec3::new(5.0, 0.0, 0.0));
+        o
+    });
+    logic.host_money_crates.register_level_up_crate(cid, 0.0, 1);
+    logic.update_money_crate_collides();
+    assert_eq!(logic.objects[&uid].experience.level, VeterancyLevel::Rookie);
+    assert!(
+        logic.host_money_crates.contains(cid),
+        "airborne picker must leave the crate"
+    );
+}
+
 
 #[test]
 fn crate_deletion_update_destroys_expired() {

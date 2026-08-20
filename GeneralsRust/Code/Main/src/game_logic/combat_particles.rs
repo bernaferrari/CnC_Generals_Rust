@@ -32,6 +32,12 @@ pub enum CombatParticleKind {
     WeaponImpact,
     /// In-flight projectile exhaust residual (Weapon.ini ProjectileExhaust).
     ProjectileExhaust,
+    /// C++ `ParticleSysBone` attached to a live drawable (exhaust, stacks, clouds).
+    ParticleSysBone,
+    /// C++ ActiveBody AutoFire bone fire (FIRESMALL/MEDIUM/LARGE).
+    BodyFire,
+    /// C++ ActiveBody AutoSmoke bone smoke (SMOKESMALL/MEDIUM/LARGE).
+    BodySmoke,
 }
 
 impl CombatParticleKind {
@@ -47,6 +53,9 @@ impl CombatParticleKind {
             CombatParticleKind::WeaponMuzzleFlash => "MuzzleFlash",
             CombatParticleKind::WeaponImpact => "BulletImpact",
             CombatParticleKind::ProjectileExhaust => "MissileExhaust",
+            CombatParticleKind::ParticleSysBone => "SmokePlume",
+            CombatParticleKind::BodyFire => "FireSmall",
+            CombatParticleKind::BodySmoke => "SmokeSmall",
         }
     }
 }
@@ -90,6 +99,8 @@ pub struct CombatParticleRegistry {
     destroyed_this_frame: Vec<(ObjectId, Team)>,
     /// Particle ids spawned this frame (presentation event drain).
     spawned_this_frame: Vec<u32>,
+    /// C++ `setMuzzleFlashHidden(false)` for one RecoilStart frame.
+    muzzle_flash_until: HashMap<ObjectId, u32>,
 }
 
 impl CombatParticleRegistry {
@@ -100,6 +111,7 @@ impl CombatParticleRegistry {
             client_system_ids: HashSet::new(),
             destroyed_this_frame: Vec::new(),
             spawned_this_frame: Vec::new(),
+            muzzle_flash_until: HashMap::new(),
         }
     }
 
@@ -110,6 +122,7 @@ impl CombatParticleRegistry {
         self.systems.clear();
         self.destroyed_this_frame.clear();
         self.spawned_this_frame.clear();
+        self.muzzle_flash_until.clear();
         self.next_id = 1;
     }
 
@@ -434,6 +447,11 @@ impl CombatParticleRegistry {
     }
 
     /// Weapon fire FX + OCL residual names (FireOCL at muzzle, DetonationOCL at impact).
+    ///
+    /// C++ `Weapon::fireWeaponTemplate` plays the authored FireFX list at the
+    /// barrel, never a generic `MuzzleFlash` preset. ParticleSystem nuggets
+    /// inside that list become the registry templates. `victim` is passed as
+    /// FXList secondary so Tracer/RayEffect nuggets run.
     pub fn spawn_weapon_fire_fx_named_ocl(
         &mut self,
         muzzle_pos: Vec3,
@@ -446,49 +464,162 @@ impl CombatParticleRegistry {
         fire_ocl_name: &str,
         detonation_ocl_name: &str,
     ) -> Vec<u32> {
-        let mut ids = Vec::with_capacity(2);
-        let muzzle_id = self.spawn(
-            CombatParticleKind::WeaponMuzzleFlash,
-            muzzle_pos,
-            frame,
-            Some(shooter),
-            target,
-        );
-        if !fire_fx_name.is_empty() {
-            if let Some(e) = self.systems.get_mut(&muzzle_id) {
-                e.fx_list_name = fire_fx_name.to_string();
-                // Prefer retail FireFX name as template residual when non-empty.
-                e.template_name = fire_fx_name.to_string();
+        self.note_muzzle_flash_unhide(shooter, frame);
+        let mut ids = Vec::new();
+        if let Some(fx) = usable_particle_template_name(fire_fx_name) {
+            let authored = crate::game_logic::particle_template_names_for_fx_list(fx);
+            if authored.is_empty() {
+                let muzzle_id = self.spawn_fx_list_marker(
+                    CombatParticleKind::WeaponMuzzleFlash,
+                    fx,
+                    muzzle_pos,
+                    frame,
+                    Some(shooter),
+                    target,
+                );
+                if !fire_ocl_name.is_empty() {
+                    if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                        e.ocl_list_name = fire_ocl_name.to_string();
+                    }
+                }
+                ids.push(muzzle_id);
+            } else {
+                for (index, template) in authored.iter().enumerate() {
+                    let muzzle_id = self.spawn_with_template(
+                        CombatParticleKind::WeaponMuzzleFlash,
+                        template.clone(),
+                        muzzle_pos,
+                        frame,
+                        Some(shooter),
+                        target,
+                    );
+                    if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                        e.fx_list_name = fx.to_string();
+                        if index == 0 && !fire_ocl_name.is_empty() {
+                            e.ocl_list_name = fire_ocl_name.to_string();
+                        }
+                    }
+                    ids.push(muzzle_id);
+                }
             }
-        }
-        if !fire_ocl_name.is_empty() {
-            if let Some(e) = self.systems.get_mut(&muzzle_id) {
-                e.ocl_list_name = fire_ocl_name.to_string();
-            }
-        }
-        ids.push(muzzle_id);
-        if let Some(impact) = impact_pos {
-            let impact_id = self.spawn(
-                CombatParticleKind::WeaponImpact,
-                impact,
+            let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+                fx,
+                muzzle_pos,
+                impact_pos,
+                0.0,
+                0.0,
+            );
+        } else {
+            let muzzle_id = self.spawn(
+                CombatParticleKind::WeaponMuzzleFlash,
+                muzzle_pos,
                 frame,
                 Some(shooter),
                 target,
             );
-            if !detonation_fx_name.is_empty() {
-                if let Some(e) = self.systems.get_mut(&impact_id) {
-                    e.fx_list_name = detonation_fx_name.to_string();
-                    e.template_name = detonation_fx_name.to_string();
+            if !fire_ocl_name.is_empty() {
+                if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                    e.ocl_list_name = fire_ocl_name.to_string();
                 }
             }
-            if !detonation_ocl_name.is_empty() {
+            ids.push(muzzle_id);
+        }
+        if let Some(impact) = impact_pos {
+            if let Some(fx) = usable_particle_template_name(detonation_fx_name) {
+                let authored = crate::game_logic::particle_template_names_for_fx_list(fx);
+                let impact_id = if let Some(template) = authored.first() {
+                    self.spawn_with_template(
+                        CombatParticleKind::WeaponImpact,
+                        template.clone(),
+                        impact,
+                        frame,
+                        Some(shooter),
+                        target,
+                    )
+                } else {
+                    self.spawn_fx_list_marker(
+                        CombatParticleKind::WeaponImpact,
+                        fx,
+                        impact,
+                        frame,
+                        Some(shooter),
+                        target,
+                    )
+                };
                 if let Some(e) = self.systems.get_mut(&impact_id) {
-                    e.ocl_list_name = detonation_ocl_name.to_string();
+                    e.fx_list_name = fx.to_string();
+                    if !detonation_ocl_name.is_empty() {
+                        e.ocl_list_name = detonation_ocl_name.to_string();
+                    }
                 }
+                let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
+                    fx,
+                    impact,
+                    Some(impact),
+                    0.0,
+                    0.0,
+                );
+                ids.push(impact_id);
+            } else {
+                let impact_id = self.spawn(
+                    CombatParticleKind::WeaponImpact,
+                    impact,
+                    frame,
+                    Some(shooter),
+                    target,
+                );
+                if !detonation_ocl_name.is_empty() {
+                    if let Some(e) = self.systems.get_mut(&impact_id) {
+                        e.ocl_list_name = detonation_ocl_name.to_string();
+                    }
+                }
+                ids.push(impact_id);
             }
-            ids.push(impact_id);
         }
         ids
+    }
+
+    /// Host marker for an authored FXList that is not itself a ParticleSystem.
+    /// Skips the generic preset client mirror (C++ never creates `MuzzleFlash`).
+    fn spawn_fx_list_marker(
+        &mut self,
+        kind: CombatParticleKind,
+        fx_list_name: &str,
+        position: Vec3,
+        frame: u32,
+        source: Option<ObjectId>,
+        target: Option<ObjectId>,
+    ) -> u32 {
+        let id = self.next_id;
+        self.next_id = self.next_id.saturating_add(1).max(1);
+        let entry = CombatParticleSystemEntry {
+            id,
+            kind,
+            template_name: fx_list_name.to_string(),
+            position,
+            source_object: source,
+            target_object: target,
+            spawned_frame: frame,
+            active: true,
+            client_system_id: None,
+            fx_list_name: fx_list_name.to_string(),
+            ocl_list_name: String::new(),
+        };
+        self.systems.insert(id, entry);
+        self.spawned_this_frame.push(id);
+        id
+    }
+
+    /// C++ `W3DModelDraw::handleWeaponFireFX` `setMuzzleFlashHidden(false)`.
+    pub fn note_muzzle_flash_unhide(&mut self, source: ObjectId, frame: u32) {
+        self.muzzle_flash_until.insert(source, frame.saturating_add(1));
+    }
+
+    /// True while the live drawable should show muzzle-flash subobjects.
+    pub fn muzzle_flash_is_visible(&self, source: ObjectId, frame: u32) -> bool {
+        self.muzzle_flash_until
+            .get(&source)
+            .is_some_and(|until| frame <= *until)
     }
 
     /// C++ ProjectileExhaust residual: in-flight trail particle at projectile pos.
@@ -691,6 +822,182 @@ impl CombatParticleRegistry {
         }
     }
 
+    /// C++ `ObjectCreationList.cpp:962-969` attach ParticleSystem to a spawned object.
+    pub fn attach_named_to_object(
+        &mut self,
+        owner: ObjectId,
+        position: Vec3,
+        frame: u32,
+        template_name: &str,
+    ) -> Option<u32> {
+        let template_name = usable_particle_template_name(template_name)?;
+        let id = self.spawn_with_template(
+            CombatParticleKind::ParticleSysBone,
+            template_name.to_string(),
+            position,
+            frame,
+            Some(owner),
+            None,
+        );
+        let leftover_id = gamelogic::helpers::attach_particle_system_to_object(
+            template_name,
+            owner.0,
+        );
+        if leftover_id.is_some() {
+            if let Some(entry) = self.systems.get_mut(&id) {
+                if entry.client_system_id.is_none() {
+                    entry.client_system_id = leftover_id;
+                    if let Some(client_id) = leftover_id {
+                        self.client_system_ids.insert(client_id);
+                    }
+                }
+            }
+        }
+        Some(id)
+    }
+
+    /// C++ `W3DModelDraw::recalcBonesForClientParticleSystems` for one object.
+    pub fn sync_particle_sys_bones(
+        &mut self,
+        frame: u32,
+        owner: ObjectId,
+        position: Vec3,
+        bones: &[(String, String)],
+    ) {
+        let wanted: HashSet<String> = bones
+            .iter()
+            .filter_map(|(_, system)| usable_particle_template_name(system).map(str::to_string))
+            .collect();
+        let stale: Vec<u32> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && entry.kind == CombatParticleKind::ParticleSysBone
+                    && entry.source_object == Some(owner)
+                    && !wanted.contains(&entry.template_name)
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in stale {
+            self.deactivate(id);
+        }
+        for system in wanted {
+            let existing = self.systems.values().find_map(|entry| {
+                (entry.active
+                    && entry.kind == CombatParticleKind::ParticleSysBone
+                    && entry.source_object == Some(owner)
+                    && entry.template_name == system)
+                    .then_some((entry.id, entry.client_system_id))
+            });
+            if let Some((id, client_id)) = existing {
+                if let Some(client_id) = client_id {
+                    if self.client_system_ids.contains(&client_id) {
+                        mirror_update_client_system_position(client_id, position);
+                    }
+                }
+                if let Some(entry) = self.systems.get_mut(&id) {
+                    entry.position = position;
+                }
+            } else {
+                let _ = self.attach_named_to_object(owner, position, frame, &system);
+            }
+        }
+    }
+
+    /// C++ `ActiveBody::updateBodyParticleSystems` on body-state change.
+    pub fn replace_body_auto_particles(
+        &mut self,
+        owner: ObjectId,
+        position: Vec3,
+        frame: u32,
+        body_ordinal: u8,
+        aflame: bool,
+    ) {
+        let stale: Vec<u32> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && matches!(
+                        entry.kind,
+                        CombatParticleKind::BodyFire | CombatParticleKind::BodySmoke
+                    )
+                    && entry.source_object == Some(owner)
+            })
+            .map(|entry| entry.id)
+            .collect();
+        for id in stale {
+            self.deactivate(id);
+        }
+        // Pristine models typically have no FIRESMALL/SMOKESMALL bones.
+        if body_ordinal == 0 && !aflame {
+            return;
+        }
+        for (kind, template) in body_auto_particle_templates(aflame) {
+            let Some(template) = usable_particle_template_name(template) else {
+                continue;
+            };
+            let id = self.spawn_with_template(
+                kind,
+                template.to_string(),
+                position,
+                frame,
+                Some(owner),
+                None,
+            );
+            let leftover_id =
+                gamelogic::helpers::attach_particle_system_to_object(template, owner.0);
+            if leftover_id.is_some() {
+                if let Some(entry) = self.systems.get_mut(&id) {
+                    if entry.client_system_id.is_none() {
+                        entry.client_system_id = leftover_id;
+                        if let Some(client_id) = leftover_id {
+                            self.client_system_ids.insert(client_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn has_body_particles(&self, owner: ObjectId) -> bool {
+        self.systems.values().any(|entry| {
+            entry.active
+                && matches!(
+                    entry.kind,
+                    CombatParticleKind::BodyFire | CombatParticleKind::BodySmoke
+                )
+                && entry.source_object == Some(owner)
+        })
+    }
+
+    pub fn follow_attached_body_particles(&mut self, owner: ObjectId, position: Vec3) {
+        let ids: Vec<(u32, Option<u32>)> = self
+            .systems
+            .values()
+            .filter(|entry| {
+                entry.active
+                    && matches!(
+                        entry.kind,
+                        CombatParticleKind::BodyFire | CombatParticleKind::BodySmoke
+                    )
+                    && entry.source_object == Some(owner)
+            })
+            .map(|entry| (entry.id, entry.client_system_id))
+            .collect();
+        for (id, client_id) in ids {
+            if let Some(client_id) = client_id {
+                if self.client_system_ids.contains(&client_id) {
+                    mirror_update_client_system_position(client_id, position);
+                }
+            }
+            if let Some(entry) = self.systems.get_mut(&id) {
+                entry.position = position;
+            }
+        }
+    }
+
     pub fn deactivate(&mut self, id: u32) {
         let client_system_id = match self.systems.get_mut(&id) {
             Some(entry) if entry.active => {
@@ -713,6 +1020,90 @@ impl CombatParticleRegistry {
 fn usable_particle_template_name(name: &str) -> Option<&str> {
     let name = name.trim();
     (!name.is_empty() && !name.eq_ignore_ascii_case("none")).then_some(name)
+}
+
+fn body_auto_particle_templates(aflame: bool) -> Vec<(CombatParticleKind, String)> {
+    let (fire, smoke) = match game_engine::common::global_data::read_safe() {
+        Ok(data) => {
+            let fire = if aflame {
+                first_nonempty(&[
+                    data.auto_fire_particle_medium_system.as_str(),
+                    data.auto_fire_particle_small_system.as_str(),
+                    "FireMedium",
+                ])
+            } else {
+                first_nonempty(&[
+                    data.auto_fire_particle_small_system.as_str(),
+                    "FireSmall",
+                ])
+            };
+            let smoke = if aflame {
+                first_nonempty(&[
+                    data.auto_fire_particle_small_system.as_str(),
+                    "FireSmall",
+                ])
+            } else {
+                first_nonempty(&[
+                    data.auto_smoke_particle_small_system.as_str(),
+                    "SmokeSmall",
+                ])
+            };
+            (fire, smoke)
+        }
+        Err(_) => {
+            if aflame {
+                ("FireMedium".to_string(), "FireSmall".to_string())
+            } else {
+                ("FireSmall".to_string(), "SmokeSmall".to_string())
+            }
+        }
+    };
+    vec![
+        (CombatParticleKind::BodyFire, fire),
+        (CombatParticleKind::BodySmoke, smoke),
+    ]
+}
+
+fn first_nonempty(names: &[&str]) -> String {
+    names
+        .iter()
+        .find(|name| usable_particle_template_name(name).is_some())
+        .unwrap_or(&names[names.len() - 1])
+        .to_string()
+}
+
+/// C++ current-state `ParticleSysBone` list for a live host object.
+pub fn particle_sys_bones_for_template(
+    template_name: &str,
+    condition_bits: u128,
+) -> Vec<(String, String)> {
+    let mut bones = Vec::new();
+    if let Some(manager) = crate::assets::get_asset_manager() {
+        if let Ok(guard) = manager.lock() {
+            if let Some(definition) = guard
+                .get_object_definition(template_name)
+                .or_else(|| guard.resolve_object_definition(template_name, None))
+            {
+                bones.extend(definition.particle_sys_bones_for_conditions(condition_bits));
+            }
+        }
+    }
+    if bones.is_empty() {
+        if template_name.contains("RepairVehiclesInArea") {
+            bones.push((
+                "NONE".to_string(),
+                crate::game_logic::host_emergency_repair::EMERGENCY_REPAIR_CLOUD_PARTICLE
+                    .to_string(),
+            ));
+        }
+        if template_name.contains("Frenzy") && template_name.contains("Marker") {
+            bones.push((
+                "NONE".to_string(),
+                crate::game_logic::host_frenzy::FRENZY_CLOUD_PARTICLE.to_string(),
+            ));
+        }
+    }
+    bones
 }
 
 fn mirror_update_client_system_position(system_id: u32, position: Vec3) {
@@ -1041,5 +1432,79 @@ mod tests {
             0,
             "the C++ ParticleSystem `None` sentinel must not become a live trail"
         );
+    }
+
+    #[test]
+    fn authored_fire_fx_is_not_generic_muzzle_preset() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named(
+            Vec3::new(4.0, 1.0, 8.0),
+            Some(Vec3::new(10.0, 0.0, 10.0)),
+            7,
+            ObjectId(3),
+            Some(ObjectId(4)),
+            "WeaponFX_GenericTankGunNoTracer",
+            "",
+        );
+        assert!(!ids.is_empty());
+        let muzzle = reg.get(ids[0]).expect("muzzle");
+        assert_eq!(muzzle.fx_list_name, "WeaponFX_GenericTankGunNoTracer");
+        assert_ne!(
+            muzzle.template_name, "MuzzleFlash",
+            "authored FireFX must not spawn the generic MuzzleFlash preset"
+        );
+        assert!(reg.muzzle_flash_is_visible(ObjectId(3), 7));
+        assert!(reg.muzzle_flash_is_visible(ObjectId(3), 8));
+        assert!(!reg.muzzle_flash_is_visible(ObjectId(3), 9));
+    }
+
+    #[test]
+    fn particle_sys_bones_and_body_fire_attach() {
+        let mut reg = CombatParticleRegistry::new();
+        let owner = ObjectId(11);
+        let pos = Vec3::new(2.0, 0.0, 3.0);
+        reg.sync_particle_sys_bones(
+            4,
+            owner,
+            pos,
+            &[("exhaust01".to_string(), "DieselSmoke".to_string())],
+        );
+        let bones = reg.systems_of_kind(CombatParticleKind::ParticleSysBone);
+        assert_eq!(bones.len(), 1);
+        assert_eq!(bones[0].template_name, "DieselSmoke");
+        assert_eq!(bones[0].source_object, Some(owner));
+
+        reg.replace_body_auto_particles(owner, pos, 5, 1, false);
+        assert!(reg.has_body_particles(owner));
+        assert!(!reg
+            .systems_of_kind(CombatParticleKind::BodyFire)
+            .is_empty());
+        assert!(!reg
+            .systems_of_kind(CombatParticleKind::BodySmoke)
+            .is_empty());
+
+        reg.replace_body_auto_particles(owner, pos, 6, 0, false);
+        assert!(!reg.has_body_particles(owner));
+
+        let attached = reg
+            .attach_named_to_object(owner, pos, 7, "WreckSmoke")
+            .expect("ocl particle");
+        assert_eq!(
+            reg.get(attached).expect("entry").template_name,
+            "WreckSmoke"
+        );
+    }
+
+    #[test]
+    fn repair_and_frenzy_markers_have_cloud_bones() {
+        let repair = particle_sys_bones_for_template(
+            "RepairVehiclesInArea_InvisibleMarker_Level1",
+            0,
+        );
+        assert!(repair
+            .iter()
+            .any(|(_, system)| system == "RepairCloud"));
+        let frenzy = particle_sys_bones_for_template("Frenzy_InvisibleMarker", 0);
+        assert!(frenzy.iter().any(|(_, system)| system == "FrenzyCloud"));
     }
 }

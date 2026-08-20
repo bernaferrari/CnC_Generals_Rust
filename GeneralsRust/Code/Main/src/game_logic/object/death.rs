@@ -276,6 +276,7 @@ impl Object {
             self.movement.velocity.y += fy;
             self.movement.velocity.z += fz;
         }
+        self.apply_slow_death_phase_fx(&mut sd);
         self.slow_death = Some(sd);
         // Keep a sliver of HP bookkeeping like structure topple residual.
         if self.health.current <= 0.0 {
@@ -295,12 +296,37 @@ impl Object {
         let Some(sd) = self.slow_death.as_mut() else {
             return false;
         };
-        if !sd.tick(current_frame) {
+        let done = sd.tick(current_frame);
+        let fx = sd.take_pending_phase_fx();
+        if let Some(name) = fx.into_iter().last() {
+            self.pending_death_fx = Some(name);
+        }
+        if !done {
             return false;
         }
         self.health.current = 0.0;
         self.status.destroyed = true;
         true
+    }
+
+    fn apply_slow_death_phase_fx(
+        &mut self,
+        sd: &mut crate::game_logic::host_slow_death::HostSlowDeathData,
+    ) {
+        if let Some(name) = sd.take_pending_phase_fx().into_iter().last() {
+            self.pending_death_fx = Some(name);
+        }
+    }
+
+    /// Drain INITIAL/MIDPOINT/FINAL when a dual-peel owns sink motion.
+    pub fn poll_slow_death_phase_fx(&mut self, current_frame: u32) {
+        let Some(sd) = self.slow_death.as_mut() else {
+            return;
+        };
+        sd.poll_phase_fx(current_frame);
+        if let Some(name) = sd.take_pending_phase_fx().into_iter().last() {
+            self.pending_death_fx = Some(name);
+        }
     }
 
     pub fn presentation_slow_death_sink_offset(&self) -> f32 {

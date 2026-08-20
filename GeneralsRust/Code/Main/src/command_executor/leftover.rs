@@ -666,11 +666,24 @@ impl<'a> CommandExecutor<'a> {
                 })
                 .unwrap_or(false);
             if can {
+                let is_aircraft = self
+                    .game_logic
+                    .host_object(unit_id)
+                    .is_some_and(|u| u.is_kind_of(KindOf::Aircraft));
+                if is_aircraft
+                    && self
+                        .game_logic
+                        .try_jet_enter_or_repair_airfield(unit_id, target_id)
+                {
+                    any = true;
+                    continue;
+                }
                 if self.begin_support_order(unit_id, target_id, target_pos, AIState::SeekingRepair)
                 {
                     any = true;
                 }
             }
+
         }
         if any {
             CommandResult::Success

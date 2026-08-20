@@ -1759,12 +1759,26 @@ impl PresentationFrame {
                 .peek_pending_camera_zoom()
                 .map(|z| (z.zoom, z.duration_seconds)),
             camera_zoom_reset: logic.peek_pending_camera_zoom_reset(),
+            camera_zoom_reset_duration: logic.peek_pending_camera_zoom_reset_duration(),
+            camera_zoom_reset_ease: logic.peek_pending_camera_zoom_reset_ease(),
+            camera_zoom_ease: logic
+                .peek_pending_camera_zoom()
+                .map(|z| (z.ease_in_seconds, z.ease_out_seconds))
+                .unwrap_or((0.0, 0.0)),
             camera_pitch: logic
                 .peek_pending_camera_pitch()
                 .map(|p| (p.pitch, p.duration_seconds)),
+            camera_pitch_ease: logic
+                .peek_pending_camera_pitch()
+                .map(|p| (p.ease_in_seconds, p.ease_out_seconds))
+                .unwrap_or((0.0, 0.0)),
             camera_rotate: logic
                 .peek_pending_camera_rotate()
                 .map(|r| (r.rotations, r.duration_seconds)),
+            camera_rotate_ease: logic
+                .peek_pending_camera_rotate()
+                .map(|r| (r.ease_in_seconds, r.ease_out_seconds))
+                .unwrap_or((0.0, 0.0)),
             camera_look_toward: logic
                 .peek_pending_camera_look_toward()
                 .map(|l| [l.position.x, l.position.y, l.position.z]),
@@ -1772,6 +1786,10 @@ impl PresentationFrame {
                 .peek_pending_camera_look_toward()
                 .map(|l| l.duration_seconds)
                 .unwrap_or(0.0),
+            camera_look_toward_ease: logic
+                .peek_pending_camera_look_toward()
+                .map(|l| (l.ease_in_seconds, l.ease_out_seconds))
+                .unwrap_or((0.0, 0.0)),
             camera_tether_play: logic.peek_camera_tether_play(),
             camera_slave_enable: logic
                 .peek_pending_camera_slave_enable()

@@ -133,7 +133,7 @@ fn camera_mod_final_look_toward_uses_remaining_script_camera_time() {
 }
 
 #[test]
-fn camera_mod_look_toward_is_immediate_request() {
+fn camera_mod_look_toward_is_noop_without_active_move() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
 
@@ -145,12 +145,42 @@ fn camera_mod_look_toward_is_immediate_request() {
 
     game_logic.evaluate_and_execute_scripts(0.0);
 
+    assert!(
+        game_logic.take_camera_look_toward_request().is_none(),
+        "C++ cameraModLookToward is a no-op unless a camera move/path is active"
+    );
+}
+
+#[test]
+fn camera_mod_look_toward_applies_during_active_move() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic.start_camera_move_to(CameraMoveToRequest {
+        position: Vec3::new(200.0, 0.0, 120.0),
+        seconds: 4.0,
+        camera_stutter_seconds: 0.0,
+        ease_in_seconds: 0.0,
+        ease_out_seconds: 0.0,
+    });
+    game_logic
+        .mission_scripts
+        .push_camera_mod_look_toward(CameraModLookTowardRequest {
+            position: Vec3::new(150.0, 0.0, 50.0),
+        });
+
+    game_logic.evaluate_and_execute_scripts(0.0);
+    game_logic.update_script_camera(1.0 / 30.0);
+
     let look = game_logic
-        .take_camera_look_toward_request()
-        .expect("mod look toward should enqueue look request");
+        .peek_pending_camera_look_toward()
+        .cloned()
+        .expect("mod look toward should rewrite the active move look");
     assert_eq!(look.position, Vec3::new(150.0, 0.0, 50.0));
-    assert_eq!(look.duration_seconds, 0.0);
-    assert!(!look.reverse_rotation);
+    assert!(
+        look.duration_seconds > 0.0,
+        "mod look should use remaining camera movement time, not snap"
+    );
 }
 
 #[test]
@@ -438,7 +468,31 @@ fn camera_mod_freeze_time_blocks_simulation_movement_updates() {
 }
 
 #[test]
-fn camera_mod_freeze_angle_blocks_look_toward_until_move_finishes() {
+fn camera_mod_freeze_angle_is_noop_without_active_move() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic.mission_scripts.push_camera_mod_freeze_angle();
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.25,
+            duration_seconds: 1.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let rotate = game_logic
+        .take_camera_rotate_request()
+        .expect("later ROTATE_CAMERA must replace after a no-op FREEZE_ANGLE");
+    assert!((rotate.rotations - 0.25).abs() < f32::EPSILON);
+}
+
+#[test]
+fn camera_mod_freeze_angle_pins_move_but_later_rotate_applies() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
 
@@ -452,32 +506,96 @@ fn camera_mod_freeze_angle_blocks_look_toward_until_move_finishes() {
             ease_out_seconds: 0.0,
         });
     game_logic.mission_scripts.push_camera_mod_freeze_angle();
-    game_logic
-        .mission_scripts
-        .push_camera_mod_look_toward(CameraModLookTowardRequest {
-            position: Vec3::new(400.0, 0.0, 300.0),
-        });
     game_logic.evaluate_and_execute_scripts(0.0);
 
+    assert!(
+        game_logic.is_script_camera_angle_frozen(),
+        "freeze angle should pin the in-flight move"
+    );
     assert!(
         game_logic.take_camera_look_toward_request().is_none(),
-        "freeze angle should suppress scripted look-toward while move is active"
+        "freeze angle should not emit travel look-toward"
     );
-
-    for _ in 0..180 {
-        game_logic.update_script_camera(1.0 / 60.0);
-    }
 
     game_logic
         .mission_scripts
-        .push_camera_mod_look_toward(CameraModLookTowardRequest {
-            position: Vec3::new(410.0, 0.0, 310.0),
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.5,
+            duration_seconds: 1.0,
+            ease_in_seconds: 0.0,
+            ease_out_seconds: 0.0,
         });
     game_logic.evaluate_and_execute_scripts(0.0);
     assert!(
-        game_logic.take_camera_look_toward_request().is_some(),
-        "look-toward should resume after scripted movement completes"
+        game_logic.take_camera_rotate_request().is_some(),
+        "later ROTATE_CAMERA replaces the animation even while the move is frozen"
     );
+}
+
+#[test]
+fn script_reset_camera_animates_zoom_pitch_and_yaw() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_reset(CameraResetRequest {
+            position: Vec3::new(100.0, 0.0, 80.0),
+            duration_seconds: 2.5,
+            ease_in_seconds: 0.4,
+            ease_out_seconds: 0.6,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert!(game_logic.peek_pending_camera_zoom_reset());
+    assert!(
+        (game_logic.peek_pending_camera_zoom_reset_duration() - 2.5).abs() < 0.001,
+        "RESET_CAMERA must keep the script duration for zoom/pitch/yaw"
+    );
+    assert_eq!(
+        game_logic.peek_pending_camera_zoom_reset_ease(),
+        (0.4, 0.6)
+    );
+}
+
+#[test]
+fn script_zoom_pitch_rotate_preserve_ease_on_presentation_frame() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+
+    game_logic
+        .mission_scripts
+        .push_camera_zoom(CameraZoomRequest {
+            zoom: 1.2,
+            duration_seconds: 2.0,
+            ease_in_seconds: 0.3,
+            ease_out_seconds: 0.5,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_pitch(CameraPitchRequest {
+            pitch: 0.8,
+            duration_seconds: 1.5,
+            ease_in_seconds: 0.2,
+            ease_out_seconds: 0.4,
+        });
+    game_logic
+        .mission_scripts
+        .push_camera_rotate(CameraRotateRequest {
+            rotations: 0.25,
+            duration_seconds: 3.0,
+            ease_in_seconds: 0.1,
+            ease_out_seconds: 0.2,
+        });
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    assert_eq!(frame.camera_zoom, Some((1.2, 2.0)));
+    assert_eq!(frame.camera_zoom_ease, (0.3, 0.5));
+    assert_eq!(frame.camera_pitch, Some((0.8, 1.5)));
+    assert_eq!(frame.camera_pitch_ease, (0.2, 0.4));
+    assert_eq!(frame.camera_rotate, Some((0.25, 3.0)));
+    assert_eq!(frame.camera_rotate_ease, (0.1, 0.2));
 }
 
 #[test]

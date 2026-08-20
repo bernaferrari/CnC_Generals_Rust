@@ -185,6 +185,9 @@ pub struct HostSpySatellite {
     pub dynamic_shroud_applied: bool,
     /// True when StealthDetector residual was applied on activate.
     pub stealth_detector_applied: bool,
+    /// Last radius actually pushed to ShroudManager looker counters.
+    #[serde(default)]
+    pub last_applied_radius: f32,
 }
 
 impl HostSpySatellite {
@@ -195,7 +198,8 @@ impl HostSpySatellite {
     pub fn contains_horizontal(&self, pos: Vec3) -> bool {
         let dx = pos.x - self.location.x;
         let dz = pos.z - self.location.z;
-        dx * dx + dz * dz <= self.radius * self.radius
+        let r = self.radius.max(self.last_applied_radius);
+        dx * dx + dz * dz <= r * r
     }
 
     /// Elapsed frames since activate for DynamicShroud curve residual.
@@ -308,6 +312,16 @@ impl HostSpySatelliteRegistry {
         id
     }
 
+    /// Mutable access for DynamicShroud looker updates.
+    pub fn active_scans_mut(&mut self) -> &mut [HostSpySatellite] {
+        &mut self.active
+    }
+
+    /// Record that a scan's grow/shrink pass made the center FOW-visible.
+    pub fn record_fow_reveal(&mut self) {
+        self.fow_reveals = self.fow_reveals.saturating_add(1);
+    }
+
     /// Residual honesty: at least one scan activated.
     pub fn honesty_activate_ok(&self) -> bool {
         self.activations > 0
@@ -410,6 +424,7 @@ mod tests {
             fow_reveal_ok: true,
             dynamic_shroud_applied: false,
             stealth_detector_applied: false,
+            last_applied_radius: SPY_SATELLITE_RADIUS,
         });
         assert_eq!(reg.activations(), 1);
         assert_eq!(reg.fow_reveals(), 1);
@@ -516,6 +531,7 @@ mod tests {
             fow_reveal_ok: true,
             dynamic_shroud_applied: true,
             stealth_detector_applied: true,
+            last_applied_radius: 0.0,
         };
         assert!(
             (scan.dynamic_shroud_radius(10) - spy_satellite_dynamic_shroud_radius_at_elapsed(0))

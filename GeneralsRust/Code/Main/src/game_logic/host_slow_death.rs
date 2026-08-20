@@ -11,10 +11,11 @@
 //! - Authored SlowDeathBehavior module lookup via AssetManager ObjectDefinition
 //! - Presentation sink_offset (negative Y)
 //! - Defers GameLogic destroy until destruction frame
+//! - INITIAL / MIDPOINT / FINAL FXList via `doPhaseStuff` (first authored name)
 //!
 //! Fail-closed:
 //! - Not full fling physics / multi DeathTypes probability matrix
-//! - Not full FX/OCL/Weapon phase bursts (INITIAL/MIDPOINT/FINAL)
+//! - FX/OCL/Weapon: first authored list entry per phase (no GameLogicRandomValue)
 //! - Not LOD instant-death scale matrix
 //! - Variance uses 0 (no GameLogicRandomValue)
 
@@ -35,6 +36,8 @@ pub const INFANTRY_SINK_RATE_PER_SEC: f32 = 0.5;
 pub const INFANTRY_DESTRUCTION_DELAY_MS: u32 = 8_000;
 /// Default vehicle destruction delay residual (instant-ish but one beat).
 pub const VEHICLE_DESTRUCTION_DELAY_MS: u32 = 1_000;
+/// Retail AmericaInfantry SlowDeathBehavior INITIAL/FINAL peel.
+pub const INFANTRY_SLOW_DEATH_FX: &str = "FX_DieByGunGeneric";
 
 thread_local! {
     static SLOW_DEATH_INI_OVERRIDE: RefCell<Option<(String, HostSlowDeathIni)>> =
@@ -59,6 +62,12 @@ pub struct HostSlowDeathIni {
     pub fling_force_variance: f32,
     /// INI `FlingPitch` degrees (C++ `parseAngleReal`).
     pub fling_pitch_deg: f32,
+    /// C++ `FX = INITIAL ...` first non-empty FXList name.
+    pub fx_initial: Option<String>,
+    /// C++ `FX = MIDPOINT ...` first non-empty FXList name.
+    pub fx_midpoint: Option<String>,
+    /// C++ `FX = FINAL ...` first non-empty FXList name.
+    pub fx_final: Option<String>,
 }
 
 impl Default for HostSlowDeathIni {
@@ -73,6 +82,9 @@ impl Default for HostSlowDeathIni {
             fling_force: 0.0,
             fling_force_variance: 0.0,
             fling_pitch_deg: 0.0,
+            fx_initial: None,
+            fx_midpoint: None,
+            fx_final: None,
         }
     }
 }
@@ -85,6 +97,8 @@ impl HostSlowDeathIni {
             sink_rate_per_sec: INFANTRY_SINK_RATE_PER_SEC,
             destruction_delay_ms: INFANTRY_DESTRUCTION_DELAY_MS,
             destruction_altitude: -10.0,
+            fx_initial: Some(INFANTRY_SLOW_DEATH_FX.into()),
+            fx_final: Some(INFANTRY_SLOW_DEATH_FX.into()),
             ..Self::default()
         }
     }
@@ -117,6 +131,20 @@ pub struct HostSlowDeathData {
     pub fling_vz: f32,
     pub fling_vy: f32,
     pub fling_applied: bool,
+    #[serde(default)]
+    pub fx_initial: Option<String>,
+    #[serde(default)]
+    pub fx_midpoint: Option<String>,
+    #[serde(default)]
+    pub fx_final: Option<String>,
+    #[serde(default)]
+    pub pending_phase_fx: Vec<String>,
+    #[serde(default)]
+    pub midpoint_played: bool,
+    #[serde(default)]
+    pub initial_played: bool,
+    #[serde(default)]
+    pub final_played: bool,
 }
 
 impl Default for HostSlowDeathData {
@@ -133,6 +161,13 @@ impl Default for HostSlowDeathData {
             fling_vz: 0.0,
             fling_vy: 0.0,
             fling_applied: false,
+            fx_initial: None,
+            fx_midpoint: None,
+            fx_final: None,
+            pending_phase_fx: Vec::new(),
+            midpoint_played: false,
+            initial_played: false,
+            final_played: false,
         }
     }
 }
@@ -172,12 +207,21 @@ impl HostSlowDeathData {
             fling_vz: 0.0,
             fling_vy: 0.0,
             fling_applied: false,
+            fx_initial: ini.fx_initial.clone(),
+            fx_midpoint: ini.fx_midpoint.clone(),
+            fx_final: ini.fx_final.clone(),
+            pending_phase_fx: Vec::new(),
+            midpoint_played: false,
+            initial_played: false,
+            final_played: false,
         };
         if ini.fling_force > 0.0 {
             // Deterministic angle residual (object id supplied by caller via apply_fling).
             s.fling_vx = ini.fling_force * 0.15;
             s.fling_vy = ini.fling_force * 0.08 * (ini.fling_pitch_deg.to_radians().sin().max(0.15));
         }
+        // C++ SlowDeathBehavior.cpp:308 doPhaseStuff(SDPHASE_INITIAL).
+        s.queue_phase_fx_initial();
         s
     }
 
@@ -257,9 +301,49 @@ impl HostSlowDeathData {
         true
     }
 
+    /// C++ `doPhaseStuff` — first authored FXList for a phase (random idx fail-closed to 0).
+    fn queue_fx(&mut self, name: &Option<String>) {
+        if let Some(fx) = name.as_ref().filter(|s| !s.is_empty()) {
+            self.pending_phase_fx.push(fx.clone());
+        }
+    }
+
+    fn queue_phase_fx_initial(&mut self) {
+        if self.initial_played {
+            return;
+        }
+        self.initial_played = true;
+        self.queue_fx(&self.fx_initial.clone());
+    }
+
+    /// C++ `update` midpoint + FINAL even when a dual-peel owns sink motion.
+    pub fn poll_phase_fx(&mut self, current_frame: u32) {
+        if self.phase == HostSlowDeathPhase::Inactive {
+            return;
+        }
+        if !self.midpoint_played && current_frame >= self.midpoint_at_frame() {
+            self.midpoint_played = true;
+            self.queue_fx(&self.fx_midpoint.clone());
+        }
+        if !self.final_played
+            && (self.phase == HostSlowDeathPhase::Done || current_frame >= self.destroy_at_frame)
+        {
+            self.final_played = true;
+            self.queue_fx(&self.fx_final.clone());
+        }
+    }
+
+    pub fn take_pending_phase_fx(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_phase_fx)
+    }
+
+    pub fn has_authored_phase_fx(&self) -> bool {
+        self.fx_initial.is_some() || self.fx_midpoint.is_some() || self.fx_final.is_some()
+    }
+
     /// Tick one frame. Returns true when object should be destroyed now.
     pub fn tick(&mut self, current_frame: u32) -> bool {
-        match self.phase {
+        let done = match self.phase {
             HostSlowDeathPhase::Inactive | HostSlowDeathPhase::Done => false,
             HostSlowDeathPhase::WaitingToSink => {
                 if current_frame >= self.sink_at_frame {
@@ -267,9 +351,10 @@ impl HostSlowDeathData {
                 }
                 if current_frame >= self.destroy_at_frame {
                     self.phase = HostSlowDeathPhase::Done;
-                    return true;
+                    true
+                } else {
+                    false
                 }
-                false
             }
             HostSlowDeathPhase::Sinking => {
                 if self.sink_rate_per_frame > 0.0 {
@@ -280,18 +365,22 @@ impl HostSlowDeathData {
                 }
                 if current_frame >= self.destroy_at_frame {
                     self.phase = HostSlowDeathPhase::Done;
-                    return true;
+                    true
+                } else {
+                    false
                 }
-                false
             }
             HostSlowDeathPhase::WaitingToDestroy => {
                 if current_frame >= self.destroy_at_frame {
                     self.phase = HostSlowDeathPhase::Done;
-                    return true;
+                    true
+                } else {
+                    false
                 }
-                false
             }
-        }
+        };
+        self.poll_phase_fx(current_frame);
+        done
     }
 }
 
@@ -324,6 +413,62 @@ fn parse_real(raw: &str) -> Option<f32> {
         .filter(|v| v.is_finite())
 }
 
+fn first_nonempty_fx_name(raw: &str) -> Option<String> {
+    raw.split_whitespace()
+        .map(str::trim)
+        .find(|tok| {
+            !tok.is_empty()
+                && !tok.eq_ignore_ascii_case("none")
+                && !tok.eq_ignore_ascii_case("initial")
+                && !tok.eq_ignore_ascii_case("midpoint")
+                && !tok.eq_ignore_ascii_case("final")
+        })
+        .map(|s| s.to_string())
+}
+
+/// Parse `FX = INITIAL Name` / newline-concatenated multi `FX =` lines.
+pub fn parse_slow_death_phase_fx(attrs: &[(&str, &str)]) -> (Option<String>, Option<String>, Option<String>) {
+    let mut initial = None;
+    let mut midpoint = None;
+    let mut final_fx = None;
+    for (key, value) in attrs {
+        if !key.eq_ignore_ascii_case("FX") {
+            continue;
+        }
+        for line in value.split('\n') {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let mut toks = line.split_whitespace();
+            let Some(phase) = toks.next() else {
+                continue;
+            };
+            let rest = toks.collect::<Vec<_>>().join(" ");
+            let name = first_nonempty_fx_name(&rest);
+            match phase.to_ascii_uppercase().as_str() {
+                "INITIAL" => {
+                    if initial.is_none() {
+                        initial = name;
+                    }
+                }
+                "MIDPOINT" => {
+                    if midpoint.is_none() {
+                        midpoint = name;
+                    }
+                }
+                "FINAL" => {
+                    if final_fx.is_none() {
+                        final_fx = name;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (initial, midpoint, final_fx)
+}
+
 /// Build authored SlowDeath INI from `Behavior = SlowDeathBehavior` field tokens.
 pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDeathIni {
     let get = |key: &str| {
@@ -332,6 +477,7 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
             .find(|(n, _)| n.eq_ignore_ascii_case(key))
             .map(|(_, v)| *v)
     };
+    let (fx_initial, fx_midpoint, fx_final) = parse_slow_death_phase_fx(attrs);
     HostSlowDeathIni {
         sink_delay_ms: get("SinkDelay").and_then(parse_msec).unwrap_or(0),
         sink_delay_variance_ms: get("SinkDelayVariance").and_then(parse_msec).unwrap_or(0),
@@ -346,6 +492,9 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
         fling_force: get("FlingForce").and_then(parse_real).unwrap_or(0.0),
         fling_force_variance: get("FlingForceVariance").and_then(parse_real).unwrap_or(0.0),
         fling_pitch_deg: get("FlingPitch").and_then(parse_real).unwrap_or(0.0),
+        fx_initial,
+        fx_midpoint,
+        fx_final,
     }
 }
 
@@ -413,6 +562,7 @@ mod tests {
     fn infantry_sinks_then_destroys() {
         let mut d = HostSlowDeathData::infantry_residual(0);
         assert_eq!(d.phase, HostSlowDeathPhase::WaitingToSink);
+        assert_eq!(d.take_pending_phase_fx(), vec![INFANTRY_SLOW_DEATH_FX]);
         // Before sink delay (90f)
         assert!(!d.tick(50));
         assert_eq!(d.phase, HostSlowDeathPhase::WaitingToSink);
@@ -429,6 +579,10 @@ mod tests {
         }
         assert!(destroyed);
         assert!(d.sink_offset <= 0.0);
+        assert!(d
+            .take_pending_phase_fx()
+            .iter()
+            .any(|n| n == INFANTRY_SLOW_DEATH_FX));
     }
 
     #[test]
@@ -464,6 +618,26 @@ mod tests {
             d.midpoint_at_frame(),
             10 + ((msec_to_logic_frames(5000) as f32) * BEGIN_MIDPOINT_RATIO) as u32
         );
+    }
+
+    #[test]
+    fn phase_fx_initial_midpoint_final() {
+        let ini = slow_death_ini_from_behavior_attrs(&[
+            ("SinkDelay", "0"),
+            ("SinkRate", "0"),
+            ("DestructionDelay", "1000"),
+            ("FX", "INITIAL FX_DieInitial\nMIDPOINT FX_DieMid\nFINAL FX_DieFinal"),
+        ]);
+        assert_eq!(ini.fx_initial.as_deref(), Some("FX_DieInitial"));
+        assert_eq!(ini.fx_midpoint.as_deref(), Some("FX_DieMid"));
+        assert_eq!(ini.fx_final.as_deref(), Some("FX_DieFinal"));
+        let mut d = HostSlowDeathData::from_ini(0, &ini);
+        assert_eq!(d.take_pending_phase_fx(), vec!["FX_DieInitial"]);
+        let mid = d.midpoint_at_frame();
+        assert!(!d.tick(mid));
+        assert_eq!(d.take_pending_phase_fx(), vec!["FX_DieMid"]);
+        assert!(d.tick(d.destroy_at_frame));
+        assert_eq!(d.take_pending_phase_fx(), vec!["FX_DieFinal"]);
     }
 
     #[test]
