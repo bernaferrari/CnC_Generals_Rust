@@ -346,7 +346,40 @@ impl Object {
             return;
         }
         self.armor_crate_upgrade = self.armor_crate_upgrade.saturating_add(1);
+        // Unread scalar residual (live damage uses ArmorSet, not this).
         self.thing.template.armor += 10.0;
+        self.validate_armor_and_damage_fx();
+        self.record_host_ai_request();
+    }
+
+    /// C++ ActiveBody::validateArmorAndDamageFX + crate model bits.
+    pub(crate) fn validate_armor_and_damage_fx(&mut self) {
+        use crate::game_logic::host_enum_table_residual::{
+            armorset_crateupgrade_one_model_bit, armorset_crateupgrade_two_model_bit,
+        };
+        let one = armorset_crateupgrade_one_model_bit();
+        let two = armorset_crateupgrade_two_model_bit();
+        self.model_condition_bits &= !(1u128 << one);
+        self.model_condition_bits &= !(1u128 << two);
+        match self.armor_crate_upgrade {
+            1 => self.model_condition_bits |= 1u128 << one,
+            n if n >= 2 => self.model_condition_bits |= 1u128 << two,
+            _ => {}
+        }
+        self.record_host_model_condition();
+    }
+
+    /// C++ ActiveBody::onVeterancyLevelChanged armor-set flag switch.
+    fn set_veterancy_armor_set_flags(&mut self, level: VeterancyLevel) {
+        self.armor_set_veteran = false;
+        self.armor_set_elite = false;
+        self.armor_set_hero = false;
+        match level {
+            VeterancyLevel::Rookie => {}
+            VeterancyLevel::Veteran => self.armor_set_veteran = true,
+            VeterancyLevel::Elite => self.armor_set_elite = true,
+            VeterancyLevel::Heroic => self.armor_set_hero = true,
+        }
     }
 
     /// C++ SalvageCrateCollide::doLevelGain residual.
@@ -400,7 +433,40 @@ impl Object {
         crate::game_logic::host_veterancy_log::record(self.id, ordinal);
     }
 
+    /// C++ ThingTemplate::isTrainable.
+    pub fn is_trainable(&self) -> bool {
+        self.thing.template.is_trainable
+    }
+
+    /// C++ ExperienceTracker::isAcceptingExperiencePoints.
+    /// Untrainable projectiles with a producer accept XP so it can sink to the launcher.
+    pub fn is_accepting_experience_points(&self) -> bool {
+        self.is_trainable()
+            || self.experience_sink.is_some()
+            || (!self.is_trainable() && self.producer_id.is_some())
+    }
+
+    /// C++ ExperienceTracker::getExperienceValue + UNDER_CONSTRUCTION gate.
+    pub fn kill_experience_value(&self) -> f32 {
+        if self.status.under_construction {
+            return 0.0;
+        }
+        self.thing
+            .template
+            .experience_value_for_level(self.experience.level)
+    }
+
+    /// C++ ExperienceTracker::setExperienceSink.
+    pub fn set_experience_sink(&mut self, sink: Option<ObjectId>) {
+        self.experience_sink = sink;
+    }
+
     pub fn gain_experience(&mut self, amount: f32) {
+        // C++ addExperiencePoints: untrainable objects keep no XP (sink
+        // forwarding is handled by GameLogic::award_experience).
+        if !self.is_trainable() {
+            return;
+        }
         // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
         // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
         let amount = if self.has_advanced_training_xp_scalar() {
@@ -508,6 +574,8 @@ impl Object {
         self.record_host_veterancy_level();
         self.max_health = self.health.maximum.max(1.0);
         self.record_host_max_health();
+        self.set_veterancy_armor_set_flags(new_level);
+        self.validate_armor_and_damage_fx();
     }
 
     /// C++ ExperienceTracker::setMinVeterancyLevel residual (VeterancyGainCreate).

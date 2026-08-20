@@ -293,4 +293,29 @@ impl TheTerrainLogic {
 
         out
     }
+
+    /// C++ `TheTerrainLogic->getWaypointByID` location.
+    pub fn get_waypoint_location(&self, id: UnsignedInt) -> Option<Coord3D> {
+        let terrain = crate::terrain::get_terrain_logic();
+        let guard = terrain.try_read().ok()?;
+        guard.get_waypoint_by_id(id).map(|way| *way.get_location())
+    }
+
+    /// Advance to a random outgoing waypoint link (C++ PUC scripted path).
+    pub fn random_outgoing_waypoint_link(
+        &self,
+        id: UnsignedInt,
+    ) -> Option<(UnsignedInt, Coord3D)> {
+        let terrain = crate::terrain::get_terrain_logic();
+        let guard = terrain.try_read().ok()?;
+        let way = guard.get_waypoint_by_id(id)?;
+        let link_count = way.get_num_links();
+        if link_count == 0 {
+            return None;
+        }
+        let which = game_logic_random_value(0, (link_count as u32) - 1) as usize;
+        let next_id = way.get_link(which)?;
+        let next = guard.get_waypoint_by_id(next_id)?;
+        Some((next.get_id(), *next.get_location()))
+    }
 }

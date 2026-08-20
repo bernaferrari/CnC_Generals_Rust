@@ -188,7 +188,7 @@ impl ProductionUpdate {
         if let Some(template) = TheThingFactory::find_template(template_name) {
             for &kind in ALL_KIND_OF {
                 if template.is_kind_of(kind) {
-                    kind_of_mask |= 1u64 << (kind as u32);
+                    kind_of_mask |= kind.cpp_mask();
                 }
             }
         }

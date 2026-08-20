@@ -18,17 +18,17 @@ use crate::common::well_known_keys::{
     key_player_enemies, key_player_faction, key_player_is_human, key_player_is_preorder,
     key_player_is_skirmish, key_player_name, key_player_night_color, key_player_start_money,
     key_skirmish_difficulty, key_team_all_clear_script, key_team_enemy_sighted_script,
-    key_team_generic_script_hook, key_team_name, key_team_on_create_script,
+    key_team_generic_script_hook, key_team_is_singleton, key_team_name, key_team_on_create_script,
     key_team_on_destroyed_script, key_team_on_idle_script, key_team_on_unit_destroyed_script,
     key_team_owner, key_team_production_condition,
 };
-use crate::common::{AsciiString, Color, Relationship};
+use crate::common::{AsciiString, Color, Dict, Relationship};
 use crate::helpers::TheGameText;
 use crate::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerType as LogicPlayerType, ThePlayerList,
 };
-use crate::sides_list::get_sides_list;
+use crate::sides_list::{get_sides_list, SidesList};
 use crate::team::get_team_factory;
 use crate::team::MAX_GENERIC_SCRIPTS;
 use game_engine::common::ini::ini::{INILoadType, INI};
@@ -101,6 +101,15 @@ fn skirmish_difficulty_from_int(value: i32) -> Option<Difficulty> {
         3 => Some(Difficulty::Brutal),
         _ => None,
     }
+}
+
+/// C++ `TheGlobalData->m_defaultStartingCash` (Player.cpp:433).
+/// Lobby/map cash is applied separately after Player::init when set.
+pub fn default_starting_cash() -> u32 {
+    game_engine::common::ini::get_global_data()
+        .map(|data| data.read().default_starting_cash.max(0) as u32)
+        .filter(|&cash| cash > 0)
+        .unwrap_or(0)
 }
 
 /// Game initialization parameters
@@ -209,6 +218,7 @@ impl GameInitializer {
         crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD);
         Self::load_map(&mut game_state, &params.map_path)?;
         crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_LOAD_MAP);
+        Self::prepare_sides_for_new_game(&params);
 
         // PHASE 2: PLAYER INITIALIZATION
         // =====================================================================
@@ -280,6 +290,95 @@ impl GameInitializer {
 
         Ok(())
     }
+
+    /// C++ GameLogic.cpp:1289-1461 — prepareForMP_or_Skirmish, add lobby
+    /// slots, always add ReplayObserver, then validateSides.
+    fn prepare_sides_for_new_game(params: &GameInitParams) {
+        let is_mp_or_skirmish = matches!(
+            params.game_mode,
+            GameMode::Skirmish | GameMode::Multiplayer | GameMode::Replay
+        );
+        let Ok(mut sides) = get_sides_list().write() else {
+            return;
+        };
+        if is_mp_or_skirmish {
+            sides.prepare_for_mp_or_skirmish();
+            Self::add_occupied_session_sides(&mut sides, params);
+        }
+        Self::add_replay_observer_side(&mut sides);
+        sides.validate_sides();
+    }
+
+    fn add_occupied_session_sides(sides: &mut SidesList, params: &GameInitParams) {
+        for index in 0..params.num_players {
+            let player_name = format!("player{index}");
+            let template = params.player_templates.get(index);
+            let faction = template
+                .map(|t| {
+                    if !t.name.is_empty() {
+                        t.name.clone()
+                    } else if !t.side.is_empty() {
+                        format!("Faction{}", t.side)
+                    } else {
+                        String::from("FactionAmerica")
+                    }
+                })
+                .unwrap_or_else(|| String::from("FactionAmerica"));
+            let display_name = template
+                .map(|t| {
+                    if !t.display_name.is_empty() {
+                        t.display_name.clone()
+                    } else {
+                        player_name.clone()
+                    }
+                })
+                .unwrap_or_else(|| player_name.clone());
+            let is_human = index == 0;
+
+            let mut dict = Dict::new();
+            dict.set_ascii_string(key_player_name(), player_name.clone());
+            dict.set_bool(key_player_is_human(), is_human);
+            dict.set_unicode_string(key_player_display_name(), display_name);
+            dict.set_ascii_string(key_player_faction(), faction);
+            dict.set_ascii_string(key_player_allies(), String::new());
+            dict.set_ascii_string(key_player_enemies(), String::new());
+            dict.set_int(key_multiplayer_start_index(), index as i32);
+            if matches!(params.game_mode, GameMode::Skirmish) {
+                dict.set_bool(key_player_is_skirmish(), !is_human);
+            }
+            sides.add_side(&dict);
+
+            let mut team = Dict::new();
+            let mut team_name = String::from("team");
+            team_name.push_str(&player_name);
+            team.set_ascii_string(key_team_name(), team_name);
+            team.set_ascii_string(key_team_owner(), player_name);
+            team.set_bool(key_team_is_singleton(), true);
+            sides.add_team(&team);
+        }
+    }
+
+    fn add_replay_observer_side(sides: &mut SidesList) {
+        if sides.find_side_info("ReplayObserver").is_some() {
+            return;
+        }
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_player_name(), "ReplayObserver");
+        dict.set_bool(key_player_is_human(), true);
+        dict.set_unicode_string(key_player_display_name(), "Observer");
+        dict.set_ascii_string(key_player_faction(), "FactionObserver");
+        dict.set_ascii_string(key_player_allies(), String::new());
+        dict.set_ascii_string(key_player_enemies(), String::new());
+        dict.set_int(key_multiplayer_start_index(), 0);
+        sides.add_side(&dict);
+
+        let mut team = Dict::new();
+        team.set_ascii_string(key_team_name(), "teamReplayObserver");
+        team.set_ascii_string(key_team_owner(), "ReplayObserver");
+        team.set_bool(key_team_is_singleton(), true);
+        sides.add_team(&team);
+    }
+
 
     fn load_map_sidecar_resources(map_path: &str) {
         let map_for_sidecars = Self::resolve_sidecar_map_path(map_path);
@@ -592,12 +691,15 @@ impl GameInitializer {
             game_state.score_keeper.init_player(player.index);
         }
 
-        // Apply alliances/enemies from SidesList if provided, otherwise default to enemies.
+        // Apply alliances/enemies from SidesList. Unlisted pairs stay Neutral.
         game_state
             .player_list
             .init_relationships_from_allies_enemies();
 
-        Self::sync_player_list_to_game_logic(&game_state.player_list);
+        Self::sync_player_list_to_game_logic(
+            &game_state.player_list,
+            params.starting_resources,
+        );
         Self::sync_teams_from_sides();
         Self::sync_side_scripts_to_script_engine();
         Self::initialize_ai_integration_for_players();
@@ -618,7 +720,10 @@ impl GameInitializer {
         Ok(())
     }
 
-    fn sync_player_list_to_game_logic(system_list: &super::player_init::PlayerList) {
+    fn sync_player_list_to_game_logic(
+        system_list: &super::player_init::PlayerList,
+        starting_resources: u32,
+    ) {
         let mut logic_list = LogicPlayerList::new();
         let mut logic_players = Vec::new();
 
@@ -676,17 +781,35 @@ impl GameInitializer {
                 b: (system_player.night_color & 0xFF) as u8,
             };
             logic_player.set_colors(color, night_color);
-            logic_player
-                .get_money_mut()
-                .set_money(system_player.current_money as i32);
 
             let template = crate::player::PlayerTemplate::from_common(&system_player.template);
+            let template_start_money = template.starting_money.count_money();
             logic_player.init(std::sync::Arc::new(template));
             logic_player.init_from_dict_defaults();
 
+            // C++ Player.cpp:425-436 then 1007-1009: after init, apply GameInfo /
+            // lobby cash when the template left money at 0, then deposit
+            // map playerStartMoney on top. Do not set_money before init.
+            if template_start_money == 0 {
+                let lobby_or_default = if starting_resources > 0 {
+                    starting_resources
+                } else {
+                    default_starting_cash()
+                };
+                if lobby_or_default > 0 {
+                    logic_player
+                        .get_money_mut()
+                        .set_money(lobby_or_default as i32);
+                }
+            }
             if let Ok(sides_guard) = get_sides_list().read() {
                 if let Some(side_info) = sides_guard.get_side_info(system_player.index as usize) {
-                    logic_player.apply_handicap_from_dict(side_info.get_dict());
+                    let dict = side_info.get_dict();
+                    logic_player.apply_handicap_from_dict(dict);
+                    if dict.get_type(key_player_start_money()).is_some() {
+                        let money = dict.get_int(key_player_start_money());
+                        logic_player.get_money_mut().deposit_money(money);
+                    }
                 }
             }
 
@@ -1009,9 +1132,9 @@ impl GameInitializer {
 
             if dict.get_type(key_player_start_money()).is_some() {
                 let money = dict.get_int(key_player_start_money());
-                if money > 0 {
-                    player.current_money = money as u32;
-                }
+                player.current_money = player
+                    .current_money
+                    .saturating_add(money.max(0) as u32);
             }
 
             if !player.is_human {

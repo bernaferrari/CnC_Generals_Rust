@@ -700,6 +700,15 @@ pub struct ObjectDefinition {
     /// the normal primary while the parser walks the source file.
     pub weapon_sets: Vec<WeaponSetDefinition>,
 
+    /// Source-authored outer `ArmorSet` blocks in declaration order.
+    pub armor_sets: Vec<ArmorSetDefinition>,
+    /// C++ ActiveBody `SubdualDamageCap`. None = unauthored (immune default 0).
+    pub subdual_damage_cap: Option<f32>,
+    /// C++ ActiveBody `SubdualDamageHealRate` in logic frames.
+    pub subdual_heal_rate_frames: Option<u32>,
+    /// C++ ActiveBody `SubdualDamageHealAmount`.
+    pub subdual_heal_amount: Option<f32>,
+
     /// Source-authored outer `Locomotor = SET_* ...` rows, in declaration
     /// order.  `attributes` intentionally remains a lossy compatibility map,
     /// but repeating Locomotor is meaningful: RiderChangeContain chooses one
@@ -812,6 +821,33 @@ impl WeaponSetDefinition {
     }
 }
 
+/// One C++ Object INI `ArmorSet` declaration.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ArmorSetDefinition {
+    pub conditions: Vec<String>,
+    pub armor: Option<String>,
+    pub damage_fx: Option<String>,
+}
+
+impl ArmorSetDefinition {
+    fn record_conditions(&mut self, value: &str) {
+        self.conditions = IniParser::condition_tokens(value);
+    }
+
+    fn record_armor(&mut self, value: &str) {
+        let name = value.split_whitespace().next().unwrap_or("").trim();
+        self.armor = (!name.is_empty() && !name.eq_ignore_ascii_case("none"))
+            .then(|| name.to_string());
+    }
+
+    fn record_damage_fx(&mut self, value: &str) {
+        let name = value.split_whitespace().next().unwrap_or("").trim();
+        self.damage_fx = (!name.is_empty() && !name.eq_ignore_ascii_case("none"))
+            .then(|| name.to_string());
+    }
+}
+
+
 impl ObjectDefinition {
     /// Create a new object definition
     pub fn new(name: String) -> Self {
@@ -834,6 +870,10 @@ impl ObjectDefinition {
             secondary_weapon: None,
             tertiary_weapon: None,
             weapon_sets: Vec::new(),
+            armor_sets: Vec::new(),
+            subdual_damage_cap: None,
+            subdual_heal_rate_frames: None,
+            subdual_heal_amount: None,
             locomotor_sets: Vec::new(),
             attributes: HashMap::new(),
         }
@@ -1101,6 +1141,8 @@ impl IniParser {
         // mistaken for top-level compatibility fields.
         let mut active_weapon_set: Option<usize> = None;
         let mut active_weapon_set_depth = 0usize;
+        let mut active_armor_set: Option<usize> = None;
+        let mut active_armor_set_depth = 0usize;
         let mut object_count = 0;
         for (index, line) in lines.iter().enumerate() {
             let trimmed = line.trim();
@@ -1139,6 +1181,8 @@ impl IniParser {
                 active_behavior_depth = 0;
                 active_weapon_set = None;
                 active_weapon_set_depth = 0;
+                active_armor_set = None;
+                active_armor_set_depth = 0;
                 trace!("Found object: {}", current_object.as_ref().unwrap().name);
                 continue;
             }
@@ -1147,6 +1191,7 @@ impl IniParser {
             if trimmed.eq_ignore_ascii_case("End") {
                 if current_object.is_some()
                     && active_weapon_set.is_none()
+                    && active_armor_set.is_none()
                     && Self::is_object_terminator(&lines, index + 1)
                 {
                     if let Some(obj) = current_object.take() {
@@ -1159,11 +1204,20 @@ impl IniParser {
                     active_behavior_depth = 0;
                     active_weapon_set = None;
                     active_weapon_set_depth = 0;
+                    active_armor_set = None;
+                    active_armor_set_depth = 0;
                 } else {
                     if active_weapon_set.is_some() {
                         active_weapon_set_depth = active_weapon_set_depth.saturating_sub(1);
                         if active_weapon_set_depth == 0 {
                             active_weapon_set = None;
+                        }
+                        continue;
+                    }
+                    if active_armor_set.is_some() {
+                        active_armor_set_depth = active_armor_set_depth.saturating_sub(1);
+                        if active_armor_set_depth == 0 {
+                            active_armor_set = None;
                         }
                         continue;
                     }
@@ -1197,6 +1251,15 @@ impl IniParser {
                     active_condition_state = None;
                     continue;
                 }
+                if Self::is_armor_set_header(trimmed) {
+                    obj.armor_sets.push(ArmorSetDefinition::default());
+                    active_armor_set = obj.armor_sets.len().checked_sub(1);
+                    active_armor_set_depth = usize::from(active_armor_set.is_some());
+                    active_draw_module = None;
+                    active_condition_state = None;
+                    continue;
+                }
+
 
                 // Object INI nested module headers have no `=`.  The parser
                 // does not need their individual schema here, but it must
@@ -1215,6 +1278,13 @@ impl IniParser {
                     && !trimmed.eq_ignore_ascii_case("End")
                 {
                     active_weapon_set_depth = active_weapon_set_depth.saturating_add(1);
+                }
+                if active_armor_set.is_some()
+                    && !trimmed.contains('=')
+                    && !Self::is_object_header(trimmed)
+                    && !trimmed.eq_ignore_ascii_case("End")
+                {
+                    active_armor_set_depth = active_armor_set_depth.saturating_add(1);
                 }
                 if let Some((condition_state_key, condition_state_value)) =
                     Self::parse_condition_state_declaration(trimmed)
@@ -1283,6 +1353,18 @@ impl IniParser {
                         // into `ObjectDefinition::attributes`: that lossy map
                         // would otherwise turn a conditional mine primary into
                         // a normal Object-level weapon later in loading.
+                        continue;
+                    }
+
+                    if let Some(set) =
+                        active_armor_set.and_then(|index| obj.armor_sets.get_mut(index))
+                    {
+                        match lower_key.as_str() {
+                            "conditions" => set.record_conditions(value),
+                            "armor" => set.record_armor(value),
+                            "damagefx" => set.record_damage_fx(value),
+                            _ => {}
+                        }
                         continue;
                     }
 
@@ -1519,6 +1601,24 @@ impl IniParser {
                             obj.attributes.insert(key.to_string(), value.to_string());
                         }
                         "armortype" => obj.armor_type = Some(value.to_string()),
+                        "subdualdamagecap" => {
+                            obj.subdual_damage_cap = value
+                                .trim()
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|cap| cap.is_finite());
+                        }
+                        "subdualdamagehealrate" => {
+                            obj.subdual_heal_rate_frames =
+                                Self::parse_subdual_heal_rate_frames(value);
+                        }
+                        "subdualdamagehealamount" => {
+                            obj.subdual_heal_amount = value
+                                .trim()
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|amount| amount.is_finite());
+                        }
                         "hitpoints" | "health" | "maxhealth" => {
                             obj.hit_points = value
                                 .trim()
@@ -1604,6 +1704,27 @@ impl IniParser {
                 .next()
                 .is_some_and(|head| head.eq_ignore_ascii_case("WeaponSet"))
     }
+
+    fn is_armor_set_header(line: &str) -> bool {
+        !line.contains('=')
+            && line
+                .split_whitespace()
+                .next()
+                .is_some_and(|head| head.eq_ignore_ascii_case("ArmorSet"))
+    }
+
+    /// C++ `INI::parseDurationUnsignedInt` → logic frames (`ceil(msec * 30 / 1000)`).
+    fn parse_subdual_heal_rate_frames(value: &str) -> Option<u32> {
+        let msec = value.split_whitespace().next()?.parse::<f32>().ok()?;
+        if !msec.is_finite() {
+            return None;
+        }
+        if msec <= 0.0 {
+            return Some(0);
+        }
+        Some(((msec * 30.0) / 1000.0).ceil() as u32)
+    }
+
 
     fn parse_object_header(line: &str) -> Option<(String, Option<String>)> {
         if line.contains('=') {

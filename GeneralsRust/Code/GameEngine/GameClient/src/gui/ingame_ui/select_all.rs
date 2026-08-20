@@ -49,8 +49,30 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
         selected.push(obj.get_id());
     }
 
-    if max_select > 0 && selected.len() > max_select as usize {
-        selected.truncate(max_select as usize);
+    // C++ selectAllUnitsByType: screen region first, then whole map (InGameUI.cpp:4877).
+    let screen_ids = with_tactical_view_ref(|view| {
+        view.iterate_drawables_in_region(Some((
+            IPoint2::new(0, 0),
+            IPoint2::new(view.width(), view.height()),
+        )))
+    });
+    let on_screen: Vec<ObjectID> = selected
+        .iter()
+        .copied()
+        .filter(|id| screen_ids.iter().any(|sid| *sid == *id))
+        .collect();
+    let mut chosen = if !on_screen.is_empty() {
+        TheInGameUI::message(&GameText::fetch("GUI:SelectedAcrossScreen"));
+        on_screen
+    } else if !selected.is_empty() {
+        TheInGameUI::message(&GameText::fetch("GUI:SelectedAcrossMap"));
+        selected
+    } else {
+        selected
+    };
+
+    if max_select > 0 && chosen.len() > max_select as usize {
+        chosen.truncate(max_select as usize);
         let label = GameText::fetch("GUI:MaxSelectionSize");
         TheInGameUI::message(
             &label
@@ -58,7 +80,7 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
                 .replace("%i", &max_select.to_string()),
         );
     }
-    selected
+    chosen
 }
 
 /// Crate/command-translator entry: apply select-all and emit MSG_CREATE_SELECTED_GROUP.

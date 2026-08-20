@@ -42,7 +42,7 @@ impl Default for SpyVisionUpdateModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
-            spy_on_kind_of: KIND_OF_MASK_ALL,
+            spy_on_kind_of: u64::MAX,
             self_powered: false,
             self_powered_duration: 0,
             self_powered_interval: 0,
@@ -165,7 +165,7 @@ impl SpyVisionController {
             if let Ok(mut target_player_write) = target_player_arc.write() {
                 target_player_write.set_units_vision_spied(
                     setting,
-                    self.data.spy_on_kind_of,
+                    self.data.spy_on_kind_of as crate::common::KindOfMaskType,
                     spying_player_index,
                 );
             }
@@ -688,7 +688,7 @@ fn parse_spy_on_kind_of(
             continue;
         }
         if let Some(kind) = parse_kind(token) {
-            mask |= 1u64 << (kind as u32);
+            mask |= kind.cpp_mask() as u64;
         }
     }
 

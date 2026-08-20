@@ -730,8 +730,8 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let mask = (1u64 << (crate::common::KindOf::Structure as u32))
-            | (1u64 << (crate::common::KindOf::CountsForVictory as u32));
+        let mask = crate::common::KindOf::Structure.cpp_mask()
+            | crate::common::KindOf::CountsForVictory.cpp_mask();
         let building_count = player.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
 
         Ok(if count >= building_count {

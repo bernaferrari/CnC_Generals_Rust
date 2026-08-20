@@ -473,6 +473,10 @@ impl ContainModuleInterface for HealContain {
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = self.base.process_damage_to_contained(percent_damage);
     }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
+    }
 }
 
 impl ContainerInterface for HealContain {

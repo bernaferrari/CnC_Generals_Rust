@@ -565,6 +565,9 @@ impl GameLogic {
             script_camera_move_to: None,
             script_camera_path: None,
             camera_follow_target: None,
+            camera_tether_play: None,
+            script_look_toward_object_id: None,
+            script_look_toward_hold_seconds: 0.0,
             script_default_camera_pitch: 1.0,
             script_default_camera_angle: 0.0,
             script_default_camera_max_height: 1.0,
@@ -646,6 +649,8 @@ impl GameLogic {
         self.world_min = Vec3::new(-width * 0.5, 0.0, -height * 0.5);
         self.world_max = Vec3::new(width * 0.5, 0.0, height * 0.5);
         self.pathfinding_system = PathfindingSystem::new_with_origin(self.world_min, width, height);
+        // Terrain-provided extent must seed TheRadar samples (C++ newMap).
+        self.host_radar_on_map_loaded();
     }
 
     /// Reset method - matching C++ GameLogic interface
@@ -1119,6 +1124,9 @@ impl GameLogic {
         self.script_camera_move_to = None;
         self.script_camera_path = None;
         self.camera_follow_target = None;
+        self.camera_tether_play = None;
+        self.script_look_toward_object_id = None;
+        self.script_look_toward_hold_seconds = 0.0;
         self.script_default_camera_pitch = 1.0;
         self.script_default_camera_angle = 0.0;
         self.script_default_camera_max_height = 1.0;

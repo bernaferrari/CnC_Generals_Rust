@@ -172,7 +172,17 @@ impl GameLogic {
                     let direction = (flat_target - current_pos).normalize_or_zero();
 
                     if direction.length() > 0.0 {
-                        let desired_angle = (-direction.z).atan2(direction.x);
+                        let mut desired_angle = (-direction.z).atan2(direction.x);
+                        // C++ Locomotor.cpp:1618-1637 legs wander weave.
+                        let wander_enabled = obj.wander_width_factor != 0.0
+                            || matches!(
+                                obj.loco_appearance,
+                                LocomotorAppearance::LegsTwo | LocomotorAppearance::Climber
+                            );
+                        if wander_enabled {
+                            let actual = obj.movement.velocity.length();
+                            desired_angle += obj.tick_wander_angle_offset(actual);
+                        }
                         let current_angle = obj.get_orientation();
                         let mut delta = desired_angle - current_angle;
                         while delta > std::f32::consts::PI {
@@ -187,7 +197,7 @@ impl GameLogic {
                         obj.set_orientation(new_angle);
 
                         let dist = horiz(current_pos, flat_target);
-                        let mut speed = obj.movement.max_speed;
+                        let mut speed = obj.effective_max_speed();
                         if !obj.no_slow_down_as_approaching_dest {
                             let slow = crate::game_logic::calc_slow_down_dist(
                                 obj.movement.velocity.length(),
@@ -204,10 +214,11 @@ impl GameLogic {
                         let heading = glam::Vec3::new(new_angle.cos(), 0.0, -new_angle.sin());
                         let target_velocity = heading * speed;
                         let velocity_diff = target_velocity - obj.movement.velocity;
+                        let accel = obj.effective_acceleration();
                         let max_accel = if obj.is_braking {
-                            obj.braking.max(obj.movement.acceleration) * dt
+                            obj.braking.max(accel) * dt
                         } else {
-                            obj.movement.acceleration * dt
+                            accel * dt
                         };
 
                         let new_velocity = if velocity_diff.length() <= max_accel {
@@ -529,5 +540,71 @@ mod tests {
         let obj = logic.objects.get(&id).expect("unit");
         assert_eq!(obj.get_position(), start, "EMP unit must not integrate");
         assert_eq!(obj.movement.velocity, Vec3::ZERO);
+    }
+
+    /// hq-vpocc: ReallyDamaged uses SpeedDamaged, not pristine max.
+    #[test]
+    fn really_damaged_unit_uses_speed_damaged() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9020);
+        let mut unit = ranger_at(9020, Vec3::ZERO);
+        unit.movement.max_speed = 40.0;
+        unit.movement.max_speed_damaged = 10.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.acceleration_damaged = 10_000.0;
+        unit.body_damage_state =
+            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+        unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+        unit.set_orientation(0.0);
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        let speed = obj.movement.velocity.length();
+        assert!(
+            speed < 15.0,
+            "ReallyDamaged must cap at SpeedDamaged 10, got {speed}"
+        );
+        assert!(speed > 1.0, "must still move, got {speed}");
+    }
+
+    /// hq-fll0r: wander weave offsets heading so two units diverge.
+    #[test]
+    fn legs_wander_offsets_heading() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let mut make = |id: u32, inc: f32, increasing: bool| {
+            let mut unit = ranger_at(id, Vec3::ZERO);
+            unit.movement.max_speed = 30.0;
+            unit.movement.acceleration = 10_000.0;
+            unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
+            unit.set_orientation(0.0);
+            unit.loco_appearance = LocomotorAppearance::LegsTwo;
+            unit.wander_width_factor = 1.0;
+            unit.wander_angle_offset = 0.0;
+            unit.wander_offset_increment = inc;
+            unit.wander_offset_increasing = increasing;
+            unit
+        };
+        logic.objects.insert(ObjectId(9021), make(9021, 0.2, true));
+        logic.objects.insert(ObjectId(9022), make(9022, 0.2, false));
+        logic.update_movement_for_test(&[ObjectId(9021), ObjectId(9022)], 1.0 / 30.0);
+        let a = logic.objects.get(&ObjectId(9021)).unwrap().get_orientation();
+        let b = logic.objects.get(&ObjectId(9022)).unwrap().get_orientation();
+        assert!(
+            (a - b).abs() > 1e-3,
+            "wander phase must split heading, {a} vs {b}"
+        );
+    }
+
+    /// hq-hh1mu: default braking is BIGNUM, not 50.
+    #[test]
+    fn object_default_braking_is_bignum() {
+        let unit = ranger_at(9023, Vec3::ZERO);
+        assert!(
+            (unit.braking - 99999.0).abs() < 0.5,
+            "C++ BIGNUM default, got {}",
+            unit.braking
+        );
     }
 }

@@ -875,6 +875,12 @@ fn register_weapon_template_from_properties(
     if let Some(val) = properties.get("DamageType") {
         template.damage_type = parse_damage_type(val);
     }
+    // C++ ObjectStatusMaskType::parseSingleBitFromINI → m_damageStatusType.
+    // Default remains OBJECT_STATUS_NONE (Weapon.cpp:303).
+    if let Some(val) = properties.get("DamageStatusType") {
+        template.damage_status_type = parse_damage_status_type(val);
+    }
+
 
     if let Some(val) = properties.get("WeaponSpeed") {
         if let Ok(speed) = val.parse::<f32>() {
@@ -1460,16 +1466,19 @@ fn apply_weapon_effect_references(
     }
 }
 
-/// C++ `UpgradeTemplate::m_upgradeFieldParseTable` keys that GameLogic currently
-/// applies (`parse_from_ini` / setters). ResearchSound / UnitSpecificSound /
-/// AcademyClassify are parsed in C++ but have no GameLogic setters yet.
+/// C++ `UpgradeTemplate::m_upgradeFieldParseTable` keys applied by GameLogic
+/// `parse_from_ini` / setters (Upgrade.cpp:90-103).
 const UPGRADE_INI_SETTER_FIELDS: &[&str] = &[
     "DisplayName",
     "Type",
     "BuildTime",
     "BuildCost",
     "ButtonImage",
+    "ResearchSound",
+    "UnitSpecificSound",
+    "AcademyClassify",
 ];
+
 
 /// Look up an INI property with C++-style case-insensitive field names.
 fn find_ini_property<'a>(properties: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
@@ -1627,6 +1636,64 @@ fn parse_damage_type(s: &str) -> gamelogic::DamageType {
     }
 }
 
+/// C++ `ObjectStatusMaskType::parseSingleBitFromINI` — one bit-name index.
+///
+/// Names match `ObjectStatusMaskType::s_bitNameList`. Unknown tokens stay
+/// `OBJECT_STATUS_NONE` (ctor default) rather than inventing a bit.
+fn parse_damage_status_type(s: &str) -> gamelogic::weapon::ObjectStatusTypes {
+    use gamelogic::common::ObjectStatusTypes as CommonStatus;
+    let status = match s.trim().to_ascii_uppercase().as_str() {
+        "NONE" => CommonStatus::None,
+        "DESTROYED" => CommonStatus::Destroyed,
+        "CAN_ATTACK" => CommonStatus::CanAttack,
+        "UNDER_CONSTRUCTION" => CommonStatus::UnderConstruction,
+        "UNSELECTABLE" => CommonStatus::Unselectable,
+        "NO_COLLISIONS" => CommonStatus::NoCollisions,
+        "NO_ATTACK" => CommonStatus::NoAttack,
+        "AIRBORNE_TARGET" => CommonStatus::AirborneTarget,
+        "PARACHUTING" => CommonStatus::Parachuting,
+        "REPULSOR" => CommonStatus::Repulsor,
+        "HIJACKED" => CommonStatus::Hijacked,
+        "AFLAME" => CommonStatus::Aflame,
+        "BURNED" => CommonStatus::Burned,
+        "WET" => CommonStatus::Wet,
+        "IS_FIRING_WEAPON" => CommonStatus::IsFiringWeapon,
+        "IS_BRAKING" => CommonStatus::Braking,
+        "STEALTHED" => CommonStatus::Stealthed,
+        "DETECTED" => CommonStatus::Detected,
+        "CAN_STEALTH" => CommonStatus::CanStealth,
+        "SOLD" => CommonStatus::Sold,
+        "UNDERGOING_REPAIR" => CommonStatus::UndergoingRepair,
+        "RECONSTRUCTING" => CommonStatus::Reconstructing,
+        "MASKED" => CommonStatus::Masked,
+        "IS_ATTACKING" => CommonStatus::IsAttacking,
+        "USING_ABILITY" => CommonStatus::IsUsingAbility,
+        "IS_AIMING_WEAPON" => CommonStatus::IsAimingWeapon,
+        "NO_ATTACK_FROM_AI" => CommonStatus::NoAttackFromAi,
+        "IGNORING_STEALTH" => CommonStatus::IgnoringStealth,
+        "IS_CARBOMB" => CommonStatus::IsCarBomb,
+        "DECK_HEIGHT_OFFSET" => CommonStatus::DeckHeightOffset,
+        "STATUS_RIDER1" => CommonStatus::Rider1,
+        "STATUS_RIDER2" => CommonStatus::Rider2,
+        "STATUS_RIDER3" => CommonStatus::Rider3,
+        "STATUS_RIDER4" => CommonStatus::Rider4,
+        "STATUS_RIDER5" => CommonStatus::Rider5,
+        "STATUS_RIDER6" => CommonStatus::Rider6,
+        "STATUS_RIDER7" => CommonStatus::Rider7,
+        "STATUS_RIDER8" => CommonStatus::Rider8,
+        "FAERIE_FIRE" => CommonStatus::FaerieFire,
+        "KILLING_SELF" => CommonStatus::MissileKillingSelf,
+        "REASSIGN_PARKING" => CommonStatus::ReassignParking,
+        "BOOBY_TRAPPED" => CommonStatus::BoobyTrapped,
+        "IMMOBILE" => CommonStatus::Immobile,
+        "DISGUISED" => CommonStatus::Disguised,
+        "DEPLOYED" => CommonStatus::Deployed,
+        _ => CommonStatus::None,
+    };
+    gamelogic::weapon::ObjectStatusTypes::new(status as u32)
+}
+
+
 /// Parse a death type string into the GameLogic DeathType.
 fn parse_death_type(s: &str) -> gamelogic::DeathType {
     match s.to_lowercase().as_str() {
@@ -1744,6 +1811,28 @@ End
         })
         .expect("weapon store available");
     }
+
+    #[test]
+    fn damage_status_type_parses_faerie_fire_bit() {
+        let ini_content = r#"
+Weapon __RustDamageStatusFaerie
+  AttackRange = 200.0
+  PrimaryDamage = 200.0
+  DamageType = STATUS
+  DamageStatusType = FAERIE_FIRE
+End
+"#;
+        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
+        gamelogic::with_weapon_store(|store| {
+            let weapon = store
+                .find_weapon_template("__RustDamageStatusFaerie")
+                .expect("registered status weapon");
+            let status: gamelogic::common::ObjectStatusTypes = weapon.damage_status_type.into();
+            assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire);
+        })
+        .expect("weapon store available");
+    }
+
 
     #[test]
     fn weapon_shots_per_barrel_is_retained_from_authored_ini() {

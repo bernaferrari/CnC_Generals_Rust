@@ -357,16 +357,9 @@ impl PlayerList {
     pub fn init_relationships_from_allies_enemies(&mut self) {
         let player_count = self.players.len();
 
-        for i in 0..player_count {
-            for j in 0..player_count {
-                if i == j {
-                    continue;
-                }
-                if let Some(player) = self.get_player_mut(i) {
-                    player.set_relationship(j, PlayerRelationship::Enemy);
-                }
-            }
-        }
+        // C++ PlayerList.cpp:160-200 only overlays named Enemies/Allies.
+        // Unmapped pairs stay unset so get_relationship returns Neutral.
+
 
         for i in 0..player_count {
             let allies = self.players[i].template.player_allies.clone();
@@ -559,13 +552,16 @@ impl PlayerInitializer {
                         .find(|&&(idx, _)| idx == j)
                         .map(|&(_, team)| team);
 
-                    let relationship = if my_team.is_some() && my_team == other_team {
-                        PlayerRelationship::Ally
-                    } else {
-                        PlayerRelationship::Enemy
-                    };
-
-                    player.set_relationship(j, relationship);
+                    // Campaign/skirmish team-vs-team Enemy is OK when both have teams.
+                    // Unlisted / no-team pairs stay Neutral (C++ default).
+                    if let (Some(_), Some(_)) = (my_team, other_team) {
+                        let relationship = if my_team == other_team {
+                            PlayerRelationship::Ally
+                        } else {
+                            PlayerRelationship::Enemy
+                        };
+                        player.set_relationship(j, relationship);
+                    }
                 }
             }
         }
@@ -749,5 +745,26 @@ mod tests {
         let observer = player_list.get_player(1).unwrap();
         assert_eq!(player.get_relationship(1), PlayerRelationship::Neutral);
         assert_eq!(observer.get_relationship(0), PlayerRelationship::Neutral);
+    }
+
+    #[test]
+    fn test_unlisted_relationships_default_neutral() {
+        let mut player_list = PlayerList::new();
+        player_list.add_player(Player::new(0, make_player_template("USA", "USA"), true));
+        player_list.add_player(Player::new(1, make_player_template("China", "China"), false));
+        let mut civilian = make_player_template("Civilian", "Civilian");
+        civilian.playable = false;
+        player_list.add_player(Player::new(2, civilian, false));
+
+        player_list.init_relationships_from_allies_enemies();
+
+        let usa = player_list.get_player(0).unwrap();
+        let china = player_list.get_player(1).unwrap();
+        let civ = player_list.get_player(2).unwrap();
+        assert_eq!(usa.get_relationship(1), PlayerRelationship::Neutral);
+        assert_eq!(usa.get_relationship(2), PlayerRelationship::Neutral);
+        assert_eq!(china.get_relationship(0), PlayerRelationship::Neutral);
+        assert_eq!(civ.get_relationship(0), PlayerRelationship::Neutral);
+        assert_eq!(usa.get_relationship(0), PlayerRelationship::Ally);
     }
 }

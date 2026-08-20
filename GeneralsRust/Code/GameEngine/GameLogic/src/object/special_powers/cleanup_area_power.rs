@@ -164,14 +164,17 @@ impl CleanupAreaPower {
         angle: f32,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) {
-        self.base_module
-            .do_special_power_at_location(location, angle, command_options);
+        // C++ CleanupAreaPower::doSpecialPowerAtLocation does not call the
+        // SpecialPowerModule base (no recharge / EVA / initiate / academy).
+        let _ = (angle, command_options);
         let _ = CleanupAreaPower::do_special_power_at_location(self, location);
     }
 
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -194,6 +197,10 @@ impl Module for CleanupAreaPower {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
     }
 }
 
@@ -224,16 +231,15 @@ impl Snapshotable for CleanupAreaPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("CleanupAreaPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "CleanupAreaPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ CleanupAreaPower::loadPostProcess()
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

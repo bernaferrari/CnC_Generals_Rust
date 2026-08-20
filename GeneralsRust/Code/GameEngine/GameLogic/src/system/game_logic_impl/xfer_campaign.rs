@@ -16,13 +16,21 @@ fn xfer_campaign_manager_snapshot(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
         xfer.xfer_int(&mut state.rank_points)?;
     }
     if version >= 3 {
+        // C++ `xferUser(&m_difficulty, sizeof(m_difficulty))` — 4-byte MSVC enum.
         xfer.xfer_int(&mut state.difficulty)?;
     }
     if version >= 4 {
         xfer.xfer_bool(&mut state.is_challenge)?;
         if state.is_challenge {
-            xfer.xfer_ascii_string(&mut state.challenge_map)?;
-            xfer.xfer_int(&mut state.challenge_template)?;
+            if state.challenge_info.is_none() {
+                state.challenge_info =
+                    Some(game_engine::System::ChallengeGameInfoXfer::default());
+            }
+            if let Some(info) = state.challenge_info.as_mut() {
+                info.xfer(xfer)?;
+            }
+        } else if xfer.get_xfer_mode() == XferMode::Load {
+            state.challenge_info = None;
         }
     }
     if version >= 5 {

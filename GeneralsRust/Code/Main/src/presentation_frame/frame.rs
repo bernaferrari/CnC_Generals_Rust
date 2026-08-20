@@ -193,6 +193,12 @@ pub struct PresentationFrame {
     pub camera_rotate: Option<(f32, f32)>,
     /// Pending look-toward residual.
     pub camera_look_toward: Option<[f32; 3]>,
+    /// Seconds remaining for the pending look-toward rotate (0 = snap).
+    #[serde(default)]
+    pub camera_look_toward_duration: f32,
+    /// LOCK_TETHER play radius. None means LOCK_FOLLOW.
+    #[serde(default)]
+    pub camera_tether_play: Option<f32>,
     /// Pending slave-mode enable residual (template, bone).
     pub camera_slave_enable: Option<(String, String)>,
     pub camera_slave_disable: bool,

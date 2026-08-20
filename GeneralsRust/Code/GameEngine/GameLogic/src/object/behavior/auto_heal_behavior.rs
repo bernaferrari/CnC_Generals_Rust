@@ -103,8 +103,8 @@ fn object_matches_kind_mask(obj: &GameObject, mask: KindOfMaskType) -> bool {
     }
 
     for &kind in crate::common::ALL_KIND_OF {
-        let bit = 1u64 << (kind as u32);
-        if (mask & bit) != 0 && obj.is_kind_of(kind) {
+        let bit = kind.cpp_mask();
+        if bit != 0 && (mask & bit) != 0 && obj.is_kind_of(kind) {
             return true;
         }
     }
@@ -190,6 +190,8 @@ pub(crate) fn parse_kind_of(token: &str) -> Option<KindOf> {
         "FS_TECHNOLOGY" | "FSTECHNOLOGY" => Some(KindOf::FSTechnology),
         "GARRISONABLE_UNTIL_DESTROYED" => Some(KindOf::GarrisonableUntilDestroyed),
         "NO_GARRISON" | "NOGARRISON" => Some(KindOf::NoGarrison),
+        "INERT" => Some(KindOf::Inert),
+        "IMMOBILE" => Some(KindOf::Immobile),
         _ => None,
     }
 }
@@ -207,7 +209,7 @@ pub(crate) fn parse_kind_of_mask(tokens: &[&str]) -> KindOfMaskType {
             continue;
         }
         if let Some(kind) = parse_kind_of(token) {
-            mask |= 1u64 << (kind as u32);
+            mask |= kind.cpp_mask();
         }
     }
     mask

@@ -7,6 +7,7 @@ use crate::common::{
     AsciiString, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
 };
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::object::INVALID_ID;
@@ -24,6 +25,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct StatusBitsUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     status_to_set: ObjectStatusMaskType,
     status_to_clear: ObjectStatusMaskType,
 }
@@ -32,6 +34,7 @@ impl Default for StatusBitsUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             status_to_set: ObjectStatusMaskType::none(),
             status_to_clear: ObjectStatusMaskType::none(),
         }
@@ -520,14 +523,15 @@ impl Snapshotable for StatusBitsUpgrade {
 }
 
 impl UpgradeModuleInterface for StatusBitsUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let applied = self.with_inner(|inner| {
             if inner.apply_status_bits().is_ok() {
                 mark_status_bits_applied(inner.object_id, &inner.data, upgrade_mask);
@@ -586,7 +590,9 @@ fn parse_status_to_clear_field(
         .map_err(|_| INIError::InvalidData)
 }
 
-const STATUS_BITS_UPGRADE_FIELDS: &[FieldParse<StatusBitsUpgradeModuleData>] = &[
+crate::impl_upgrade_mux_field_parsers!(StatusBitsUpgradeModuleData);
+
+const STATUS_BITS_UPGRADE_FIELDS: &[FieldParse<StatusBitsUpgradeModuleData>] = crate::upgrade_mux_field_table!(
     FieldParse {
         token: "StatusToSet",
         parse: parse_status_to_set_field,
@@ -595,7 +601,7 @@ const STATUS_BITS_UPGRADE_FIELDS: &[FieldParse<StatusBitsUpgradeModuleData>] = &
         token: "StatusToClear",
         parse: parse_status_to_clear_field,
     },
-];
+);
 
 #[cfg(test)]
 mod tests {

@@ -25,6 +25,38 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{AIUpdateInterfaceExt, BehaviorModuleInterface};
 use crate::object::special_power_module::SpecialPowerModuleData;
 
+fn aim_turrets_at_position(
+    ai: &std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+    loc: &Coord3D,
+) {
+    if let Ok(mut guard) = ai.lock() {
+        for i in 0..MAX_TURRETS {
+            let turret = match i {
+                0 => crate::common::TurretType::Primary,
+                1 => crate::common::TurretType::Secondary,
+                _ => continue,
+            };
+            guard.set_turret_target_position(turret, loc);
+        }
+    }
+}
+
+fn aim_turrets_at_object(
+    ai: &std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
+    obj_id: ObjectID,
+) {
+    if let Ok(mut guard) = ai.lock() {
+        for i in 0..MAX_TURRETS {
+            let turret = match i {
+                0 => crate::common::TurretType::Primary,
+                1 => crate::common::TurretType::Secondary,
+                _ => continue,
+            };
+            guard.set_turret_target_object(turret, Some(obj_id), false);
+        }
+    }
+}
+
 /// Module data for FireWeaponPower.
 /// Matches C++ FireWeaponPowerModuleData.
 #[derive(Debug, Clone)]
@@ -114,17 +146,16 @@ impl FireWeaponPower {
             let _ = owner_guard.reload_all_ammo(true);
         }
 
-        // Get AI and issue attack commands via AIUpdateInterfaceExt
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
-                // C++: ai->aiAttackPosition(loc, maxShotsToFire, CMD_FROM_AI)
                 ai.ai_attack_position(
                     loc,
                     self.data.max_shots_to_fire as i32,
                     CommandSourceType::FromAi,
                 );
+                aim_turrets_at_position(&ai, loc);
             }
-        };
+        }
     }
 
     /// Execute fire weapon at location.
@@ -171,6 +202,7 @@ impl FireWeaponPower {
                     self.data.max_shots_to_fire as i32,
                     CommandSourceType::FromAi,
                 );
+                aim_turrets_at_object(&ai, obj_id);
             }
         }
 
@@ -233,6 +265,8 @@ impl FireWeaponPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -255,6 +289,10 @@ impl Module for FireWeaponPower {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
     }
 }
 
@@ -285,16 +323,15 @@ impl Snapshotable for FireWeaponPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("FireWeaponPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "FireWeaponPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ FireWeaponPower::loadPostProcess()
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

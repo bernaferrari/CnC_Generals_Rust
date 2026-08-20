@@ -129,6 +129,22 @@ impl WeatherSetting {
         }
     }
 
+    /// Immutable walk to the last override (C++ `OVERRIDE<>` operator->).
+    pub fn final_override(&self) -> &WeatherSetting {
+        if let Some(ref next) = self.next_override {
+            next.final_override()
+        } else {
+            self
+        }
+    }
+
+    fn clone_without_chain(&self) -> WeatherSetting {
+        let mut copy = self.clone();
+        copy.next_override = None;
+        copy.is_override = false;
+        copy
+    }
+
     /// Get the non-overridden base setting
     pub fn get_non_overridden_pointer(&self) -> &WeatherSetting {
         if self.is_override {
@@ -336,13 +352,19 @@ fn parse_cpp_bool(value: &str) -> INIResult<bool> {
 // Global weather setting singleton storage with override support
 static WEATHER_SETTING: OnceCell<RwLock<Option<WeatherSetting>>> = OnceCell::new();
 
-/// Get the global weather setting store, initializing if needed
+/// Get the live weather setting (C++ `TheWeatherSetting->`, the final override).
 pub fn get_weather_setting() -> Option<WeatherSetting> {
     WEATHER_SETTING
         .get_or_init(|| RwLock::new(None))
         .read()
         .ok()
-        .and_then(|guard| guard.clone())
+        .and_then(|guard| {
+            guard.as_ref().map(|setting| {
+                let mut final_setting = setting.final_override().clone();
+                final_setting.next_override = None;
+                final_setting
+            })
+        })
 }
 
 /// Get mutable access to the weather setting store
@@ -364,7 +386,7 @@ pub fn get_weather_setting_lock(
 pub fn clear_weather_setting_overrides() {
     let lock = WEATHER_SETTING.get_or_init(|| RwLock::new(None));
     if let Ok(mut guard) = lock.write() {
-        if let Some(ref mut setting) = *guard {
+        if let Some(setting) = guard.as_mut() {
             setting.next_override = None;
         }
     }
@@ -381,44 +403,35 @@ pub fn init_weather_setting() {
 ///
 /// The parsing behavior depends on the load type:
 /// - If no existing setting exists, create a new one
-/// - If `CreateOverrides` load type, create an override of the existing setting
-/// - Otherwise, overwrite the existing setting (throws error in C++)
+/// - If `CreateOverrides` load type, copy the base, chain as override, parse onto it
+/// - Otherwise throw (C++ `INI_INVALID_DATA`)
 pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     let load_type = ini.get_load_type();
-
-    // Get the current setting (if any)
-    let current = get_weather_setting();
-
-    // Determine what to do based on load type and current state
-    let setting = if current.is_none() {
-        // No existing setting, create a new one
-        WeatherSetting::new()
-    } else if load_type == INILoadType::CreateOverrides {
-        // We're creating an override - copy existing and mark as override
-        let mut new_setting = current.unwrap();
-        new_setting.mark_as_override();
-        new_setting.next_override = None; // Clear any existing override chain
-        new_setting
-    } else {
-        return Err(INIError::InvalidData);
-    };
-
-    // Parse the fields using the field parse table
-    parse_weather_fields(ini, setting)
-}
-
-/// Parse weather fields from INI using the field parse table
-fn parse_weather_fields(ini: &mut INI, mut setting: WeatherSetting) -> INIResult<()> {
     let field_parse_table = WeatherSetting::get_field_parse();
 
-    ini.init_from_ini_with_fields(&mut setting, &field_parse_table)?;
-
-    // Store the setting
     let mut guard = get_weather_setting_mut()
         .write()
         .map_err(|_| INIError::UnknownError)?;
-    *guard = Some(setting);
 
+    if guard.is_none() {
+        let mut setting = WeatherSetting::new();
+        ini.init_from_ini_with_fields(&mut setting, &field_parse_table)?;
+        *guard = Some(setting);
+        return Ok(());
+    }
+
+    if load_type != INILoadType::CreateOverrides {
+        return Err(INIError::InvalidData);
+    }
+
+    let Some(base) = guard.as_mut() else {
+        return Err(INIError::UnknownError);
+    };
+    // C++ copies getNonOverloadedPointer() (the base), then parses onto the new final.
+    let mut override_setting = base.clone_without_chain();
+    override_setting.mark_as_override();
+    ini.init_from_ini_with_fields(&mut override_setting, &field_parse_table)?;
+    base.get_final_override().set_next_override(override_setting);
     Ok(())
 }
 
@@ -553,8 +566,45 @@ End
 ",
             |ini| ini.parse_current_file(),
         );
-
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn create_overrides_keeps_base_and_reset_restores_it() {
+        reset_weather_setting_for_test();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "\
+Weather
+    SnowEnabled = No
+    SnowTexture = EXSnowFlake.tga
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("base weather");
+
+        {
+            let mut guard = get_weather_setting_mut().write().expect("lock");
+            // Simulate map.ini CreateOverrides by chaining onto the stored base.
+            if let Some(base) = guard.as_mut() {
+                let mut ov = base.clone_without_chain();
+                ov.mark_as_override();
+                ov.snow_enabled = true;
+                ov.snow_texture = "MapSnow.tga".to_string();
+                base.set_next_override(ov);
+            }
+        }
+
+        let live = get_weather_setting().expect("final");
+        assert!(live.snow_enabled);
+        assert_eq!(live.snow_texture, "MapSnow.tga");
+
+        clear_weather_setting_overrides();
+        let restored = get_weather_setting().expect("base");
+        assert!(!restored.snow_enabled);
+        assert_eq!(restored.snow_texture, "EXSnowFlake.tga");
     }
 
     #[test]

@@ -619,6 +619,9 @@ pub struct PendingProjectile {
     pub projectile_collides: u32,
     /// C++ effective ScatterRadius residual at fire time (0 = no scatter).
     pub scatter_radius: f32,
+    /// C++ ScatterTarget table offset (host XZ). When set, ScatterRadius is skipped.
+    pub scatter_table_offset: Option<glam::Vec2>,
+
     /// C++ MinWeaponSpeed residual (used when ScaleWeaponSpeed).
     pub min_weapon_speed: f32,
     /// C++ ScaleWeaponSpeed residual flag.
@@ -791,7 +794,18 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         ) {
             fire_target_id = None;
         }
-        if p.scatter_radius > 0.0 {
+        if let Some(table_offset) = p.scatter_table_offset {
+            // C++ privateFireWeapon unused ScatterTarget pick: victim becomes
+            // a position, Z snapped to ground. Host Y is up.
+            target_pos.x += table_offset.x;
+            target_pos.z += table_offset.y;
+            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+                if target.ground_height_from_terrain {
+                    target_pos.y = target.ground_height;
+                }
+            }
+            fire_target_id = None;
+        } else if p.scatter_radius > 0.0 {
             let seed = p.shooter_id.0.wrapping_mul(0x9E37_79B9).wrapping_add(
                 p.target_id
                     .map(|t| t.0)
@@ -1713,6 +1727,7 @@ mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: 0,
             scatter_radius: 0.0,
+            scatter_table_offset: None,
             min_weapon_speed: 0.0,
             scale_weapon_speed: false,
             attack_range: 0.0,
@@ -2435,6 +2450,7 @@ mod tests {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            scatter_table_offset: None,
             min_weapon_speed: 0.0,
             scale_weapon_speed: false,
             attack_range: 0.0,
@@ -2785,6 +2801,7 @@ mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 10.0,
+            scatter_table_offset: None,
             min_weapon_speed: 0.0,
             scale_weapon_speed: false,
             attack_range: 0.0,
@@ -2854,6 +2871,7 @@ mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            scatter_table_offset: None,
             min_weapon_speed: 75.0,
             scale_weapon_speed: true,
             attack_range: 375.0,
@@ -2905,6 +2923,7 @@ mod tests {
                     | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: 0.0,
+            scatter_table_offset: None,
             min_weapon_speed: 75.0,
             scale_weapon_speed: true,
             attack_range: 375.0,

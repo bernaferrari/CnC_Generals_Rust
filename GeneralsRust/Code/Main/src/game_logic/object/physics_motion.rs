@@ -417,15 +417,58 @@ impl Object {
         Some((self.bounce_sound_name.clone(), self.last_bounce_volume))
     }
 
+    /// C++ Get_Z_Vector().Z remapped to host Y-up: world-Y of local up.
+    pub fn physics_transform_up_y(&self) -> f32 {
+        self.get_transform_matrix().y_axis.y
+    }
+
+    fn sync_shock_up_from_transform(&mut self) {
+        self.shock_up_z = self.physics_transform_up_y().clamp(-1.0, 1.0);
+    }
+
+    /// Keep translation; preserve accumulated pitch/roll (C++ setPosition).
+    fn set_position_keep_rotation(&mut self, pos: glam::Vec3) {
+        let mut mtx = self.get_transform_matrix();
+        mtx.w_axis = pos.extend(1.0);
+        self.thing.set_transform_matrix(mtx);
+        self.position = pos;
+        self.sync_shock_up_from_transform();
+    }
+
+    /// C++ HAS_PITCHROLLYAW incremental Rotate_X/Y/Z remapped to host Y-up.
+    /// C++ X=forward, Y=right, Z=up → host X=forward, Z=right, Y=up.
+    pub fn apply_physics_ypr(&mut self, yaw_rate: f32, pitch_rate: f32, roll_rate: f32) {
+        if yaw_rate.abs() <= 1e-8 && pitch_rate.abs() <= 1e-8 && roll_rate.abs() <= 1e-8 {
+            self.sync_shock_up_from_transform();
+            return;
+        }
+        let mut mtx = self.get_transform_matrix();
+        mtx *= glam::Mat4::from_rotation_x(roll_rate);
+        mtx *= glam::Mat4::from_rotation_z(pitch_rate);
+        mtx *= glam::Mat4::from_rotation_y(yaw_rate);
+        self.thing.set_transform_matrix(mtx);
+        self.position = mtx.w_axis.truncate();
+        self.sync_shock_up_from_transform();
+    }
+
+    /// C++ setAngles(yaw, 0, 0) after bounce: keep yaw, zero pitch/roll.
+    fn right_physics_pitch_roll(&mut self) {
+        let pos = self.get_position();
+        let yaw = self.get_orientation();
+        self.thing
+            .set_transform_matrix(glam::Mat4::from_translation(pos) * glam::Mat4::from_rotation_y(yaw));
+        self.shock_up_z = 1.0;
+    }
+
     /// C++ killWhenRestingOnGround residual.
     ///
     /// When settled on ground with near-zero velocity, kill non-drone (or
-    /// unmanned/dead drones).
+    /// unmanned/dead drones). Height is above terrain, not absolute Y.
     pub fn maybe_kill_when_resting_on_ground(&mut self) -> bool {
         if !self.kill_when_resting_on_ground || self.status.destroyed {
             return false;
         }
-        if self.get_position().y > 0.05 {
+        if self.get_position().y - self.ground_height > 0.05 {
             return false;
         }
         if !self.velocity_is_very_small() {
@@ -458,7 +501,7 @@ impl Object {
         if !(steep_x && steep_z) {
             return 0.0;
         }
-        let damage_amt = net_speed * Self::SHOCK_MASS * Self::FALL_HEIGHT_DAMAGE_FACTOR;
+        let damage_amt = net_speed * self.physics_get_mass() * Self::FALL_HEIGHT_DAMAGE_FACTOR;
         if damage_amt <= 0.0 {
             return 0.0;
         }
@@ -512,9 +555,9 @@ impl Object {
         if desired_accel_y > 0.0 {
             // C++ bounceForce.z = mass * desiredAccelZ
             let force_y = self.physics_get_mass() * desired_accel_y;
-            // Right orientation residual when inverted.
-            if self.shock_up_z < 0.0 {
-                self.shock_up_z = 1.0;
+            // C++ setAngles after bounce rights pitch/roll when not killed.
+            if self.physics_transform_up_y() < 0.0 {
+                self.right_physics_pitch_roll();
             }
             self.shock_pitch_rate = 0.0;
             self.shock_roll_rate = 0.0;
@@ -538,6 +581,8 @@ impl Object {
             return false;
         }
 
+        self.ground_height = ground_y;
+
         let old_pos = self.get_position();
         let old_y = old_pos.y;
         let airborne_start = old_y > ground_y + 0.05;
@@ -554,30 +599,25 @@ impl Object {
         } else {
             old_pos + v
         };
-        // YPR rate integrate residual (orientation presentation).
-        let pryf = self.pitch_roll_yaw_factor;
-        let mut yaw_rate = self.shock_yaw_rate * pryf;
-        let mut pitch_rate = self.shock_pitch_rate * pryf;
-        let roll_rate = self.shock_roll_rate * pryf;
-        // C++ centerOfMassOffset damps pitch toward straight up/down residual.
-        if self.center_of_mass_offset != 0.0 {
-            // Host residual: approximate pitch angle from shock_up_z.
-            let pitch_angle = (1.0 - self.shock_up_z.clamp(-1.0, 1.0))
-                .asin()
-                .copysign(self.shock_up_z);
-            let remaining = if self.center_of_mass_offset > 0.0 {
-                std::f32::consts::FRAC_PI_2 - pitch_angle
-            } else {
-                -std::f32::consts::FRAC_PI_2 + pitch_angle
-            };
-            pitch_rate *= remaining.sin();
+        // YPR: stun tick already integrates while stunned (avoid double apply).
+        if self.shock_stun_frames == 0 {
+            let pryf = self.pitch_roll_yaw_factor;
+            let yaw_rate = self.shock_yaw_rate * pryf;
+            let mut pitch_rate = self.shock_pitch_rate * pryf;
+            let roll_rate = self.shock_roll_rate * pryf;
+            if self.center_of_mass_offset != 0.0 {
+                let fwd = self.get_transform_matrix().x_axis;
+                let xz = (fwd.x * fwd.x + fwd.z * fwd.z).sqrt();
+                let pitch_angle = fwd.y.atan2(xz);
+                let remaining = if self.center_of_mass_offset > 0.0 {
+                    std::f32::consts::FRAC_PI_2 - pitch_angle
+                } else {
+                    -std::f32::consts::FRAC_PI_2 + pitch_angle
+                };
+                pitch_rate *= remaining.sin();
+            }
+            self.apply_physics_ypr(yaw_rate, pitch_rate, roll_rate);
         }
-        let _ = roll_rate; // roll applied via shock rates presentation residual
-        if yaw_rate.abs() > 1e-8 {
-            let yaw = self.get_orientation() + yaw_rate;
-            self.set_orientation(yaw);
-        }
-        let _ = pitch_rate;
 
         let bounce_force = self.compute_ground_bounce_force(old_y, new_pos.y, ground_y);
         let mut bounced = false;
@@ -602,7 +642,7 @@ impl Object {
             }
         }
 
-        self.set_position(new_pos);
+        self.set_position_keep_rotation(new_pos);
 
         if let Some(force) = bounce_force {
             if self.shock_allow_bounce {
@@ -660,11 +700,7 @@ impl Object {
             self.shock_pitch_rate = 0.0;
             self.shock_roll_rate = 0.0;
             // C++ setAngles after bounce rights pitch/roll when not killed.
-            if self.shock_up_z < 0.0 {
-                // Already handled by kill path; keep.
-            } else {
-                self.shock_up_z = 1.0;
-            }
+            self.right_physics_pitch_roll();
             return bounce_vy;
         }
         // Bounce complete — restore original allow (host: off).
@@ -709,8 +745,8 @@ impl Object {
             return false;
         }
         self.ensure_locomotor_surfaces();
-        // Upside down when transform Z-up residual is negative.
-        if self.shock_up_z < 0.0 {
+        // Upside down when integrated transform up-Y < 0 (C++ Get_Z_Vector().Z).
+        if self.physics_transform_up_y() < 0.0 {
             return self.kill_from_stun_destruction();
         }
         // C++ obj->isOffMap residual.
@@ -779,17 +815,20 @@ impl Object {
             self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
             self.record_host_shock_stun();
         }
-        // Integrate yaw rate residual while stunned (tumble settle).
-        if self.shock_yaw_rate.abs() > 1e-5 {
-            let ori = self.get_orientation() + self.shock_yaw_rate;
-            self.set_orientation(ori);
-            self.shock_yaw_rate *= 0.92; // friction residual
-        }
+        // Integrate YPR while stunned (tumble settle). Motion step skips YPR
+        // when stunned so this is the sole live HAS_PITCHROLLYAW pass.
+        let pryf = self.pitch_roll_yaw_factor;
+        self.apply_physics_ypr(
+            self.shock_yaw_rate * pryf,
+            self.shock_pitch_rate * pryf,
+            self.shock_roll_rate * pryf,
+        );
+        self.shock_yaw_rate *= 0.92;
         self.shock_pitch_rate *= 0.92;
         self.shock_roll_rate *= 0.92;
 
         // Vertical freefall / bounce residual (host Y-up == C++ Z).
-        let ground_y = 0.0;
+        let ground_y = self.ground_height;
         let old_y = self.get_position().y;
         // Gravity while airborne or still carrying vertical velocity.
         if old_y > ground_y + 0.01 || self.movement.velocity.y.abs() > 0.01 {
@@ -802,7 +841,7 @@ impl Object {
                 let was_air = self.shock_was_airborne || old_y > ground_y + 0.01;
                 let bounced = self.handle_shock_ground_bounce(old_y, new_y, ground_y);
                 pos.y = ground_y;
-                self.set_position(pos);
+                self.set_position_keep_rotation(pos);
                 // C++ first ground hit while stunned: FLAILING → STUNNED.
                 if !self.shock_grounded_once {
                     self.shock_grounded_once = true;
@@ -831,7 +870,7 @@ impl Object {
                 }
             } else {
                 pos.y = new_y;
-                self.set_position(pos);
+                self.set_position_keep_rotation(pos);
                 self.shock_was_airborne = true;
                 // C++ IS_IN_FREEFALL → DISABLED_FREEFALL + MODELCONDITION_FREEFALL.
                 self.set_status_disabled_freefall(true);

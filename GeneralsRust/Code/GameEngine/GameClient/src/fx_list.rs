@@ -46,6 +46,35 @@ impl FXListManagerInterface for FXListManagerBridge {
         fx.do_fx_pos(Some(position), matrix, 0.0, None, 0.0);
     }
 
+    fn do_fx_pos_ex(
+        &self,
+        fx_list: FXListId,
+        position: &Coord3D,
+        matrix: Option<&glam::Mat4>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        let Some(name) = NameKeyGenerator::key_to_name(fx_list as NameKeyType) else {
+            log::debug!("FXListManager: unknown FXList id {}", fx_list);
+            return;
+        };
+
+        let store = get_fx_list_store();
+        let Some(fx) = store.find_fx_list(&name) else {
+            log::debug!("FXListManager: FXList '{}' not found", name);
+            return;
+        };
+
+        fx.do_fx_pos(
+            Some(position),
+            matrix,
+            primary_speed,
+            secondary,
+            override_radius,
+        );
+    }
+
     fn do_fx_obj(&self, fx_list: FXListId, object_id: gamelogic::common::ThingId) {
         let Some(name) = NameKeyGenerator::key_to_name(fx_list as NameKeyType) else {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
@@ -143,6 +172,11 @@ pub trait FXNugget: Send + Sync {
         let primary_mtx = primary.map(|obj| obj.get_transform_matrix());
         let secondary_pos = secondary.map(|obj| obj.get_position());
         self.do_fx_pos(primary_pos, primary_mtx.as_ref(), 0.0, secondary_pos, 0.0);
+    }
+
+    /// C++ `SoundFXNugget::m_soundName`. Other nuggets have none.
+    fn sound_name(&self) -> Option<&str> {
+        None
     }
 }
 
@@ -652,6 +686,21 @@ pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListSto
         .unwrap_or_else(|e| e.into_inner())
 }
 
+/// C++ `SoundFXNugget::m_soundName` values authored inside `name`.
+pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        return Vec::new();
+    }
+    let store = get_fx_list_store();
+    let Some(fx) = store.find_fx_list(name) else {
+        return Vec::new();
+    };
+    fx.nuggets
+        .iter()
+        .filter_map(|nugget| nugget.sound_name().map(str::to_string))
+        .collect()
+}
+
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
     FX_LIST_PARSER_REGISTERED.get_or_init(|| {
         let _ = register_block_parser("FXList", parse_fx_list_definition);
@@ -1050,6 +1099,14 @@ impl FXNugget for SoundFXNugget {
             } else {
                 game_engine::common::audio::dispatch_ui_sound(&self.sound_name);
             }
+        }
+    }
+
+    fn sound_name(&self) -> Option<&str> {
+        if self.sound_name.is_empty() {
+            None
+        } else {
+            Some(self.sound_name.as_str())
         }
     }
 }

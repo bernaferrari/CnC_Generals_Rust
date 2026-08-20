@@ -109,6 +109,27 @@ impl FXList {
         Ok(())
     }
 
+    /// C++ `FXList::doFXPos(fxl, pos, mtx, weaponSpeed, victimPos, damageRadius)`.
+    pub fn do_fx_pos(
+        &self,
+        position: &Coord3D,
+        matrix: Option<&crate::common::Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: Real,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let fx_mgr = Self::fx_manager()?;
+        fx_mgr.do_fx_pos_ex(
+            self.id(),
+            position,
+            matrix,
+            primary_speed,
+            secondary,
+            override_radius,
+        );
+        Ok(())
+    }
+
     /// Execute a visual effect at a world-space position with a radius hint.
     ///
     /// C++ FXList::doFXPos accepts a radius for some effects. The current Rust

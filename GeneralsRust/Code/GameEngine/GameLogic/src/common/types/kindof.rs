@@ -144,4 +144,5 @@ pub const ALL_KIND_OF: &[KindOf] = &[
     KindOf::WaveEffect,
     KindOf::ClearedByBuild,
     KindOf::Parachute,
+    KindOf::Inert,
 ];

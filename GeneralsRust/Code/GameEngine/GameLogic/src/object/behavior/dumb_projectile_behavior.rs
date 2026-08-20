@@ -245,7 +245,7 @@ fn parse_kind_of_mask(label: &str, _tokens: &[&str]) -> KindOfMaskType {
             continue;
         }
         if let Some(kind) = parse_kind_of(token) {
-            mask |= 1u64 << (kind as u32);
+            mask |= kind.cpp_mask();
         } else {
             warn!(
                 "DumbProjectileBehavior.{} unknown KindOf token '{}'",

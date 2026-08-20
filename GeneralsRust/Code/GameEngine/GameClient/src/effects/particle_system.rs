@@ -1362,7 +1362,7 @@ impl ParticleSystem {
 
             wind_angle: info.wind_angle,
             wind_angle_change: info.wind_angle_change,
-            wind_motion_moving_to_end_angle: false,
+            wind_motion_moving_to_end_angle: info.wind_motion_moving_to_end_angle,
             wind_motion_start_angle: info.wind_motion_start_angle_min,
             wind_motion_start_angle_min: info.wind_motion_start_angle_min,
             wind_motion_start_angle_max: info.wind_motion_start_angle_max,
@@ -1932,7 +1932,7 @@ impl ParticleSystem {
 
                 // Do wind motion if enabled (applied directly to position, not as force)
                 // C++ handles this in Particle::doWindMotion, called from Particle::update
-                if matches!(wind_motion, WindMotion::PingPong | WindMotion::Circular) {
+                if wind_motion != WindMotion::NotUsed {
                     particle.do_wind_motion(wind_angle, system_pos);
                 }
 
@@ -2297,27 +2297,22 @@ impl ParticleSystem {
         }
     }
 
-    /// Initialize wind motion
+    /// Initialize wind motion (C++ ParticleSystem ctor lines 1114-1125)
     fn initialize_wind_motion(&mut self) {
         let info = self.template.info();
         let mut rng = thread_rng();
 
-        match info.wind_motion {
-            WindMotion::Invalid | WindMotion::NotUsed => {
-                // No wind motion.
-            }
-            WindMotion::PingPong => {
-                self.wind_angle = rng
-                    .gen_range(info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max);
-                self.wind_angle_change =
-                    rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
-                self.wind_motion_moving_to_end_angle = false;
-            }
-            WindMotion::Circular => {
-                self.wind_angle_change =
-                    rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
-            }
-        }
+        let start_min = info.wind_motion_start_angle_min;
+        let start_max = info.wind_motion_start_angle_max.max(start_min);
+        let end_min = info.wind_motion_end_angle_min;
+        let end_max = info.wind_motion_end_angle_max.max(end_min);
+
+        self.wind_motion_start_angle = rng.gen_range(start_min..=start_max);
+        self.wind_motion_end_angle = rng.gen_range(end_min..=end_max);
+        let angle_lo = self.wind_motion_start_angle.min(self.wind_motion_end_angle);
+        let angle_hi = self.wind_motion_start_angle.max(self.wind_motion_end_angle);
+        self.wind_angle = rng.gen_range(angle_lo..=angle_hi);
+        self.wind_motion_moving_to_end_angle = info.wind_motion_moving_to_end_angle;
     }
 
     /// Update wind motion (matches C++ ParticleSys.cpp lines 2085-2180)
@@ -2372,10 +2367,16 @@ impl ParticleSystem {
                 }
             }
             WindMotion::Circular => {
+                if self.wind_angle_change == 0.0 {
+                    let change_min = info.wind_angle_change_min;
+                    let change_max = info.wind_angle_change_max.max(change_min);
+                    self.wind_angle_change = rng.gen_range(change_min..=change_max);
+                }
                 self.wind_angle += self.wind_angle_change;
-                // Keep angle in 0-2π range
-                while self.wind_angle > 2.0 * std::f32::consts::PI {
-                    self.wind_angle -= 2.0 * std::f32::consts::PI;
+                if self.wind_angle > std::f32::consts::TAU {
+                    self.wind_angle -= std::f32::consts::TAU;
+                } else if self.wind_angle < 0.0 {
+                    self.wind_angle += std::f32::consts::TAU;
                 }
             }
         }

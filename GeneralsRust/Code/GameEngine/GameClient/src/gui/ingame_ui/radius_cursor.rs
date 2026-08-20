@@ -203,7 +203,7 @@ impl InGameUI {
         best.map(|(id, _)| id)
     }
 
-    fn resolve_radius_cursor_radius(&self, cursor_type: RadiusCursorType, requested: f32) -> f32 {
+    pub fn resolve_radius_cursor_radius(&self, cursor_type: RadiusCursorType, requested: f32) -> f32 {
         if let Some(obj_id) = self.first_selected_object_for_radius_cursor() {
             if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(guard) = obj.read() {

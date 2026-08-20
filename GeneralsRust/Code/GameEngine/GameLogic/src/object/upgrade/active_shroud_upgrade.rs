@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::INVALID_ID;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -20,6 +21,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct ActiveShroudUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     new_shroud_range: Real,
 }
 
@@ -27,6 +29,7 @@ impl Default for ActiveShroudUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             new_shroud_range: 0.0,
         }
     }
@@ -50,6 +53,7 @@ impl ActiveShroudUpgradeModuleData {
     fn from_config(config: ActiveShroudUpgradeConfig, module_tag_name_key: NameKeyType) -> Self {
         Self {
             module_tag_name_key,
+            upgrade_mux_data: UpgradeMuxData::default(),
             new_shroud_range: config.new_shroud_range,
         }
     }
@@ -216,14 +220,15 @@ impl Snapshotable for ActiveShroudUpgrade {
 }
 
 impl UpgradeModuleInterface for ActiveShroudUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         if self.apply_shroud_upgrade().is_ok() {
             self.applied = true;
             true
@@ -249,10 +254,14 @@ fn parse_shroud_clearing_range_field(
     Ok(())
 }
 
-const ACTIVE_SHROUD_UPGRADE_FIELDS: &[FieldParse<ActiveShroudUpgradeModuleData>] = &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(ActiveShroudUpgradeModuleData);
+
+const ACTIVE_SHROUD_UPGRADE_FIELDS: &[FieldParse<ActiveShroudUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
     token: "NewShroudRange",
     parse: parse_shroud_clearing_range_field,
-}];
+},
+);
 
 #[cfg(test)]
 mod tests {

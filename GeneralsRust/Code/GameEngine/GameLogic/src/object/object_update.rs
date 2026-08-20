@@ -397,9 +397,20 @@ impl Object {
         }
 
         if owners_differ {
-            // Upgrade modules are still updated through standard module ownership hooks.
-            let _ = (&old_owner, &new_owner);
+            let upgrade_modules = self.modules.clone();
+            for entry in &upgrade_modules {
+                entry.with_module(|module| {
+                    if let Some(upgrade) = super::module_upgrade_kind(module) {
+                        upgrade.into_interface().on_capture(
+                            self,
+                            old_owner.as_ref(),
+                            new_owner.as_ref(),
+                        );
+                    }
+                });
+            }
         }
+
 
         // We have to undo our look for the old team and redo it for the new.
         // onCapture is used now, so it better be called after ownership changes and not before.

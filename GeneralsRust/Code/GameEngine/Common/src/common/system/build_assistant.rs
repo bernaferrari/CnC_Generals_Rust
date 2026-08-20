@@ -133,6 +133,10 @@ pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
         let _ = (id, player_id);
         false
     }
+    /// C++ BuildAssistant::sellObject calls contain->onSelling() at sell start.
+    fn on_selling(&self, id: ObjectID) {
+        let _ = id;
+    }
 }
 
 /// Live object data used while selling.
@@ -774,6 +778,10 @@ impl BuildAssistant {
             id: object.id,
             sell_frame: current_frame,
         });
+        // C++ BuildAssistant.cpp:1542-1547 — notify contain at sell start.
+        if let Some(backend) = get_build_assistant_backend() {
+            backend.on_selling(object.id);
+        }
     }
 
     /// Check if an object is removable for construction

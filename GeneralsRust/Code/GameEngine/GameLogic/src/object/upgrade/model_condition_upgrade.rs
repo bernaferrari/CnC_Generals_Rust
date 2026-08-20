@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ModelConditionFlags, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -16,6 +17,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct ModelConditionUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     condition_flag: ModelConditionFlags,
 }
 
@@ -23,6 +25,7 @@ impl Default for ModelConditionUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             condition_flag: ModelConditionFlags::empty(),
         }
     }
@@ -130,8 +133,8 @@ impl Snapshotable for ModelConditionUpgrade {
 }
 
 impl UpgradeModuleInterface for ModelConditionUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -143,6 +146,7 @@ impl UpgradeModuleInterface for ModelConditionUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         use crate::object::registry::OBJECT_REGISTRY;
 
         let flag = self.data.condition_flag();
@@ -166,119 +170,55 @@ impl UpgradeModuleInterface for ModelConditionUpgrade {
 
 fn parse_model_condition_flag(token: &str) -> Option<ModelConditionFlags> {
     let upper = token.trim().to_ascii_uppercase();
-    match upper.as_str() {
+    // Compact / alias spellings used in some INI blocks. C++ parseSingleBitFromINI
+    // uses BitFlags.cpp s_bitNameList; aliases are extra.
+    let canonical = match upper.as_str() {
+        "FIRING_PRIMARY" => "FIRING_A",
+        "FIRING_SECONDARY" => "FIRING_B",
+        "FIRING_TERTIARY" => "FIRING_C",
+        "REALLY_DAMAGED" => "REALLYDAMAGED",
+        "POWERPLANTUPGRADING" => "POWER_PLANT_UPGRADING",
+        "POWERPLANTUPGRADED" => "POWER_PLANT_UPGRADED",
+        "DOOR1OPENING" => "DOOR_1_OPENING",
+        "DOOR1WAITINGOPEN" => "DOOR_1_WAITING_OPEN",
+        "DOOR1CLOSING" => "DOOR_1_CLOSING",
+        "DOOR1WAITINGTOCLOSE" => "DOOR_1_WAITING_TO_CLOSE",
+        "DOOR2OPENING" => "DOOR_2_OPENING",
+        "DOOR2WAITINGOPEN" => "DOOR_2_WAITING_OPEN",
+        "DOOR2CLOSING" => "DOOR_2_CLOSING",
+        "DOOR2WAITINGTOCLOSE" => "DOOR_2_WAITING_TO_CLOSE",
+        "DOOR3OPENING" => "DOOR_3_OPENING",
+        "DOOR3WAITINGOPEN" => "DOOR_3_WAITING_OPEN",
+        "DOOR3CLOSING" => "DOOR_3_CLOSING",
+        "DOOR3WAITINGTOCLOSE" => "DOOR_3_WAITING_TO_CLOSE",
+        "DOOR4OPENING" => "DOOR_4_OPENING",
+        "DOOR4WAITINGOPEN" => "DOOR_4_WAITING_OPEN",
+        "DOOR4CLOSING" => "DOOR_4_CLOSING",
+        "DOOR4WAITINGTOCLOSE" => "DOOR_4_WAITING_TO_CLOSE",
+        "CENTERTORIGHT" => "CENTER_TO_RIGHT",
+        "CENTERTOLEFT" => "CENTER_TO_LEFT",
+        "RIGHTTOCENTER" => "RIGHT_TO_CENTER",
+        "LEFTTOCENTER" => "LEFT_TO_CENTER",
+        other => other,
+    };
+
+    if let Some(bit) = game_engine::common::bit_flags::ModelConditionFlags::BIT_NAMES
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case(canonical))
+    {
+        return ModelConditionFlags::from_bits(1u128 << bit);
+    }
+
+    // Extra GameLogic-only names (not in C++ ModelConditionType).
+    match canonical {
         "PRISTINE" => Some(ModelConditionFlags::PRISTINE),
-        "DAMAGED" => Some(ModelConditionFlags::DAMAGED),
-        "REALLY_DAMAGED" => Some(ModelConditionFlags::REALLY_DAMAGED),
-        "REALLYDAMAGED" => Some(ModelConditionFlags::REALLYDAMAGED),
-        "RUBBLE" => Some(ModelConditionFlags::RUBBLE),
-        "MOVING" => Some(ModelConditionFlags::MOVING),
-        "FIRING_PRIMARY" | "FIRING_A" => Some(ModelConditionFlags::FIRING_PRIMARY),
-        "FIRING_SECONDARY" | "FIRING_B" => Some(ModelConditionFlags::FIRING_SECONDARY),
-        "FIRING_TERTIARY" | "FIRING_C" => Some(ModelConditionFlags::FIRING_TERTIARY),
         "SELECTED" => Some(ModelConditionFlags::SELECTED),
-        "POWER_PLANT_UPGRADING" | "POWERPLANTUPGRADING" => {
-            Some(ModelConditionFlags::POWER_PLANT_UPGRADING)
-        }
-        "POWER_PLANT_UPGRADED" | "POWERPLANTUPGRADED" => {
-            Some(ModelConditionFlags::POWER_PLANT_UPGRADED)
-        }
-        "ACTIVELY_BEING_CONSTRUCTED" => Some(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED),
-        "PARTIALLY_CONSTRUCTED" => Some(ModelConditionFlags::PARTIALLY_CONSTRUCTED),
-        "AWAITING_CONSTRUCTION" => Some(ModelConditionFlags::AWAITING_CONSTRUCTION),
-        "CONSTRUCTION_COMPLETE" => Some(ModelConditionFlags::CONSTRUCTION_COMPLETE),
-        "NIGHT" => Some(ModelConditionFlags::NIGHT),
-        "SNOW" => Some(ModelConditionFlags::SNOW),
         "WEAPON_UPGRADED" => Some(ModelConditionFlags::WEAPON_UPGRADED),
         "ARMOR_UPGRADED" => Some(ModelConditionFlags::ARMOR_UPGRADED),
-        "DOOR_1_OPENING" | "DOOR1OPENING" => Some(ModelConditionFlags::DOOR_1_OPENING),
-        "DOOR_1_WAITING_OPEN" | "DOOR1WAITINGOPEN" => {
-            Some(ModelConditionFlags::DOOR_1_WAITING_OPEN)
-        }
-        "DOOR_1_CLOSING" | "DOOR1CLOSING" => Some(ModelConditionFlags::DOOR_1_CLOSING),
-        "DOOR_1_WAITING_TO_CLOSE" | "DOOR1WAITINGTOCLOSE" => {
-            Some(ModelConditionFlags::Door1WaitingToClose)
-        }
-        "DOOR_2_OPENING" | "DOOR2OPENING" => Some(ModelConditionFlags::DOOR_2_OPENING),
-        "DOOR_2_WAITING_OPEN" | "DOOR2WAITINGOPEN" => {
-            Some(ModelConditionFlags::DOOR_2_WAITING_OPEN)
-        }
-        "DOOR_2_CLOSING" | "DOOR2CLOSING" => Some(ModelConditionFlags::DOOR_2_CLOSING),
-        "DOOR_2_WAITING_TO_CLOSE" | "DOOR2WAITINGTOCLOSE" => {
-            Some(ModelConditionFlags::Door2WaitingToClose)
-        }
-        "DOOR_3_OPENING" | "DOOR3OPENING" => Some(ModelConditionFlags::DOOR_3_OPENING),
-        "DOOR_3_WAITING_OPEN" | "DOOR3WAITINGOPEN" => {
-            Some(ModelConditionFlags::DOOR_3_WAITING_OPEN)
-        }
-        "DOOR_3_CLOSING" | "DOOR3CLOSING" => Some(ModelConditionFlags::DOOR_3_CLOSING),
-        "DOOR_3_WAITING_TO_CLOSE" | "DOOR3WAITINGTOCLOSE" => {
-            Some(ModelConditionFlags::Door3WaitingToClose)
-        }
-        "DOOR_4_OPENING" | "DOOR4OPENING" => Some(ModelConditionFlags::DOOR_4_OPENING),
-        "DOOR_4_WAITING_OPEN" | "DOOR4WAITINGOPEN" => {
-            Some(ModelConditionFlags::DOOR_4_WAITING_OPEN)
-        }
-        "DOOR_4_CLOSING" | "DOOR4CLOSING" => Some(ModelConditionFlags::DOOR_4_CLOSING),
-        "PARACHUTING" => Some(ModelConditionFlags::PARACHUTING),
-        "EXPLODED_FLAILING" => Some(ModelConditionFlags::EXPLODED_FLAILING),
-        "EXPLODED_BOUNCING" => Some(ModelConditionFlags::EXPLODED_BOUNCING),
-        "SPLATTED" => Some(ModelConditionFlags::SPLATTED),
-        "CAPTURED" => Some(ModelConditionFlags::CAPTURED),
-        "CENTER_TO_RIGHT" | "CENTERTORIGHT" => Some(ModelConditionFlags::CenterToRight),
-        "CENTER_TO_LEFT" | "CENTERTOLEFT" => Some(ModelConditionFlags::CenterToLeft),
-        "RIGHT_TO_CENTER" | "RIGHTTOCENTER" => Some(ModelConditionFlags::RightToCenter),
-        "LEFT_TO_CENTER" | "LEFTTOCENTER" => Some(ModelConditionFlags::LeftToCenter),
-        "PACKING" => Some(ModelConditionFlags::Packing),
-        "UNPACKING" => Some(ModelConditionFlags::Unpacking),
-        "BETWEEN_FIRING_SHOTS_B" => Some(ModelConditionFlags::BetweenFiringShotsB),
-        "BETWEEN_FIRING_SHOTS_C" => Some(ModelConditionFlags::BetweenFiringShotsC),
-        "RELOADING_B" => Some(ModelConditionFlags::ReloadingB),
-        "RELOADING_C" => Some(ModelConditionFlags::ReloadingC),
-        "ACTIVELY_CONSTRUCTING" => Some(ModelConditionFlags::ActivelyConstructing),
-        "RADAR_EXTENDING" => Some(ModelConditionFlags::RadarExtending),
-        "RADAR_UPGRADED" => Some(ModelConditionFlags::RadarUpgraded),
-        "AFLAME" => Some(ModelConditionFlags::AFLAME),
-        "SMOLDERING" => Some(ModelConditionFlags::SMOLDERING),
-        "BURNED" => Some(ModelConditionFlags::BURNED),
-        "LOADED" => Some(ModelConditionFlags::Loaded),
-        "ARMORSET_CRATEUPGRADE_ONE" => Some(ModelConditionFlags::ArmorsetCrateUpgradeOne),
-        "ARMORSET_CRATEUPGRADE_TWO" => Some(ModelConditionFlags::ArmorsetCrateUpgradeTwo),
-        "DISGUISED" => Some(ModelConditionFlags::DISGUISED),
-        "TOPPLED" | "FRONTCRUSHED" => Some(ModelConditionFlags::TOPPLED),
-        "FLOODED" | "BACKCRUSHED" => Some(ModelConditionFlags::FLOODED),
-        "POST_COLLAPSE" => Some(ModelConditionFlags::POST_COLLAPSE),
-        "JETAFTERBURNER" => Some(ModelConditionFlags::JETAFTERBURNER),
-        "JETEXHAUST" => Some(ModelConditionFlags::JETEXHAUST),
-        "ENEMYNEAR" => Some(ModelConditionFlags::ENEMYNEAR),
-        "STUNNED_FLAILING" => Some(ModelConditionFlags::STUNNED_FLAILING),
-        "STUNNED" => Some(ModelConditionFlags::STUNNED),
-        "FREEFALL" => Some(ModelConditionFlags::FREEFALL),
-        "PRONE" => Some(ModelConditionFlags::PRONE),
-        "SPECIAL_CHEERING" => Some(ModelConditionFlags::SPECIAL_CHEERING),
-        "SPECIAL_DAMAGED" => Some(ModelConditionFlags::SPECIAL_DAMAGED),
-        "ATTACKING" => Some(ModelConditionFlags::ATTACKING),
-        "DYING" => Some(ModelConditionFlags::DYING),
-        "CARRYING" => Some(ModelConditionFlags::CARRYING),
-        "DEPLOYED" => Some(ModelConditionFlags::DEPLOYED),
-        "OVER_WATER" => Some(ModelConditionFlags::OVER_WATER),
-        "SOLD" => Some(ModelConditionFlags::SOLD),
-        "ARMED" => Some(ModelConditionFlags::ARMED),
-        "SECOND_LIFE" => Some(ModelConditionFlags::SECOND_LIFE),
-        "JAMMED" => Some(ModelConditionFlags::JAMMED),
-        "WEAPONSET_VETERAN" => Some(ModelConditionFlags::WEAPONSET_VETERAN),
-        "WEAPONSET_ELITE" => Some(ModelConditionFlags::WEAPONSET_ELITE),
-        "WEAPONSET_HERO" => Some(ModelConditionFlags::WEAPONSET_HERO),
-        "WEAPONSET_CRATEUPGRADE_ONE" => Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_ONE),
-        "WEAPONSET_CRATEUPGRADE_TWO" => Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_TWO),
-        "WEAPONSET_PLAYER_UPGRADE" => Some(ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE),
-        "PANICKING" => Some(ModelConditionFlags::PANICKING),
-        "GARRISONED" => Some(ModelConditionFlags::GARRISONED),
-        "USER_1" => Some(ModelConditionFlags::USER_1),
-        "USER_2" => Some(ModelConditionFlags::USER_2),
         _ => None,
     }
 }
+
 
 fn parse_condition_flag_field(
     _ini: &mut INI,
@@ -295,8 +235,57 @@ fn parse_condition_flag_field(
     Ok(())
 }
 
-const MODEL_CONDITION_UPGRADE_FIELDS: &[FieldParse<ModelConditionUpgradeModuleData>] =
-    &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(ModelConditionUpgradeModuleData);
+
+const MODEL_CONDITION_UPGRADE_FIELDS: &[FieldParse<ModelConditionUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
         token: "ConditionFlag",
         parse: parse_condition_flag_field,
-    }];
+    },
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crush_flags_are_distinct_from_toppled_and_flooded() {
+        let front = parse_model_condition_flag("FRONTCRUSHED").expect("FRONTCRUSHED");
+        let back = parse_model_condition_flag("BACKCRUSHED").expect("BACKCRUSHED");
+        let toppled = parse_model_condition_flag("TOPPLED").expect("TOPPLED");
+        let flooded = parse_model_condition_flag("FLOODED").expect("FLOODED");
+        assert_eq!(front, ModelConditionFlags::FRONTCRUSHED);
+        assert_eq!(back, ModelConditionFlags::BACKCRUSHED);
+        assert_ne!(front, toppled);
+        assert_ne!(back, flooded);
+    }
+
+    #[test]
+    fn missing_cpp_condition_flags_parse() {
+        assert_eq!(
+            parse_model_condition_flag("PREATTACK_A"),
+            Some(ModelConditionFlags::PREATTACK_A)
+        );
+        assert_eq!(
+            parse_model_condition_flag("USING_WEAPON_B"),
+            Some(ModelConditionFlags::USING_WEAPON_B)
+        );
+        assert_eq!(
+            parse_model_condition_flag("DOOR_4_WAITING_TO_CLOSE"),
+            Some(ModelConditionFlags::DOOR_4_WAITING_TO_CLOSE)
+        );
+        assert_eq!(
+            parse_model_condition_flag("RIDER3"),
+            Some(ModelConditionFlags::RIDER3)
+        );
+        assert_eq!(
+            parse_model_condition_flag("TURRET_ROTATE"),
+            Some(ModelConditionFlags::TURRET_ROTATE)
+        );
+        assert_eq!(
+            parse_model_condition_flag("CONTINUOUS_FIRE_FAST"),
+            Some(ModelConditionFlags::CONTINUOUS_FIRE_FAST)
+        );
+    }
+}
+

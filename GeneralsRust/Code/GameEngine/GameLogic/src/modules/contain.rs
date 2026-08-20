@@ -255,6 +255,51 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
     /// Script hook for garrison evac disposition (default: no-op).
     fn set_evac_disposition(&mut self, _disposition: UnsignedInt) {}
+    /// C++ `ContainModuleInterface::onSelling`. OpenContain orders passengers out;
+    /// Garrison/Tunnel override to force-empty first.
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    /// C++ CreateModuleInterface::onCreate (CaveContain copies CaveIndex).
+    fn on_create(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    /// C++ CreateModuleInterface::onBuildComplete (CaveContain registers the network).
+    fn on_build_complete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    /// C++ CreateModule::shouldDoOnBuildComplete.
+    fn should_do_on_build_complete(&self) -> bool {
+        false
+    }
+
+    /// C++ `OpenContain::markAllPassengersDetected`. Reveal stealth-garrison riders
+    /// immediately before an evac order so they do not stay cloaked on exit.
+    fn mark_all_passengers_detected(&mut self) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        for object_id in self.get_contained_objects() {
+            let Some(obj) = TheGameLogic::find_object_by_id(*object_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj.read() else {
+                continue;
+            };
+            if !obj_guard.is_kind_of(KindOf::StealthGarrison) {
+                continue;
+            }
+            if let Some(stealth) = obj_guard.get_stealth() {
+                if let Ok(mut stealth_guard) = stealth.lock() {
+                    stealth_guard.mark_as_detected();
+                }
+            }
+        }
+    }
+
 
     /// Order all passengers to exit (matches C++ OpenContain::orderAllPassengersToExit).
     fn order_all_passengers_to_exit(
@@ -266,6 +311,8 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         if dual_world_registry_unavailable() {
             return Ok(());
         }
+
+        self.mark_all_passengers_detected();
 
         let cmd = if instantly {
             AiCommandType::ExitInstantly
@@ -531,6 +578,8 @@ pub trait ContainModuleInterfaceExt {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn kill_all_contained(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn process_damage_to_contained(&self, percent_damage: f32);
+    fn on_selling(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn mark_all_passengers_detected(&self);
 }
 
 impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
@@ -710,6 +759,20 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
             guard.order_all_passengers_to_hack_internet(command_source)
         } else {
             Ok(())
+        }
+    }
+
+    fn on_selling(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Ok(mut guard) = self.lock() {
+            guard.on_selling()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn mark_all_passengers_detected(&self) {
+        if let Ok(mut guard) = self.lock() {
+            guard.mark_all_passengers_detected();
         }
     }
 

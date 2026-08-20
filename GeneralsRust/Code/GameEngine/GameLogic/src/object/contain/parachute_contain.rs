@@ -798,13 +798,24 @@ impl ParachuteContain {
                             }
                         }
                     }
-                    // C++ spring/damper using locomotor stiffness; fall back to 0.1.
-                    let pitch_stiffness = 0.1;
-                    let roll_stiffness = 0.1;
-                    let pitch_damping = 0.1 + altitude_damping;
-                    let roll_damping = 0.1 + altitude_damping;
-                    self.pitch_rate += (-pitch_stiffness * self.pitch)
-                        + (-pitch_damping * self.pitch_rate);
+                    // C++ ParachuteContain::update: locomotor pitch/roll spring+damper.
+                    let (pitch_stiffness, roll_stiffness, pitch_damping, roll_damping) =
+                        if let Some(loco) = ai.get_cur_locomotor() {
+                            if let Ok(loco_guard) = loco.lock() {
+                                (
+                                    loco_guard.template.pitch_stiffness,
+                                    loco_guard.template.roll_stiffness,
+                                    loco_guard.template.pitch_damping + altitude_damping,
+                                    loco_guard.template.roll_damping + altitude_damping,
+                                )
+                            } else {
+                                (0.1, 0.1, 0.1 + altitude_damping, 0.1 + altitude_damping)
+                            }
+                        } else {
+                            (0.1, 0.1, 0.1 + altitude_damping, 0.1 + altitude_damping)
+                        };
+                    self.pitch_rate +=
+                        (-pitch_stiffness * self.pitch) + (-pitch_damping * self.pitch_rate);
                     self.roll_rate +=
                         (-roll_stiffness * self.roll) + (-roll_damping * self.roll_rate);
                     self.pitch += self.pitch_rate;
@@ -1094,6 +1105,10 @@ impl ContainModuleInterface for ParachuteContain {
 
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = ParachuteContain::process_damage_to_contained(self, percent_damage);
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
     }
 }
 

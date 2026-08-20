@@ -6,9 +6,59 @@ impl Object {
     }
 
     pub fn set_position(&mut self, position: Vec3) {
+        let old_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
+            self.position.x,
+            self.position.z,
+        );
         self.thing.set_position(position);
         // Keep compatibility shadow in sync (many call sites still read `position`).
         self.position = position;
+        let new_cell = crate::game_logic::partition_manager::PartitionManager::cell_coords(
+            position.x,
+            position.z,
+        );
+        if old_cell != new_cell {
+            self.restamp_partition_value_threat();
+        }
+    }
+
+    /// C++ Object::addValue/addThreat via PartitionManager (Object.cpp:4807-4883).
+    pub fn stamp_partition_value_threat(&mut self) {
+        if self.status.under_construction || !self.is_alive() {
+            self.unstamp_partition_value_threat();
+            return;
+        }
+        if self.shroud_clearing_range <= 0.0 {
+            self.unstamp_partition_value_threat();
+            return;
+        }
+        let Some(player_id) = self.owner_player_id else {
+            self.unstamp_partition_value_threat();
+            return;
+        };
+        self.unstamp_partition_value_threat();
+        let stamp = crate::game_logic::partition_manager::HostPartitionAffectStamp {
+            x: self.position.x,
+            z: self.position.z,
+            range: self.vision_range.max(1.0),
+            value: self.partition_cash_value,
+            threat: self.partition_threat_value,
+            mask: 1u32 << player_id.min(15),
+        };
+        stamp.apply(true);
+        self.partition_last_affect = Some(stamp);
+    }
+
+    pub fn unstamp_partition_value_threat(&mut self) {
+        if let Some(stamp) = self.partition_last_affect.take() {
+            stamp.apply(false);
+        }
+    }
+
+    fn restamp_partition_value_threat(&mut self) {
+        if self.partition_last_affect.is_some() || self.partition_cash_value > 0 {
+            self.stamp_partition_value_threat();
+        }
     }
 
     pub fn get_orientation(&self) -> f32 {
@@ -758,6 +808,20 @@ impl Object {
             }
             if (self.model_condition_bits & (1u128 << MC_BIT_BACKCRUSHED)) != 0 {
                 bits |= 1u128 << MC_BIT_BACKCRUSHED;
+            }
+        }
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                armorset_crateupgrade_one_model_bit, armorset_crateupgrade_two_model_bit,
+            };
+            let one = armorset_crateupgrade_one_model_bit();
+            let two = armorset_crateupgrade_two_model_bit();
+            bits &= !(1u128 << one);
+            bits &= !(1u128 << two);
+            match self.armor_crate_upgrade {
+                1 => bits |= 1u128 << one,
+                n if n >= 2 => bits |= 1u128 << two,
+                _ => {}
             }
         }
         if self.model_condition_bits != bits {

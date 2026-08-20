@@ -464,6 +464,74 @@ impl PresentationFrame {
         ids
     }
 
+    /// C++ `kindOfUnitSelection` / CommandXlat SELECT_ALL filters.
+    pub fn is_select_all_disqualified(obj: &RenderableObject) -> bool {
+        use crate::game_logic::KindOf;
+        Self::object_has_kind(obj, KindOf::Dozer)
+            || Self::object_has_kind(obj, KindOf::Harvester)
+            || Self::object_has_kind(obj, KindOf::IgnoresSelectAll)
+            || obj.is_structure
+            || Self::object_has_kind(obj, KindOf::Structure)
+    }
+
+    /// Mass-selectable locally-owned units eligible for SELECT_ALL / SELECT_ALL_AIRCRAFT.
+    pub fn alive_select_all_unit_ids(
+        &self,
+        player_team: crate::game_logic::Team,
+        aircraft_only: bool,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::KindOf;
+        self.alive_selectable_friendly_filtered_ids(player_team, |o| {
+            if o.contained_by.is_some() || !Self::presentation_is_mass_selectable(o) {
+                return false;
+            }
+            if Self::is_select_all_disqualified(o) {
+                return false;
+            }
+            if aircraft_only && !Self::object_has_kind(o, KindOf::Aircraft) {
+                return false;
+            }
+            true
+        })
+    }
+
+    /// Project IDs into the current view (C++ `iterateDrawablesInRegion` screen pass).
+    pub fn filter_ids_on_screen(
+        &self,
+        ids: &[ObjectId],
+        view_matrix: Mat4,
+        projection_matrix: Mat4,
+        viewport_size: Vec2,
+    ) -> Vec<ObjectId> {
+        let viewport_width = viewport_size.x.max(1.0);
+        let viewport_height = viewport_size.y.max(1.0);
+        let view_projection = projection_matrix * view_matrix;
+        if !view_projection.is_finite() {
+            return Vec::new();
+        }
+        ids.iter()
+            .copied()
+            .filter(|id| {
+                self.objects.iter().any(|object| {
+                    object.id == *id
+                        && project_position_to_screen(
+                            view_projection,
+                            object.position,
+                            viewport_width,
+                            viewport_height,
+                        )
+                        .is_some_and(|screen| {
+                            screen.x >= 0.0
+                                && screen.y >= 0.0
+                                && screen.x <= viewport_width
+                                && screen.y <= viewport_height
+                        })
+                })
+            })
+            .collect()
+    }
+
+
     /// Combat units residual (mobile non-structure, not pure dozer/supply).
     pub fn alive_selectable_friendly_combat_ids(
         &self,

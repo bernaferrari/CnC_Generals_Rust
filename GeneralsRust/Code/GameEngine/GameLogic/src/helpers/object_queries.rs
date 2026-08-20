@@ -872,6 +872,22 @@ impl ThePartitionManager {
             .map(|p| Coord3D::new(p.x, p.y, p.z))
     }
 
+    /// C++ `ThePartitionManager->getMostValuableLocation`.
+    pub fn get_most_valuable_location(
+        &self,
+        player_index: i32,
+        allowed_player_mask: u32,
+        val_type: crate::object::collide::partition_manager::ValueOrThreat,
+    ) -> Option<Coord3D> {
+        crate::object::collide::partition_manager::PARTITION_MANAGER
+            .read()
+            .ok()
+            .and_then(|pm| {
+                pm.get_most_valuable_location(player_index, allowed_player_mask, val_type)
+            })
+            .map(|p| Coord3D::new(p.x, p.y, p.z))
+    }
+
     /// C++ `ThePartitionManager->unRegisterObject`.
     pub fn unregister_object(&self, object_id: crate::common::ObjectID) {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {

@@ -88,6 +88,13 @@ pub struct CameraFollowRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct CameraTetherRequest {
+    pub object_id: u32,
+    pub snap_to_unit: bool,
+    pub play: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct CameraResetRequest {
     pub position: Vec3,
     pub duration_seconds: f32,
@@ -723,6 +730,7 @@ pub struct MissionScriptHooks {
     sound_events: Mutex<Vec<ScriptSoundEvent>>,
     camera_moves: Mutex<Vec<Vec3>>,
     camera_follows: Mutex<Vec<CameraFollowRequest>>,
+    camera_tethers: Mutex<Vec<CameraTetherRequest>>,
     camera_path_moves: Mutex<Vec<CameraPathRequest>>,
     camera_move_to: Mutex<Vec<CameraMoveToRequest>>,
     camera_move_to_selection_requests: Mutex<Vec<()>>,
@@ -797,6 +805,7 @@ impl MissionScriptHooks {
             sound_events: Mutex::new(Vec::new()),
             camera_moves: Mutex::new(Vec::new()),
             camera_follows: Mutex::new(Vec::new()),
+            camera_tethers: Mutex::new(Vec::new()),
             camera_path_moves: Mutex::new(Vec::new()),
             camera_move_to: Mutex::new(Vec::new()),
             camera_move_to_selection_requests: Mutex::new(Vec::new()),
@@ -924,6 +933,12 @@ impl MissionScriptHooks {
     pub fn push_camera_move(&self, position: Vec3) {
         if let Ok(mut queue) = self.camera_moves.lock() {
             queue.push(position);
+        }
+    }
+
+    pub fn push_camera_tether(&self, request: CameraTetherRequest) {
+        if let Ok(mut queue) = self.camera_tethers.lock() {
+            queue.push(request);
         }
     }
 
@@ -1383,6 +1398,13 @@ impl MissionScriptHooks {
 
     pub fn drain_camera_follows(&self) -> Vec<CameraFollowRequest> {
         self.camera_follows
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn drain_camera_tethers(&self) -> Vec<CameraTetherRequest> {
+        self.camera_tethers
             .lock()
             .map(|mut q| q.drain(..).collect())
             .unwrap_or_default()
@@ -1939,6 +1961,20 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         self.hooks.push_camera_follow(CameraFollowRequest {
             object_id,
             snap_to_unit,
+        });
+        Ok(())
+    }
+
+    fn camera_tether_object(
+        &self,
+        object_id: gamelogic::common::ObjectID,
+        snap_to_unit: bool,
+        play: f32,
+    ) -> GameLogicResult<()> {
+        self.hooks.push_camera_tether(CameraTetherRequest {
+            object_id,
+            snap_to_unit,
+            play,
         });
         Ok(())
     }

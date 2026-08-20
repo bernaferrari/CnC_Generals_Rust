@@ -149,6 +149,14 @@ pub struct PathfindingGrid {
     /// C++ PathfindCell::CellType residual (AIPathfind.h:233-242).
     /// Parallel to blocked_bits so water/cliff stay distinct from IMPASSABLE.
     cell_types: Vec<u8>,
+    /// C++ PathfindCell::m_pinched (AIPathfind.h:347).
+    pinched_bits: Vec<u64>,
+    /// Terrain-only zone ids (structures ignored). 0 = uninitialized.
+    terrain_zones: Vec<u16>,
+    /// Players with a stopped/fixed occupant in this cell (bit i = player i).
+    occ_fixed_mask: Vec<u16>,
+    /// Players with a moving occupant in this cell.
+    occ_moving_mask: Vec<u16>,
     /// Bump when static cells change so crate A* can resync.
     terrain_gen: u64,
 }
@@ -176,6 +184,10 @@ impl PathfindingGrid {
             blocked_bits: vec![0u64; words],
             dynamic_bits: vec![0u64; words],
             cell_types: vec![PathfindCellType::Clear as u8; cells],
+            pinched_bits: vec![0u64; words],
+            terrain_zones: vec![0u16; cells],
+            occ_fixed_mask: vec![0u16; cells],
+            occ_moving_mask: vec![0u16; cells],
             terrain_gen: 1,
         }
     }
@@ -382,6 +394,8 @@ impl PathfindingGrid {
     pub fn clear_static_blocks(&mut self) {
         self.blocked_bits.fill(0);
         self.cell_types.fill(PathfindCellType::Clear as u8);
+        self.pinched_bits.fill(0);
+        self.terrain_zones.fill(0);
         self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
@@ -438,7 +452,242 @@ impl PathfindingGrid {
 
     pub fn clear_dynamic_blocks(&mut self) {
         self.dynamic_bits.fill(0);
+        self.occ_fixed_mask.fill(0);
+        self.occ_moving_mask.fill(0);
     }
+
+    pub fn is_pinched(&self, pos: GridPos) -> bool {
+        self.bit_index(pos)
+            .is_some_and(|idx| Self::bit_test(&self.pinched_bits, idx))
+    }
+
+    pub fn set_pinched(&mut self, pos: GridPos, pinched: bool) {
+        if let Some(idx) = self.bit_index(pos) {
+            Self::bit_set(&mut self.pinched_bits, idx, pinched);
+        }
+    }
+
+    /// C++ Pathfinder::classifyMap cliff expand (AIPathfind.cpp:4591-4632).
+    pub fn pinch_tighten_cliffs(&mut self) {
+        let w = self.width;
+        let h = self.height;
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        self.pinched_bits.fill(0);
+        let mut first_ring = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let pos = GridPos::new(x, y);
+                if self.cell_type(pos) != PathfindCellType::Cliff {
+                    continue;
+                }
+                for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
+                    for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
+                        let n = GridPos::new(nx, ny);
+                        if self.cell_type(n) == PathfindCellType::Clear {
+                            first_ring.push(n);
+                        }
+                    }
+                }
+            }
+        }
+        for pos in &first_ring {
+            self.set_pinched(*pos, true);
+        }
+        for pos in first_ring {
+            if self.cell_type(pos) == PathfindCellType::Clear {
+                self.set_cell_type(pos, PathfindCellType::Cliff);
+            }
+        }
+        let mut second_ring = Vec::new();
+        for y in 0..h {
+            for x in 0..w {
+                let pos = GridPos::new(x, y);
+                if self.cell_type(pos) != PathfindCellType::Cliff {
+                    continue;
+                }
+                for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
+                    for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
+                        let n = GridPos::new(nx, ny);
+                        if self.cell_type(n) == PathfindCellType::Clear {
+                            second_ring.push(n);
+                        }
+                    }
+                }
+            }
+        }
+        for pos in second_ring {
+            self.set_pinched(pos, true);
+        }
+        self.terrain_gen = self.terrain_gen.wrapping_add(1);
+    }
+
+    fn terrain_zone_passable(ty: PathfindCellType) -> bool {
+        // Terrain-only: structures (Obstacle) are ignored for UI zones.
+        !matches!(
+            ty,
+            PathfindCellType::Water
+                | PathfindCellType::Cliff
+                | PathfindCellType::Impassable
+                | PathfindCellType::BridgeImpassable
+        )
+    }
+
+    /// Flood-fill terrain zones ignoring structure obstacles (C++ effectiveTerrainZone).
+    pub fn rebuild_terrain_zones(&mut self) {
+        let cells = self.terrain_zones.len();
+        self.terrain_zones.fill(0);
+        let mut next_zone = 1u16;
+        let w = self.width;
+        let h = self.height;
+        for y in 0..h {
+            for x in 0..w {
+                let start = GridPos::new(x, y);
+                let Some(sidx) = self.bit_index(start) else {
+                    continue;
+                };
+                if self.terrain_zones[sidx] != 0 {
+                    continue;
+                }
+                if !Self::terrain_zone_passable(self.cell_type_at_index(sidx)) {
+                    continue;
+                }
+                let zone = next_zone;
+                next_zone = next_zone.saturating_add(1);
+                let mut stack = vec![start];
+                while let Some(cur) = stack.pop() {
+                    let Some(idx) = self.bit_index(cur) else {
+                        continue;
+                    };
+                    if self.terrain_zones[idx] != 0 {
+                        continue;
+                    }
+                    if !Self::terrain_zone_passable(self.cell_type_at_index(idx)) {
+                        continue;
+                    }
+                    self.terrain_zones[idx] = zone;
+                    stack.push(GridPos::new(cur.x + 1, cur.y));
+                    stack.push(GridPos::new(cur.x - 1, cur.y));
+                    stack.push(GridPos::new(cur.x, cur.y + 1));
+                    stack.push(GridPos::new(cur.x, cur.y - 1));
+                }
+                let _ = cells;
+            }
+        }
+    }
+
+    pub fn terrain_zone(&self, pos: GridPos) -> u16 {
+        self.bit_index(pos)
+            .and_then(|idx| self.terrain_zones.get(idx).copied())
+            .unwrap_or(0)
+    }
+
+    /// C++ Pathfinder::clientSafeQuickDoesPathExistForUI (AIPathfind.cpp:8055).
+    pub fn quick_path_exists_for_ui(&self, from: Vec3, to: Vec3) -> bool {
+        let start = self.world_to_grid(from);
+        let goal = self.world_to_grid(to);
+        if self.cell_type(goal) == PathfindCellType::Cliff {
+            return false;
+        }
+        let z1 = self.terrain_zone(start);
+        let z2 = self.terrain_zone(goal);
+        // C++ UNINITIALIZED_ZONE → false-positive true.
+        if z1 == 0 || z2 == 0 {
+            return true;
+        }
+        z1 == z2
+    }
+
+    /// Stamp a bridge deck onto the single-layer host grid.
+    /// C++ PathfindLayer::classifyCells: deck CELL_CLEAR; destroyed BRIDGE_IMPASSABLE.
+    pub fn stamp_bridge_deck(
+        &mut self,
+        from_left: Vec3,
+        from_right: Vec3,
+        to_left: Vec3,
+        to_right: Vec3,
+        destroyed: bool,
+    ) {
+        let corners = [from_left, from_right, to_right, to_left];
+        let mut min_x = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut min_z = f32::MAX;
+        let mut max_z = f32::MIN;
+        for c in corners {
+            min_x = min_x.min(c.x);
+            max_x = max_x.max(c.x);
+            min_z = min_z.min(c.z);
+            max_z = max_z.max(c.z);
+        }
+        let lo = self.world_to_grid(Vec3::new(min_x, 0.0, min_z));
+        let hi = self.world_to_grid(Vec3::new(max_x, 0.0, max_z));
+        let ty = if destroyed {
+            PathfindCellType::BridgeImpassable
+        } else {
+            PathfindCellType::Clear
+        };
+        for y in lo.y.min(hi.y)..=lo.y.max(hi.y) {
+            for x in lo.x.min(hi.x)..=lo.x.max(hi.x) {
+                let pos = GridPos::new(x, y);
+                if !self.is_valid_pos(pos) {
+                    continue;
+                }
+                let world = self.grid_to_world(pos);
+                if point_in_bridge_quad(world.x, world.z, &corners) {
+                    self.set_cell_type(pos, ty);
+                }
+            }
+        }
+    }
+
+    fn occupancy_cost(&self, pos: GridPos, seeker_player: Option<u32>) -> Option<f32> {
+        let Some(idx) = self.bit_index(pos) else {
+            return Some(0.0);
+        };
+        let fixed = self.occ_fixed_mask.get(idx).copied().unwrap_or(0);
+        let moving = self.occ_moving_mask.get(idx).copied().unwrap_or(0);
+        if fixed == 0 && moving == 0 {
+            return Some(0.0);
+        }
+        let Some(player) = seeker_player else {
+            // Unknown seeker: keep former allyFixed soft cost.
+            return Some(3.0 * 1.414_213_5);
+        };
+        let bit = 1u16 << player.min(15);
+        let enemy_fixed = (fixed & !bit) != 0;
+        if enemy_fixed {
+            return None;
+        }
+        let mut extra = 0.0;
+        if (moving & bit) != 0 {
+            extra += 3.0 * 1.414_213_5;
+        }
+        if (fixed & bit) != 0 {
+            extra += 3.0 * 1.414_213_5;
+        }
+        // Other-player movers: transient soft cost.
+        if (moving & !bit) != 0 {
+            extra += 3.0 * 1.414_213_5;
+        }
+        Some(extra)
+    }
+
+    fn mark_occupancy(&mut self, pos: GridPos, player: u32, moving: bool) {
+        let Some(idx) = self.bit_index(pos) else {
+            return;
+        };
+        Self::bit_set(&mut self.dynamic_bits, idx, true);
+        let bit = 1u16 << player.min(15);
+        if moving {
+            if let Some(slot) = self.occ_moving_mask.get_mut(idx) {
+                *slot |= bit;
+            }
+        } else if let Some(slot) = self.occ_fixed_mask.get_mut(idx) {
+            *slot |= bit;
+        }
+    }
+
 
     /// Clamp a grid position into the playable rectangle.
     pub fn clamp_pos(&self, pos: GridPos) -> GridPos {
@@ -554,12 +803,13 @@ impl PathfindingGrid {
 
                 // Base ortho/diag cost (COST_ORTHOGONAL=1, COST_DIAGONAL≈1.414).
                 let mut movement_cost = if is_diag { 1.414_213_5 } else { 1.0 };
-                // C++ allyFixedCount soft cost: standing units prefer detour (~3*diag).
-                if self
-                    .bit_index(neighbor)
-                    .is_some_and(|idx| Self::bit_test(&self.dynamic_bits, idx))
-                {
-                    movement_cost += 3.0 * 1.414_213_5;
+                // C++ costSoFar pinched surcharge (AIPathfind.cpp:1701-1703).
+                if self.is_pinched(neighbor) {
+                    movement_cost += 1.414_213_5;
+                }
+                match self.occupancy_cost(neighbor, None) {
+                    None => continue, // enemyFixed abort
+                    Some(extra) => movement_cost += extra,
                 }
 
                 let tentative_g_score = current.g_cost + movement_cost;
@@ -623,27 +873,68 @@ impl PathfindingGrid {
         self.clear_dynamic_blocks();
 
         for obj in objects.values() {
-            if obj.is_alive()
-                && (obj.is_kind_of(KindOf::Vehicle) || obj.is_kind_of(KindOf::Structure))
+            if !obj.is_alive() {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Aircraft) {
+                continue;
+            }
+            // C++ examineNeighboringCells occupancy: infantry + vehicles + structures.
+            if !(obj.is_kind_of(KindOf::Vehicle)
+                || obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Infantry))
             {
-                let grid_pos = self.world_to_grid(obj.get_position());
-
-                // Vehicles and structures block pathfinding
-                self.set_dynamic_blocked(grid_pos, true);
-
-                // Large units might block multiple grid cells
-                if obj.is_kind_of(KindOf::Structure) {
-                    // Block a 3x3 area for buildings
-                    for dx in -1..=1 {
-                        for dy in -1..=1 {
-                            let blocked_pos = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
-                            self.set_dynamic_blocked(blocked_pos, true);
-                        }
+                continue;
+            }
+            let player = obj
+                .owner_player_id
+                .unwrap_or(obj.team as u32);
+            let moving = !obj.is_kind_of(KindOf::Structure)
+                && (!obj.movement.path.is_empty()
+                    || obj.movement.velocity.length_squared() > 0.25);
+            let radius_cells = ((obj.selection_radius / self.grid_size).ceil() as i32)
+                .max(if obj.is_kind_of(KindOf::Structure) {
+                    1
+                } else {
+                    0
+                });
+            let grid_pos = self.world_to_grid(obj.get_position());
+            for dy in -radius_cells..=radius_cells {
+                for dx in -radius_cells..=radius_cells {
+                    let p = GridPos::new(grid_pos.x + dx, grid_pos.y + dy);
+                    if self.is_valid_pos(p) {
+                        self.mark_occupancy(p, player, moving);
                     }
                 }
             }
         }
     }
+
+    pub fn occupancy_extra_cost(&self, pos: GridPos, seeker_player: Option<u32>) -> u32 {
+        match self.occupancy_cost(pos, seeker_player) {
+            None => u32::MAX / 8,
+            Some(c) => (c * 10.0) as u32, // crate A* uses integer COST_DIAGONAL=14
+        }
+    }
+}
+
+fn point_in_bridge_quad(px: f32, pz: f32, corners: &[Vec3; 4]) -> bool {
+    // Convex quad test in XZ (host ground). C++ classifyLayerMapCell deck fill.
+    let mut sign = 0.0f32;
+    for i in 0..4 {
+        let a = corners[i];
+        let b = corners[(i + 1) % 4];
+        let cross = (b.x - a.x) * (pz - a.z) - (b.z - a.z) * (px - a.x);
+        if cross.abs() < f32::EPSILON {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross;
+        } else if sign * cross < 0.0 {
+            return false;
+        }
+    }
+    true
 }
 
 /// Flow field pathfinding for RTS-style unit movement
@@ -788,6 +1079,8 @@ pub struct PathfindingSystem {
     crate_astar: Option<HostCrateAStar>,
     /// C++ Pathfinder::queueForPath residual (AIPathfind.h:418).
     pending_paths: VecDeque<PendingHostPath>,
+    /// Seeker controlling player for occupancy costs this query.
+    seeker_player: Option<u32>,
 }
 
 impl PathfindingSystem {
@@ -805,6 +1098,7 @@ impl PathfindingSystem {
             dynamic_obstacle_frame: u64::MAX,
             crate_astar: None,
             pending_paths: VecDeque::new(),
+            seeker_player: None,
         }
     }
 
@@ -848,7 +1142,9 @@ impl PathfindingSystem {
         for y in 0..self.grid.height {
             for x in 0..self.grid.width {
                 let pos = GridPos::new(x, y);
-                finder.set_cell_type(GridCoord::new(x, y), self.grid.cell_type(pos));
+                let coord = GridCoord::new(x, y);
+                finder.set_cell_type(coord, self.grid.cell_type(pos));
+                finder.set_pinched(coord, self.grid.is_pinched(pos));
             }
         }
         self.crate_astar = Some(HostCrateAStar { finder, stamp });
@@ -891,18 +1187,38 @@ impl PathfindingSystem {
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
-        let dyn_bits = self.grid.dynamic_bits.clone();
         let width = self.grid.width;
+        let occ_fixed = self.grid.occ_fixed_mask.clone();
+        let occ_moving = self.grid.occ_moving_mask.clone();
+        let seeker = self.seeker_player;
         let extra = move |c: GridCoord| {
             if c.x < 0 || c.y < 0 || c.x >= width {
                 return 0;
             }
             let idx = c.y as usize * width as usize + c.x as usize;
-            if PathfindingGrid::bit_test(&dyn_bits, idx) {
-                3 * COST_DIAGONAL
-            } else {
-                0
+            let fixed = occ_fixed.get(idx).copied().unwrap_or(0);
+            let moving = occ_moving.get(idx).copied().unwrap_or(0);
+            if fixed == 0 && moving == 0 {
+                return 0;
             }
+            let Some(player) = seeker else {
+                return 3 * COST_DIAGONAL;
+            };
+            let bit = 1u16 << player.min(15);
+            if (fixed & !bit) != 0 {
+                return u32::MAX / 8;
+            }
+            let mut extra = 0u32;
+            if (moving & bit) != 0 {
+                extra += 3 * COST_DIAGONAL;
+            }
+            if (fixed & bit) != 0 {
+                extra += 3 * COST_DIAGONAL;
+            }
+            if (moving & !bit) != 0 {
+                extra += 3 * COST_DIAGONAL;
+            }
+            extra
         };
         let Some(crate_pf) = self.crate_astar.as_ref() else {
             return self.grid.find_path(start, goal);
@@ -1364,6 +1680,15 @@ impl PathfindingSystem {
         is_crusher: bool,
     ) -> Option<Vec<Vec3>> {
         self.ensure_dynamic_obstacles(objects);
+        self.seeker_player = objects
+            .values()
+            .filter(|o| o.is_alive())
+            .min_by(|a, b| {
+                let da = a.get_position().distance_squared(start);
+                let db = b.get_position().distance_squared(start);
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .and_then(|o| o.owner_player_id.or(Some(o.team as u32)));
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
@@ -1890,4 +2215,89 @@ mod tests {
             "follower last waypoint is slot"
         );
     }
+
+    #[test]
+    fn cliff_pinch_converts_clear_neighbors() {
+        let mut g = open_grid(8, 8);
+        g.set_cell_type(GridPos::new(4, 4), PathfindCellType::Cliff);
+        g.pinch_tighten_cliffs();
+        assert_eq!(g.cell_type(GridPos::new(4, 5)), PathfindCellType::Cliff);
+        assert!(g.is_pinched(GridPos::new(4, 6)) || g.cell_type(GridPos::new(4, 5)) == PathfindCellType::Cliff);
+    }
+
+    #[test]
+    fn terrain_zones_split_on_water() {
+        let mut g = open_grid(8, 8);
+        for y in 0..8 {
+            g.set_cell_type(GridPos::new(4, y), PathfindCellType::Water);
+        }
+        g.rebuild_terrain_zones();
+        let a = g.terrain_zone(GridPos::new(1, 4));
+        let b = g.terrain_zone(GridPos::new(6, 4));
+        assert_ne!(a, 0);
+        assert_ne!(b, 0);
+        assert_ne!(a, b, "water must split terrain zones");
+        let from = g.grid_to_world(GridPos::new(1, 4));
+        let to = g.grid_to_world(GridPos::new(6, 4));
+        assert!(!g.quick_path_exists_for_ui(from, to));
+    }
+
+    #[test]
+    fn terrain_zones_ignore_structure_obstacles() {
+        let mut g = open_grid(8, 8);
+        for y in 0..8 {
+            g.set_cell_type(GridPos::new(4, y), PathfindCellType::Obstacle);
+        }
+        g.rebuild_terrain_zones();
+        let from = g.grid_to_world(GridPos::new(1, 4));
+        let to = g.grid_to_world(GridPos::new(6, 4));
+        assert!(g.quick_path_exists_for_ui(from, to));
+    }
+
+    #[test]
+    fn bridge_deck_clears_water_and_destroy_impassable() {
+        let mut g = open_grid(12, 12);
+        for x in 2..10 {
+            g.set_cell_type(GridPos::new(x, 5), PathfindCellType::Water);
+        }
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 0.0, 40.0),
+            Vec3::new(20.0, 0.0, 60.0),
+            Vec3::new(90.0, 0.0, 40.0),
+            Vec3::new(90.0, 0.0, 60.0),
+            false,
+        );
+        assert_eq!(g.cell_type(GridPos::new(5, 5)), PathfindCellType::Clear);
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 0.0, 40.0),
+            Vec3::new(20.0, 0.0, 60.0),
+            Vec3::new(90.0, 0.0, 40.0),
+            Vec3::new(90.0, 0.0, 60.0),
+            true,
+        );
+        assert_eq!(
+            g.cell_type(GridPos::new(5, 5)),
+            PathfindCellType::BridgeImpassable
+        );
+        assert!(g.is_static_blocked(GridPos::new(5, 5)));
+    }
+
+    #[test]
+    fn occupancy_radius_marks_overlord_footprint() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(16, 16);
+        let mut objects = HashMap::new();
+        let mut tmpl = ThingTemplate::new("Overlord");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tmpl, ObjectId(1), Team::China);
+        tank.set_position(Vec3::new(50.0, 0.0, 50.0));
+        tank.selection_radius = 25.0;
+        tank.owner_player_id = Some(1);
+        objects.insert(tank.id, tank);
+        g.update_dynamic_obstacles(&objects);
+        let center = g.world_to_grid(Vec3::new(50.0, 0.0, 50.0));
+        assert!(g.is_blocked(center));
+        assert!(g.is_blocked(GridPos::new(center.x + 2, center.y)));
+    }
+
 }

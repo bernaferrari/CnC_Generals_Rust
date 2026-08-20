@@ -298,6 +298,14 @@ impl GameLogic {
                 "",
                 &impact.detonation_ocl_name,
             );
+            if !impact.detonation_fx_name.trim().is_empty()
+                && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")
+            {
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    &impact.detonation_fx_name,
+                    impact.position,
+                );
+            }
         }
     }
 

@@ -911,30 +911,30 @@ impl AISkirmishPlayer {
                 continue;
             }
 
-            if !info.is_buildable() {
+            // C++ findDozer then canMakeUnit(dozer, bldgPlan).
+            // bldgPlan is still NULL until a priority entry is chosen;
+            // canMakeUnit(NULL) returns CANMAKE_NO_PREREQ, so the automatic
+            // isBuildable assignment never runs. Only scripted priority +
+            // later power-plant override select a building.
+            if self
+                .base
+                .find_dozer_public(info.get_location())
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                if is_under_powered {
+                    let _ = self.base.queue_dozer();
+                }
                 info_opt = info.get_next_mut();
                 continue;
             }
-
-            // C++ also requires a dozer present before selecting automatic builds.
-            if selected_plan.is_none() {
-                if self
-                    .base
-                    .find_dozer_public(info.get_location())
-                    .ok()
-                    .flatten()
-                    .is_none()
-                {
-                    if is_under_powered {
-                        let _ = self.base.queue_dozer();
-                    }
-                    info_opt = info.get_next_mut();
-                    continue;
-                }
-                selected_plan = Some(cur_plan);
-                selected_name = Some(name);
-                selected_loc = Some(*info.get_location());
-                selected_angle = info.get_angle();
+            if selected_plan.is_none() && info.is_buildable() {
+                // C++ AppendDebugMessage when canMakeUnit fails (NULL plan).
+                log::debug!(
+                    "{} - Dozer unable to build - money or technology missing.",
+                    name
+                );
             }
 
             info_opt = info.get_next_mut();
@@ -1529,9 +1529,12 @@ impl AISkirmishPlayer {
         let _ = rebuild_names;
     }
 
-    /// Get enemy player index
-    fn get_my_enemy_player_index(&mut self) -> i32 {
-        if let Some(enemy) = self.get_ai_enemy() {
+    /// C++ `AISkirmishPlayer::getMyEnemyPlayerIndex`.
+    ///
+    /// Return `m_currentEnemy` index if set, else first human. Does **not**
+    /// call getAiEnemy / acquireEnemy (those retarget every 5s).
+    fn get_my_enemy_player_index(&self) -> i32 {
+        if let Some(enemy) = self.current_enemy.as_ref().and_then(|w| w.upgrade()) {
             if let Ok(enemy_ref) = enemy.try_read() {
                 return enemy_ref.get_player_index();
             }
@@ -1844,7 +1847,9 @@ impl AISkirmishPlayer {
     }
 
     pub fn build_base_defense(&mut self, flank: bool) -> Result<(), crate::ai::AiError> {
-        self.base.build_ai_base_defense(flank)
+        // C++ virtual AISkirmishPlayer::buildAIBaseDefense — not the solo stub.
+        self.build_ai_base_defense(flank);
+        Ok(())
     }
 
     pub fn build_base_defense_structure(
@@ -1852,15 +1857,18 @@ impl AISkirmishPlayer {
         structure_name: &str,
         flank: bool,
     ) -> Result<(), crate::ai::AiError> {
-        self.base
-            .build_ai_base_defense_structure(structure_name, flank)
+        // C++ virtual AISkirmishPlayer::buildAIBaseDefenseStructure.
+        self.build_ai_base_defense_structure(structure_name, flank);
+        Ok(())
     }
 
     pub fn build_specific_building(
         &mut self,
         building_name: &str,
     ) -> Result<(), crate::ai::AiError> {
-        self.base.build_specific_ai_building(building_name)
+        // C++ virtual AISkirmishPlayer::buildSpecificAIBuilding.
+        self.build_specific_ai_building(building_name);
+        Ok(())
     }
 
     pub fn build_specific_building_nearest_team(

@@ -156,6 +156,15 @@ impl Module for ContainBindingModule {
         }
     }
 
+    fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
+        // C++ CaveContain is a CreateModuleInterface; other contains are not.
+        if self.module_name_key == NameKeyGenerator::name_to_key("CaveContain") {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
     fn on_delete(&mut self) {
         if let Ok(mut contain_guard) = self.contain.lock() {
             if let Err(err) = contain_guard.on_delete() {
@@ -165,6 +174,37 @@ impl Module for ContainBindingModule {
                 );
             }
         }
+    }
+}
+
+impl CreateInterface for ContainBindingModule {
+    fn on_create(&self) {
+        if let Ok(mut contain_guard) = self.contain.lock() {
+            if let Err(err) = contain_guard.on_create() {
+                warn!(
+                    "CaveContain on_create failed for object {}: {}",
+                    self.owner_id, err
+                );
+            }
+        }
+    }
+
+    fn on_build_complete(&self) {
+        if let Ok(mut contain_guard) = self.contain.lock() {
+            if let Err(err) = contain_guard.on_build_complete() {
+                warn!(
+                    "CaveContain on_build_complete failed for object {}: {}",
+                    self.owner_id, err
+                );
+            }
+        }
+    }
+
+    fn should_do_on_build_complete(&self) -> bool {
+        self.contain
+            .lock()
+            .map(|guard| guard.should_do_on_build_complete())
+            .unwrap_or(false)
     }
 }
 

@@ -1088,25 +1088,23 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         &self,
         object_id: ObjectID,
         seconds: f32,
-        _hold_seconds: f32,
+        hold_seconds: f32,
         ease_in_seconds: f32,
         ease_out_seconds: f32,
     ) -> GameLogicResult<()> {
-        if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(guard) = object.read() {
-                Self::rotate_toward(
-                    Point3::new(
-                        guard.get_position().x,
-                        guard.get_position().y,
-                        guard.get_position().z,
-                    ),
-                    seconds,
-                    ease_in_seconds,
-                    ease_out_seconds,
-                    false,
-                );
-            }
-        }
+        let milliseconds = Self::seconds_to_ms(seconds);
+        let hold_ms = Self::seconds_to_ms(hold_seconds);
+        let ease_in_ms = Self::seconds_to_ms_f32(ease_in_seconds);
+        let ease_out_ms = Self::seconds_to_ms_f32(ease_out_seconds);
+        with_tactical_view(|view| {
+            view.rotate_camera_toward_object(
+                object_id,
+                milliseconds,
+                hold_ms,
+                ease_in_ms,
+                ease_out_ms,
+            );
+        });
         Ok(())
     }
 
@@ -1120,13 +1118,18 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         ease_out_seconds: f32,
         reverse_rotation: bool,
     ) -> GameLogicResult<()> {
-        Self::rotate_toward(
-            Point3::new(x, y, z),
-            seconds,
-            ease_in_seconds,
-            ease_out_seconds,
-            reverse_rotation,
-        );
+        let milliseconds = Self::seconds_to_ms(seconds);
+        let ease_in_ms = Self::seconds_to_ms_f32(ease_in_seconds);
+        let ease_out_ms = Self::seconds_to_ms_f32(ease_out_seconds);
+        with_tactical_view(|view| {
+            view.rotate_camera_toward_position(
+                &Point3::new(x, y, z),
+                milliseconds,
+                ease_in_ms,
+                ease_out_ms,
+                reverse_rotation,
+            );
+        });
         Ok(())
     }
 

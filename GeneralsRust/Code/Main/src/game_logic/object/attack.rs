@@ -66,16 +66,16 @@ impl Object {
             let primary_name = self.primary_weapon_name().map(|s| s.to_string());
             let secondary_name = self.secondary_weapon_name().map(|s| s.to_string());
             let primary_ready = self.weapon_slot(0).is_some_and(|w| {
-                let reload = (w.reload_time / rof).max(0.0);
+                let reload = self.live_reload_interval(w, primary_name.as_deref(), rof);
                 Self::weapon_ready_named(w, current_time, primary_name.as_deref(), reload)
             });
             let secondary_ready = self.secondary_weapon.as_ref().is_some_and(|w| {
-                let reload = (w.reload_time / rof).max(0.0);
+                let reload = self.live_reload_interval(w, secondary_name.as_deref(), rof);
                 Self::weapon_ready_named(w, current_time, secondary_name.as_deref(), reload)
             });
             let tertiary_name = self.tertiary_weapon_name().map(str::to_owned);
             let tertiary_ready = self.tertiary_weapon.as_ref().is_some_and(|w| {
-                let reload = (w.reload_time / rof).max(0.0);
+                let reload = self.live_reload_interval(w, tertiary_name.as_deref(), rof);
                 Self::weapon_ready_named(w, current_time, tertiary_name.as_deref(), reload)
             });
 
@@ -167,11 +167,16 @@ impl Object {
         // borrow below so the launched projectile carries the exact names
         // selected for this shot.
         let veterancy = self.experience.level;
-        let (base_damage, fallback_range, fallback_min_range) = self
+        let (fallback_damage, fallback_range, fallback_min_range) = self
             .weapon_slot(slot)
             .map(|weapon| (weapon.damage, weapon.range, weapon.min_range))
             .unwrap_or((0.0, 0.0, 0.0));
-        let weapon_damage = self.effective_weapon_damage(base_damage);
+        // Prefer store PrimaryDamage so baked promotion scalars on PRIMARY
+        // are not stacked again with weapon_bonus_fields veterancy.
+        let template_damage = name
+            .and_then(crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name)
+            .unwrap_or(fallback_damage);
+        let weapon_damage = self.effective_weapon_damage(template_damage);
 
         // Resolve immutable Weapon.ini peels before borrowing the live slot.
         // Keeping the selected slot's name here prevents tertiary fire from
@@ -243,14 +248,18 @@ impl Object {
         let projectile_collides = name
             .map(crate::game_logic::weapon_bootstrap::host_projectile_collides_for_weapon_name)
             .unwrap_or(crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT);
-        let scatter_radius = name
-            .map(|weapon_name| {
+        let scatter_table_offset = self.take_scatter_table_offset(slot, name);
+        let scatter_radius = if scatter_table_offset.is_some() {
+            0.0
+        } else {
+            name.map(|weapon_name| {
                 crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
                     weapon_name,
                     target_is_infantry,
                 )
             })
-            .unwrap_or(0.0);
+            .unwrap_or(0.0)
+        };
         let speed_peel = name
             .map(crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name)
             .unwrap_or_default();
@@ -267,20 +276,25 @@ impl Object {
                 None,
             );
         }
-        let (weapon_speed, weapon_splash, weapon_homing, auto_reloaded_clip) =
+        let (weapon_speed, weapon_splash, weapon_homing, auto_reloaded_clip, clip_emptied) =
             match self.weapon_slot_mut(slot) {
                 Some(weapon) => {
                     Self::consume_ammo_on_fire_named(weapon, current_time, name);
+                    let clip_emptied = weapon.ammo == Some(0);
                     (
                         weapon.projectile_speed,
                         weapon.splash_radius,
                         // AA residual: air-only weapons home on the live target.
                         weapon.can_target_air && !weapon.can_target_ground,
                         Self::auto_reloaded_clip_after_firing(weapon, name),
+                        clip_emptied,
                     )
                 }
                 None => return None,
             };
+        if clip_emptied {
+            self.rebuild_scatter_targets_unused(slot, name);
+        }
         let shooter_id = self.id;
         let shooter_pos = self.get_position();
         self.target = Some(target_id);
@@ -343,6 +357,7 @@ impl Object {
             projectile_collides,
             // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
             scatter_radius,
+            scatter_table_offset,
             min_weapon_speed: speed_peel.min_weapon_speed,
             scale_weapon_speed: speed_peel.scale_weapon_speed,
             attack_range: if speed_peel.attack_range > 0.0 {
@@ -599,6 +614,80 @@ impl Object {
         }
         self.occupants.clear();
     }
+
+    /// DelayBetweenShots or ClipReloadTime, both scaled by RATE_OF_FIRE.
+    ///
+    /// Template delay is preferred so baked PRIMARY reload scalars are not
+    /// stacked with `weapon_bonus_fields` veterancy.
+    pub(super) fn live_reload_interval(
+        &self,
+        weapon: &Weapon,
+        weapon_name: Option<&str>,
+        rof: f32,
+    ) -> f32 {
+        let waiting_clip =
+            weapon.clip_size > 0 && weapon.ammo == Some(0) && weapon.clip_reload_time > 0.0;
+        let base = if waiting_clip {
+            weapon.clip_reload_time
+        } else {
+            weapon_name
+                .and_then(crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs)
+                .unwrap_or(weapon.reload_time)
+        };
+        (base / rof.max(0.01)).max(0.0)
+    }
+
+    /// C++ `Weapon::rebuildScatterTargets` — refill unused indices for this clip.
+    pub(crate) fn rebuild_scatter_targets_unused(&mut self, slot: u8, weapon_name: Option<&str>) {
+        let index = usize::from(slot);
+        if index >= 3 {
+            return;
+        }
+        let count = weapon_name
+            .map(crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name)
+            .map(|targets| targets.len())
+            .unwrap_or(0);
+        self.weapon_scatter_targets_unused[index] = (0..count)
+            .filter_map(|idx| i32::try_from(idx).ok())
+            .collect();
+        self.weapon_scatter_targets_inited[index] = true;
+    }
+
+    /// C++ Weapon.cpp:2584-2609 — one unused ScatterTarget per shot.
+    pub(crate) fn take_scatter_table_offset(
+        &mut self,
+        slot: u8,
+        weapon_name: Option<&str>,
+    ) -> Option<glam::Vec2> {
+        let name = weapon_name?;
+        let targets =
+            crate::game_logic::weapon_bootstrap::host_scatter_targets_for_weapon_name(name);
+        if targets.is_empty() {
+            return None;
+        }
+        let index = usize::from(slot);
+        if index >= 3 {
+            return None;
+        }
+        if !self.weapon_scatter_targets_inited[index] {
+            self.rebuild_scatter_targets_unused(slot, Some(name));
+        }
+        if self.weapon_scatter_targets_unused[index].is_empty() {
+            return None;
+        }
+        let last = self.weapon_scatter_targets_unused[index].len() as i32 - 1;
+        let seed = self.id.0.wrapping_add(self.last_fire_frame);
+        let pick = crate::game_logic::host_rng_residual::pure_logic_random_int(seed, 0, 0, last)
+            as usize;
+        let target_index = self.weapon_scatter_targets_unused[index][pick] as usize;
+        let (offset_x, offset_y) = *targets.get(target_index)?;
+        let scalar =
+            crate::game_logic::weapon_bootstrap::host_scatter_target_scalar_for_weapon_name(name);
+        self.weapon_scatter_targets_unused[index].swap_remove(pick);
+        Some(glam::Vec2::new(offset_x * scalar, offset_y * scalar))
+    }
+
+
 }
 
 #[cfg(test)]

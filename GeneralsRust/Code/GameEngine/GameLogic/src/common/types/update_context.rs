@@ -13,14 +13,15 @@ pub type WideChar = u16;
 /// Unicode string type
 pub type UnicodeString = std::string::String;
 
-/// Kind of mask type for object classification (matches C++ KindOfMaskType)
-pub type KindOfMaskType = u64;
+/// Kind of mask type for object classification (matches C++ `BitFlags<KINDOF_COUNT>`).
+/// 116 retail bits (ALLOW_SURRENDER off) need more than 64 positions.
+pub type KindOfMaskType = u128;
 
 /// Alias without Type suffix (matches C++ usage)
 pub type KindOfMask = KindOfMaskType;
 
 /// Bitmask with all KindOf flags enabled.
-pub const KIND_OF_MASK_ALL: KindOfMaskType = u64::MAX;
+pub const KIND_OF_MASK_ALL: KindOfMaskType = u128::MAX;
 /// Bitmask with no KindOf flags enabled.
 pub const KIND_OF_MASK_NONE: KindOfMaskType = 0;
 
@@ -699,6 +700,19 @@ pub trait GameClientInterface: std::fmt::Debug + Send + Sync {
 pub trait FXListManagerInterface: std::fmt::Debug + Send + Sync {
     /// Execute FX at a position
     fn do_fx_pos(&self, fx_list: FXListId, position: &Coord3D, matrix: Option<&Mat4>);
+
+    /// C++ `FXList::doFXPos` with bone matrix, weapon speed, victim, radius.
+    fn do_fx_pos_ex(
+        &self,
+        fx_list: FXListId,
+        position: &Coord3D,
+        matrix: Option<&Mat4>,
+        _primary_speed: f32,
+        _secondary: Option<&Coord3D>,
+        _override_radius: f32,
+    ) {
+        self.do_fx_pos(fx_list, position, matrix);
+    }
 
     /// Execute FX on an object
     fn do_fx_obj(&self, fx_list: FXListId, object_id: ThingId);

@@ -456,17 +456,19 @@ impl GameLogic {
                     let mut weapon_damage = self
                         .objects
                         .get(&attacker_id)
-                        .and_then(|a| a.weapon_slot(slot))
-                        .map(|w| w.damage)
+                        .map(|attacker| {
+                            let name = attacker.weapon_name_for_slot(slot);
+                            let base = name
+                                .and_then(
+                                    crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name,
+                                )
+                                .or_else(|| attacker.weapon_slot(slot).map(|w| w.damage))
+                                .unwrap_or(0.0);
+                            attacker.effective_weapon_damage(base)
+                        })
                         .unwrap_or(0.0);
                     if overcharge {
                         weapon_damage *= 1.1;
-                    }
-                    // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
-                    // Strategy Center Bombardment residual: BATTLEPLAN_BOMBARDMENT DAMAGE 120%.
-                    if let Some(attacker) = self.objects.get(&attacker_id) {
-                        weapon_damage *= attacker.frenzy_damage_multiplier();
-                        weapon_damage *= attacker.battle_plan_damage_multiplier();
                     }
 
                     fired_slot = Some(slot);
@@ -2225,12 +2227,24 @@ impl GameLogic {
                                         }
                                     }
                                 } else if {
+                                    let table_offset = self.objects.get_mut(&attacker_id).and_then(
+                                        |attacker| {
+                                            let name = attacker
+                                                .weapon_name_for_slot(slot)
+                                                .map(str::to_owned);
+                                            attacker.take_scatter_table_offset(
+                                                slot,
+                                                name.as_deref(),
+                                            )
+                                        },
+                                    );
                                     let (sc_miss, sc_impact, sc_splash) = self
                                         .resolve_instant_scatter_shot(
                                             attacker_id,
                                             target_id,
                                             slot,
                                             target_position,
+                                            table_offset,
                                         );
                                     if sc_miss {
                                         // C++ ScatterRadius residual: miss intended; splash at offset.
@@ -2296,11 +2310,8 @@ impl GameLogic {
                                             death_type,
                                         );
                                         if destroyed {
-                                            // C++ parity: XP is based on victim's ExperienceValue.
-                                            let kill_xp = target.thing.template.experience_value
-                                                * Self::veterancy_xp_multiplier(
-                                                    target.experience.level,
-                                                );
+                                            // C++ parity: XP is victim ExperienceValue at current level.
+                                            let kill_xp = target.kill_experience_value();
                                             let victim_pos = target.get_position();
                                             let victim_team = target.team;
                                             self.mark_object_for_destruction(
@@ -2649,17 +2660,21 @@ impl GameLogic {
                     let mut weapon_damage = self
                         .objects
                         .get(&attacker_id)
-                        .and_then(|attacker| attacker.weapon_slot(ground_slot))
-                        .map(|weapon| weapon.damage)
+                        .map(|attacker| {
+                            let name = attacker.weapon_name_for_slot(ground_slot);
+                            let base = name
+                                .and_then(
+                                    crate::game_logic::weapon_bootstrap::host_primary_damage_for_weapon_name,
+                                )
+                                .or_else(|| {
+                                    attacker.weapon_slot(ground_slot).map(|weapon| weapon.damage)
+                                })
+                                .unwrap_or(0.0);
+                            attacker.effective_weapon_damage(base)
+                        })
                         .unwrap_or(0.0);
                     if overcharge {
                         weapon_damage *= 1.1;
-                    }
-                    // Frenzy / Rage residual: FRENZY_ONE/TWO/THREE DAMAGE mult.
-                    // Strategy Center Bombardment residual: BATTLEPLAN_BOMBARDMENT DAMAGE 120%.
-                    if let Some(attacker) = self.objects.get(&attacker_id) {
-                        weapon_damage *= attacker.frenzy_damage_multiplier();
-                        weapon_damage *= attacker.battle_plan_damage_multiplier();
                     }
 
                     fired_slot = Some(ground_slot);
@@ -2883,15 +2898,12 @@ impl GameLogic {
                                     damage_type,
                                 );
                                 if destroyed {
-                                    let kill_xp = target.thing.template.experience_value
-                                        * Self::veterancy_xp_multiplier(target.experience.level);
+                                    let kill_xp = target.kill_experience_value();
                                     self.mark_object_for_destruction(
                                         ground_target_id,
                                         Some(attacker_team),
                                     );
-                                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                        attacker.gain_experience(kill_xp);
-                                    }
+                                    self.award_experience(attacker_id, kill_xp);
                                 }
                             }
                         }

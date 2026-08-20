@@ -331,13 +331,15 @@ fn parse_requires_all_triggers(
     data: &mut ObjectCreationUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
-    Ok(())
+    data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+}
+
+fn parse_fx_list_upgrade(
+    _ini: &mut INI,
+    data: &mut ObjectCreationUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
 }
 
 const OBJECT_CREATION_UPGRADE_FIELDS: &[FieldParse<ObjectCreationUpgradeModuleData>] = &[
@@ -358,10 +360,15 @@ const OBJECT_CREATION_UPGRADE_FIELDS: &[FieldParse<ObjectCreationUpgradeModuleDa
         parse: parse_requires_all_triggers,
     },
     FieldParse {
+        token: "FXListUpgrade",
+        parse: parse_fx_list_upgrade,
+    },
+    FieldParse {
         token: "UpgradeObject",
         parse: parse_upgrade_object,
     },
 ];
+
 
 #[cfg(test)]
 mod tests {

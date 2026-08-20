@@ -3,6 +3,42 @@ use std::collections::{HashMap, HashSet};
 /// C++ PartitionManager PartitionCellSize residual (world units).
 pub const PARTITION_CELL_SIZE_RESIDUAL: f32 = 40.0;
 
+/// Last value/threat stamp for a live host object (C++ SightingInfo residual).
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+pub struct HostPartitionAffectStamp {
+    pub x: f32,
+    pub z: f32,
+    pub range: f32,
+    pub value: u32,
+    pub threat: u32,
+    pub mask: u32,
+}
+
+impl HostPartitionAffectStamp {
+    pub fn apply(&self, add: bool) {
+        let Some(pm) = gamelogic::helpers::ThePartitionManager::get() else {
+            return;
+        };
+        let center = gamelogic::common::Coord3D::new(self.x, self.z, 0.0);
+        let mask = gamelogic::common::PlayerMaskType::from_bits_truncate(self.mask);
+        if add {
+            if self.value > 0 {
+                pm.do_value_affect(&center, self.range, self.value, mask);
+            }
+            if self.threat > 0 {
+                pm.do_threat_affect(&center, self.range, self.threat, mask);
+            }
+        } else {
+            if self.value > 0 {
+                pm.undo_value_affect(&center, self.range, self.value, mask);
+            }
+            if self.threat > 0 {
+                pm.undo_threat_affect(&center, self.range, self.threat, mask);
+            }
+        }
+    }
+}
+
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
 pub struct PartitionManager {
@@ -22,8 +58,14 @@ impl PartitionManager {
         }
     }
 
-    /// Permanently reveal the map for the specified player (observer mode).
+    /// C++ PartitionManager::revealMapForPlayer (non-permanent).
+    /// Shroud crate / RevealMapForPlayer script: addLooker+removeLooker → FOGGED.
     pub fn reveal_map_for_player(&mut self, player_id: u32) {
+        crate::fow_rendering::reveal_entire_map_explored_for_player(player_id);
+    }
+
+    /// C++ PartitionManager::revealMapForPlayerPermanently — observer/defeat only.
+    pub fn reveal_map_for_player_permanently(&mut self, player_id: u32) {
         if self.revealed_players.insert(player_id) {
             crate::fow_rendering::reveal_entire_map_for_player(player_id);
         }
@@ -175,4 +217,17 @@ mod tests {
         let tight = pm.ids_in_radius(10.0, 10.0, 5.0);
         assert!(!tight.contains(&3));
     }
+
+    #[test]
+    fn reveal_map_for_player_is_not_permanent() {
+        let mut pm = PartitionManager::new();
+        pm.reveal_map_for_player(0);
+        assert!(
+            !pm.has_revealed_map(0),
+            "crate/script reveal must not latch permanent lookers"
+        );
+        pm.reveal_map_for_player_permanently(1);
+        assert!(pm.has_revealed_map(1));
+    }
+
 }

@@ -191,6 +191,8 @@ impl BaikonurLaunchPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -213,6 +215,10 @@ impl Module for BaikonurLaunchPower {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
     }
 }
 

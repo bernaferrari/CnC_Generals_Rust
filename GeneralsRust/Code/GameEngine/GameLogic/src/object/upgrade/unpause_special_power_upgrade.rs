@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::special_power_interface_cast::module_special_power_interface;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::{SpecialPowerTemplate, OBJECT_REGISTRY};
@@ -19,6 +20,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct UnpauseSpecialPowerUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     special_power_template: Option<Arc<SpecialPowerTemplate>>,
 }
 
@@ -26,6 +28,7 @@ impl Default for UnpauseSpecialPowerUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             special_power_template: None,
         }
     }
@@ -133,8 +136,8 @@ impl Snapshotable for UnpauseSpecialPowerUpgrade {
 }
 
 impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -146,6 +149,7 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let Some(template) = self.data.special_power_template() else {
             log::warn!(
                 "UnpauseSpecialPowerUpgrade: Missing SpecialPowerTemplate on object {}",
@@ -223,8 +227,11 @@ fn parse_special_power_template_field(
     Ok(())
 }
 
-const UNPAUSE_SPECIAL_POWER_UPGRADE_FIELDS: &[FieldParse<UnpauseSpecialPowerUpgradeModuleData>] =
-    &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(UnpauseSpecialPowerUpgradeModuleData);
+
+const UNPAUSE_SPECIAL_POWER_UPGRADE_FIELDS: &[FieldParse<UnpauseSpecialPowerUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
         token: "SpecialPowerTemplate",
         parse: parse_special_power_template_field,
-    }];
+    },
+);

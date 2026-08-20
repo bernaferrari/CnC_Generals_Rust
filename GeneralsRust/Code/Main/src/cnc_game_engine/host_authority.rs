@@ -281,6 +281,7 @@ impl CnCGameEngine {
         self.host_match_camera_follow_active = None;
         self.host_match_camera_follow_position = None;
         self.host_match_camera_follow_id = None;
+        self.camera_follow_factor = -1.0;
         self.host_match_local_barracks_ids = None;
         self.host_match_local_producer_ids = None;
         self.host_match_local_unfinished_producer_ids = None;

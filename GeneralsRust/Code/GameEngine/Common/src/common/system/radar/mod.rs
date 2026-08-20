@@ -23,8 +23,8 @@ mod window;
 
 pub use map_source::{register_radar_map_source, RadarMapSource};
 pub use objects::{
-    register_radar_data_sink, register_radar_object_provider, RadarDataSink, RadarObjectInsert,
-    RadarObjectProvider,
+    register_radar_data_sink, register_radar_object_provider, resolve_radar_object_color,
+    RadarDataSink, RadarObjectInsert, RadarObjectProvider,
 };
 pub use snapshot::{ensure_the_radar_snapshot_block, register_the_radar_snapshot_block};
 pub use terrain::{register_radar_terrain_paint_source, RadarBridgeSample, RadarTerrainPaintSource};
@@ -1365,7 +1365,7 @@ impl RadarSystem {
         self.next_free_event = (self.next_free_event + 1) % MAX_RADAR_EVENTS;
     }
 
-    /// C++ `Radar::tryEvent` — type + 250² + 10s, inactive history still counts.
+    /// C++ `Radar::tryEvent` — type + 10s map-wide (250² check is a no-op).
     pub fn try_event(&mut self, event_type: RadarEventType, world_loc: &Coord3D) -> bool {
         if matches!(event_type, RadarEventType::Invalid) {
             return false;
@@ -3369,9 +3369,9 @@ mod tests {
         // Second event at same location should fail (too soon)
         assert!(!radar.try_stealth_discovered_event(&world_loc));
 
-        // Event far away should succeed
+        // C++ precedence quirk: far-away same-type events still throttle for 10s.
         let far_loc = Coord3D::new(500.0, 500.0, 0.0);
-        assert!(radar.try_stealth_discovered_event(&far_loc));
+        assert!(!radar.try_stealth_discovered_event(&far_loc));
     }
 
     #[test]
@@ -3735,5 +3735,22 @@ mod tests {
         assert!(!radar.try_event(RadarEventType::UnderAttack, &loc));
         radar.update(400);
         assert!(radar.try_event(RadarEventType::UnderAttack, &loc));
+    }
+
+    #[test]
+    fn try_event_cpp_precedence_throttles_map_wide() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        let near = Coord3D::new(10.0, 10.0, 0.0);
+        let far = Coord3D::new(800.0, 800.0, 0.0);
+        assert!(radar.try_event(RadarEventType::UnderAttack, &near));
+        // C++ 250² check is a no-op; same type anywhere within 10s is rejected.
+        assert!(!radar.try_event(RadarEventType::UnderAttack, &far));
+        radar.update(400);
+        assert!(radar.try_event(RadarEventType::UnderAttack, &far));
     }
 }

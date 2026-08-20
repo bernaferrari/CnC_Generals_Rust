@@ -360,9 +360,9 @@ impl TerrainVisualImpl {
         });
         self.water_texture_bind_group_layout = Some(texture_layout);
 
-        self.water_pipeline = Some(device.create_render_pipeline(
-            &wgpu::RenderPipelineDescriptor {
-                label: Some("Water Pipeline"),
+        let make_pipeline = |label: &str, blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -376,7 +376,7 @@ impl TerrainVisualImpl {
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: Some(blend),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -384,14 +384,14 @@ impl TerrainVisualImpl {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: None, // Water should be visible from both sides
+                    cull_mode: None,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     unclipped_depth: false,
                     conservative: false,
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: false, // Water shouldn't write to depth buffer
+                    depth_write_enabled: false,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
@@ -403,7 +403,15 @@ impl TerrainVisualImpl {
                 },
                 multiview: None,
                 cache: None,
-            },
+            })
+        };
+        self.water_pipeline = Some(make_pipeline(
+            "Water Pipeline",
+            wgpu::BlendState::ALPHA_BLENDING,
+        ));
+        self.water_additive_pipeline = Some(make_pipeline(
+            "Water Additive Pipeline",
+            wgpu::BlendState::ADD,
         ));
 
         Ok(())

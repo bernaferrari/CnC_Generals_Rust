@@ -35,6 +35,10 @@ pub struct ExperienceTracker {
     /// Scalar multiplier for experience gain (default 1.0)
     /// Modified by ExperienceScalarUpgrade and other effects
     experience_scalar: f32,
+    /// Explicit IsTrainable override when the owner template is not registered.
+    /// `None` looks up the owner template and defaults to false (C++ default).
+    trainable_override: Option<bool>,
+
 }
 
 impl ExperienceTracker {
@@ -52,6 +56,7 @@ impl ExperienceTracker {
             current_experience: 0,
             experience_sink: Self::INVALID_ID,
             experience_scalar: 1.0,
+            trainable_override: None,
         }
     }
 
@@ -83,9 +88,14 @@ impl ExperienceTracker {
     /// Set experience sink - redirect experience to another object (matches C++ setExperienceSink)
     ///
     /// This is used when units should transfer their experience to another object,
-    /// such as when aircraft return experience to their airfield.
     pub fn set_experience_sink(&mut self, sink: ObjectID) {
         self.experience_sink = sink;
+    }
+
+    /// Override template `IsTrainable` (tests / host wiring). C++ reads the
+    /// owner ThingTemplate; default when lookup fails is FALSE.
+    pub fn set_trainable_override(&mut self, trainable: bool) {
+        self.trainable_override = Some(trainable);
     }
 
     /// Get the experience sink ID
@@ -325,8 +335,10 @@ impl ExperienceTracker {
     /// This is a convenience method that checks if the object can gain one level.
     /// Returns true if the object is not yet at max veterancy level.
     pub fn is_trainable(&self) -> bool {
-        self.owner_is_trainable()
-            .unwrap_or_else(|| self.can_gain_exp_for_level(1))
+        if let Some(override_trainable) = self.trainable_override {
+            return override_trainable;
+        }
+        self.owner_is_trainable().unwrap_or(false)
     }
 
     /// Set experience and recalculate level (matches C++ setExperienceAndLevel)
@@ -349,6 +361,9 @@ impl ExperienceTracker {
                     }
                 }
             }
+        }
+        if !self.is_trainable() {
+            return None;
         }
 
         let old_level = self.current_level;
@@ -473,6 +488,12 @@ mod tests {
             600, // Heroic - 600 XP
         ]
     }
+    fn trainable_tracker(id: ObjectID) -> ExperienceTracker {
+        let mut tracker = ExperienceTracker::new(id);
+        tracker.set_trainable_override(true);
+        tracker
+    }
+
 
     #[test]
     fn test_tracker_creation() {
@@ -485,7 +506,7 @@ mod tests {
 
     #[test]
     fn test_add_experience_no_promotion() {
-        let mut tracker = ExperienceTracker::new(123);
+        let mut tracker = trainable_tracker(123);
         let req = test_experience_requirements();
 
         let old_level = tracker.add_experience_points(50, false, &req);
@@ -496,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_add_experience_with_promotion() {
-        let mut tracker = ExperienceTracker::new(123);
+        let mut tracker = trainable_tracker(123);
         let req = test_experience_requirements();
 
         // Add enough for Veteran
@@ -508,7 +529,7 @@ mod tests {
 
     #[test]
     fn test_multiple_promotions() {
-        let mut tracker = ExperienceTracker::new(123);
+        let mut tracker = trainable_tracker(123);
         let req = test_experience_requirements();
 
         // Add enough to go straight to Elite
@@ -520,7 +541,7 @@ mod tests {
 
     #[test]
     fn test_experience_scalar() {
-        let mut tracker = ExperienceTracker::new(123);
+        let mut tracker = trainable_tracker(123);
         let req = test_experience_requirements();
 
         tracker.set_experience_scalar(2.0); // Double XP
@@ -568,7 +589,7 @@ mod tests {
 
     #[test]
     fn test_gain_exp_for_level() {
-        let mut tracker = ExperienceTracker::new(123);
+        let mut tracker = trainable_tracker(123);
         let req = test_experience_requirements();
 
         // Gain 2 levels
@@ -600,15 +621,32 @@ mod tests {
     #[test]
     fn test_is_trainable() {
         let mut tracker = ExperienceTracker::new(123);
+        // C++ default: ThingTemplate::isTrainable is FALSE when owner lookup fails.
+        assert!(!tracker.is_trainable());
 
-        // Regular unit can be trained
+        tracker.set_trainable_override(true);
         assert!(tracker.is_trainable());
 
-        // Promote to Heroic (max level)
+        // IsTrainable is a template flag, not "can still level".
         tracker.set_veterancy_level(VeterancyLevel::Heroic);
+        assert!(tracker.is_trainable());
 
-        // Heroic unit cannot be trained further
+        tracker.set_trainable_override(false);
         assert!(!tracker.is_trainable());
+    }
+
+    #[test]
+    fn test_set_experience_and_level_requires_trainable() {
+        let mut tracker = ExperienceTracker::new(123);
+        let req = test_experience_requirements();
+        assert_eq!(tracker.set_experience_and_level(400, &req), None);
+        assert_eq!(tracker.get_current_experience(), 0);
+        assert_eq!(tracker.get_veterancy_level(), VeterancyLevel::Regular);
+
+        tracker.set_trainable_override(true);
+        let old = tracker.set_experience_and_level(400, &req);
+        assert_eq!(old, Some(VeterancyLevel::Regular));
+        assert_eq!(tracker.get_veterancy_level(), VeterancyLevel::Elite);
     }
 
     #[test]

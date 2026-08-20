@@ -53,6 +53,39 @@ pub fn host_effective_scatter_radius(name: &str, target_is_infantry: bool) -> f3
     }
 }
 
+/// Authored `ScatterTarget` XY pairs from the live WeaponStore.
+pub fn host_scatter_targets_for_weapon_name(name: &str) -> Vec<(f32, f32)> {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| {
+                wt.scatter_targets
+                    .iter()
+                    .map(|coord| (coord.x, coord.y))
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+    .unwrap_or_default()
+}
+
+/// C++ `WeaponTemplate::m_scatterTargetScalar`.
+pub fn host_scatter_target_scalar_for_weapon_name(name: &str) -> f32 {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.scatter_target_scalar)
+    })
+    .ok()
+    .flatten()
+    .unwrap_or(0.0)
+}
+
+
 pub(super) fn seed_scatter_radius_for(name: &str) -> f32 {
     let n = name.to_ascii_lowercase();
     // Most combat shells use ScatterRadius 0 + ScatterRadiusVsInfantry only.

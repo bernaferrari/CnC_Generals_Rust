@@ -49,7 +49,7 @@ impl TunnelTracker {
             contain_list_size: 0,
             cur_nemesis_id: INVALID_ID,
             nemesis_timestamp: 0,
-            max_capacity: -1, // -1 means unlimited
+            max_capacity: 0, // C++ GlobalData::m_maxTunnelCapacity default is 0 (admits nobody)
         }
     }
 
@@ -74,7 +74,8 @@ impl TunnelTracker {
         if check_capacity {
             let contain_max = self.get_contain_max()?;
             let contain_count = self.get_contain_count()?;
-            Ok(contain_max <= 0 || (contain_count as i32) < contain_max)
+            // C++ TunnelTracker.cpp:142 — `containCount < containMax`. 0 is not unlimited.
+            Ok((contain_count as i32) < contain_max)
         } else {
             Ok(true)
         }
@@ -405,8 +406,8 @@ impl TunnelTracker {
         if let Some(global_data) = crate::helpers::TheGlobalData::get() {
             return Ok(global_data.get_max_tunnel_capacity());
         }
-        // Fallback to configured max_capacity
-        Ok(self.max_capacity)
+        // C++ default when GameData has not applied MaxTunnelCapacity is 0, not unlimited.
+        Ok(self.max_capacity.max(0))
     }
 
     /// Retrieve a reference to the contained objects list.
@@ -568,6 +569,11 @@ impl Snapshotable for TunnelTracker {
                 *guard.get_position()
             };
 
+            // C++ TunnelTracker.cpp:371 — ThePartitionManager->unRegisterObject(obj)
+            if let Some(partition) = crate::helpers::ThePartitionManager::get() {
+                partition.unregister_object(object_id);
+            }
+
             // The pathfinder derives the object's footprint through
             // OBJECT_REGISTRY.  It must run after the object write guard is
             // released or that read re-entry deadlocks during save restore.
@@ -651,6 +657,19 @@ mod tests {
             .map(|global| global.get_max_tunnel_capacity())
             .unwrap_or(10);
         assert_eq!(tracker.get_contain_max().unwrap(), expected_capacity);
+    }
+
+    #[test]
+    fn zero_max_tunnel_capacity_admits_nobody_like_cpp() {
+        let tracker = TunnelTracker::new();
+        let contain_max = tracker.get_contain_max().unwrap();
+        let contain_count = tracker.get_contain_count().unwrap() as i32;
+        // C++ `containCount < containMax`; default GameData 0 means 0 < 0 is false.
+        assert_eq!(contain_max, 0);
+        assert!(
+            !(contain_count < contain_max),
+            "MaxTunnelCapacity 0 must reject every enter, not treat the network as unlimited"
+        );
     }
 
     #[test]

@@ -92,7 +92,7 @@ impl Snapshotable for GrantStealthBehaviorModuleData {
         xfer.xfer_unsigned_int(&mut kind_of)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            self.kind_of = kind_of as u64;
+            self.kind_of = kind_of as KindOfMaskType;
         }
         Ok(())
     }

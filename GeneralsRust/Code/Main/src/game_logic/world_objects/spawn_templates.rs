@@ -217,6 +217,7 @@ impl GameLogic {
         Self::apply_authored_overcharge_metadata(&mut template, definition);
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
         Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
+        Self::apply_authored_physics_behavior_metadata(&mut template, definition);
 
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
         if let Some(texture_name) = primary_texture {
@@ -305,18 +306,82 @@ impl GameLogic {
             template.set_health(if is_structure { 1200.0 } else { 250.0 });
         }
 
-        // C++ parity: parse ExperienceValue from INI (first value = Rookie level).
-        // If not set, use a default based on the object type.
-        let xp_val = Self::object_definition_attr(definition, "experiencevalue")
-            .and_then(|s| s.split_whitespace().next()?.parse::<f32>().ok())
-            .unwrap_or(if is_structure { 100.0 } else { 50.0 });
-        template.experience_value = xp_val;
+        // C++ ThingTemplate: ExperienceValue is a 4-int list, not a scaled
+        // single token. ExperienceRequired is the per-level XP ladder.
+        if let Some(xp) = Self::object_definition_attr(definition, "experiencevalue") {
+            let vals: Vec<f32> = xp
+                .split_whitespace()
+                .filter_map(|s| s.parse::<f32>().ok())
+                .collect();
+            if !vals.is_empty() {
+                template.experience_value = vals[0];
+                let mut table = [vals[0]; 4];
+                for (i, v) in vals.iter().take(4).enumerate() {
+                    table[i] = *v;
+                }
+                template.experience_values = table;
+            }
+        } else {
+            template.experience_value = if is_structure { 100.0 } else { 50.0 };
+        }
+
+        if let Some(req) = Self::object_definition_attr(definition, "experiencerequired") {
+            let vals: Vec<f32> = req
+                .split_whitespace()
+                .filter_map(|s| s.parse::<f32>().ok())
+                .collect();
+            // C++ list is [Regular, Veteran, Elite, Heroic]; host thresholds
+            // are [Veteran, Elite, Heroic].
+            if vals.len() >= 4 {
+                template.veterancy_xp_thresholds = [vals[1], vals[2], vals[3]];
+            } else if vals.len() == 3 {
+                template.veterancy_xp_thresholds = [vals[0], vals[1], vals[2]];
+            }
+        }
+
+        if let Some(trainable) = Self::object_definition_attr(definition, "istrainable") {
+            template.is_trainable = matches!(
+                trainable.trim().to_ascii_lowercase().as_str(),
+                "yes" | "true" | "1"
+            );
+        }
+
+        Self::apply_authored_veterancy_gain_create(&mut template, definition);
 
         // C++ parity: parse Armor from INI (default 0).
         if let Some(armor_val) = Self::object_definition_attr(definition, "armor")
             .and_then(|s| s.trim().parse::<f32>().ok())
         {
             template.armor = armor_val;
+        }
+
+        template.armor_sets = definition
+            .armor_sets
+            .iter()
+            .map(|set| {
+                let mut conditions = 0u8;
+                for token in &set.conditions {
+                    if let Some(bit) =
+                        crate::game_logic::host_armor_residual::armor_set_condition_bit(token)
+                    {
+                        conditions |= bit;
+                    }
+                }
+                crate::game_logic::HostArmorSet {
+                    conditions,
+                    armor: set.armor.clone(),
+                    damage_fx: set.damage_fx.clone(),
+                }
+            })
+            .collect();
+        if let Some(cap) = definition.subdual_damage_cap.filter(|cap| cap.is_finite()) {
+            template.subdual_damage_cap = cap.max(0.0);
+        }
+        if let Some(rate) = definition.subdual_heal_rate_frames {
+            template.subdual_heal_rate_frames = rate;
+        }
+        if let Some(amount) = definition.subdual_heal_amount.filter(|amount| amount.is_finite()) {
+            template.subdual_heal_amount = amount.max(0.0);
         }
 
         // C++ parity: parse VisionRange from INI.
@@ -1407,6 +1472,42 @@ impl GameLogic {
         template.veterancy_crate_collide = Some(metadata);
     }
 
+    /// C++ `VeterancyGainCreate` modules: StartingLevel + optional ScienceRequired.
+    fn apply_authored_veterancy_gain_create(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        fn parse_starting_level(value: &str) -> Option<VeterancyLevel> {
+            match value.trim().to_ascii_uppercase().as_str() {
+                "REGULAR" | "ROOKIE" => Some(VeterancyLevel::Rookie),
+                "VETERAN" => Some(VeterancyLevel::Veteran),
+                "ELITE" => Some(VeterancyLevel::Elite),
+                "HEROIC" => Some(VeterancyLevel::Heroic),
+                _ => None,
+            }
+        }
+
+        template.veterancy_gain_creates = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| {
+                module
+                    .class_name
+                    .eq_ignore_ascii_case("VeterancyGainCreate")
+            })
+            .map(|module| crate::game_logic::VeterancyGainCreateMetadata {
+                starting_level: module
+                    .attribute("StartingLevel")
+                    .and_then(parse_starting_level)
+                    .unwrap_or(VeterancyLevel::Rookie),
+                science_required: module
+                    .attribute("ScienceRequired")
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
+            })
+            .collect();
+    }
+
     /// Retain one C++ `EjectPilotDieModuleData` declaration as typed Object
     /// metadata.  `getEjectPilotDieInterface()` is a module-presence query,
     /// so even a custom/unrepresentable module remains visible to the
@@ -2209,6 +2310,51 @@ impl GameLogic {
             .collect();
     }
 
+    /// C++ PhysicsBehaviorModuleData Mass / ShockResistance / PitchRollYawFactor.
+    fn apply_authored_physics_behavior_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        fn stripped(value: &str) -> &str {
+            value.split(';').next().unwrap_or_default().trim()
+        }
+        fn parse_positive(value: &str) -> Option<f32> {
+            stripped(value)
+                .trim_end_matches('f')
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite() && *v > 0.0)
+        }
+        fn parse_real(value: &str) -> Option<f32> {
+            stripped(value)
+                .trim_end_matches('f')
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite())
+        }
+
+        let modules: Vec<_> = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("PhysicsBehavior"))
+            .collect();
+        let [module] = modules.as_slice() else {
+            return;
+        };
+        if let Some(mass) = module.attribute("Mass").and_then(parse_positive) {
+            template.physics_mass = mass;
+        }
+        if let Some(res) = module.attribute("ShockResistance").and_then(parse_positive) {
+            template.shock_resistance = res;
+        }
+        if let Some(factor) = module
+            .attribute("PitchRollYawFactor")
+            .and_then(parse_real)
+        {
+            template.pitch_roll_yaw_factor = factor;
+        }
+    }
+
     /// C++ Object.cpp:160-497 builds weapons and modules from ThingTemplate
     /// INI data, not from unit-name residuals.  Capture the create-time
     /// policy bits `create_object_with_owner` used to hardcode.
@@ -2459,6 +2605,7 @@ impl GameLogic {
                 Self::apply_authored_overcharge_metadata(template, &definition);
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
+                Self::apply_authored_physics_behavior_metadata(template, &definition);
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
                 // Existing curated starters keep their broader host combat
                 // bindings, but a mine-clear conditional primary is source

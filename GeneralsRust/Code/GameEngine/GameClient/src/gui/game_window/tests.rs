@@ -58,6 +58,17 @@ fn undefined_window_color_matches_cpp_transparent_white_sentinel() {
 }
 
 #[test]
+fn window_instance_data_defaults_match_cpp_init() {
+    let data = WindowInstanceData::default();
+    assert_eq!(data.tooltip_delay, -1);
+    assert_eq!(data.enabled_draw_data[0].color, WIN_COLOR_UNDEFINED);
+    assert_eq!(data.enabled_draw_data[0].border_color, WIN_COLOR_UNDEFINED);
+    assert_eq!(data.enabled_text.color, WIN_COLOR_UNDEFINED);
+    assert_eq!(data.disabled_text.color, WIN_COLOR_UNDEFINED);
+    assert_eq!(data.hilite_text.color, WIN_COLOR_UNDEFINED);
+}
+
+#[test]
 fn legacy_virtual_keys_map_to_gadget_key_codes_like_cpp() {
     assert_eq!(map_keycode(0x21), KeyCode::PageUp);
     assert_eq!(map_keycode(0x22), KeyCode::PageDown);

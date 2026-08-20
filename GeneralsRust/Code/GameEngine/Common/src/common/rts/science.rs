@@ -204,7 +204,7 @@ use std::time::Duration;
 use log::{debug, trace, warn};
 use thiserror::Error;
 
-use crate::common::ini::{INIError, INIResult, INI};
+use crate::common::ini::{INIError, INILoadType, INIResult, INI};
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::system::snapshot::Snapshotable;
 use crate::common::system::subsystem_interface::{
@@ -248,6 +248,10 @@ pub struct ScienceInfo {
     pub science_purchase_point_cost: i32,
     /// Whether this science can be granted (vs purchased)
     pub grantable: bool,
+    /// Map.ini / `INI_LOAD_CREATE_OVERRIDES` stacked instance (`Overridable`).
+    is_override: bool,
+    /// Next override in the C++ `Overridable` chain. Lookups use the final node.
+    next_override: Option<Box<ScienceInfo>>,
 }
 
 impl ScienceInfo {
@@ -266,6 +270,8 @@ impl ScienceInfo {
             root_sciences: Vec::new(),
             science_purchase_point_cost: 0, // C++ default: 0 means "not purchasable"
             grantable: true,                // C++ default: true
+            is_override: false,
+            next_override: None,
         }
     }
 
@@ -291,6 +297,62 @@ impl ScienceInfo {
                     prereq_info.add_root_sciences(roots, science_store);
                 }
             }
+        }
+    }
+
+    /// C++ `Overridable::markAsOverride`.
+    pub fn mark_as_override(&mut self) {
+        self.is_override = true;
+    }
+
+    /// C++ `Overridable::isOverride`.
+    pub fn is_override(&self) -> bool {
+        self.is_override
+    }
+
+    /// C++ `Overridable::getFinalOverride`.
+    pub fn get_final_override(&self) -> &ScienceInfo {
+        match &self.next_override {
+            Some(next) => next.get_final_override(),
+            None => self,
+        }
+    }
+
+    /// Mutable final override (for stacking a new map.ini instance).
+    pub fn get_final_override_mut(&mut self) -> &mut ScienceInfo {
+        if self.next_override.is_some() {
+            self.next_override
+                .as_mut()
+                .unwrap()
+                .get_final_override_mut()
+        } else {
+            self
+        }
+    }
+
+    /// C++ `Overridable::deleteOverrides` — drop stacked map.ini copies.
+    pub fn delete_overrides(&mut self) {
+        self.next_override = None;
+    }
+
+    fn apply_definition(&mut self, def: &mut ScienceDefinition) {
+        if let Some(display_name) = def.display_name.take() {
+            self.display_name = display_name;
+        }
+        if let Some(description) = def.description.take() {
+            self.description = description;
+        }
+        if let Some(prereq_names) = def.prereq_names.take() {
+            self.prereq_sciences = prereq_names
+                .into_iter()
+                .map(|name| NameKeyGenerator::name_to_key(&name) as ScienceType)
+                .collect();
+        }
+        if let Some(cost) = def.cost {
+            self.science_purchase_point_cost = cost;
+        }
+        if let Some(grantable) = def.grantable {
+            self.grantable = grantable;
         }
     }
 }
@@ -380,12 +442,17 @@ impl ScienceStore {
     /// Reset the science store (clear overrides)
     ///
     /// Matches C++ Science.cpp lines 45-64: ScienceStore::reset
-    /// In C++, this deletes override instances while preserving base definitions.
-    /// In Rust, we use a simpler approach without the override system.
+    /// Pops `INI_LOAD_CREATE_OVERRIDES` instances via `deleteOverrides()`.
+    /// Map-only sciences (base marked override, no Science.ini entry) are removed.
     pub fn reset(&mut self) {
-        // In the C++ version, this handles override cleanup via Overridable::deleteOverrides()
-        // The Rust port doesn't use the Overridable pattern, so this is simplified.
-        // If we need mod support later, we can extend this to clear mod-loaded sciences.
+        self.sciences.retain(|_, info| {
+            info.delete_overrides();
+            !info.is_override()
+        });
+        self.science_order
+            .retain(|science| self.sciences.contains_key(science));
+        self.name_to_science
+            .retain(|_, science| self.sciences.contains_key(science));
     }
 
     /// Get science type from internal name
@@ -420,7 +487,9 @@ impl ScienceStore {
     /// Matches C++ Science.cpp lines 124-135: findScienceInfo
     /// Internal helper to locate ScienceInfo by ScienceType.
     pub fn find_science_info(&self, science: ScienceType) -> Option<&ScienceInfo> {
-        self.sciences.get(&science)
+        self.sciences
+            .get(&science)
+            .map(ScienceInfo::get_final_override)
     }
 
     /// Add a science to the store
@@ -445,38 +514,39 @@ impl ScienceStore {
     }
 
     /// Merge or insert a science definition originating from INI data.
-    pub fn ingest_definition(&mut self, mut def: ScienceDefinition) {
-        let science = NameKeyGenerator::name_to_key(&def.name) as ScienceType;
-        let is_new_science = !self.sciences.contains_key(&science);
+    pub fn ingest_definition(&mut self, def: ScienceDefinition) {
+        self.ingest_definition_mode(def, false);
+    }
 
+    /// Ingest a science definition, stacking a C++-style override when requested.
+    pub fn ingest_definition_mode(&mut self, mut def: ScienceDefinition, is_override: bool) {
+        let science = NameKeyGenerator::name_to_key(&def.name) as ScienceType;
+
+        if is_override {
+            if let Some(base) = self.sciences.get_mut(&science) {
+                let mut stacked = base.get_final_override().clone();
+                stacked.next_override = None;
+                stacked.apply_definition(&mut def);
+                stacked.mark_as_override();
+                base.get_final_override_mut().next_override = Some(Box::new(stacked));
+            } else {
+                let mut info = ScienceInfo::new(science, def.name.clone());
+                info.apply_definition(&mut def);
+                info.mark_as_override();
+                self.name_to_science
+                    .insert(NameKeyGenerator::name_to_key(&info.name), science);
+                self.science_order.push(science);
+                self.sciences.insert(science, info);
+            }
+            return;
+        }
+
+        let is_new_science = !self.sciences.contains_key(&science);
         let mut info = self
             .sciences
             .remove(&science)
             .unwrap_or_else(|| ScienceInfo::new(science, def.name.clone()));
-
-        if let Some(display_name) = def.display_name.take() {
-            info.display_name = display_name;
-        }
-
-        if let Some(description) = def.description.take() {
-            info.description = description;
-        }
-
-        if let Some(prereq_names) = def.prereq_names.take() {
-            info.prereq_sciences = prereq_names
-                .into_iter()
-                .map(|name| NameKeyGenerator::name_to_key(&name) as ScienceType)
-                .collect();
-        }
-
-        if let Some(cost) = def.cost {
-            info.science_purchase_point_cost = cost;
-        }
-
-        if let Some(grantable) = def.grantable {
-            info.grantable = grantable;
-        }
-
+        info.apply_definition(&mut def);
         self.name_to_science
             .insert(NameKeyGenerator::name_to_key(&info.name), science);
         if is_new_science {
@@ -491,7 +561,7 @@ impl ScienceStore {
         for science in keys {
             let mut roots = Vec::new();
 
-            if let Some(info) = self.sciences.get(&science) {
+            if let Some(info) = self.find_science_info(science) {
                 info.add_root_sciences(&mut roots, self);
             }
 
@@ -499,7 +569,7 @@ impl ScienceStore {
             roots.dedup();
 
             if let Some(info) = self.sciences.get_mut(&science) {
-                info.root_sciences = roots;
+                info.get_final_override_mut().root_sciences = roots;
             }
         }
     }
@@ -546,8 +616,7 @@ impl ScienceStore {
     /// Matches C++ Science.cpp lines 213-224: getSciencePurchaseCost
     /// Returns 0 if science is invalid or not purchasable.
     pub fn get_science_purchase_cost(&self, science: ScienceType) -> i32 {
-        self.sciences
-            .get(&science)
+        self.find_science_info(science)
             .map(|info| info.science_purchase_point_cost)
             .unwrap_or(0)
     }
@@ -557,8 +626,7 @@ impl ScienceStore {
     /// Matches C++ Science.cpp lines 227-238: isScienceGrantable
     /// Returns whether this science can be granted to a player.
     pub fn is_science_grantable(&self, science: ScienceType) -> bool {
-        self.sciences
-            .get(&science)
+        self.find_science_info(science)
             .map(|info| info.grantable)
             .unwrap_or(false)
     }
@@ -568,8 +636,7 @@ impl ScienceStore {
     /// Matches C++ Science.cpp lines 241-254: getNameAndDescription
     /// Returns display name and description for UI display.
     pub fn get_name_and_description(&self, science: ScienceType) -> Option<(String, String)> {
-        self.sciences
-            .get(&science)
+        self.find_science_info(science)
             .map(|info| (info.display_name.clone(), info.description.clone()))
     }
 
@@ -581,7 +648,7 @@ impl ScienceStore {
     where
         A: ScienceAccess,
     {
-        if let Some(info) = self.sciences.get(&science) {
+        if let Some(info) = self.find_science_info(science) {
             // C++ Science.cpp:262-268 - Check each prereq
             for &prereq in &info.prereq_sciences {
                 if !player.has_science(prereq) {
@@ -604,7 +671,7 @@ impl ScienceStore {
         player: &impl ScienceAccess,
         science: ScienceType,
     ) -> bool {
-        if let Some(info) = self.sciences.get(&science) {
+        if let Some(info) = self.find_science_info(science) {
             // C++ Science.cpp:283-289 - Check each root prereq
             for &root in &info.root_sciences {
                 if !player.has_science(root) {
@@ -632,7 +699,7 @@ impl ScienceStore {
 
         // C++ Science.cpp:305-328 - Iterate all sciences
         for &science in &self.science_order {
-            let Some(info) = self.sciences.get(&science) else {
+            let Some(info) = self.find_science_info(science) else {
                 continue;
             };
 
@@ -673,7 +740,7 @@ impl ScienceStore {
     pub fn get_science_names(&self) -> Vec<String> {
         self.science_order
             .iter()
-            .filter_map(|science| self.sciences.get(science))
+            .filter_map(|science| self.find_science_info(*science))
             .map(|info| info.name.clone())
             .collect()
     }
@@ -690,9 +757,10 @@ impl ScienceStore {
 
     /// Iterates over the science definitions currently resident in the store.
     pub fn iter(&self) -> impl Iterator<Item = (&ScienceType, &ScienceInfo)> {
-        self.science_order
-            .iter()
-            .filter_map(|science| self.sciences.get_key_value(science))
+        self.science_order.iter().filter_map(|science| {
+            self.find_science_info(*science)
+                .map(|info| (science, info))
+        })
     }
 
     /// Parse science definition from INI file
@@ -751,10 +819,10 @@ impl ScienceStore {
                     definition.grantable = Some(parse_bool_token(&value));
                 }
                 "displayname" => {
-                    definition.display_name = Some(value);
+                    definition.display_name = Some(INI::translate_label(&value)?);
                 }
                 "description" => {
-                    definition.description = Some(value);
+                    definition.description = Some(INI::translate_label(&value)?);
                 }
                 _ => {
                     debug!("ScienceStore: unhandled science token '{}' in INI", key);
@@ -762,7 +830,8 @@ impl ScienceStore {
             }
         }
 
-        self.ingest_definition(definition);
+        let is_override = ini.get_load_type() == INILoadType::CreateOverrides;
+        self.ingest_definition_mode(definition, is_override);
         self.rebuild_root_sciences();
         Ok(())
     }
@@ -904,10 +973,14 @@ fn ingest_science_file(
                             def.grantable = Some(parse_bool_token(value));
                         }
                         "displayname" => {
-                            def.display_name = Some(value.to_string());
+                            def.display_name = Some(
+                                INI::translate_label(value).unwrap_or_else(|_| value.to_string()),
+                            );
                         }
                         "description" => {
-                            def.description = Some(value.to_string());
+                            def.description = Some(
+                                INI::translate_label(value).unwrap_or_else(|_| value.to_string()),
+                            );
                         }
                         _ => {
                             debug!(

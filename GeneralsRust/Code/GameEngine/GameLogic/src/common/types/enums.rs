@@ -737,15 +737,157 @@ pub enum KindOf {
     OptimizedTree,              // KINDOF_OPTIMIZED_TREE
     LandmarkBridge,             // KINDOF_LANDMARK_BRIDGE
     WaveEffect,                 // KINDOF_WAVE_EFFECT
-    ClearedByBuild,             // KINDOF_CLEARED_BY_BUILD
-    Parachute,                  // KINDOF_PARACHUTE
+    ClearedByBuild,
+    Parachute,
+    /// Distinct from `Immobile`. C++ `KINDOF_INERT = 84`.
+    Inert,
 }
 
 impl KindOf {
-    /// Legacy script alias used by original C++ script conditions.
-    pub const Inert: KindOf = KindOf::Immobile;
     /// Legacy script alias used by original C++ script actions.
     pub const CanRepair: KindOf = KindOf::RepairPad;
+
+    /// Retail ZH `KindOf.h` bit with `ALLOW_SURRENDER` undefined.
+    /// Invented GameLogic-only tokens (`UNIT`, `WEAPON`, `BARRIER`, …) have no C++ bit.
+    pub fn cpp_bit(self) -> Option<u32> {
+        match self {
+            KindOf::Obstacle => Some(0),
+            KindOf::Selectable => Some(1),
+            KindOf::Immobile => Some(2),
+            KindOf::CanAttack => Some(3),
+            KindOf::StickToTerrainSlope => Some(4),
+            KindOf::CanCastReflections => Some(5),
+            KindOf::Shrubbery => Some(6),
+            KindOf::Structure | KindOf::Building | KindOf::KeyStructure => Some(7),
+            KindOf::Infantry => Some(8),
+            KindOf::Vehicle => Some(9),
+            KindOf::Aircraft => Some(10),
+            KindOf::HugeVehicle => Some(11),
+            KindOf::Dozer => Some(12),
+            KindOf::Harvester => Some(13),
+            KindOf::CommandCenter => Some(14),
+            KindOf::LineBuild => Some(15),
+            KindOf::Salvager => Some(16),
+            KindOf::WeaponSalvager => Some(17),
+            KindOf::Transport => Some(18),
+            KindOf::Bridge => Some(19),
+            KindOf::LandmarkBridge => Some(20),
+            KindOf::BridgeTower => Some(21),
+            KindOf::Projectile => Some(22),
+            KindOf::Preload => Some(23),
+            KindOf::NoGarrison => Some(24),
+            KindOf::WaveGuide => Some(25),
+            KindOf::WaveEffect => Some(26),
+            KindOf::NoCollide => Some(27),
+            KindOf::RepairPad => Some(28),
+            KindOf::HealPad => Some(29),
+            KindOf::StealthGarrison => Some(30),
+            KindOf::CashGenerator => Some(31),
+            KindOf::DrawableOnly => Some(32),
+            KindOf::CountsForVictory => Some(33),
+            KindOf::RebuildHole => Some(34),
+            KindOf::Score => Some(35),
+            KindOf::ScoreCreate => Some(36),
+            KindOf::ScoreDestroy => Some(37),
+            KindOf::NoHealIcon => Some(38),
+            KindOf::CanRappel => Some(39),
+            KindOf::Parachutable => Some(40),
+            KindOf::CanBeRepulsed => Some(41),
+            KindOf::MobNexus => Some(42),
+            KindOf::IgnoredInGui => Some(43),
+            KindOf::Crate => Some(44),
+            KindOf::Capturable => Some(45),
+            KindOf::ClearedByBuild => Some(46),
+            KindOf::SmallMissile => Some(47),
+            KindOf::AlwaysVisible => Some(48),
+            KindOf::Unattackable => Some(49),
+            KindOf::Mine => Some(50),
+            KindOf::CleanupHazard => Some(51),
+            KindOf::PortableStructure => Some(52),
+            KindOf::AlwaysSelectable => Some(53),
+            KindOf::AttackNeedsLineOfSight => Some(54),
+            KindOf::WalkOnTopOfWall => Some(55),
+            KindOf::DefensiveWall | KindOf::Barrier => Some(56),
+            KindOf::FSPower | KindOf::PowerPlant => Some(57),
+            KindOf::Factory => Some(58),
+            KindOf::FSBaseDefense | KindOf::Defense => Some(59),
+            KindOf::FSTechnology => Some(60),
+            KindOf::AircraftPathAround => Some(61),
+            KindOf::LowOverlappable => Some(62),
+            KindOf::ForceAttackable => Some(63),
+            KindOf::AutoRallypoint => Some(64),
+            KindOf::TechBuilding => Some(65),
+            KindOf::Powered => Some(66),
+            KindOf::ProducedAtHelipad => Some(67),
+            KindOf::Drone => Some(68),
+            KindOf::CanSeeThrough => Some(69),
+            KindOf::BallisticMissile => Some(70),
+            KindOf::ClickThrough => Some(71),
+            KindOf::SupplySourceOnPreview => Some(72),
+            KindOf::Parachute => Some(73),
+            KindOf::GarrisonableUntilDestroyed => Some(74),
+            KindOf::Boat => Some(75),
+            KindOf::ImmuneToCapture => Some(76),
+            KindOf::Hulk => Some(77),
+            KindOf::ShowPortraitWhenControlled => Some(78),
+            KindOf::SpawnsAreTheWeapons => Some(79),
+            KindOf::CannotBuildNearSupplies => Some(80),
+            KindOf::SupplySource | KindOf::ResourceNode => Some(81),
+            KindOf::RevealToAll => Some(82),
+            KindOf::Disguiser => Some(83),
+            KindOf::Inert => Some(84),
+            KindOf::Hero => Some(85),
+            KindOf::IgnoresSelectAll => Some(86),
+            KindOf::DontAutoCrushInfantry => Some(87),
+            KindOf::CliffJumper => Some(88),
+            KindOf::FSSupplyDropzone => Some(89),
+            KindOf::FSSuperweapon => Some(90),
+            KindOf::FsBlackMarket => Some(91),
+            KindOf::FSSupplyCenter | KindOf::Refinery => Some(92),
+            KindOf::FSStrategyCenter => Some(93),
+            KindOf::MoneyHacker => Some(94),
+            KindOf::ArmorSalvager => Some(95),
+            KindOf::RevealsEnemyPaths => Some(96),
+            KindOf::BoobyTrap => Some(97),
+            KindOf::FSFake => Some(98),
+            KindOf::FSInternetCenter => Some(99),
+            KindOf::BlastCrater => Some(100),
+            KindOf::Prop => Some(101),
+            KindOf::OptimizedTree => Some(102),
+            KindOf::FsAdvancedTech => Some(103),
+            KindOf::FSBarracks => Some(104),
+            KindOf::FSWarfactory => Some(105),
+            KindOf::FSAirfield => Some(106),
+            KindOf::AircraftCarrier => Some(107),
+            KindOf::NoSelect => Some(108),
+            KindOf::RejectUnmanned => Some(109),
+            KindOf::CannotRetaliate => Some(110),
+            KindOf::TechBaseDefense => Some(111),
+            KindOf::EmpHardened => Some(112),
+            KindOf::Demotrap => Some(113),
+            KindOf::ConservativeBuilding => Some(114),
+            KindOf::IgnoreDockingBones => Some(115),
+            KindOf::Unit
+            | KindOf::Weapon
+            | KindOf::Civilian
+            | KindOf::Destructible
+            | KindOf::CanCrossBridges
+            | KindOf::Amphibious
+            | KindOf::AmphibiousTransport
+            | KindOf::CanCapture
+            | KindOf::Saboteur
+            | KindOf::Hacker
+            | KindOf::Prison
+            | KindOf::CollectsPrisonBounty
+            | KindOf::PowTruck
+            | KindOf::CanSurrender => None,
+        }
+    }
+
+    /// C++ `MAKE_KINDOF_MASK` bit for this variant, or 0 when the token is not in KindOf.h.
+    pub fn cpp_mask(self) -> u128 {
+        self.cpp_bit().map(|bit| 1u128 << bit).unwrap_or(0)
+    }
 }
 
 /// Resolve a KindOf flag name (as written in INI files) to its enum variant.
@@ -827,7 +969,8 @@ pub fn kindof_from_name(name: &str) -> Option<KindOf> {
         "HEAL_PAD" => Some(KindOf::HealPad),
         "WAVE_GUIDE" => Some(KindOf::WaveGuide),
         "BRIDGE_TOWER" => Some(KindOf::BridgeTower),
-        "IMMOBILE" | "INERT" => Some(KindOf::Immobile),
+        "IMMOBILE" => Some(KindOf::Immobile),
+        "INERT" => Some(KindOf::Inert),
         "BOOBY_TRAP" => Some(KindOf::BoobyTrap),
         "DISGUISER" => Some(KindOf::Disguiser),
         "PORTABLE_STRUCTURE" => Some(KindOf::PortableStructure),

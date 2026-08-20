@@ -453,6 +453,8 @@ impl OclSpecialPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         OclSpecialPower::get_reference_thing_template(self)
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -498,6 +500,10 @@ impl Module for OclSpecialPower {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
     }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
+    }
 }
 
 impl Snapshotable for OclSpecialPower {
@@ -509,16 +515,15 @@ impl Snapshotable for OclSpecialPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("OCLSpecialPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "OCLSpecialPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ OCLSpecialPower::loadPostProcess()
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

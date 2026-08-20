@@ -541,7 +541,29 @@ impl GameLogic {
                     }
                 }
             }
+            self.stamp_live_bridge_decks_and_zones();
         }
+    }
+
+    /// C++ addBridge classifyCells + classifyMap pinch + zone rebuild on the live host grid.
+    pub(super) fn stamp_live_bridge_decks_and_zones(&mut self) {
+        self.pathfinding_system.grid.pinch_tighten_cliffs();
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            terrain.for_each_bridge(|bridge| {
+                let info = bridge.get_bridge_info();
+                let destroyed = info.cur_damage_state
+                    == gamelogic::common::BodyDamageType::Rubble;
+                // C++ Coord3D ground is XY; host path grid is XZ.
+                self.pathfinding_system.grid.stamp_bridge_deck(
+                    Vec3::new(info.from_left.x, 0.0, info.from_left.y),
+                    Vec3::new(info.from_right.x, 0.0, info.from_right.y),
+                    Vec3::new(info.to_left.x, 0.0, info.to_left.y),
+                    Vec3::new(info.to_right.x, 0.0, info.to_right.y),
+                    destroyed,
+                );
+            });
+        }
+        self.pathfinding_system.grid.rebuild_terrain_zones();
     }
 
     /// C++ AIFollowWaypointPathExact residual — use waypoints as-is (no A* smoothing).
@@ -1298,6 +1320,13 @@ impl GameLogic {
 
     /// Update method - matching C++ GameLogic interface
     pub fn update(&mut self) {
+        if gamelogic::terrain::get_terrain_logic()
+            .read()
+            .ok()
+            .is_some_and(|t| t.bridge_damage_states_changed())
+        {
+            self.stamp_live_bridge_decks_and_zones();
+        }
         // C++ AI::update → Pathfinder::processPathfindQueue (AI.cpp:332-339)
         // runs before movement so a unit waits at least one frame (m_waitingForPath).
         self.process_pathfind_queue();
@@ -1525,98 +1554,13 @@ impl GameLogic {
 
     pub(super) fn spawn_side_build_list(
         &mut self,
-        builds: &[super::script_loader::SideBuildEntry],
-        map_player_to_team: &std::collections::HashMap<u32, Team>,
+        _builds: &[super::script_loader::SideBuildEntry],
+        _map_player_to_team: &std::collections::HashMap<u32, Team>,
     ) -> u32 {
-        if builds.is_empty() {
-            return 0;
-        }
-        // Map side_index -> faction and controlling player. A side build belongs
-        // to a player start, not to the faction shared by every same-side slot.
-        let mut side_teams: std::collections::HashMap<u32, Team> = std::collections::HashMap::new();
-        let mut side_players: std::collections::HashMap<u32, u32> =
-            std::collections::HashMap::new();
-        let mut pids: Vec<u32> = self.players.keys().copied().collect();
-        pids.sort_unstable();
-        for (idx, pid) in pids.iter().enumerate() {
-            if let Some(p) = self.players.get(pid) {
-                if p.team != Team::Neutral {
-                    side_teams.insert(idx as u32, p.team);
-                    side_players.insert(idx as u32, *pid);
-                }
-            }
-        }
-        for (pid, team) in map_player_to_team {
-            // Common residual: side index aligns with player id on skirmish maps.
-            side_teams.entry(*pid).or_insert(*team);
-            if self
-                .players
-                .get(pid)
-                .is_some_and(|player| player.is_alive && player.team == *team)
-            {
-                side_players.entry(*pid).or_insert(*pid);
-            }
-        }
-
-        let mut spawned = 0u32;
-        for entry in builds {
-            if !entry.initially_built {
-                continue;
-            }
-            let template = entry.template.trim();
-            if template.is_empty() {
-                continue;
-            }
-            // Skip pure rebuild-hole placeholders without templates.
-            let lower = template.to_ascii_lowercase();
-            if lower.contains("waypoint") || lower.contains("camera") {
-                continue;
-            }
-            let team = side_teams
-                .get(&entry.side_index)
-                .copied()
-                .or_else(|| Self::team_from_template_name(template))
-                .unwrap_or(Team::Neutral);
-
-            let mut pos = glam::Vec3::new(entry.position.x, entry.position.z, entry.position.y);
-            // C++ map coords: x,y ground plane, z height — PlacedObject uses x,z,y in object path.
-            // Side build stores x,y,z same as C++ BuildList: x/y plane, z height.
-            pos = glam::Vec3::new(entry.position.x, entry.position.z, entry.position.y);
-            if let Some(ground) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
-                pos.y = ground + entry.position.z;
-            }
-            let owner_player_id = side_players
-                .get(&entry.side_index)
-                .copied()
-                .filter(|player_id| {
-                    self.players
-                        .get(player_id)
-                        .is_some_and(|player| player.is_alive && player.team == team)
-                });
-            let id = match owner_player_id {
-                Some(player_id) => self.create_object_for_player(template, player_id, pos),
-                None => self.create_object(template, team, pos),
-            };
-            if let Some(id) = id {
-                spawned = spawned.saturating_add(1);
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_orientation(entry.angle);
-                    if let Some(hp) = entry.health {
-                        if hp > 0 {
-                            let h = hp as f32;
-                            obj.health.current = h;
-                            if obj.health.maximum < h {
-                                obj.health.maximum = h;
-                            }
-                        }
-                    }
-                }
-                let _ = entry.building_name;
-                let _ = entry.num_rebuilds;
-                let _ = entry.script_name;
-            }
-        }
-        spawned
+        // C++ never instantiates SidesList BuildListInfo at map load.
+        // initiallyBuilt entries are already placed via ObjectsList; the list
+        // is transferred onto Player for AI rebuild (see sync + take_build_list).
+        0
     }
 
     pub(super) fn team_from_string(name: &str) -> Option<Team> {
@@ -1977,14 +1921,25 @@ impl GameLogic {
         // singleton even though its player/team globals came from this map.
         // Abandoned boot workers can still hold these globals after generation
         // bump; fail-open so load_map returns and host objects still spawn.
-        self.sync_legacy_sides_list_from_dicts(&sides_data.side_dicts, &sides_data.team_dicts);
+        let script_lists =
+            match super::script_loader::load_map_scripts_from_chunky(chunky) {
+                Ok(Some(result)) => result.script_lists,
+                _ => Vec::new(),
+            };
+        self.sync_legacy_sides_list_from_dicts(
+            &sides_data.side_dicts,
+            &sides_data.team_dicts,
+            &sides_data.side_builds,
+            &script_lists,
+        );
         log::info!(
             "Fast legacy runtime sync sides write finished for '{}' in {:.2}s",
             map_path.display(),
             sync_started.elapsed().as_secs_f32()
         );
-        self.sync_legacy_player_list_from_side_dicts(&sides_data.side_dicts);
-        self.sync_legacy_team_factory_from_team_dicts(&sides_data.team_dicts);
+        self.sync_legacy_player_list_from_sides();
+        self.transfer_side_build_lists_to_players();
+        self.sync_legacy_team_factory_from_sides();
 
         let waypoint_count = gamelogic::terrain::get_terrain_logic()
             .try_read()
@@ -2088,6 +2043,8 @@ impl GameLogic {
         &self,
         side_dicts: &[Dict],
         team_dicts: &[Dict],
+        side_builds: &[super::script_loader::SideBuildEntry],
+        script_lists: &[ScriptList],
     ) {
         let sides_list = get_sides_list();
         let Ok(mut sides) = sides_list.try_write() else {
@@ -2100,6 +2057,152 @@ impl GameLogic {
         }
         for dict in team_dicts {
             sides.add_team(dict);
+        }
+
+        let mut pos_by_side: HashMap<u32, i32> = HashMap::new();
+        for entry in side_builds {
+            let pos = *pos_by_side.get(&entry.side_index).unwrap_or(&0);
+            let mut build = gamelogic::build_list_info::BuildListInfo::new();
+            build.set_building_name(gamelogic::common::AsciiString::from(
+                entry.building_name.as_str(),
+            ));
+            build.set_template_name(gamelogic::common::AsciiString::from(entry.template.as_str()));
+            build.set_location(gamelogic::common::Coord3D::new(
+                entry.position.x,
+                entry.position.y,
+                0.0,
+            ));
+            build.set_angle(entry.angle);
+            build.set_initially_built(entry.initially_built);
+            build.set_num_rebuilds(entry.num_rebuilds.max(0) as u32);
+            if let Some(script) = &entry.script_name {
+                build.set_script(gamelogic::common::AsciiString::from(script.as_str()));
+            }
+            if let Some(health) = entry.health {
+                build.set_health(health);
+            }
+            if let Some(whiner) = entry.whiner {
+                build.set_whiner(whiner);
+            }
+            if let Some(unsellable) = entry.unsellable {
+                build.set_unsellable(unsellable);
+            }
+            if let Some(repairable) = entry.repairable {
+                build.set_repairable(repairable);
+            }
+            if let Some(side) = sides.get_side_info_mut(entry.side_index as usize) {
+                side.add_to_build_list(build, pos);
+                pos_by_side.insert(entry.side_index, pos + 1);
+            }
+        }
+
+        for (index, scripts) in script_lists.iter().enumerate() {
+            if let Some(side) = sides.get_side_info_mut(index) {
+                side.set_script_list(Some(Box::new(scripts.clone())));
+            }
+        }
+
+        sides.validate_sides();
+
+        if matches!(
+            self.game_mode,
+            GameMode::Skirmish
+                | GameMode::Multiplayer
+                | GameMode::Lan
+                | GameMode::Internet
+                | GameMode::Replay
+        ) {
+            sides.prepare_for_mp_or_skirmish();
+            self.add_host_players_as_sides(&mut sides);
+            sides.validate_sides();
+        }
+    }
+
+    fn add_host_players_as_sides(&self, sides: &mut gamelogic::sides_list::SidesList) {
+        let mut pids: Vec<u32> = self.players.keys().copied().collect();
+        pids.sort_unstable();
+        for (index, pid) in pids.iter().enumerate() {
+            let Some(player) = self.players.get(pid) else {
+                continue;
+            };
+            if player.name == "ReplayObserver" {
+                if sides.find_side_info("ReplayObserver").is_none() {
+                    let mut dict = Dict::new();
+                    dict.set_ascii_string(key_player_name(), "ReplayObserver");
+                    dict.set_bool(key_player_is_human(), true);
+                    dict.set_unicode_string(key_player_display_name(), "Observer");
+                    dict.set_ascii_string(key_player_faction(), "FactionObserver");
+                    dict.set_ascii_string(key_player_allies(), String::new());
+                    dict.set_ascii_string(key_player_enemies(), String::new());
+                    sides.add_side(&dict);
+                    let mut team = Dict::new();
+                    team.set_ascii_string(key_team_name(), "teamReplayObserver");
+                    team.set_ascii_string(key_team_owner(), "ReplayObserver");
+                    team.set_bool(key_team_is_singleton(), true);
+                    sides.add_team(&team);
+                }
+                continue;
+            }
+            if player.team == Team::Neutral && player.name.is_empty() {
+                continue;
+            }
+            let player_name = format!("player{index}");
+            if sides.find_side_info(&player_name).is_some() {
+                continue;
+            }
+            let faction = match player.team {
+                Team::USA => "FactionAmerica",
+                Team::China => "FactionChina",
+                Team::GLA => "FactionGLA",
+                Team::Neutral => "FactionCivilian",
+            };
+            let mut dict = Dict::new();
+            dict.set_ascii_string(key_player_name(), player_name.clone());
+            dict.set_bool(key_player_is_human(), player.is_local);
+            let display = if player.name.is_empty() {
+                player_name.clone()
+            } else {
+                player.name.clone()
+            };
+            dict.set_unicode_string(key_player_display_name(), display);
+            dict.set_ascii_string(key_player_faction(), faction);
+            dict.set_ascii_string(key_player_allies(), String::new());
+            dict.set_ascii_string(key_player_enemies(), String::new());
+            dict.set_int(key_multiplayer_start_index(), index as i32);
+            if matches!(self.game_mode, GameMode::Skirmish) {
+                dict.set_bool(key_player_is_skirmish(), !player.is_local);
+            }
+            sides.add_side(&dict);
+
+            let mut team = Dict::new();
+            let mut team_name = String::from("team");
+            team_name.push_str(&player_name);
+            team.set_ascii_string(key_team_name(), team_name);
+            team.set_ascii_string(key_team_owner(), player_name);
+            team.set_bool(key_team_is_singleton(), true);
+            sides.add_team(&team);
+        }
+    }
+
+    fn transfer_side_build_lists_to_players(&self) {
+        let Ok(mut sides) = get_sides_list().try_write() else {
+            return;
+        };
+        let Ok(mut players) = ThePlayerList().try_write() else {
+            return;
+        };
+        for index in 0..sides.get_num_sides() {
+            let Some(side) = sides.get_side_info_mut(index) else {
+                continue;
+            };
+            let Some(build_list) = side.take_build_list() else {
+                continue;
+            };
+            if let Some(player) = players.get_player(index as i32) {
+                if let Ok(mut player) = player.write() {
+                    player.set_build_list(Some(*build_list));
+                }
+            }
         }
     }
 
@@ -2820,6 +2923,10 @@ impl GameLogic {
             // Without this, Lone Eagle-style maps keep buildings but no dozers/workers.
             self.spawn_skirmish_starting_units();
         }
+
+        // C++ TerrainLogic.cpp:2589 TheRadar->newMap after bounds, then
+        // re-add live objects. Stay off sides_list / polygon.
+        self.host_radar_on_map_loaded();
 
         self.map_loaded = true;
         // C++ start-of-match residual: reveal FOW around loaded units/structures

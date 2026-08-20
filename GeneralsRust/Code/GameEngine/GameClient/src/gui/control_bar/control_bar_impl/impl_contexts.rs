@@ -6,8 +6,86 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_context_multi_select(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (player_id, selected, buttons) = {
+            let context = self
+                .context
+                .read()
+                .map_err(|_| "Failed to acquire context read lock")?;
+            (
+                context.player_id,
+                context.selected_objects.clone(),
+                context.available_commands.clone(),
+            )
+        };
+        if selected.len() < 2 {
+            return Ok(());
+        }
+
+        let mut objects_that_can: Vec<u32> = vec![0; buttons.len()];
+        for obj_id in &selected {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    if obj.is_kind_of(KindOf::IgnoredInGui) {
+                        continue;
+                    }
+                }
+            }
+            for (i, button) in buttons.iter().enumerate() {
+                if button.button_hidden || button.command_name.is_empty() {
+                    continue;
+                }
+                let availability = self.get_command_availability(button, *obj_id, player_id)?;
+                if matches!(
+                    availability,
+                    CommandAvailability::Available | CommandAvailability::Active
+                ) {
+                    objects_that_can[i] += 1;
+                }
+                if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                    match availability {
+                        CommandAvailability::Hidden => bs.visible = false,
+                        CommandAvailability::Restricted => {
+                            bs.enabled = false;
+                            bs.availability = availability;
+                        }
+                        CommandAvailability::NotReady => {
+                            bs.enabled = false;
+                            bs.availability = availability;
+                        }
+                        CommandAvailability::CantAfford => {
+                            bs.enabled = false;
+                            bs.availability = availability;
+                        }
+                        CommandAvailability::Active => {
+                            bs.enabled = true;
+                            bs.availability = availability;
+                            if (button.options & CommandOption::CheckLike as u32) != 0 {
+                                bs.check_like_active = true;
+                            }
+                        }
+                        CommandAvailability::Available => {
+                            bs.enabled = true;
+                            bs.availability = availability;
+                            if (button.options & CommandOption::CheckLike as u32) != 0 {
+                                bs.check_like_active = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for (i, button) in buttons.iter().enumerate() {
+            if button.button_hidden || button.command_name.is_empty() {
+                continue;
+            }
+            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
+                bs.enabled = objects_that_can.get(i).copied().unwrap_or(0) > 0;
+            }
+        }
         Ok(())
     }
+
 
     /// C++ ControlBar.cpp:1410-1433: refresh observer info window every half-second.
     /// C++ ControlBarObserver.cpp:271 populateObserverInfoWindow: units, buildings, kills, losses.

@@ -204,7 +204,9 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player.get_handicap().get_cost_multiplier();
+        mods.handicap_cost_multiplier = player
+            .get_handicap()
+            .get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(calc_kind_of_mask(self));
 
@@ -240,7 +242,9 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_time_change_percent =
             player.get_production_time_change_percent(self.get_name().as_str());
-        mods.handicap_time_multiplier = player.get_handicap().get_build_time_multiplier();
+        mods.handicap_time_multiplier = player
+            .get_handicap()
+            .get_build_time_multiplier_for_template(self);
         mods.energy_supply_ratio = player.get_energy().supply_ratio();
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(calc_kind_of_mask(self));
@@ -451,10 +455,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
 
 fn calc_kind_of_mask<T: ThingTemplate + ?Sized>(template: &T) -> KindOfMaskType {
     let mut mask: KindOfMaskType = KIND_OF_MASK_NONE;
-    for &kind in ALL_KIND_OF {
-        if template.is_kind_of(kind) {
-            mask |= 1u64 << (kind as u32);
-        }
+        for &kind in ALL_KIND_OF {
+            if template.is_kind_of(kind) {
+                mask |= kind.cpp_mask();
+            }
     }
     mask
 }

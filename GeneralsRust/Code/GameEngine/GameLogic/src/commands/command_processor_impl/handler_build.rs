@@ -331,11 +331,49 @@ impl DefaultCommandHandler {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             return CommandExecutionResult::Success;
         };
+        let Ok(object_guard) = object_arc.read() else {
+            return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
+        };
+        let from = *object_guard.get_position();
+        use crate::modules::AIUpdateInterfaceExt;
+        let loco = object_guard
+            .get_ai_update_interface()
+            .and_then(|ai| ai.get_locomotor_set_clone());
+        drop(object_guard);
+
+        let path_ok = crate::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pf| pf.read().ok())
+            .map(|pf| {
+                if let Some(loco) = loco.as_ref() {
+                    pf.client_safe_quick_does_path_exist_for_ui(loco, &from, &destination)
+                } else {
+                    true
+                }
+            })
+            .unwrap_or(true);
+        if !path_ok {
+            crate::helpers::TheInGameUI::display_message("GUI:RallyPointNoPath");
+            if let Some(audio) = crate::helpers::TheAudio::get() {
+                let mut ev = crate::common::audio::AudioEventRts::new("UnableToSetRallyPoint");
+                ev.set_position(&(destination.x, destination.y, destination.z));
+                let _ = audio.add_audio_event(&ev);
+            }
+            return CommandExecutionResult::Failed(AsciiString::from("GUI:RallyPointNoPath"));
+        }
+
         let Ok(mut object_guard) = object_arc.write() else {
             return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
         };
-
         let _ = object_guard.set_rally_point(&destination);
+        crate::helpers::TheInGameUI::display_message("GUI:RallyPointSet");
+        if let Some(audio) = crate::helpers::TheAudio::get() {
+            let mut ev = crate::common::audio::AudioEventRts::new("RallyPointSet");
+            ev.set_position(&(destination.x, destination.y, destination.z));
+            let _ = audio.add_audio_event(&ev);
+        }
         CommandExecutionResult::Success
     }
 

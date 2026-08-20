@@ -29,6 +29,7 @@ impl HostSpecialPowerStrikeRegistry {
             scorch_size: NEUTRON_SCORCH_MARK_SIZE,
             fx_list: NEUTRON_FX_LIST.into(),
         });
+        let _ = crate::game_logic::dispatch_fx_list_at_pos(NEUTRON_FX_LIST, position);
         self.neutron_slow_death_spawned_total =
             self.neutron_slow_death_spawned_total.saturating_add(1);
         id

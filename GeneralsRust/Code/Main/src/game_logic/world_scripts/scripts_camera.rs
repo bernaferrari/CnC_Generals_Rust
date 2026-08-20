@@ -54,27 +54,32 @@ impl GameLogic {
     /// presentation residual is not delayed one tick.
     pub(crate) fn process_audio_events(&mut self) {
         for event in self.queued_audio_events.drain(..) {
-            if let Some(obj_id) = event.object_id {
-                if let Some(pos) = event.position {
-                    log::trace!(
-                        "🔊 Audio: {} at {:?} from object {}",
-                        event.event_type,
-                        pos,
-                        obj_id
-                    );
+            let names = crate::game_logic::resolve_audio_event_names(&event.event_type);
+            for name in names {
+                let mut event = event.clone();
+                event.event_type = name;
+                if let Some(obj_id) = event.object_id {
+                    if let Some(pos) = event.position {
+                        log::trace!(
+                            "🔊 Audio: {} at {:?} from object {}",
+                            event.event_type,
+                            pos,
+                            obj_id
+                        );
+                    } else {
+                        log::trace!("🔊 Audio: {} from object {}", event.event_type, obj_id);
+                    }
+                } else if let Some(pos) = event.position {
+                    log::trace!("🔊 Audio: {} at {:?}", event.event_type, pos);
                 } else {
-                    log::trace!("🔊 Audio: {} from object {}", event.event_type, obj_id);
+                    log::trace!("🔊 Audio: {}", event.event_type);
                 }
-            } else if let Some(pos) = event.position {
-                log::trace!("🔊 Audio: {} at {:?}", event.event_type, pos);
-            } else {
-                log::trace!("🔊 Audio: {}", event.event_type);
-            }
 
-            let _ = crate::subsystem_manager::with_subsystem_mut::<
-                crate::subsystem_manager::AudioManagerSubsystem,
-                _,
-            >(|audio| audio.queue_event(event.clone()));
+                let _ = crate::subsystem_manager::with_subsystem_mut::<
+                    crate::subsystem_manager::AudioManagerSubsystem,
+                    _,
+                >(|audio| audio.queue_event(event.clone()));
+            }
         }
     }
 
@@ -315,7 +320,8 @@ impl GameLogic {
                         player_id,
                         self.frame
                     );
-                    self.partition_manager.reveal_map_for_player(player_id);
+                    self.partition_manager
+                        .reveal_map_for_player_permanently(player_id);
                 }
                 ScriptEvent::RevealMapForPlayer { player_id } => {
                     log::debug!("📜 Script event: reveal map for player {}", player_id);
@@ -469,9 +475,11 @@ impl GameLogic {
         {
             if last.object_id == 0 {
                 self.camera_follow_target = None;
+                self.camera_tether_play = None;
             } else {
                 self.script_camera_move_to = None;
                 self.script_camera_path = None;
+                self.camera_tether_play = None;
                 self.camera_follow_target = Some(ObjectId(last.object_id));
                 if last.snap_to_unit {
                     if let Some(obj) = self.objects.get(&ObjectId(last.object_id)) {
@@ -479,6 +487,17 @@ impl GameLogic {
                     }
                 }
             }
+        }
+
+        if let Some(last) = self
+            .mission_scripts
+            .drain_camera_tethers()
+            .into_iter()
+            .last()
+        {
+            self.script_camera_move_to = None;
+            self.script_camera_path = None;
+            self.set_camera_tether_object(ObjectId(last.object_id), last.snap_to_unit, last.play);
         }
 
         if !self
@@ -724,7 +743,6 @@ impl GameLogic {
                 );
             }
         }
-
         if let Some(last) = self
             .mission_scripts
             .drain_camera_look_toward_object_requests()
@@ -744,6 +762,8 @@ impl GameLogic {
                     ease_out_seconds: last.ease_out_seconds,
                     reverse_rotation: false,
                 });
+                self.script_look_toward_object_id = Some(last.object_id);
+                self.script_look_toward_hold_seconds = last.hold_seconds.max(0.0);
             } else {
                 log::warn!(
                     "Camera look toward object request ignored; object {} not found",
@@ -1294,22 +1314,25 @@ impl GameLogic {
     pub(in super::super) fn apply_set_fps_limit(&mut self, request: &SetFpsLimitRequest) {
         self.pending_script_fps_limit = Some(request.fps);
     }
-
-    pub(in super::super) fn apply_script_camera_default(
-        &mut self,
-        request: CameraSetDefaultRequest,
-    ) {
-        self.script_default_camera_pitch = request.pitch;
-        // Match C++ W3DView::setDefaultView(): angle is ignored for the active 3D path.
-        self.script_default_camera_angle = 0.0;
-        self.script_default_camera_max_height = if request.max_height.is_finite() {
-            request.max_height.max(0.0)
-        } else {
-            1.0
-        };
-    }
-
     pub(in super::super) fn update_script_camera(&mut self, dt: f32) {
+        if let Some(object_id) = self.script_look_toward_object_id {
+            if let Some(obj) = self.objects.get(&ObjectId(object_id)) {
+                if let Some(look) = self.pending_camera_look_toward.as_mut() {
+                    look.position = obj.get_position();
+                    if look.duration_seconds > 0.0 {
+                        look.duration_seconds = (look.duration_seconds - dt).max(0.0);
+                    } else if self.script_look_toward_hold_seconds > 0.0 {
+                        self.script_look_toward_hold_seconds =
+                            (self.script_look_toward_hold_seconds - dt).max(0.0);
+                    } else {
+                        self.script_look_toward_object_id = None;
+                    }
+                }
+            } else {
+                self.script_look_toward_object_id = None;
+            }
+        }
+
         if let Some(move_to) = self.script_camera_move_to.as_mut() {
             self.mission_scripts.set_camera_movement_finished(false);
 
@@ -1323,6 +1346,17 @@ impl GameLogic {
 
             if let Some(focus) = move_to.advance(dt) {
                 self.request_camera_focus(focus);
+                if !move_to.freeze_angle() && !self.is_script_camera_angle_frozen() {
+                    let dir = move_to.target - move_to.start;
+                    let look = Vec3::new(focus.x + dir.x, focus.y, focus.z + dir.z);
+                    self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                        position: look,
+                        duration_seconds: move_to.remaining_time_seconds(),
+                        ease_in_seconds: 0.0,
+                        ease_out_seconds: 0.0,
+                        reverse_rotation: false,
+                    });
+                }
             }
             return;
         }
@@ -1344,8 +1378,20 @@ impl GameLogic {
 
         if let Some(focus) = path_move.advance(dt) {
             self.request_camera_focus(focus);
+            if !path_move.freeze_angle() && !self.is_script_camera_angle_frozen() {
+                if let Some(look) = path_move.travel_look_toward() {
+                    self.pending_camera_look_toward = Some(CameraLookTowardWaypointRequest {
+                        position: look,
+                        duration_seconds: path_move.remaining_time_seconds().max(0.05),
+                        ease_in_seconds: 0.0,
+                        ease_out_seconds: 0.0,
+                        reverse_rotation: false,
+                    });
+                }
+            }
         }
     }
+
 
     pub(in super::super) fn military_caption_duration_seconds(duration_ms: i32) -> f32 {
         (duration_ms as f32 / 1000.0).max(0.0)

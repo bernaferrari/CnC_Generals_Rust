@@ -148,7 +148,10 @@ impl CnCGameEngine {
 
         // Wave 216: presentation-frozen follow only (no live camera_follow dual-read residual).
         if let Some(follow) = pres.camera_follow_position {
-            self.center_camera_on(Vec3::new(follow[0], follow[1], follow[2]));
+            let target = Vec3::new(follow[0], follow[1], follow[2]);
+            self.apply_camera_follow_or_tether(target, pres.camera_tether_play);
+        } else {
+            self.camera_follow_factor = -1.0;
         }
 
         if pres.camera_zoom_reset {
@@ -210,7 +213,7 @@ impl CnCGameEngine {
         if let Some(look) = pres.camera_look_toward {
             self.apply_camera_look_toward_request(CameraLookTowardWaypointRequest {
                 position: Vec3::new(look[0], look[1], look[2]),
-                duration_seconds: 0.0,
+                duration_seconds: pres.camera_look_toward_duration,
                 ease_in_seconds: 0.0,
                 ease_out_seconds: 0.0,
                 reverse_rotation: false,
@@ -240,6 +243,42 @@ impl CnCGameEngine {
                 radius,
             });
         }
+    }
+
+    fn apply_camera_follow_or_tether(&mut self, target: Vec3, tether_play: Option<f32>) {
+        if self.camera_follow_factor < 0.0 {
+            self.camera_follow_factor = 0.05;
+        } else {
+            self.camera_follow_factor = (self.camera_follow_factor + 0.05).min(1.0);
+        }
+
+        let current = self.camera_target;
+        let dx = target.x - current.x;
+        let dz = target.z - current.z;
+        let cell = game_engine::common::global_data::read().partition_cell_size;
+        let snap_thresh_sqr = cell * cell;
+        let cur_dist_sqr = dx * dx + dz * dz;
+
+        let next = if let Some(play) = tether_play {
+            if cur_dist_sqr >= snap_thresh_sqr && cur_dist_sqr > 0.0 {
+                let ratio = 1.0 - snap_thresh_sqr / cur_dist_sqr;
+                Vec3::new(
+                    current.x + dx * ratio * 0.5,
+                    target.y,
+                    current.z + dz * ratio * 0.5,
+                )
+            } else {
+                let ratio = 0.01 * play;
+                Vec3::new(current.x + dx * ratio, target.y, current.z + dz * ratio)
+            }
+        } else {
+            Vec3::new(
+                current.x + dx * self.camera_follow_factor,
+                target.y,
+                current.z + dz * self.camera_follow_factor,
+            )
+        };
+        self.center_camera_on(next);
     }
 
     /// Consume live camera request queues without applying (presentation already applied).

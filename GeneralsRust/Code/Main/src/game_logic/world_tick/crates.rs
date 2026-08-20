@@ -854,28 +854,37 @@ impl GameLogic {
         effect_range: f32,
         levels: u8,
     ) -> usize {
-        let (team, origin) = match self.objects.get(&picker_id) {
-            Some(p) if p.is_alive() => (p.team, p.get_position()),
+        let (team, origin, picker_player) = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => (p.team, p.get_position(), p.owner_player_id),
             _ => return 0,
         };
-        let levels = levels.max(1);
+        // C++ getLevelsToGain: Regular + AddsOwnerVeterancy is 0 → crate invalid.
+        if levels == 0 {
+            return 0;
+        }
         let range_sq = effect_range.max(0.0) * effect_range.max(0.0);
         let targets: Vec<ObjectId> = if effect_range <= 0.0 {
             vec![picker_id]
         } else {
             self.objects
                 .iter()
-                .filter(|(id, o)| {
+                .filter(|(_, o)| {
                     o.team == team
                         && o.is_alive()
                         && !o.status.destroyed
+                        && !o.status.under_construction
                         && !o.is_kind_of(KindOf::Structure)
+                        && o.is_trainable()
+                        && !matches!(o.experience.level, crate::game_logic::VeterancyLevel::Heroic)
                         && {
                             let p = o.get_position();
                             let dx = p.x - origin.x;
                             let dz = p.z - origin.z;
                             dx * dx + dz * dz <= range_sq
                         }
+                        && picker_player
+                            .map(|pid| o.owner_player_id == Some(pid))
+                            .unwrap_or(true)
                 })
                 .map(|(id, _)| *id)
                 .collect()
@@ -883,7 +892,9 @@ impl GameLogic {
         let mut n = 0usize;
         for tid in targets {
             if let Some(o) = self.objects.get_mut(&tid) {
-                // can_level_up = trainable residual: not heroic already handled inside
+                if !o.is_trainable() {
+                    continue;
+                }
                 let g = o.gain_exp_for_level(levels, true);
                 if g > 0 {
                     n += 1;

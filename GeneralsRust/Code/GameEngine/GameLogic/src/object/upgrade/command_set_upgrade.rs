@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -16,6 +17,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct CommandSetUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     command_set_name: AsciiString,
     command_set_alt: AsciiString,
     trigger_alt: AsciiString,
@@ -25,6 +27,7 @@ impl Default for CommandSetUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             command_set_name: AsciiString::new(),
             command_set_alt: AsciiString::new(),
             trigger_alt: AsciiString::new(),
@@ -139,8 +142,8 @@ impl Snapshotable for CommandSetUpgrade {
 }
 
 impl UpgradeModuleInterface for CommandSetUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -152,6 +155,7 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::upgrade::center::with_upgrade_center;
 
@@ -241,7 +245,9 @@ fn parse_trigger_alt_field(
     Ok(())
 }
 
-const COMMAND_SET_UPGRADE_FIELDS: &[FieldParse<CommandSetUpgradeModuleData>] = &[
+crate::impl_upgrade_mux_field_parsers!(CommandSetUpgradeModuleData);
+
+const COMMAND_SET_UPGRADE_FIELDS: &[FieldParse<CommandSetUpgradeModuleData>] = crate::upgrade_mux_field_table!(
     FieldParse {
         token: "CommandSet",
         parse: parse_command_set_field,
@@ -254,4 +260,4 @@ const COMMAND_SET_UPGRADE_FIELDS: &[FieldParse<CommandSetUpgradeModuleData>] = &
         token: "TriggerAlt",
         parse: parse_trigger_alt_field,
     },
-];
+);

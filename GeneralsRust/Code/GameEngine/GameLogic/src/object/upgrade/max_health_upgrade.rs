@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::INVALID_ID;
@@ -21,6 +22,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct MaxHealthUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     add_max_health: Real,
     change_type: MaxHealthChangeType,
 }
@@ -29,6 +31,7 @@ impl Default for MaxHealthUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             add_max_health: 0.0,
             change_type: MaxHealthChangeType::SameCurrentHealth,
         }
@@ -455,36 +458,11 @@ impl UpgradeModuleInterface for MaxHealthUpgrade {
     /// Check if upgrade can be applied
     /// Matches C++ UpgradeMux::wouldUpgrade logic from UpgradeModule.cpp lines 105-137
     fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied {
-            return false;
-        }
-        // If no upgrade mask provided, cannot upgrade
-        // Note: UpgradeMaskType is a bitflags type, use is_empty() to check
-        if upgrade_mask.is_empty() {
-            return false;
-        }
-
-        // For MaxHealthUpgrade, like ArmorUpgrade, the C++ implementation doesn't define
-        // custom ModuleData fields. It relies on the base UpgradeModuleData's UpgradeMuxData
-        // for validation logic (activation masks, conflicting masks, requires_all_triggers).
-        //
-        // C++ MaxHealthUpgrade.cpp (lines 44-68) shows:
-        // - Extends UpgradeModule (which contains UpgradeMux)
-        // - Has custom ModuleData (MaxHealthUpgradeModuleData) with m_addMaxHealth, m_maxHealthChangeType
-        // - The upgradeImplementation just adds health, no condition checking
-        //
-        // The validation is handled by the parent UpgradeMux::wouldUpgrade which checks:
-        // 1. activation_mask.any() && upgrade_mask matches activation
-        // 2. !upgrade_mask.testForAny(conflicting_mask)
-        // 3. requires_all_triggers ? testForAll : testForAny
-        // 4. !m_upgradeExecuted (not already upgraded)
-        //
-        // In this simplified Rust implementation, we accept any valid upgrade mask.
-        // The full validation would be implemented in a containing UpgradeMux.
-        true
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         let applied = self.with_inner(|inner| {
             if inner.apply_max_health().is_ok() {
                 mark_max_health_applied(inner.object_id, &inner.data, upgrade_mask);
@@ -537,7 +515,9 @@ fn parse_change_type_field(
         .map_err(|_| INIError::InvalidData)
 }
 
-const MAX_HEALTH_UPGRADE_FIELDS: &[FieldParse<MaxHealthUpgradeModuleData>] = &[
+crate::impl_upgrade_mux_field_parsers!(MaxHealthUpgradeModuleData);
+
+const MAX_HEALTH_UPGRADE_FIELDS: &[FieldParse<MaxHealthUpgradeModuleData>] = crate::upgrade_mux_field_table!(
     FieldParse {
         token: "AddMaxHealth",
         parse: parse_add_max_health_field,
@@ -546,7 +526,7 @@ const MAX_HEALTH_UPGRADE_FIELDS: &[FieldParse<MaxHealthUpgradeModuleData>] = &[
         token: "ChangeType",
         parse: parse_change_type_field,
     },
-];
+);
 
 #[cfg(test)]
 mod tests {

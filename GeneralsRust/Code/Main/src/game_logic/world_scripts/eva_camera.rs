@@ -162,7 +162,6 @@ impl GameLogic {
             RADAR_AUDIO_HARVESTER_UNDER_ATTACK, RADAR_AUDIO_STRUCTURE_UNDER_ATTACK,
             RADAR_MSG_HARVESTER_UNDER_ATTACK, RADAR_MSG_STRUCTURE_UNDER_ATTACK,
             RADAR_MSG_UNDER_ATTACK, RADAR_MSG_UNIT_UNDER_ATTACK,
-            SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_SQ_RESIDUAL,
             SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL,
         };
         let Some(obj) = self.objects.get(&victim_id) else {
@@ -201,19 +200,16 @@ impl GameLogic {
             .map(|p| p.alliance_team)
             .unwrap_or(-1);
 
-        // C++ tryEvent throttle residual (XZ plane).
+        // C++ Radar.cpp:1293-1294 operator-precedence quirk: 250² is not a
+        // real distance filter. Same-type UnderAttack pings throttle map-wide
+        // for 10s (LOGICFRAMES_PER_SECOND * 10).
         let now = self.frame;
-        let close_sq = SPOTTER_TRY_EVENT_CLOSE_ENOUGH_DISTANCE_SQ_RESIDUAL;
         let frames_between = SPOTTER_TRY_EVENT_FRAMES_BETWEEN_EVENTS_RESIDUAL;
         let px = pos.x;
         let pz = pos.z;
-        for &(frame, ex, ez) in &self.under_attack_event_history {
+        for &(frame, _ex, _ez) in &self.under_attack_event_history {
             if now.saturating_sub(frame) < frames_between {
-                let dx = ex - px;
-                let dz = ez - pz;
-                if dx * dx + dz * dz <= close_sq {
-                    return false;
-                }
+                return false;
             }
         }
         self.under_attack_event_history.push((now, px, pz));
@@ -926,14 +922,30 @@ impl GameLogic {
         self.is_script_time_frozen() || self.is_script_camera_time_frozen()
     }
 
-    /// Player residual: lock camera follow to an object (None clears).
     pub fn set_camera_follow_object(&mut self, id: Option<ObjectId>) {
         self.camera_follow_target = id;
+        if id.is_none() {
+            self.camera_tether_play = None;
+        }
         if let Some(oid) = id {
             if let Some(obj) = self.objects.get(&oid) {
                 self.request_camera_focus(obj.get_position());
             }
         }
+    }
+
+    pub fn set_camera_tether_object(&mut self, id: ObjectId, snap_to_unit: bool, play: f32) {
+        self.camera_follow_target = Some(id);
+        self.camera_tether_play = Some(play.max(0.0));
+        if snap_to_unit {
+            if let Some(obj) = self.objects.get(&id) {
+                self.request_camera_focus(obj.get_position());
+            }
+        }
+    }
+
+    pub fn peek_camera_tether_play(&self) -> Option<f32> {
+        self.camera_tether_play
     }
 
     pub fn camera_follow_object_id(&self) -> Option<ObjectId> {

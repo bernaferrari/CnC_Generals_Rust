@@ -75,12 +75,12 @@ fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
         .ok_or(INIError::InvalidData)
 }
 
-fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u128, INIError> {
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
 
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for token in tokens
         .iter()
         .filter(|token| **token != "=")
@@ -93,7 +93,7 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
         let Some(kind) = kindof_from_name(token) else {
             return Err(INIError::InvalidData);
         };
-        mask |= 1u64 << (kind as u32);
+        mask |= kind.cpp_mask();
     }
     Ok(mask)
 }
@@ -552,15 +552,15 @@ mod tests {
         .expect("car bomb crate kind-of masks parse");
 
         assert_ne!(
-            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            data.base.required_kind_of & (KindOf::Vehicle.cpp_mask()),
             0
         );
         assert_ne!(
-            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            data.base.required_kind_of & (KindOf::Infantry.cpp_mask()),
             0
         );
         assert_ne!(
-            data.base.forbidden_kind_of & (1u64 << (KindOf::Aircraft as u32)),
+            data.base.forbidden_kind_of & (KindOf::Aircraft.cpp_mask()),
             0
         );
     }

@@ -863,15 +863,15 @@ impl W3DModelDraw {
         (Coord3D::new(0.0, 0.0, 0.0), Matrix3D::IDENTITY)
     }
 
-    fn fire_owner_weapon_fx(&self, weapon_slot: usize, pos: &Coord3D) {
+    fn owner_weapon_fx_params(&self, weapon_slot: usize) -> (Real, Real) {
         let Some(owner_id) = self.owner_id else {
-            return;
+            return (0.0, 0.0);
         };
         let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-            return;
+            return (0.0, 0.0);
         };
         let Ok(obj) = object.read() else {
-            return;
+            return (0.0, 0.0);
         };
         let slot = match weapon_slot {
             0 => WeaponSlotType::Primary,
@@ -879,12 +879,44 @@ impl W3DModelDraw {
             _ => WeaponSlotType::Tertiary,
         };
         let Some(weapon) = obj.get_weapon_in_slot(slot.into()) else {
-            return;
+            return (0.0, 0.0);
+        };
+        let template = weapon.get_template();
+        (template.weapon_speed, template.primary_damage_radius)
+    }
+
+    fn fire_owner_weapon_fx(
+        &self,
+        weapon_slot: usize,
+        pos: &Coord3D,
+        mtx: Option<&Matrix3D>,
+        victim_pos: Option<&Coord3D>,
+        weapon_speed: Real,
+        damage_radius: Real,
+    ) -> bool {
+        let Some(owner_id) = self.owner_id else {
+            return false;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return false;
+        };
+        let Ok(obj) = object.read() else {
+            return false;
+        };
+        let slot = match weapon_slot {
+            0 => WeaponSlotType::Primary,
+            1 => WeaponSlotType::Secondary,
+            _ => WeaponSlotType::Tertiary,
+        };
+        let Some(weapon) = obj.get_weapon_in_slot(slot.into()) else {
+            return false;
         };
         let veterancy = obj.get_veterancy_level();
         if let Some(fx) = weapon.get_template().get_fire_fx(veterancy) {
-            let _ = fx.do_fx_at_position(pos);
+            let _ = fx.do_fx_pos(pos, mtx, weapon_speed, victim_pos, damage_radius);
+            return true;
         }
+        false
     }
 
     fn owner_should_animate(&self) -> bool {

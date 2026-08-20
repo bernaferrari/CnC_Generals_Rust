@@ -627,48 +627,22 @@ impl GameLogic {
         if dx * dx + dz * dz <= 64.0 * 64.0 {
             return true;
         }
-        // Host pathfinding residual: need &mut pathfinding_system — use interior mutability
-        // via a quick cell walk instead of full A* when possible.
-        self.quick_path_available_residual(start, goal)
+        // C++ clientSafeQuickDoesPathExistForUI: terrain-zone connectivity,
+        // ignoring structures. Water/cliff/impassable split zones.
+        self.pathfinding_system
+            .grid
+            .quick_path_exists_for_ui(start, goal)
     }
 
-    /// Simplified CLEAR_PATH residual without mutably borrowing pathfinding.
-    ///
-    /// Walks a coarse line of cells; blocked if any cell is impassable structure
-    /// footprint residual. Fail-open when grid unavailable.
+    /// C++ Pathfinder::clientSafeQuickDoesPathExistForUI residual.
     pub(in super::super) fn quick_path_available_residual(
         &self,
         start: glam::Vec3,
         goal: glam::Vec3,
     ) -> bool {
-        use crate::game_logic::pathfinding::GridPos;
-        let grid = &self.pathfinding_system.grid;
-        let gs = grid.world_to_grid(start);
-        let gg = grid.world_to_grid(goal);
-        // If either end invalid, fail-open residual (map placement still works).
-        if !grid.is_valid_pos(gs) || !grid.is_valid_pos(gg) {
-            return true;
-        }
-        // Goal on static structure residual is still a legal build pad — dozer
-        // walks to the edge. Only intermediate cells block CLEAR_PATH residual.
-        let steps = (gs.x - gg.x).abs().max((gs.y - gg.y).abs()).max(1);
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
-            let x = (gs.x as f32 + (gg.x - gs.x) as f32 * t).round() as i32;
-            let y = (gs.y as f32 + (gg.y - gs.y) as f32 * t).round() as i32;
-            let cell = GridPos::new(x, y);
-            if !grid.is_valid_pos(cell) {
-                continue;
-            }
-            // Skip start and goal cells residual.
-            if cell == gs || cell == gg {
-                continue;
-            }
-            if grid.is_static_blocked(cell) {
-                return false;
-            }
-        }
-        true
+        self.pathfinding_system
+            .grid
+            .quick_path_exists_for_ui(start, goal)
     }
 
     /// C++ BuildAssistant footprint hiZ-loZ residual vs AllowedHeightVariationForBuilding.

@@ -157,6 +157,8 @@ impl SpecialAbility {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -179,6 +181,10 @@ impl Module for SpecialAbility {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
     }
 }
 
@@ -209,14 +215,11 @@ impl Snapshotable for SpecialAbility {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("SpecialAbility xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(&mut self.base_module, xfer, "SpecialAbility")
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 
@@ -233,7 +236,51 @@ fn parse_special_power_template_field(
     Ok(())
 }
 
-const SPECIAL_ABILITY_FIELDS: &[FieldParse<SpecialAbilityModuleData>] = &[FieldParse {
-    token: "SpecialPowerTemplate",
-    parse: parse_special_power_template_field,
-}];
+const SPECIAL_ABILITY_FIELDS: &[FieldParse<SpecialAbilityModuleData>] = &[
+    FieldParse {
+        token: "SpecialPowerTemplate",
+        parse: parse_special_power_template_field,
+    },
+    FieldParse {
+        token: "UpdateModuleStartsAttack",
+        parse: |_, data, tokens| {
+            parse_ability_bool_field(&mut |v| data.base.update_module_starts_attack = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "StartsPaused",
+        parse: |_, data, tokens| {
+            parse_ability_bool_field(&mut |v| data.base.starts_paused = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "InitiateSound",
+        parse: parse_ability_initiate_sound,
+    },
+    FieldParse {
+        token: "ScriptedSpecialPowerOnly",
+        parse: |_, data, tokens| {
+            parse_ability_bool_field(&mut |v| data.base.scripted_special_power_only = v, tokens)
+        },
+    },
+];
+
+fn parse_ability_bool_field(
+    setter: &mut dyn FnMut(bool),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    setter(INI::parse_bool(token)?);
+    Ok(())
+}
+
+fn parse_ability_initiate_sound(
+    _ini: &mut INI,
+    data: &mut SpecialAbilityModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.base.initiate_sound =
+        crate::object::special_power_template::AudioEventRts::new(*token);
+    Ok(())
+}

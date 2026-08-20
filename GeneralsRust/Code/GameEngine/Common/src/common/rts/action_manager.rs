@@ -276,9 +276,8 @@ fn get_provider() -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
 // OBJECT WRAPPER
 // ================================================================================================
 
-/// KindOf bit indices matching the C++ KindOf enum order.
+/// KindOf bit indices matching retail `KindOf.h` (`ALLOW_SURRENDER` undefined).
 /// Used with `ObjectDataProvider::is_kind_of()`.
-/// Reference: C++ Object.h / KindOf.h
 pub mod kind_of_bit {
     pub const OBSTACLE: u32 = 0;
     pub const SELECTABLE: u32 = 1;
@@ -290,14 +289,13 @@ pub mod kind_of_bit {
     pub const AIRCRAFT: u32 = 10;
     pub const DOZER: u32 = 12;
     pub const HARVESTER: u32 = 13;
-    pub const POW_TRUCK: u32 = 17;
-    pub const TRANSPORT: u32 = 21;
-    pub const BRIDGE: u32 = 22;
-    pub const BRIDGE_TOWER: u32 = 24;
-    pub const REPAIR_PAD: u32 = 31;
-    pub const HEAL_PAD: u32 = 32;
-    pub const REBUILD_HOLE: u32 = 37;
-    pub const FS_AIRFIELD: u32 = 110;
+    pub const TRANSPORT: u32 = 18;
+    pub const BRIDGE: u32 = 19;
+    pub const BRIDGE_TOWER: u32 = 21;
+    pub const REPAIR_PAD: u32 = 28;
+    pub const HEAL_PAD: u32 = 29;
+    pub const REBUILD_HOLE: u32 = 34;
+    pub const FS_AIRFIELD: u32 = 106;
 }
 
 /// ObjectStatus bit indices matching the C++ ObjectStatusTypes enum order.
@@ -1087,7 +1085,8 @@ impl Object {
 
     #[inline]
     fn is_kind_of_pow_truck(&self) -> bool {
-        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::POW_TRUCK), false)
+        // Retail ZH omits KINDOF_POW_TRUCK (`ALLOW_SURRENDER` undefined).
+        false
     }
 
     #[inline]

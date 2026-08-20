@@ -868,7 +868,7 @@ impl game_engine::common::thing::module::Thing for Player {
     }
 
     fn get_production_cost_change_based_on_kind_of(&self, kind_of: u64) -> f32 {
-        self.get_production_cost_change_based_on_kind_of(kind_of)
+        self.get_production_cost_change_based_on_kind_of(kind_of as KindOfMaskType)
     }
 
     fn get_build_cost_handicap(&self, template: &game_engine::common::thing::ThingTemplate) -> f32 {

@@ -36,8 +36,8 @@ pub(super) use game_engine::common::rts::player_template::{
 pub(super) use game_engine::common::system::build_assistant::get_build_assistant;
 pub(super) use game_engine::common::well_known_keys::{
     key_multiplayer_start_index, key_player_allies, key_player_display_name, key_player_enemies,
-    key_player_faction, key_player_is_human, key_player_name, key_team_is_singleton, key_team_name,
-    key_team_owner,
+    key_player_faction, key_player_is_human, key_player_is_skirmish, key_player_name,
+    key_team_is_singleton, key_team_name, key_team_owner,
 };
 pub(super) use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 pub(super) use gamelogic::ai::THE_AI;

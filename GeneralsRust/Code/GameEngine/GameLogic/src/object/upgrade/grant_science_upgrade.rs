@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
+use crate::object::upgrade::upgrade_module::{mux_can_upgrade, mux_give_self_upgrade_for_object, UpgradeMuxData};
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
@@ -18,6 +19,7 @@ fn dual_world_registry_unavailable() -> bool {
 #[derive(Debug, Clone)]
 pub struct GrantScienceUpgradeModuleData {
     module_tag_name_key: NameKeyType,
+    pub upgrade_mux_data: UpgradeMuxData,
     grant_science_name: AsciiString,
 }
 
@@ -25,6 +27,7 @@ impl Default for GrantScienceUpgradeModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
+            upgrade_mux_data: UpgradeMuxData::default(),
             grant_science_name: AsciiString::default(),
         }
     }
@@ -149,8 +152,8 @@ impl Snapshotable for GrantScienceUpgrade {
 }
 
 impl UpgradeModuleInterface for GrantScienceUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
@@ -162,6 +165,7 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
         if self.applied {
             return false;
         }
+        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
         self.resolve_science_type();
         if self.science_type == SCIENCE_INVALID {
             // C++ still considers the upgrade executed even if the science name is invalid.
@@ -207,7 +211,11 @@ fn parse_grant_science_field(
     Ok(())
 }
 
-const GRANT_SCIENCE_UPGRADE_FIELDS: &[FieldParse<GrantScienceUpgradeModuleData>] = &[FieldParse {
+crate::impl_upgrade_mux_field_parsers!(GrantScienceUpgradeModuleData);
+
+const GRANT_SCIENCE_UPGRADE_FIELDS: &[FieldParse<GrantScienceUpgradeModuleData>] = crate::upgrade_mux_field_table!(
+    FieldParse {
     token: "GrantScience",
     parse: parse_grant_science_field,
-}];
+},
+);

@@ -213,6 +213,8 @@ impl SpyVisionSpecialPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 impl Module for SpyVisionSpecialPower {
@@ -234,6 +236,10 @@ impl Module for SpyVisionSpecialPower {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
     }
 }
 
@@ -264,16 +270,15 @@ impl Snapshotable for SpyVisionSpecialPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("SpyVisionSpecialPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "SpyVisionSpecialPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ SpyVisionSpecialPower::loadPostProcess()
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

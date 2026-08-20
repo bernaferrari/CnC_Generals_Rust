@@ -25,6 +25,7 @@ impl GameLogic {
         target_id: ObjectId,
         slot: u8,
         target_pos: glam::Vec3,
+        table_offset: Option<glam::Vec2>,
     ) -> (bool, glam::Vec3, f32) {
         use crate::game_logic::weapon_bootstrap::{
             host_effective_scatter_radius, host_primary_damage_radius_for_weapon_name,
@@ -40,16 +41,7 @@ impl GameLogic {
                 Some(t) => t,
                 None => return (false, target_pos, 0.0),
             };
-            let wname = if slot == 1 {
-                attacker
-                    .thing
-                    .template
-                    .secondary_weapon_name
-                    .clone()
-                    .or_else(|| attacker.thing.template.primary_weapon_name.clone())
-            } else {
-                attacker.thing.template.primary_weapon_name.clone()
-            };
+            let wname = attacker.weapon_name_for_slot(slot).map(str::to_owned);
             let hit_r = if target.selection_radius > 0.0 {
                 target.selection_radius
             } else {
@@ -61,13 +53,33 @@ impl GameLogic {
                 .unwrap_or(0.0);
             (wname, target.is_kind_of(KindOf::Infantry), hit_r, splash)
         };
+        let splash_r = {
+            let primary_r = wname
+                .as_deref()
+                .map(host_primary_damage_radius_for_weapon_name)
+                .unwrap_or(0.0);
+            let secondary_r = wname
+                .as_deref()
+                .map(host_secondary_damage_radius_for_weapon_name)
+                .unwrap_or(0.0);
+            weapon_splash.max(primary_r).max(secondary_r)
+        };
+        if let Some(offset) = table_offset {
+            let mut impact = target_pos;
+            impact.x += offset.x;
+            impact.z += offset.y;
+            if let Some(target) = self.objects.get(&target_id) {
+                if target.ground_height_from_terrain {
+                    impact.y = target.ground_height;
+                }
+            }
+            // C++ nulls victimObj — treat as a position shot / intended miss.
+            return (true, impact, splash_r);
+        }
         let Some(name) = wname else {
-            return (false, target_pos, weapon_splash);
+            return (false, target_pos, splash_r);
         };
         let scatter = host_effective_scatter_radius(&name, tgt_inf);
-        let primary_r = host_primary_damage_radius_for_weapon_name(&name);
-        let secondary_r = host_secondary_damage_radius_for_weapon_name(&name);
-        let splash_r = weapon_splash.max(primary_r).max(secondary_r);
         if scatter <= 0.0 {
             return (false, target_pos, splash_r);
         }

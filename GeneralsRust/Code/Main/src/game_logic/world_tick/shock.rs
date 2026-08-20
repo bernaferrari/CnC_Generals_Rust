@@ -154,9 +154,13 @@ impl GameLogic {
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
             let (cliff, water) = self.sample_stun_surface_at(pos);
+            let ground_y = self
+                .terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z))
+                .unwrap_or(0.0);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.cell_is_cliff = cliff;
                 o.cell_is_underwater = water;
+                o.ground_height = ground_y;
                 if o.shock_stun_frames > 0 {
                     // Wave 764: under coupled shadow, GW sole-decrements frames;
                     // host keeps tumble/bounce physics only.
@@ -664,6 +668,33 @@ impl GameLogic {
         )
     }
 
+    /// C++ ExperienceTracker::addExperiencePoints sink + trainable gate.
+    pub(crate) fn award_experience(&mut self, recipient_id: ObjectId, amount: f32) {
+        if amount <= 0.0 || !amount.is_finite() {
+            return;
+        }
+        let Some(obj) = self.objects.get(&recipient_id) else {
+            return;
+        };
+        if !obj.is_accepting_experience_points() {
+            return;
+        }
+        let dest = obj
+            .experience_sink
+            .or_else(|| {
+                if !obj.is_trainable() {
+                    obj.producer_id
+                } else {
+                    None
+                }
+            })
+            .filter(|sid| *sid != recipient_id && self.objects.contains_key(sid))
+            .unwrap_or(recipient_id);
+        if let Some(dest_obj) = self.objects.get_mut(&dest) {
+            dest_obj.gain_experience(amount);
+        }
+    }
+
     /// After a combat kill: grant XP, ContinueAttackRange retarget, else stop.
     pub(crate) fn continue_or_stop_after_kill(
         &mut self,
@@ -674,11 +705,7 @@ impl GameLogic {
         weapon_name: Option<&str>,
         kill_xp: f32,
     ) {
-        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-            if kill_xp > 0.0 {
-                attacker.gain_experience(kill_xp);
-            }
-        }
+        self.award_experience(attacker_id, kill_xp);
         let cont = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_continue_attack_range_for_weapon_name)
             .unwrap_or(0.0);

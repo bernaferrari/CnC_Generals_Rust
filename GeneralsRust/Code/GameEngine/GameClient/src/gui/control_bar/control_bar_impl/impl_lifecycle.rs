@@ -187,11 +187,14 @@ impl ControlBar {
             self.switch_to_context(ControlBarState::None, None)?;
             return Ok(());
         }
-        // Without registry modules, skip live module context updates — presentation
-        // already owns portrait/health/queue residual.
+        // Host/presentation still runs command/queue/inventory updates.
         if !registry_exists {
+            if current_state == ControlBarState::Command {
+                self.update_context_command()?;
+            }
             return Ok(());
         }
+
 
         match current_state {
             ControlBarState::None => {}

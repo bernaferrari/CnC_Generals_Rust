@@ -146,6 +146,31 @@ impl CampaignXferHelper for CampaignRuntimeXferAdapter<'_> {
     fn is_loading(&self) -> bool {
         self.xfer.get_xfer_mode() == XferMode::Load
     }
+
+    fn xfer_unsigned_int(&mut self, value: &mut u32) -> io::Result<()> {
+        self.xfer
+            .xfer_unsigned_int(value)
+            .map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_unsigned_short(&mut self, value: &mut u16) -> io::Result<()> {
+        self.xfer
+            .xfer_unsigned_short(value)
+            .map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_unicode_string(&mut self, s: &mut String) -> io::Result<()> {
+        self.xfer
+            .xfer_unicode_string(s)
+            .map_err(runtime_xfer_status_to_io)
+    }
+
+    fn xfer_challenge_game_info(
+        &mut self,
+        info: &mut game_engine::System::ChallengeGameInfoXfer,
+    ) -> io::Result<()> {
+        info.xfer(self.xfer).map_err(runtime_xfer_status_to_io)
+    }
 }
 
 fn xfer_w3d_tree_draw_module_data(

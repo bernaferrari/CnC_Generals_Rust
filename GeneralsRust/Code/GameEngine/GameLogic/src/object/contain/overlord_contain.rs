@@ -1061,6 +1061,10 @@ impl ContainModuleInterface for OverlordContain {
         let _ = self.base.process_damage_to_contained(percent_damage);
     }
 
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
+    }
+
     fn is_displayed_on_control_bar(&self) -> bool {
         OverlordContain::is_displayed_on_control_bar(self)
     }

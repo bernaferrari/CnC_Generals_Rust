@@ -10,6 +10,7 @@ mod destroy_list_bounty;
 mod host_ops_writeback;
 mod object_ai_combat;
 mod object_queries;
+mod radar_live;
 mod ready_completions;
 mod resources_income;
 mod spawn_templates;

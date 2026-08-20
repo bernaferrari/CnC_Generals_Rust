@@ -6,7 +6,7 @@ use crate::common::{
     AsciiString, Bool, Coord2D, Coord3D, ICoord2D, ICoord3D, IRegion2D, Int, Real, Snapshot,
     MAP_XY_FACTOR,
 };
-use crate::helpers::TheTerrainLogic;
+use game_engine::common::ini::get_global_data;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use std::collections::HashMap;
 
@@ -466,45 +466,53 @@ impl PolygonTriggerList {
                 trigger.add_point(ICoord3D::new(x, y, z));
             }
 
-            if num_points < 2 {
-                continue;
-            }
-
             if trigger_id > max_trigger_id {
                 max_trigger_id = trigger_id;
+            }
+
+            if num_points < 2 {
+                continue;
             }
 
             list.add(trigger);
         }
 
         if info.version == K_TRIGGERS_VERSION_1 {
+            // C++ PolygonTrigger.cpp:186 `pTrig->m_triggerID = maxTriggerId++`
+            // reuses the current max (0 on an empty list).
+            let water_id = max_trigger_id;
+            max_trigger_id += 1;
             let mut trigger = PolygonTrigger::new(
-                max_trigger_id + 1,
+                water_id,
                 AsciiString::from("AutoAddedWaterAreaTrigger"),
                 Vec::new(),
             );
             trigger.set_water_area(true);
 
-            let extent =
-                TheTerrainLogic::get().map(|terrain| terrain.get_extent_including_border());
-            let water_extent_x = extent.map(|e| e.hi.x as Int).unwrap_or(0);
-            let water_extent_y = extent.map(|e| e.hi.y as Int).unwrap_or(0);
-            let border = (30.0 * MAP_XY_FACTOR) as Int;
+            let (water_extent_x, water_extent_y) = get_global_data()
+                .map(|data| {
+                    let data = data.read();
+                    (data.water_extent_x, data.water_extent_y)
+                })
+                .unwrap_or((0.0, 0.0));
+            let border = 30.0 * MAP_XY_FACTOR;
 
-            let mut point = ICoord3D::new(-border, -border, 7);
+            let mut point = ICoord3D::new((-border) as Int, (-border) as Int, 7);
             trigger.add_point(point);
-            point.x = border + water_extent_x;
+            point.x = (border + water_extent_x) as Int;
             trigger.add_point(point);
-            point.y = border + water_extent_y;
+            point.y = (border + water_extent_y) as Int;
             trigger.add_point(point);
-            point.x = -border;
+            point.x = (-border) as Int;
             trigger.add_point(point);
             list.add(trigger);
-            max_trigger_id += 1;
         }
 
         list.current_id = max_trigger_id + 1;
-        input.at_end_of_chunk()
+        if !input.at_end_of_chunk() {
+            log::debug!("PolygonTriggers chunk has trailing data; ignoring remainder");
+        }
+        true
     }
 
     pub fn write_polygon_triggers_data_chunk(&self, output: &mut DataChunkOutput) {
@@ -532,7 +540,8 @@ impl PolygonTriggerList {
     /// Add a polygon trigger to the list
     pub fn add(&mut self, trigger: PolygonTrigger) {
         let idx = self.triggers.len();
-        self.id_index.insert(trigger.id, idx);
+        // C++ getPolygonTriggerByID walks head-first, so the first ID wins.
+        self.id_index.entry(trigger.id).or_insert(idx);
         self.triggers.push(trigger);
     }
 

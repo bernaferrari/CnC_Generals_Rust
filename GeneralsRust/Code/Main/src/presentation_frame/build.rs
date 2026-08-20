@@ -1657,6 +1657,11 @@ impl PresentationFrame {
             camera_look_toward: logic
                 .peek_pending_camera_look_toward()
                 .map(|l| [l.position.x, l.position.y, l.position.z]),
+            camera_look_toward_duration: logic
+                .peek_pending_camera_look_toward()
+                .map(|l| l.duration_seconds)
+                .unwrap_or(0.0),
+            camera_tether_play: logic.peek_camera_tether_play(),
             camera_slave_enable: logic
                 .peek_pending_camera_slave_enable()
                 .map(|s| (s.thing_template_name.clone(), s.bone_name.clone())),

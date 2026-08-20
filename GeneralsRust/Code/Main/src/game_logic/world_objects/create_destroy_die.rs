@@ -416,6 +416,10 @@ impl GameLogic {
             let secondary_weapon = template.resolve_secondary_weapon();
             let tertiary_weapon = template.resolve_tertiary_weapon();
             let movement_stats = template.resolve_movement();
+            let loco_binding = template
+                .locomotor_name
+                .as_deref()
+                .and_then(crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding);
             // Sentry residual: detect explicit template primary before move.
             let sentry_had_explicit_primary =
                 template.primary_weapon.is_some() || template.primary_weapon_name.is_some();
@@ -425,8 +429,11 @@ impl GameLogic {
             let primary_auto_choose_none = template.primary_auto_choose_none;
             let has_fire_ocl_after_weapon_cooldown =
                 template.has_fire_ocl_after_weapon_cooldown;
+            let partition_cash = template.build_cost.supplies;
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
             object.owner_player_id = owner_player_id;
+            object.partition_cash_value = partition_cash;
+            object.partition_threat_value = partition_cash.max(1);
             object.set_position(position);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
@@ -538,11 +545,14 @@ impl GameLogic {
                 }
             }
 
-            // Locomotor catalog → host Movement (retail BasicHumanLocomotor ~20 u/s).
+            // Locomotor catalog → host Movement + braking/wander/damaged.
             // Fail-closed: only when template sets locomotor_name and store resolves.
-            // Prefer catalog over Movement::default() (10) so golden skirmish does not
-            // need a march-speed boost when the host seed/INI path is present.
-            if let Some(stats) = movement_stats {
+            if let Some(binding) = loco_binding {
+                crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
+                    &mut object,
+                    &binding,
+                );
+            } else if let Some(stats) = movement_stats {
                 object.movement.max_speed = stats.max_speed;
                 object.movement.acceleration = stats.acceleration;
                 object.movement.turn_rate = stats.turn_rate;
@@ -1259,7 +1269,11 @@ impl GameLogic {
             object.ensure_lifetime_update(self.frame);
             object.ensure_height_die(self.frame);
             self.objects.insert(id, object);
-
+            if !starts_under_construction {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.stamp_partition_value_threat();
+                }
+            }
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
 
@@ -1294,20 +1308,41 @@ impl GameLogic {
                 self.apply_troop_crawler_initial_payload(id, team, position);
             }
 
-            // Host residual: SCIENCE unit-training (VeterancyGainCreate StartingLevel).
-            // Fail-closed: not full PrerequisiteSciences rank tree / IsTrainable matrix.
+            // C++ VeterancyGainCreate::onCreate, then PlayerTemplate fallback.
             {
-                use crate::game_logic::host_unit_training::unit_training_level_for_template;
+                use crate::game_logic::host_unit_training::{
+                    normalize_identity, unit_training_level_for_template, veterancy_rank,
+                };
                 let sciences: Vec<String> = self
                     .players
                     .values()
                     .filter(|p| p.team == team)
                     .flat_map(|p| p.unlocked_sciences.iter().cloned())
                     .collect();
-                if let Some((kind, level)) =
-                    unit_training_level_for_template(template_name, &sciences)
-                {
-                    if let Some(obj) = self.objects.get_mut(&id) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    let mut ini_level = None;
+                    for module in &obj.thing.template.veterancy_gain_creates {
+                        let science_ok = match &module.science_required {
+                            None => true,
+                            Some(sci) => sciences.iter().any(|s| {
+                                normalize_identity(s) == normalize_identity(sci)
+                            }),
+                        };
+                        if science_ok && obj.is_trainable() {
+                            let lvl = module.starting_level;
+                            if ini_level
+                                .map(|best| veterancy_rank(lvl) > veterancy_rank(best))
+                                .unwrap_or(true)
+                            {
+                                ini_level = Some(lvl);
+                            }
+                        }
+                    }
+                    if let Some(level) = ini_level {
+                        let _ = obj.set_min_veterancy_level(level);
+                    } else if let Some((kind, level)) =
+                        unit_training_level_for_template(template_name, &sciences)
+                    {
                         if obj.set_min_veterancy_level(level) {
                             self.unit_training.record_grant(kind);
                         }
@@ -1389,6 +1424,8 @@ impl GameLogic {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
             }
+            // C++ Object.cpp:473 TheRadar->addObject(this) after modules ready.
+            self.host_radar_add_object(id);
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);
@@ -1488,8 +1525,11 @@ impl GameLogic {
                 self.player_template_production_veterancy(player_id, template_name)
             });
             let id = self.allocate_object_id();
+            let partition_cash = template.build_cost.supplies;
             let mut object = Object::new_under_construction(template, id, team);
             object.owner_player_id = owner_player_id;
+            object.partition_cash_value = partition_cash;
+            object.partition_threat_value = partition_cash.max(1);
             object.set_position(position);
             if let Some(level) = player_template_veterancy {
                 let _ = object.set_min_veterancy_level(level);
@@ -1534,6 +1574,8 @@ impl GameLogic {
                 obj.record_model_mesh_from_template();
                 obj.record_kind_of_bits_from_template();
             }
+            // C++ Object.cpp:473 TheRadar->addObject(this) (under construction too).
+            self.host_radar_add_object(id);
 
             log::debug!(
                 "Started construction of {} ({}) at {:?}",
@@ -1947,6 +1989,9 @@ impl GameLogic {
     }
 
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.unstamp_partition_value_threat();
+        }
         // C++ ProductionUpdate cancelAndRefund on death start (before topple/slow-death deferral).
         self.cancel_all_production(id);
         // C++ SpecialPowerCompletionDie::onDie residual.

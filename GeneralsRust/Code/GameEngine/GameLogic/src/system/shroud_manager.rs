@@ -59,8 +59,8 @@ const DEFAULT_UPDATE_INTERVAL: u32 = 2;
 /// Default frame interval for full vision recalculation (every 10 frames as required)
 const VISION_RECALC_INTERVAL: u32 = 10;
 
-/// Grid-based shroud cell size in world units (for spatial optimization)
-const SHROUD_GRID_CELL_SIZE: f32 = 50.0;
+/// Grid-based shroud cell size in world units (C++ PartitionCellSize = 40).
+const SHROUD_GRID_CELL_SIZE: f32 = 40.0;
 
 /// Persistent C++ `PartitionCell::ShroudLevel` payload.
 ///
@@ -2685,8 +2685,8 @@ mod tests {
         manager.init_shroud_grid(1000.0, 1000.0);
         assert!(manager.shroud_grid.is_some());
         let (w, h, cell) = manager.grid_dimensions().expect("dims");
-        assert_eq!(w, 20); // 1000 / 50
-        assert_eq!(h, 20);
+        assert_eq!(w, 25); // 1000 / 40
+        assert_eq!(h, 25);
         assert!((cell - SHROUD_GRID_CELL_SIZE).abs() < f32::EPSILON);
 
         let snap = manager.snapshot_grid_for_player(0).expect("grid snap");

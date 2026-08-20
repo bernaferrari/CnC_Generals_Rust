@@ -86,6 +86,45 @@ pub fn host_prefire_type_for_weapon_name(name: &str) -> HostPrefireType {
     seed_prefire_type_for(name)
 }
 
+/// C++ DelayBetweenShots as host seconds (frames / 30).
+pub fn host_delay_between_shots_secs(name: &str) -> Option<f32> {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let between = wt.min_delay_between_shots.max(0) as f32;
+            let clip = wt.max_delay_between_shots.max(0) as f32;
+            let frames = if wt.clip_size > 0 {
+                if between > 0.0 {
+                    between
+                } else {
+                    clip
+                }
+            } else {
+                between.max(clip)
+            };
+            (frames > 0.0).then_some(frames / 30.0)
+        })
+    })
+    .ok()
+    .flatten()
+}
+
+/// C++ Weapon.ini PrimaryDamage residual amount (Regular).
+pub fn host_primary_damage_for_weapon_name(name: &str) -> Option<f32> {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| wt.primary_damage)
+            .filter(|damage| *damage > 0.0)
+    })
+    .ok()
+    .flatten()
+}
+
+
 pub(super) fn seed_prefire_type_for(name: &str) -> HostPrefireType {
     let n = name.to_ascii_lowercase();
     // Gattling / continuous-fire residual often PER_SHOT with short delay.

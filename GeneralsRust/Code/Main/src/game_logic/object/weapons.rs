@@ -363,33 +363,21 @@ impl Object {
             return;
         };
         let name = self.weapon_name_for_slot(slot);
-        let reload = self.effective_weapon_reload(weapon.reload_time);
+        let reload = self.live_reload_interval(weapon, name, self.weapon_bonus_fields().2);
         if !Self::weapon_has_ammo_for_shot(weapon, name) {
             self.weapon_fire_status = WeaponFireStatus::OutOfAmmo;
             self.sync_weapon_model_conditions_from_status();
             return;
         }
-        if weapon.clip_size > 0 {
-            let clip_reload = if weapon.clip_reload_time > 0.0 {
-                weapon.clip_reload_time
+        if current_time - weapon.last_fire_time < reload - 1e-6 {
+            if weapon.clip_size > 0
+                && weapon.ammo == Some(0)
+                && weapon.clip_reload_time > 0.0
+            {
+                self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
             } else {
-                reload
-            };
-            if current_time - weapon.last_fire_time < reload - 1e-6 {
-                if weapon.ammo == Some(weapon.clip_size)
-                    && clip_reload > reload + 1e-4
-                    && current_time - weapon.last_fire_time < clip_reload
-                {
-                    self.weapon_fire_status = WeaponFireStatus::ReloadingClip;
-                    self.sync_weapon_model_conditions_from_status();
-                    return;
-                }
                 self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
-                self.sync_weapon_model_conditions_from_status();
-                return;
             }
-        } else if current_time - weapon.last_fire_time < reload - 1e-6 {
-            self.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
             self.sync_weapon_model_conditions_from_status();
             return;
         }
@@ -406,27 +394,29 @@ impl Object {
         let primary_name = self.primary_weapon_name().map(str::to_owned);
         let secondary_name = self.thing.template.secondary_weapon_name.clone();
         let tertiary_name = self.thing.template.tertiary_weapon_name.clone();
+        let rof = self.weapon_bonus_fields().2;
         if let Some(weapon) = self.weapon_slot(0) {
-            let reload = self.effective_weapon_reload(weapon.reload_time);
+            let reload = self.live_reload_interval(weapon, primary_name.as_deref(), rof);
             if Self::weapon_ready_named(weapon, current_time, primary_name.as_deref(), reload) {
                 return true;
             }
         }
         if let Some(weapon) = &self.secondary_weapon {
-            let reload = self.effective_weapon_reload(weapon.reload_time);
             let name = secondary_name.as_deref().or(primary_name.as_deref());
+            let reload = self.live_reload_interval(weapon, name, rof);
             if Self::weapon_ready_named(weapon, current_time, name, reload) {
                 return true;
             }
         }
         if let Some(weapon) = &self.tertiary_weapon {
-            let reload = self.effective_weapon_reload(weapon.reload_time);
+            let reload = self.live_reload_interval(weapon, tertiary_name.as_deref(), rof);
             if Self::weapon_ready_named(weapon, current_time, tertiary_name.as_deref(), reload) {
                 return true;
             }
         }
         false
     }
+
 
     /// Fail-closed residual combat weapon choice (not full AutoChoose/PreferredAgainst).
     ///

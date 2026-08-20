@@ -51,7 +51,8 @@ use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::radar::get_radar_system;
 use game_engine::common::thing::module::{
-    Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
+    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData, ModuleInterfaceType,
+    ModuleType, Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::get_module_factory;
 use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};

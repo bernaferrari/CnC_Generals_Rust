@@ -2064,6 +2064,7 @@ impl GameLogic {
                         }
                     }
                     // Immediate remove — same spirit as C++ destroy-before-create.
+                    self.host_radar_remove_object(object_id);
                     let _removed = self.objects.remove(&object_id);
                     if let Some(new_id) = self.create_object(&replacement, team, pos) {
                         if let Some(obj) = self.objects.get_mut(&new_id) {

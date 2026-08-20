@@ -229,13 +229,13 @@ impl Snapshotable for StealthDetectorUpdateModuleData {
         xfer.xfer_unsigned_int(&mut extra_detect_kindof)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            self.extra_detect_kindof = extra_detect_kindof as u64;
+            self.extra_detect_kindof = extra_detect_kindof as KindOfMaskType;
         }
         let mut extra_detect_kindof_not = self.extra_detect_kindof_not as u32;
         xfer.xfer_unsigned_int(&mut extra_detect_kindof_not)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            self.extra_detect_kindof_not = extra_detect_kindof_not as u64;
+            self.extra_detect_kindof_not = extra_detect_kindof_not as KindOfMaskType;
         }
         xfer.xfer_bool(&mut self.can_detect_while_garrisoned)
             .map_err(|e| e.to_string())?;
@@ -526,15 +526,32 @@ impl StealthDetectorUpdate {
             .downcast_ref::<StealthDetectorUpdateModuleData>()
             .ok_or("Invalid module data type for StealthDetectorUpdate")?;
 
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let enabled = !specific_data.initially_disabled;
+        // C++ StealthDetectorUpdate.cpp:67-70 — random first wake so detectors
+        // do not all scan on the same frame.
+        let update_rate = specific_data.update_rate.max(1);
+        let next_call_frame_and_phase = if enabled {
+            let wake = crate::helpers::game_logic_random_value(1, update_rate);
+            crate::helpers::TheGameLogic::set_wake_frame(
+                object_id,
+                UpdateSleepTime::from_u32(wake),
+            );
+            wake
+        } else {
+            crate::helpers::TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::Forever);
+            0
+        };
+
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
-            enabled: !specific_data.initially_disabled,
+            next_call_frame_and_phase,
+            enabled,
             grid_particle_ids: Vec::new(),
             ping_particle_id: None,
             beacon_particle_id: None,
@@ -576,7 +593,7 @@ impl StealthDetectorUpdate {
     }
 
     fn mask_contains_kind(mask: KindOfMaskType, kind: KindOf) -> bool {
-        (mask & (1u64 << (kind as u32))) != 0
+        (mask & (kind.cpp_mask())) != 0
     }
 
     fn passes_kindof_filters(
@@ -722,6 +739,22 @@ impl StealthDetectorUpdate {
                                     }
                                 }
 
+                                // C++ StealthDetectorUpdate.cpp:284-290 — heat-vision
+                                // second pass, skipped for mines.
+                                crate::object::registry::OBJECT_REGISTRY.with_object(
+                                    obj_id,
+                                    |target| {
+                                        if target.is_kind_of(KindOf::Mine) {
+                                            return;
+                                        }
+                                        if let Some(drawable) = target.get_drawable() {
+                                            if let Ok(mut draw_guard) = drawable.write() {
+                                                draw_guard.set_second_material_pass_opacity(1.0);
+                                            }
+                                        }
+                                    },
+                                );
+
                                 if let Some(template_name) =
                                     self.module_data.ir_grid_particle_sys.as_ref()
                                 {
@@ -844,28 +877,26 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                     return UpdateSleepTime::Forever;
                 }
 
-                // Check if contained and whether we can detect while contained (C++ lines 139-162)
+                // C++ StealthDetectorUpdate.cpp:139-161 — garrisonable containers
+                // require CanDetectWhileGarrisoned; other containers require
+                // CanDetectWhileTransported. One matching flag is enough.
                 if let Some(contained_by_id) = obj.get_contained_by() {
-                    // Get the container object
-                    if crate::object::registry::OBJECT_REGISTRY
-                        .with_object(contained_by_id, |_| ())
-                        .is_some()
-                    {
-                        // Check if container has contain module
-                        // C++ lines 143-161 check if garrisonable or regular transport
-                        // For now, we assume we can check the container type
-                        //
-                        // If garrisonable (C++ lines 147-154)
+                    let garrisonable = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(contained_by_id, |container| {
+                            container
+                                .get_contain()
+                                .and_then(|contain| {
+                                    contain.lock().ok().map(|guard| guard.is_garrisonable())
+                                })
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
+                    if garrisonable {
                         if !self.module_data.can_detect_while_garrisoned {
-                            // Can't detect while garrisoned
                             return UpdateSleepTime::from_u32(self.module_data.update_rate);
                         }
-
-                        // If transported (C++ lines 156-160)
-                        if !self.module_data.can_detect_while_transported {
-                            // Can't detect while transported
-                            return UpdateSleepTime::from_u32(self.module_data.update_rate);
-                        }
+                    } else if !self.module_data.can_detect_while_transported {
+                        return UpdateSleepTime::from_u32(self.module_data.update_rate);
                     }
                 }
 
@@ -873,6 +904,8 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                 // Perform the actual detection scan
                 let found_someone = self.perform_detection_scan();
 
+                // C++ StealthDetectorUpdate.cpp:338-343 — IR pulse only if
+                // shroud <= PARTIAL_CLEAR AND (not STEALTHED OR local owner).
                 let is_visible = if let Ok(obj_guard) = object.read() {
                     let local_player_index = crate::player::ThePlayerList()
                         .read()
@@ -880,7 +913,16 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                         .map(|list| list.get_local_player_index() as i32)
                         .unwrap_or(-1);
                     let shroud = obj_guard.get_shrouded_status(local_player_index as i32);
-                    (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8)
+                    let shroud_visible =
+                        (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8);
+                    let stealthed = obj_guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::STEALTHED);
+                    let local_owner = obj_guard
+                        .get_controlling_player_id()
+                        .map(|id| id as i32 == local_player_index)
+                        .unwrap_or(false);
+                    shroud_visible && (!stealthed || local_owner)
                 } else {
                     false
                 };

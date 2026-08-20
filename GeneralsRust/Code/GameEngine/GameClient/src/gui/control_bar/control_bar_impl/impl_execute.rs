@@ -342,6 +342,18 @@ impl ControlBar {
         context: &ControlBarContext,
         source: CommandSourceType,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        if button.command_type == CommandType::Exit {
+            let occupant = button
+                .exit_object_id
+                .or_else(|| context.contain_data.iter().copied().flatten().next());
+            let Some(occupant) = occupant else {
+                return Ok(());
+            };
+            if let Ok(mut stream) = THE_MESSAGE_STREAM.write() {
+                stream.append_message(GameMessageType::Exit(occupant));
+            }
+            return Ok(());
+        }
         if context.selected_objects.is_empty() {
             return Ok(());
         }
@@ -371,8 +383,12 @@ impl ControlBar {
         // Host/presentation residual: queue typed Command with selected IDs.
         let mut command = Command::new(button.command_type);
         command.set_player_index(context.player_id as i32);
-        for object_id in &context.selected_objects {
-            command.append_object_id_argument(*object_id);
+        if let Some(occupant) = button.exit_object_id {
+            command.append_object_id_argument(occupant);
+        } else {
+            for object_id in &context.selected_objects {
+                command.append_object_id_argument(*object_id);
+            }
         }
         self.queue_command(context.player_id as i32, command)?;
         Ok(())

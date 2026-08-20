@@ -443,15 +443,19 @@ impl SpecialPowerModule {
 
                 if let Some(player) = owner_guard.get_controlling_player() {
                     if let Ok(mut player_guard) = player.write() {
+                        // C++ AcademyStats::recordSpecialPowerUsed increments only
+                        // when getAcademyClassificationType() == ACT_SUPERPOWER.
                         let classification = match template.get_academy_classification_type() {
                             crate::object::special_power_template::AcademyClassificationType::Superweapon => {
                                 AcademyClassificationType::Superpower
                             }
                             _ => AcademyClassificationType::None,
                         };
-                        player_guard
-                            .get_academy_stats_mut()
-                            .record_special_power_used(classification);
+                        if classification == AcademyClassificationType::Superpower {
+                            player_guard
+                                .get_academy_stats_mut()
+                                .record_special_power_used(classification);
+                        }
                     }
                 }
             }

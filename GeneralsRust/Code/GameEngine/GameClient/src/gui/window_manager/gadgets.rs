@@ -42,6 +42,14 @@ use std::time::Instant;
 
 use super::*;
 
+fn nonempty_draw<'a>(window: &'a [WindowDrawData], layout: &'a [WindowDrawData]) -> &'a [WindowDrawData] {
+    if !window.is_empty() {
+        window
+    } else {
+        layout
+    }
+}
+
 impl WindowManager {
     pub(crate) fn create_default_tab_panes(
         &mut self,
@@ -187,12 +195,21 @@ impl WindowManager {
             }
             drop_mut.set_tooltip(window.borrow().get_tooltip());
             drop_mut.instance_data_mut().tooltip_delay = window.borrow().get_tooltip_delay();
-            self.apply_draw_data_set(
-                &mut drop_mut,
-                &layout.combo_dropdown_enabled_draw_data,
-                &layout.combo_dropdown_disabled_draw_data,
-                &layout.combo_dropdown_hilite_draw_data,
+            let (en, dis, hi) = (
+                nonempty_draw(
+                    &window_def.combo_dropdown_enabled_draw_data,
+                    &layout.combo_dropdown_enabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_dropdown_disabled_draw_data,
+                    &layout.combo_dropdown_disabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_dropdown_hilite_draw_data,
+                    &layout.combo_dropdown_hilite_draw_data,
+                ),
             );
+            self.apply_draw_data_set(&mut drop_mut, en, dis, hi);
             self.apply_default_draw_callback(&mut drop_mut);
         }
 
@@ -245,12 +262,21 @@ impl WindowManager {
                     }
                 }
             }
-            self.apply_draw_data_set(
-                &mut edit_mut,
-                &layout.combo_edit_enabled_draw_data,
-                &layout.combo_edit_disabled_draw_data,
-                &layout.combo_edit_hilite_draw_data,
+            let (en, dis, hi) = (
+                nonempty_draw(
+                    &window_def.combo_edit_enabled_draw_data,
+                    &layout.combo_edit_enabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_edit_disabled_draw_data,
+                    &layout.combo_edit_disabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_edit_hilite_draw_data,
+                    &layout.combo_edit_hilite_draw_data,
+                ),
             );
+            self.apply_draw_data_set(&mut edit_mut, en, dis, hi);
             self.apply_default_draw_callback(&mut edit_mut);
         }
 
@@ -293,16 +319,25 @@ impl WindowManager {
                 listbox.set_columns(1);
                 listbox.set_audio_feedback(true);
             }
-            self.apply_draw_data_set(
-                &mut list_mut,
-                &layout.combo_list_enabled_draw_data,
-                &layout.combo_list_disabled_draw_data,
-                &layout.combo_list_hilite_draw_data,
+            let (en, dis, hi) = (
+                nonempty_draw(
+                    &window_def.combo_list_enabled_draw_data,
+                    &layout.combo_list_enabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_list_disabled_draw_data,
+                    &layout.combo_list_disabled_draw_data,
+                ),
+                nonempty_draw(
+                    &window_def.combo_list_hilite_draw_data,
+                    &layout.combo_list_hilite_draw_data,
+                ),
             );
+            self.apply_draw_data_set(&mut list_mut, en, dis, hi);
             self.apply_default_draw_callback(&mut list_mut);
         }
 
-        self.create_listbox_scrollbar_children(&list, layout)?;
+        self.create_listbox_scrollbar_children(&list, layout, Some(window_def))?;
 
         window
             .borrow_mut()
@@ -394,7 +429,89 @@ impl WindowManager {
         &mut self,
         listbox: &Rc<RefCell<GameWindow>>,
         layout: &WindowLayoutDefinition,
+        window_def: Option<&WindowDefinition>,
     ) -> WindowResult<()> {
+        let empty: &[WindowDrawData] = &[];
+        let (up_en, up_dis, up_hi) = (
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_enabled_up_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_enabled_up_button_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_disabled_up_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_disabled_up_button_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_hilite_up_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_hilite_up_button_draw_data,
+            ),
+        );
+        let (dn_en, dn_dis, dn_hi) = (
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_enabled_down_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_enabled_down_button_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_disabled_down_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_disabled_down_button_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_hilite_down_button_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_hilite_down_button_draw_data,
+            ),
+        );
+        let (sl_en, sl_dis, sl_hi) = (
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_enabled_slider_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_enabled_slider_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_disabled_slider_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_disabled_slider_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.listbox_hilite_slider_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.listbox_hilite_slider_draw_data,
+            ),
+        );
+        let (th_en, th_dis, th_hi) = (
+            nonempty_draw(
+                window_def
+                    .map(|w| w.slider_thumb_enabled_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.slider_thumb_enabled_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.slider_thumb_disabled_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.slider_thumb_disabled_draw_data,
+            ),
+            nonempty_draw(
+                window_def
+                    .map(|w| w.slider_thumb_hilite_draw_data.as_slice())
+                    .unwrap_or(empty),
+                &layout.slider_thumb_hilite_draw_data,
+            ),
+        );
         let (width, height) = listbox.borrow().get_size();
         let button_width = 21;
         let button_height = 22;
@@ -442,12 +559,7 @@ impl WindowManager {
             );
             button.set_triggers_on_mouse_down(true);
             up_mut.set_widget(WindowWidget::PushButton(button));
-            self.apply_draw_data_set(
-                &mut up_mut,
-                &layout.listbox_enabled_up_button_draw_data,
-                &layout.listbox_disabled_up_button_draw_data,
-                &layout.listbox_hilite_up_button_draw_data,
-            );
+            self.apply_draw_data_set(&mut up_mut, up_en, up_dis, up_hi);
             self.apply_default_draw_callback(&mut up_mut);
         }
 
@@ -474,12 +586,7 @@ impl WindowManager {
             );
             button.set_triggers_on_mouse_down(true);
             down_mut.set_widget(WindowWidget::PushButton(button));
-            self.apply_draw_data_set(
-                &mut down_mut,
-                &layout.listbox_enabled_down_button_draw_data,
-                &layout.listbox_disabled_down_button_draw_data,
-                &layout.listbox_hilite_down_button_draw_data,
-            );
+            self.apply_draw_data_set(&mut down_mut, dn_en, dn_dis, dn_hi);
             self.apply_default_draw_callback(&mut down_mut);
         }
 
@@ -505,20 +612,12 @@ impl WindowManager {
                 button_width as u32,
                 slider_height as u32,
             )));
-            self.apply_draw_data_set(
-                &mut slider_mut,
-                &layout.listbox_enabled_slider_draw_data,
-                &layout.listbox_disabled_slider_draw_data,
-                &layout.listbox_hilite_slider_draw_data,
-            );
+            self.apply_draw_data_set(&mut slider_mut, sl_en, sl_dis, sl_hi);
             self.apply_slider_draw_callback(&mut slider_mut);
         }
 
         let mut thumb_id = None;
-        if !layout.slider_thumb_enabled_draw_data.is_empty()
-            || !layout.slider_thumb_disabled_draw_data.is_empty()
-            || !layout.slider_thumb_hilite_draw_data.is_empty()
-        {
+        if !th_en.is_empty() || !th_dis.is_empty() || !th_hi.is_empty() {
             let thumb_window_id = generate_window_id();
             let thumb = self.create_window_with_id_internal(
                 Some(&slider),
@@ -540,12 +639,7 @@ impl WindowManager {
                     button_width as u32,
                     16,
                 )));
-                self.apply_draw_data_set(
-                    &mut thumb_mut,
-                    &layout.slider_thumb_enabled_draw_data,
-                    &layout.slider_thumb_disabled_draw_data,
-                    &layout.slider_thumb_hilite_draw_data,
-                );
+                self.apply_draw_data_set(&mut thumb_mut, th_en, th_dis, th_hi);
                 self.apply_default_draw_callback(&mut thumb_mut);
             }
             thumb_id = Some(thumb_window_id);

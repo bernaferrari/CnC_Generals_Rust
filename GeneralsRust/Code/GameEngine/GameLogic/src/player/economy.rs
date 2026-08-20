@@ -2,7 +2,10 @@ use super::*;
 
 impl Player {
     pub fn is_playable_side(&self) -> bool {
-        !self.is_observer
+        self.player_template
+            .as_ref()
+            .map(|template| template.is_playable_side())
+            .unwrap_or(false)
     }
 
     pub fn get_handicap(&self) -> &PlayerHandicap {
@@ -275,6 +278,19 @@ impl Player {
 
         Self::lookup_production_change(&template.production_time_changes, template_name)
     }
+    /// C++ `Player::getProductionVeterancyLevel`. Defaults to LEVEL_FIRST/Regular.
+    pub fn get_production_veterancy_level(&self, build_template_name: &str) -> VeterancyLevel {
+        let Some(template) = self.player_template.as_ref() else {
+            return VeterancyLevel::Regular;
+        };
+        let key = NameKeyGenerator::name_to_key(build_template_name);
+        template
+            .production_veterancy_levels
+            .get(&key)
+            .copied()
+            .unwrap_or(VeterancyLevel::Regular)
+    }
+
 
     /// Get production cost change based on KindOf mask (matches C++ Player::getProductionCostChangeBasedOnKindOf)
     pub fn get_production_cost_change_based_on_kind_of(&self, kind_of: KindOfMaskType) -> Real {

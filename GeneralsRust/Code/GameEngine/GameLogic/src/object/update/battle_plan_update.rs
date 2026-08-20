@@ -72,8 +72,8 @@ impl Default for BattlePlanUpdateModuleData {
             strategy_center_hold_the_line_max_health_scalar: 1.0,
             strategy_center_hold_the_line_max_health_change_type:
                 MaxHealthChangeType::PreserveRatio,
-            valid_member_kind_of: 0u64,
-            invalid_member_kind_of: 0u64,
+            valid_member_kind_of: 0,
+            invalid_member_kind_of: 0,
             vision_object_name: String::new(),
             bombardment_unpack_name: String::new(),
             bombardment_pack_name: String::new(),

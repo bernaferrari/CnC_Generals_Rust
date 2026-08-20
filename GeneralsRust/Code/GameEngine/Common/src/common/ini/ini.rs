@@ -619,22 +619,8 @@ fn parse_water_set_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_water_transparency_block(ini: &mut INI) -> INIResult<()> {
     let properties = parse_unnamed_property_block(ini)?;
-    let setting = super::ini_water::IniWater::parse_water_transparency_block(properties)
-        .map_err(|_| INIError::InvalidData)?;
-    super::ini_water::initialize_water_settings();
-    let transparency_lock =
-        super::ini_water::get_water_transparency().ok_or(INIError::InvalidData)?;
-    let mut transparency = transparency_lock
-        .write()
-        .expect("WaterTransparency poisoned");
-    if ini.get_load_type() == INILoadType::CreateOverrides {
-        let mut override_setting = setting;
-        override_setting.mark_as_override();
-        transparency.set_next_override(override_setting);
-    } else {
-        *transparency = setting;
-    }
-    Ok(())
+    super::ini_water::apply_parsed_water_transparency(ini.get_load_type(), properties)
+        .map_err(|_| INIError::InvalidData)
 }
 
 fn parse_weapon_block(ini: &mut INI) -> INIResult<()> {

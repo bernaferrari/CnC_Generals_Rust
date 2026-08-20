@@ -196,10 +196,15 @@ impl Object {
             .map(ToOwned::to_owned);
         let shots_per_barrel =
             Self::authored_shots_per_barrel_for_weapon_name(source_weapon_name.as_deref());
+        let source_changed =
+            self.weapon_barrel_states[index].source_weapon_name != source_weapon_name;
+        let authored_config_changed = source_weapon_name.is_some()
+            && self.weapon_barrel_states[index].shots_per_barrel != shots_per_barrel;
+        if source_changed {
+            self.weapon_scatter_targets_unused[index].clear();
+            self.weapon_scatter_targets_inited[index] = false;
+        }
         let state = &mut self.weapon_barrel_states[index];
-        let source_changed = state.source_weapon_name != source_weapon_name;
-        let authored_config_changed =
-            source_weapon_name.is_some() && state.shots_per_barrel != shots_per_barrel;
         if source_changed || authored_config_changed {
             *state = WeaponBarrelState::new(shots_per_barrel, 1, source_weapon_name);
         } else {

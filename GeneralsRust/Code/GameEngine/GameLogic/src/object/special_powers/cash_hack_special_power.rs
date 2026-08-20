@@ -22,9 +22,21 @@ use log::warn;
 
 use crate::common::science::ScienceType;
 use crate::common::{Coord3D, Int, ObjectID, Real};
-use crate::helpers::{TheGameLogic, TheInGameUI};
+use crate::helpers::{TheGameLogic, TheGameText, TheInGameUI};
 use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
+
+fn format_gui_cash(key: &str, amount: u32, fallback_prefix: &str) -> String {
+    let template = TheGameText::fetch(key);
+    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
+        template
+            .replace("%d", &amount.to_string())
+            .replace("%i", &amount.to_string())
+            .replace("%u", &amount.to_string())
+    } else {
+        format!("{fallback_prefix}${amount}")
+    }
+}
 
 /// Cash hack upgrade pair: a science prerequisite maps to a different steal amount.
 /// Matches C++ CashHackSpecialPowerModuleData::Upgrades.
@@ -239,12 +251,12 @@ impl CashHackSpecialPower {
         }
 
         // Display floating text: cash gained (green) over the hacker
-        // C++: TheInGameUI->addFloatingText(moneyString, &pos, GameMakeColor(0, 255, 0, 255))
+        // C++: moneyString.format(TheGameText->fetch("GUI:AddCash"), cash)
         {
             let mut gain_pos = self_pos;
             gain_pos.z += 20.0; // C++: pos.z += 20.0f
             if let Err(err) = TheInGameUI::add_floating_text(
-                &format!("+${}", cash),
+                &format_gui_cash("GUI:AddCash", cash, "+"),
                 &gain_pos,
                 crate::common::Color {
                     r: 0,
@@ -258,12 +270,12 @@ impl CashHackSpecialPower {
         }
 
         // Display floating text: cash lost (red) over the target
-        // C++: TheInGameUI->addFloatingText(moneyString, &pos, GameMakeColor(255, 0, 0, 255))
+        // C++: moneyString.format(TheGameText->fetch("GUI:LoseCash"), cash)
         {
             let mut loss_pos = victim_pos;
             loss_pos.z += 30.0; // C++: pos.z += 30.0f
             if let Err(err) = TheInGameUI::add_floating_text(
-                &format!("-${}", cash),
+                &format_gui_cash("GUI:LoseCash", cash, "-"),
                 &loss_pos,
                 crate::common::Color {
                     r: 255,
@@ -309,6 +321,8 @@ impl CashHackSpecialPower {
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
     }
+
+    fn dispatch_on_special_power_creation(&mut self) {}
 }
 
 
@@ -332,6 +346,10 @@ impl Module for CashHackSpecialPower {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
     }
+
+    fn on_object_created(&mut self) {
+        self.base_module.initialize_from_owner();
+    }
 }
 
 impl Snapshotable for CashHackSpecialPower {
@@ -343,16 +361,15 @@ impl Snapshotable for CashHackSpecialPower {
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("CashHackSpecialPower xfer version failed: {:?}", e))?;
-        Ok(())
+        super::interface::xfer_special_power_subclass(
+            &mut self.base_module,
+            xfer,
+            "CashHackSpecialPower",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Matches C++ CashHackSpecialPower::loadPostProcess()
-        Ok(())
+        super::interface::load_post_process_special_power_subclass(&mut self.base_module)
     }
 }
 

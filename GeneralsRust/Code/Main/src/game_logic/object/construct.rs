@@ -84,6 +84,10 @@ impl Object {
         }
 
         let special_power_cooldown = template.special_power_cooldown;
+        let subdual_damage_cap = template.subdual_damage_cap.max(0.0);
+        let subdual_heal_rate_frames = template.subdual_heal_rate_frames;
+        let subdual_heal_amount = template.subdual_heal_amount.max(0.0);
+
 
         let (mut power_provided, mut power_consumed) = building_data
             .as_ref()
@@ -446,7 +450,8 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
-            physics_mass: 1.0,
+            physics_mass: template.physics_mass.max(1.0e-4),
+            shock_resistance: template.shock_resistance.max(0.0),
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
@@ -466,10 +471,16 @@ impl Object {
             allow_to_fall: false,
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
-            pitch_roll_yaw_factor: 1.0,
+            pitch_roll_yaw_factor: if template.pitch_roll_yaw_factor.is_finite()
+                && template.pitch_roll_yaw_factor > 0.0
+            {
+                template.pitch_roll_yaw_factor
+            } else {
+                2.0
+            },
             is_braking: false,
             braking_factor: 1.0,
-            braking: 50.0,
+            braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
@@ -518,6 +529,7 @@ impl Object {
             health: Health::new(max_health),
             movement: Movement::default(),
             experience: Experience::default(),
+            experience_sink: None,
             weapon: None,
             mine_clearing_primary_weapon: None,
             secondary_weapon: None,
@@ -564,6 +576,9 @@ impl Object {
             weapon_set_player_upgrade: false,
             weapon_bonus_player_upgrade: false,
             armor_set_player_upgrade: false,
+            armor_set_veteran: false,
+            armor_set_elite: false,
+            armor_set_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
             sub_object_visibility: Default::default(),
@@ -605,6 +620,8 @@ impl Object {
             fire_sound_loop_until_frame: 0,
             fire_sound_loop_name: String::new(),
             weapon_barrel_states: std::array::from_fn(|_| WeaponBarrelState::default()),
+            weapon_scatter_targets_unused: std::array::from_fn(|_| Vec::new()),
+            weapon_scatter_targets_inited: [false; 3],
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -673,8 +690,9 @@ impl Object {
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
-            subdual_heal_rate_frames: 0,
-            subdual_heal_amount: 0.0,
+            subdual_damage_cap,
+            subdual_heal_rate_frames,
+            subdual_heal_amount,
             subdual_heal_countdown: 0,
             is_humvee_transport: false,
             is_listening_outpost_transport: false,
@@ -719,6 +737,10 @@ impl Object {
             vision_range: default_vision_range(),
             shroud_clearing_range: default_vision_range(),
             shroud_range: 0.0,
+            partition_cash_value: 0,
+            partition_threat_value: 0,
+            partition_last_affect: None,
+
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,
@@ -1094,7 +1116,8 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
-            physics_mass: 1.0,
+            physics_mass: template.physics_mass.max(1.0e-4),
+            shock_resistance: template.shock_resistance.max(0.0),
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
@@ -1114,10 +1137,16 @@ impl Object {
             allow_to_fall: false,
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
-            pitch_roll_yaw_factor: 1.0,
+            pitch_roll_yaw_factor: if template.pitch_roll_yaw_factor.is_finite()
+                && template.pitch_roll_yaw_factor > 0.0
+            {
+                template.pitch_roll_yaw_factor
+            } else {
+                2.0
+            },
             is_braking: false,
             braking_factor: 1.0,
-            braking: 50.0,
+            braking: 99999.0,
             loco_apply_2d_friction_airborne: false,
             loco_extra_2d_friction: 0.0,
             physics_turning: PhysicsTurningType::TurnNone,
@@ -1166,6 +1195,7 @@ impl Object {
             health: Health::new(100.0),
             movement: Movement::default(),
             experience: Experience::default(),
+            experience_sink: None,
             weapon: None,
             mine_clearing_primary_weapon: None,
             secondary_weapon: None,
@@ -1212,6 +1242,9 @@ impl Object {
             weapon_set_player_upgrade: false,
             weapon_bonus_player_upgrade: false,
             armor_set_player_upgrade: false,
+            armor_set_veteran: false,
+            armor_set_elite: false,
+            armor_set_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
             sub_object_visibility: Default::default(),
@@ -1253,6 +1286,8 @@ impl Object {
             fire_sound_loop_until_frame: 0,
             fire_sound_loop_name: String::new(),
             weapon_barrel_states: std::array::from_fn(|_| WeaponBarrelState::default()),
+            weapon_scatter_targets_unused: std::array::from_fn(|_| Vec::new()),
+            weapon_scatter_targets_inited: [false; 3],
             pre_attack_target: None,
             pre_attack_ready_at: 0.0,
             consecutive_shot_target: None,
@@ -1321,6 +1356,7 @@ impl Object {
             continuous_fire_victim: 0,
             faerie_fire_until_frame: 0,
             subdual_damage: 0.0,
+            subdual_damage_cap: 0.0,
             subdual_heal_rate_frames: 0,
             subdual_heal_amount: 0.0,
             subdual_heal_countdown: 0,
@@ -1367,6 +1403,10 @@ impl Object {
             vision_range: default_vision_range(),
             shroud_clearing_range: default_vision_range(),
             shroud_range: 0.0,
+            partition_cash_value: 0,
+            partition_threat_value: 0,
+            partition_last_affect: None,
+
             auto_acquire_when_idle: true,
             attack_priority_set: None,
             camo_friendly_opacity: 1.0,

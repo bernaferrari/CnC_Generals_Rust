@@ -301,7 +301,7 @@ impl Team {
         if OBJECT_REGISTRY.is_empty() {
             return false;
         }
-        let mask = (kind_of as KindOfMaskType) | (1u64 << (KindOf::Structure as u32));
+        let mask = (kind_of as KindOfMaskType) | (KindOf::Structure.cpp_mask());
         for &object_id in &self.members {
             if OBJECT_REGISTRY
                 .with_object(object_id, |object_guard| {

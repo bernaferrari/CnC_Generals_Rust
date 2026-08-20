@@ -664,6 +664,18 @@ impl GameLogic {
                     Some(id),
                     None,
                 );
+                if launch_fx {
+                    let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                        crate::game_logic::host_neutron_missile_update::NEUTRON_LAUNCH_FX,
+                        p,
+                    );
+                }
+                if ignition_fx {
+                    let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                        crate::game_logic::host_neutron_missile_update::NEUTRON_IGNITION_FX,
+                        p,
+                    );
+                }
             }
             if grounded || matches!(phase, NeutronMissileFlightPhase::Dead) {
                 // Impact residuals: neutron SlowDeath vs cruise MOAB detonation.
@@ -785,6 +797,10 @@ impl GameLogic {
                     self.frame,
                     Some(id),
                     None,
+                );
+                let _ = crate::game_logic::dispatch_fx_list_at_pos(
+                    crate::game_logic::special_power_strikes::SCUD_STORM_MISSILE_IGNITION_FX,
+                    p,
                 );
                 self.scud_storm_missile_flight_reg.record_ignition();
             } else if !grounded {

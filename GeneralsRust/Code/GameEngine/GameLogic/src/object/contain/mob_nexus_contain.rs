@@ -56,7 +56,7 @@ pub struct InitialPayload {
 impl Default for MobNexusContainModuleData {
     fn default() -> Self {
         let mut base = super::OpenContainModuleData::default();
-        base.allow_inside_kind_of = 1u64 << (KindOf::Infantry as u32);
+        base.allow_inside_kind_of = KindOf::Infantry.cpp_mask();
 
         Self {
             base,
@@ -862,6 +862,10 @@ impl ContainModuleInterface for MobNexusContain {
 
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = MobNexusContain::process_damage_to_contained(self, percent_damage);
+    }
+
+    fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base.on_selling().map_err(|e| e.into())
     }
 }
 

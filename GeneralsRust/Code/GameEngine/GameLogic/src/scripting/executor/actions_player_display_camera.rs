@@ -110,8 +110,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doPlayerKill()
-    /// Kills all units and buildings belonging to a player
+    /// C++ Reference: ScriptActions::doPlayerKill() -> Player::killPlayer()
     pub(crate) fn do_player_kill(
         &mut self,
         action: &ScriptAction,
@@ -120,35 +119,21 @@ impl ScriptActionDispatcher {
 
         log::info!("Killing all units for player '{}' (scripted)", player_name);
 
-        let list = player_list();
-        let Ok(list_guard) = list.read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(player_arc) = list_guard.find_player_by_name(&player_name) else {
-            log::warn!("Player '{}' not found for kill", player_name);
-            return Ok(ScriptActionResult::Success);
-        };
-        let Ok(player) = player_arc.read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let player_index = player.get_player_index() as u32;
-        drop(player);
-
-        // Match C++ intent: destroy all player-owned objects.
-        let obj_mgr = get_object_manager();
-        let Ok(obj_mgr_guard) = obj_mgr.read() else {
-            return Ok(ScriptActionResult::Success);
+        let player_arc = {
+            let list = player_list();
+            let Ok(list_guard) = list.read() else {
+                return Ok(ScriptActionResult::Success);
+            };
+            let Some(player_arc) = list_guard.find_player_by_name(&player_name) else {
+                log::warn!("Player '{}' not found for kill", player_name);
+                return Ok(ScriptActionResult::Success);
+            };
+            player_arc.clone()
         };
 
-        let owned = obj_mgr_guard.get_objects_owned_by_player(player_index);
-        for object_id in owned {
-            let Some(obj_arc) = obj_mgr_guard.get_object(object_id) else {
-                continue;
-            };
-            let Ok(mut obj) = obj_arc.write() else {
-                continue;
-            };
-            obj.destroy();
+        // Drop PlayerList before kill_player: Team::kill_team re-enters the list.
+        if let Ok(mut player) = player_arc.write() {
+            player.kill_player();
         }
 
         Ok(ScriptActionResult::Success)
@@ -724,40 +709,42 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doIncrementCounter()
+    /// C++ Reference: ScriptEngine::addCounter() — param0=amount, param1=counter name.
     pub(crate) fn do_increment_counter(
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let counter_name = self.get_string_param(action, 0)?;
-        log::debug!("Incrementing counter '{}'", counter_name);
+        let amount = self.get_int_param(action, 0)?;
+        let counter_name = self.get_string_param(action, 1)?;
+        log::debug!("Incrementing counter '{}' by {}", counter_name, amount);
 
-        let _ = with_script_engine_mut(|engine| engine.increment_counter(&counter_name));
+        let _ = with_script_engine_mut(|engine| engine.increment_counter(&counter_name, amount));
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doDecrementCounter()
+    /// C++ Reference: ScriptEngine::subCounter() — param0=amount, param1=counter name.
     pub(crate) fn do_decrement_counter(
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let counter_name = self.get_string_param(action, 0)?;
-        log::debug!("Decrementing counter '{}'", counter_name);
+        let amount = self.get_int_param(action, 0)?;
+        let counter_name = self.get_string_param(action, 1)?;
+        log::debug!("Decrementing counter '{}' by {}", counter_name, amount);
 
-        let _ = with_script_engine_mut(|engine| engine.decrement_counter(&counter_name));
+        let _ = with_script_engine_mut(|engine| engine.decrement_counter(&counter_name, amount));
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doSetTimer()
+    /// C++ Reference: ScriptEngine::setTimer(non-msec) stores INT frames verbatim.
     pub(crate) fn do_set_timer(
         &mut self,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
-        let seconds = self.get_real_param(action, 1)?;
-        log::debug!("Setting timer '{}' to {} seconds", timer_name, seconds);
+        let frames = self.get_int_param(action, 1)?;
+        log::debug!("Setting timer '{}' to {} frames", timer_name, frames);
 
-        let _ = with_script_engine_mut(|engine| engine.set_timer_seconds(&timer_name, seconds));
+        let _ = with_script_engine_mut(|engine| engine.set_timer(&timer_name, frames));
         Ok(ScriptActionResult::Success)
     }
 

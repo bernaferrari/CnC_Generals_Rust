@@ -352,6 +352,8 @@ impl Player {
                                             .unwrap_or(SCIENCE_INVALID);
                                         if required_science == science {
                                             module.on_special_power_creation();
+                                            // C++ Player.cpp:2536-2538 — instantly ready.
+                                            module.set_ready_frame(current_frame);
                                         }
                                     }
                                 }

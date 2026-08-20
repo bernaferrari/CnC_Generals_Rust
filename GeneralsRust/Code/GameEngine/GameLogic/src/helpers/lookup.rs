@@ -7,7 +7,7 @@ struct EngineThingTemplateAdapter {
     inner: Arc<EngineThingTemplate>,
     name: crate::common::AsciiString,
     geometry: crate::common::GeometryInfo,
-    kindof_mask: u64,
+    kindof_mask: u128,
     behavior_modules: Vec<crate::common::TemplateModuleInfo>,
     draw_modules: Vec<crate::common::TemplateModuleInfo>,
     client_update_modules: Vec<crate::common::TemplateModuleInfo>,
@@ -59,7 +59,7 @@ impl EngineThingTemplateAdapter {
         };
 
         Self {
-            kindof_mask: inner.get_kindof_mask(),
+            kindof_mask: inner.get_kindof_bits(),
             behavior_modules: Self::convert_module_info(inner.get_behavior_module_info()),
             draw_modules: Self::convert_module_info(inner.get_draw_module_info()),
             client_update_modules: Self::convert_module_info(inner.get_client_update_module_info()),
@@ -109,28 +109,7 @@ impl EngineThingTemplateAdapter {
     }
 
     fn kind_index(kind: crate::common::KindOf) -> Option<u32> {
-        match kind {
-            crate::common::KindOf::Prison => Some(15),
-            crate::common::KindOf::CollectsPrisonBounty => Some(16),
-            crate::common::KindOf::PowTruck => Some(17),
-            crate::common::KindOf::RepairPad => Some(31),
-            crate::common::KindOf::CashGenerator => Some(34),
-            crate::common::KindOf::RebuildHole => Some(37),
-            crate::common::KindOf::CanRappel => Some(42),
-            crate::common::KindOf::CanSurrender => Some(44),
-            crate::common::KindOf::MobNexus => Some(46),
-            crate::common::KindOf::IgnoredInGui => Some(47),
-            crate::common::KindOf::Capturable => Some(49),
-            crate::common::KindOf::FSTechnology => Some(64),
-            crate::common::KindOf::ImmuneToCapture => Some(80),
-            crate::common::KindOf::NoGarrison => Some(27),
-            crate::common::KindOf::Powered => Some(70),
-            crate::common::KindOf::GarrisonableUntilDestroyed => Some(78),
-            _ => crate::common::ALL_KIND_OF
-                .iter()
-                .position(|k| *k == kind)
-                .map(|idx| idx as u32),
-        }
+        kind.cpp_bit()
     }
 }
 
@@ -385,7 +364,9 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player.get_handicap().get_cost_multiplier();
+        mods.handicap_cost_multiplier = player
+            .get_handicap()
+            .get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kindof_mask);
 
@@ -409,7 +390,9 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_time_change_percent =
             player.get_production_time_change_percent(self.get_name().as_str());
-        mods.handicap_time_multiplier = player.get_handicap().get_build_time_multiplier();
+        mods.handicap_time_multiplier = player
+            .get_handicap()
+            .get_build_time_multiplier_for_template(self);
         mods.energy_supply_ratio = player.get_energy().supply_ratio();
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kindof_mask);

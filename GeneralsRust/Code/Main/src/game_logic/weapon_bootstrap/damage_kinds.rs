@@ -151,15 +151,76 @@ pub fn host_weapon_is_water_damage(name: &str) -> bool {
 
 /// C++ Weapon.ini DamageStatusType residual name (OBJECT_STATUS bit name).
 pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static str> {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store
+            .find_weapon_template(name)
+            .map(|wt| object_status_bit_name(wt.damage_status_type.into()))
+    })
+    .ok()
+    .flatten()
+    .flatten();
+    if from_store.is_some() {
+        return from_store;
+    }
     if !host_weapon_is_status_damage(name) {
         return None;
     }
-    let n = name.to_ascii_lowercase();
-    if n.contains("designator") || n.contains("faerie") || n.contains("avenger") {
-        return Some("FAERIE_FIRE");
-    }
     Some("FAERIE_FIRE")
 }
+
+fn object_status_bit_name(status: gamelogic::common::ObjectStatusTypes) -> Option<&'static str> {
+    use gamelogic::common::ObjectStatusTypes::*;
+    match status {
+        None => None,
+        Destroyed => Some("DESTROYED"),
+        CanAttack => Some("CAN_ATTACK"),
+        UnderConstruction => Some("UNDER_CONSTRUCTION"),
+        Unselectable => Some("UNSELECTABLE"),
+        NoCollisions => Some("NO_COLLISIONS"),
+        NoAttack => Some("NO_ATTACK"),
+        AirborneTarget => Some("AIRBORNE_TARGET"),
+        Parachuting => Some("PARACHUTING"),
+        Repulsor => Some("REPULSOR"),
+        Hijacked => Some("HIJACKED"),
+        Aflame => Some("AFLAME"),
+        Burned => Some("BURNED"),
+        Wet => Some("WET"),
+        IsFiringWeapon => Some("IS_FIRING_WEAPON"),
+        Braking => Some("IS_BRAKING"),
+        Stealthed => Some("STEALTHED"),
+        Detected => Some("DETECTED"),
+        CanStealth => Some("CAN_STEALTH"),
+        Sold => Some("SOLD"),
+        UndergoingRepair => Some("UNDERGOING_REPAIR"),
+        Reconstructing => Some("RECONSTRUCTING"),
+        Masked => Some("MASKED"),
+        IsAttacking => Some("IS_ATTACKING"),
+        IsUsingAbility => Some("USING_ABILITY"),
+        IsAimingWeapon => Some("IS_AIMING_WEAPON"),
+        NoAttackFromAi => Some("NO_ATTACK_FROM_AI"),
+        IgnoringStealth => Some("IGNORING_STEALTH"),
+        IsCarBomb => Some("IS_CARBOMB"),
+        DeckHeightOffset => Some("DECK_HEIGHT_OFFSET"),
+        Rider1 => Some("STATUS_RIDER1"),
+        Rider2 => Some("STATUS_RIDER2"),
+        Rider3 => Some("STATUS_RIDER3"),
+        Rider4 => Some("STATUS_RIDER4"),
+        Rider5 => Some("STATUS_RIDER5"),
+        Rider6 => Some("STATUS_RIDER6"),
+        Rider7 => Some("STATUS_RIDER7"),
+        Rider8 => Some("STATUS_RIDER8"),
+        FaerieFire => Some("FAERIE_FIRE"),
+        MissileKillingSelf => Some("KILLING_SELF"),
+        ReassignParking => Some("REASSIGN_PARKING"),
+        BoobyTrapped => Some("BOOBY_TRAPPED"),
+        Immobile => Some("IMMOBILE"),
+        Disguised => Some("DISGUISED"),
+        Deployed => Some("DEPLOYED"),
+    }
+}
+
 
 /// C++ STATUS damage duration: PrimaryDamage is msec → logic frames @ 30 FPS.
 pub fn host_status_damage_frames_from_primary_damage(primary_damage_msec: f32) -> u32 {

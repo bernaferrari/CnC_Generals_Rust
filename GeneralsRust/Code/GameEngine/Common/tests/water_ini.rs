@@ -54,5 +54,10 @@ End
 
     let transparency = get_water_transparency().expect("water transparency initialized");
     let transparency = transparency.read().expect("water transparency lock");
-    assert_eq!(transparency.radar_water_color, (140.0, 140.0, 255.0));
+    assert!((transparency.radar_water_color.0 - 140.0 / 255.0).abs() < 1e-5);
+    assert!((transparency.radar_water_color.1 - 140.0 / 255.0).abs() < 1e-5);
+    assert!((transparency.radar_water_color.2 - 1.0).abs() < 1e-5);
+    assert!((transparency.standing_water_color.0 - 1.0).abs() < 1e-5);
+    assert!((transparency.standing_water_color.1 - 1.0).abs() < 1e-5);
+    assert!((transparency.standing_water_color.2 - 1.0).abs() < 1e-5);
 }

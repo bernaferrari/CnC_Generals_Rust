@@ -199,7 +199,7 @@ impl CreateCrateDie {
         let Some(killer) = killer else {
             return false;
         };
-        killer.is_kind_of_multi(template.killed_by_type_kindof, 0)
+        killer.is_kind_of_multi(template.killed_by_type_kindof as crate::common::KindOfMaskType, 0)
     }
 
     /// Test if killer has required science/upgrades

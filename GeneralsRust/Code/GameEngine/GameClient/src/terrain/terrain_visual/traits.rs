@@ -212,13 +212,9 @@ impl TerrainVisual for TerrainVisualImpl {
             return Ok(());
         }
 
-        if self.water_plane.is_none() {
-            if let Some(device) = self.device.as_ref().cloned() {
-                self.sync_global_water_plane(device.as_ref())?;
-            }
-        }
-        if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
-            if let Some(device) = self.device.as_ref().cloned() {
+        if let Some(device) = self.device.as_ref().cloned() {
+            self.sync_global_water_plane(device.as_ref())?;
+            if self.water_texture_bind_group.is_none() || self.water_texture_is_fallback {
                 self.ensure_water_texture_bind_group(device.as_ref());
             }
         }
@@ -229,6 +225,10 @@ impl TerrainVisual for TerrainVisualImpl {
         let view_proj = *projection_matrix * *view_matrix;
         let camera_inverse = view_matrix.inverse();
         let camera_position = camera_inverse.transform_point3(Vec3::ZERO);
+        if let Some(device) = self.device.clone() {
+            self.ensure_snow_texture_bind_group(device.as_ref());
+            self.apply_water_transparency_map_overrides(device.as_ref());
+        }
         self.upload_snow_mesh(camera_position);
         if self.overlay.overlays_dirty {
             self.rebuild_all_overlays();

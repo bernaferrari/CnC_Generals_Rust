@@ -180,6 +180,9 @@ pub enum HostControlBarRequest {
         special_power_name: Option<String>,
         /// Legacy special-power ID when the GameLogic button bridge has it.
         special_power_id: Option<u32>,
+        /// C++ MSG_EXIT occupant (`m_containData.objectID`), not the container.
+        exit_object_id: Option<u32>,
+
     },
     /// Arm a placement/targeting interaction for the host input layer.
     ArmTarget {
@@ -586,8 +589,10 @@ fn direct_host_request(
         } else {
             special_power_id
         },
+        exit_object_id: button.exit_object_id,
     }
 }
+
 
 /// Publish a request only while the host bridge owns Control Bar authority.
 ///

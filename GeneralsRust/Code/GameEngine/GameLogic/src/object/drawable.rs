@@ -3284,6 +3284,15 @@ impl Drawable {
         self.effective_stealth_opacity = (self.stealth_factor + pulse_amount).clamp(0.0, 1.0);
     }
 
+    /// C++ Drawable::setSecondMaterialPassOpacity — heat-vision overlay.
+    pub fn set_second_material_pass_opacity(&mut self, opacity: Real) {
+        self.second_material_pass_opacity = opacity.clamp(0.0, 1.0);
+    }
+
+    pub fn get_second_material_pass_opacity(&self) -> Real {
+        self.second_material_pass_opacity
+    }
+
     /// Set stealth appearance mode and hidden state (C++ Drawable::setStealthLook parity).
     pub fn set_stealth_look(&mut self, look: StealthLookType) {
         if look == self.stealth_look {

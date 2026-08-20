@@ -334,9 +334,14 @@ impl Snapshotable for SubObjectsUpgrade {
 }
 
 impl UpgradeModuleInterface for SubObjectsUpgrade {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
-        !self.applied
+    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+        crate::object::upgrade::upgrade_module::mux_can_upgrade(
+            &self.data.upgrade_mux_data,
+            self.applied,
+            upgrade_mask,
+        )
     }
+
 
     fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         // Wave 431: empty dual-world → false.
@@ -500,13 +505,15 @@ fn parse_requires_all_triggers(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .skip_while(|t| **t == "=")
-        .next()
-        .ok_or(INIError::InvalidData)?;
-    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
-    Ok(())
+    data.upgrade_mux_data.parse_requires_all_triggers_tokens(tokens)
+}
+
+fn parse_fx_list_upgrade(
+    _ini: &mut INI,
+    data: &mut SubObjectsUpgradeModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.upgrade_mux_data.parse_fx_list_upgrade_tokens(tokens)
 }
 
 const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[
@@ -527,6 +534,10 @@ const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[
         parse: parse_requires_all_triggers,
     },
     FieldParse {
+        token: "FXListUpgrade",
+        parse: parse_fx_list_upgrade,
+    },
+    FieldParse {
         token: "ShowSubObjects",
         parse: parse_show_sub_objects,
     },
@@ -535,3 +546,4 @@ const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[
         parse: parse_hide_sub_objects,
     },
 ];
+

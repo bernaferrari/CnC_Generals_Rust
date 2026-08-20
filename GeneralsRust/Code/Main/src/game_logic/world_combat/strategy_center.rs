@@ -558,8 +558,7 @@ impl GameLogic {
             destroyed = any_destroyed;
             if destroyed {
                 if let Some(target) = self.objects.get(&target_id) {
-                    kill_xp = target.thing.template.experience_value
-                        * Self::veterancy_xp_multiplier(target.experience.level);
+                    kill_xp = target.kill_experience_value();
                 }
             }
             let _ = hits;
@@ -687,7 +686,6 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
             }
             if destroyed {
-                attacker.gain_experience(kill_xp);
                 self.stop_attack_decision_aware(defense_id);
             }
         }
@@ -695,9 +693,12 @@ impl GameLogic {
         // physical slot discharge and must advance/freeze exactly once.
         let _ = self.record_accepted_weapon_discharge(defense_id, slot);
 
-        if destroyed && !is_fire_base {
-            // Fire Base residual already mark_object_for_destruction inside apply.
-            self.mark_object_for_destruction(target_id, Some(team));
+        if destroyed {
+            self.award_experience(defense_id, kill_xp);
+            if !is_fire_base {
+                // Fire Base residual already mark_object_for_destruction inside apply.
+                self.mark_object_for_destruction(target_id, Some(team));
+            }
         }
 
         // Continuous-fire ramp residual for structure gattling.
@@ -1131,14 +1132,13 @@ impl GameLogic {
                     );
                     crate::game_logic::host_ai_decision_log::record_set_state(clip.assistant_id, 2);
                 }
-                if destroyed {
-                    asst.gain_experience(kill_xp);
-                }
+                // Kill XP awarded after this borrow via award_experience.
             }
             // An assisted-targeting clip is a real primary WeaponSet shot,
             // not one visual event per auto-fire victim.
             let _ = self.record_accepted_weapon_discharge(clip.assistant_id, 0);
             if destroyed {
+                self.award_experience(clip.assistant_id, kill_xp);
                 // Clear engagement via decision authority (log-only when GW applies).
                 self.stop_attack_decision_aware(clip.assistant_id);
             }

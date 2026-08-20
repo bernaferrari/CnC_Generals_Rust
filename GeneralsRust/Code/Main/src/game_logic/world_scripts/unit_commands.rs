@@ -878,6 +878,23 @@ impl GameLogic {
 
     /// Wave 233: set building rally point + host_rally_log.
     pub fn unit_command_set_rally_point(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        let Some(obj) = self.objects.get(&id) else {
+            return false;
+        };
+        if obj.building_data.is_none() {
+            return false;
+        }
+        let from = obj.get_position();
+        if !self
+            .pathfinding_system
+            .grid
+            .quick_path_exists_for_ui(from, location)
+        {
+            #[cfg(feature = "game_client")]
+            game_client::helpers::TheInGameUI::message("GUI:RallyPointNoPath");
+            self.play_ui_sound("UnableToSetRallyPoint");
+            return false;
+        }
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -886,6 +903,9 @@ impl GameLogic {
         };
         building.rally_point = Some(location);
         crate::game_logic::host_rally_log::record(id, Some([location.x, location.y, location.z]));
+        #[cfg(feature = "game_client")]
+        game_client::helpers::TheInGameUI::message("GUI:RallyPointSet");
+        self.play_ui_sound("RallyPointSet");
         true
     }
 

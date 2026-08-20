@@ -245,6 +245,7 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
         radius_damage_affects: 0,
         projectile_collides: 0,
         scatter_radius: 0.0,
+        scatter_table_offset: None,
         min_weapon_speed: 0.0,
         scale_weapon_speed: false,
         attack_range: 0.0,

@@ -119,6 +119,13 @@ pub mod host_temporary_weapon_behavior;
 #[path = "host_fx_list_die.rs"]
 pub(super) mod host_fx_list_die;
 
+#[path = "host_fx_list_dispatch.rs"]
+pub(super) mod host_fx_list_dispatch;
+pub use host_fx_list_dispatch::{
+    dispatch_fx_list_at_pos, is_authored_fx_list_name, resolve_audio_event_names,
+    sound_names_for_fx_list,
+};
+
 #[path = "host_heal.rs"]
 pub mod host_heal;
 

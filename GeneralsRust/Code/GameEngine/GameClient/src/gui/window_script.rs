@@ -47,7 +47,7 @@ pub struct WindowLayoutDefinition {
     pub combo_list_hilite_draw_data: Vec<WindowDrawData>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct WindowDefinition {
     pub name: String,
     pub window_type: String,
@@ -84,7 +84,86 @@ pub struct WindowDefinition {
     pub slider_thumb_enabled_draw_data: Vec<WindowDrawData>,
     pub slider_thumb_disabled_draw_data: Vec<WindowDrawData>,
     pub slider_thumb_hilite_draw_data: Vec<WindowDrawData>,
+    pub listbox_enabled_up_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_disabled_up_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_hilite_up_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_enabled_down_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_disabled_down_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_hilite_down_button_draw_data: Vec<WindowDrawData>,
+    pub listbox_enabled_slider_draw_data: Vec<WindowDrawData>,
+    pub listbox_disabled_slider_draw_data: Vec<WindowDrawData>,
+    pub listbox_hilite_slider_draw_data: Vec<WindowDrawData>,
+    pub combo_dropdown_enabled_draw_data: Vec<WindowDrawData>,
+    pub combo_dropdown_disabled_draw_data: Vec<WindowDrawData>,
+    pub combo_dropdown_hilite_draw_data: Vec<WindowDrawData>,
+    pub combo_edit_enabled_draw_data: Vec<WindowDrawData>,
+    pub combo_edit_disabled_draw_data: Vec<WindowDrawData>,
+    pub combo_edit_hilite_draw_data: Vec<WindowDrawData>,
+    pub combo_list_enabled_draw_data: Vec<WindowDrawData>,
+    pub combo_list_disabled_draw_data: Vec<WindowDrawData>,
+    pub combo_list_hilite_draw_data: Vec<WindowDrawData>,
     pub children: Vec<WindowDefinition>,
+}
+
+impl Default for WindowDefinition {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            window_type: String::new(),
+            status: WindowStatus::default(),
+            style: 0,
+            position: (0, 0),
+            size: (0, 0),
+            raw_screen_rect: None,
+            creation_resolution: None,
+            listbox_data: None,
+            text_entry_data: None,
+            combo_box_data: None,
+            tab_control_data: None,
+            slider_data: None,
+            radio_button_data: None,
+            static_text_data: None,
+            image_offset: (0, 0),
+            system_callback: String::new(),
+            input_callback: String::new(),
+            tooltip_callback: String::new(),
+            draw_callback: String::new(),
+            font: None,
+            header_template: String::new(),
+            tooltip_delay: -1,
+            text: String::new(),
+            text_label: String::new(),
+            tooltip: String::new(),
+            enabled_text: WindowTextColors::default(),
+            disabled_text: WindowTextColors::default(),
+            hilite_text: WindowTextColors::default(),
+            enabled_draw_data: Vec::new(),
+            disabled_draw_data: Vec::new(),
+            hilite_draw_data: Vec::new(),
+            slider_thumb_enabled_draw_data: Vec::new(),
+            slider_thumb_disabled_draw_data: Vec::new(),
+            slider_thumb_hilite_draw_data: Vec::new(),
+            listbox_enabled_up_button_draw_data: Vec::new(),
+            listbox_disabled_up_button_draw_data: Vec::new(),
+            listbox_hilite_up_button_draw_data: Vec::new(),
+            listbox_enabled_down_button_draw_data: Vec::new(),
+            listbox_disabled_down_button_draw_data: Vec::new(),
+            listbox_hilite_down_button_draw_data: Vec::new(),
+            listbox_enabled_slider_draw_data: Vec::new(),
+            listbox_disabled_slider_draw_data: Vec::new(),
+            listbox_hilite_slider_draw_data: Vec::new(),
+            combo_dropdown_enabled_draw_data: Vec::new(),
+            combo_dropdown_disabled_draw_data: Vec::new(),
+            combo_dropdown_hilite_draw_data: Vec::new(),
+            combo_edit_enabled_draw_data: Vec::new(),
+            combo_edit_disabled_draw_data: Vec::new(),
+            combo_edit_hilite_draw_data: Vec::new(),
+            combo_list_enabled_draw_data: Vec::new(),
+            combo_list_disabled_draw_data: Vec::new(),
+            combo_list_hilite_draw_data: Vec::new(),
+            children: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -396,7 +475,7 @@ fn parse_window_statement(
         "FONT" => window.font = parse_font(val),
         "HEADERTEMPLATE" => window.header_template = strip_wrapped_value(val),
         "TOOLTIPDELAY" => {
-            window.tooltip_delay = val.trim_end_matches(';').trim().parse().unwrap_or(0)
+            window.tooltip_delay = val.trim_end_matches(';').trim().parse().unwrap_or(-1)
         }
         "TEXT" => window.text = strip_wrapped_value(val),
         "TEXTLABEL" => window.text_label = strip_wrapped_value(val),
@@ -413,6 +492,60 @@ fn parse_window_statement(
         }
         "SLIDERTHUMBHILITEDRAWDATA" => {
             window.slider_thumb_hilite_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXENABLEDUPBUTTONDRAWDATA" => {
+            window.listbox_enabled_up_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXDISABLEDUPBUTTONDRAWDATA" => {
+            window.listbox_disabled_up_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXHILITEUPBUTTONDRAWDATA" => {
+            window.listbox_hilite_up_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXENABLEDDOWNBUTTONDRAWDATA" => {
+            window.listbox_enabled_down_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXDISABLEDDOWNBUTTONDRAWDATA" => {
+            window.listbox_disabled_down_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXHILITEDOWNBUTTONDRAWDATA" => {
+            window.listbox_hilite_down_button_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXENABLEDSLIDERDRAWDATA" => {
+            window.listbox_enabled_slider_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXDISABLEDSLIDERDRAWDATA" => {
+            window.listbox_disabled_slider_draw_data = parse_draw_data(val);
+        }
+        "LISTBOXHILITESLIDERDRAWDATA" => {
+            window.listbox_hilite_slider_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXDROPDOWNBUTTONENABLEDDRAWDATA" => {
+            window.combo_dropdown_enabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXDROPDOWNBUTTONDISABLEDDRAWDATA" => {
+            window.combo_dropdown_disabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXDROPDOWNBUTTONHILITEDRAWDATA" => {
+            window.combo_dropdown_hilite_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXEDITBOXENABLEDDRAWDATA" => {
+            window.combo_edit_enabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXEDITBOXDISABLEDDRAWDATA" => {
+            window.combo_edit_disabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXEDITBOXHILITEDRAWDATA" => {
+            window.combo_edit_hilite_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXLISTBOXENABLEDDRAWDATA" => {
+            window.combo_list_enabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXLISTBOXDISABLEDDRAWDATA" => {
+            window.combo_list_disabled_draw_data = parse_draw_data(val);
+        }
+        "COMBOBOXLISTBOXHILITEDRAWDATA" => {
+            window.combo_list_hilite_draw_data = parse_draw_data(val);
         }
         "LISTBOXDATA" => window.listbox_data = Some(parse_listbox_data(val)),
         "TEXTENTRYDATA" => window.text_entry_data = Some(parse_text_entry_data(val)),
@@ -996,5 +1129,28 @@ mod tests {
             .image
             .as_ref()
             .is_some_and(|image| image.name == "Thumb"));
+    }
+
+    #[test]
+    fn listbox_child_draw_data_parses_onto_window() {
+        let mut window = super::WindowDefinition::default();
+        super::parse_window_statement(
+            "LISTBOXENABLEDUPBUTTONDRAWDATA = IMAGE: UpArrow, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 255;",
+            &mut window,
+        )
+        .unwrap();
+        assert!(
+            !window.listbox_enabled_up_button_draw_data.is_empty(),
+            "per-window LISTBOX*DRAWDATA must land on WindowDefinition"
+        );
+        assert!(window.listbox_enabled_up_button_draw_data[0]
+            .image
+            .as_ref()
+            .is_some_and(|image| image.name == "UpArrow"));
+    }
+
+    #[test]
+    fn window_definition_default_tooltip_delay_is_cpp_minus_one() {
+        assert_eq!(super::WindowDefinition::default().tooltip_delay, -1);
     }
 }

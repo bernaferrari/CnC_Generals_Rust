@@ -164,6 +164,7 @@ impl GameLogic {
                 | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS,
             projectile_collides: crate::game_logic::weapon_bootstrap::PROJECTILE_COLLIDE_DEFAULT,
             scatter_radius: scatter,
+            scatter_table_offset: None,
             min_weapon_speed: 0.0,
             scale_weapon_speed: false,
             attack_range: 0.0,
@@ -212,8 +213,7 @@ impl GameLogic {
             };
             let destroyed = target.take_damage_from(weapon_damage, Some(attacker_id));
             if destroyed {
-                let kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
+                let kill_xp = target.kill_experience_value();
                 let victim_pos = target.get_position();
                 let victim_team = target.team;
                 (true, kill_xp, victim_pos, victim_team)

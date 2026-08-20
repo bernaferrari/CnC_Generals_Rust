@@ -75,6 +75,7 @@ pub struct TerrainVisualImpl {
     terrain_pipeline: Option<wgpu::RenderPipeline>,
     terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
+    water_additive_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group 1: standing-water albedo + wrap sampler (C++ TWWater01.tga).
     water_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
     water_texture: Option<Texture>,
@@ -82,6 +83,8 @@ pub struct TerrainVisualImpl {
     water_texture_bind_group: Option<BindGroup>,
     /// True when the bound albedo is the 1x1 teal fallback, not TWWater01.
     water_texture_is_fallback: bool,
+    bound_standing_water_texture: String,
+    water_additive_blend: bool,
     river_gpu: RiverGpuState,
     shroud_gpu: ShroudGpuState,
     water_named_bind_groups: HashMap<String, NamedWaterBind>,
@@ -228,6 +231,11 @@ pub struct TerrainVisualImpl {
     tank_track_meshes: Vec<GpuRoadMesh>,
     custom_edge_meshes: Vec<GpuRoadMesh>,
     snow_mesh: Option<GpuRoadMesh>,
+    snow_texture: Option<Texture>,
+    snow_sampler: Option<Sampler>,
+    snow_texture_bind_group: Option<BindGroup>,
+    snow_texture_name: String,
+    snow_texture_is_fallback: bool,
     smudge_mesh: Option<GpuRoadMesh>,
     flat_lod_meshes: Vec<GpuRoadMesh>,
 }

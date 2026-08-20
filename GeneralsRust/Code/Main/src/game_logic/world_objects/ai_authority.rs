@@ -537,6 +537,7 @@ impl GameLogic {
                 radius_damage_affects: 0,
                 projectile_collides: 0,
                 scatter_radius: 0.0,
+                scatter_table_offset: None,
                 min_weapon_speed: 0.0,
                 scale_weapon_speed: false,
                 attack_range,
@@ -562,8 +563,7 @@ impl GameLogic {
                 );
             }
             if destroyed {
-                kill_xp = target.thing.template.experience_value
-                    * Self::veterancy_xp_multiplier(target.experience.level);
+                kill_xp = target.kill_experience_value();
             }
         }
         (destroyed, kill_xp)
