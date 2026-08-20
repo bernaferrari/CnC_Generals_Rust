@@ -905,7 +905,14 @@ impl Player {
     }
 
     pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
-        if self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name) {
+        // C++ ProductionUpdate.cpp:250-272 — PLAYER refuses if complete or
+        // already in production. OBJECT is per-producer (`giveUpgrade`), not
+        // a player-wide unlock (one add-on per unit, not per player).
+        let object_scoped =
+            crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name);
+        if !object_scoped
+            && (self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name))
+        {
             return false;
         }
         if !self.spend_resources(cost) {
@@ -931,11 +938,27 @@ impl Player {
         true
     }
 
+    /// Mark research finished. OBJECT upgrades stay off the player completed set.
+    pub fn complete_researched_upgrade(&mut self, upgrade_name: &str) {
+        if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
+            self.queued_upgrades.remove(&queued);
+        }
+        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name) {
+            return;
+        }
+        if !self.has_unlocked_upgrade(upgrade_name) {
+            self.unlocked_sciences.insert(upgrade_name.to_string());
+        }
+    }
+
     /// Complete all queued player upgrades into the unlocked upgrade/science set.
     pub fn complete_queued_upgrades(&mut self) -> Vec<String> {
         let mut completed: Vec<String> = self.queued_upgrades.drain().collect();
         completed.sort();
         for upgrade in &completed {
+            if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade) {
+                continue;
+            }
             self.unlocked_sciences.insert(upgrade.clone());
         }
         completed
@@ -1394,4 +1417,40 @@ mod map_side_dict_tests {
         assert!((player.handicap_build_cost_multiplier(true) - 0.75).abs() < f32::EPSILON);
         assert!((player.handicap_build_cost_multiplier(false) - 1.0).abs() < f32::EPSILON);
     }
+
+    #[test]
+    fn object_upgrade_does_not_complete_into_player_set() {
+        let mut player = Player::new(0, Team::China, "China", true);
+        player.resources.supplies = 10_000;
+        let cost = Resources {
+            supplies: 100,
+            power: 0,
+        };
+        assert!(player.queue_upgrade("Upgrade_ChinaOverlordBattleBunker", &cost));
+        player.complete_researched_upgrade("Upgrade_ChinaOverlordBattleBunker");
+        assert!(
+            !player.has_unlocked_upgrade("Upgrade_ChinaOverlordBattleBunker"),
+            "OBJECT upgrades must not enter the player completed set"
+        );
+        assert!(
+            player.queue_upgrade("Upgrade_ChinaOverlordBattleBunker", &cost),
+            "a second unit must still be able to queue the same OBJECT upgrade"
+        );
+    }
+
+    #[test]
+    fn player_upgrade_still_refuses_duplicate_queue() {
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 10_000;
+        let cost = Resources {
+            supplies: 100,
+            power: 0,
+        };
+        assert!(player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
+        assert!(!player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
+        player.complete_researched_upgrade("Upgrade_AmericaSupplyLines");
+        assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
+        assert!(!player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
+    }
+
 }

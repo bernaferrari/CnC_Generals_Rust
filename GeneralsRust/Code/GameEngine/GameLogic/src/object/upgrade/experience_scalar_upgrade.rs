@@ -166,8 +166,13 @@ impl UpgradeModuleInterface for ExperienceScalarUpgrade {
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not remove the added XP scalar; keep parity.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ does not remove the added XP scalar; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }
 

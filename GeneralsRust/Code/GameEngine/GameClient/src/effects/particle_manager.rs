@@ -1783,6 +1783,34 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             }
         }
     }
+
+    fn set_particle_system_lifetime(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        frames: gamelogic::common::UnsignedInt,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_system_lifetime(frames);
+                }
+            }
+        }
+    }
+
+    fn set_particle_system_initial_delay(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        frames: gamelogic::common::UnsignedInt,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_initial_delay(frames);
+                }
+            }
+        }
+    }
 }
 
 /// C++ INIParticleSys.cpp — Common INI ParticleSystem blocks overlay this manager.

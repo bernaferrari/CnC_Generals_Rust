@@ -926,4 +926,19 @@ mod tests {
     }
 
 
+    #[test]
+    fn place_icons_carry_cpp_opacity_illegal_tint_and_faction_bibs() {
+        // C++ InGameUI.cpp:77-78, 1473-1479, 2933-2948, 3041.
+        let src = include_str!("place_icons.rs");
+        assert!(
+            src.contains("set_opacity(PLACEMENT_OPACITY)")
+                && src.contains("ILLEGAL_BUILD_COLOR")
+                && src.contains("add_faction_bib")
+                && src.contains("remove_faction_bib")
+                && src.contains("remove_all_bibs"),
+            "place icons must be 0.45-opacity model ghosts with red tint and faction bibs"
+        );
+    }
+
+
 }

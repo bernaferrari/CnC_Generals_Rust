@@ -1032,7 +1032,8 @@ fn projectiles_freeze_from_combat_system() {
 }
 
 #[test]
-fn combat_damage_spawns_floating_text() {
+fn combat_damage_does_not_spawn_floating_text() {
+    // C++ addFloatingText is cash-only. DamageApplied stays an event, not a floater.
     crate::game_logic::host_damage_log::clear();
     crate::game_logic::host_damage_log::record(
         crate::game_logic::ObjectId(11),
@@ -1044,10 +1045,11 @@ fn combat_damage_spawns_floating_text() {
     let logic = crate::game_logic::GameLogic::new();
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     assert!(
-        frame.floating_texts.iter().any(|t| {
-            matches!(t.kind, PresentationFloatingTextKind::CombatDamage) && t.text.contains("25")
-        }),
-        "expected combat floating text: {:?}",
+        frame
+            .floating_texts
+            .iter()
+            .all(|t| !matches!(t.kind, PresentationFloatingTextKind::CombatDamage)),
+        "retail addFloatingText is cash-only, no CombatDamage -N: {:?}",
         frame
             .floating_texts
             .iter()
@@ -1055,6 +1057,7 @@ fn combat_damage_spawns_floating_text() {
             .collect::<Vec<_>>()
     );
 }
+
 
 #[test]
 fn damage_applied_freezes_from_last_drain() {

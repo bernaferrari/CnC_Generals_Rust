@@ -20,6 +20,7 @@ use crate::common::*;
 use crate::damage::DamageType;
 use crate::helpers::{game_client_random_value_real, TheAudio, TheGameLogic};
 use crate::modules::StealthControllerExt;
+use crate::modules::{UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::{Drawable, StealthLookType};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -293,6 +294,10 @@ impl StealthUpdateController {
         }
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     /// Get the stealth level bitmask from module data
     pub fn get_stealth_level(&self) -> UnsignedInt {
         self.data.stealth_level
@@ -323,8 +328,10 @@ impl StealthUpdateController {
             return Err("Object not found".to_string());
         }
 
-        if active && !self.enabled {
-            // Turn ON stealth
+        self.enabled = active;
+        if active {
+            // C++ StealthUpdate.cpp:195-201 — always apply, even if already enabled
+            // (refresh GrantTemporaryStealth frames).
             OBJECT_REGISTRY
                 .with_object_mut(self.object_id, |guard| {
                     guard.set_status(ObjectStatusMaskType::CAN_STEALTH, true);
@@ -334,9 +341,8 @@ impl StealthUpdateController {
 
             self.stealth_allowed_frame = current_frame;
             self.frames_granted = frames;
-            self.enabled = true;
-        } else if !active && self.enabled {
-            // Turn OFF stealth
+        } else {
+            // C++ StealthUpdate.cpp:203-214 — Off
             OBJECT_REGISTRY
                 .with_object_mut(self.object_id, |guard| {
                     guard.set_status(ObjectStatusMaskType::CAN_STEALTH, false);
@@ -346,7 +352,6 @@ impl StealthUpdateController {
 
             self.stealth_allowed_frame = u32::MAX; // FOREVER
             self.frames_granted = 0;
-            self.enabled = false;
 
             // Reset opacity
             if let Some(drawable) = OBJECT_REGISTRY
@@ -359,12 +364,16 @@ impl StealthUpdateController {
             }
         }
 
-        // Propagate to rider if applicable (lines 216-226)
+        // C++ StealthUpdate.cpp:216-226 — only rider-change contain (combat bike).
         if let Some(rider_id) = OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
                 obj_guard.get_contain().and_then(|contain| {
                     contain.lock().ok().and_then(|contain_guard| {
-                        contain_guard.get_contained_objects().first().copied()
+                        if contain_guard.is_rider_change_contain() {
+                            contain_guard.friend_get_rider()
+                        } else {
+                            None
+                        }
                     })
                 })
             })
@@ -489,36 +498,79 @@ impl StealthUpdateController {
                     return false;
                 }
 
-                // Check weapon firing restrictions (line 324)
+                // Check weapon firing restrictions (C++ StealthUpdate.cpp:323-363)
                 if (flags & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
                     && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
                 {
-                    // Check specific weapons if needed (lines 332-363)
-                    // For now, simple check
-                    return false;
+                    if (flags & STEALTH_NOT_WHILE_FIRING_WEAPON) == STEALTH_NOT_WHILE_FIRING_WEAPON
+                    {
+                        return false;
+                    }
+                    let last_frame = current_frame.saturating_sub(1);
+                    if (flags & STEALTH_NOT_WHILE_FIRING_PRIMARY) != 0 {
+                        if obj_guard
+                            .get_weapon_in_weapon_slot(crate::weapon::WeaponSlotType::Primary)
+                            .map(|weapon| weapon.get_last_shot_frame() >= last_frame)
+                            .unwrap_or(false)
+                        {
+                            return false;
+                        }
+                    }
+                    if (flags & STEALTH_NOT_WHILE_FIRING_SECONDARY) != 0 {
+                        if obj_guard
+                            .get_weapon_in_weapon_slot(crate::weapon::WeaponSlotType::Secondary)
+                            .map(|weapon| weapon.get_last_shot_frame() >= last_frame)
+                            .unwrap_or(false)
+                        {
+                            return false;
+                        }
+                    }
+                    if (flags & STEALTH_NOT_WHILE_FIRING_TERTIARY) != 0 {
+                        if obj_guard
+                            .get_weapon_in_weapon_slot(crate::weapon::WeaponSlotType::Tertiary)
+                            .map(|weapon| weapon.get_last_shot_frame() >= last_frame)
+                            .unwrap_or(false)
+                        {
+                            return false;
+                        }
+                    }
                 }
 
-                // Check if contained (line 365)
-                if obj_guard.get_container_id().is_some() {
-                    // If contained, rely on status bits to decide; more precise containment rules
-                    // can be added once the contain module exposes its state here.
+                // C++ StealthUpdate.cpp:365-373 — transports destalth occupants.
+                if let Some(container_id) = obj_guard.get_container_id() {
+                    let not_garrisonable = OBJECT_REGISTRY
+                        .with_object(container_id, |container_guard| {
+                            let Some(contain) = container_guard.get_contain() else {
+                                return false;
+                            };
+                            contain
+                                .lock()
+                                .ok()
+                                .map(|contain_guard| !contain_guard.is_garrisonable())
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
+                    if not_garrisonable {
+                        return false;
+                    }
                 }
 
-                // Check STEALTH_NOT_WHILE_RIDERS_ATTACKING (line 376)
+                // Check STEALTH_NOT_WHILE_RIDERS_ATTACKING (C++ StealthUpdate.cpp:376-385)
                 if (flags & STEALTH_NOT_WHILE_RIDERS_ATTACKING) != 0 {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(contain_guard) = contain.lock() {
-                            for contained_id in contain_guard.get_contained_objects() {
-                                let attacking = OBJECT_REGISTRY
-                                    .with_object(*contained_id, |rider_guard| {
-                                        let rider_status = rider_guard.get_status_bits();
-                                        rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
-                                            || rider_status
-                                                .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                                    })
-                                    .unwrap_or(false);
-                                if attacking {
-                                    return false;
+                            if contain_guard.is_passenger_allowed_to_fire(None) {
+                                for contained_id in contain_guard.get_contained_objects() {
+                                    let attacking = OBJECT_REGISTRY
+                                        .with_object(*contained_id, |rider_guard| {
+                                            rider_guard.get_status_bits().contains(
+                                                ObjectStatusMaskType::IS_ATTACKING,
+                                            )
+                                        })
+                                        .unwrap_or(false);
+                                    if attacking {
+                                        return false;
+                                    }
                                 }
                             }
                         }
@@ -913,21 +965,24 @@ impl StealthUpdateController {
             }
         }
 
-        // Handle temporary stealth from special power (lines 696-715)
+        // Handle temporary stealth from special power (C++ StealthUpdate.cpp:696-714)
         if self.frames_granted > 0 {
             self.frames_granted -= 1;
 
-            // Check if last AI command was from player - if so, lose stealth (lines 703-708)
-            // This prevents exploiting temporary stealth by giving player commands
-            // C++ checks CMD_FROM_PLAYER (StealthUpdate.cpp:704)
-            // AI module tracks command source; rely on frames_granted timer for now.
-            let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
-                if let Some(ai) = guard.get_ai() {
-                    drop(ai.lock());
-                }
-            });
-
-            if self.frames_granted == 0 {
+            // C++ StealthUpdate.cpp:700-708 — player order strips the grant ("No exploits").
+            let from_player = OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| {
+                    guard.get_ai().and_then(|ai| {
+                        ai.try_lock().ok().map(|ai_guard| {
+                            ai_guard.get_last_command_source() == CommandSourceType::FromPlayer
+                        })
+                    })
+                })
+                .flatten()
+                .unwrap_or(false);
+            if from_player {
+                self.receive_grant(false, 0, current_frame)?;
+            } else if self.frames_granted == 0 {
                 self.receive_grant(false, 0, current_frame)?;
             }
         }
@@ -1305,6 +1360,31 @@ impl Module for StealthUpdate {
         &mut self,
     ) -> Option<&mut dyn StealthDisguiseControlInterface> {
         Some(self)
+    }
+}
+
+impl UpdateModuleInterface for StealthUpdate {
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ StealthUpdate.h:103 — still ticks while DISABLED_HELD.
+        DisabledMaskType::HELD
+    }
+
+    fn update_simple(&mut self) -> UpdateSleepTime {
+        let frame = TheGameLogic::get_frame();
+        self.current_frame = frame;
+        if let Ok(mut controller) = self.controller.lock() {
+            let _ = controller.update(frame);
+        }
+        if self
+            .controller
+            .lock()
+            .map(|c| c.is_enabled())
+            .unwrap_or(false)
+        {
+            UpdateSleepTime::None
+        } else {
+            UpdateSleepTime::Forever
+        }
     }
 }
 
@@ -1814,6 +1894,16 @@ mod tests {
             STEALTH_NOT_WHILE_FIRING_PRIMARY
                 | STEALTH_NOT_WHILE_FIRING_SECONDARY
                 | STEALTH_NOT_WHILE_FIRING_TERTIARY
+        );
+    }
+
+    #[test]
+    fn stealth_update_ticks_while_held() {
+        let data = Arc::new(StealthUpdateModuleData::default());
+        let update = StealthUpdate::new(0, data, 1);
+        assert_eq!(
+            UpdateModuleInterface::get_disabled_types_to_process(&update),
+            DisabledMaskType::HELD
         );
     }
 

@@ -1355,6 +1355,9 @@ mod tests {
         register: bool,
         /// Also track in GameLogic.objects so destroyObject sets OBJECT_STATUS_DESTROYED.
         register_logic: bool,
+        /// C++ ThingFactory objects always own an ExperienceTracker.
+        attach_experience: bool,
+        trainable: bool,
     }
 
     impl Default for FactoryOptions {
@@ -1368,6 +1371,8 @@ mod tests {
                 kind_of_structure: false,
                 register: false,
                 register_logic: false,
+                attach_experience: false,
+                trainable: false,
             }
         }
     }
@@ -1448,6 +1453,9 @@ mod tests {
                     drawable.attach_w3d_debris_draw();
                 }
                 obj.set_drawable(Some(Arc::new(RwLock::new(drawable))));
+            }
+            if self.options.attach_experience {
+                obj.attach_experience_tracker_for_test(self.options.trainable);
             }
             let arc = Arc::new(RwLock::new(obj));
             if self.options.register {
@@ -2308,4 +2316,81 @@ End
             })
             .expect("downcast W3DDebrisDraw");
     }
+
+    #[test]
+    fn inherit_veterancy_skips_when_created_tracker_is_not_trainable() {
+        // C++ ObjectCreationList.cpp:996 isTrainable gate.
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions {
+            attach_experience: true,
+            trainable: false,
+            register: true,
+            ..FactoryOptions::default()
+        });
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("EjectedPilot");
+        nugget.inherit_veterancy = true;
+        let mut source = Object::new_test(70_100, 100.0);
+        source.attach_experience_tracker_for_test(true);
+        source
+            .get_experience_tracker()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .set_veterancy_level(VeterancyLevel::Elite);
+        source.set_name(AsciiString::from("NamedPilot"));
+        let pos = *source.get_position();
+        let created = nugget
+            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+            .expect("created");
+        let obj = created.read().unwrap();
+        let level = obj
+            .get_experience_tracker()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_veterancy_level();
+        assert_eq!(level, VeterancyLevel::Regular);
+        assert!(obj.get_name().is_empty());
+    }
+
+    #[test]
+    fn inherit_veterancy_sets_rank_and_transfers_script_name() {
+        // C++ ObjectCreationList.cpp:996-1005 isTrainable + transferObjectName.
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions {
+            attach_experience: true,
+            trainable: true,
+            register: true,
+            ..FactoryOptions::default()
+        });
+        let ctx = test_ctx(&factory);
+        let mut nugget = object_nugget("EjectedPilot");
+        nugget.inherit_veterancy = true;
+        let mut source = Object::new_test(70_101, 100.0);
+        source.attach_experience_tracker_for_test(true);
+        source
+            .get_experience_tracker()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .set_veterancy_level(VeterancyLevel::Elite);
+        source.set_name(AsciiString::from("NamedPilot"));
+        let pos = *source.get_position();
+        let created = nugget
+            .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
+            .expect("created");
+        let obj = created.read().unwrap();
+        let level = obj
+            .get_experience_tracker()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_veterancy_level();
+        assert_eq!(level, VeterancyLevel::Elite);
+        assert_eq!(obj.get_name().as_str(), "NamedPilot");
+    }
+
 }

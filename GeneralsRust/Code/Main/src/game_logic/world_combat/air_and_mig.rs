@@ -844,90 +844,56 @@ impl GameLogic {
     /// Fail-closed: not full arm pack/unpack weld FX / RepairMinAltitude matrix.
     pub fn update_battle_drone_repair_residual(&mut self, dt: f32) {
         use crate::game_logic::host_slave_drones::{
-            battle_drone_repair_amount_for_frame, battle_drone_should_repair_master,
-            is_battle_drone_template, is_slave_drone_master_template,
+            battle_drone_repair_amount_for_frame, battle_drone_should_idle_repair_master,
+            is_battle_drone_template,
         };
 
-        // Pair each battle drone with nearest same-team master residual.
-        let drones: Vec<(ObjectId, Team, Vec3)> = self
+        // C++ doRepairLogic heals TheGameLogic->findObjectByID(m_slaver) only.
+        let drones: Vec<(ObjectId, ObjectId, Vec3)> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
                 if !o.is_alive() || !is_battle_drone_template(&o.template_name) {
                     return None;
                 }
-                Some((*id, o.team, o.get_position()))
+                let slaver = o.producer_id?;
+                Some((*id, slaver, o.get_position()))
             })
             .collect();
         if drones.is_empty() {
             return;
         }
 
-        let masters: Vec<(ObjectId, Team, Vec3, f32, f32)> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if !o.is_alive() || !is_slave_drone_master_template(&o.template_name) {
-                    return None;
-                }
-                let max_hp = o.health.maximum.max(1.0);
-                let pct = (o.health.current / max_hp) * 100.0;
-                Some((*id, o.team, o.get_position(), o.health.current, pct))
-            })
-            .collect();
-
         let heal = battle_drone_repair_amount_for_frame(dt);
         if heal <= 0.0 {
             return;
         }
 
-        for (_drone_id, dteam, dpos) in drones {
-            // Pure residual acquire: nearest same-team master (XZ).
-            let master_cands: Vec<_> = masters
-                .iter()
-                .filter(|(_, mteam, _, _, _)| *mteam == dteam)
-                .map(|(mid, mteam, mpos, _, _)| {
-                    crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
-                        id: *mid,
-                        team: *mteam,
-                        position: *mpos,
-                        is_alive: true,
-                        is_neutral: false,
-                        under_construction: false,
-                        combat_kind: true,
-                        effectively_stealthed: false,
-                        is_air: false,
-                        eject_invulnerable: false,
-                    }
-                })
-                .collect();
-            let Some((mid, dist, _)) =
-                crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
-                    None,
-                    (dpos.x, dpos.z),
-                    master_cands,
-                    f32::MAX,
-                    |_| true,
-                )
-            else {
+        for (_drone_id, slaver_id, dpos) in drones {
+            let Some(master) = self.objects.get(&slaver_id) else {
                 continue;
             };
-            let Some((_, _, _, _, mpct)) = masters.iter().find(|(id, _, _, _, _)| *id == mid)
-            else {
-                continue;
-            };
-            let mpct = *mpct;
-            if !battle_drone_should_repair_master(true, mpct, true, dist) {
+            if !master.is_alive() {
                 continue;
             }
-            if let Some(master) = self.objects.get_mut(&mid) {
+            let mpos = master.get_position();
+            let max_hp = master.health.maximum.max(1.0);
+            let mpct = (master.health.current / max_hp) * 100.0;
+            let dx = dpos.x - mpos.x;
+            let dz = dpos.z - mpos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            // C++ :229-236 idle weld continues until master is full (< 100).
+            if !battle_drone_should_idle_repair_master(true, mpct, true, dist) {
+                continue;
+            }
+            if let Some(master) = self.objects.get_mut(&slaver_id) {
                 let before = master.health.current;
                 let max_hp = master.health.maximum;
                 let new_hp = (before + heal).min(max_hp);
                 Self::write_object_health_authority_aware(master, new_hp);
                 let gained = master.health.current - before;
                 if gained > 0.0 {
-                    crate::game_logic::host_heal_log::record(mid, master.health.current);
+                    crate::game_logic::host_heal_log::record(slaver_id, master.health.current);
                     self.battle_drone_residual_repairs =
                         self.battle_drone_residual_repairs.saturating_add(1);
                     self.battle_drone_residual_repair_amount += gained;
@@ -1421,8 +1387,13 @@ impl GameLogic {
         let uranium = has_uranium_shells_upgrade(&obj.applied_upgrades);
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
         let in_horde = obj.weapon_bonus_horde;
-        // Nationalism ROF only while in horde (C++ evaluateMoraleBonus residual).
-        let nationalism_active = nationalism && in_horde;
+        // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
+        // vetoes only while in horde (default TRUE).
+        let nationalism_active = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
+            nationalism,
+            in_horde,
+            super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);

@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain, TransportContainModuleData};
 use crate::common::types::BodyDamageType;
-use crate::common::{GameResult, KindOf, ObjectID, PlayerMaskType, ThingFactory};
+use crate::common::{GameResult, KindOf, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     BodyModuleGuardExt, BodyModuleInterfaceExt, ContainModuleInterface, ContainModuleInterfaceExt,
     ExperienceTrackerExt, UpdateSleepTime,
@@ -682,49 +682,86 @@ impl OverlordContain {
     }
 
     /// Create initial payload.
-    /// Matches C++ OverlordContain::createPayload (OverlordContain.cpp:95-136)
+    /// Matches C++ OverlordContain::createPayload (OverlordContain.cpp:95-136).
+    ///
+    /// Must not re-enter `owner.get_contain()` — this method is already invoked
+    /// while the contain mutex is held (`on_object_created` / `update`).
     pub fn create_payload(&mut self) -> GameResult<()> {
         if self.base.is_payload_created() {
             return Ok(());
         }
 
-        let owner = self
-            .get_object()
+        let (owner_name, owner_team) = self
+            .with_owner_object(|owner_guard| {
+                (owner_guard.get_name().to_string(), owner_guard.get_team())
+            })
             .ok_or("Overlord object no longer exists")?;
-        let owner_guard = owner.read().map_err(|_| "Owner lock poisoned")?;
 
-        // Get thing factory and create payload objects
-        if let Ok(factory) = ThingFactory::get() {
-            if let Some(contain) = owner_guard.get_contain() {
-                contain.enable_load_sounds(false)?;
+        let factory = match TheThingFactory::get() {
+            Ok(factory) => factory,
+            Err(err) => {
+                log::warn!(
+                    "OverlordContain::createPayload: thing factory unavailable: {}",
+                    err
+                );
+                self.base.set_payload_created(true);
+                return Ok(());
+            }
+        };
+        let payload_templates = self.module_data.payload_template_names.clone();
 
-                for template_name in &self.module_data.payload_template_names {
-                    if let Some(template) = ThingFactory::find_template(template_name) {
-                        if let Some(team) = owner_guard.get_team() {
-                            if let Ok(team_ref) = team.read() {
-                                if let Ok(payload) = factory.new_object(template, &*team_ref) {
-                                    if let Ok(payload_ref) = payload.read() {
-                                        if contain.is_valid_container_for(&*payload_ref, true) {
-                                            contain.add_to_contain(&*payload_ref);
-                                        } else {
-                                            return Err(format!(
-                                                "OverlordContain::createPayload: {} is full or not valid for payload {}",
-                                                owner_guard.get_name(),
-                                                template_name
-                                            )
-                                            .into());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+
+        self.base.base.enable_load_sounds(false);
+
+        for template_name in payload_templates {
+            let Some(template) = TheThingFactory::find_template(&template_name) else {
+                continue;
+            };
+
+            let payload = if let Some(team) = owner_team.clone() {
+                factory.new_object_with_team_handle(template, team)
+            } else {
+                factory.new_object_optional_team(template, None)
+            };
+
+            let Ok(payload) = payload else {
+                log::warn!(
+                    "OverlordContain::createPayload: failed to create payload {}",
+                    template_name
+                );
+                continue;
+            };
+
+            let can_add = payload
+                .read()
+                .ok()
+                .map(|payload_guard| self.is_valid_container_for(&*payload_guard, true))
+                .unwrap_or(false);
+            if can_add {
+                let payload_id = payload
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                if let Err(err) = self.add_to_contain(payload_id) {
+                    log::warn!(
+                        "OverlordContain::createPayload: failed to add payload {} to {}: {}",
+                        template_name,
+                        owner_name,
+                        err
+                    );
                 }
-
-                contain.enable_load_sounds(true)?;
+            } else {
+                // C++ DEBUG_CRASH then continue; always mark payload created.
+                log::warn!(
+                    "OverlordContain::createPayload: {} is full or not valid for payload {}",
+                    owner_name,
+                    template_name
+                );
             }
         }
 
+        self.base.base.enable_load_sounds(true);
         self.base.set_payload_created(true);
         Ok(())
     }

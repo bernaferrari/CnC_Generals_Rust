@@ -140,6 +140,20 @@ impl ProductionUpdate {
         }
     }
 
+    /// C++ ProductionUpdate.cpp:456 `getObject()->getControllingPlayer()`.
+    /// Fall back to the queued player only when the owner lookup fails.
+    fn controlling_player_id_for_refund(&self, queued_player_id: u32) -> u32 {
+        TheGameLogic::find_object_by_id(self.owner_id)
+            .and_then(|obj| {
+                let guard = obj.read().ok()?;
+                let player = guard.get_controlling_player()?;
+                let player_guard = player.read().ok()?;
+                Some(player_guard.get_id() as u32)
+            })
+            .unwrap_or(queued_player_id)
+    }
+
+
     /// Set the economy manager reference
     /// Must be called after construction to enable cost deduction
     /// Matches C++ pattern of injecting dependencies
@@ -318,8 +332,9 @@ impl ProductionUpdate {
                         .lock()
                         .map_err(|_| "Failed to lock economy manager".to_string())?;
 
-                    let player_id = PlayerId::new(entry.player_id as u8)
-                        .ok_or_else(|| format!("Invalid player id {}", entry.player_id))?;
+                    let refund_player = self.controlling_player_id_for_refund(entry.player_id);
+                    let player_id = PlayerId::new(refund_player as u8)
+                        .ok_or_else(|| format!("Invalid player id {refund_player}"))?;
 
                     economy_guard
                         .add_credits(player_id, refund, IncomeSource::Refund, None)
@@ -328,7 +343,7 @@ impl ProductionUpdate {
                     log::debug!(
                         "Refunded {} credits to player {} for cancelled {}",
                         refund,
-                        entry.player_id,
+                        refund_player,
                         entry.template_name
                     );
                 } else {

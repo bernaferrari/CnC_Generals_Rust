@@ -1149,21 +1149,11 @@ impl GameLogic {
             if already {
                 continue;
             }
-            // Ensure player unlocked set tracks completion (production path does this).
+            // Ensure player unlocked set tracks PLAYER completions only.
             if let Some(player) = self.players.get_mut(&ev.player_id) {
-                if let Some(queued) = player.find_queued_upgrade_name(&ev.upgrade_name) {
-                    player.queued_upgrades.remove(&queued);
-                }
-                if !player.has_unlocked_upgrade(&ev.upgrade_name) {
-                    player.unlocked_sciences.insert(ev.upgrade_name.clone());
-                }
+                player.complete_researched_upgrade(&ev.upgrade_name);
             } else if let Some(player) = self.players.values_mut().find(|p| p.id == ev.player_id) {
-                if let Some(queued) = player.find_queued_upgrade_name(&ev.upgrade_name) {
-                    player.queued_upgrades.remove(&queued);
-                }
-                if !player.has_unlocked_upgrade(&ev.upgrade_name) {
-                    player.unlocked_sciences.insert(ev.upgrade_name.clone());
-                }
+                player.complete_researched_upgrade(&ev.upgrade_name);
             }
             self.apply_host_upgrade_complete(team, ev.player_id, &ev.upgrade_name);
             n = n.saturating_add(1);

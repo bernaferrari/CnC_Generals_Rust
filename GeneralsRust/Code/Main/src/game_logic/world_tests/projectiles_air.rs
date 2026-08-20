@@ -28,15 +28,16 @@ fn unpause_special_power_upgrade_enables_capture() {
     );
     logic.apply_upgrade_to_object(id, "Upgrade_InfantryCaptureBuilding");
     let obj = logic.objects.get(&id).unwrap();
-    assert!(!obj
-        .special_power_paused
-        .contains(&SpecialPowerType::RangerCaptureBuilding));
+    assert!(!obj.is_special_power_countdown_paused(&SpecialPowerType::RangerCaptureBuilding));
     let rem = obj
         .special_power_cooldowns
         .get(&SpecialPowerType::RangerCaptureBuilding)
         .copied()
         .unwrap_or(0.0);
-    assert!(rem > 0.0, "unpause starts recharge, rem={rem}");
+    assert!(
+        rem <= 0.0,
+        "C++ unpause of a ready power stays ready, rem={rem}"
+    );
 }
 
 #[test]

@@ -1253,7 +1253,7 @@ impl GameLogic {
             .is_attack_view_blocked(from, target_pos)
     }
 
-    pub(super) fn path_approach_with_state(
+    pub(crate) fn path_approach_with_state(
         &mut self,
         object_id: ObjectId,
         goal: Vec3,

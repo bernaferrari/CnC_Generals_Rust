@@ -592,6 +592,13 @@ impl RenderBridge {
         self.pending.push(submission);
     }
 
+    /// Live host never calls `begin_frame`, so `flush` would drop these.
+    /// Main drains them into wgpu via graphics_system instead.
+    pub fn take_pending(&mut self) -> Vec<DrawSubmission> {
+        std::mem::take(&mut self.pending)
+    }
+
+
     /// Expose an exact ghost payload for one already-resolved live W3D draw.
     ///
     /// This deliberately operates on the renderer-owned model cache instead

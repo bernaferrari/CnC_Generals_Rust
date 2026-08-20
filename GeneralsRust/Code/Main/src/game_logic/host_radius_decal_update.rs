@@ -19,6 +19,44 @@
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
+fn game_make_color(color: gamelogic::common::Color) -> u32 {
+    ((color.a as u32) << 24)
+        | ((color.r as u32) << 16)
+        | ((color.g as u32) << 8)
+        | (color.b as u32)
+}
+
+fn local_player_index() -> Option<i32> {
+    gamelogic::player::ThePlayerList()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+}
+
+fn player_argb_for_index(index: Option<i32>) -> u32 {
+    let Some(index) = index.or_else(local_player_index) else {
+        return 0;
+    };
+    gamelogic::player::ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_player(index).cloned())
+        .and_then(|player| player.read().ok().map(|p| game_make_color(p.get_player_color())))
+        .unwrap_or(0)
+}
+
+fn host_draw_icon_ui() -> bool {
+    gamelogic::helpers::TheGameLogic::get_draw_icon_ui()
+}
+
+fn host_logic_frame(fallback: u32) -> u32 {
+    let now = gamelogic::helpers::TheGameLogic::get_frame();
+    if now == 0 {
+        fallback
+    } else {
+        now
+    }
+}
 pub const RADIUS_DECAL_LOGIC_FPS: f32 = 30.0;
 
 /// Retail SCUD storm OCL delivery decal radius.
@@ -49,8 +87,8 @@ pub struct HostRadiusDecalTemplate {
     pub opacity_max: f32,
     pub throb_frames: u32,
     pub only_visible_to_owner: bool,
-    /// RGB residual 0..255.
-    pub color_rgb: [u8; 3],
+    /// C++ `m_color`. Retail SW delivery blocks omit Color, so 0 → player color.
+    pub color: u32,
 }
 
 impl HostRadiusDecalTemplate {
@@ -62,7 +100,7 @@ impl HostRadiusDecalTemplate {
             opacity_max: DELIVERY_DECAL_OPACITY_MAX,
             throb_frames: DELIVERY_DECAL_THROB_FRAMES,
             only_visible_to_owner: true,
-            color_rgb: [33, 255, 67],
+            color: 0,
         }
     }
 
@@ -74,7 +112,7 @@ impl HostRadiusDecalTemplate {
             opacity_max: DELIVERY_DECAL_OPACITY_MAX,
             throb_frames: DELIVERY_DECAL_THROB_FRAMES,
             only_visible_to_owner: true,
-            color_rgb: [255, 0, 0],
+            color: 0,
         }
     }
 
@@ -112,11 +150,12 @@ impl HostRadiusDecal {
     pub fn clear(&mut self) {
         #[cfg(feature = "game_client")]
         self.release_projected();
-        *self = Self {
-            empty: true,
-            ..Self::default()
-        };
         self.empty = true;
+        self.position = Vec3::ZERO;
+        self.radius = 0.0;
+        self.opacity = 0.0;
+        self.template = None;
+        self.birth_frame = 0;
     }
 
     pub fn is_empty(&self) -> bool {
@@ -136,37 +175,75 @@ impl HostRadiusDecal {
     }
 
     pub fn create(tmpl: HostRadiusDecalTemplate, radius: f32, pos: Vec3, frame: u32) -> Self {
-        let opacity = tmpl.opacity_min;
+        Self::create_with_owner(tmpl, radius, pos, frame, None)
+    }
+
+    /// C++ `createRadiusDecal`: `m_empty = false` first, then addDecal only when
+    /// `!onlyVisible || owner == local`. Color==0 uses owning player color.
+    pub fn create_with_owner(
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+    ) -> Self {
         let radius = radius.max(0.0);
-        let empty = !tmpl.valid();
-        #[cfg(feature = "game_client")]
-        let projected = if empty {
-            None
+        if !tmpl.valid() || radius <= 0.0 {
+            return Self {
+                empty: true,
+                position: pos,
+                radius,
+                opacity: 0.0,
+                template: None,
+                birth_frame: frame,
+                #[cfg(feature = "game_client")]
+                projected: None,
+            };
+        }
+
+        let opacity = tmpl.opacity_min;
+        let local_index = local_player_index();
+        let allow_decal = if !tmpl.only_visible_to_owner {
+            true
+        } else if let Some(owner) = owner_index {
+            local_index == Some(owner)
         } else {
-            // C++ RadiusDecal.cpp:53-66 TheProjectedShadowManager->addDecal.
-            game_client::radius_decal::enqueue_delivery_decal(
+            true
+        };
+        let color = if tmpl.color == 0 {
+            player_argb_for_index(owner_index)
+        } else {
+            tmpl.color
+        };
+
+        #[cfg(feature = "game_client")]
+        let projected = if allow_decal {
+            game_client::radius_decal::enqueue_delivery_decal_argb(
                 &tmpl.texture,
                 radius,
                 pos.x,
                 pos.y,
                 pos.z,
-                tmpl.color_rgb,
+                color,
                 opacity,
             )
+        } else {
+            None
         };
+
         Self {
-            empty,
+            empty: false,
             position: pos,
             radius,
             opacity,
-            template: if tmpl.valid() { Some(tmpl) } else { None },
+            template: Some(tmpl),
             birth_frame: frame,
             #[cfg(feature = "game_client")]
             projected,
         }
     }
 
-    /// C++ RadiusDecal::update — opacity throb residual, pushed to m_decal.
+    /// C++ RadiusDecal::update — sine of global frame, gated by getDrawIconUI.
     pub fn update(&mut self, frame: u32) {
         if self.is_empty() {
             return;
@@ -174,14 +251,15 @@ impl HostRadiusDecal {
         let Some(tmpl) = self.template.as_ref() else {
             return;
         };
+        let now = host_logic_frame(frame);
         let period = tmpl.throb_frames.max(1);
-        let phase = frame.saturating_sub(self.birth_frame) % (period * 2);
-        let t = if phase <= period {
-            phase as f32 / period as f32
+        let theta = 2.0 * std::f32::consts::PI * ((now % period) as f32) / (period as f32);
+        let percent = 0.5 * (theta.sin() + 1.0);
+        self.opacity = if host_draw_icon_ui() {
+            tmpl.opacity_min + percent * (tmpl.opacity_max - tmpl.opacity_min)
         } else {
-            2.0 - (phase as f32 / period as f32)
+            0.0
         };
-        self.opacity = tmpl.opacity_min + (tmpl.opacity_max - tmpl.opacity_min) * t;
         #[cfg(feature = "game_client")]
         if let Some(handle) = &self.projected {
             handle.set_opacity((self.opacity.clamp(0.0, 1.0) * 255.0).trunc() as i32);
@@ -206,11 +284,10 @@ pub struct HostRadiusDecalUpdateData {
 
 impl Default for HostRadiusDecalUpdateData {
     fn default() -> Self {
+        let mut delivery_decal = HostRadiusDecal::default();
+        delivery_decal.empty = true;
         Self {
-            delivery_decal: HostRadiusDecal {
-                empty: true,
-                ..HostRadiusDecal::default()
-            },
+            delivery_decal,
             kill_when_no_longer_attacking: false,
             awake: false,
         }
@@ -233,7 +310,19 @@ impl HostRadiusDecalUpdateData {
         pos: Vec3,
         frame: u32,
     ) {
-        self.delivery_decal = HostRadiusDecal::create(tmpl, radius, pos, frame);
+        self.create_radius_decal_for_owner(tmpl, radius, pos, frame, None);
+    }
+
+    pub fn create_radius_decal_for_owner(
+        &mut self,
+        tmpl: HostRadiusDecalTemplate,
+        radius: f32,
+        pos: Vec3,
+        frame: u32,
+        owner_index: Option<i32>,
+    ) {
+        self.delivery_decal =
+            HostRadiusDecal::create_with_owner(tmpl, radius, pos, frame, owner_index);
         self.awake = !self.delivery_decal.is_empty();
     }
 
@@ -346,6 +435,8 @@ pub fn honesty_radius_decal_update_residual_ok() -> bool {
         && !is_radius_decal_update_template("AmericaTankCrusader")
         && HostRadiusDecalTemplate::scud_storm().valid()
         && HostRadiusDecalTemplate::scud_storm().texture == SCUD_STORM_DECAL_TEXTURE
+        && HostRadiusDecalTemplate::scud_storm().color == 0
+        && HostRadiusDecalTemplate::nuclear_missile().color == 0
 }
 
 #[cfg(test)]
@@ -421,5 +512,41 @@ mod tests {
         assert!(!items.iter().any(|it| {
             (it.position.x - 1111.0).abs() < 0.01 && (it.position.z - 2222.0).abs() < 0.01
         }));
+    }
+
+    #[test]
+    fn host_templates_use_color_zero_for_player_fallback() {
+        assert_eq!(HostRadiusDecalTemplate::scud_storm().color, 0);
+        assert_eq!(HostRadiusDecalTemplate::nuclear_missile().color, 0);
+    }
+
+    #[test]
+    fn update_uses_sine_of_global_frame_not_triangle_birth() {
+        let mut decal = HostRadiusDecal::create(
+            HostRadiusDecalTemplate::scud_storm(),
+            SCUD_STORM_DELIVERY_DECAL_RADIUS,
+            Vec3::ZERO,
+            100,
+        );
+        decal.update(0);
+        let period = DELIVERY_DECAL_THROB_FRAMES.max(1);
+        let theta = 2.0 * std::f32::consts::PI * (0.0 / period as f32);
+        let percent = 0.5 * (theta.sin() + 1.0);
+        let expected = DELIVERY_DECAL_OPACITY_MIN
+            + percent * (DELIVERY_DECAL_OPACITY_MAX - DELIVERY_DECAL_OPACITY_MIN);
+        assert!((decal.opacity - expected).abs() < 0.02);
+    }
+
+    #[test]
+    fn create_skips_add_decal_when_only_visible_and_not_local() {
+        let decal = HostRadiusDecal::create_with_owner(
+            HostRadiusDecalTemplate::scud_storm(),
+            SCUD_STORM_DELIVERY_DECAL_RADIUS,
+            Vec3::new(1.0, 0.0, 2.0),
+            0,
+            Some(99),
+        );
+        assert!(!decal.is_empty());
+        assert!(!decal.has_projected_shadow());
     }
 }

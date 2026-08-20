@@ -765,7 +765,14 @@ impl GameLogic {
         let new_victim = target_id.map(|id| id.0);
         let coast_until = obj.continuous_fire_coast_until_frame;
         let in_horde = obj.weapon_bonus_horde;
-        let nationalism = has_nationalism_upgrade(&obj.applied_upgrades) && in_horde;
+        // C++ evaluateMoraleBonus: nationalism from upgrade; AllowedNationalism
+        // vetoes only while in horde (default TRUE).
+        let nationalism = super::tanks_and_upgrades::nationalism_bonus_from_upgrade(
+            has_nationalism_upgrade(&obj.applied_upgrades),
+            in_horde,
+            super::tanks_and_upgrades::HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        );
+        obj.weapon_bonus_nationalism = nationalism;
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);
 
         let (new_level, consecutive, entered_fast) = minigunner_on_shot_fired(

@@ -220,6 +220,7 @@ mod tests {
             max_opacity: 0.75,
             opacity_throb_time: 30,
             template: Some(7),
+            ..Default::default()
         };
         let mut bytes = Vec::new();
         {
@@ -246,6 +247,7 @@ mod tests {
             max_opacity: 0.75,
             opacity_throb_time: 30,
             template: Some(7),
+            ..Default::default()
         };
         let cursor = Cursor::new(Vec::<u8>::new());
         let mut xfer = XferLoad::new(cursor, 1);

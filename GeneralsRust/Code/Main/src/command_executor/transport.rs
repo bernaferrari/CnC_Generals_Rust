@@ -634,8 +634,8 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target: &DropTarget,
     ) -> CommandResult {
-        // C++ AIGroup::groupCombatDrop (AIGroup.cpp:2867-2889): each member
-        // aiCombatDrop(target, pos) — fly to the drop and rappel/unload.
+        // C++ ChinookAIUpdate::privateCombatDrop → MOVE_TO_COMBAT_DROP then
+        // DO_COMBAT_DROP hover-rappel. Not MOVE_TO_AND_EVAC (land + dump).
         debug!("Executing combat drop at {:?}", target);
         let (dest, object_target) = match target {
             DropTarget::Location(pos) => (*pos, None),
@@ -646,20 +646,48 @@ impl<'a> CommandExecutor<'a> {
                 (target_obj.position, Some(*target_id))
             }
         };
+        let bldg_h = object_target.and_then(|tid| {
+            self.game_logic
+                .host_object(tid)
+                .map(|o| o.get_position().y.max(0.0))
+        });
         let mut any = false;
         for &unit_id in units {
+            let is_chinook = self.game_logic.host_object(unit_id).is_some_and(|o| {
+                o.is_alive()
+                    && (o.is_combat_chinook_style_container() || o.chinook_ai.is_some())
+            });
+            if !is_chinook {
+                continue;
+            }
             if let Some(tid) = object_target {
                 let _ = self
                     .game_logic
                     .unit_command_set_order_target(unit_id, Some(tid));
             }
-            if matches!(
-                self.execute_move_to_and_evacuate(&[unit_id], dest, false),
-                CommandResult::Success
-            ) {
+            let mut hover = dest;
+            if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
+                if obj.chinook_ai.is_none() {
+                    obj.install_combat_chinook_transport();
+                }
+                let p = obj.get_position();
+                if let Some(ai) = obj.chinook_ai.as_mut() {
+                    ai.pos = [p.x, p.z, p.y];
+                    ai.command_combat_drop([dest.x, dest.z, dest.y], bldg_h);
+                    hover.y = ai.combat_drop_dest_z;
+                }
+            }
+            let _ = self
+                .game_logic
+                .unit_command_set_pending_evacuate(unit_id, true, false, true);
+            if self.path_to_goal_with_state(unit_id, hover, AIState::Moving) {
                 any = true;
-            } else if self.path_to_goal_with_state(unit_id, dest, AIState::Entering) {
+            } else if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
+                if let Some(ai) = obj.chinook_ai.as_mut() {
+                    ai.arrive_for_combat_drop();
+                }
                 any = true;
+                let _ = self.game_logic.evacuate_container_now(unit_id, false);
             }
         }
         if any {
@@ -739,6 +767,112 @@ mod tests {
         assert_eq!(
             logic.host_object(b).unwrap().contained_by,
             Some(transport)
+        );
+    }
+
+    #[test]
+    fn execute_combat_drop_uses_hover_not_land_evac() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T");
+        t.add_kind_of(KindOf::Aircraft);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T".to_string(), t);
+        let mut p = ThingTemplate::new("CD_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.add_kind_of(KindOf::Selectable);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P".to_string(), p);
+        let transport = logic
+            .create_object("CD_T", Team::USA, Vec3::new(0.0, 100.0, 0.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+            p.set_ai_state(AIState::Docked);
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_combat_drop(
+                    &[transport],
+                    &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
+                ),
+                CommandResult::Success
+            );
+        }
+        let t = logic.host_object(transport).unwrap();
+        assert!(t.pending_evacuate_on_stop);
+        let ai = t.chinook_ai.as_ref().expect("chinook_ai");
+        assert_eq!(
+            ai.state,
+            crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToCombatDrop
+        );
+        assert_ne!(
+            ai.flight_status,
+            crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+        );
+        assert!(
+            logic.host_object(pax).unwrap().contained_by.is_some(),
+            "passengers stay aboard until hover rappel"
+        );
+    }
+
+    #[test]
+    fn combat_drop_arrival_rappels_not_teleport() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("CD_T2");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        logic.templates.insert("CD_T2".to_string(), t);
+        let mut p = ThingTemplate::new("CD_P2");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("CD_P2".to_string(), p);
+        let transport = logic
+            .create_object("CD_T2", Team::USA, Vec3::new(10.0, 100.0, 10.0))
+            .unwrap();
+        let pax = logic
+            .create_object("CD_P2", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.install_combat_chinook_transport();
+            let _ = t.add_occupant(pax);
+            if let Some(ai) = t.chinook_ai.as_mut() {
+                ai.command_combat_drop([10.0, 10.0, 0.0], None);
+                ai.arrive_for_combat_drop();
+            }
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+        }
+        assert!(logic.evacuate_container_now(transport, false));
+        let pax_obj = logic.host_object(pax).unwrap();
+        assert!(pax_obj.contained_by.is_none());
+        assert!(
+            pax_obj.get_position().y > 50.0,
+            "rappeller starts at hover, not teleported to ground"
+        );
+        assert!((pax_obj.movement.max_speed - 30.0).abs() < 0.01);
+        assert_eq!(
+            logic
+                .host_object(transport)
+                .unwrap()
+                .chinook_ai
+                .as_ref()
+                .unwrap()
+                .ai_free_to_exit(true),
+            crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
         );
     }
 }

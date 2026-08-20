@@ -1293,11 +1293,10 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
     assert!(logic.capture_tunnel_transfers > 0);
     assert!(logic.capture_tunnel_last_ejects > 0);
     assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
-    let unit = logic.host_object(uid).expect("rebel");
-    assert!(unit.contained_by.is_none());
-    assert_eq!(unit.ai_state, AIState::Idle);
-    // Passenger keeps old team.
-    assert_eq!(unit.team, Team::GLA);
+    // C++ last-tunnel capture → TunnelTracker::destroyObject (cave-in).
+    let unit = logic.host_object(uid).expect("rebel queued for destroy");
+    assert!(unit.status.destroyed || unit.health.current <= 0.0);
+    assert_eq!(logic.tunnel_network.tunnel_count(Team::USA), 1);
 }
 
 #[test]

@@ -431,6 +431,11 @@ pub async fn load_weapon_templates(
 pub async fn load_upgrade_templates(
     archive_system: &mut ArchiveFileSystem,
 ) -> Result<usize, String> {
+    // C++ UpgradeCenter::init creates Upgrade_Veterancy_* before Upgrade.ini.
+    gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
+        center.init();
+    });
+
     let upgrade_files = discover_upgrade_ini_files(archive_system);
     if upgrade_files.is_empty() {
         info!("No upgrade INI files found in archives");

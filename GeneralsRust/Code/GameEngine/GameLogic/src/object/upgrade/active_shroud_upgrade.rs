@@ -237,8 +237,14 @@ impl UpgradeModuleInterface for ActiveShroudUpgrade {
         }
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not revert shroud range on removal; keep parity.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
+        // Does not revert shroud range.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }
 

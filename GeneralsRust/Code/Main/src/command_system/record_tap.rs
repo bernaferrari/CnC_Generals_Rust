@@ -9,10 +9,11 @@
 use super::*;
 use crate::game_logic::GameMode;
 use game_engine::common::message_stream::{
-    Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ObjectID,
+    is_network_command_message, Coord3D, GameMessage, GameMessageArgumentType, GameMessageType,
+    ICoord2D, ObjectID,
 };
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 /// Camera pose carried by `MSG_SET_REPLAY_CAMERA`.
@@ -28,6 +29,7 @@ pub struct ReplayCameraPose {
 static PENDING_REPLAY_COMMANDS: Mutex<Vec<GameCommand>> = Mutex::new(Vec::new());
 static PENDING_REPLAY_CAMERA: Mutex<Option<ReplayCameraPose>> = Mutex::new(None);
 static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
+static HOST_LOGIC_FRAME: AtomicU32 = AtomicU32::new(0);
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -112,6 +114,42 @@ fn clear_command_list() {
     }
 }
 
+fn keep_command_during_playback(msg: &GameMessage) -> bool {
+    let ty = msg.get_type();
+    !(is_network_command_message(ty) && !matches!(ty, GameMessageType::LogicCRC(_)))
+}
+
+fn host_logic_frame() -> u32 {
+    let leftover = gamelogic::helpers::TheGameLogic::get_frame();
+    if leftover != 0 {
+        leftover
+    } else {
+        HOST_LOGIC_FRAME.load(Ordering::Relaxed)
+    }
+}
+
+fn host_replay_mouse_snapshot() -> (i32, ICoord2D) {
+    #[cfg(feature = "game_client")]
+    {
+        let cursor = game_client::helpers::TheInGameUI::get_mouse_cursor() as i32;
+        (cursor, ICoord2D { x: 0, y: 0 })
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        (0, ICoord2D { x: 0, y: 0 })
+    }
+}
+
+fn cull_host_command_list() {
+    #[cfg(feature = "game_client")]
+    {
+        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
+        {
+            list.retain_messages(keep_command_during_playback);
+        }
+    }
+}
+
 fn push_pending_replay_command(command: GameCommand) {
     if let Ok(mut pending) = PENDING_REPLAY_COMMANDS.lock() {
         pending.push(command);
@@ -137,10 +175,14 @@ pub fn install_host_replay_bridges() {
     let command_source: Arc<dyn Fn() -> Vec<GameMessage> + Send + Sync> =
         Arc::new(snapshot_command_list);
     let command_sink: Arc<dyn Fn(GameMessage) + Send + Sync> = Arc::new(append_to_command_list);
+    let command_cull: Arc<dyn Fn() + Send + Sync> = Arc::new(cull_host_command_list);
+    let frame_provider: Arc<dyn Fn() -> u32 + Send + Sync> = Arc::new(host_logic_frame);
 
     let _ = with_recorder_mut(|recorder| {
         recorder.set_command_source(Some(command_source));
         recorder.set_command_sink(Some(command_sink));
+        recorder.set_command_cull(Some(command_cull));
+        recorder.set_frame_provider(Some(frame_provider));
     });
 
     #[cfg(feature = "game_client")]
@@ -172,8 +214,8 @@ pub fn tap_host_new_game_for_recorder(mode: GameMode) {
     append_to_command_list(message);
 }
 
-/// C++ `LookAtXlat.cpp:459-467`: emit `MSG_SET_REPLAY_CAMERA` onto the list
-/// the recorder snapshots.
+/// C++ `LookAtXlat.cpp:459-469`: emit `MSG_SET_REPLAY_CAMERA` onto the list
+/// the recorder snapshots (loc, angle, pitch, zoom, cursor, pixel).
 pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
     install_host_replay_bridges();
     let coord = coord_from_vec3(pose.pos);
@@ -182,12 +224,19 @@ pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
         pose.yaw,
         pose.zoom,
     ));
-    // C++ argument layout: loc, angle, pitch, zoom.
+    let (cursor, pixel) = host_replay_mouse_snapshot();
     message.append_location_argument(coord);
     message.append_real_argument(pose.yaw);
     message.append_real_argument(pose.pitch);
     message.append_real_argument(pose.zoom);
+    message.append_integer_argument(cursor);
+    message.append_pixel_argument(pixel);
     append_to_command_list(message);
+}
+
+/// Stamp live `TheGameLogic->getFrame()` for the next recorder write/playback.
+pub fn stamp_host_logic_frame(frame: u32) {
+    HOST_LOGIC_FRAME.store(frame, Ordering::Relaxed);
 }
 
 /// True when the live recorder is in `RECORDERMODETYPE_PLAYBACK`.
@@ -207,9 +256,15 @@ pub fn take_pending_replay_camera() -> Option<ReplayCameraPose> {
 pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand>) {
     install_host_replay_bridges();
     let playback = host_recorder_is_playback();
-    let _ = with_recorder_mut(|recorder| recorder.update());
+    let frame = host_logic_frame();
+    let _ = with_recorder_mut(|recorder| {
+        recorder.set_current_frame(frame);
+        recorder.update();
+    });
 
     if playback {
+        // C++ cullBadCommands drops user network orders before processCommandList.
+        host_queue.retain(|cmd| game_command_to_message(cmd).is_none());
         let messages = take_command_list_messages();
         apply_replay_messages_to_host(&messages);
     } else {
@@ -225,16 +280,24 @@ fn apply_replay_messages_to_host(messages: &[GameMessage]) {
     for message in messages {
         match message.get_type() {
             GameMessageType::SetReplayCamera(coord, yaw, zoom) => {
+                let angle = match message.get_argument(1) {
+                    Some(GameMessageArgumentType::Real(value)) => *value,
+                    _ => *yaw,
+                };
                 let pitch = match message.get_argument(2) {
                     Some(GameMessageArgumentType::Real(value)) => *value,
                     _ => 0.0,
                 };
+                let zoom_v = match message.get_argument(3) {
+                    Some(GameMessageArgumentType::Real(value)) => *value,
+                    _ => *zoom,
+                };
                 if let Ok(mut slot) = PENDING_REPLAY_CAMERA.lock() {
                     *slot = Some(ReplayCameraPose {
                         pos: vec3_from_coord(coord),
-                        yaw: *yaw,
+                        yaw: angle,
                         pitch,
-                        zoom: *zoom,
+                        zoom: zoom_v,
                     });
                 }
             }
@@ -482,6 +545,20 @@ mod tests {
                 assert!((pitch - 0.5).abs() < f32::EPSILON);
             }
             other => panic!("expected pitch, got {other:?}"),
+        }
+        match camera.get_argument(3) {
+            Some(GameMessageArgumentType::Real(zoom)) => {
+                assert!((zoom - 1.5).abs() < f32::EPSILON);
+            }
+            other => panic!("expected zoom, got {other:?}"),
+        }
+        match camera.get_argument(4) {
+            Some(GameMessageArgumentType::Integer(_)) => {}
+            other => panic!("expected cursor int, got {other:?}"),
+        }
+        match camera.get_argument(5) {
+            Some(GameMessageArgumentType::Pixel(_)) => {}
+            other => panic!("expected pixel, got {other:?}"),
         }
     }
 }

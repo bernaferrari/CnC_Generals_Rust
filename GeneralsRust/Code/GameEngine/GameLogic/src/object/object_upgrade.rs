@@ -463,11 +463,10 @@ impl Object {
         };
         let active_mask = manager.get_active_upgrades();
         let active_bits = UpgradeMaskType::from_bits_retain(active_mask.bits());
+        // C++ Object.cpp:2421-2436 — `maskToCheck = player | object` is only
+        // the argument to `attemptUpgrade`. Never write player bits into
+        // `m_objectUpgradesCompleted`.
         let combined_bits = active_bits | self.object_upgrades_completed;
-        let new_bits = active_bits & !self.object_upgrades_completed;
-        if !new_bits.is_empty() {
-            self.object_upgrades_completed.insert(new_bits);
-        }
         self.apply_upgrade_modules(combined_bits);
         crate::object::upgrade::status_bits_upgrade::apply_registered_status_upgrades(self);
     }
@@ -483,9 +482,8 @@ impl Object {
         if mask.is_empty() {
             return;
         }
-        if !self.object_upgrades_completed.contains(mask) {
-            return;
-        }
+        // C++ Object.cpp:4491-4503 always clears the object bit (no-op if
+        // unset) then `resetUpgrade` on every upgrade module.
         self.object_upgrades_completed.remove(mask);
 
         let mut matched_any = false;
@@ -1017,49 +1015,33 @@ impl Object {
         }
     }
 
-    /// Check if this object can produce a given upgrade
-    /// C++ Reference: Object.cpp - Production system
+    /// C++ `Object::canProduceUpgrade` — CommandSet walk, not production-module presence.
     ///
-    /// # Arguments
-    /// * `upgrade` - The upgrade template to check
-    ///
-    /// # Returns
-    /// true if this object can produce the upgrade
+    /// `TheControlBar->findCommandSet(getCommandSetString())`, then each of
+    /// `MAX_COMMANDS_PER_SET` slots via `getCommandButton(i)` (which consults
+    /// `GameLogic::findControlBarOverride`). True only if that button's
+    /// `getUpgradeTemplate()` matches the requested upgrade.
     pub fn can_produce_upgrade(
         &self,
-        _upgrade: &crate::upgrade::template::UpgradeTemplate,
+        upgrade: &crate::upgrade::template::UpgradeTemplate,
     ) -> bool {
-        if self.is_destroyed() {
+        let Some(control_bar) = crate::control_bar::get_control_bar_bridge() else {
             return false;
-        }
-
-        if self.is_disabled() {
+        };
+        let Some(command_set) = control_bar.find_command_set_by_name(self.get_command_set_string())
+        else {
             return false;
-        }
-
-        if self
-            .status
-            .test_status(ObjectStatusTypes::UnderConstruction)
-        {
-            return false;
-        }
-
-        for entry in &self.modules {
-            let has_production =
-                entry.with_module(|module| module_production_queue_kind(module).is_some());
-            if has_production {
-                return true;
-            }
-        }
-
-        for behavior in &self.behaviors {
-            if let Ok(mut behavior_guard) = behavior.lock() {
-                if behavior_guard.get_production_update_interface().is_some() {
+        };
+        for index in 0..crate::command_button::MAX_COMMANDS_PER_SET {
+            let Some(button) = command_set.get_command_button(index) else {
+                continue;
+            };
+            if let Some(template) = button.get_upgrade_template() {
+                if template.get_name() == upgrade.get_name() {
                     return true;
                 }
             }
         }
-
         false
     }
 

@@ -25,6 +25,37 @@ impl GameLogic {
             }
         }
 
+        // C++ StealthUpdate.cpp:365-373 — occupants of non-garrison transports destalth.
+        {
+            let destalth: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter_map(|(id, obj)| {
+                    if !obj.is_alive() || !obj.status.stealthed {
+                        return None;
+                    }
+                    let container = self.objects.get(&obj.contained_by?)?;
+                    let garrisonable = container.is_garrison_contain()
+                        || container.thing.template.garrison_contain_max.is_some();
+                    if Object::transport_contain_should_destalth(garrisonable) {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for id in destalth {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.break_stealth();
+                    if obj.stealth_delay_frames > 0 {
+                        obj.stealth_allowed_frame =
+                            frame.saturating_add(obj.stealth_delay_frames);
+                        obj.stealth_delay_pending = false;
+                    }
+                }
+            }
+        }
+
         // Bomb truck disguise residual: RevealDistanceFromTarget = 100 while
         // attacking a victim; also reveal when firing breaks stealth residual.
         {
@@ -182,8 +213,8 @@ impl GameLogic {
             }
         }
 
-        // Listening Outpost residual: StealthForbiddenConditions = MOVING
-        // (RIDERS_ATTACKING fail-closed). InnateStealth re-cloaks when stopped.
+        // Listening Outpost residual: StealthForbiddenConditions = MOVING RIDERS_ATTACKING.
+        // InnateStealth re-cloaks when stopped and riders are idle.
         {
             use crate::game_logic::host_listening_outpost::listening_outpost_stealth_desired;
             // Style bit installed at spawn for LO templates — no name scan.
@@ -194,6 +225,24 @@ impl GameLogic {
                 .map(|(id, _)| *id)
                 .collect();
             for lid in lo_ids {
+                let occupants = self
+                    .objects
+                    .get(&lid)
+                    .map(|o| o.contained_units())
+                    .unwrap_or_default();
+                // C++ OpenContain::isAnyRiderAttacking — OBJECT_STATUS_IS_ATTACKING.
+                let riders_attacking = occupants.iter().any(|rid| {
+                    self.objects.get(rid).is_some_and(|rider| {
+                        rider.is_alive()
+                            && (rider.status.attacking
+                                || matches!(
+                                    rider.ai_state,
+                                    AIState::Attacking
+                                        | AIState::AttackMoving
+                                        | AIState::AttackingGround
+                                ))
+                    })
+                });
                 let Some(obj) = self.objects.get_mut(&lid) else {
                     continue;
                 };
@@ -205,6 +254,7 @@ impl GameLogic {
                     obj.stealth_breaks_on_move,
                     obj.is_alive(),
                     moving,
+                    riders_attacking,
                 ) {
                     if desired && !obj.status.stealthed {
                         obj.set_status_stealthed(true);
@@ -544,10 +594,14 @@ impl GameLogic {
                         obj.ai_state,
                         AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
                     );
+                // C++ FIRING_PRIMARY only — Burton knife (secondary) does not destalth.
+                let firing_primary = firing
+                    && obj.last_fire_slot == 0
+                    && obj.last_fire_sim_time > 0.0;
                 let using_ability =
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
                 let desired = if is_colonel_burton_template(&obj.template_name) {
-                    burton_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
+                    burton_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing_primary)
                 } else if is_jarmen_kell_template(&obj.template_name) {
                     jarmen_stealth_desired(true, obj.innate_stealth, obj.is_alive(), firing)
                 } else if is_black_lotus_template(&obj.template_name) {

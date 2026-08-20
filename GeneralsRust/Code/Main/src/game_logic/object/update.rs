@@ -49,10 +49,14 @@ impl Object {
         let sole_sp = crate::gameworld_shadow::gameworld_special_power_sole_tick_enabled();
         if dt > 0.0 && !freeze_special_power && !sole_sp && !self.special_power_cooldowns.is_empty()
         {
+            let paused: Vec<_> = self
+                .special_power_cooldowns
+                .keys()
+                .filter(|power| self.is_special_power_countdown_paused(power))
+                .cloned()
+                .collect();
             for (power, rem) in &mut self.special_power_cooldowns {
-                // C++ pauseCountdown freezes that module's ready frame; a
-                // paused HDB must not silently finish its authored reload.
-                if !self.special_power_paused.contains(power) {
+                if !paused.iter().any(|p| p == power) {
                     *rem = (*rem - dt).max(0.0);
                 }
             }

@@ -7,8 +7,8 @@
 
 use crate::common::NameKeyType;
 use crate::common::{
-    Bool, Coord3D, DisabledMaskType, Int, KindOf, ModuleData, ObjectStatusMaskType,
-    ObjectStatusTypes, Real, UnsignedInt, XferVersion,
+    Bool, CommandSourceType, Coord3D, DisabledMaskType, Int, KindOf, ModuleData,
+    ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, XferVersion,
 };
 use crate::modules::{
     BehaviorModuleInterface, UpdateModule, UpdateModuleInterface, UpdateSleepTime,
@@ -518,13 +518,13 @@ impl StealthUpdate {
         0.0
     }
 
-    /// Check if unit is firing primary weapon
-    fn is_firing_primary(&self) -> Bool {
-        // Wave 302: empty dual-world → fail-closed.
+    /// C++ StealthUpdate.cpp:336-361 — destalth only if that slot shot last/this frame.
+    fn slot_fired_recently(&self, slot: crate::weapon::WeaponSlotType) -> Bool {
         if dual_world_registry_unavailable() {
             return false;
         }
-
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let last_frame = now.saturating_sub(1);
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -532,65 +532,28 @@ impl StealthUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
-                // Check last shot frame of primary weapon (C++ StealthUpdate.cpp:336-344)
-                // Weapon slot checking requires weapon module access
-                // For now, rely on IS_FIRING_WEAPON status bit which is more reliable
                 return obj
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::IS_FIRING_WEAPON);
+                    .get_weapon_in_weapon_slot(slot)
+                    .map(|weapon| weapon.get_last_shot_frame() >= last_frame)
+                    .unwrap_or(false);
             }
         }
         false
+    }
+
+    /// Check if unit is firing primary weapon
+    fn is_firing_primary(&self) -> Bool {
+        self.slot_fired_recently(crate::weapon::WeaponSlotType::Primary)
     }
 
     /// Check if unit is firing secondary weapon
     fn is_firing_secondary(&self) -> Bool {
-        // Wave 302: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = object.read() {
-                // Check last shot frame of secondary weapon (C++ StealthUpdate.cpp:345-353)
-                // Weapon slot checking requires weapon module access
-                // For now, rely on IS_FIRING_WEAPON status bit which is more reliable
-                return obj
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::IS_FIRING_WEAPON);
-            }
-        }
-        false
+        self.slot_fired_recently(crate::weapon::WeaponSlotType::Secondary)
     }
 
     /// Check if unit is firing tertiary weapon
     fn is_firing_tertiary(&self) -> Bool {
-        // Wave 302: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = object.read() {
-                // Check last shot frame of tertiary weapon (C++ StealthUpdate.cpp:354-362)
-                // Weapon slot checking requires weapon module access
-                // For now, rely on IS_FIRING_WEAPON status bit which is more reliable
-                return obj
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::IS_FIRING_WEAPON);
-            }
-        }
-        false
+        self.slot_fired_recently(crate::weapon::WeaponSlotType::Tertiary)
     }
 
     /// Check if unit is currently taking damage
@@ -632,9 +595,8 @@ impl StealthUpdate {
         false
     }
 
-    /// Check if unit has riders attacking
+    /// C++ StealthUpdate.cpp:376-385 — riders attacking only if passengers may fire.
     fn has_riders_attacking(&self) -> Bool {
-        // Wave 302: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
             return false;
         }
@@ -646,17 +608,17 @@ impl StealthUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
-                // Check if contained module exists and riders are attacking (C++ StealthUpdate.cpp:376-385)
                 if let Some(contain) = obj.get_contain() {
                     if let Ok(contain_guard) = contain.lock() {
-                        // Check each contained unit for attacking status
+                        if !contain_guard.is_passenger_allowed_to_fire(None) {
+                            return false;
+                        }
                         for &rider_id in contain_guard.get_contained_objects() {
                             if crate::object::registry::OBJECT_REGISTRY
                                 .with_object(rider_id, |rider_guard| {
-                                    let rider_status = rider_guard.get_status_bits();
-                                    rider_status.contains(ObjectStatusMaskType::IS_ATTACKING)
-                                        || rider_status
-                                            .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                                    rider_guard
+                                        .get_status_bits()
+                                        .contains(ObjectStatusMaskType::IS_ATTACKING)
                                 })
                                 .unwrap_or(false)
                             {
@@ -903,27 +865,46 @@ impl StealthUpdate {
                     }
                 }
 
-                // Check STEALTH_NOT_WHILE_FIRING_WEAPON conditions (primary, secondary, tertiary)
-                if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0 {
-                    if self.is_attacking() {
-                        // Do weapon-specific checks
-                        if (level & STEALTH_NOT_WHILE_FIRING_PRIMARY) != 0 {
-                            if self.is_firing_primary() {
-                                return false;
-                            }
-                        }
+                // C++ StealthUpdate.cpp:323-363 — per-slot last-shot, not any-fire collapse.
+                if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
+                    && obj
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+                {
+                    if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) == STEALTH_NOT_WHILE_FIRING_WEAPON
+                    {
+                        return false;
+                    }
+                    if (level & STEALTH_NOT_WHILE_FIRING_PRIMARY) != 0 && self.is_firing_primary() {
+                        return false;
+                    }
+                    if (level & STEALTH_NOT_WHILE_FIRING_SECONDARY) != 0
+                        && self.is_firing_secondary()
+                    {
+                        return false;
+                    }
+                    if (level & STEALTH_NOT_WHILE_FIRING_TERTIARY) != 0 && self.is_firing_tertiary()
+                    {
+                        return false;
+                    }
+                }
 
-                        if (level & STEALTH_NOT_WHILE_FIRING_SECONDARY) != 0 {
-                            if self.is_firing_secondary() {
+                // C++ StealthUpdate.cpp:365-373 — transports destalth occupants.
+                if let Some(container_id) = obj.get_container_id() {
+                    let not_garrisonable = OBJECT_REGISTRY
+                        .with_object(container_id, |container_guard| {
+                            let Some(contain) = container_guard.get_contain() else {
                                 return false;
-                            }
-                        }
-
-                        if (level & STEALTH_NOT_WHILE_FIRING_TERTIARY) != 0 {
-                            if self.is_firing_tertiary() {
-                                return false;
-                            }
-                        }
+                            };
+                            contain
+                                .lock()
+                                .ok()
+                                .map(|contain_guard| !contain_guard.is_garrisonable())
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
+                    if not_garrisonable {
+                        return false;
                     }
                 }
 
@@ -962,16 +943,38 @@ impl StealthUpdate {
         false
     }
 
-    /// Receive temporary stealth grant
+    /// C++ StealthUpdate::receiveGrant — always applies when active (refresh timer).
     pub fn receive_grant(&mut self, active: Bool, frames: UnsignedInt) {
+        if self.module_data.team_disguised {
+            return;
+        }
+        self.enabled = active;
+        let now = crate::helpers::TheGameLogic::get_frame();
+        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
+            if let Ok(mut obj) = object.write() {
+                if active {
+                    obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
+                    obj.set_status(OBJECT_STATUS_STEALTHED, true);
+                    self.stealth_allowed_frame = now;
+                    self.frames_granted = frames;
+                } else {
+                    obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
+                    obj.set_status(OBJECT_STATUS_STEALTHED, false);
+                    self.stealth_allowed_frame = NEVER;
+                    self.frames_granted = 0;
+                }
+                return;
+            }
+        }
         if active {
             self.frames_granted = frames;
-            self.enabled = true;
         } else {
             self.frames_granted = 0;
-            if !self.module_data.innate_stealth {
-                self.enabled = false;
-            }
         }
     }
 
@@ -991,6 +994,11 @@ impl StealthUpdate {
 }
 
 impl UpdateModuleInterface for StealthUpdate {
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ StealthUpdate.h:103 — still ticks while DISABLED_HELD.
+        DisabledMaskType::HELD
+    }
+
     fn update_simple(&mut self) -> UpdateSleepTime {
         // Wave 302: empty dual-world → Frames(1).
         if dual_world_registry_unavailable() {
@@ -1007,11 +1015,23 @@ impl UpdateModuleInterface for StealthUpdate {
                 // Increment frame counter
                 self.last_distance_check_frame = self.last_distance_check_frame.saturating_add(1);
 
-                // Handle temporary grant expiration
+                // C++ StealthUpdate.cpp:696-714 — temp grant + CMD_FROM_PLAYER strip.
                 if self.frames_granted > 0 {
                     self.frames_granted = self.frames_granted.saturating_sub(1);
-                    if self.frames_granted == 0 && !self.module_data.innate_stealth {
+                    let from_player = obj
+                        .get_ai()
+                        .and_then(|ai| {
+                            ai.try_lock().ok().map(|ai_guard| {
+                                ai_guard.get_last_command_source() == CommandSourceType::FromPlayer
+                            })
+                        })
+                        .unwrap_or(false);
+                    if from_player || self.frames_granted == 0 {
                         self.enabled = false;
+                        self.frames_granted = 0;
+                        self.stealth_allowed_frame = NEVER;
+                        obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
+                        obj.set_status(OBJECT_STATUS_STEALTHED, false);
                     }
                 }
 
@@ -1227,6 +1247,15 @@ mod tests {
             STEALTH_NOT_WHILE_FIRING_PRIMARY
                 | STEALTH_NOT_WHILE_FIRING_SECONDARY
                 | STEALTH_NOT_WHILE_FIRING_TERTIARY
+        );
+    }
+
+    #[test]
+    fn firing_primary_is_not_any_weapon() {
+        assert_eq!(STEALTH_NOT_WHILE_FIRING_PRIMARY, 0x00000008);
+        assert_ne!(
+            STEALTH_NOT_WHILE_FIRING_PRIMARY,
+            STEALTH_NOT_WHILE_FIRING_WEAPON
         );
     }
 

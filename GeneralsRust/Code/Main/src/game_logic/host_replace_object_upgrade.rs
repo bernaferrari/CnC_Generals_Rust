@@ -9,10 +9,10 @@
 //! Residual playability slice:
 //! - FakeGLA* / Chem_/Demo_/Slth_FakeGLA* + Upgrade_BecomeRealGLA* → drop "Fake"
 //! - Upgrade_AmericaMOAB → SCIENCE_MOAB grant
-//! - China EMP mines / common CommandSet peels set command_set_override
+//! - China Mines / EMP mines / common CommandSet peels set command_set_override
 //!
 //! Fail-closed: not full onBuildComplete create-module cascade / ControlBar UI dirty /
-//! CommandSetUpgrade alt-trigger dual CommandSet matrix / pathfinder cell marks.
+//! CommandSetUpgrade Internet Center alt-trigger matrix / pathfinder cell marks.
 
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,48 @@ pub fn grant_science_for_upgrade(upgrade: &str) -> Option<&'static str> {
     None
 }
 
+/// C++ CommandSetUpgrade CommandSet string for China structures after mines.
+fn china_structure_command_set_upgrade(template_lower: &str) -> Option<&'static str> {
+    let t = template_lower;
+    if t.contains("commandcenter") {
+        return Some("ChinaCommandCenterCommandSetUpgrade");
+    }
+    if t.contains("airfield") {
+        return Some("ChinaAirfieldCommandSetUpgrade");
+    }
+    if t.contains("nuclearmissile") || (t.contains("nuke") && t.contains("launcher")) {
+        return Some("ChinaNuclearMissileCommandSetUpgrade");
+    }
+    if t.contains("speakertower") || t.contains("propagandatower") {
+        return Some("ChinaSpeakerTowerCommandSetUpgrade");
+    }
+    if t.contains("powerplant") {
+        return Some("ChinaPowerPlantCommandSetUpgrade");
+    }
+    if t.contains("supplycenter") {
+        return Some("ChinaSupplyCenterCommandSetUpgrade");
+    }
+    if t.contains("barracks") {
+        return Some("ChinaBarracksCommandSetUpgrade");
+    }
+    if t.contains("warfactory") {
+        return Some("ChinaWarFactoryCommandSetUpgrade");
+    }
+    if t.contains("bunker") && !t.contains("overlord") && !t.contains("helix") {
+        return Some("ChinaBunkerCommandSetUpgrade");
+    }
+    if t.contains("propagandacenter") {
+        return Some("ChinaPropagandaCenterCommandSetUpgrade");
+    }
+    if t.contains("gattlingcannon") || t.contains("gatlingcannon") {
+        return Some("ChinaGattlingCannonCommandSetUpgrade");
+    }
+    if t.contains("internet") {
+        return Some("ChinaInternetCenterCommandSetOne");
+    }
+    None
+}
+
 /// CommandSetUpgrade residual peels: (upgrade needle, template needle) → command set.
 /// Prefer more specific peels first.
 pub fn command_set_override_for_upgrade(
@@ -88,50 +130,16 @@ pub fn command_set_override_for_upgrade(
         }
     }
 
-    // China EMP mines → *CommandSetUpgrade on structures.
-    if u.contains("empmines") || u.contains("chinaempmines") {
-        if t.contains("commandcenter") {
-            return Some("ChinaCommandCenterCommandSetUpgrade");
-        }
-        if t.contains("airfield") {
-            return Some("ChinaAirfieldCommandSetUpgrade");
-        }
-        if t.contains("nuclearmissile") || t.contains("nuke") && t.contains("launcher") {
-            return Some("ChinaNuclearMissileCommandSetUpgrade");
-        }
-        if t.contains("speakertower") || t.contains("propagandatower") {
-            return Some("ChinaSpeakerTowerCommandSetUpgrade");
-        }
-        if t.contains("powerplant") {
-            return Some("ChinaPowerPlantCommandSetUpgrade");
-        }
-        if t.contains("supplycenter") {
-            return Some("ChinaSupplyCenterCommandSetUpgrade");
-        }
-        if t.contains("barracks") {
-            return Some("ChinaBarracksCommandSetUpgrade");
-        }
-        if t.contains("warfactory") {
-            return Some("ChinaWarFactoryCommandSetUpgrade");
-        }
-        if t.contains("bunker") && !t.contains("overlord") && !t.contains("helix") {
-            return Some("ChinaBunkerCommandSetUpgrade");
-        }
-        if t.contains("propagandacenter") {
-            return Some("ChinaPropagandaCenterCommandSetUpgrade");
-        }
-        if t.contains("gattlingcannon") || t.contains("gatlingcannon") {
-            return Some("ChinaGattlingCannonCommandSetUpgrade");
-        }
+    // China mines (TriggeredBy Upgrade_ChinaMines) swap to *CommandSetUpgrade
+    // so slot 12 becomes Command_UpgradeEMPMines. EMP mines use the same set
+    // (no second CommandSet swap except Internet Center alt/trigger).
+    if u.contains("empmines")
+        || u.contains("chinaempmines")
+        || (u.contains("chinamines") && !u.contains("emp"))
+    {
+        return china_structure_command_set_upgrade(&t);
     }
 
-    // China mines → base CommandSet with mines button (pre-EMP). Fail-open name peel:
-    // many buildings swap to *CommandSetUpgrade only for EMP; mines often enable via
-    // same CommandSetUpgrade module TriggeredBy Upgrade_ChinaMines with different set.
-    if u.contains("chinamines") && !u.contains("emp") {
-        // Leave command set; mines residual may be generate-minefield path.
-        return None;
-    }
 
     // Overlord / Helix addon command sets.
     if u.contains("overlordgattling") {
@@ -237,4 +245,17 @@ mod tests {
             Some("ChinaCommandCenterCommandSetUpgrade")
         );
     }
+
+    #[test]
+    fn china_mines_swaps_command_set() {
+        assert_eq!(
+            command_set_override_for_upgrade("Upgrade_ChinaMines", "ChinaCommandCenter"),
+            Some("ChinaCommandCenterCommandSetUpgrade")
+        );
+        assert_eq!(
+            command_set_override_for_upgrade("Upgrade_ChinaMines", "ChinaWarFactory"),
+            Some("ChinaWarFactoryCommandSetUpgrade")
+        );
+    }
+
 }

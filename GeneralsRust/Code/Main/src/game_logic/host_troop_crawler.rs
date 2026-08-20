@@ -21,7 +21,8 @@
 //!
 //! Fail-closed honesty:
 //! - Not full multi-exit-path ExitStart01-nn / ExitDelay 250ms stagger
-//! - Not full HealthRegen%PerSec / DamagePercentToUnits matrix
+//! - HealthRegen%PerSec embark heal is applied by leftover host tick
+//!   (`host_heal::update_transport_health_regen`); not DamagePercentToUnits matrix
 //! - Not full IR detector FX / IRParticleSys bones
 //! - Not network transport / deploy replication (network deferred)
 //! - Wounded-retrieve residual is host-simplified (instant enter/exit, no path AI)

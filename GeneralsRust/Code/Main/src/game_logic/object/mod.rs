@@ -382,6 +382,20 @@ pub struct Object {
     /// (DozerAIUpdate.cpp:305).
     #[serde(default)]
     pub builder_id: Option<ObjectId>,
+    /// C++ `DozerAIUpdate::m_task[DOZER_TASK_BUILD]` — kept while REPAIR runs
+    /// so idle `isBuildMostImportant` can resume the scaffold (DozerAIUpdate.cpp:1948).
+    #[serde(default)]
+    pub dozer_task_build_target: Option<ObjectId>,
+    /// C++ `m_task[DOZER_TASK_BUILD].m_taskOrderFrame`.
+    #[serde(default)]
+    pub dozer_task_build_order_frame: u32,
+    /// C++ `DozerAIUpdate::m_task[DOZER_TASK_REPAIR]`.
+    #[serde(default)]
+    pub dozer_task_repair_target: Option<ObjectId>,
+    /// C++ `m_task[DOZER_TASK_REPAIR].m_taskOrderFrame`.
+    #[serde(default)]
+    pub dozer_task_repair_order_frame: u32,
+
 
     /// C++ SupplyTruckAIUpdate/WorkerAIUpdate::m_preferredDock.
     ///
@@ -970,9 +984,10 @@ pub struct Object {
     /// Absolute frame when POWER_PLANT_UPGRADING → UPGRADED (0 = idle).
     #[serde(default)]
     pub power_plant_rods_done_frame: u32,
-    /// C++ SpecialPowerModule m_pausedCount>0 residual (StartsPaused / pauseCountdown).
+    /// C++ SpecialPowerModule `m_pausedCount` residual (StartsPaused / pauseCountdown).
+    /// Refcount, not a set: two pause() calls need two unpauses.
     #[serde(default)]
-    pub special_power_paused: std::collections::HashSet<crate::command_system::SpecialPowerType>,
+    pub special_power_paused: std::collections::HashMap<crate::command_system::SpecialPowerType, u32>,
     /// C++ WEAPONSET_MINE_CLEARING_DETAIL residual (DozerAI / AIGroup::setMineClearingDetail).
     #[serde(default)]
     pub weapon_set_mine_clearing_detail: bool,
@@ -2057,6 +2072,9 @@ pub struct Object {
     pub weapon_bonus_battle_plan_hold_the_line: bool,
     #[serde(default)]
     pub weapon_bonus_battle_plan_search_and_destroy: bool,
+    /// C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (Scout drone range-extend).
+    #[serde(default)]
+    pub weapon_bonus_drone_spotting: bool,
     /// Residual sight-range scale currently applied for SearchAndDestroy (1.0 = none).
     #[serde(default = "default_one_f32")]
     pub battle_plan_sight_scalar_applied: f32,
@@ -2256,6 +2274,9 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ BodyModule `getLastDamageTimestamp` residual (TunnelContain nemesis window).
+    #[serde(default)]
+    pub last_damage_timestamp: Option<u32>,
     /// C++ AIUpdateInterface::m_nextMoodCheckTime residual.
     #[serde(default)]
     pub next_mood_check_time: u32,

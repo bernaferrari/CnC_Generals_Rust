@@ -547,8 +547,12 @@ impl UpgradeModuleInterface for StatusBitsUpgrade {
     }
 
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        let _ = upgrade_mask;
-        // C++ does not revert status bits when the upgrade is removed; keep parity.
+        // C++ does not revert status bits; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }
 

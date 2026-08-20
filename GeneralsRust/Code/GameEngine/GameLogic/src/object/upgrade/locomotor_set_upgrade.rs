@@ -152,7 +152,12 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not clear the locomotor upgrade flag; keep parity.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ does not clear the locomotor flag; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }

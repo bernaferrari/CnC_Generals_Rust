@@ -68,14 +68,14 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ AIGroup::getSpecialPowerSourceObject residual —
-    /// first living member that can execute `power_type`.
+    /// first living member that carries the matching SpecialPowerModule.
     pub(crate) fn special_power_source_object(
         &self,
         units: &[ObjectId],
         power_type: &crate::command_system::SpecialPowerType,
     ) -> Option<ObjectId> {
-        // C++ walks members for SpecialPowerModule matching template.
-        // Host: only members that explicitly track this power (cooldown map).
+        // C++ walks members for SpecialPowerModule matching template
+        // (`AIGroup.cpp` / `Object::getSpecialPowerModule`).
         for &id in units {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
@@ -83,7 +83,12 @@ impl<'a> CommandExecutor<'a> {
             if !o.is_alive() {
                 continue;
             }
-            if o.special_power_cooldowns.contains_key(power_type) {
+            if o.thing
+                .template
+                .special_power_module_for_command(power_type)
+                .is_some()
+                || o.special_power_cooldowns.contains_key(power_type)
+            {
                 return Some(id);
             }
         }
@@ -177,23 +182,24 @@ impl<'a> CommandExecutor<'a> {
             power_type, target
         );
         // C++ AIGroup::groupDoSpecialPower* (AIGroup.cpp:2614-2735) loops every
-        // member. getSpecialPowerSourceObject is a cursor/ActionManager query
-        // only — not the fire loop (GameLogicDispatch calls groupDoSpecialPower*).
-        let tracked: Vec<ObjectId> = units
+        // member. Each Object::doSpecialPower requires canUseSpecialPower →
+        // SpecialPowerModule (SpecialPower.cpp:308). Do not fall back to
+        // every selected unit when nobody carries the module — that let any
+        // tank fire Frenzy/CashHack.
+        let casters: Vec<ObjectId> = units
             .iter()
             .copied()
             .filter(|&id| {
                 self.game_logic.host_object(id).is_some_and(|o| {
-                    o.is_alive() && o.special_power_cooldowns.contains_key(power_type)
+                    o.is_alive()
+                        && (o.thing
+                            .template
+                            .special_power_module_for_command(power_type)
+                            .is_some()
+                            || o.special_power_cooldowns.contains_key(power_type))
                 })
             })
             .collect();
-        let casters: Vec<ObjectId> = if tracked.is_empty() {
-            // Fall back: any ready member (capture/skills on multi infantry).
-            units.to_vec()
-        } else {
-            tracked
-        };
 
         // Capture is a unit SpecialAbility with its own target legality.  It
         // must validate *before* spending charge; the former generic path
@@ -862,5 +868,84 @@ impl<'a> CommandExecutor<'a> {
         );
         let _ = TNT_START_ABILITY_RANGE;
         true
+    }
+}
+
+#[cfg(test)]
+mod can_use_special_power_caster_filter_tests {
+    use super::super::CommandExecutor;
+    use crate::command_system::{CommandResult, SpecialPowerType};
+    use crate::game_logic::{
+        GameLogic, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team, ThingTemplate,
+    };
+    use glam::Vec3;
+
+    fn test_module(power: SpecialPowerType, template: &str) -> SpecialPowerModuleMetadata {
+        SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_SpecialPower".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: template.into(),
+            special_power_template_id: 1,
+            command_power: Some(power),
+            reload_time_frames: 0,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        }
+    }
+
+    /// C++ `SpecialPowerStore::canUseSpecialPower` (`SpecialPower.cpp:308`) —
+    /// execute must not fall back to any selected unit when none carry the module.
+    #[test]
+    fn frenzy_execute_rejects_selection_without_module() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::China, "China", true));
+        let mut tank = ThingTemplate::new("Hq4vpduCasterTank");
+        tank.set_health(100.0);
+        logic.templates.insert("Hq4vpduCasterTank".into(), tank);
+        let tank_id = logic
+            .create_object("Hq4vpduCasterTank", Team::China, Vec3::ZERO)
+            .expect("tank");
+
+        {
+            let exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.special_power_source_object(&[tank_id], &SpecialPowerType::Frenzy),
+                None
+            );
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_special_power_at_location(
+                    &[tank_id],
+                    &SpecialPowerType::Frenzy,
+                    Vec3::new(50.0, 0.0, 50.0),
+                ),
+                CommandResult::InvalidCommand,
+                "any-unit Frenzy fallback must be removed"
+            );
+        }
+
+        let mut cc = ThingTemplate::new("Hq4vpduCasterCC");
+        cc.set_health(5000.0);
+        cc.special_power_modules
+            .push(test_module(SpecialPowerType::Frenzy, "SuperweaponFrenzy"));
+        logic.templates.insert("Hq4vpduCasterCC".into(), cc);
+        let cc_id = logic
+            .create_object("Hq4vpduCasterCC", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("cc");
+
+        let exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.special_power_source_object(&[tank_id, cc_id], &SpecialPowerType::Frenzy),
+            Some(cc_id),
+            "source must be the SpecialPowerModule owner, not the first selected tank"
+        );
     }
 }

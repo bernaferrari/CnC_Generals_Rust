@@ -761,11 +761,17 @@ impl RadarObject {
         }
     }
 
-    /// Check if object is temporarily hidden from radar
-    /// Matches C++ RadarObject::isTemporarilyHidden (lines 118-125)
+    /// Matches C++ `RadarObject::isTemporarilyHidden` (Radar.cpp:118-125).
+    /// Hidden only for `STEALTHLOOK_INVISIBLE`: enemy + stealthed + undetected
+    /// + undisguised. Own stealth (`VISIBLE_FRIENDLY`) and DETECTED /
+    /// `DISGUISED_ENEMY` blip. `stealth_revealed` is the radar-detector analog
+    /// of `OBJECT_STATUS_DETECTED`.
     pub fn is_temporarily_hidden(&self) -> bool {
-        // Stealth units are hidden unless revealed by stealth detection
-        (self.is_stealth && !self.stealth_revealed) || self.is_jammed
+        self.is_stealth
+            && self.is_enemy
+            && !self.is_detected
+            && !self.is_disguised
+            && !self.stealth_revealed
     }
 
     /// Check if this radar provider is operational
@@ -1971,7 +1977,12 @@ impl RadarSystem {
         if obj.priority == RadarPriorityType::LocalUnitOnly && !obj.is_local {
             return false;
         }
-        if obj.is_stealth && obj.is_enemy && !obj.is_detected && !obj.is_disguised {
+        if obj.is_stealth
+            && obj.is_enemy
+            && !obj.is_detected
+            && !obj.is_disguised
+            && !obj.stealth_revealed
+        {
             return false;
         }
 
@@ -2474,6 +2485,48 @@ mod tests {
         let radar = RadarSystem::new();
         assert!(!radar.is_radar_hidden());
         assert!(!radar.is_radar_forced());
+    }
+
+    #[test]
+    fn test_is_temporarily_hidden_matches_cpp_stealth_look() {
+        let mut own = RadarObject::new(1);
+        own.is_stealth = true;
+        own.is_enemy = false;
+        own.stealth_revealed = false;
+        assert!(
+            !own.is_temporarily_hidden(),
+            "own stealth is STEALTHLOOK_VISIBLE_FRIENDLY"
+        );
+
+        let mut undetected = RadarObject::new(2);
+        undetected.is_stealth = true;
+        undetected.is_enemy = true;
+        undetected.stealth_revealed = false;
+        assert!(
+            undetected.is_temporarily_hidden(),
+            "enemy undetected undisguised is STEALTHLOOK_INVISIBLE"
+        );
+
+        let mut detected = undetected.clone();
+        detected.is_detected = true;
+        assert!(
+            !detected.is_temporarily_hidden(),
+            "OBJECT_STATUS_DETECTED enemy blips"
+        );
+
+        let mut revealed = undetected.clone();
+        revealed.stealth_revealed = true;
+        assert!(
+            !revealed.is_temporarily_hidden(),
+            "detector-range stealth_revealed enemy blips"
+        );
+
+        let mut disguised = undetected.clone();
+        disguised.is_disguised = true;
+        assert!(
+            !disguised.is_temporarily_hidden(),
+            "DISGUISED_ENEMY blips"
+        );
     }
 
     #[test]
@@ -3020,7 +3073,7 @@ mod tests {
         obj.priority = RadarPriorityType::Unit;
         obj.color = 0xFF112233;
         obj.is_stealth = true;
-        obj.stealth_revealed = true;
+        obj.stealth_revealed = false;
         obj.is_enemy = true;
         radar.add_object(obj);
 
@@ -3067,6 +3120,56 @@ mod tests {
 
         assert_eq!(pixel(10, 20), &[0x11, 0x22, 0x33, 32]);
         assert_eq!(pixel(30, 40), &[0x44, 0x55, 0x66, 32]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_draws_own_unrevealed_stealth_blip() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFF112233;
+        obj.is_stealth = true;
+        obj.stealth_revealed = false;
+        obj.is_enemy = false;
+        radar.add_object(obj);
+
+        let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_draws_detector_revealed_enemy_stealth_blip() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFF112233;
+        obj.is_stealth = true;
+        obj.is_enemy = true;
+        obj.is_detected = false;
+        obj.is_disguised = false;
+        obj.stealth_revealed = true;
+        radar.add_object(obj);
+
+        let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
     }
 
     #[test]
@@ -3187,6 +3290,7 @@ mod tests {
         hidden_local_hero.is_hero = true;
         hidden_local_hero.is_stealth = true;
         hidden_local_hero.stealth_revealed = false;
+        hidden_local_hero.is_enemy = true;
         radar.add_object(hidden_local_hero);
 
         let rects = radar.build_hero_reticle_rects(0, 0, 128, 128, 20, 10);

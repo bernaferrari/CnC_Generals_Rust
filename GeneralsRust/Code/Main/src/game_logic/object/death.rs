@@ -233,13 +233,26 @@ impl Object {
 
     /// C++ SlowDeathBehavior::beginSlowDeath residual.
     /// Returns true if slow death started (caller should defer destroy).
+    /// Starts only when Object INI authors `SlowDeathBehavior`.
     pub fn begin_slow_death(&mut self, current_frame: u32) -> bool {
-        use crate::game_logic::host_slow_death::wants_slow_death;
-        let is_inf = self.is_kind_of(crate::game_logic::KindOf::Infantry);
-        let is_veh = self.is_kind_of(crate::game_logic::KindOf::Vehicle);
-        if !wants_slow_death(&self.template_name, is_inf, is_veh) {
-            return false;
-        }
+        let Some(ini) =
+            crate::game_logic::host_slow_death::slow_death_ini_for_template(&self.template_name)
+        else {
+            return self
+                .slow_death
+                .as_ref()
+                .map(|s| s.is_active())
+                .unwrap_or(false);
+        };
+        self.begin_slow_death_from_ini(current_frame, &ini)
+    }
+
+    /// C++ SlowDeathBehavior::beginSlowDeath with authored module data.
+    pub fn begin_slow_death_from_ini(
+        &mut self,
+        current_frame: u32,
+        ini: &crate::game_logic::host_slow_death::HostSlowDeathIni,
+    ) -> bool {
         if self
             .slow_death
             .as_ref()
@@ -252,31 +265,11 @@ impl Object {
                 .map(|s| s.is_active())
                 .unwrap_or(false);
         }
-        let mut sd = crate::game_logic::host_slow_death::HostSlowDeathData::default();
-        let ok = if is_inf {
-            sd.begin_infantry(current_frame)
-        } else {
-            sd.begin_vehicle(current_frame)
-        };
-        if !ok {
-            return false;
-        }
-        // sd may be replaced by fling residual below for infantry.
-        // Optional fling residual (exploded infantry peel).
-        if is_inf {
-            // Deterministic angle from object id.
+        let mut sd =
+            crate::game_logic::host_slow_death::HostSlowDeathData::from_ini(current_frame, ini);
+        if ini.fling_force > 0.0 {
             let ang = (self.id.0 as f32) * 0.618_033_988;
-            let mut fling_sd =
-                crate::game_logic::host_slow_death::HostSlowDeathData::infantry_fling_residual(
-                    current_frame,
-                    40.0,
-                    ang,
-                );
-            // Keep timing from standard infantry residual.
-            fling_sd.sink_at_frame = sd.sink_at_frame;
-            fling_sd.destroy_at_frame = sd.destroy_at_frame;
-            fling_sd.phase = sd.phase;
-            sd = fling_sd;
+            sd.apply_fling_angle(ang);
         }
         if let Some((fx, fy, fz)) = sd.take_fling_impulse() {
             self.movement.velocity.x += fx;

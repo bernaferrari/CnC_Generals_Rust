@@ -1743,9 +1743,10 @@ impl GameLogic {
         let spawn_pos = Vec3::new(master_pos.x + ox, master_pos.y, master_pos.z + oz);
         let drone_id = self.create_object(drone_tpl_name, team, spawn_pos)?;
 
-        // C++ Object::setProducer + UpgradeDie producer link residual.
+        // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {
             drone.producer_id = Some(master_id);
+            drone.set_status_unselectable(true);
             if drone.upgrade_die.is_none() {
                 drone.install_upgrade_die(kind.upgrade_name());
             }

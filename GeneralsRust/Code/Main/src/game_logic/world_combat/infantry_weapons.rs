@@ -385,7 +385,6 @@ impl GameLogic {
         Some(gunship_id)
     }
 
-    /// C++ OCLSpecialPower::doSpecialPowerAtLocation residual plan.
     /// C++ ObjectCreationList CreateDebris residual with disposition force.
     pub fn spawn_ocl_create_debris(
         &mut self,
@@ -393,6 +392,7 @@ impl GameLogic {
         team: Team,
         origin: Vec3,
         inherit_vel: Vec3,
+        owner_player_id: Option<u32>,
     ) -> Vec<ObjectId> {
         use crate::game_logic::host_ocl_create_debris::{
             debris_initial_velocity, spin_rate_rad_per_frame,
@@ -417,7 +417,9 @@ impl GameLogic {
             // slight index scatter residual
             pos.x += (i as f32) * 0.5;
             pos.z += (i as f32) * 0.35;
-            let Some(id) = self.create_object(&name, team, pos) else {
+            let Some(id) =
+                self.create_object_for_owner_or_team(&name, team, owner_player_id, pos)
+            else {
                 continue;
             };
             let vel = debris_initial_velocity(

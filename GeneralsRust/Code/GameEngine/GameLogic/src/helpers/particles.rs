@@ -237,6 +237,20 @@ impl TheParticleSystemManager {
         }
     }
 
+    /// C++ ParticleSystem::setSystemLifetime.
+    pub fn set_system_lifetime(&self, id: u32, frames: u32) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_system_lifetime(id, frames);
+        }
+    }
+
+    /// C++ ParticleSystem::setInitialDelay.
+    pub fn set_initial_delay(&self, id: u32, frames: u32) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_system_initial_delay(id, frames);
+        }
+    }
+
     pub fn find_particle_system(&self, id: u32) -> Option<Box<dyn std::any::Any>> {
         let manager = get_particle_system_manager()?;
         manager.find_particle_system(id)

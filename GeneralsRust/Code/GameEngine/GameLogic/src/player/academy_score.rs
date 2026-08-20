@@ -366,15 +366,43 @@ impl ScoreKeeper {
         Ok(())
     }
 
+    fn scoring_enabled() -> bool {
+        // C++ ScoreKeeper.cpp:101 — TheGameLogic->isScoringEnabled().
+        TheGameLogic::is_scoring_enabled()
+    }
+
+    /// Retail ZH KindOf.h bits used by ThingTemplate::get_kindof_mask().
+    /// ScoreKindOf local discriminants are not the same positions.
+    pub(super) fn score_kindof_retail_bit(kind: ScoreKindOf) -> u32 {
+        match kind {
+            ScoreKindOf::Structure => 7,
+            ScoreKindOf::Score => 35,
+            ScoreKindOf::ScoreCreate => 36,
+            ScoreKindOf::ScoreDestroy => 37,
+            ScoreKindOf::Infantry => 8,
+            ScoreKindOf::Vehicle => 9,
+            ScoreKindOf::Aircraft => 10,
+        }
+    }
+
     pub fn add_unit_built(&mut self) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         self.units_built += 1;
     }
 
     pub fn add_unit_killed(&mut self) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         self.add_unit_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_unit_lost(&mut self) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         self.units_lost += 1;
     }
 
@@ -455,10 +483,11 @@ impl ScoreKeeper {
                 return total;
             }
         }
-        self.units_built
+        // C++ has no units_built fallback. Factory-less tests still walk nothing.
+        0
     }
 
-    fn kindof_matches_multi(
+    pub(super) fn kindof_matches_multi(
         template_bits: u64,
         valid_mask: &ScoreKindOfMaskType,
         invalid_mask: &ScoreKindOfMaskType,
@@ -473,7 +502,7 @@ impl ScoreKeeper {
             ScoreKindOf::Aircraft,
         ];
         for kind in KINDS {
-            let bit = 1u64 << (kind as u32);
+            let bit = 1u64 << Self::score_kindof_retail_bit(kind);
             if invalid_mask.is_set(kind) && (template_bits & bit) != 0 {
                 return false;
             }
@@ -482,6 +511,40 @@ impl ScoreKeeper {
             }
         }
         true
+    }
+
+    pub(super) fn score_mask_from_retail_bits(bits: u64) -> ScoreKindOfMaskType {
+        let mut mask = ScoreKindOfMaskType::new();
+        const KINDS: [ScoreKindOf; 7] = [
+            ScoreKindOf::Structure,
+            ScoreKindOf::Score,
+            ScoreKindOf::ScoreCreate,
+            ScoreKindOf::ScoreDestroy,
+            ScoreKindOf::Infantry,
+            ScoreKindOf::Vehicle,
+            ScoreKindOf::Aircraft,
+        ];
+        for kind in KINDS {
+            if bits & (1u64 << Self::score_kindof_retail_bit(kind)) != 0 {
+                mask.set(kind);
+            }
+        }
+        mask
+    }
+
+    /// C++ addObjectBuilt when only a ThingTemplate name is available.
+    pub fn add_object_built_template(&mut self, template_name: &str, retail_kindof_bits: u64) {
+        if !Self::scoring_enabled() {
+            return;
+        }
+        let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
+        if Self::counts_as_score_building_create(mask) {
+            self.buildings_built += 1;
+            Self::increment_object_count(&mut self.objects_built, template_name);
+        } else if Self::counts_as_score_unit_create(mask) {
+            self.units_built += 1;
+            Self::increment_object_count(&mut self.objects_built, template_name);
+        }
     }
 
 
@@ -506,10 +569,16 @@ impl ScoreKeeper {
     }
 
     pub fn add_building_destroyed(&mut self) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         self.add_building_destroyed_for_player(Some(self.my_player_idx));
     }
 
     pub fn add_building_built(&mut self) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         self.buildings_built += 1;
     }
 
@@ -543,6 +612,9 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         // Check if under construction - under construction objects don't count
         if object.is_score_under_construction() {
             return;
@@ -568,6 +640,9 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         // Check if under construction - under construction objects don't count
         if object.is_score_under_construction() {
             return;
@@ -593,9 +668,11 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         let mask = object.get_score_kindof_mask();
         let template_name = object.get_score_template_name();
-
         if Self::counts_as_score_building_create(mask) {
             self.buildings_built += 1;
             Self::increment_object_count(&mut self.objects_built, template_name);
@@ -611,9 +688,11 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         let mask = object.get_score_kindof_mask();
         let template_name = object.get_score_template_name();
-
         if Self::counts_as_score_building_create(mask) {
             self.buildings_built -= 1;
             Self::decrement_object_count(&mut self.objects_built, template_name);
@@ -629,6 +708,9 @@ impl ScoreKeeper {
         &mut self,
         object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
     ) {
+        if !Self::scoring_enabled() {
+            return;
+        }
         let mask = object.get_score_kindof_mask();
         if mask.is_set(ScoreKindOf::Structure) {
             if mask.is_set(ScoreKindOf::Score) {

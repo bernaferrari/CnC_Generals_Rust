@@ -566,22 +566,21 @@ impl GameLogic {
     /// C++ NeutronMissileSlowDeathBehavior multi-blast residual.
     pub(in super::super) fn update_neutron_slow_death_fields(&mut self) {
         use crate::game_logic::host_neutron_missile_slow_death::{
-            plan_neutron_frame, MC_BIT_BURNED,
+            neutron_blast_can_topple, plan_neutron_frame, MC_BIT_BURNED,
         };
-        use crate::game_logic::host_topple::HostToppleData;
 
         let n = self.special_power_strikes.neutron_slow_death_field_count();
         if n == 0 {
             return;
         }
 
-        // Snapshot object xz + ids for planning.
-        let objects: Vec<(ObjectId, f32, f32, bool)> = self
+        // Snapshot object xyz + ids for 3D falloff planning.
+        let objects: Vec<(ObjectId, f32, f32, f32, bool)> = self
             .objects
             .iter()
             .map(|(id, o)| {
                 let p = o.get_position();
-                (*id, p.x, p.z, o.is_alive())
+                (*id, p.x, p.y, p.z, o.is_alive())
             })
             .collect();
 
@@ -600,9 +599,11 @@ impl GameLogic {
         let mut keep_metas = Vec::new();
 
         for (mut state, meta) in fields.into_iter().zip(metas.into_iter()) {
-            let epicenter = (meta.position.x, meta.position.z);
-            let xz: Vec<(f32, f32)> = objects.iter().map(|(_, x, z, _)| (*x, *z)).collect();
-            let (hits, place_scorch, done) = plan_neutron_frame(&mut state, frame, epicenter, &xz);
+            let epicenter = (meta.position.x, meta.position.y, meta.position.z);
+            let xyz: Vec<(f32, f32, f32)> =
+                objects.iter().map(|(_, x, y, z, _)| (*x, *y, *z)).collect();
+            let (hits, place_scorch, done) =
+                plan_neutron_frame(&mut state, frame, epicenter, &xyz);
 
             // C++ SlowDeath MIDPOINT OCL_NukeRadiationField residual.
             if state.take_radiation_ocl_request(frame) {
@@ -627,7 +628,7 @@ impl GameLogic {
             }
 
             for hit in hits {
-                let Some((id, _, _, alive)) = objects.get(hit.target_index).copied() else {
+                let Some((id, _, _, _, alive)) = objects.get(hit.target_index).copied() else {
                     continue;
                 };
                 if id == meta.source_object {
@@ -640,25 +641,21 @@ impl GameLogic {
                     obj.model_condition_bits |= 1u128 << MC_BIT_BURNED;
                 }
                 if hit.topple_speed > 0.0 {
-                    // Tree/prop topple residual peel.
-                    let name = obj.template_name.to_ascii_lowercase();
-                    let can_topple = obj.topple_data.is_none()
-                        && (name.contains("tree")
-                            || name.contains("shrub")
-                            || crate::game_logic::host_topple::is_topple_capable_template(
-                                &obj.template_name,
-                            ));
-                    if can_topple {
-                        let mut td = HostToppleData::default();
-                        if td.apply_toppling_force(
+                    // C++ Object::topple: any ToppleUpdate that isAbleToBeToppled.
+                    let has = obj.topple_data.is_some();
+                    let able = obj
+                        .topple_data
+                        .as_ref()
+                        .map(|t| t.is_able_to_be_toppled())
+                        .unwrap_or(false);
+                    if neutron_blast_can_topple(has, able) {
+                        let _ = obj.apply_topple(
                             hit.topple_dx,
                             hit.topple_dz,
                             hit.topple_speed,
                             crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_BOUNCE
                                 | crate::game_logic::host_topple::TOPPLE_OPTIONS_NO_FX,
-                        ) {
-                            obj.topple_data = Some(td);
-                        }
+                        );
                     }
                 }
                 if hit.damage > 0.0 && alive {

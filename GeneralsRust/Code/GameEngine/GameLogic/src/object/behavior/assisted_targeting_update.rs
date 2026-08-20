@@ -5,10 +5,8 @@
 //! Rust conversion: 2025
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::{
-    AsciiString, ModuleData, ObjectID, ThingTemplate, UnsignedInt, LOGICFRAMES_PER_SECOND,
-};
-use crate::helpers::{TheGameClient, TheGameLogic, TheThingFactory};
+use crate::common::{AsciiString, ModuleData, ObjectID, ThingTemplate, UnsignedInt};
+use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     AssistedTargetingUpdateInterface, BehaviorModuleInterface, UpdateModuleInterface,
     UpdateSleepTime,
@@ -28,7 +26,6 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-const FEEDBACK_LASER_LIFE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 2;
 
 #[derive(Clone, Debug)]
 pub struct AssistedTargetingUpdateModuleData {
@@ -66,7 +63,6 @@ pub struct AssistedTargetingUpdate {
     next_call_frame_and_phase: UnsignedInt,
     laser_from_assisted: Option<Arc<dyn ThingTemplate>>,
     laser_to_target: Option<Arc<dyn ThingTemplate>>,
-    feedback_beams: Vec<(u32, UnsignedInt)>,
 }
 
 impl AssistedTargetingUpdate {
@@ -89,7 +85,6 @@ impl AssistedTargetingUpdate {
             next_call_frame_and_phase: 0,
             laser_from_assisted: None,
             laser_to_target: None,
-            feedback_beams: Vec::new(),
         })
     }
 
@@ -124,6 +119,7 @@ impl AssistedTargetingUpdate {
             return;
         };
 
+        // C++ AssistedTargetingUpdate.cpp:96-97 — requires controlling player.
         let team = if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -146,53 +142,58 @@ impl AssistedTargetingUpdate {
             return;
         };
 
-        if let Ok(factory) = TheThingFactory::get() {
-            if let Ok(laser) = factory.new_object(Arc::clone(laser_template), &team_guard) {
-                let laser_id = laser.read().ok().map(|guard| guard.get_id()).unwrap_or(0);
-                if let Ok(mut laser_guard) = laser.write() {
-                    let _ = laser_guard.set_position(&from_pos);
-                }
-                if let Some(client) = TheGameClient::get() {
-                    let draw_id = client.create_drawable(laser_template.as_ref());
-                    client.set_drawable_beam(draw_id, &from_pos, &to_pos);
-                    if laser_id != 0 {
-                        client.set_drawable_shroud_status_object_id(draw_id, laser_id);
-                    }
-                    let end_frame =
-                        TheGameLogic::get_frame().saturating_add(FEEDBACK_LASER_LIFE_FRAMES);
-                    self.feedback_beams.push((draw_id, end_frame));
+        let Ok(factory) = TheThingFactory::get() else {
+            return;
+        };
+        let Ok(laser) = factory.new_object(Arc::clone(laser_template), &team_guard) else {
+            return;
+        };
+        drop(team_guard);
+
+        let laser_id = laser.read().ok().map(|guard| guard.get_id()).unwrap_or(0);
+        let mut modules = Vec::new();
+        {
+            let Ok(mut laser_guard) = laser.write() else {
+                return;
+            };
+            let _ = laser_guard.set_position(&from_pos);
+            if let Some(drawable) = laser_guard.get_drawable() {
+                if let Ok(draw) = drawable.read() {
+                    modules = draw.modules();
                 }
             }
+            if modules.is_empty() {
+                modules = laser_guard.client_update_modules();
+            }
+        }
+
+        let mut found = false;
+        for module in modules {
+            module.with_module(|module| {
+                if let Some(laser_update) = module.get_laser_update_interface() {
+                    laser_update.init_laser(
+                        Some(self.object_id),
+                        Some(to_id),
+                        Some(from_pos.to_array()),
+                        Some(to_pos.to_array()),
+                        String::new(),
+                        0,
+                    );
+                    found = true;
+                }
+            });
+        }
+        if !found && laser_id != 0 {
+            let _ = TheGameLogic::destroy_object_by_id(laser_id);
         }
     }
 }
 
 impl UpdateModuleInterface for AssistedTargetingUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
+        // C++ AssistedTargetingUpdate.cpp:121-132 — cache templates, sleep forever.
         self.refresh_laser_templates();
-        if self.feedback_beams.is_empty() {
-            return UpdateSleepTime::Forever;
-        }
-
-        let now = TheGameLogic::get_frame();
-        if let Some(client) = TheGameClient::get() {
-            self.feedback_beams.retain(|(id, end_frame)| {
-                if now >= *end_frame {
-                    client.destroy_drawable(*id);
-                    false
-                } else {
-                    true
-                }
-            });
-        } else {
-            self.feedback_beams.clear();
-        }
-
-        if self.feedback_beams.is_empty() {
-            UpdateSleepTime::Forever
-        } else {
-            UpdateSleepTime::Frames(1)
-        }
+        UpdateSleepTime::Forever
     }
 }
 

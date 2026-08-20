@@ -285,9 +285,52 @@ pub enum PartitionFilter {
 /// Constant for 3D center distance (uses PartitionDistanceType enum)
 pub const PARTITION_FROM_CENTER_3D: PartitionDistanceType = PartitionDistanceType::Center3D;
 
+/// C++ `TheProjectedShadowManager->addDecal` bridge.
+/// GameClient registers this so leftover GameLogic create can draw rings.
+#[derive(Clone, Copy)]
+pub struct ProjectedRadiusDecalHooks {
+    pub add_decal: fn(
+        texture: &str,
+        radius: f32,
+        x: f32,
+        y: f32,
+        z: f32,
+        color_argb: u32,
+        opacity: f32,
+        shadow_type: u32,
+    ) -> Option<u64>,
+    pub set_position: fn(id: u64, x: f32, y: f32, z: f32),
+    pub set_opacity: fn(id: u64, opacity: f32),
+    pub set_color: fn(id: u64, color_argb: u32),
+    pub release: fn(id: u64),
+}
+
+static PROJECTED_RADIUS_DECAL_HOOKS: OnceLock<ProjectedRadiusDecalHooks> = OnceLock::new();
+
+pub fn register_projected_radius_decal_hooks(hooks: ProjectedRadiusDecalHooks) -> bool {
+    PROJECTED_RADIUS_DECAL_HOOKS.set(hooks).is_ok()
+}
+
+fn projected_radius_decal_hooks() -> Option<&'static ProjectedRadiusDecalHooks> {
+    PROJECTED_RADIUS_DECAL_HOOKS.get()
+}
+
+/// Leftover `Color::to_argb_u32` / leftover INI parse pack A|B|G|R.
+/// C++ `GameMakeColor` is A|R|G|B. Convert at the projected-shadow boundary.
+fn leftover_packed_to_game_argb(color: u32) -> u32 {
+    if color == 0 {
+        return 0;
+    }
+    let a = (color >> 24) & 0xFF;
+    let b = (color >> 16) & 0xFF;
+    let g = (color >> 8) & 0xFF;
+    let r = color & 0xFF;
+    (a << 24) | (r << 16) | (g << 8) | b
+}
+
 /// Radius decal for visual effects
 /// Matches C++ RadiusDecal class
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RadiusDecal {
     /// Position in world space
     pub position: Coord3D,
@@ -305,6 +348,43 @@ pub struct RadiusDecal {
     pub opacity_throb_time: u32,
     /// Template that created this decal
     pub template: Option<RadiusDecalTemplateId>,
+    /// Texture used for C++ `addDecal` (lazy if radius is filled after create).
+    pub texture_name: AsciiString,
+    /// Shadow/decal style flags (bitset, matches ShadowType)
+    pub shadow_type: u32,
+    /// Opaque `TheProjectedShadowManager` handle id.
+    pub projected_id: Option<u64>,
+}
+
+impl Clone for RadiusDecal {
+    fn clone(&self) -> Self {
+        // C++ copy is not fully implemented; do not share m_decal.
+        Self {
+            position: self.position,
+            radius: self.radius,
+            opacity: self.opacity,
+            color: self.color,
+            min_opacity: self.min_opacity,
+            max_opacity: self.max_opacity,
+            opacity_throb_time: self.opacity_throb_time,
+            template: self.template,
+            texture_name: self.texture_name.clone(),
+            shadow_type: self.shadow_type,
+            projected_id: None,
+        }
+    }
+}
+
+impl Drop for RadiusDecal {
+    fn drop(&mut self) {
+        self.release_projected();
+    }
+}
+
+impl Default for RadiusDecal {
+    fn default() -> Self {
+        Self::new(Coord3D::origin(), 0.0)
+    }
 }
 
 impl RadiusDecal {
@@ -319,17 +399,70 @@ impl RadiusDecal {
             max_opacity: 1.0,
             opacity_throb_time: LOGICFRAMES_PER_SECOND,
             template: None,
+            texture_name: AsciiString::new(),
+            shadow_type: SHADOW_ALPHA_DECAL,
+            projected_id: None,
         }
+    }
+
+    fn release_projected(&mut self) {
+        if let Some(id) = self.projected_id.take() {
+            if let Some(hooks) = projected_radius_decal_hooks() {
+                (hooks.release)(id);
+            }
+        }
+    }
+
+    fn ensure_projected(&mut self) {
+        if self.projected_id.is_some() {
+            return;
+        }
+        if self.texture_name.is_empty() || self.radius <= 0.0 {
+            return;
+        }
+        let Some(hooks) = projected_radius_decal_hooks() else {
+            return;
+        };
+        self.projected_id = (hooks.add_decal)(
+            self.texture_name.as_str(),
+            self.radius,
+            self.position.x,
+            self.position.y,
+            self.position.z,
+            leftover_packed_to_game_argb(self.color),
+            self.opacity,
+            self.shadow_type,
+        );
+    }
+
+    fn sync_projected(&self) {
+        let Some(id) = self.projected_id else {
+            return;
+        };
+        let Some(hooks) = projected_radius_decal_hooks() else {
+            return;
+        };
+        (hooks.set_color)(id, leftover_packed_to_game_argb(self.color));
+        (hooks.set_opacity)(id, self.opacity);
+        (hooks.set_position)(id, self.position.x, self.position.y, self.position.z);
     }
 
     /// Set decal opacity (0.0 to 1.0).
     pub fn set_opacity(&mut self, opacity: f32) {
         self.opacity = opacity;
+        self.ensure_projected();
+        if let (Some(id), Some(hooks)) = (self.projected_id, projected_radius_decal_hooks()) {
+            (hooks.set_opacity)(id, self.opacity);
+        }
     }
 
     /// Set decal position.
     pub fn set_position(&mut self, position: Coord3D) {
         self.position = position;
+        self.ensure_projected();
+        if let (Some(id), Some(hooks)) = (self.projected_id, projected_radius_decal_hooks()) {
+            (hooks.set_position)(id, position.x, position.y, position.z);
+        }
     }
 
     /// Returns true if decal is effectively empty.
@@ -348,25 +481,24 @@ impl RadiusDecal {
     pub fn update_with_draw_icon_ui(&mut self, draw_icon_ui: bool) {
         if !draw_icon_ui {
             self.opacity = 0.0;
-            return;
-        }
-
-        if self.opacity_throb_time == 0 {
+        } else if self.opacity_throb_time == 0 {
             self.opacity = self.max_opacity;
-            return;
+        } else {
+            let now = crate::helpers::TheGameLogic::get_frame();
+            let theta = (2.0 * std::f32::consts::PI)
+                * ((now % self.opacity_throb_time) as f32 / self.opacity_throb_time as f32);
+            let percent = 0.5 * (theta.sin() + 1.0);
+            let lo = self.min_opacity.min(self.max_opacity);
+            let hi = self.min_opacity.max(self.max_opacity);
+            self.opacity = lo + percent * (hi - lo);
         }
-
-        let now = crate::helpers::TheGameLogic::get_frame();
-        let theta = (2.0 * std::f32::consts::PI)
-            * ((now % self.opacity_throb_time) as f32 / self.opacity_throb_time as f32);
-        let percent = 0.5 * (theta.sin() + 1.0);
-        let lo = self.min_opacity.min(self.max_opacity);
-        let hi = self.min_opacity.max(self.max_opacity);
-        self.opacity = lo + percent * (hi - lo);
+        self.ensure_projected();
+        self.sync_projected();
     }
 
     /// Reset the decal to an empty state (matches C++ RadiusDecal::clear).
     pub fn clear(&mut self) {
+        self.release_projected();
         self.position = Coord3D::origin();
         self.radius = 0.0;
         self.opacity = 1.0;
@@ -375,12 +507,14 @@ impl RadiusDecal {
         self.max_opacity = 1.0;
         self.opacity_throb_time = LOGICFRAMES_PER_SECOND;
         self.template = None;
+        self.texture_name = AsciiString::new();
+        self.shadow_type = SHADOW_ALPHA_DECAL;
     }
 }
 
 #[cfg(test)]
 mod radius_decal_tests {
-    use super::{Coord3D, CoordOrigin, RadiusDecal};
+    use super::{Coord3D, CoordOrigin, RadiusDecal, RadiusDecalTemplate};
 
     #[test]
     fn radius_decal_update_hides_when_draw_icon_ui_disabled() {
@@ -399,6 +533,23 @@ mod radius_decal_tests {
         decal.opacity_throb_time = 0;
         decal.update_with_draw_icon_ui(true);
         assert!((decal.opacity - 0.8).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn create_radius_decal_keeps_position_when_template_radius_is_zero() {
+        let mut template = RadiusDecalTemplate::default();
+        template.texture_name = crate::common::AsciiString::from("SCCArtilleryBarrage_China");
+        template.radius = 0.0;
+        let pos = Coord3D {
+            x: 11.0,
+            y: 22.0,
+            z: 33.0,
+        };
+        let mut decal = template.create_radius_decal(pos);
+        assert_eq!(decal.position.x, 11.0);
+        assert_eq!(decal.texture_name.as_str(), "SCCArtilleryBarrage_China");
+        decal.radius = 200.0;
+        assert!(!decal.is_empty());
     }
 }
 
@@ -464,31 +615,8 @@ impl Default for RadiusDecalTemplate {
 }
 
 impl RadiusDecalTemplate {
-    /// Create a radius decal from this template
-    pub fn create_radius_decal(&self, position: Coord3D) -> RadiusDecal {
-        if self.texture_name.is_empty() || self.radius <= 0.0 {
-            return RadiusDecal::new(Coord3D::origin(), 0.0);
-        }
-
-        RadiusDecal {
-            position,
-            radius: self.radius,
-            opacity: self.max_opacity,
-            color: self.color,
-            min_opacity: self.min_opacity,
-            max_opacity: self.max_opacity,
-            opacity_throb_time: self.opacity_throb_time,
-            template: None,
-        }
-    }
-
-    /// Create a radius decal using an explicit radius (matches C++ createRadiusDecal parameter).
-    pub fn create_radius_decal_with_radius(&self, position: Coord3D, radius: f32) -> RadiusDecal {
-        if self.texture_name.is_empty() || radius <= 0.0 {
-            return RadiusDecal::new(Coord3D::origin(), 0.0);
-        }
-
-        RadiusDecal {
+    fn instantiate(&self, position: Coord3D, radius: f32) -> RadiusDecal {
+        let mut decal = RadiusDecal {
             position,
             radius,
             opacity: self.max_opacity,
@@ -497,7 +625,30 @@ impl RadiusDecalTemplate {
             max_opacity: self.max_opacity,
             opacity_throb_time: self.opacity_throb_time,
             template: None,
+            texture_name: self.texture_name.clone(),
+            shadow_type: self.shadow_type,
+            projected_id: None,
+        };
+        decal.ensure_projected();
+        decal
+    }
+
+    /// Create a radius decal from this template
+    pub fn create_radius_decal(&self, position: Coord3D) -> RadiusDecal {
+        if self.texture_name.is_empty() {
+            return RadiusDecal::new(Coord3D::origin(), 0.0);
         }
+        // Leftover DeliverPayload assigns radius after create. Keep position/texture
+        // so the later `update()` can `addDecal` (C++ create takes the radius up front).
+        self.instantiate(position, self.radius)
+    }
+
+    /// Create a radius decal using an explicit radius (matches C++ createRadiusDecal parameter).
+    pub fn create_radius_decal_with_radius(&self, position: Coord3D, radius: f32) -> RadiusDecal {
+        if self.texture_name.is_empty() || radius <= 0.0 {
+            return RadiusDecal::new(Coord3D::origin(), 0.0);
+        }
+        self.instantiate(position, radius)
     }
 }
 
@@ -614,6 +765,13 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     }
 
     /// Destroy all particle systems attached to the given object (mirrors ParticleSystemManager::destroyAttachedSystems).
+
+    /// C++ ParticleSystem::setSystemLifetime.
+    fn set_particle_system_lifetime(&self, _system_id: ParticleSystemId, _frames: UnsignedInt) {}
+
+    /// C++ ParticleSystem::setInitialDelay.
+    fn set_particle_system_initial_delay(&self, _system_id: ParticleSystemId, _frames: UnsignedInt) {
+    }
     fn destroy_attached_systems(&self, _object_id: ObjectID) {}
 }
 

@@ -3,6 +3,27 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// C++ `AIUpdateInterface::evaluateMoraleBonus` (AIUpdate.cpp:4668-4693).
+/// Nationalism comes from the player upgrade regardless of horde membership.
+/// `AllowedNationalism` vetoes only while the unit is in a horde
+/// (`HordeUpdate.cpp` default `m_allowedNationalism = TRUE`).
+pub(super) fn nationalism_bonus_from_upgrade(
+    has_upgrade: bool,
+    in_horde: bool,
+    allowed_nationalism: bool,
+) -> bool {
+    if in_horde && !allowed_nationalism {
+        false
+    } else {
+        has_upgrade
+    }
+}
+
+/// Host HordeUpdate residual has no per-object AllowedNationalism field;
+/// match C++ module-data default (TRUE).
+pub(super) const HORDE_DEFAULT_ALLOWED_NATIONALISM: bool = true;
+
+
 impl GameLogic {
     /// C++ BattleMasterTankShell DumbProjectile residual.
     pub fn spawn_battlemaster_shell_projectile(
@@ -348,7 +369,11 @@ impl GameLogic {
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
         let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism && in_horde;
+        let nationalism_active = nationalism_bonus_from_upgrade(
+            nationalism,
+            in_horde,
+            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -369,7 +394,11 @@ impl GameLogic {
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
         let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism && in_horde;
+        let nationalism_active = nationalism_bonus_from_upgrade(
+            nationalism,
+            in_horde,
+            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.record_host_weapon_bonus();
         let last_fire = obj.weapon.as_ref().map(|w| w.last_fire_time).unwrap_or(0.0);
@@ -394,7 +423,11 @@ impl GameLogic {
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
         let in_horde = obj.weapon_bonus_horde;
-        let nationalism_active = nationalism && in_horde;
+        let nationalism_active = nationalism_bonus_from_upgrade(
+            nationalism,
+            in_horde,
+            HORDE_DEFAULT_ALLOWED_NATIONALISM,
+        );
         obj.weapon_bonus_nationalism = nationalism_active;
         obj.record_host_weapon_bonus();
         let chain = has_chain_guns_upgrade(&obj.applied_upgrades);

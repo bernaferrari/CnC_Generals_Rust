@@ -1286,6 +1286,17 @@ impl ParticleUplinkCannonUpdate {
                 self.create_laser_base_flare(IntensityTypes::Medium);
                 self.create_ground_to_orbit_laser(0);
                 if self.ground_to_orbit_beam_id != INVALID_DRAWABLE_ID {
+                    if let Some(client) = TheGameClient::get() {
+                        let decay = if reveal_this_frame {
+                            0
+                        } else {
+                            self.module_data.width_grow_frames
+                        };
+                        client.set_drawable_laser_decay_frames(
+                            self.ground_to_orbit_beam_id,
+                            decay,
+                        );
+                    }
                     let now = TheGameLogic::get_frame();
                     self.ground_to_orbit_decay_end_frame =
                         now.saturating_add(self.module_data.width_grow_frames);
@@ -1408,7 +1419,14 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                 }
                 LaserStatus::Born => {
                     if orbital_decay_start <= now {
-                        // Start decay animation on beam
+                        if let Some(client) = TheGameClient::get() {
+                            if self.orbit_to_target_beam_id != INVALID_DRAWABLE_ID {
+                                client.set_drawable_laser_decay_frames(
+                                    self.orbit_to_target_beam_id,
+                                    data.width_grow_frames,
+                                );
+                            }
+                        }
                         self.laser_status = LaserStatus::Decaying;
                     }
                 }

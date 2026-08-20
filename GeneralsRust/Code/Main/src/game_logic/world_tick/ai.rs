@@ -591,32 +591,33 @@ impl GameLogic {
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.
     pub(in super::super) fn update_slaved_drone_follow(&mut self) {
         use crate::game_logic::host_slave_drones::{
-            battle_drone_should_repair_master, is_battle_drone_template,
-            is_hellfire_drone_template, is_scout_drone_template, SLAVE_ATTACK_RANGE,
-            SLAVE_GUARD_MAX_RANGE, SLAVE_SCOUT_RANGE,
+            battle_drone_should_idle_repair_master, battle_drone_should_repair_master,
+            is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
+            scout_drone_should_grant_range_bonus, slave_follow_destination_y,
+            slave_should_defect_to_master, SLAVE_ATTACK_RANGE, SLAVE_GUARD_MAX_RANGE,
+            SLAVE_SCOUT_RANGE,
         };
 
-        let drones: Vec<(ObjectId, ObjectId, glam::Vec3, bool, bool)> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if !o.is_alive() {
-                    return None;
-                }
-                let is_drone = is_scout_drone_template(&o.template_name)
-                    || is_hellfire_drone_template(&o.template_name)
-                    || is_battle_drone_template(&o.template_name);
-                if !is_drone {
-                    return None;
-                }
-                let master = o.producer_id?;
-                let idle = matches!(o.ai_state, AIState::Idle);
-                let is_battle = is_battle_drone_template(&o.template_name);
-                Some((*id, master, o.get_position(), idle, is_battle))
-            })
-            .collect();
+        let drones: Vec<(ObjectId, ObjectId, glam::Vec3, bool, bool, bool, crate::game_logic::Team)> =
+            self.objects
+                .iter()
+                .filter_map(|(id, o)| {
+                    if !o.is_alive() {
+                        return None;
+                    }
+                    let is_scout = is_scout_drone_template(&o.template_name);
+                    let is_hellfire = is_hellfire_drone_template(&o.template_name);
+                    let is_battle = is_battle_drone_template(&o.template_name);
+                    if !is_scout && !is_hellfire && !is_battle {
+                        return None;
+                    }
+                    let master = o.producer_id?;
+                    let idle = matches!(o.ai_state, AIState::Idle);
+                    Some((*id, master, o.get_position(), idle, is_battle, is_scout, o.team))
+                })
+                .collect();
 
-        for (drone_id, master_id, dpos, idle, is_battle) in drones {
+        for (drone_id, master_id, dpos, idle, is_battle, is_scout, drone_team) in drones {
             let Some(master) = self.objects.get(&master_id) else {
                 if let Some(d) = self.objects.get_mut(&drone_id) {
                     d.set_status_disabled_unmanned(true);
@@ -635,6 +636,7 @@ impl GameLogic {
             let max_hp = master.health.maximum.max(1.0);
             let master_hp_pct = (master.health.current / max_hp) * 100.0;
             let master_dest = master.movement.target_position;
+            let master_team = master.team;
             let victim_pos = master.target.and_then(|tid| {
                 self.objects
                     .get(&tid)
@@ -642,15 +644,39 @@ impl GameLogic {
                     .map(|t| t.get_position())
             });
 
+            // C++ SlavedUpdate.cpp:145-150 hijack/defect when master is no longer ALLIES.
+            if slave_should_defect_to_master(master_team == drone_team) {
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    d.defect(master_team, self.frame, 0);
+                }
+            }
+
+            // C++ :160-162 clear DRONE_SPOTTING every tick; grant again in attack logic.
+            if let Some(master) = self.objects.get_mut(&master_id) {
+                master.set_weapon_bonus_drone_spotting(false);
+            }
+
             if is_battle && battle_drone_should_repair_master(true, master_hp_pct, true, 0.0) {
                 // C++ SlavedUpdate.cpp:188-193 1ST PRIORITY: repair master.
                 if let Some(d) = self.objects.get_mut(&drone_id) {
-                    d.set_destination(mpos);
+                    let y = slave_follow_destination_y(d.get_position().y, mpos.y);
+                    d.set_destination(glam::Vec3::new(mpos.x, y, mpos.z));
                 }
                 continue;
             }
 
-            let Some(goal) = slaved_update_follow_goal(
+            // C++ doAttackLogic :319-324 grant spotting when close to master's victim.
+            if let Some(vpos) = victim_pos {
+                let dx = dpos.x - vpos.x;
+                let dz = dpos.z - vpos.z;
+                if scout_drone_should_grant_range_bonus(is_scout, dx * dx + dz * dz) {
+                    if let Some(master) = self.objects.get_mut(&master_id) {
+                        master.set_weapon_bonus_drone_spotting(true);
+                    }
+                }
+            }
+
+            if let Some(goal) = slaved_update_follow_goal(
                 (dpos.x, dpos.z),
                 (mpos.x, mpos.z),
                 master_dest.map(|p| (p.x, p.z)),
@@ -659,12 +685,20 @@ impl GameLogic {
                 SLAVE_GUARD_MAX_RANGE,
                 SLAVE_ATTACK_RANGE,
                 SLAVE_SCOUT_RANGE,
-            ) else {
+            ) {
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    let y = slave_follow_destination_y(d.get_position().y, mpos.y);
+                    d.set_destination(glam::Vec3::new(goal.0, y, goal.1));
+                }
                 continue;
-            };
-            if let Some(d) = self.objects.get_mut(&drone_id) {
-                let y = d.get_position().y.max(mpos.y);
-                d.set_destination(glam::Vec3::new(goal.0, y, goal.1));
+            }
+
+            // C++ :229-236 idle repair when master health < 100 after attack/scout.
+            if is_battle && battle_drone_should_idle_repair_master(true, master_hp_pct, true, 0.0) {
+                if let Some(d) = self.objects.get_mut(&drone_id) {
+                    let y = slave_follow_destination_y(d.get_position().y, mpos.y);
+                    d.set_destination(glam::Vec3::new(mpos.x, y, mpos.z));
+                }
             }
         }
     }

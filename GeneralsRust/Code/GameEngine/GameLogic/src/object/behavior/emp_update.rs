@@ -8,8 +8,9 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Bool, Color, Coord3D, GameLogicRandomValueReal, Int, KindOf, KindOfMaskType,
-    Matrix3D, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion, PI,
+    AsciiString, Bool, Color, Coord3D, GameLogicRandomValue, GameLogicRandomValueReal, Int, KindOf,
+    KindOfMaskType, Matrix3D, ModuleData, ObjectID, Real, Relationship, UnsignedInt, XferVersion,
+    PI,
 };
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{
@@ -45,6 +46,47 @@ fn saturate_rgb(color: Color, factor: Real) -> Color {
         (v * 255.0).round().clamp(0.0, 255.0) as u8
     };
     Color::rgb(sat(color.r), sat(color.g), sat(color.b))
+}
+
+/// C++ GeometryInfo::getFootprintArea (πr² cylinder/sphere, 4·major·minor box).
+fn emp_footprint_area(geometry: &crate::common::GeometryInfo) -> Real {
+    match geometry.geometry_type {
+        game_engine::system::geometry::GeometryType::Sphere
+        | game_engine::system::geometry::GeometryType::Cylinder => {
+            let r = geometry.get_bounding_circle_radius();
+            std::f32::consts::PI * r * r
+        }
+        game_engine::system::geometry::GeometryType::Box => {
+            4.0 * geometry.get_major_radius() * geometry.get_minor_radius()
+        }
+    }
+}
+
+/// C++ GeometryInfo::makeRandomOffsetWithinFootprint (circle rejection / box).
+fn emp_random_offset_within_footprint(geometry: &crate::common::GeometryInfo) -> Coord3D {
+    match geometry.geometry_type {
+        game_engine::system::geometry::GeometryType::Sphere
+        | game_engine::system::geometry::GeometryType::Cylinder => {
+            let r = geometry.get_bounding_circle_radius();
+            let max_dist_sq = r * r;
+            loop {
+                let x = GameLogicRandomValueReal(-r, r);
+                let y = GameLogicRandomValueReal(-r, r);
+                if x * x + y * y <= max_dist_sq {
+                    return Coord3D::new(x, y, 0.0);
+                }
+            }
+        }
+        game_engine::system::geometry::GeometryType::Box => {
+            let w = geometry.get_major_radius();
+            let d = geometry.get_minor_radius();
+            Coord3D::new(
+                GameLogicRandomValueReal(-w, w),
+                GameLogicRandomValueReal(-d, d),
+                0.0,
+            )
+        }
+    }
 }
 
 const WEAPON_AFFECTS_MASK_NAMES: &[&str] = &[
@@ -454,11 +496,11 @@ impl EMPUpdate {
                     if let Some(manager) = TheParticleSystemManager::get() {
                         let geometry = victim.get_geometry_info();
                         let victim_height = geometry.get_max_height_above_position();
-                        let footprint_area = (geometry.bounds.max.x - geometry.bounds.min.x).abs()
-                            * (geometry.bounds.max.y - geometry.bounds.min.y).abs();
+                        let footprint_area = emp_footprint_area(&geometry);
                         let victim_volume = footprint_area * victim_height.min(10.0);
                         let emitter_count =
                             ((data.sparks_per_cubic_foot * victim_volume).ceil() as i32).max(15);
+                        let spark_lifetime = data.disabled_duration.saturating_sub(30);
 
                         for _ in 0..emitter_count {
                             let Some(system_id) =
@@ -467,18 +509,8 @@ impl EMPUpdate {
                                 continue;
                             };
 
-                            let mut offset = Coord3D::new(
-                                GameLogicRandomValueReal(
-                                    geometry.bounds.min.x,
-                                    geometry.bounds.max.x,
-                                ),
-                                GameLogicRandomValueReal(
-                                    geometry.bounds.min.y,
-                                    geometry.bounds.max.y,
-                                ),
-                                0.0,
-                            );
-                            offset.z = GameLogicRandomValueReal(3.0, victim_height);
+                            let mut offset = emp_random_offset_within_footprint(&geometry);
+                            offset.z = GameLogicRandomValue(3, victim_height as Int) as Real;
 
                             let length = offset.length();
                             if length > victim_height && length > 0.0 {
@@ -492,6 +524,11 @@ impl EMPUpdate {
 
                             manager.attach_particle_system_to_object(system_id, victim.get_id());
                             manager.set_particle_system_position(system_id, &offset);
+                            manager.set_system_lifetime(system_id, spark_lifetime);
+                            manager.set_initial_delay(
+                                system_id,
+                                GameLogicRandomValue(1, 100) as UnsignedInt,
+                            );
                         }
                     }
                 }

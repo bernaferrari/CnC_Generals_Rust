@@ -1,434 +1,616 @@
-//! DockUpdate - Base dock behavior for supply/repair buildings
+//! Leftover DockUpdate — C++ `DockUpdate.cpp` approach / bone machine.
 //!
-//! Handles:
-//! - Approach lanes and docking positions
-//! - Queue management for waiting units
-//! - Unit servicing (supplies, repairs, heals)
-//! - Exit and release procedures
-//!
-//! Used by:
-//! - Supply centers (loading supplies)
-//! - Supply warehouses (unloading supplies/cash)
-//! - Repair docks (fixing vehicles)
-//! - Prison buildings (POW delivery)
-//! - Train stations (rail transport)
-//!
-//! Original C++ Author: EA Developers
-//! Rust conversion: 2025
+//! C++ DockUpdate is the shared dock machine (everything except `action()`):
+//! approach-slot reservation, `m_activeDocker` / `isClearToEnter`, pristine
+//! DockStart / DockAction / DockEnd / DockWaiting bones, `MODELCONDITION_DOCKING*`,
+//! and xfer v1. This leftover previously invented a service-time VecDeque.
 
-use crate::common::{Bool, Coord2D, Coord3D, Int, ObjectID, Real, UnsignedInt};
+use crate::common::types::ModelConditionFlags;
+use crate::common::xfer::XferExt;
+use crate::common::{
+    Bool, Coord3D, Int, KindOf, ObjectID, UnsignedInt, INVALID_ID, MODELCONDITION_DOCKING,
+    MODELCONDITION_DOCKING_ACTIVE, MODELCONDITION_DOCKING_BEGINNING, MODELCONDITION_DOCKING_ENDING,
+};
+use crate::helpers::{FindPositionOptions, TheGameLogic, ThePartitionManager};
+use crate::object::drawable::DrawableArcExt;
+use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 
-/// Docking state for a unit
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DockingState {
-    /// Unit is approaching the dock
-    Approaching,
-    /// Unit is waiting in queue
-    Waiting,
-    /// Unit is actively docked and being serviced
-    Docked,
-    /// Unit is exiting the dock
-    Exiting,
-    /// Unit has completed docking
-    Complete,
-}
+const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
+const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
+const SINGLE_DOCK_BONE_START_INDEX: usize = 0;
+const APPROACH_BONE_START_INDEX: usize = 1;
 
-/// Information about a dock position
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DockPosition {
-    /// Position of the dock spot
-    pub position: Coord3D,
-    /// Approach waypoint
-    pub approach_point: Coord3D,
-    /// Exit waypoint
-    pub exit_point: Coord3D,
-    /// Is this dock spot currently occupied?
-    pub occupied: Bool,
-    /// ID of unit currently docked here
-    pub occupant_id: ObjectID,
-    /// Starting angle for this dock position
-    pub start_angle: Real,
-}
-
-impl DockPosition {
-    pub fn new(position: Coord3D, approach: Coord3D, exit: Coord3D, angle: Real) -> Self {
-        Self {
-            position,
-            approach_point: approach,
-            exit_point: exit,
-            occupied: false,
-            occupant_id: 0,
-            start_angle: angle,
-        }
-    }
-
-    pub fn is_available(&self) -> Bool {
-        !self.occupied
-    }
-
-    pub fn reserve(&mut self, unit_id: ObjectID) {
-        self.occupied = true;
-        self.occupant_id = unit_id;
-    }
-
-    pub fn release(&mut self) {
-        self.occupied = false;
-        self.occupant_id = 0;
-    }
-}
-
-/// Unit in the docking queue
-#[derive(Debug, Clone)]
-pub struct DockQueueEntry {
-    /// ID of the unit
-    pub unit_id: ObjectID,
-    /// Current docking state
-    pub state: DockingState,
-    /// Assigned dock position index
-    pub dock_index: Option<usize>,
-    /// Frame when docking started
-    pub dock_start_frame: UnsignedInt,
-    /// Priority (lower = higher priority)
-    pub priority: i32,
-}
-
-impl DockQueueEntry {
-    pub fn new(unit_id: ObjectID, priority: i32) -> Self {
-        Self {
-            unit_id,
-            state: DockingState::Waiting,
-            dock_index: None,
-            dock_start_frame: 0,
-            priority,
-        }
-    }
-}
-
-/// Dock update module configuration (from INI)
+/// C++ `DockUpdateModuleData` — `NumberApproachPositions` / `AllowsPassthrough`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockUpdateModuleData {
-    /// Number of dock positions
-    pub num_docks: usize,
-    /// Time (frames) to service a unit
-    pub service_time: UnsignedInt,
-    /// Allow multiple units to dock simultaneously?
-    pub allow_multiple_docks: Bool,
-    /// Dock positions (relative to building center)
-    #[serde(default)]
-    pub dock_positions: Vec<Coord2D>,
-    /// Approach points (relative to building center)
-    #[serde(default)]
-    pub approach_points: Vec<Coord2D>,
-    /// Exit points (relative to building center)
-    #[serde(default)]
-    pub exit_points: Vec<Coord2D>,
-    /// Starting angles for each dock
-    #[serde(default)]
-    pub dock_angles: Vec<Real>,
-    /// Tolerance for reaching dock position
-    #[serde(default = "default_tolerance")]
-    pub dock_tolerance: Real,
-}
-
-fn default_tolerance() -> Real {
-    5.0
+    /// A positive number is an absolute; `DYNAMIC_APPROACH_VECTOR_FLAG` (-1) is dynamic.
+    pub number_approach_positions_data: Int,
+    pub is_allow_passthrough: Bool,
 }
 
 impl Default for DockUpdateModuleData {
     fn default() -> Self {
         Self {
-            num_docks: 1,
-            service_time: 60, // 2 seconds at 30 fps
-            allow_multiple_docks: false,
-            dock_positions: Vec::new(),
-            approach_points: Vec::new(),
-            exit_points: Vec::new(),
-            dock_angles: Vec::new(),
-            dock_tolerance: 5.0,
+            number_approach_positions_data: 0,
+            is_allow_passthrough: true,
         }
     }
 }
 
-/// Dock update behavior module
-#[allow(dead_code)]
+/// C++ `DockUpdate` approach / bone machine.
+#[derive(Debug)]
 pub struct DockUpdate {
-    /// Configuration data
     data: DockUpdateModuleData,
+    owner_id: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
+    enter_position: Coord3D,
+    dock_position: Coord3D,
+    exit_position: Coord3D,
+    number_approach_positions: Int,
+    number_approach_position_bones: Int,
+    positions_loaded: Bool,
+    approach_positions: Vec<Coord3D>,
+    approach_position_owners: Vec<ObjectID>,
+    approach_position_reached: Vec<Bool>,
+    active_docker: ObjectID,
+    docker_inside: Bool,
+    dock_crippled: Bool,
+    dock_open: Bool,
+}
 
-    /// Queue of units waiting to dock
-    queue: VecDeque<DockQueueEntry>,
-
-    /// Dock positions
-    docks: Vec<DockPosition>,
-
-    /// Current frame
-    current_frame: UnsignedInt,
-
-    /// Building position (center point)
-    building_position: Coord3D,
-
-    /// Building angle
-    building_angle: Real,
+fn resolve_dock_object(id: ObjectID) -> Option<std::sync::Arc<std::sync::RwLock<Object>>> {
+    if id == INVALID_ID {
+        return None;
+    }
+    TheGameLogic::find_object_by_id(id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
 }
 
 impl DockUpdate {
-    pub fn new(data: DockUpdateModuleData, building_pos: Coord3D, building_angle: Real) -> Self {
-        // Initialize dock positions from configuration
-        let mut docks = Vec::new();
-
-        for i in 0..data.num_docks {
-            let dock_pos_2d = data
-                .dock_positions
-                .get(i)
-                .copied()
-                .unwrap_or(Coord2D::new(0.0, 0.0));
-            let approach_2d = data
-                .approach_points
-                .get(i)
-                .copied()
-                .unwrap_or(Coord2D::new(0.0, -20.0));
-            let exit_2d = data
-                .exit_points
-                .get(i)
-                .copied()
-                .unwrap_or(Coord2D::new(0.0, 20.0));
-            let angle = data.dock_angles.get(i).copied().unwrap_or(0.0);
-
-            // Convert 2D positions to 3D (relative to building)
-            let dock_pos = Self::relative_to_world(dock_pos_2d, building_pos, building_angle);
-            let approach_pos = Self::relative_to_world(approach_2d, building_pos, building_angle);
-            let exit_pos = Self::relative_to_world(exit_2d, building_pos, building_angle);
-
-            docks.push(DockPosition::new(dock_pos, approach_pos, exit_pos, angle));
-        }
+    pub fn new(data: DockUpdateModuleData, owner_id: ObjectID) -> Self {
+        let number_approach_positions = data.number_approach_positions_data;
+        let initial_len = if number_approach_positions != DYNAMIC_APPROACH_VECTOR_FLAG {
+            number_approach_positions.max(0) as usize
+        } else {
+            DEFAULT_APPROACH_VECTOR_SIZE
+        };
 
         Self {
             data,
-            queue: VecDeque::new(),
-            docks,
-            current_frame: 0,
-            building_position: building_pos,
-            building_angle,
+            owner_id,
+            next_call_frame_and_phase: 0,
+            enter_position: Coord3D::ZERO,
+            dock_position: Coord3D::ZERO,
+            exit_position: Coord3D::ZERO,
+            number_approach_positions,
+            number_approach_position_bones: -1,
+            positions_loaded: false,
+            approach_positions: vec![Coord3D::ZERO; initial_len],
+            approach_position_owners: vec![INVALID_ID; initial_len],
+            approach_position_reached: vec![false; initial_len],
+            active_docker: INVALID_ID,
+            docker_inside: false,
+            dock_crippled: false,
+            dock_open: true,
         }
     }
 
-    /// Convert relative 2D position to world 3D coordinates
-    fn relative_to_world(relative: Coord2D, center: Coord3D, angle: Real) -> Coord3D {
-        let cos_a = angle.cos();
-        let sin_a = angle.sin();
-
-        let x = relative[0] * cos_a - relative[1] * sin_a + center[0];
-        let y = relative[0] * sin_a + relative[1] * cos_a + center[1];
-        let z = center[2];
-
-        Coord3D::new(x, y, z)
+    /// Compatibility constructor used by leftover tests that pass a building pose.
+    pub fn new_at(
+        data: DockUpdateModuleData,
+        _building_pos: Coord3D,
+        _building_angle: crate::common::Real,
+    ) -> Self {
+        Self::new(data, INVALID_ID)
     }
 
-    /// Request docking for a unit
-    pub fn request_dock(&mut self, unit_id: ObjectID, priority: i32) -> Bool {
-        // Check if unit is already in queue
-        if self.queue.iter().any(|entry| entry.unit_id == unit_id) {
-            return false;
-        }
-
-        // Add to queue
-        let entry = DockQueueEntry::new(unit_id, priority);
-        self.queue.push_back(entry);
-
-        // Sort queue by priority
-        self.queue.make_contiguous().sort_by_key(|e| e.priority);
-
-        true
+    pub fn owner_id(&self) -> ObjectID {
+        self.owner_id
     }
 
-    /// Cancel docking request for a unit
-    pub fn cancel_dock(&mut self, unit_id: ObjectID) -> Bool {
-        // Find and remove from queue
-        if let Some(pos) = self.queue.iter().position(|e| e.unit_id == unit_id) {
-            let entry = self.queue.remove(pos).unwrap();
+    pub fn is_dock_open(&self) -> Bool {
+        self.dock_open
+    }
 
-            // Release dock if assigned
-            if let Some(dock_idx) = entry.dock_index {
-                if let Some(dock) = self.docks.get_mut(dock_idx) {
-                    dock.release();
-                }
+    pub fn set_dock_open(&mut self, open: Bool) {
+        self.dock_open = open;
+    }
+
+    pub fn is_allow_passthrough_type(&self) -> Bool {
+        self.data.is_allow_passthrough
+    }
+
+    /// C++ `DockUpdate::isRallyPointAfterDockType` defaults FALSE.
+    pub fn is_rally_point_after_dock_type(&self) -> Bool {
+        false
+    }
+
+    pub fn set_dock_crippled(&mut self, crippled: Bool) {
+        self.dock_crippled = crippled;
+    }
+
+    pub fn active_docker_id(&self) -> ObjectID {
+        self.active_docker
+    }
+
+    pub fn docker_inside(&self) -> Bool {
+        self.docker_inside
+    }
+
+    pub fn approach_positions_len(&self) -> usize {
+        self.approach_positions.len()
+    }
+
+    pub fn all_approaches_unoccupied(&self) -> bool {
+        self.approach_position_owners
+            .iter()
+            .all(|id| *id == INVALID_ID)
+    }
+
+    /// C++ `loadDockPositions` — only marks loaded when a drawable exists.
+    pub fn load_dock_positions(&mut self) {
+        let Some((ignore_bones, drawable)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                (
+                    owner_guard.is_kind_of(KindOf::IgnoreDockingBones),
+                    owner_guard.get_drawable(),
+                )
+            })
+        else {
+            return;
+        };
+        let Some(drawable) = drawable else {
+            return;
+        };
+        let Ok(drawable_guard) = drawable.read() else {
+            return;
+        };
+
+        if !ignore_bones {
+            if let Some(pos) = drawable_guard
+                .get_pristine_bone_positions("DockStart", SINGLE_DOCK_BONE_START_INDEX, 1)
+                .first()
+            {
+                self.enter_position = *pos;
+            }
+            if let Some(pos) = drawable_guard
+                .get_pristine_bone_positions("DockAction", SINGLE_DOCK_BONE_START_INDEX, 1)
+                .first()
+            {
+                self.dock_position = *pos;
+            }
+            if let Some(pos) = drawable_guard
+                .get_pristine_bone_positions("DockEnd", SINGLE_DOCK_BONE_START_INDEX, 1)
+                .first()
+            {
+                self.exit_position = *pos;
             }
 
+            if self.number_approach_positions != DYNAMIC_APPROACH_VECTOR_FLAG {
+                let count = self.approach_positions.len();
+                let positions = drawable_guard.get_pristine_bone_positions(
+                    "DockWaiting",
+                    APPROACH_BONE_START_INDEX,
+                    count,
+                );
+                self.number_approach_position_bones = positions.len() as Int;
+                if count == positions.len() {
+                    for (slot, pos) in self.approach_positions.iter_mut().zip(positions.iter()) {
+                        *slot = *pos;
+                    }
+                }
+            } else {
+                self.number_approach_position_bones = 0;
+            }
+        } else {
+            self.number_approach_position_bones = 0;
+        }
+
+        self.positions_loaded = true;
+    }
+
+    fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
+        if !self.positions_loaded {
+            self.load_dock_positions();
+        }
+
+        let approach = if position_index < self.approach_positions.len() {
+            Some(self.approach_positions[position_index])
+        } else {
+            None
+        };
+        let their_position = *docker.get_position();
+        let Some(mut working_position) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let mut working_position = if let Some(approach_pos) = approach {
+                    owner_guard
+                        .convert_bone_pos_to_world_pos(Some(&approach_pos), None)
+                        .transform_point3(Coord3D::ZERO)
+                } else {
+                    *owner_guard.get_position()
+                };
+
+                if self.number_approach_position_bones == 0 {
+                    let our_position = owner_guard.get_position();
+                    let mut offset = their_position - *our_position;
+                    if offset.length_squared() > 0.0001 {
+                        offset = offset.normalize();
+                        offset *= owner_guard.get_geometry_info().get_major_radius() * 0.5;
+                    }
+                    working_position += offset;
+                }
+                working_position
+            })
+        else {
+            return Coord3D::ZERO;
+        };
+
+        if let Some(partition) = ThePartitionManager::get() {
+            let mut best_position = working_position;
+            let mut options = FindPositionOptions::default();
+            options.min_radius = 0.0;
+            options.max_radius = 100.0;
+            options.source_to_path_to_dest_id = Some(docker.get_id());
+            if docker.is_using_airborne_locomotor() {
+                options.ignore_object_id = Some(self.owner_id);
+            }
+
+            if partition.find_position_around_with_options(
+                &working_position,
+                &options,
+                &mut best_position,
+            ) {
+                return best_position;
+            }
+        }
+
+        working_position
+    }
+
+    /// C++ `isClearToApproach`.
+    pub fn is_clear_to_approach(&self, obj_id: ObjectID) -> Bool {
+        if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
+            return true;
+        }
+        self.approach_position_owners
+            .iter()
+            .any(|owner| *owner == INVALID_ID || *owner == obj_id)
+    }
+
+    /// C++ `reserveApproachPosition`.
+    pub fn reserve_approach_position(
+        &mut self,
+        obj_id: ObjectID,
+        goal_pos: &mut Coord3D,
+        approach_pos: &mut i32,
+    ) -> Bool {
+        if !self.positions_loaded {
+            self.load_dock_positions();
+        }
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return false;
+        };
+        let obj_guard = obj.write().unwrap();
+
+        for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
+            if *owner == obj_id {
+                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *approach_pos = position_index as i32;
+                return true;
+            }
+            if *owner == INVALID_ID {
+                self.approach_position_owners[position_index] = obj_id;
+                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *approach_pos = position_index as i32;
+                return true;
+            }
+        }
+
+        if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
+            self.approach_positions.push(Coord3D::ZERO);
+            self.approach_position_owners.push(INVALID_ID);
+            self.approach_position_reached.push(false);
+            self.load_dock_positions();
+            let position_index = self.approach_position_owners.len() - 1;
+            self.approach_position_owners[position_index] = obj_id;
+            *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+            *approach_pos = position_index as i32;
             return true;
         }
 
         false
     }
 
-    /// Find an available dock position
-    fn find_available_dock(&self) -> Option<usize> {
-        self.docks.iter().position(|dock| dock.is_available())
-    }
-
-    /// Assign a dock to a queued unit
-    fn assign_dock_to_unit(&mut self, queue_idx: usize, dock_idx: usize) -> Bool {
-        if let Some(entry) = self.queue.get_mut(queue_idx) {
-            if let Some(dock) = self.docks.get_mut(dock_idx) {
-                dock.reserve(entry.unit_id);
-                entry.dock_index = Some(dock_idx);
-                entry.state = DockingState::Approaching;
-                return true;
-            }
+    /// C++ `advanceApproachPosition`.
+    pub fn advance_approach_position(
+        &mut self,
+        obj_id: ObjectID,
+        goal_pos: &mut Coord3D,
+        approach_pos: &mut i32,
+    ) -> Bool {
+        if !self.positions_loaded {
+            self.load_dock_positions();
         }
-        false
-    }
-
-    /// Update unit that is approaching
-    fn update_approaching(&mut self, queue_idx: usize) {
-        if let Some(entry) = self.queue.get_mut(queue_idx) {
-            if let Some(dock_idx) = entry.dock_index {
-                if let Some(_dock) = self.docks.get(dock_idx) {
-                    // Check if unit has reached dock position
-                    // Would check distance here
-
-                    // For now, assume it arrives
-                    entry.state = DockingState::Docked;
-                    entry.dock_start_frame = self.current_frame;
-
-                    // Would send command to unit to move to dock position
-                    // Would update unit animation state
-                }
-            }
-        }
-    }
-
-    /// Update unit that is docked (being serviced)
-    fn update_docked(&mut self, queue_idx: usize) {
-        let Some(entry) = self.queue.get(queue_idx) else {
-            return;
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return false;
         };
-        let unit_id = entry.unit_id;
-        let frames_docked = self.current_frame.saturating_sub(entry.dock_start_frame);
+        let obj_guard = obj.write().unwrap();
+        if *approach_pos <= 0 {
+            return false;
+        }
+        let current_pos = *approach_pos as usize;
+        if current_pos == 0 || self.approach_position_owners.get(current_pos - 1) != Some(&INVALID_ID)
+        {
+            return false;
+        }
 
-        // Perform service logic (override in derived classes)
-        self.perform_service(unit_id, frames_docked);
+        self.approach_position_owners[current_pos - 1] = obj_id;
+        self.approach_position_reached[current_pos - 1] = false;
+        self.approach_position_owners[current_pos] = INVALID_ID;
+        self.approach_position_reached[current_pos] = false;
+        *goal_pos = self.compute_approach_position(current_pos - 1, &obj_guard);
+        *approach_pos = (current_pos - 1) as i32;
+        true
+    }
 
-        // Check if service complete
-        if frames_docked >= self.data.service_time {
-            if let Some(entry) = self.queue.get_mut(queue_idx) {
-                entry.state = DockingState::Exiting;
+    pub fn is_clear_to_advance(&self, obj_id: ObjectID, approach_position: i32) -> Bool {
+        if approach_position < 0 {
+            return false;
+        }
+        let position_index = approach_position as usize;
+        let correct_request = self
+            .approach_position_owners
+            .get(position_index)
+            .copied()
+            .unwrap_or(INVALID_ID)
+            == obj_id;
+        let approach_reached = self
+            .approach_position_reached
+            .get(position_index)
+            .copied()
+            .unwrap_or(false);
+        let next_spot_free = position_index > 0
+            && self
+                .approach_position_owners
+                .get(position_index - 1)
+                .copied()
+                .unwrap_or(INVALID_ID)
+                == INVALID_ID;
+        correct_request && approach_reached && next_spot_free
+    }
+
+    pub fn on_approach_reached(&mut self, obj_id: ObjectID) {
+        for (index, owner) in self.approach_position_owners.iter().enumerate() {
+            if *owner == obj_id {
+                if let Some(reached) = self.approach_position_reached.get_mut(index) {
+                    *reached = true;
+                }
+                break;
             }
         }
     }
 
-    /// Perform service on docked unit (override in derived classes)
-    fn perform_service(&mut self, _unit_id: ObjectID, _frames: UnsignedInt) {
-        // Base implementation does nothing
-        // Derived classes override to provide supplies, repairs, etc.
+    /// C++ `isClearToEnter` — only the promoted `m_activeDocker`.
+    pub fn is_clear_to_enter(&self, obj_id: ObjectID) -> Bool {
+        obj_id == self.active_docker
     }
 
-    /// Update unit that is exiting
-    fn update_exiting(&mut self, queue_idx: usize) {
-        if let Some(entry) = self.queue.get_mut(queue_idx) {
-            if let Some(dock_idx) = entry.dock_index {
-                if let Some(_dock) = self.docks.get(dock_idx) {
-                    // Send unit to exit point
-                    // Would check if unit has reached exit
-
-                    // For now, mark as complete
-                    entry.state = DockingState::Complete;
-                }
-            }
+    pub fn get_enter_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
+        if !self.positions_loaded {
+            self.load_dock_positions();
         }
-    }
-
-    /// Get dock position for a unit
-    pub fn get_dock_position(&self, unit_id: ObjectID) -> Option<Coord3D> {
-        self.queue
-            .iter()
-            .find(|e| e.unit_id == unit_id)
-            .and_then(|e| e.dock_index)
-            .and_then(|idx| self.docks.get(idx))
-            .map(|dock| dock.position)
-    }
-
-    /// Get approach position for a unit
-    pub fn get_approach_position(&self, unit_id: ObjectID) -> Option<Coord3D> {
-        self.queue
-            .iter()
-            .find(|e| e.unit_id == unit_id)
-            .and_then(|e| e.dock_index)
-            .and_then(|idx| self.docks.get(idx))
-            .map(|dock| dock.approach_point)
-    }
-
-    /// Get exit position for a unit
-    pub fn get_exit_position(&self, unit_id: ObjectID) -> Option<Coord3D> {
-        self.queue
-            .iter()
-            .find(|e| e.unit_id == unit_id)
-            .and_then(|e| e.dock_index)
-            .and_then(|idx| self.docks.get(idx))
-            .map(|dock| dock.exit_point)
-    }
-
-    /// Is a specific dock occupied?
-    pub fn is_dock_occupied(&self, dock_index: usize) -> Bool {
-        self.docks
-            .get(dock_index)
-            .map(|d| d.occupied)
-            .unwrap_or(false)
-    }
-
-    /// Get number of units waiting
-    pub fn get_queue_length(&self) -> usize {
-        self.queue.len()
-    }
-
-    /// Update the dock system
-    pub fn update(&mut self, current_frame: UnsignedInt) {
-        self.current_frame = current_frame;
-
-        // Process queue
-        let mut i = 0;
-        while i < self.queue.len() {
-            let entry_state = self.queue[i].state;
-
-            match entry_state {
-                DockingState::Approaching => {
-                    self.update_approaching(i);
-                }
-                DockingState::Waiting => {
-                    // Try to assign a dock
-                    if let Some(dock_idx) = self.find_available_dock() {
-                        self.assign_dock_to_unit(i, dock_idx);
-                    }
-                }
-                DockingState::Docked => {
-                    self.update_docked(i);
-                }
-                DockingState::Exiting => {
-                    self.update_exiting(i);
-                }
-                DockingState::Complete => {
-                    // Remove from queue and release dock
-                    if let Some(entry) = self.queue.remove(i) {
-                        if let Some(dock_idx) = entry.dock_index {
-                            if let Some(dock) = self.docks.get_mut(dock_idx) {
-                                dock.release();
+        let zero = Coord3D::ZERO;
+        if self.enter_position == zero {
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    if docker_guard.is_using_airborne_locomotor() {
+                        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+                            if let Ok(owner_guard) = owner.read() {
+                                *goal_pos = *owner_guard.get_position();
+                                return;
                             }
                         }
                     }
-                    continue; // Don't increment i
+                    *goal_pos = *docker_guard.get_position();
                 }
             }
+            return;
+        }
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                let world =
+                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.enter_position), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
+            }
+        }
+    }
 
-            i += 1;
+    pub fn get_dock_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
+        if !self.positions_loaded {
+            self.load_dock_positions();
+        }
+        let zero = Coord3D::ZERO;
+        if self.enter_position == zero {
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    *goal_pos = *docker_guard.get_position();
+                }
+            }
+            return;
+        }
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                let world =
+                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.dock_position), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
+            }
+        }
+    }
+
+    pub fn get_exit_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
+        if !self.positions_loaded {
+            self.load_dock_positions();
+        }
+        let zero = Coord3D::ZERO;
+        if self.enter_position == zero {
+            if let Some(obj) = resolve_dock_object(obj_id) {
+                if let Ok(docker_guard) = obj.read() {
+                    *goal_pos = *docker_guard.get_position();
+                }
+            }
+            return;
+        }
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                let world =
+                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.exit_position), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
+            }
+        }
+    }
+
+    pub fn on_enter_reached(&mut self, obj_id: ObjectID) {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return;
+        };
+        let mut obj_guard = obj.write().unwrap();
+        let clear = MODELCONDITION_DOCKING_ENDING;
+        let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            }
+        }
+        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        self.docker_inside = true;
+        for (index, owner) in self.approach_position_owners.iter().enumerate() {
+            if *owner == obj_id {
+                self.approach_position_owners[index] = INVALID_ID;
+                self.approach_position_reached[index] = false;
+                break;
+            }
+        }
+    }
+
+    pub fn on_dock_reached(&mut self, obj_id: ObjectID) {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return;
+        };
+        let mut obj_guard = obj.write().unwrap();
+        let clear = MODELCONDITION_DOCKING_BEGINNING;
+        let set = MODELCONDITION_DOCKING_ACTIVE;
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            }
+        }
+        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+    }
+
+    pub fn on_exit_reached(&mut self, obj_id: ObjectID) {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            return;
+        };
+        let mut obj_guard = obj.write().unwrap();
+        let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
+        let set = MODELCONDITION_DOCKING_ENDING;
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(mut owner_guard) = owner.write() {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            }
+        }
+        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        self.docker_inside = false;
+        if self.active_docker == obj_id {
+            self.active_docker = INVALID_ID;
+        }
+    }
+
+    pub fn cancel_dock(&mut self, obj_id: ObjectID) {
+        let Some(obj) = resolve_dock_object(obj_id) else {
+            for (owner, reached) in self
+                .approach_position_owners
+                .iter_mut()
+                .zip(self.approach_position_reached.iter_mut())
+            {
+                if *owner == obj_id {
+                    *owner = INVALID_ID;
+                    *reached = false;
+                }
+            }
+            if self.active_docker == obj_id {
+                self.active_docker = INVALID_ID;
+                self.docker_inside = false;
+            }
+            return;
+        };
+        let mut obj_guard = obj.write().unwrap();
+        for (owner, reached) in self
+            .approach_position_owners
+            .iter_mut()
+            .zip(self.approach_position_reached.iter_mut())
+        {
+            if *owner == obj_id {
+                *owner = INVALID_ID;
+                *reached = false;
+            }
+        }
+        if self.active_docker == obj_id {
+            self.active_docker = INVALID_ID;
+            self.docker_inside = false;
+            let clear = MODELCONDITION_DOCKING_ENDING
+                | MODELCONDITION_DOCKING_BEGINNING
+                | MODELCONDITION_DOCKING_ACTIVE
+                | MODELCONDITION_DOCKING;
+            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+                if let Ok(mut owner_guard) = owner.write() {
+                    let _ = owner_guard.clear_model_condition_flags(clear);
+                }
+            }
+            let _ = obj_guard.clear_model_condition_flags(clear).ok();
+        }
+    }
+
+    /// C++ `DockUpdate::update` — promote first reached approach owner to `m_activeDocker`.
+    pub fn update(&mut self) {
+        if self.active_docker == INVALID_ID && !self.dock_crippled {
+            for (index, reached) in self.approach_position_reached.iter().enumerate() {
+                if *reached {
+                    self.active_docker = self.approach_position_owners[index];
+                    break;
+                }
+            }
+        } else if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(owner_guard) = owner.read() {
+                if owner_guard.is_kind_of(KindOf::SupplySource) {
+                    if let Some(docker) = TheGameLogic::find_object_by_id(self.active_docker) {
+                        if let Ok(mut docker_guard) = docker.write() {
+                            if docker_guard.is_kind_of(KindOf::Dozer)
+                                && docker_guard.is_kind_of(KindOf::Harvester)
+                            {
+                                if let Some(drawable) = docker_guard.get_drawable() {
+                                    let flags = drawable.get_model_condition_flags();
+                                    if flags.contains(MODELCONDITION_DOCKING_BEGINNING) {
+                                        let _ = docker_guard.clear_model_condition_flags(
+                                            ModelConditionFlags::MOVING,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 impl Snapshotable for DockUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_unsigned_int(&mut 0u32)
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -439,87 +621,51 @@ impl Snapshotable for DockUpdate {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| format!("DockUpdate::xfer version failed: {e}"))?;
 
-        xfer.xfer_unsigned_int(&mut self.current_frame)
-            .map_err(|e| format!("DockUpdate::xfer current_frame failed: {e}"))?;
+        xfer.xfer_coord3d(&mut self.enter_position);
+        xfer.xfer_coord3d(&mut self.dock_position);
+        xfer.xfer_coord3d(&mut self.exit_position);
+        xfer.xfer_int(&mut self.number_approach_positions)
+            .map_err(|e| format!("DockUpdate::xfer number_approach_positions failed: {e}"))?;
+        xfer.xfer_bool(&mut self.positions_loaded)
+            .map_err(|e| format!("DockUpdate::xfer positions_loaded failed: {e}"))?;
 
-        let mut queue_len = self.queue.len() as Int;
-        xfer.xfer_int(&mut queue_len)
-            .map_err(|e| format!("DockUpdate::xfer queue_len failed: {e}"))?;
-
-        if xfer.is_reading() {
-            self.queue.clear();
-            for _ in 0..queue_len.max(0) as usize {
-                let mut unit_id: ObjectID = 0;
-                xfer.xfer_object_id(&mut unit_id)
-                    .map_err(|e| format!("DockUpdate::xfer queue unit_id failed: {e}"))?;
-                let mut state_int: Int = 0;
-                xfer.xfer_int(&mut state_int)
-                    .map_err(|e| format!("DockUpdate::xfer queue state failed: {e}"))?;
-                let mut dock_index_int: Int = -1;
-                xfer.xfer_int(&mut dock_index_int)
-                    .map_err(|e| format!("DockUpdate::xfer queue dock_index failed: {e}"))?;
-                let mut dock_start_frame: UnsignedInt = 0;
-                xfer.xfer_unsigned_int(&mut dock_start_frame)
-                    .map_err(|e| format!("DockUpdate::xfer queue dock_start_frame failed: {e}"))?;
-                let mut priority: Int = 0;
-                xfer.xfer_int(&mut priority)
-                    .map_err(|e| format!("DockUpdate::xfer queue priority failed: {e}"))?;
-
-                let entry = DockQueueEntry {
-                    unit_id,
-                    state: match state_int {
-                        0 => DockingState::Approaching,
-                        1 => DockingState::Waiting,
-                        2 => DockingState::Docked,
-                        3 => DockingState::Exiting,
-                        _ => DockingState::Complete,
-                    },
-                    dock_index: if dock_index_int >= 0 {
-                        Some(dock_index_int as usize)
-                    } else {
-                        None
-                    },
-                    dock_start_frame,
-                    priority,
-                };
-                self.queue.push_back(entry);
-            }
-        } else {
-            for entry in &self.queue {
-                let mut unit_id = entry.unit_id;
-                xfer.xfer_object_id(&mut unit_id)
-                    .map_err(|e| format!("DockUpdate::xfer queue unit_id failed: {e}"))?;
-                let mut state_int: Int = match entry.state {
-                    DockingState::Approaching => 0,
-                    DockingState::Waiting => 1,
-                    DockingState::Docked => 2,
-                    DockingState::Exiting => 3,
-                    DockingState::Complete => 4,
-                };
-                xfer.xfer_int(&mut state_int)
-                    .map_err(|e| format!("DockUpdate::xfer queue state failed: {e}"))?;
-                let mut dock_index_int: Int = entry.dock_index.map(|i| i as Int).unwrap_or(-1);
-                xfer.xfer_int(&mut dock_index_int)
-                    .map_err(|e| format!("DockUpdate::xfer queue dock_index failed: {e}"))?;
-                let mut dock_start_frame = entry.dock_start_frame;
-                xfer.xfer_unsigned_int(&mut dock_start_frame)
-                    .map_err(|e| format!("DockUpdate::xfer queue dock_start_frame failed: {e}"))?;
-                let mut priority = entry.priority;
-                xfer.xfer_int(&mut priority)
-                    .map_err(|e| format!("DockUpdate::xfer queue priority failed: {e}"))?;
-            }
+        let mut vector_size = self.approach_positions.len() as Int;
+        xfer.xfer_int(&mut vector_size)
+            .map_err(|e| format!("DockUpdate::xfer approach_positions size failed: {e}"))?;
+        self.approach_positions
+            .resize(vector_size.max(0) as usize, Coord3D::ZERO);
+        for position in &mut self.approach_positions {
+            xfer.xfer_coord3d(position);
         }
 
-        let mut docks_len = self.docks.len() as Int;
-        xfer.xfer_int(&mut docks_len)
-            .map_err(|e| format!("DockUpdate::xfer docks_len failed: {e}"))?;
-        for dock in &mut self.docks {
-            xfer.xfer_bool(&mut dock.occupied)
-                .map_err(|e| format!("DockUpdate::xfer dock occupied failed: {e}"))?;
-            xfer.xfer_object_id(&mut dock.occupant_id)
-                .map_err(|e| format!("DockUpdate::xfer dock occupant_id failed: {e}"))?;
+        let mut vector_size = self.approach_position_owners.len() as Int;
+        xfer.xfer_int(&mut vector_size)
+            .map_err(|e| format!("DockUpdate::xfer approach_position_owners size failed: {e}"))?;
+        self.approach_position_owners
+            .resize(vector_size.max(0) as usize, INVALID_ID);
+        for owner in &mut self.approach_position_owners {
+            xfer.xfer_object_id(owner)
+                .map_err(|e| format!("DockUpdate::xfer approach_position_owner failed: {e}"))?;
         }
 
+        let mut vector_size = self.approach_position_reached.len() as Int;
+        xfer.xfer_int(&mut vector_size)
+            .map_err(|e| format!("DockUpdate::xfer approach_position_reached size failed: {e}"))?;
+        self.approach_position_reached
+            .resize(vector_size.max(0) as usize, false);
+        for reached in &mut self.approach_position_reached {
+            xfer.xfer_bool(reached)
+                .map_err(|e| format!("DockUpdate::xfer approach_position_reached failed: {e}"))?;
+        }
+
+        xfer.xfer_object_id(&mut self.active_docker)
+            .map_err(|e| format!("DockUpdate::xfer active_docker failed: {e}"))?;
+        xfer.xfer_bool(&mut self.docker_inside)
+            .map_err(|e| format!("DockUpdate::xfer docker_inside failed: {e}"))?;
+        xfer.xfer_bool(&mut self.dock_crippled)
+            .map_err(|e| format!("DockUpdate::xfer dock_crippled failed: {e}"))?;
+        xfer.xfer_bool(&mut self.dock_open)
+            .map_err(|e| format!("DockUpdate::xfer dock_open failed: {e}"))?;
         Ok(())
     }
 
@@ -533,87 +679,84 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dock_creation() {
+    fn ctor_sizes_approach_vector_from_number_approach_positions() {
         let data = DockUpdateModuleData {
-            num_docks: 2,
-            service_time: 60,
-            ..Default::default()
+            number_approach_positions_data: 3,
+            is_allow_passthrough: true,
         };
-
-        let dock = DockUpdate::new(data, Coord3D::new(100.0, 100.0, 0.0), 0.0);
-        assert_eq!(dock.docks.len(), 2);
-        assert_eq!(dock.get_queue_length(), 0);
+        let dock = DockUpdate::new(data, 1);
+        assert_eq!(dock.approach_positions_len(), 3);
+        assert!(dock.all_approaches_unoccupied());
+        assert!(!dock.is_rally_point_after_dock_type());
+        assert!(dock.is_allow_passthrough_type());
+        assert!(dock.is_dock_open());
     }
 
     #[test]
-    fn test_dock_request() {
-        let data = DockUpdateModuleData::default();
-        let mut dock = DockUpdate::new(data, Coord3D::new(0.0, 0.0, 0.0), 0.0);
-
-        let unit_id: ObjectID = 123;
-        assert!(dock.request_dock(unit_id, 0));
-        assert_eq!(dock.get_queue_length(), 1);
-
-        // Can't request twice
-        assert!(!dock.request_dock(unit_id, 0));
-        assert_eq!(dock.get_queue_length(), 1);
-    }
-
-    #[test]
-    fn test_dock_cancel() {
-        let data = DockUpdateModuleData::default();
-        let mut dock = DockUpdate::new(data, Coord3D::new(0.0, 0.0, 0.0), 0.0);
-
-        let unit_id: ObjectID = 123;
-        dock.request_dock(unit_id, 0);
-
-        assert!(dock.cancel_dock(unit_id));
-        assert_eq!(dock.get_queue_length(), 0);
-    }
-
-    #[test]
-    fn test_dock_priority() {
-        let data = DockUpdateModuleData::default();
-        let mut dock = DockUpdate::new(data, Coord3D::new(0.0, 0.0, 0.0), 0.0);
-
-        dock.request_dock(1, 10);
-        dock.request_dock(2, 5);
-        dock.request_dock(3, 15);
-
-        // Should be sorted by priority (lower first)
-        assert_eq!(dock.queue[0].unit_id, 2); // priority 5
-        assert_eq!(dock.queue[1].unit_id, 1); // priority 10
-        assert_eq!(dock.queue[2].unit_id, 3); // priority 15
-    }
-
-    #[test]
-    fn dock_request_assigns_available_dock_before_approach() {
+    fn dynamic_approach_flag_uses_default_vector_size() {
         let data = DockUpdateModuleData {
-            service_time: 1,
-            ..Default::default()
+            number_approach_positions_data: DYNAMIC_APPROACH_VECTOR_FLAG,
+            is_allow_passthrough: true,
         };
-        let mut dock = DockUpdate::new(data, Coord3D::new(0.0, 0.0, 0.0), 0.0);
+        let dock = DockUpdate::new(data, 1);
+        assert_eq!(dock.approach_positions_len(), DEFAULT_APPROACH_VECTOR_SIZE);
+        assert!(dock.is_clear_to_approach(123));
+    }
 
-        assert!(dock.request_dock(123, 0));
-        assert_eq!(dock.queue[0].state, DockingState::Waiting);
+    #[test]
+    fn update_promotes_first_reached_approach_owner() {
+        let data = DockUpdateModuleData {
+            number_approach_positions_data: 2,
+            is_allow_passthrough: true,
+        };
+        let mut dock = DockUpdate::new(data, 1);
+        dock.approach_position_owners[0] = 10;
+        dock.approach_position_reached[0] = true;
+        dock.update();
+        assert_eq!(dock.active_docker_id(), 10);
+        assert!(dock.is_clear_to_enter(10));
+        assert!(!dock.is_clear_to_enter(11));
+    }
 
-        dock.update(10);
-        assert_eq!(dock.queue[0].state, DockingState::Approaching);
-        assert_eq!(dock.queue[0].dock_index, Some(0));
-        assert!(dock.is_dock_occupied(0));
+    #[test]
+    fn crippled_dock_never_promotes_active_docker() {
+        let data = DockUpdateModuleData {
+            number_approach_positions_data: 1,
+            is_allow_passthrough: true,
+        };
+        let mut dock = DockUpdate::new(data, 1);
+        dock.set_dock_crippled(true);
+        dock.approach_position_owners[0] = 10;
+        dock.approach_position_reached[0] = true;
+        dock.update();
+        assert_eq!(dock.active_docker_id(), INVALID_ID);
+        assert!(!dock.is_clear_to_enter(10));
+    }
 
-        dock.update(11);
-        assert_eq!(dock.queue[0].state, DockingState::Docked);
-        assert_eq!(dock.queue[0].dock_start_frame, 11);
+    #[test]
+    fn cancel_dock_clears_approach_slot_without_object() {
+        let data = DockUpdateModuleData {
+            number_approach_positions_data: 1,
+            is_allow_passthrough: true,
+        };
+        let mut dock = DockUpdate::new(data, 1);
+        dock.approach_position_owners[0] = 42;
+        dock.approach_position_reached[0] = true;
+        dock.active_docker = 42;
+        dock.cancel_dock(42);
+        assert_eq!(dock.approach_position_owners[0], INVALID_ID);
+        assert!(!dock.approach_position_reached[0]);
+        assert_eq!(dock.active_docker_id(), INVALID_ID);
+    }
 
-        dock.update(12);
-        assert_eq!(dock.queue[0].state, DockingState::Exiting);
-
-        dock.update(13);
-        assert_eq!(dock.queue[0].state, DockingState::Complete);
-
-        dock.update(14);
-        assert_eq!(dock.get_queue_length(), 0);
-        assert!(!dock.is_dock_occupied(0));
+    #[test]
+    fn get_enter_position_calls_load_when_unloaded() {
+        let data = DockUpdateModuleData::default();
+        let mut dock = DockUpdate::new(data, 1);
+        assert!(!dock.positions_loaded);
+        let mut goal = Coord3D::ZERO;
+        dock.get_enter_position(99, &mut goal);
+        // No drawable → C++ leaves positions_loaded false so the next call retries.
+        assert!(!dock.positions_loaded);
     }
 }

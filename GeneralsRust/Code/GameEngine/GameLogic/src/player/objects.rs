@@ -112,13 +112,12 @@ impl Player {
         let score_keeper = &mut self.score_keeper;
         let academy_stats = &mut self.academy_stats;
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+            // C++ Player::onUnitCreated → ScoreKeeper::addObjectBuilt (KindOf + map).
+            score_keeper.add_object_built_obj(unit_guard);
+            let type_name = unit_guard.get_template().get_name().as_str();
             if unit_guard.is_kind_of(KindOf::Structure) {
-                score_keeper.add_building_built();
-                let type_name = unit_guard.get_template().get_name().as_str();
                 academy_stats.record_building_built(type_name);
             } else {
-                score_keeper.add_unit_built();
-                let type_name = unit_guard.get_template().get_name().as_str();
                 academy_stats.record_unit_built(type_name);
             }
         });
@@ -219,7 +218,8 @@ impl Player {
 
         if !is_rebuild {
             if let Ok(structure_guard) = structure.read() {
-                self.score_keeper.add_building_built();
+                // C++ onStructureConstructionComplete → addObjectBuilt + addMoneySpent.
+                self.score_keeper.add_object_built_obj(&*structure_guard);
                 let cost = structure_guard
                     .get_template()
                     .calc_cost_to_build(Some(self))
@@ -439,5 +439,74 @@ impl Player {
             .map(|g| g.get_id())
             .unwrap_or(INVALID_ID);
         self.on_enemy_unit_killed_id(killed_unit_id);
+    }
+
+    /// C++ placeNetworkBuildingsForPlayer starting CC:
+    /// onStructureConstructionComplete(..., FALSE) → addObjectBuilt + addMoneySpent.
+    pub fn score_starting_structure_complete(&mut self, template_name: &str) {
+        let bits = retail_kindof_bits_for_template(template_name);
+        self.score_keeper
+            .add_object_built_template(template_name, bits);
+        if let Ok(factory_guard) =
+            game_engine::common::thing::thing_factory::get_thing_factory()
+        {
+            if let Some(factory) = factory_guard.as_ref() {
+                if let Some(template) = factory.find_template(template_name, false) {
+                    let cost = template.get_build_cost().max(0) as u32;
+                    self.score_keeper.add_money_spent(cost);
+                }
+            }
+        }
+        self.academy_stats.record_building_built(template_name);
+    }
+
+    /// C++ placeNetworkBuildingsForPlayer StartingUnit0..N → onUnitCreated.
+    pub fn score_starting_unit_created(&mut self, template_name: &str) {
+        let bits = retail_kindof_bits_for_template(template_name);
+        self.score_keeper
+            .add_object_built_template(template_name, bits);
+        self.academy_stats.record_unit_built(template_name);
+    }
+}
+
+fn retail_kindof_bits_for_template(template_name: &str) -> u64 {
+    game_engine::common::thing::thing_factory::get_thing_factory()
+        .ok()
+        .and_then(|factory_guard| {
+            factory_guard
+                .as_ref()
+                .and_then(|factory| factory.find_template(template_name, false))
+                .map(|template| template.get_kindof_mask())
+        })
+        .unwrap_or(0)
+}
+
+/// Host `spawn_skirmish_starting_units` scores leftover Player like C++.
+pub fn notify_skirmish_starting_object(
+    player_id: u32,
+    template_name: &str,
+    is_structure: bool,
+) {
+    if template_name.is_empty() {
+        return;
+    }
+    let Ok(list) = ThePlayerList().read() else {
+        return;
+    };
+    let named = format!("player{player_id}");
+    let player = list
+        .find_player_by_name(&named)
+        .or_else(|| list.get_player(player_id as PlayerIndex).cloned());
+    drop(list);
+    let Some(player) = player else {
+        return;
+    };
+    let Ok(mut guard) = player.write() else {
+        return;
+    };
+    if is_structure {
+        guard.score_starting_structure_complete(template_name);
+    } else {
+        guard.score_starting_unit_created(template_name);
     }
 }

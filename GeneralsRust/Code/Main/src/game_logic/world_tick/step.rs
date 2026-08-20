@@ -319,6 +319,8 @@ impl GameLogic {
         // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
         self.update_ambulance_auto_heal(dt);
         self.update_default_auto_heal();
+        // C++ TransportContain::update HealthRegen%PerSec on embarked riders.
+        self.update_transport_health_regen(dt);
 
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.

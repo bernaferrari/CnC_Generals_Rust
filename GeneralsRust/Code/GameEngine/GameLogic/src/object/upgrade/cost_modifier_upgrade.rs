@@ -169,8 +169,13 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not remove the cost change on upgrade removal; only on delete/capture.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ does not remove the cost change; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 
     fn on_delete(&mut self, object: &mut crate::object::Object) {

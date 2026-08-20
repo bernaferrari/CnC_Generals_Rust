@@ -2,6 +2,7 @@
 //!
 //! Port of `GameClient/RadiusDecal.cpp` using a lightweight projected shadow manager.
 
+use crate::effects::decals::DecalRenderItem;
 use game_engine::common::ini::{FieldParse, INIError, INIResult, INI};
 use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
@@ -9,14 +10,36 @@ use gamelogic::common::{
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
+use nalgebra::Point3;
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
-use std::sync::Arc;
-use crate::effects::decals::DecalRenderItem;
-use nalgebra::Point3;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock as StdRwLock};
 
 fn real_to_int(value: Real) -> i32 {
     value.trunc() as i32
+}
+
+/// C++ `GameMakeColor` (`Color.h:37-39`): `(A << 24) | (R << 16) | (G << 8) | B`.
+fn game_make_color(color: gamelogic::common::Color) -> u32 {
+    ((color.a as u32) << 24)
+        | ((color.r as u32) << 16)
+        | ((color.g as u32) << 8)
+        | (color.b as u32)
+}
+
+fn player_color_argb(player: &Player) -> u32 {
+    let color = player.get_player_color();
+    if color.r != 0 || color.g != 0 || color.b != 0 || color.a != 0 {
+        return game_make_color(color);
+    }
+    ThePlayerList()
+        .read()
+        .ok()
+        .and_then(|list| list.get_player(player.get_player_index()).cloned())
+        .and_then(|real| real.read().ok().map(|p| game_make_color(p.get_player_color())))
+        .unwrap_or(0)
 }
 
 fn argb_u32_to_rgba(color: u32, opacity: Real) -> [f32; 4] {
@@ -163,8 +186,68 @@ impl ProjectedShadowManager {
 }
 
 static PROJECTED_SHADOW_MANAGER: OnceCell<RwLock<ProjectedShadowManager>> = OnceCell::new();
+static LEFTOVER_DECAL_HANDLES: OnceCell<RwLock<HashMap<u64, ShadowHandle>>> = OnceCell::new();
+static LEFTOVER_DECAL_NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn leftover_decal_handles() -> &'static RwLock<HashMap<u64, ShadowHandle>> {
+    LEFTOVER_DECAL_HANDLES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn leftover_add_decal(
+    texture: &str,
+    radius: f32,
+    x: f32,
+    y: f32,
+    z: f32,
+    color_argb: u32,
+    opacity: f32,
+    _shadow_type: u32,
+) -> Option<u64> {
+    let handle = enqueue_delivery_decal_argb(texture, radius, x, y, z, color_argb, opacity)?;
+    let id = LEFTOVER_DECAL_NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    leftover_decal_handles().write().insert(id, handle);
+    Some(id)
+}
+
+fn leftover_set_position(id: u64, x: f32, y: f32, z: f32) {
+    if let Some(handle) = leftover_decal_handles().read().get(&id) {
+        handle.set_position(x, y, z);
+    }
+}
+
+fn leftover_set_opacity(id: u64, opacity: f32) {
+    if let Some(handle) = leftover_decal_handles().read().get(&id) {
+        handle.set_opacity(real_to_int(opacity.clamp(0.0, 1.0) * 255.0));
+    }
+}
+
+fn leftover_set_color(id: u64, color_argb: u32) {
+    if let Some(handle) = leftover_decal_handles().read().get(&id) {
+        handle.set_color(color_argb);
+    }
+}
+
+fn leftover_release(id: u64) {
+    if let Some(handle) = leftover_decal_handles().write().remove(&id) {
+        handle.release();
+        get_projected_shadow_manager().write().cleanup();
+    }
+}
+
+fn ensure_leftover_projected_hooks() {
+    let _ = gamelogic::common::register_projected_radius_decal_hooks(
+        gamelogic::common::ProjectedRadiusDecalHooks {
+            add_decal: leftover_add_decal,
+            set_position: leftover_set_position,
+            set_opacity: leftover_set_opacity,
+            set_color: leftover_set_color,
+            release: leftover_release,
+        },
+    );
+}
 
 pub fn get_projected_shadow_manager() -> &'static RwLock<ProjectedShadowManager> {
+    ensure_leftover_projected_hooks();
     PROJECTED_SHADOW_MANAGER.get_or_init(|| RwLock::new(ProjectedShadowManager::new()))
 }
 
@@ -181,9 +264,25 @@ pub fn enqueue_delivery_decal(
     color_rgb: [u8; 3],
     opacity: Real,
 ) -> Option<ShadowHandle> {
+    let color = ((color_rgb[0] as u32) << 16)
+        | ((color_rgb[1] as u32) << 8)
+        | (color_rgb[2] as u32);
+    enqueue_delivery_decal_argb(texture, radius, x, y, z, color, opacity)
+}
+
+pub fn enqueue_delivery_decal_argb(
+    texture: &str,
+    radius: Real,
+    x: Real,
+    y: Real,
+    z: Real,
+    color: u32,
+    opacity: Real,
+) -> Option<ShadowHandle> {
     if texture.is_empty() || radius <= 0.0 {
         return None;
     }
+    ensure_leftover_projected_hooks();
     let info = ShadowTypeInfo {
         allow_updates: false,
         allow_world_align: true,
@@ -194,9 +293,6 @@ pub fn enqueue_delivery_decal(
     };
     let handle = get_projected_shadow_manager().write().add_decal(&info)?;
     handle.set_angle(0.0);
-    let color = ((color_rgb[0] as u32) << 16)
-        | ((color_rgb[1] as u32) << 8)
-        | (color_rgb[2] as u32);
     handle.set_color(color);
     handle.set_position(x, y, z);
     handle.set_opacity(real_to_int(opacity.clamp(0.0, 1.0) * 255.0));
@@ -270,11 +366,44 @@ impl RadiusDecalTemplate {
         Ok(())
     }
 
+    pub fn min_opacity(&self) -> Real {
+        self.min_opacity
+    }
+
+    pub fn max_opacity(&self) -> Real {
+        self.max_opacity
+    }
+
+    pub fn opacity_throb_time(&self) -> UnsignedInt {
+        self.opacity_throb_time
+    }
+
+    pub fn color(&self) -> u32 {
+        self.color
+    }
+
+    /// C++ `parseRadiusDecalTemplate` retail InGameUI.ini *RadiusCursor throb peel.
+    pub fn apply_retail_radius_cursor_parse(&mut self) {
+        let mut ini = INI::new();
+        let _ = parse_opacity_min(&mut ini, self, &["25%"]);
+        let _ = parse_opacity_max(&mut ini, self, &["50%"]);
+        let _ = parse_opacity_throb_time(&mut ini, self, &["500"]);
+    }
+
+    pub fn from_radius_cursor_texture(texture: &str) -> Self {
+        if texture.is_empty() {
+            return Self::default();
+        }
+        let mut template = Self::with_texture(texture);
+        template.apply_retail_radius_cursor_parse();
+        template
+    }
+
     pub fn create_radius_decal(
         &self,
         pos: &Coord3D,
         radius: Real,
-        owning_player: Option<Arc<RwLock<Player>>>,
+        owning_player: Option<Arc<StdRwLock<Player>>>,
         result: &mut RadiusDecal,
     ) {
         result.clear();
@@ -290,7 +419,7 @@ impl RadiusDecalTemplate {
 
         result.empty = false;
 
-        let owner_index = Some(owner.read().get_player_index());
+        let owner_index = owner.read().ok().map(|player| player.get_player_index());
         let local_index = ThePlayerList()
             .read()
             .ok()
@@ -319,7 +448,11 @@ impl RadiusDecalTemplate {
             if let Some(handle) = decal {
                 handle.set_angle(0.0);
                 let color = if self.color == 0 {
-                    owner.read().get_player_color().to_argb_u32()
+                    owner
+                        .read()
+                        .ok()
+                        .map(|player| player_color_argb(&player))
+                        .unwrap_or(0)
                 } else {
                     self.color
                 };
@@ -398,9 +531,60 @@ fn parse_color(
     template: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> INIResult<()> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    template.color = token.parse().map_err(|_| INIError::InvalidData)?;
+    template.color = parse_color_int_tokens(tokens)?;
     Ok(())
+}
+
+/// C++ `INI::parseColorInt` / `GameMakeColor` (`R:G:B:[A:]` → ARGB).
+fn parse_color_int_tokens(tokens: &[&str]) -> INIResult<u32> {
+    if tokens.len() == 1 {
+        if let Ok(value) = tokens[0].parse::<u32>() {
+            return Ok(value);
+        }
+    }
+
+    let mut r = None;
+    let mut g = None;
+    let mut b = None;
+    let mut a = None;
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        let (key, value) = if let Some((left, right)) = token.split_once(':') {
+            if right.is_empty() {
+                i += 1;
+                if i >= tokens.len() {
+                    return Err(INIError::InvalidData);
+                }
+                (left, tokens[i])
+            } else {
+                (left, right)
+            }
+        } else {
+            i += 1;
+            if i >= tokens.len() {
+                return Err(INIError::InvalidData);
+            }
+            (token, tokens[i])
+        };
+        let value: i32 = value.parse().map_err(|_| INIError::InvalidData)?;
+        if !(0..=255).contains(&value) {
+            return Err(INIError::InvalidData);
+        }
+        match key.to_ascii_uppercase().as_str() {
+            "R" => r = Some(value as u8),
+            "G" => g = Some(value as u8),
+            "B" => b = Some(value as u8),
+            "A" => a = Some(value as u8),
+            _ => {}
+        }
+        i += 1;
+    }
+    let r = r.ok_or(INIError::InvalidData)?;
+    let g = g.ok_or(INIError::InvalidData)?;
+    let b = b.ok_or(INIError::InvalidData)?;
+    let a = a.unwrap_or(255);
+    Ok(((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32))
 }
 
 fn parse_only_visible_to_owner(
@@ -660,5 +844,41 @@ mod tests {
         assert!(!items.iter().any(|it| {
             (it.position.x - 4242.5).abs() < 0.01 && (it.position.z - 4243.5).abs() < 0.01
         }));
+    }
+
+    #[test]
+    fn parse_color_int_uses_game_make_color_argb() {
+        assert_eq!(
+            parse_color_int_tokens(&["R:255", "G:0", "B:128", "A:64"]).unwrap(),
+            0x40FF_0080
+        );
+        assert_eq!(
+            parse_color_int_tokens(&["R:255", "G:0", "B:0"]).unwrap(),
+            0xFFFF_0000
+        );
+    }
+
+    #[test]
+    fn retail_radius_cursor_parse_sets_throb() {
+        let template = RadiusDecalTemplate::from_radius_cursor_texture("SCCAttackDamageArea");
+        assert!((template.min_opacity() - 0.25).abs() < f32::EPSILON);
+        assert!((template.max_opacity() - 0.50).abs() < f32::EPSILON);
+        assert_eq!(template.opacity_throb_time(), 15);
+        assert_eq!(template.color(), 0);
+    }
+
+    #[test]
+    fn game_make_color_packs_argb_not_abgr() {
+        let color = gamelogic::common::Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        assert_eq!(game_make_color(color), 0xFFFF_0000);
+        let rgba = argb_u32_to_rgba(game_make_color(color), 1.0);
+        assert!((rgba[0] - 1.0).abs() < 0.01);
+        assert!(rgba[1].abs() < 0.01);
+        assert!(rgba[2].abs() < 0.01);
     }
 }

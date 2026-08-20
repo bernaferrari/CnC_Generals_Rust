@@ -7,9 +7,9 @@
 //!
 //! Residual playability slice:
 //! - Retail blast schedule (ms → frames @ 30 FPS)
-//! - Radial damage falloff for Blast6
+//! - Radial damage falloff for Blast6 uses **3D** `forceVector.length()`
 //! - Scorch waves mark BURNED + scorch size residual
-//! - Topple impulse requests for trees/props
+//! - Topple any object with ToppleUpdate that is able to be toppled
 //!
 //! Fail-closed: not full partition iterators, FlammableUpdate ignite, shrubbery
 //! shadow disable, or SlowDeath base sink phases on the missile drawable.
@@ -170,7 +170,7 @@ pub fn retail_neutron_blasts() -> [NeutronBlastInfo; 9] {
     ]
 }
 
-/// C++ damage falloff residual for one target at 2D distance.
+/// C++ damage falloff residual for one target at **3D** distance.
 pub fn blast_damage_at_distance(info: &NeutronBlastInfo, dist: f32) -> f32 {
     if !info.enabled || info.outer_radius <= 0.0 {
         return 0.0;
@@ -275,13 +275,24 @@ pub struct NeutronDamageHit {
     pub set_burned: bool,
 }
 
+/// C++ `Object::topple`: applies only if the victim has `ToppleUpdate` and
+/// `isAbleToBeToppled()`. No name/kind filter in the blast.
+#[inline]
+pub fn neutron_blast_can_topple(has_topple_update: bool, is_able_to_be_toppled: bool) -> bool {
+    has_topple_update && is_able_to_be_toppled
+}
+
 /// Plan residual effects for one logic frame.
-/// `epicenter` is (x, z); `object_xz` positions match `hits.target_index`.
+///
+/// Candidates are selected with C++ `FROM_CENTER_2D` (host XZ). Falloff uses
+/// **3D** `forceVector.length()` so an aircraft 80 above the epicenter is
+/// already outside Blast6 inner 60.
+/// `epicenter` / `object_xyz` are (x, y, z) host Y-up.
 pub fn plan_neutron_frame(
     state: &mut HostNeutronMissileSlowDeathData,
     current_frame: u32,
-    epicenter: (f32, f32),
-    object_xz: &[(f32, f32)],
+    epicenter: (f32, f32, f32),
+    object_xyz: &[(f32, f32, f32)],
 ) -> (
     Vec<NeutronDamageHit>,
     bool, /*place_scorch*/
@@ -311,18 +322,18 @@ pub fn plan_neutron_frame(
             && info.delay_frames < ms_to_frames(900_000)
         {
             state.completed_blasts[i] = true;
-            for (idx, &(ox, oz)) in object_xz.iter().enumerate() {
+            for (idx, &(ox, oy, oz)) in object_xyz.iter().enumerate() {
                 let dx = ox - epicenter.0;
-                let dz = oz - epicenter.1;
-                let dist = (dx * dx + dz * dz).sqrt();
-                if dist > info.outer_radius && info.outer_radius > 0.0 {
+                let dy = oy - epicenter.1;
+                let dz = oz - epicenter.2;
+                let dist_2d = (dx * dx + dz * dz).sqrt();
+                if info.outer_radius <= 0.0 || dist_2d > info.outer_radius {
                     continue;
                 }
-                if info.outer_radius <= 0.0 {
-                    continue;
-                }
-                let dmg = blast_damage_at_distance(info, dist);
-                let len = dist.max(0.001);
+                // C++ doBlast: falloff uses 3D forceVector.length().
+                let dist_3d = (dx * dx + dy * dy + dz * dz).sqrt();
+                let dmg = blast_damage_at_distance(info, dist_3d);
+                let len = dist_2d.max(0.001);
                 hits.push(NeutronDamageHit {
                     target_index: idx,
                     damage: dmg,
@@ -345,9 +356,9 @@ pub fn plan_neutron_frame(
         if !state.completed_scorch[i] && elapsed >= info.scorch_delay_frames {
             state.completed_scorch[i] = true;
             state.scorch_waves = state.scorch_waves.saturating_add(1);
-            for (idx, &(ox, oz)) in object_xz.iter().enumerate() {
+            for (idx, &(ox, _oy, oz)) in object_xyz.iter().enumerate() {
                 let dx = ox - epicenter.0;
-                let dz = oz - epicenter.1;
+                let dz = oz - epicenter.2;
                 let dist = (dx * dx + dz * dz).sqrt();
                 if info.outer_radius > 0.0 && dist <= info.outer_radius {
                     hits.push(NeutronDamageHit {
@@ -394,16 +405,31 @@ mod tests {
     }
 
     #[test]
+    fn blast6_falloff_uses_3d_distance() {
+        let b = retail_neutron_blasts()[5];
+        // Aircraft 80 above epicenter at 0 XY: 3D dist 80 is outside inner 60.
+        let d3 = blast_damage_at_distance(&b, 80.0);
+        assert!(d3 < 3500.0);
+        assert!(d3 >= 300.0);
+        let mut s = HostNeutronMissileSlowDeathData::begin(0);
+        let t = ms_to_frames(1180);
+        let (hits, _, _) = plan_neutron_frame(&mut s, t, (0.0, 0.0, 0.0), &[(0.0, 80.0, 0.0)]);
+        let dmg = hits.iter().map(|h| h.damage).fold(0.0_f32, f32::max);
+        assert!((dmg - d3).abs() < 0.1);
+        assert!(dmg < 3500.0);
+    }
+
+    #[test]
     fn sequence_fires_damage_after_blast6_delay() {
         let mut s = HostNeutronMissileSlowDeathData::begin(0);
-        let objs = [(0.0_f32, 0.0_f32)];
+        let objs = [(0.0_f32, 0.0_f32, 0.0_f32)];
         // Before blast6
         let early = ms_to_frames(500);
-        let (h0, _, _) = plan_neutron_frame(&mut s, early, (0.0, 0.0), &objs);
+        let (h0, _, _) = plan_neutron_frame(&mut s, early, (0.0, 0.0, 0.0), &objs);
         assert!(h0.iter().all(|h| h.damage == 0.0));
         // At blast6
         let t = ms_to_frames(1180);
-        let (h1, _, _) = plan_neutron_frame(&mut s, t, (0.0, 0.0), &objs);
+        let (h1, _, _) = plan_neutron_frame(&mut s, t, (0.0, 0.0, 0.0), &objs);
         assert!(h1.iter().any(|h| h.damage >= 3500.0));
     }
 
@@ -411,7 +437,15 @@ mod tests {
     fn destruction_delay_completes() {
         let mut s = HostNeutronMissileSlowDeathData::begin(10);
         let end = s.destruction_frame();
-        let (_, _, done) = plan_neutron_frame(&mut s, end, (0.0, 0.0), &[]);
+        let (_, _, done) = plan_neutron_frame(&mut s, end, (0.0, 0.0, 0.0), &[]);
         assert!(done);
+    }
+
+    #[test]
+    fn topple_is_any_topple_update_not_name_gated() {
+        assert!(neutron_blast_can_topple(true, true));
+        assert!(!neutron_blast_can_topple(true, false));
+        assert!(!neutron_blast_can_topple(false, true));
+        assert!(!neutron_blast_can_topple(false, false));
     }
 }

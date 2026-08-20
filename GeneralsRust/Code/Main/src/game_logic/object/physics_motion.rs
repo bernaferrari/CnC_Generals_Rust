@@ -111,13 +111,10 @@ impl Object {
     }
 
     fn ensure_crush_levels(&mut self) {
-        // Host residual defaults when unset: vehicles crush infantry.
-        if self.crusher_level == 0 && self.is_kind_of(KindOf::Vehicle) {
-            self.crusher_level = 1;
-        }
-        if self.crushable_level == 255 && self.is_kind_of(KindOf::Infantry) {
-            self.crushable_level = 0;
-        }
+        // C++ Object.cpp:1156-1164 reads ThingTemplate CrusherLevel/CrushableLevel.
+        // Do not invent KindOf vehicle=1 / infantry=0 — that left cars/props at
+        // CrushableLevel 255 and collapsed Overlord==tank. INI is stamped at
+        // Object::new from the parsed template.
         self.record_host_crush_vision();
     }
 

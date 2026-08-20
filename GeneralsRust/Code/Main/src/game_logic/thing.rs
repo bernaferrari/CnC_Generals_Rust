@@ -1433,6 +1433,14 @@ pub struct ThingTemplate {
     /// C++ PhysicsBehaviorModuleData::m_pitchRollYawFactor (default 2.0).
     #[serde(default = "default_template_pitch_roll_yaw_factor")]
     pub pitch_roll_yaw_factor: f32,
+    /// C++ `ThingTemplate::m_crusherLevel` from Object INI `CrusherLevel`.
+    /// Default 0 = cannot crush anything (ThingTemplate.cpp:1023).
+    #[serde(default)]
+    pub crusher_level: u8,
+    /// C++ `ThingTemplate::m_crushableLevel` from Object INI `CrushableLevel`.
+    /// Default 255 = cannot be crushed (ThingTemplate.cpp:1024).
+    #[serde(default = "default_template_crushable_level")]
+    pub crushable_level: u8,
 }
 
 impl ThingTemplate {
@@ -1525,6 +1533,8 @@ impl ThingTemplate {
             physics_mass: 1.0,
             shock_resistance: 0.0,
             pitch_roll_yaw_factor: 2.0,
+            crusher_level: 0,
+            crushable_level: 255,
         }
     }
     /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored
@@ -2097,6 +2107,11 @@ fn parse_preferred_against_value(value: &str) -> Option<(u8, Vec<KindOf>)> {
 fn default_template_shroud_clearing_range() -> f32 {
     // C++ ThingTemplate m_shroudClearingRange default -1 → use VisionRange.
     -1.0
+}
+
+fn default_template_crushable_level() -> u8 {
+    // C++ ThingTemplate.cpp:1024 m_crushableLevel = 255 (uncrushable).
+    255
 }
 
 fn default_asset_scale() -> f32 {

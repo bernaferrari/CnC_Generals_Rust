@@ -258,6 +258,8 @@ impl Object {
         // BodyModule last damage source residual (Passive WaitForAttack).
         if let Some(src) = source {
             self.last_damage_source = Some(src);
+            self.last_damage_timestamp =
+                Some(crate::game_logic::host_historic_bonus::logic_frame());
         }
 
         // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then

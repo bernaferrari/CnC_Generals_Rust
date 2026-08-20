@@ -1098,6 +1098,16 @@ impl Object {
         self.radar_data = data;
     }
 
+    /// C++ Object ctor always owns an ExperienceTracker. Test objects skip
+    /// module install, so inherit-veterancy OCL tests attach one explicitly.
+    #[cfg(any(test, feature = "internal"))]
+    pub fn attach_experience_tracker_for_test(&mut self, trainable: bool) {
+        let mut tracker = crate::experience::ExperienceTracker::new(self.id);
+        tracker.set_trainable_override(trainable);
+        self.experience_tracker = Some(Arc::new(Mutex::new(tracker)));
+    }
+
+
 }
 
 impl Drop for Object {

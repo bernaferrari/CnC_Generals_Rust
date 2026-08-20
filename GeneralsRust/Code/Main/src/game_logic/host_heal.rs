@@ -19,10 +19,11 @@
 //! Fail-closed honesty:
 //! - Not full particle / world-anim heal pulse FX
 //! - Not full TransportContain embark/exit door matrix / DamagePercentToUnits combat
+//! - HealthRegen%PerSec embark heal is applied by leftover host tick
 //! - Not network heal replication (network deferred)
 
-
 use super::ObjectId;
+use crate::game_logic::GameLogic;
 use std::collections::HashMap;
 
 /// Retail ambulance infantry pulse amount residual (AutoHealBehavior ModuleTag_22 HealingAmount).
@@ -245,10 +246,45 @@ pub fn in_heal_radius_2d(healer_pos: (f32, f32), target_pos: (f32, f32), radius:
 ///
 /// `percent_per_sec` of max health per second (25 → 0.25 * max_health / sec).
 pub fn ambulance_embarked_heal_hp_per_sec(max_health: f32) -> f32 {
-    if max_health <= 0.0 {
+    leftover_transport_embarked_heal_hp_per_sec(
+        max_health,
+        AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC,
+    )
+}
+
+/// C++ TransportContain HealthRegen%PerSec residual for leftover host templates.
+pub fn leftover_transport_health_regen_percent(template_name: &str) -> f32 {
+    if is_ambulance_healer(template_name) {
+        return AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC;
+    }
+    if crate::game_logic::host_troop_crawler::is_troop_crawler_template(template_name) {
+        return crate::game_logic::host_troop_crawler::TROOP_CRAWLER_HEALTH_REGEN_PERCENT_PER_SEC;
+    }
+    if crate::game_logic::host_listening_outpost::is_listening_outpost_template(template_name) {
+        return crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_HEALTH_REGEN_PERCENT_PER_SEC;
+    }
+    0.0
+}
+
+/// HP/sec from leftover TransportContain HealthRegen%PerSec.
+pub fn leftover_transport_embarked_heal_hp_per_sec(
+    max_health: f32,
+    percent_per_sec: f32,
+) -> f32 {
+    if max_health <= 0.0 || percent_per_sec == 0.0 {
         return 0.0;
     }
-    max_health * (AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC / 100.0)
+    max_health * (percent_per_sec / 100.0)
+}
+
+/// C++ TransportContain::update embark heal for leftover dt:
+/// `maxHealth * (percent / 100) * dt`.
+pub fn leftover_transport_embarked_heal_amount(
+    max_health: f32,
+    percent_per_sec: f32,
+    dt: f32,
+) -> f32 {
+    leftover_transport_embarked_heal_hp_per_sec(max_health, percent_per_sec) * dt.max(0.0)
 }
 
 /// Residual sole-benefactor exclusivity map (ObjectId → healer_id).
@@ -333,6 +369,55 @@ pub fn honesty_heal_residual_pack_ok() -> bool {
         && DEFAULT_AUTO_HEAL_DELAY_FRAMES == 30
         && DEFAULT_AUTO_HEAL_START_DELAY_MS == 5000
         && DEFAULT_AUTO_HEAL_START_DELAY_FRAMES == 150
+}
+
+impl GameLogic {
+    /// C++ `TransportContain::update` HealthRegen%PerSec on embarked riders.
+    ///
+    /// Leftover tick uses `dt` seconds: `maxHealth * percent / 100 * dt`.
+    pub fn update_transport_health_regen(&mut self, dt: f32) {
+        if dt <= 0.0 {
+            return;
+        }
+
+        let carriers: Vec<(ObjectId, Vec<ObjectId>, f32)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, obj)| {
+                if !obj.is_alive() {
+                    return None;
+                }
+                let percent = leftover_transport_health_regen_percent(&obj.template_name);
+                if percent == 0.0 {
+                    return None;
+                }
+                let riders = obj.contained_units();
+                if riders.is_empty() {
+                    return None;
+                }
+                Some((*id, riders, percent))
+            })
+            .collect();
+
+        for (_carrier_id, riders, percent) in carriers {
+            for rider_id in riders {
+                let Some(rider) = self.objects.get_mut(&rider_id) else {
+                    continue;
+                };
+                if !rider.is_alive() {
+                    continue;
+                }
+                let max_health = rider.health.maximum.max(rider.max_health);
+                if rider.health.current + 0.01 >= max_health {
+                    continue;
+                }
+                let regen = leftover_transport_embarked_heal_amount(max_health, percent, dt);
+                if regen > 0.0 {
+                    rider.heal(regen);
+                }
+            }
+        }
+    }
 }
 
 
@@ -438,6 +523,17 @@ mod tests {
         assert!((ambulance_embarked_heal_hp_per_sec(240.0) - 60.0).abs() < 0.001);
         assert_eq!(ambulance_embarked_heal_hp_per_sec(0.0), 0.0);
         assert!((AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS - 0.10).abs() < 0.001);
+        assert!((leftover_transport_health_regen_percent("AmericaVehicleAmbulance") - 25.0).abs() < 0.001);
+        assert!((leftover_transport_health_regen_percent("ChinaVehicleTroopCrawler") - 10.0).abs() < 0.001);
+        assert!((leftover_transport_health_regen_percent("ChinaVehicleListeningOutpost") - 10.0).abs() < 0.001);
+        assert_eq!(leftover_transport_health_regen_percent("AmericaVehicleHumvee"), 0.0);
+        // 10% of 100 max HP * 1/30s leftover frame → C++ TransportContain::update.
+        assert!(
+            (leftover_transport_embarked_heal_amount(100.0, 10.0, 1.0 / 30.0)
+                - (100.0 * 0.10 / 30.0))
+                .abs()
+                < 0.0001
+        );
     }
 
     #[test]

@@ -1577,25 +1577,10 @@ impl PresentationFrame {
                 source: ev.source,
                 destroyed: ev.destroyed,
             });
-            if ev.amount > 0.0 && !ev.destroyed {
-                let pos = logic
-                    .host_objects()
-                    .get(&ev.target)
-                    .map(|o| o.get_position())
-                    .unwrap_or(Vec3::ZERO);
-                let frame = logic.get_frame();
-                floating_texts.push(PresentationFloatingText::from_parts(
-                    PresentationFloatingTextKind::CombatDamage,
-                    format!("-{}", ev.amount as i32),
-                    "GUI:CombatDamage".into(),
-                    pos + Vec3::new(0.0, 8.0, 0.0),
-                    (255, 64, 64, 255),
-                    ev.amount.max(0.0) as u32,
-                    frame,
-                    ev.source.unwrap_or(ev.target),
-                ));
-            }
+            // C++ addFloatingText is cash-only (Player.cpp / AutoDeposit /
+            // SupplyCenter / crates). Do not invent CombatDamage -N floaters.
         }
+
         for ev in crate::game_logic::host_heal_log::take_last_drain() {
             events.push(PresentationEvent::HealApplied {
                 target: ev.target,

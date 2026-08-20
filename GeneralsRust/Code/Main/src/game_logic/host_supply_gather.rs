@@ -255,6 +255,25 @@ pub fn dock_is_clear_to_act(active: Option<ObjectId>, docker: ObjectId) -> bool 
     active == Some(docker)
 }
 
+/// C++ `SupplyWarehouseDockUpdate::action` (`SupplyWarehouseDockUpdate.cpp:89-111`)
+/// tentatively `--m_boxesStored`, then `SupplyTruckAIUpdate::gainOneBox`
+/// (`SupplyTruckAIUpdate.cpp:134-135`). Already at MaxBoxes fails and the
+/// warehouse `++m_boxesStored` takes the box back. Fail-closed: no transfer.
+pub fn warehouse_action_transfer_one_box(
+    warehouse_boxes: u32,
+    collector_boxes: u32,
+    max_boxes: u32,
+) -> (u32, u32, bool) {
+    if warehouse_boxes == 0 {
+        return (0, collector_boxes, false);
+    }
+    if collector_boxes >= max_boxes {
+        return (warehouse_boxes, collector_boxes, false);
+    }
+    (warehouse_boxes - 1, collector_boxes + 1, true)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +284,29 @@ mod tests {
         assert_eq!(steal_cash_clamped(250, 1000), 250);
         assert_eq!(steal_cash_clamped(5000, 1000), 1000);
     }
+
+    #[test]
+    fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
+        // Last remaining box + full collector: C++ take-back, warehouse stays.
+        assert_eq!(
+            warehouse_action_transfer_one_box(1, 4, 4),
+            (1, 4, false)
+        );
+        assert_eq!(
+            warehouse_action_transfer_one_box(10, 4, 4),
+            (10, 4, false)
+        );
+        // Room for one more: debit and credit.
+        assert_eq!(
+            warehouse_action_transfer_one_box(1, 3, 4),
+            (0, 4, true)
+        );
+        assert_eq!(
+            warehouse_action_transfer_one_box(0, 2, 4),
+            (0, 2, false)
+        );
+    }
+
 
     #[test]
     fn warehouse_drawable_boxes_follow_cash() {

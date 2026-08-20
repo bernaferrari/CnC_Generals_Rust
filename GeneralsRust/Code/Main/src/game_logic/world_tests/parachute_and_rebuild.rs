@@ -2367,6 +2367,23 @@ fn named_special_power_countdown_reaches_host_pause_and_set_ready() {
     ensure_test_player_for_team(&mut logic, Team::USA);
     let mut unit = ThingTemplate::new("AmericaInfantryTankHunter");
     unit.add_kind_of(KindOf::Infantry).set_health(100.0);
+    unit.special_power_modules
+        .push(crate::game_logic::SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_TNT".into()),
+            module_kind: crate::game_logic::SpecialPowerModuleKind::SpecialAbility,
+            special_power_template: "SpecialAbilityTankHunterTNTAttack".into(),
+            special_power_template_id: 1,
+            command_power: Some(SpecialPowerType::TankHunterTnt),
+            reload_time_frames: 0,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        });
     logic
         .templates
         .insert("AmericaInfantryTankHunter".into(), unit);
@@ -2422,8 +2439,7 @@ fn named_special_power_countdown_reaches_host_pause_and_set_ready() {
     assert!(logic
         .host_object(id)
         .unwrap()
-        .special_power_paused
-        .contains(&power));
+        .is_special_power_countdown_paused(&power));
     assert!(
         !logic.is_special_power_ready_for(id, &power),
         "paused countdown is not ready"

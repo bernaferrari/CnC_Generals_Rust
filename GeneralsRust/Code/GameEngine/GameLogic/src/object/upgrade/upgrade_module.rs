@@ -30,6 +30,29 @@ pub fn mux_give_self_upgrade(data: &UpgradeMuxData, object: &mut Object) {
     data.process_upgrade_removal(object);
 }
 
+/// C++ `UpgradeMux::resetUpgrade` (`UpgradeModule.cpp:191-201`).
+/// Clears `m_upgradeExecuted` / leftover `applied` when `keyMask` intersects
+/// the module activation mask. Does **not** undo `upgradeImplementation`.
+pub fn mux_reset_upgrade(
+    data: &UpgradeMuxData,
+    applied: &mut bool,
+    upgrade_mask: UpgradeMaskType,
+) -> bool {
+    if !*applied || upgrade_mask.is_empty() {
+        return false;
+    }
+    let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
+    let mut mux = UpgradeMux::new(data.clone());
+    mux.set_upgrade_executed(*applied);
+    if mux.reset_upgrade(key_mask) {
+        *applied = false;
+        true
+    } else {
+        false
+    }
+}
+
+
 /// Look up the owning object and run `giveSelfUpgrade` bookkeeping.
 pub fn mux_give_self_upgrade_for_object(data: &UpgradeMuxData, object_id: ObjectID) {
     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
@@ -187,4 +210,21 @@ mod tests {
 
         assert!(loaded);
     }
+
+    #[test]
+    fn mux_reset_upgrade_clears_applied_when_activation_intersects() {
+        let mut data = UpgradeMuxData::default();
+        data.activation_upgrade_names
+            .push(game_engine::common::ascii_string::AsciiString::from(
+                "ResetUpgradeA",
+            ));
+        let mask = UpgradeMaskType::from_bits_retain(
+            crate::upgrade::upgrade_mask_for_name("ResetUpgradeA").to_bits(),
+        );
+        let mut applied = true;
+        assert!(mux_reset_upgrade(&data, &mut applied, mask));
+        assert!(!applied);
+        assert!(!mux_reset_upgrade(&data, &mut applied, mask));
+    }
+
 }

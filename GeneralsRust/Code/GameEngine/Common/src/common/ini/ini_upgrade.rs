@@ -349,6 +349,31 @@ impl UpgradeCenter {
         }
     }
 
+    /// C++ `UpgradeCenter::init` — three OBJECT veterancy templates before INI.
+    pub fn init(&mut self) {
+        self.ensure_veterancy_upgrade("VETERAN");
+        self.ensure_veterancy_upgrade("ELITE");
+        self.ensure_veterancy_upgrade("HEROIC");
+    }
+
+    fn ensure_veterancy_upgrade(&mut self, level: &str) {
+        let name = format!("Upgrade_Veterancy_{level}");
+        if self.templates.contains_key(&name) {
+            return;
+        }
+        let template = self.new_template(AsciiString::from(name.as_str()));
+        template.upgrade_type = UpgradeType::Object;
+        template.is_purchasable = false;
+        template.requirements.cost = 0;
+        template.requirements.research_time = 0.0;
+        template.display_name = AsciiString::from("");
+    }
+
+    /// C++ `UpgradeCenter::findVeterancyUpgrade`.
+    pub fn find_veterancy_upgrade(&self, level: &str) -> Option<&UpgradeTemplate> {
+        self.find_template(&AsciiString::from(format!("Upgrade_Veterancy_{level}").as_str()))
+    }
+
     fn assign_new_template_mask(&mut self, template: &mut UpgradeTemplate) {
         if self.next_template_mask_bit >= 128 {
             panic!("Can't have over 128 types of Upgrades and have a Bitfield function.");
@@ -499,7 +524,9 @@ static UPGRADE_CENTER: OnceCell<RwLock<UpgradeCenter>> = OnceCell::new();
 /// Initialize the global upgrade center
 pub fn initialize_upgrade_center() {
     if UPGRADE_CENTER.get().is_none() {
-        let _ = UPGRADE_CENTER.set(RwLock::new(UpgradeCenter::new()));
+        let mut center = UpgradeCenter::new();
+        center.init();
+        let _ = UPGRADE_CENTER.set(RwLock::new(center));
     }
 }
 
@@ -648,6 +675,43 @@ mod tests {
         assert_eq!(template.max_stack_count, 1);
         assert!(template.is_valid());
     }
+
+    #[test]
+    fn init_creates_object_veterancy_templates_before_ini() {
+        let mut center = UpgradeCenter::new();
+        center.init();
+        let veteran = center
+            .find_veterancy_upgrade("VETERAN")
+            .expect("Upgrade_Veterancy_VETERAN");
+        let elite = center
+            .find_veterancy_upgrade("ELITE")
+            .expect("Upgrade_Veterancy_ELITE");
+        let heroic = center
+            .find_veterancy_upgrade("HEROIC")
+            .expect("Upgrade_Veterancy_HEROIC");
+        assert_eq!(veteran.upgrade_type, UpgradeType::Object);
+        assert_eq!(elite.upgrade_type, UpgradeType::Object);
+        assert_eq!(heroic.upgrade_type, UpgradeType::Object);
+        assert_eq!(veteran.get_upgrade_mask(), 1u128 << 0);
+        assert_eq!(elite.get_upgrade_mask(), 1u128 << 1);
+        assert_eq!(heroic.get_upgrade_mask(), 1u128 << 2);
+        let names: Vec<&str> = center
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "Upgrade_Veterancy_HEROIC",
+                "Upgrade_Veterancy_ELITE",
+                "Upgrade_Veterancy_VETERAN",
+            ]
+        );
+        center.init();
+        assert_eq!(center.get_template_count(), 3);
+    }
+
 
     #[test]
     fn test_upgrade_center() {

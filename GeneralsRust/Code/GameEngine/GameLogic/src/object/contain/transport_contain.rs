@@ -500,10 +500,35 @@ impl TransportContain {
         Ok(())
     }
 
-    /// Handle death event
+    /// Handle death event.
+    ///
+    /// C++ `TransportContain` does not override `onDie`. `OpenContain::onDie`
+    /// (`OpenContain.cpp:833-851`) is: DieMux applicability return →
+    /// `processDamageToContained(DamagePercentToUnits)` →
+    /// `killRidersWhoAreNotFreeToExit` → `removeAllContained`.
+    /// Rust `OpenContain::kill_riders_who_are_not_free_to_exit` is a no-op, so
+    /// Transport must run that C++ virtual after DieMux + damage%.
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        if let Some(info) = damage_info {
+            let applicable = self
+                .with_owner_object(|owner| self.base.is_die_applicable(owner, info))
+                .unwrap_or(true);
+            if !applicable {
+                return Ok(());
+            }
+        }
+
+        let percent = self.base.get_damage_percentage_to_units();
+        if percent > 0.0 {
+            self.base.process_damage_to_contained(percent)?;
+        }
+
         self.kill_riders_who_are_not_free_to_exit()?;
-        self.base.on_die(damage_info)?;
+        // C++ `removeAllContained()` defaults `exposeStealthUnits = FALSE`.
+        let object_ids: Vec<_> = self.base.get_contained_object_ids().to_vec();
+        for obj_id in object_ids {
+            self.remove_from_contain(obj_id, false)?;
+        }
         Ok(())
     }
 
@@ -887,9 +912,14 @@ impl TransportContain {
         }
     }
 
-    /// Unreserve door for exit
+    /// Unreserve door for exit.
+    ///
+    /// C++ `TransportContain::unreserveDoorForExit` (`TransportContain.cpp:504-508`)
+    /// is an explicit no-op. Door-close countdown is armed only inside
+    /// `exitObjectViaDoor` / `exitObjectInAHurry`.
     pub fn unreserve_door_for_exit(&self, exit_door: ExitDoorType) -> GameResult<()> {
-        self.base.unreserve_door_for_exit(exit_door)
+        let _ = exit_door;
+        Ok(())
     }
 
     /// Check if displayed on control bar
@@ -1308,11 +1338,23 @@ impl TransportContain {
         };
 
         if !self.base.get_contained_object_ids().contains(&obj_id) {
-            let _ = expose_stealth_units;
             return Ok(());
         }
 
         self.base.remove_from_contain_list(obj_id);
+        // C++ OpenContain::removeFromContainViaIterator (`OpenContain.cpp:621-633`):
+        // KINDOF_STEALTH_GARRISON + exposeStealthUnits → stealth->markAsDetected().
+        if expose_stealth_units {
+            if let Ok(obj_guard) = obj.read() {
+                if obj_guard.is_kind_of(KindOf::StealthGarrison) {
+                    if let Some(stealth) = obj_guard.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
+                }
+            }
+        }
         let should_add_to_world = obj
             .read()
             .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
@@ -1336,7 +1378,6 @@ impl TransportContain {
         self.base.do_unload_sound();
         self.on_removing(obj_id)?;
 
-        let _ = expose_stealth_units;
         Ok(())
     }
 

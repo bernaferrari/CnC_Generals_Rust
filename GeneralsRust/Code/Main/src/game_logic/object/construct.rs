@@ -18,6 +18,8 @@ impl Object {
         let max_health = template.max_health;
         let position = Vec3::ZERO; // Default position
         let template_name = template.name.clone();
+        let crusher_level = template.crusher_level;
+        let crushable_level = template.crushable_level;
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, logic_frame);
         // A normal player Enter requires a real Contain module.  Capture its
@@ -146,6 +148,11 @@ impl Object {
             rebuild_reconstructing_id: None,
             producer_id: None,
             builder_id: None,
+            dozer_task_build_target: None,
+            dozer_task_build_order_frame: 0,
+            dozer_task_repair_target: None,
+            dozer_task_repair_order_frame: 0,
+
 
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
@@ -183,8 +190,8 @@ impl Object {
             bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
             last_bounce_volume: 0.0,
             bounce_audio_pending: 0,
-            crusher_level: 0,
-            crushable_level: 255,
+            crusher_level,
+            crushable_level,
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,
@@ -612,7 +619,7 @@ impl Object {
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
-            special_power_paused: std::collections::HashSet::new(),
+            special_power_paused: std::collections::HashMap::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
@@ -705,6 +712,7 @@ impl Object {
             weapon_bonus_battle_plan_bombardment: false,
             weapon_bonus_battle_plan_hold_the_line: false,
             weapon_bonus_battle_plan_search_and_destroy: false,
+            weapon_bonus_drone_spotting: false,
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
@@ -760,6 +768,7 @@ impl Object {
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_timestamp: None,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range,
@@ -811,6 +820,8 @@ impl Object {
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
+        let crusher_level = template.crusher_level;
+        let crushable_level = template.crushable_level;
 
         Self {
             thing: Thing::new(template),
@@ -836,6 +847,11 @@ impl Object {
             rebuild_reconstructing_id: None,
             producer_id: None,
             builder_id: None,
+            dozer_task_build_target: None,
+            dozer_task_build_order_frame: 0,
+            dozer_task_repair_target: None,
+            dozer_task_repair_order_frame: 0,
+
 
             preferred_dock_id: None,
             supply_center_spawn_behavior_fired: false,
@@ -873,8 +889,8 @@ impl Object {
             bounce_sound_name: BOUNCE_SOUND_DEFAULT.to_string(),
             last_bounce_volume: 0.0,
             bounce_audio_pending: 0,
-            crusher_level: 0,
-            crushable_level: 255,
+            crusher_level,
+            crushable_level,
             topple_data: None,
             structure_topple_data: None,
             structure_collapse_data: None,
@@ -1302,7 +1318,7 @@ impl Object {
             special_power_completion: None,
             power_plant_rods_extended: false,
             power_plant_rods_done_frame: 0,
-            special_power_paused: std::collections::HashSet::new(),
+            special_power_paused: std::collections::HashMap::new(),
             weapon_set_mine_clearing_detail: false,
             weapon_set_carbomb: false,
             weapon_set_vehicle_hijack: false,
@@ -1395,6 +1411,7 @@ impl Object {
             weapon_bonus_battle_plan_bombardment: false,
             weapon_bonus_battle_plan_hold_the_line: false,
             weapon_bonus_battle_plan_search_and_destroy: false,
+            weapon_bonus_drone_spotting: false,
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
@@ -1450,6 +1467,7 @@ impl Object {
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_timestamp: None,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),

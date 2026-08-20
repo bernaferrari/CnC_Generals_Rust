@@ -185,6 +185,45 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
     }
 }
 
+fn score_screen_music_from_game_info_slot() -> String {
+    // C++ ScoreScreenUpdate: TheGameInfo slot template, FactionObserver if < 0.
+    // Must not touch PlayerList — clearGameData runs before the first Update.
+    game_engine::common::ini::ensure_player_templates_loaded();
+    let store = game_engine::common::rts::player_template::get_player_template_store();
+    let template_index = score_screen_local_slot_template_index();
+    let template = if template_index >= 0 {
+        usize::try_from(template_index)
+            .ok()
+            .and_then(|index| store.get_nth_player_template(index))
+    } else {
+        store.find_template("FactionObserver")
+    };
+    template
+        .map(|pt| pt.get_score_screen_music().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_default()
+}
+
+fn score_screen_local_slot_template_index() -> i32 {
+    let from_info = |game: &GameInfo| {
+        if !game.is_in_game() {
+            return None;
+        }
+        let slot_num = game.get_local_slot_num();
+        if slot_num < 0 {
+            return None;
+        }
+        game.get_slot(slot_num as usize)
+            .map(|slot| slot.get_player_template())
+    };
+    if let Some(index) = from_info(get_skirmish_setup().game_info().game_info()) {
+        return index;
+    }
+    crate::gui::challenge_game_info::with_challenge_game_info(|info| from_info(info.game_info()))
+        .flatten()
+        .unwrap_or(-1)
+}
+
 fn update_score_screen_music(state: &mut ScoreScreenState) {
     if !state.play_music {
         return;
@@ -196,25 +235,10 @@ fn update_score_screen_music(state: &mut ScoreScreenState) {
         return;
     };
 
-    let local_template_name = {
-        let Ok(list) = ThePlayerList().read() else {
-            return;
-        };
-        let Some(local_player) = list.get_local_player() else {
-            return;
-        };
-        let Ok(player) = local_player.read() else {
-            return;
-        };
-        player
-            .get_player_template()
-            .map(|template| template.get_score_screen_music().to_string())
-            .unwrap_or_default()
-    };
-
-    if !local_template_name.is_empty() {
+    let music_name = score_screen_music_from_game_info_slot();
+    if !music_name.is_empty() {
         audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
-        let mut event = gamelogic::common::audio::AudioEventRts::new(local_template_name);
+        let mut event = gamelogic::common::audio::AudioEventRts::new(music_name);
         event.set_should_fade(true);
         let _ = audio.add_audio_event(&event);
         audio.update();
@@ -389,6 +413,10 @@ fn init_single_player(state: &mut ScoreScreenState) {
         with_window_manager(|manager| manager.create_layout("Menus/BlankWindow.wnd".to_string()));
     blank_layout.borrow_mut().hide(false);
     blank_layout.borrow_mut().bring_forward();
+    // C++ initSinglePlayer: first window winClearStatus(WIN_STATUS_IMAGE).
+    if let Some(first) = blank_layout.borrow().get_first_window() {
+        first.borrow_mut().clear_status(WindowStatus::IMAGE);
+    }
     state.blank_layout = Some(blank_layout);
 }
 
@@ -492,6 +520,8 @@ fn display_challenge_win_loss(
 }
 
 fn finalize_single_player_init(state: &mut ScoreScreenState) {
+    // C++ finishSinglePlayerInit: freeMessageResources before destroying BlankWindow.
+    crate::helpers::TheInGameUI::free_message_resources();
     if let Some(blank) = state.blank_layout.take() {
         blank.borrow_mut().destroy_windows();
     }
@@ -794,19 +824,33 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
 }
 
 fn grab_multi_player_info(state: &mut ScoreScreenState) {
-    let mut players: Vec<(i32, std::sync::Arc<std::sync::RwLock<Player>>)> = Vec::new();
     let Ok(list) = ThePlayerList().read() else {
         return;
     };
 
-    for player_arc in list.iter() {
-        if let Ok(player) = player_arc.read() {
-            if player.get_player_type() == PlayerType::Neutral {
-                continue;
-            }
-            let score = player.get_score_keeper().get_total_score();
-            players.push((score, std::sync::Arc::clone(player_arc)));
+    // C++ grabMultiPlayerInfo: MutiPlayer_ScoreScreen + WIN_STATUS_IMAGE.
+    if list.get_local_player().is_some() {
+        set_window_image(&state.parent, "MutiPlayer_ScoreScreen");
+    }
+
+    // Only player0..player{MAX_SLOTS-1}. Civilians/script sides are not named playerN.
+    let mut players: Vec<(i32, std::sync::Arc<std::sync::RwLock<Player>>)> = Vec::new();
+    let mut adder = 1;
+    for i in 0..MAX_SLOTS {
+        let name = format!("player{i}");
+        let Some(player_arc) = list.find_player_by_name(&name) else {
+            continue;
+        };
+        let Ok(player) = player_arc.read() else {
+            continue;
+        };
+        let mut score = player.get_score_keeper().get_total_score();
+        if players.iter().any(|(existing, _)| *existing == score) {
+            score += adder;
+            adder += 1;
         }
+        drop(player);
+        players.push((score, player_arc));
     }
 
     players.sort_by(|a, b| b.0.cmp(&a.0));
@@ -1030,6 +1074,90 @@ fn is_slot_local_ally(game: &GameInfo, slot: &GameSlot) -> bool {
         return false;
     }
     slot.get_team_number() == local_slot.get_team_number()
+}
+
+/// C++ ScoreScreen.cpp:1568-1576 persist skip.
+fn should_skip_skirmish_honor_persist(
+    sandbox: bool,
+    allied_defeat: bool,
+    allied_victory: bool,
+    player_active: bool,
+) -> bool {
+    if sandbox || !(allied_defeat || allied_victory) {
+        player_active
+    } else {
+        false
+    }
+}
+
+/// C++ VictoryConditions::isLocalAlliedDefeat / hasBeenDefeated:
+/// single remaining alliance and the local player did not win.
+fn is_local_allied_defeat_like_cpp(local: &Player) -> bool {
+    if TheVictoryConditions::is_local_allied_victory() {
+        return false;
+    }
+    if local.is_player_observer() {
+        return leftover_single_alliance_remaining(local);
+    }
+    leftover_single_alliance_remaining(local) && !leftover_has_achieved_victory(local)
+}
+
+fn leftover_player_individually_alive(player: &Player) -> bool {
+    !player.is_player_observer()
+        && player.get_player_type() != PlayerType::Neutral
+        && player.has_any_objects()
+}
+
+fn leftover_players_are_allies(a: &Player, b: &Player) -> bool {
+    if a.get_player_index() == b.get_player_index() {
+        return true;
+    }
+    let Some(team) = a.get_default_team() else {
+        return false;
+    };
+    let Ok(team) = team.read() else {
+        return false;
+    };
+    b.get_relationship_with_team(&team) == gamelogic::prelude::Relationship::Allies
+}
+
+fn leftover_has_achieved_victory(local: &Player) -> bool {
+    let Ok(list) = ThePlayerList().read() else {
+        return false;
+    };
+    for player_arc in list.iter() {
+        let Ok(player) = player_arc.read() else {
+            continue;
+        };
+        if leftover_player_individually_alive(&player)
+            && leftover_players_are_allies(local, &player)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn leftover_single_alliance_remaining(local: &Player) -> bool {
+    let Ok(list) = ThePlayerList().read() else {
+        return false;
+    };
+    let mut saw_local_alliance = false;
+    let mut saw_other_alliance = false;
+    for player_arc in list.iter() {
+        let Ok(player) = player_arc.read() else {
+            continue;
+        };
+        if !leftover_player_individually_alive(&player) {
+            continue;
+        }
+        if leftover_players_are_allies(local, &player) {
+            saw_local_alliance = true;
+        } else {
+            saw_other_alliance = true;
+        }
+    }
+    saw_local_alliance != saw_other_alliance
 }
 
 fn update_skirmish_battle_honors(stats: &mut SkirmishBattleHonors, player: &Player) {
@@ -1257,7 +1385,9 @@ fn populate_player_info(state: &mut ScoreScreenState, player: &Player, pos: i32)
         let setup = get_skirmish_setup();
         let sandbox = setup.game_info().game_info().is_sandbox();
         let victory = TheVictoryConditions::is_local_allied_victory();
-        if (sandbox || !victory) && player.is_player_active() && !victory {
+        let defeat = is_local_allied_defeat_like_cpp(player);
+        // C++ ScoreScreen.cpp:1568-1576
+        if should_skip_skirmish_honor_persist(sandbox, defeat, victory, player.is_player_active()) {
             return;
         }
 
@@ -1720,6 +1850,25 @@ mod tests {
         leave_score_screen_for_next_campaign(&mut shell);
 
         assert_eq!(shell.events, ["pop_immediate", "hide_shell"]);
+    }
+
+    #[test]
+    fn skirmish_honor_persist_skip_matches_cpp_sandbox_and_defeat() {
+        // Sandbox or undecided + still active → skip.
+        assert!(should_skip_skirmish_honor_persist(true, false, true, true));
+        assert!(should_skip_skirmish_honor_persist(false, false, false, true));
+        // Finished allied defeat while still watching AI → persist loss.
+        assert!(!should_skip_skirmish_honor_persist(
+            false, true, false, true
+        ));
+        // Dead local player always persists (even sandbox / undecided).
+        assert!(!should_skip_skirmish_honor_persist(
+            true, false, false, false
+        ));
+        // Real victory (not sandbox) persists.
+        assert!(!should_skip_skirmish_honor_persist(
+            false, false, true, true
+        ));
     }
 }
 

@@ -16,10 +16,12 @@ use game_engine::common::system::Snapshotable;
 
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-/// Wave 375: host-only path has no dual-world factory objects.
+/// Wave 375: leftover AITNGuard must run even when the dual-world factory is empty.
+/// Host-only play still writes/consumes TunnelTracker nemesis (C++ AITNGuard.cpp:168-239).
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
+    false
 }
 
 /// Close enough distance constant

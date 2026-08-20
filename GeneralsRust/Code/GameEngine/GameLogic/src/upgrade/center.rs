@@ -17,8 +17,12 @@ use game_engine::common::ini::INI;
 
 /// Global upgrade center singleton
 /// Matches C++ TheUpgradeCenter
-pub static THE_UPGRADE_CENTER: Lazy<Arc<RwLock<UpgradeCenter>>> =
-    Lazy::new(|| Arc::new(RwLock::new(UpgradeCenter::new())));
+pub static THE_UPGRADE_CENTER: Lazy<Arc<RwLock<UpgradeCenter>>> = Lazy::new(|| {
+    let mut center = UpgradeCenter::new();
+    // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
+    center.init();
+    Arc::new(RwLock::new(center))
+});
 
 /// Central registry for upgrade templates
 /// Matches C++ UpgradeCenter from Upgrade.h
@@ -47,11 +51,11 @@ impl UpgradeCenter {
     pub fn init(&mut self) {
         log::info!("Initializing UpgradeCenter");
 
-        // Create veterancy upgrades
-        // Matches C++ UpgradeCenter::init creating veterancy templates
-        self.create_veterancy_upgrade("VETERAN");
-        self.create_veterancy_upgrade("ELITE");
-        self.create_veterancy_upgrade("HEROIC");
+        // C++ UpgradeCenter::init — create only if missing so a second
+        // boot/load does not duplicate list entries.
+        self.ensure_veterancy_upgrade("VETERAN");
+        self.ensure_veterancy_upgrade("ELITE");
+        self.ensure_veterancy_upgrade("HEROIC");
 
         log::info!(
             "UpgradeCenter initialized with {} upgrades",
@@ -99,6 +103,14 @@ impl UpgradeCenter {
 
         log::debug!("Created upgrade template: {}", name);
         template
+    }
+
+    fn ensure_veterancy_upgrade(&mut self, level: &str) {
+        let name = format!("Upgrade_Veterancy_{level}");
+        if self.find_upgrade(&name).is_some() {
+            return;
+        }
+        self.create_veterancy_upgrade(level);
     }
 
     /// Create a veterancy upgrade
@@ -298,6 +310,19 @@ mod tests {
         let center = setup_test_center();
         assert!(center.count() >= 3); // At least 3 veterancy upgrades
     }
+
+    #[test]
+    fn global_center_boot_creates_veterancy_templates() {
+        with_upgrade_center(|center| {
+            let veteran = center
+                .find_veterancy_upgrade("VETERAN")
+                .expect("Upgrade_Veterancy_VETERAN");
+            assert_eq!(veteran.get_upgrade_type(), UpgradeType::Object);
+            assert!(center.find_veterancy_upgrade("ELITE").is_some());
+            assert!(center.find_veterancy_upgrade("HEROIC").is_some());
+        });
+    }
+
 
     #[test]
     fn test_create_upgrade() {
