@@ -172,7 +172,7 @@ impl DefaultProductionExitBehavior {
         }
 
         let mut exit_path = Vec::new();
-        let natural_rally = self.get_natural_rally_point(&transform, false);
+        let natural_rally = self.get_natural_rally_point(&transform, true);
         exit_path.push(natural_rally);
 
         if let Ok(guard) = new_obj.read() {
@@ -259,6 +259,10 @@ impl ModuleExitInterface for DefaultProductionExitBehavior {
 
         self.exit_object_via_door_internal(&obj, door)
             .map_err(|e| e.into())
+    }
+
+    fn use_spawn_rally_point(&self) -> bool {
+        self.data.use_spawn_rally_point
     }
 }
 

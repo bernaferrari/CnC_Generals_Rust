@@ -123,6 +123,8 @@ pub struct HLod {
     pub animation_state: Option<AnimationState>,
     /// C++ `HIDE_FLAG` for this HLOD.
     pub hidden: bool,
+    /// C++ `HLodClass::BoundingBoxIndex` (`hlod.h:227`). `-1` if none.
+    pub bounding_box_index: i32,
 }
 
 impl HLod {
@@ -144,6 +146,7 @@ impl HLod {
             null_lod_included: false,
             animation_state: None,
             hidden: false,
+            bounding_box_index: -1,
         }
     }
 
@@ -253,6 +256,7 @@ impl HLod {
         }
         self.lods[lod_index].add_model(model, bone_index);
         self.update_bounding_volumes();
+        self.rescan_bounding_box_index();
     }
 
     /// Add an additional model
@@ -505,14 +509,42 @@ impl HLod {
 
     /// Get object space bounding sphere
     pub fn get_obj_space_bounding_sphere(&self) -> Sphere {
-        // For HLOD, object space bounds are the same as world space
-        // since we don't apply additional transforms
+        if self.bounding_box_index >= 0 {
+            let box_ = self.get_obj_space_bounding_box();
+            return crate::hlod_bounding_box::sphere_from_aabox(&box_);
+        }
         self.bounding_sphere
     }
 
     /// Get object space bounding box
     pub fn get_obj_space_bounding_box(&self) -> AABox {
+        if let Some(box_) = self.posed_bounding_box_obj_space() {
+            return box_;
+        }
         self.bounding_box
+    }
+
+    fn rescan_bounding_box_index(&mut self) {
+        self.bounding_box_index = crate::hlod_bounding_box::scan_bounding_box_index(self);
+    }
+
+    fn posed_bounding_box_obj_space(&self) -> Option<AABox> {
+        let index = usize::try_from(self.bounding_box_index).ok()?;
+        let high = self.lods.last()?;
+        let node = high.models.get(index)?;
+        let model = node.model.as_ref()?;
+        if !crate::hlod_bounding_box::is_bounding_box_obbox(model.get_name(), model.class_id()) {
+            return None;
+        }
+        let (center, extent) = model
+            .local_center_extent()
+            .unwrap_or_else(|| (model.get_bounding_box().center, model.get_bounding_box().extent));
+        Some(crate::hlod_bounding_box::obj_space_box_from_obbox(
+            self.transform,
+            node.transform,
+            center,
+            extent,
+        ))
     }
 
     /// Get snap point count
@@ -699,6 +731,17 @@ impl HLod {
 
     // Internal helper methods
     fn update_bounding_volumes(&mut self) {
+        self.rescan_bounding_box_index();
+        if let Some(local) = self.posed_bounding_box_obj_space() {
+            self.bounding_box = crate::hlod_bounding_box::transform_center_extent_aabox(
+                local.center,
+                local.extent,
+                self.transform,
+            );
+            self.bounding_sphere = Sphere::new(self.bounding_box.center, local.extent.length());
+            return;
+        }
+
         // Calculate combined bounding volumes from all models
         let min = Vec3::new(f32::INFINITY, f32::INFINITY, f32::INFINITY);
         let max = Vec3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
@@ -817,6 +860,7 @@ impl Clone for HLod {
             null_lod_included: self.null_lod_included,
             animation_state: self.animation_state.clone(),
             hidden: self.hidden,
+            bounding_box_index: self.bounding_box_index,
         }
     }
 }
@@ -887,6 +931,12 @@ pub trait RenderObject: std::fmt::Debug + Send + Sync {
     }
     fn is_not_hidden_at_all(&self) -> bool {
         true
+    }
+    fn class_id(&self) -> u32 {
+        0
+    }
+    fn local_center_extent(&self) -> Option<(Vec3, Vec3)> {
+        None
     }
 }
 

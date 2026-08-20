@@ -192,6 +192,17 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// C++ `AIUpdateInterface::friend_getTurretSync`.
+    fn friend_get_turret_sync(&self) -> TurretType {
+        TurretType::Invalid
+    }
+
+    /// C++ `AIUpdateInterface::friend_setTurretSync`.
+    fn friend_set_turret_sync(&mut self, _turret: TurretType) {}
+
+    /// C++ `AIUpdateInterface::clearGuardTargetType`.
+    fn clear_guard_target_type(&mut self) {}
+
     /// Set turret target object (matches C++ AIUpdateInterface::setTurretTargetObject).
     fn set_turret_target_object(
         &mut self,

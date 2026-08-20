@@ -2137,11 +2137,12 @@ impl Pathfinder {
 
     pub fn grid_to_world(&self, grid_pos: &ICoord2D) -> Coord3D {
         let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
-        Coord3D::new(
-            (grid_pos.x as f32 + 0.5) * cell_size,
-            (grid_pos.y as f32 + 0.5) * cell_size,
-            0.0,
-        )
+        let x = (grid_pos.x as f32 + 0.5) * cell_size;
+        let y = (grid_pos.y as f32 + 0.5) * cell_size;
+        let z = crate::helpers::TheTerrainLogic::get()
+            .map(|t| t.get_layer_height(x, y, crate::common::PathfindLayerEnum::Ground))
+            .unwrap_or(0.0);
+        Coord3D::new(x, y, z)
     }
 }
 

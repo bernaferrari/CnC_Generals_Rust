@@ -185,13 +185,18 @@ impl MeshClass {
         // Transform to world space
         let world_center = self.transform.transform_point3(sphere.center);
         self.bounding_sphere = SphereClass::new(world_center, sphere.radius);
-
-        // Get object space bounding box
-        let obj_box = self.get_obj_space_bounding_box();
-
-        // Transform to world space
-        // C++ Reference: Matrix3D::Transform_Center_Extent_AABox (matrix3d.cpp:1052-1078)
-        self.bounding_box = self.transform_aabox(obj_box);
+        let billboard = self
+            .model
+            .as_ref()
+            .is_some_and(|model| super::mesh_camera_align::mesh_is_billboard(model));
+        if billboard {
+            let r = self.bounding_sphere.radius;
+            self.bounding_box =
+                AABoxClass::from_center_and_extent(self.bounding_sphere.center, Vec3::new(r, r, r));
+        } else {
+            let obj_box = self.get_obj_space_bounding_box();
+            self.bounding_box = self.transform_aabox(obj_box);
+        }
     }
 
     /// Replace texture - equivalent to C++ MeshClass::Replace_Texture
@@ -418,6 +423,17 @@ impl MeshClass {
 
         // Get the mesh model and render
         if let Some(model) = &self.model {
+            let draw_transform = if super::mesh_camera_align::mesh_is_billboard(model) {
+                super::collect_billboard_xform::billboard_world_transform(
+                    self.transform,
+                    super::mesh_camera_align::mesh_is_camera_aligned(model),
+                    super::mesh_camera_align::mesh_is_camera_oriented(model),
+                    render_info.camera.peek_transform(),
+                )
+            } else {
+                self.transform
+            };
+
             // Determine if we render base passes
             let mut render_base_passes = !render_info
                 .override_flags
@@ -439,7 +455,7 @@ impl MeshClass {
                 for polygon_renderer in &model.polygon_renderer_list {
                     polygon_renderer.render_material_pass(
                         render_pass,
-                        &self.transform,
+                        &draw_transform,
                         render_info,
                     )?;
                 }

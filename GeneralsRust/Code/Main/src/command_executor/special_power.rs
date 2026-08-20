@@ -379,7 +379,18 @@ impl<'a> CommandExecutor<'a> {
                 ) {
                     continue;
                 }
+            } else if *power_type == SpecialPowerType::CashHack {
+                // C++ CashHackSpecialPower::doSpecialPowerAtObject — location fire is a no-op.
+                let PowerTarget::Object(tid) = target else {
+                    continue;
+                };
+                let _stolen = self.game_logic.activate_cash_hack(
+                    self.current_player_id,
+                    Some(unit_id),
+                    Some(*tid),
+                );
             } else if let Some(pos) = target_position {
+
                 if *power_type == SpecialPowerType::ClusterMines
                     || *power_type == SpecialPowerType::NukeDrop
                 {
@@ -581,12 +592,8 @@ impl<'a> CommandExecutor<'a> {
                         pos,
                         Some(unit_id),
                     );
-                } else if *power_type == SpecialPowerType::CashHack {
-                    let _stolen = self
-                        .game_logic
-                        .activate_cash_hack(self.current_player_id, Some(unit_id));
-                    // Always treat as success residual once activated (even 0 stolen).
                 } else if *power_type == SpecialPowerType::Defector {
+
                     // C++ DefectorSpecialPower::doSpecialPowerAtObject residual.
                     let PowerTarget::Object(tid) = target else {
                         continue;

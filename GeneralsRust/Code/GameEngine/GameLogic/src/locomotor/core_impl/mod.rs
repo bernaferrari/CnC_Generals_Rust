@@ -25,7 +25,10 @@ include!("path.rs");
 include!("locomotor.rs");
 include!("move_ground.rs");
 include!("path_follow.rs");
+include!("thrust.rs");
 include!("move_air.rs");
+include!("behavior_z.rs");
+include!("move_dispatch.rs");
 include!("move_towards.rs");
 include!("maintain.rs");
 include!("flags.rs");
@@ -41,6 +44,9 @@ pub const LOCOMOTOR_CORE_SRC: &str = concat!(
     include_str!("move_air.rs"),
     include_str!("move_ground.rs"),
     include_str!("move_towards.rs"),
+    include_str!("move_dispatch.rs"),
+    include_str!("behavior_z.rs"),
+    include_str!("thrust.rs"),
     include_str!("path.rs"),
     include_str!("path_follow.rs"),
     include_str!("set_store.rs"),

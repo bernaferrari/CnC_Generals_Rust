@@ -89,6 +89,10 @@ use crate::object::behavior::fire_weapon_when_damaged_behavior_new::{
 use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
     FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModuleData,
 };
+use crate::object::behavior::dynamic_geometry_info_update::{
+    DynamicGeometryInfoUpdate, DynamicGeometryInfoUpdateModuleData,
+};
+
 use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
     FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateModuleData,
 };
@@ -159,6 +163,10 @@ use crate::object::behavior::poisoned_behavior::{
     PoisonedBehavior, PoisonedBehaviorModule, PoisonedBehaviorModuleData,
 };
 use crate::object::behavior::power_plant_update::{PowerPlantUpdate, PowerPlantUpdateModuleData};
+use crate::object::behavior::prone_update::{
+    ProneUpdate, ProneUpdateModule, ProneUpdateModuleData,
+};
+
 use crate::object::behavior::projectile_stream_update::{
     projectile_stream_update_data_factory, projectile_stream_update_module_factory,
 };
@@ -369,18 +377,20 @@ use crate::object::update::{
     LaserUpdateModuleData as LaserClientUpdateModuleData, SwayClientUpdateModule,
 };
 use crate::object::upgrade::{
-    ArmorUpgrade, ArmorUpgradeModuleData, CommandSetUpgrade, CommandSetUpgradeModuleData,
-    CostModifierUpgrade, CostModifierUpgradeModuleData, ExperienceScalarUpgrade,
-    ExperienceScalarUpgradeModuleData, GrantScienceUpgrade, GrantScienceUpgradeModuleData,
-    LocomotorSetUpgrade, LocomotorSetUpgradeModuleData, MaxHealthUpgrade,
-    MaxHealthUpgradeModuleData, ModelConditionUpgrade, ModelConditionUpgradeModuleData,
-    ObjectCreationUpgrade, ObjectCreationUpgradeModuleData, PassengersFireUpgrade,
-    PassengersFireUpgradeModuleData, PowerPlantUpgrade, PowerPlantUpgradeModuleData, RadarUpgrade,
-    RadarUpgradeModuleData, ReplaceObjectUpgrade, ReplaceObjectUpgradeModuleData, StealthUpgrade,
-    StealthUpgradeModuleData, SubObjectsUpgrade, SubObjectsUpgradeModuleData,
-    UnpauseSpecialPowerUpgrade, UnpauseSpecialPowerUpgradeModuleData, WeaponBonusUpgrade,
-    WeaponBonusUpgradeModuleData, WeaponSetUpgrade, WeaponSetUpgradeModuleData,
+    ActiveShroudUpgrade, ActiveShroudUpgradeModuleData, ArmorUpgrade, ArmorUpgradeModuleData,
+    CommandSetUpgrade, CommandSetUpgradeModuleData, CostModifierUpgrade,
+    CostModifierUpgradeModuleData, ExperienceScalarUpgrade, ExperienceScalarUpgradeModuleData,
+    GrantScienceUpgrade, GrantScienceUpgradeModuleData, LocomotorSetUpgrade,
+    LocomotorSetUpgradeModuleData, MaxHealthUpgrade, MaxHealthUpgradeModuleData,
+    ModelConditionUpgrade, ModelConditionUpgradeModuleData, ObjectCreationUpgrade,
+    ObjectCreationUpgradeModuleData, PassengersFireUpgrade, PassengersFireUpgradeModuleData,
+    PowerPlantUpgrade, PowerPlantUpgradeModuleData, RadarUpgrade, RadarUpgradeModuleData,
+    ReplaceObjectUpgrade, ReplaceObjectUpgradeModuleData, StatusBitsUpgrade,
+    StatusBitsUpgradeModuleData, StealthUpgrade, StealthUpgradeModuleData, SubObjectsUpgrade,
+    SubObjectsUpgradeModuleData, UnpauseSpecialPowerUpgrade, UnpauseSpecialPowerUpgradeModuleData,
+    WeaponBonusUpgrade, WeaponBonusUpgradeModuleData, WeaponSetUpgrade, WeaponSetUpgradeModuleData,
 };
+
 use crate::stealth_update::{
     StealthUpdateModule as CoreStealthUpdateModule,
     StealthUpdateModuleData as CoreStealthUpdateModuleData,
@@ -394,9 +404,11 @@ mod collide_crates;
 mod contain;
 mod death;
 mod draw_client;
+mod factory_gaps;
 mod install;
 mod leftover;
 mod production;
+mod template_locomotor;
 mod update_modules;
 
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
@@ -412,9 +424,12 @@ pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
     include_str!("contain.rs"),
     include_str!("death.rs"),
     include_str!("draw_client.rs"),
+    include_str!("factory_gaps.rs"),
     include_str!("helpers.rs"),
     include_str!("install.rs"),
     include_str!("leftover.rs"),
     include_str!("production.rs"),
+    include_str!("template_locomotor.rs"),
     include_str!("update_modules.rs"),
 );
+

@@ -137,10 +137,8 @@ impl SpyVisionSpecialPower {
                             .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
                     );
 
-                    // Cap at the max
-                    if self.data.max_duration_in_frames > 0
-                        && duration > self.data.max_duration_in_frames
-                    {
+                    // C++ always caps when contain exists, including MaxDuration==0.
+                    if duration > self.data.max_duration_in_frames {
                         duration = self.data.max_duration_in_frames;
                     }
                 }
@@ -195,9 +193,9 @@ impl SpyVisionSpecialPower {
         object_id: crate::object::special_power_module::ObjectId,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) {
+        // C++ SpyVisionSpecialPower only overrides doSpecialPower.
         self.base_module
             .do_special_power_at_object(object_id, command_options);
-        SpyVisionSpecialPower::do_special_power(self, command_options.bits());
     }
 
     fn dispatch_do_special_power_at_location(
@@ -206,10 +204,11 @@ impl SpyVisionSpecialPower {
         angle: f32,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) {
+        // C++ SpyVisionSpecialPower only overrides doSpecialPower.
         self.base_module
             .do_special_power_at_location(location, angle, command_options);
-        SpyVisionSpecialPower::do_special_power(self, command_options.bits());
     }
+
 
     fn dispatch_reference_thing_template(&self) -> Option<String> {
         None
@@ -372,20 +371,18 @@ mod tests {
 
         // With 3 captured units: 1000 + 3*500 = 2500 -> capped at 2500
         let duration = base.saturating_add(3u32.saturating_mul(bonus));
-        let capped = if max > 0 && duration > max {
-            max
-        } else {
-            duration
-        };
+        let capped = if duration > max { max } else { duration };
         assert_eq!(capped, 2500);
 
         // With 4 captured units: 1000 + 4*500 = 3000 -> capped at 2500
         let duration = base.saturating_add(4u32.saturating_mul(bonus));
-        let capped = if max > 0 && duration > max {
-            max
-        } else {
-            duration
-        };
+        let capped = if duration > max { max } else { duration };
         assert_eq!(capped, 2500);
+
+        // C++ MaxDuration default 0 collapses contain-bonus duration to 0.
+        let duration = base.saturating_add(3u32.saturating_mul(bonus));
+        let capped = if duration > 0 { 0 } else { duration };
+        assert_eq!(capped, 0);
     }
+
 }

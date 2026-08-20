@@ -101,8 +101,9 @@ impl W3DOverlordTankDraw {
     }
 
     pub fn owner_id(&self) -> Option<ObjectID> {
-        self.owner_id
+        self.owner_id.or_else(|| self.base.owner_id())
     }
+
 }
 
 impl Module for W3DOverlordTankDraw {
@@ -141,7 +142,7 @@ impl DrawModule for W3DOverlordTankDraw {
 
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
-        if let Some(owner_id) = self.owner_id {
+        if let Some(owner_id) = self.owner_id() {
             super::overlord_rider::draw_overlord_rider(owner_id);
         }
     }
@@ -160,10 +161,11 @@ impl DrawModule for W3DOverlordTankDraw {
 
     fn set_hidden(&mut self, hidden: bool) {
         self.base.set_hidden(hidden);
-        if let Some(owner_id) = self.owner_id {
+        if let Some(owner_id) = self.owner_id() {
             super::overlord_rider::set_overlord_rider_hidden(owner_id, hidden);
         }
     }
+
 
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.base.set_fully_obscured_by_shroud(fully_obscured);
@@ -235,4 +237,13 @@ mod tests {
             NameKeyGenerator::name_to_key("W3DOverlordTankDraw")
         );
     }
+
+    #[test]
+    fn do_draw_module_invokes_rider_path_from_container_draw() {
+        let mut draw = W3DOverlordTankDraw::new(W3DOverlordTankDrawModuleData::new());
+        draw.bind_owner_id(42);
+        draw.do_draw_module(&Matrix3D::IDENTITY);
+        draw.set_hidden(true);
+    }
+
 }

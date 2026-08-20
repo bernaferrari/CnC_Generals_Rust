@@ -206,6 +206,8 @@ impl ScriptConditionEvaluator {
 
 mod actions_attack_priority;
 mod actions_camera;
+mod actions_garrison;
+mod actions_input_ui;
 mod actions_named;
 mod actions_player;
 mod actions_player_display_camera;
@@ -228,6 +230,8 @@ pub const EXECUTOR_SRC: &str = concat!(
     include_str!("mod.rs"),
     include_str!("actions_attack_priority.rs"),
     include_str!("actions_camera.rs"),
+    include_str!("actions_garrison.rs"),
+    include_str!("actions_input_ui.rs"),
     include_str!("actions_named.rs"),
     include_str!("actions_player.rs"),
     include_str!("actions_player_display_camera.rs"),

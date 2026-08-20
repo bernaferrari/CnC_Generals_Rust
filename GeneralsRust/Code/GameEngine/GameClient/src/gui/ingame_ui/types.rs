@@ -68,6 +68,10 @@ pub struct MessageText {
 /// C++: MAX_UI_MESSAGES = 6 (InGameUI.h:622)
 const MAX_UI_MESSAGES: usize = 6;
 
+/// C++: MAX_SUBTITLE_LINES = 4 (InGameUI.h:235)
+const MAX_SUBTITLE_LINES: usize = 4;
+
+
 /// C++: InGameUI::MilitarySubtitleData (InGameUI.h:624-637)
 /// Stores state for the military-style caption overlay.
 #[derive(Debug, Clone)]
@@ -90,6 +94,28 @@ pub struct MilitarySubtitle {
     pub increment_on_frame: u32,
     /// ARGB color for subtitle text
     pub color: u32,
+    /// C++ displayStrings[MAX_SUBTITLE_LINES] — typed characters only.
+    pub display_lines: Vec<String>,
+    /// C++ currentDisplayString
+    pub current_display_string: usize,
+}
+
+impl MilitarySubtitle {
+    /// C++ displayStrings contents. Never the unread remainder of `text`.
+    pub fn visible_text(&self) -> String {
+        self.display_lines.join("\n")
+    }
+
+    pub fn visible_lines(&self) -> &[String] {
+        &self.display_lines
+    }
+
+    pub fn visible_char_count(&self) -> usize {
+        self.display_lines
+            .iter()
+            .map(|line| line.chars().count())
+            .sum()
+    }
 }
 
 /// C++: InGameUI::FloatingTextData (InGameUI.h)
@@ -122,6 +148,27 @@ pub struct NamedTimerData {
     /// Last formatted display line (name + M:SS or raw frames).
     pub display_text: String,
     /// Ready/zero-countdown uses the ready font + flash.
+    pub use_ready_font: bool,
+    /// Live remaining frames (ScriptEngine counter, or residual tick).
+    pub remaining_frames: i32,
+    /// Last logic frame this timer applied a residual decrement.
+    pub last_tick_frame: u32,
+    /// C++ postDraw drawX (InGameUI.cpp:3756-3758).
+    pub draw_x: f32,
+    /// C++ postDraw startY (InGameUI.cpp:3756-3781).
+    pub draw_y: f32,
+    /// Color used this frame (normal or flash).
+    pub draw_color: u32,
+}
+
+/// One C++ `displayString->draw` residual for a named timer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedTimerDrawEntry {
+    pub text: String,
+    pub x: f32,
+    pub y: f32,
+    pub color: u32,
+    pub font_point_size: i32,
     pub use_ready_font: bool,
 }
 
@@ -637,6 +684,16 @@ impl SelectionState {
 }
 
 /// Building placement preview state
+
+/// C++ m_placeIcon[] entry — 3D placement ghost drawable.
+#[derive(Debug, Clone)]
+struct PlaceIconGhost {
+    drawable_id: u32,
+    position: Coord3D,
+    angle: f32,
+    illegal: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct PlacementPreview {
     /// Building template name
@@ -961,6 +1018,11 @@ pub struct InGameUI {
 
     /// Current placement preview (if any)
     placement_preview: Option<PlacementPreview>,
+    /// C++ m_placeIcon[] 3D placement ghosts.
+    place_icons: Vec<PlaceIconGhost>,
+    pending_place_icon_template: Option<String>,
+    pending_place_icon_source: u32,
+
 
     /// Minimap
     minimap: Minimap,

@@ -979,29 +979,28 @@ impl CnCGameEngine {
 
 
     pub(super) fn load_mods_best_effort() {
-        game_engine::common::system::archive_file_system::init_archive_file_system();
-
         let (mod_dir, mod_big) = {
             let global = game_engine::common::global_data::read();
             let mod_dir = global.writable.mod_dir.trim().to_string();
             let mod_big = global.writable.mod_big.trim().to_string();
             (mod_dir, mod_big)
         };
-
-        if let Some(mut archive_file_system) =
-            game_engine::common::system::archive_file_system::get_archive_file_system()
-        {
-            if !mod_dir.is_empty() {
-                archive_file_system.add_search_path(std::path::Path::new(mod_dir.as_str()));
-            }
-            if !mod_big.is_empty() {
-                if let Err(err) = archive_file_system.open_archive_file(mod_big.as_str()) {
-                    warn!("Best-effort mod archive open failed: {}", err);
+        if mod_dir.is_empty() && mod_big.is_empty() {
+            return;
+        }
+        // C++ TheArchiveFileSystem->loadMods() overwrites the same live tree
+        // AssetManager extract uses — not a second Common singleton.
+        if let Some(manager_arc) = crate::assets::manager::get_asset_manager() {
+            match manager_arc.lock() {
+                Ok(mut manager) => {
+                    if let Err(err) = manager.load_user_mods(&mod_dir, &mod_big) {
+                        warn!("Best-effort mod archive load failed: {}", err);
+                    }
                 }
+                Err(err) => warn!("Asset manager busy while loading mods: {}", err),
             }
-            if let Err(err) = archive_file_system.load_mods() {
-                warn!("Best-effort mod archive load failed: {}", err);
-            }
+        } else {
+            warn!("Asset manager missing; -mod archives were not mounted");
         }
     }
 

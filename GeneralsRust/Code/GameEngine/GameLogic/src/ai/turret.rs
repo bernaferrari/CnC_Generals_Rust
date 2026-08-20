@@ -296,6 +296,15 @@ impl TurretAI {
         self.weapon_slot = slot;
     }
 
+    /// C++ `TurretAI::friend_getWhichTurret` — slot assigned at machine build.
+    pub fn friend_get_which_turret(&self) -> TurretType {
+        match self.weapon_slot {
+            WeaponSlotType::Primary => TurretType::Primary,
+            WeaponSlotType::Secondary => TurretType::Secondary,
+            WeaponSlotType::Tertiary => TurretType::Invalid,
+        }
+    }
+
     pub fn target_was_set_by_idle_mood(&self) -> bool {
         self.target_was_set_by_idle_mood
     }
@@ -1492,11 +1501,21 @@ impl ClassicState for TurretAIIdleState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let which = self
+            .base
+            .turret_ai_lock()?
+            .and_then(|turret_ai| turret_ai.lock().ok().map(|t| t.friend_get_which_turret()));
         if let Some(owner) = self.base_state().get_machine_owner() {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         ai_guard.reset_next_mood_check_time();
+                        // C++ TurretAIIdleState::onEnter: unsync if we own the link flag
+                        if let Some(which) = which {
+                            if ai_guard.friend_get_turret_sync() == which {
+                                ai_guard.friend_set_turret_sync(TurretType::Invalid);
+                            }
+                        }
                     }
                 }
             }

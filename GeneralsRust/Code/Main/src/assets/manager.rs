@@ -112,6 +112,24 @@ pub enum W3dRenderObjectPrototypeKind {
     Hlod { hlod_index: usize },
     /// C++ `HModelLoaderClass` hierarchical model definition.
     Hmodel { hmodel_index: usize },
+    /// C++ `ParticleEmitterLoaderClass`.
+    Emitter { emitter_index: usize },
+    /// C++ `DazzleLoaderClass`.
+    Dazzle { dazzle_index: usize },
+    /// C++ `BoxLoaderClass` / `CLASSID_OBBOX` or `CLASSID_AABOX`.
+    Box { box_index: usize },
+    /// C++ `RingLoaderClass`.
+    Ring { ring_index: usize },
+    /// C++ `SphereLoaderClass`.
+    Sphere { sphere_index: usize },
+    /// C++ `NullLoaderClass`.
+    Null { null_index: usize },
+    /// C++ `CollectionLoaderClass`.
+    Collection { collection_index: usize },
+    /// C++ `AggregateLoaderClass`.
+    Aggregate { aggregate_index: usize },
+    /// C++ `DistLODLoaderClass`.
+    DistLod { dist_lod_index: usize },
 }
 
 /// Immutable source metadata for one exact C++ `PrototypeClass` name.
@@ -222,6 +240,39 @@ impl W3dRenderObjectPrototypeRegistry {
                 &source_model_key,
                 W3dRenderObjectPrototypeKind::Hmodel { hmodel_index },
             );
+        }
+
+        for (full_name, extra) in crate::assets::models::extra_prototypes(&model) {
+            let kind = match extra {
+                crate::assets::models::W3dExtraPrototypeKind::Emitter { emitter_index } => {
+                    W3dRenderObjectPrototypeKind::Emitter { emitter_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Dazzle { dazzle_index } => {
+                    W3dRenderObjectPrototypeKind::Dazzle { dazzle_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Box { box_index } => {
+                    W3dRenderObjectPrototypeKind::Box { box_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Ring { ring_index } => {
+                    W3dRenderObjectPrototypeKind::Ring { ring_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Sphere { sphere_index } => {
+                    W3dRenderObjectPrototypeKind::Sphere { sphere_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Null { null_index } => {
+                    W3dRenderObjectPrototypeKind::Null { null_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::Collection {
+                    collection_index,
+                } => W3dRenderObjectPrototypeKind::Collection { collection_index },
+                crate::assets::models::W3dExtraPrototypeKind::Aggregate { aggregate_index } => {
+                    W3dRenderObjectPrototypeKind::Aggregate { aggregate_index }
+                }
+                crate::assets::models::W3dExtraPrototypeKind::DistLod { dist_lod_index } => {
+                    W3dRenderObjectPrototypeKind::DistLod { dist_lod_index }
+                }
+            };
+            self.register_prototype(full_name, source_stem, &source_model_key, kind);
         }
 
         self.source_models.insert(source_model_key, model);
@@ -1638,6 +1689,11 @@ impl AssetManager {
             return Vec::new();
         }
         self.archive_system.get_loaded_archives()
+    }
+
+    /// Mount `-mod` BIG/dir into the live extract archive (overwrite).
+    pub fn load_user_mods(&mut self, mod_dir: &str, mod_big: &str) -> anyhow::Result<()> {
+        self.archive_system.load_user_mods(mod_dir, mod_big)
     }
 
     /// Get common C&C unit names

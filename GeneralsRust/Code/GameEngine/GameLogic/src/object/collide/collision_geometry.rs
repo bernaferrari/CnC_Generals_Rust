@@ -131,6 +131,39 @@ impl GeometryInfo {
         }
     }
 
+    /// C++ `GeometryInfo::getBoundingCircleRadius` (XY).
+    pub fn get_bounding_circle_radius(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere | GeometryType::Cylinder => self.major_radius,
+            GeometryType::Box => (self.major_radius * self.major_radius
+                + self.minor_radius * self.minor_radius)
+                .sqrt(),
+        }
+    }
+
+    /// C++ `GeometryInfo::getBoundingSphereRadius`.
+    pub fn get_bounding_sphere_radius(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere => self.major_radius,
+            GeometryType::Cylinder => self.major_radius.max(self.height * 0.5),
+            GeometryType::Box => {
+                let hz = self.height * 0.5;
+                (self.major_radius * self.major_radius
+                    + self.minor_radius * self.minor_radius
+                    + hz * hz)
+                    .sqrt()
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
+    pub fn get_z_delta_to_center_position(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere => self.major_radius,
+            GeometryType::Box | GeometryType::Cylinder => self.height * 0.5,
+        }
+    }
+
     /// C++ enum index for dispatch table: Sphere=0, Cylinder=1, Box=2
     pub fn to_cpp_index(&self) -> usize {
         match self.geom_type {

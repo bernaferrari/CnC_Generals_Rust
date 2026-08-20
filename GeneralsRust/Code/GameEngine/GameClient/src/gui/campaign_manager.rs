@@ -486,6 +486,61 @@ impl CampaignManager {
         self.xfer_challenge_generals_player_template_num
     }
 
+    /// C++ `CampaignManager::xfer` fields written inside `GameLogic::xfer`.
+    pub fn capture_logic_chunk_state(&self) -> game_engine::System::CampaignManagerXferState {
+        let campaign = self
+            .get_current_campaign()
+            .map(|campaign| campaign.name.clone())
+            .unwrap_or_default();
+        let mission = self
+            .get_current_mission()
+            .map(|mission| mission.name.clone())
+            .unwrap_or_default();
+        let is_challenge = self
+            .get_current_campaign()
+            .map(|campaign| campaign.is_challenge_campaign)
+            .unwrap_or(false);
+        let (challenge_map, challenge_template) = if is_challenge {
+            crate::gui::challenge_game_info::snapshot_map_and_template()
+        } else {
+            (String::new(), 0)
+        };
+        game_engine::System::CampaignManagerXferState {
+            campaign,
+            mission,
+            rank_points: self.current_rank_points,
+            difficulty: self.difficulty as i32,
+            is_challenge,
+            challenge_map,
+            challenge_template,
+            generals_template: self.xfer_challenge_generals_player_template_num,
+        }
+    }
+
+    /// Apply `GameLogic::xfer`'s CampaignManager snapshot after load.
+    pub fn apply_logic_chunk_state(
+        &mut self,
+        state: game_engine::System::CampaignManagerXferState,
+    ) {
+        self.set_campaign_and_mission(&state.campaign, &state.mission);
+        self.current_rank_points = state.rank_points;
+        self.difficulty = match state.difficulty {
+            0 => GameDifficulty::Easy,
+            2 => GameDifficulty::Hard,
+            _ => GameDifficulty::Normal,
+        };
+        if state.is_challenge {
+            crate::gui::challenge_game_info::restore_map_and_template(
+                state.challenge_map,
+                state.challenge_template,
+            );
+        } else {
+            crate::gui::challenge_game_info::clear_challenge_game_info();
+        }
+        self.xfer_challenge_generals_player_template_num = state.generals_template;
+    }
+
+
     /// Xfer (save/load) method.
     /// Matches C++ CampaignManager::xfer() version 5.
     ///

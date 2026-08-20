@@ -16,8 +16,11 @@ pub mod collision_response;
 pub mod collision_system;
 pub mod crate_collide;
 pub mod fire_weapon_collide;
+pub mod partition_coi;
+pub mod partition_distance;
 pub mod partition_filters;
 pub mod partition_manager;
+pub mod partition_shroud;
 pub mod squish_collide;
 
 // Re-export key collision types for convenience
@@ -34,7 +37,7 @@ pub use collision_system::{
 };
 pub use partition_manager::{
     CellCoord, FindPositionFlags, FindPositionOptions, PartitionFilter, PartitionManager,
-    PartitionStatistics, ValueOrThreat, PARTITION_MANAGER, RANDOM_START_ANGLE,
+    PartitionStatistics, ValueOrThreat, PARTITION_CELL_SIZE, PARTITION_MANAGER, RANDOM_START_ANGLE,
 };
 
 use crate::common::{

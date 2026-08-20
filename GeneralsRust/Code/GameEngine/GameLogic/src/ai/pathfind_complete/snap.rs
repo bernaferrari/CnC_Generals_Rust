@@ -773,6 +773,7 @@ impl PathfindingSystem {
             return;
         };
         self.bridges[idx].destroyed = destroyed;
+        self.bridges[idx].reclassify_cells();
         let lo = self.bridges[idx].bounds.0;
         let hi = self.bridges[idx].bounds.1;
         if destroyed {

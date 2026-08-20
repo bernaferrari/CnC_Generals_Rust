@@ -268,7 +268,7 @@ impl ControlBar {
                 let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
                     continue;
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
+                let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
                 let _ = obj_guard.do_command_button(button_id, cmd_source);
@@ -306,7 +306,7 @@ impl ControlBar {
                 let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
                     continue;
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
+                let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
                 let _ = obj_guard.do_command_button(button_id, cmd_source);
@@ -357,7 +357,7 @@ impl ControlBar {
                 let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
                     continue;
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
+                let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
                 let _ = obj_guard.do_command_button(button_id, cmd_source);

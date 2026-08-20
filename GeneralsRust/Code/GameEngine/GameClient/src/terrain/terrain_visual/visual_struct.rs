@@ -82,6 +82,9 @@ pub struct TerrainVisualImpl {
     water_texture_bind_group: Option<BindGroup>,
     /// True when the bound albedo is the 1x1 teal fallback, not TWWater01.
     water_texture_is_fallback: bool,
+    river_gpu: RiverGpuState,
+    shroud_gpu: ShroudGpuState,
+    water_named_bind_groups: HashMap<String, NamedWaterBind>,
     road_pipeline: Option<wgpu::RenderPipeline>,
     /// Bind group 1: road albedo + repeat sampler (C++ RoadType::applyTexture).
     road_texture_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
@@ -247,6 +250,8 @@ struct GpuWaterPlane {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+    texture_name: String,
+    jba: bool,
 }
 
 struct GpuRoadMesh {

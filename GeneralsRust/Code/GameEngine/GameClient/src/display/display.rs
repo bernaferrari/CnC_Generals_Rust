@@ -6,7 +6,7 @@
 
 use crate::display::view::{
     set_display_letter_boxed, vertical_fov_from_horizontal, with_tactical_view,
-    with_tactical_view_ref, FilterType, ViewTrait, LETTER_BOX_FADE_TIME_MS,
+    with_tactical_view_ref, ViewTrait, LETTER_BOX_FADE_TIME_MS,
 };
 use crate::display::DisplayInterface;
 use crate::display::display_fx;
@@ -627,38 +627,8 @@ impl Display {
             }
         }
 
-        with_tactical_view_ref(|view| {
-            let composite = view.filter_composite();
-            if composite.filter == FilterType::Null || composite.fade <= 0.0 {
-                return;
-            }
-            let width = self.width.max(1) as f32;
-            let height = self.height.max(1) as f32;
-            let fade = composite.fade.clamp(0.0, 1.0);
-            let (color, z) = match composite.filter {
-                FilterType::BlackAndWhite => match composite.mode {
-                    crate::display::view::FilterMode::BWRedAndWhite => {
-                        ([0.55, 0.05, 0.05, 0.55 * fade], 9_900.0)
-                    }
-                    crate::display::view::FilterMode::BWGreenAndWhite => {
-                        ([0.05, 0.45, 0.05, 0.55 * fade], 9_900.0)
-                    }
-                    _ => ([0.35, 0.35, 0.35, 0.72 * fade], 9_900.0),
-                },
-                FilterType::MotionBlur => ([0.08, 0.08, 0.12, 0.28 * fade], 9_850.0),
-                FilterType::Crossfade => ([0.0, 0.0, 0.0, fade], 9_950.0),
-                FilterType::Null => return,
-            };
-            renderer.draw_rect(UIRect::new(0.0, 0.0, width, height), color, z);
-            if composite.filter == FilterType::MotionBlur {
-                let pan = composite.scroll_delta;
-                renderer.draw_rect(
-                    UIRect::new(pan.x * 0.15, pan.y * 0.15, width, height),
-                    [0.12, 0.12, 0.16, 0.12 * fade],
-                    z + 1.0,
-                );
-            }
-        });
+        // Viewport filters composite via shader_filter RTT (W3DShaderManager
+        // startRenderToTexture / filterPostRender), not a UI color quad.
 
         let ((x, y), cursor) =
             crate::input::with_mouse(|mouse| (mouse.position(), mouse.get_cursor()));
@@ -874,11 +844,22 @@ impl DisplayInterface for Display {
                     label: Some("Display Render Encoder"),
                 });
 
+        let filter_composite = with_tactical_view_ref(|v| v.filter_composite());
+        let rtt_view = crate::display::shader_filter::start_render_to_texture(
+            self.graphics.device(),
+            self.graphics.queue(),
+            self.graphics.config().format,
+            self.width.max(1),
+            self.height.max(1),
+            &filter_composite,
+        );
+        let scene_view = rtt_view.as_ref().unwrap_or(&view);
+
         {
             let _clear_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Display Clear Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: scene_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -927,7 +908,7 @@ impl DisplayInterface for Display {
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("Display Terrain Pass"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
+                                view: scene_view,
                                 depth_slice: None,
                                 resolve_target: None,
                                 ops: wgpu::Operations {
@@ -958,7 +939,7 @@ impl DisplayInterface for Display {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Display Drawable Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view: scene_view,
                         depth_slice: None,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -1031,7 +1012,7 @@ impl DisplayInterface for Display {
                                 manager,
                                 &mut *renderer_guard,
                                 &mut encoder,
-                                &view,
+                                scene_view,
                                 &self.depth_view,
                                 &uniforms,
                             );
@@ -1054,7 +1035,7 @@ impl DisplayInterface for Display {
                         if let Ok(mut renderer_guard) = renderer.lock() {
                             renderer_guard.render_particles(
                                 &mut encoder,
-                                &view,
+                                scene_view,
                                 &self.depth_view,
                                 &systems,
                                 &uniforms,
@@ -1067,7 +1048,7 @@ impl DisplayInterface for Display {
             if let Ok(mut renderer_guard) = renderer.lock() {
                 renderer_guard.render_tracer_and_ray_fx(
                     &mut encoder,
-                    &view,
+                    scene_view,
                     &self.depth_view,
                     &uniforms,
                 );
@@ -1085,7 +1066,7 @@ impl DisplayInterface for Display {
                         if let Ok(mut renderer_guard) = renderer.lock() {
                             renderer_guard.render_weather_particles(
                                 &mut encoder,
-                                &view,
+                                scene_view,
                                 &self.depth_view,
                                 &particles,
                                 &uniforms,
@@ -1111,13 +1092,22 @@ impl DisplayInterface for Display {
                 if let Ok(mut renderer_guard) = renderer.lock() {
                     renderer_guard.render_decals(
                         &mut encoder,
-                        &view,
+                        scene_view,
                         &self.depth_view,
                         &decals,
                         &uniforms,
                     );
                 }
             }
+        }
+        if rtt_view.is_some() {
+            crate::display::shader_filter::filter_post_render(
+                self.graphics.device(),
+                self.graphics.queue(),
+                &mut encoder,
+                &view,
+                &filter_composite,
+            );
         }
 
         // UI rendering pass

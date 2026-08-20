@@ -20,6 +20,10 @@ impl TerrainVisualImpl {
         // Create water render pipeline
         self.create_water_pipeline(device.as_ref())?;
         self.ensure_water_texture_bind_group(device.as_ref());
+        self.create_river_pipeline(device.as_ref())?;
+        self.ensure_river_bind_group(device.as_ref());
+        self.create_shroud_overlay_pipelines(device.as_ref())?;
+        self.sync_shroud_dest_texture();
 
         // Create road render pipeline
         self.create_road_pipeline(device.as_ref())?;
@@ -832,13 +836,15 @@ impl TerrainVisualImpl {
             }
 
         }
-
         self.record_extra_blend_pass(pass);
         self.record_road_draws(pass);
         self.record_overlay_draws(pass);
         self.record_tree_draws(pass);
         self.record_water_draws(pass);
         self.record_extra_water_draws(pass);
+        self.record_shroud_water_pass(pass);
+        self.record_shroud_tree_pass(pass);
+        self.record_shroud_bridge_pass(pass);
     }
 
     pub fn record_chunk_depth_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -913,8 +919,15 @@ impl TerrainVisualImpl {
             pass.draw_indexed(0..water_plane.index_count, 0, 0..1);
         }
 
-        // C++ WaterTracksRenderSystem::flush / render after the water plane.
+        // C++ WaterTracksRenderSystem::flush switches stage-0 texture per type.
+        let mut last_tex = String::new();
         for mesh in &self.water_track_meshes {
+            if mesh.texture_name != last_tex {
+                if let Some(named) = self.water_named_bind_groups.get(&mesh.texture_name) {
+                    pass.set_bind_group(1, &named.bind_group, &[]);
+                }
+                last_tex = mesh.texture_name.clone();
+            }
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -1638,6 +1651,8 @@ impl TerrainVisualImpl {
             vertex_buffer,
             index_buffer,
             index_count: list_indices.len() as u32,
+            texture_name: String::new(),
+            jba: false,
         });
 
         Ok(())

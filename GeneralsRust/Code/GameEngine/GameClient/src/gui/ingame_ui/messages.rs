@@ -10,19 +10,53 @@ impl InGameUI {
     }
 
     pub fn message_color(&mut self, text: &str, color: u32) {
-        self.add_message_text(text, Some(color));
+        // C++ messageColor ORs GameMakeColor(0,0,0,255) (InGameUI.cpp:2069).
+        self.add_message_text(text, Some(color | 0xFF00_0000));
+    }
+
+    /// C++ InGameUI.cpp:1633 — `m_messageDelayMS / LOGICFRAMES_PER_SECOND / 1000`.
+    pub fn message_timeout_frames(message_delay_ms: i32) -> u32 {
+        (message_delay_ms / 30 / 1000).max(0) as u32
+    }
+
+    /// C++ addMessageText color pick (InGameUI.cpp:2100-2103).
+    pub fn next_message_color(
+        list_empty: bool,
+        newest_original: u32,
+        color1: u32,
+        color2: u32,
+    ) -> u32 {
+        if list_empty || newest_original == color2 {
+            color1
+        } else {
+            color2
+        }
+    }
+
+    /// C++ per-frame fade from add-time alpha (InGameUI.cpp:1639-1656).
+    /// Idempotent: recomputes from the original color so update+pre_draw
+    /// cannot double-subtract.
+    pub fn message_alpha_at_age(original_a: u8, age: u32, timeout: u32) -> u8 {
+        if age <= timeout {
+            return original_a;
+        }
+        let mut alpha = original_a as i32;
+        for t in (timeout + 1)..=age {
+            let amount = (t as f32 * 0.01) as i32;
+            alpha -= amount;
+            if alpha <= 0 {
+                return 0;
+            }
+        }
+        alpha as u8
     }
 
     fn add_message_text(&mut self, text: &str, rgb_color: Option<u32>) {
         // C++ addMessageText has no m_messagesOn gate — toggle only hides draw.
         let color1 = rgb_color.unwrap_or(self.message_color1);
         let color2 = rgb_color.unwrap_or(self.message_color2);
-
-        let color = if self.messages.is_empty() || self.messages[0].color == color2 {
-            color1
-        } else {
-            color2
-        };
+        let newest = self.messages.first().map(|m| m.original_color).unwrap_or(0);
+        let color = Self::next_message_color(self.messages.is_empty(), newest, color1, color2);
 
         let msg = MessageText {
             text: text.to_string(),
@@ -56,21 +90,18 @@ impl InGameUI {
 
     /// C++ InGameUI::update message fade (InGameUI.cpp:1636-1661).
     pub fn expire_messages(&mut self) {
-        let message_timeout = (self.message_delay_ms / 30 / 1000).max(0) as u32;
+        let message_timeout = Self::message_timeout_frames(self.message_delay_ms);
         let current_frame = self.current_frame;
         let mut i = self.messages.len();
         while i > 0 {
             i -= 1;
             let age = current_frame.saturating_sub(self.messages[i].creation_frame);
-            if age <= message_timeout {
-                continue;
-            }
-            let (r, g, b, a) = Self::unpack_argb(self.messages[i].color);
-            let amount = (age as f32 * 0.01) as i32;
-            let new_a = (a as i32 - amount).max(0) as u8;
-            self.messages[i].color = Self::pack_argb(r, g, b, new_a);
+            let (r, g, b, orig_a) = Self::unpack_argb(self.messages[i].original_color);
+            let new_a = Self::message_alpha_at_age(orig_a, age, message_timeout);
             if new_a == 0 {
                 self.messages.remove(i);
+            } else {
+                self.messages[i].color = Self::pack_argb(r, g, b, new_a);
             }
         }
     }
@@ -127,6 +158,9 @@ impl InGameUI {
     // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
 
     pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
+        crate::gui::ingame_ui::live_hud::start_military_subtitle(title, duration_ms);
+        // C++ InGameUI.cpp:4042 — drop any existing caption first.
+        self.remove_military_subtitle();
         update_diplomacy_briefing_text(title, false);
         let title = Self::military_caption_text(title);
         if title.is_empty() || duration_ms <= 0 {
@@ -157,8 +191,11 @@ impl InGameUI {
             block_pos: (pos_x, pos_y),
             increment_on_frame: self.current_frame + Self::military_caption_delay_frames(),
             color,
+            display_lines: vec![String::new()],
+            current_display_string: 0,
         });
     }
+
 
     fn military_caption_text(label: &str) -> String {
         GameText::fetch(label)
@@ -383,6 +420,14 @@ impl InGameUI {
         self.current_military_subtitle.as_ref()
     }
 
+    /// Typed prefix only. Empty until the first post-delay character.
+    pub fn military_subtitle_visible_text(&self) -> Option<String> {
+        self.current_military_subtitle
+            .as_ref()
+            .map(MilitarySubtitle::visible_text)
+    }
+
+
     pub fn expire_military_subtitle(&mut self) {
         if let Some(sub) = &self.current_military_subtitle {
             if self.current_frame >= sub.lifetime_frame {
@@ -406,6 +451,7 @@ impl InGameUI {
     }
 
     fn update_military_subtitle(&mut self) {
+        let had_subtitle = self.current_military_subtitle.is_some();
         if let Some(subtitle) = self.current_military_subtitle.as_mut() {
             if gamelogic::helpers::TheScriptEngine::is_time_frozen_script() {
                 subtitle.lifetime_frame = subtitle.lifetime_frame.saturating_sub(1);
@@ -426,6 +472,10 @@ impl InGameUI {
             delay_frames,
         ) {
             Self::play_military_subtitle_typing_sound();
+        }
+        // C++ removeMilitarySubtitle (InGameUI.cpp:4099) clears tooltips on fade-out.
+        if had_subtitle && self.current_military_subtitle.is_none() {
+            self.clear_tooltips_disabled();
         }
     }
 
@@ -469,16 +519,29 @@ impl InGameUI {
 
         let mut typed_visible_char = false;
         if ch == '\n' {
-            subtitle.block_pos.0 = subtitle.position.0;
+            // C++ InGameUI.cpp:1707-1731 — advance line, cap at MAX_SUBTITLE_LINES.
             subtitle.block_pos.1 += point_size.max(1) as f32;
-            subtitle.block_drawn = true;
-            subtitle.increment_on_frame = current_frame + delay_frames;
+            subtitle.current_display_string = subtitle.current_display_string.saturating_add(1);
+            if subtitle.current_display_string >= MAX_SUBTITLE_LINES {
+                subtitle.index = subtitle.text.chars().count();
+            } else {
+                subtitle.block_pos.0 = subtitle.position.0;
+                if subtitle.display_lines.len() <= subtitle.current_display_string {
+                    subtitle.display_lines.push(String::new());
+                }
+                subtitle.block_drawn = true;
+                subtitle.increment_on_frame = current_frame + delay_frames;
+            }
         } else {
-            let printed_chars_on_line = subtitle
-                .text
-                .chars()
-                .take(subtitle.index + 1)
-                .fold(0usize, |count, c| if c == '\n' { 0 } else { count + 1 });
+            if subtitle.display_lines.is_empty() {
+                subtitle.display_lines.push(String::new());
+                subtitle.current_display_string = 0;
+            }
+            let line = subtitle
+                .current_display_string
+                .min(subtitle.display_lines.len().saturating_sub(1));
+            subtitle.display_lines[line].push(ch);
+            let printed_chars_on_line = subtitle.display_lines[line].chars().count();
             subtitle.block_pos.0 =
                 subtitle.position.0 + (printed_chars_on_line as f32 * char_width);
             subtitle.increment_on_frame = current_frame + speed_frames;
@@ -492,6 +555,7 @@ impl InGameUI {
         typed_visible_char
     }
 
+
     fn play_military_subtitle_typing_sound() {
         if let Some(audio) = TheAudio::get() {
             let event = AudioEventRts::new("MilitarySubtitlesTyping");
@@ -502,6 +566,39 @@ impl InGameUI {
     fn caption_char_width(&self) -> f32 {
         self.military_caption_point_size.max(1) as f32 * 0.6
     }
+
+    /// C++ InGameUI.cpp:3461-3483 postDraw — typed lines + blinking block.
+    pub fn draw_military_subtitle(&self, renderer: &mut UIRenderer) {
+        let Some(subtitle) = self.current_military_subtitle.as_ref() else {
+            return;
+        };
+        let (r, g, b, a) = Self::unpack_argb(subtitle.color);
+        let color = [
+            r as f32 / 255.0,
+            g as f32 / 255.0,
+            b as f32 / 255.0,
+            a as f32 / 255.0,
+        ];
+        let drop = [0.0, 0.0, 0.0, a as f32 / 255.0];
+        let font_size = self.military_caption_point_size.max(1) as f32;
+        let mut y = subtitle.position.1;
+        for line in subtitle.visible_lines() {
+            let pos = Vec2::new(subtitle.position.0, y);
+            let _ = renderer.draw_text_simple(line, pos + Vec2::new(1.0, 1.0), font_size, drop);
+            let _ = renderer.draw_text_simple(line, pos, font_size, color);
+            y += font_size;
+        }
+        if subtitle.block_drawn {
+            let height = font_size;
+            let width = height * 0.8;
+            renderer.draw_rect(
+                UIRect::new(subtitle.block_pos.0, subtitle.block_pos.1, width, height),
+                color,
+                0.0,
+            );
+        }
+    }
+
 
     fn military_caption_speed_frames(&self) -> u32 {
         get_global_language_read()

@@ -69,6 +69,9 @@ pub mod sparse_match_finder;
 pub mod thing;
 pub mod thing_factory;
 pub mod thing_template;
+pub mod thing_template_color;
+pub mod thing_template_locomotor;
+
 
 // Re-export the main types for easier access
 pub use draw_module::{

@@ -3,6 +3,11 @@
 //! Uses thread-local RefCell for window state and Cell<bool> global flags
 //! matching C++ statics (via mod.rs helpers).
 
+
+#[path = "skirmish_map_preview.rs"]
+mod skirmish_map_preview;
+#[path = "skirmish_battle_honor_display.rs"]
+mod skirmish_battle_honor_display;
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
@@ -15,7 +20,8 @@ use crate::gui::{
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{get_message_stream, GameMessageType};
 use crate::shell_hooks::{
-    signal_ui_interaction, SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
+    signal_ui_interaction, SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED,
+    SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME, SHELL_SCRIPT_HOOK_SKIRMISH_OPENED,
 };
 use game_engine::common::ini::ini_map_cache::{
     get_map_cache_mut, init_global_map_cache, MapMetaData,
@@ -23,20 +29,15 @@ use game_engine::common::ini::ini_map_cache::{
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_game_logic_random;
 use game_engine::common::rts::player_template::get_player_template_store;
-use game_engine::common::skirmish_battle_honors::{
-    SkirmishBattleHonors, BATTLE_HONOR_AIR_WING, BATTLE_HONOR_APOCALYPSE, BATTLE_HONOR_BATTLE_TANK,
-    BATTLE_HONOR_BLITZ10, BATTLE_HONOR_BLITZ5, BATTLE_HONOR_CAMPAIGN_CHINA,
-    BATTLE_HONOR_CAMPAIGN_GLA, BATTLE_HONOR_CAMPAIGN_USA, BATTLE_HONOR_CHALLENGE_MODE,
-    BATTLE_HONOR_DOMINATION, BATTLE_HONOR_ENDURANCE, BATTLE_HONOR_OFFICERSCLUB,
-    BATTLE_HONOR_STREAK, BATTLE_HONOR_ULTIMATE,
-};
+use game_engine::common::skirmish_battle_honors::SkirmishBattleHonors;
+use game_engine::common::system::get_unsigned_int_from_registry;
 use game_network::matchmaking::slots::PlayerColor;
 use game_network::{
     game_info_to_ascii_string, parse_ascii_string_to_game_info, Money, SlotState,
     PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM,
 };
 use gamelogic::helpers::TheGameLogic;
-use gamelogic::system::game_logic::{GAME_SINGLE_PLAYER, GAME_SKIRMISH};
+use gamelogic::system::game_logic::{GAME_SHELL, GAME_SINGLE_PLAYER, GAME_SKIRMISH};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -274,6 +275,7 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     position_start_buttons(state, meta.as_ref());
+    skirmish_map_preview::position_additional_images(meta.as_ref(), state.map_window.as_ref(), true);
     update_map_start_spots(state, meta.as_ref());
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
@@ -780,58 +782,7 @@ fn skirmish_update_slot_list(state: &mut SkirmishGameOptionsState) {
 }
 
 fn populate_skirmish_battle_honors(state: &SkirmishGameOptionsState) {
-    let stats = SkirmishBattleHonors::new();
-    let honors = stats.get_honors();
-
-    if let Some(listbox) = state.listbox_info.as_ref() {
-        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-            widget.clear();
-            let entries = [
-                ("Campaign China", BATTLE_HONOR_CAMPAIGN_CHINA),
-                ("Campaign GLA", BATTLE_HONOR_CAMPAIGN_GLA),
-                ("Campaign USA", BATTLE_HONOR_CAMPAIGN_USA),
-                ("Challenge Mode", BATTLE_HONOR_CHALLENGE_MODE),
-                ("Air Wing", BATTLE_HONOR_AIR_WING),
-                ("Battle Tank", BATTLE_HONOR_BATTLE_TANK),
-                ("Endurance", BATTLE_HONOR_ENDURANCE),
-                ("Apocalypse", BATTLE_HONOR_APOCALYPSE),
-                ("Blitz 5", BATTLE_HONOR_BLITZ5),
-                ("Blitz 10", BATTLE_HONOR_BLITZ10),
-                ("Streak", BATTLE_HONOR_STREAK),
-                ("Domination", BATTLE_HONOR_DOMINATION),
-                ("Ultimate", BATTLE_HONOR_ULTIMATE),
-                ("Officers Club", BATTLE_HONOR_OFFICERSCLUB),
-            ];
-            for (label, flag) in entries {
-                let status = if honors & flag != 0 { "[X]" } else { "[ ]" };
-                widget.add_item_with_id(-1, &format!("{} {}", status, label));
-            }
-        }
-    }
-
-    for (name, value) in [
-        (
-            "SkirmishGameOptionsMenu.wnd:StaticTextStreakValue",
-            stats.get_win_streak(),
-        ),
-        (
-            "SkirmishGameOptionsMenu.wnd:StaticTextBestStreakValue",
-            stats.get_best_win_streak(),
-        ),
-        (
-            "SkirmishGameOptionsMenu.wnd:StaticTextWinsValue",
-            stats.get_wins(),
-        ),
-        (
-            "SkirmishGameOptionsMenu.wnd:StaticTextLossesValue",
-            stats.get_losses(),
-        ),
-    ] {
-        let id = name_to_id(name);
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
-            let _ = window.borrow_mut().set_text(&format!("{}", value));
-        }
-    }
+    skirmish_battle_honor_display::populate(state.listbox_info.as_ref());
 }
 
 fn handle_combo_selection(state: &mut SkirmishGameOptionsState, control_id: i32) -> bool {
@@ -1122,6 +1073,9 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
                 .unwrap_or_default()
                 .as_millis() as i32;
             info.set_seed(seed);
+            if get_unsigned_int_from_registry("", "Preorder").unwrap_or(0) != 0 {
+                info.mark_player_as_preorder(0);
+            }
             info.set_map(map_name.clone());
             info.set_starting_cash(starting_cash);
             info.set_superweapon_restriction(if superweapon_restricted { 1 } else { 0 });
@@ -1500,6 +1454,7 @@ pub fn skirmish_game_options_menu_init(
                 let _ = sub_parent.borrow_mut().hide(true);
             }
         });
+        skirmish_map_preview::bind_map_selector_tooltip(&state.map_window);
 
         apply_skirmish_preferences(state);
         ensure_default_slots();
@@ -1575,6 +1530,10 @@ pub fn skirmish_game_options_menu_update(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
+    if TheGameLogic::get_game_mode() == GAME_SHELL && TheGameLogic::get_frame() == 1 {
+        signal_ui_interaction(SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME);
+    }
+
     with_state(|state| {
         if state.just_entered {
             if state.initial_gadget_delay == 1 {

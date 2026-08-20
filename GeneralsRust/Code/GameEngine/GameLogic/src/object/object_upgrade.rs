@@ -61,47 +61,7 @@ impl Object {
         }
     }
 
-    pub fn set_disabled_until(&mut self, disabled_type: DisabledType, frame: UnsignedInt) {
-        self.set_disabled(disabled_type);
-        if let Some(index) = self.get_disabled_type_index(disabled_type) {
-            self.disabled_till_frame[index] = frame;
-        }
-    }
 
-    /// Make the object invulnerable for a duration in milliseconds (C++ goInvulnerable).
-    pub fn go_invulnerable(&mut self, duration_ms: UnsignedInt) {
-        let now = crate::helpers::TheGameLogic::get_frame();
-        if duration_ms == 0 {
-            self.invulnerable_until_frame = 0;
-            self.friend_set_undetected_defector(false);
-            if let Some(helper) = &self.defection_helper {
-                if let Ok(mut guard) = helper.lock() {
-                    guard.start_defection_timer(0, false, now, self.is_undetected_defector());
-                }
-            }
-            return;
-        }
-
-        let frames = duration_ms.saturating_mul(LOGICFRAMES_PER_SECOND) / 1000;
-        self.invulnerable_until_frame = now.saturating_add(frames.max(1));
-        self.friend_set_undetected_defector(true);
-
-        if self.defection_helper.is_none() {
-            self.defection_helper = Some(Arc::new(Mutex::new(ObjectDefectionHelper::new(
-                ObjectDefectionHelperModuleData::new(),
-            ))));
-        }
-        if let Some(helper) = &self.defection_helper {
-            if let Ok(mut guard) = helper.lock() {
-                guard.start_defection_timer(
-                    frames.max(1),
-                    false,
-                    now,
-                    self.is_undetected_defector(),
-                );
-            }
-        }
-    }
 
     /// Whether the object is currently invulnerable.
     pub fn is_invulnerable(&mut self) -> bool {
@@ -316,6 +276,7 @@ impl Object {
     }
 
     pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+        self.cancel_dozer_task_on_disabled_edge(becoming_disabled);
         for behavior in &self.behaviors {
             if let Ok(mut guard) = behavior.lock() {
                 guard.on_disabled_edge(becoming_disabled);
@@ -643,17 +604,17 @@ impl Object {
         }
     }
 
-    /// Get construction completion percentage (0-100)
-    pub fn get_construction_percent(&self) -> i32 {
+    /// C++ `Object::getConstructionPercent()` — raw `Real`, unclamped.
+    /// Completed buildings store `CONSTRUCTION_COMPLETE` (`-1`); selling can go to `-50`.
+    pub fn get_construction_percent(&self) -> Real {
         self.construction_percent
-            .clamp(0.0, CONSTRUCTION_COMPLETE)
-            .round() as i32
     }
 
-    /// Set construction completion percentage (0-100).
+    /// C++ `Object::setConstructionPercent(Real)` — stores the raw value with no 0..100 clamp.
     pub fn set_construction_percent(&mut self, percent: f32) {
-        self.construction_percent = percent.clamp(0.0, CONSTRUCTION_COMPLETE);
-        let under_construction = self.construction_percent < CONSTRUCTION_COMPLETE;
+        self.construction_percent = percent;
+        // C++ completed = -1; selling drives below 0. `pct >= 0` is still under construction.
+        let under_construction = self.construction_percent >= 0.0;
         self.set_status(
             ObjectStatusMaskType::from(ObjectStatusTypes::UnderConstruction),
             under_construction,
@@ -694,10 +655,9 @@ impl Object {
         }
     }
 
-    /// Check if object is currently under construction
-    /// Returns true if construction_percent < 100%
+    /// True while construction percent is `>= 0`. Completed is `-1`; selling is negative.
     pub fn is_under_construction(&self) -> bool {
-        self.construction_percent < CONSTRUCTION_COMPLETE
+        self.construction_percent >= 0.0
     }
 
     /// C++ parity: Object::hasProductionInQueue()

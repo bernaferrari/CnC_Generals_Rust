@@ -75,6 +75,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 #[derive(Debug)]
 pub struct AIWanderState {
     pub(crate) base: State,
+    pub(crate) move_to: AIMoveToState,
     pub(crate) core: FollowWaypointPathCore,
     pub(crate) wait_frames: i32,
     pub(crate) timer: i32,
@@ -82,8 +83,12 @@ pub struct AIWanderState {
 
 impl AIWanderState {
     pub fn new(machine: &StateMachine) -> Self {
+        let mut move_to = AIMoveToState::new(machine);
+        // C++ inherits AIInternalMoveToState, not AIMoveToState mood conversion.
+        move_to.is_move_to = false;
         Self {
             base: State::new(machine, "AIWander"),
+            move_to,
             core: FollowWaypointPathCore::new(false, true),
             wait_frames: 0,
             timer: 0,
@@ -155,35 +160,45 @@ impl ClassicState for AIWanderState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "wander missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "wander owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "wander AI lock poisoned".to_string())?;
+        {
+            let owner_guard = owner
+                .read()
+                .map_err(|_| "wander owner lock poisoned".to_string())?;
+            let ai = owner_guard
+                .get_ai_update_interface()
+                .ok_or_else(|| "wander missing AIUpdateInterface".to_string())?;
+            let mut ai_guard = ai
+                .lock()
+                .map_err(|_| "wander AI lock poisoned".to_string())?;
 
-        if self.core.current_waypoint.is_none() {
-            return Ok(StateReturnType::Failure);
+            if self.core.current_waypoint.is_none() {
+                return Ok(StateReturnType::Failure);
+            }
+
+            self.update_group_offset(&*ai_guard);
+            self.timer = 0;
+            self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
+
+            self.core
+                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
         }
 
-        self.update_group_offset(&*ai_guard);
-        self.timer = 0;
-        self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-
-        self.core
-            .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
-        self.core.compute_path(&mut *ai_guard)?;
-        ai_guard
-            .set_path_extra_distance(self.core.calc_extra_path_distance())
-            .map_err(|e| format!("wander set_path_extra_distance failed: {}", e))?;
-
-        Ok(StateReturnType::Continue)
+        // C++ AIWanderState::onEnter: AIInternalMoveToState::onEnter()
+        let ret = self.move_to.classic_on_enter()?;
+        if let Ok(owner_guard) = owner.read() {
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let _ = ai_guard.set_path_extra_distance(self.core.calc_extra_path_distance());
+                }
+            }
+        }
+        Ok(ret)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // C++ AIWanderState::update: status = AIInternalMoveToState::update()
+        let status = self.move_to.classic_on_update()?;
+
         let owner = self
             .base
             .get_machine_owner()
@@ -219,19 +234,12 @@ impl ClassicState for AIWanderState {
             }
         }
 
-        let close_enough = ai_guard
-            .get_cur_locomotor()
-            .and_then(|loc| loc.lock().ok().map(|loco| loco.get_close_enough_dist()))
-            .unwrap_or(0.0);
-        let status = if ai_guard.get_locomotor_distance_to_goal() <= close_enough {
-            StateReturnType::Success
-        } else {
-            StateReturnType::Continue
-        };
-
         if status != StateReturnType::Continue {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
+                ai_guard.set_completed_waypoint_id(
+                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                );
                 return Ok(StateReturnType::Success);
             }
             self.update_group_offset(&*ai_guard);
@@ -244,8 +252,9 @@ impl ClassicState for AIWanderState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
+    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
+        // C++ AIWanderState::onExit → AIFollowWaypointPathState::onExit → InternalMoveTo
+        self.move_to.classic_on_exit(exit)
     }
 }
 
@@ -253,6 +262,7 @@ impl ClassicState for AIWanderState {
 #[derive(Debug)]
 pub struct AIPanicState {
     pub(crate) base: State,
+    pub(crate) move_to: AIMoveToState,
     pub(crate) core: FollowWaypointPathCore,
     pub(crate) wait_frames: i32,
     pub(crate) timer: i32,
@@ -260,8 +270,11 @@ pub struct AIPanicState {
 
 impl AIPanicState {
     pub fn new(machine: &StateMachine) -> Self {
+        let mut move_to = AIMoveToState::new(machine);
+        move_to.is_move_to = false;
         Self {
             base: State::new(machine, "AIPanic"),
+            move_to,
             core: FollowWaypointPathCore::new(false, true),
             wait_frames: 0,
             timer: 0,
@@ -349,25 +362,37 @@ impl ClassicState for AIPanicState {
             }
 
             self.update_group_offset(&*ai_guard);
-            self.timer = 0;
-            self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-
             self.core
                 .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
-            self.core.compute_path(&mut *ai_guard)?;
-            ai_guard
-                .set_path_extra_distance(self.core.calc_extra_path_distance())
-                .map_err(|e| format!("panic set_path_extra_distance failed: {}", e))?;
+        }
+
+        // C++ AIPanicState::onEnter: AIInternalMoveToState::onEnter() then extra-distance
+        let ret = self.move_to.classic_on_enter()?;
+
+        {
+            let owner_guard = owner
+                .read()
+                .map_err(|_| "panic owner lock poisoned".to_string())?;
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    self.timer = 0;
+                    self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
+                    let _ = ai_guard.set_path_extra_distance(self.core.calc_extra_path_distance());
+                }
+            }
         }
 
         if let Ok(mut owner_write) = owner.write() {
             owner_write.set_model_condition_state(ModelConditionFlags::PANICKING);
         }
 
-        Ok(StateReturnType::Continue)
+        Ok(ret)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        // C++ AIPanicState::update: status = AIInternalMoveToState::update()
+        let status = self.move_to.classic_on_update()?;
+
         let owner = self
             .base
             .get_machine_owner()
@@ -403,19 +428,13 @@ impl ClassicState for AIPanicState {
             }
         }
 
-        let close_enough = ai_guard
-            .get_cur_locomotor()
-            .and_then(|loc| loc.lock().ok().map(|loco| loco.get_close_enough_dist()))
-            .unwrap_or(0.0);
-        let status = if ai_guard.get_locomotor_distance_to_goal() <= close_enough {
-            StateReturnType::Success
-        } else {
-            StateReturnType::Continue
-        };
-
-        if status != StateReturnType::Continue {
+        // C++ only advances on STATE_SUCCESS (not any non-CONTINUE).
+        if status == StateReturnType::Success {
             self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
             if self.core.current_waypoint.is_none() {
+                ai_guard.set_completed_waypoint_id(
+                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                );
                 return Ok(StateReturnType::Success);
             }
             self.update_group_offset(&*ai_guard);
@@ -428,13 +447,14 @@ impl ClassicState for AIPanicState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::PANICKING);
             }
         }
-        Ok(())
+        // C++ AIPanicState::onExit: clear PANICKING then AIInternalMoveToState::onExit
+        self.move_to.classic_on_exit(exit)
     }
 }
 
@@ -444,6 +464,7 @@ impl Snapshotable for AIWanderState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to crc version: {:?}", e))?;
 
+        self.move_to.crc(xfer)?;
         self.core.crc(xfer)?;
         let mut wait_frames = self.wait_frames;
         xfer.xfer_int(&mut wait_frames)
@@ -460,6 +481,7 @@ impl Snapshotable for AIWanderState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        self.move_to.xfer(xfer)?;
         self.core.xfer(xfer)?;
         xfer.xfer_int(&mut self.wait_frames)
             .map_err(|e| format!("Failed to xfer wait_frames: {:?}", e))?;
@@ -470,7 +492,7 @@ impl Snapshotable for AIWanderState {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.move_to.load_post_process()
     }
 }
 
@@ -480,6 +502,7 @@ impl Snapshotable for AIPanicState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to crc version: {:?}", e))?;
 
+        self.move_to.crc(xfer)?;
         self.core.crc(xfer)?;
         let mut wait_frames = self.wait_frames;
         xfer.xfer_int(&mut wait_frames)
@@ -496,6 +519,7 @@ impl Snapshotable for AIPanicState {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        self.move_to.xfer(xfer)?;
         self.core.xfer(xfer)?;
         xfer.xfer_int(&mut self.wait_frames)
             .map_err(|e| format!("Failed to xfer wait_frames: {:?}", e))?;
@@ -506,6 +530,6 @@ impl Snapshotable for AIPanicState {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.move_to.load_post_process()
     }
 }

@@ -59,14 +59,17 @@ impl W3DModelDraw {
             })
             .unwrap_or(true);
         self.stop_client_particle_systems();
-        self.sub_object_vec = self
-            .resolve_state(new_state_ref)
-            .map(|state| state.hide_show_list.clone())
-            .unwrap_or_default();
+        // C++ hideAllMuzzleFlashes(newState) before swap so leftover flashes die.
+        self.hide_all_muzzle_flashes();
+        // C++ does NOT replace m_subObjectVec with the state's HideShowVec.
+        // Apply authored hide/show via dirty compose; runtime show_sub_object
+        // overrides stay in sub_object_vec and win in updateSubObjects.
         self.sub_objects_dirty = true;
         self.rebuild_weapon_recoil_info(Some(new_state_ref));
 
         self.cur_state = Some(new_state_ref);
+        self.hide_all_muzzle_flashes();
+
         self.next_state = pending_next_state;
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
         self.bind_terrain_track_if_needed();
@@ -161,61 +164,12 @@ impl W3DModelDraw {
             } else {
                 1.0
             };
+        self.anim_frame_accumulator = 0.0;
         self.current_anim_complete = false;
     }
 
     fn tick_animation_state(&mut self) {
-        if self.pause_animation {
-            return;
-        }
-        let Some(cur_state) = self.current_state().cloned() else {
-            self.current_anim_complete = true;
-            return;
-        };
-        if self.which_anim_in_cur_state < 0 || cur_state.animations.is_empty() {
-            self.current_anim_complete = true;
-            return;
-        }
-
-        self.current_anim_num_frames = self.animation_total_frames(&cur_state).max(1);
-        let last_frame = self.current_anim_num_frames.saturating_sub(1);
-        match cur_state.anim_mode {
-            AnimMode::Loop | AnimMode::LoopPingPong => {
-                self.current_anim_frame =
-                    (self.current_anim_frame + 1).rem_euclid(self.current_anim_num_frames);
-                self.current_anim_complete = false;
-            }
-            AnimMode::LoopBackwards => {
-                self.current_anim_frame -= 1;
-                if self.current_anim_frame < 0 {
-                    self.current_anim_frame = last_frame;
-                }
-                self.current_anim_complete = false;
-            }
-            AnimMode::Manual => {
-                self.current_anim_complete = false;
-            }
-            AnimMode::Once => {
-                if self.current_anim_frame < last_frame {
-                    self.current_anim_frame += 1;
-                    self.current_anim_complete = false;
-                } else {
-                    self.current_anim_complete = true;
-                }
-            }
-            AnimMode::OnceBackwards => {
-                if self.current_anim_frame > 0 {
-                    self.current_anim_frame -= 1;
-                    self.current_anim_complete = false;
-                } else {
-                    self.current_anim_complete = true;
-                }
-            }
-        }
-
-        if let Some(frame) = self.animation_override.manual_frame {
-            self.current_anim_frame = frame.clamp(0, last_frame);
-        }
+        self.tick_animation_with_speed();
     }
 
     /// Handle client-side turret positioning
@@ -292,8 +246,6 @@ impl W3DModelDraw {
             }
         }
     }
-
-    /// Handle client-side weapon recoil
     fn handle_client_recoil(&mut self) {
         const TINY_RECOIL: Real = 0.01;
         let Some(state) = self.current_state().cloned() else {
@@ -302,11 +254,22 @@ impl W3DModelDraw {
 
         for wslot in 0..WEAPONSLOT_COUNT {
             let barrels = &state.weapon_barrels[wslot];
-            let Some(recoils) = self.weapon_recoil_info.get_mut(wslot) else {
-                continue;
-            };
-            let count = barrels.len().min(recoils.len());
+            let recoil_len = self
+                .weapon_recoil_info
+                .get(wslot)
+                .map(|recoils| recoils.len())
+                .unwrap_or(0);
+            let count = barrels.len().min(recoil_len);
             for i in 0..count {
+                // C++ hides muzzle unless RECOIL_START (one visible frame).
+                if barrels[i].muzzle_flash_bone != 0 {
+                    let hidden = self.weapon_recoil_info[wslot][i].state != RecoilState::RecoilStart;
+                    self.set_muzzle_flash_hidden(wslot, i, hidden);
+                }
+
+                let Some(recoils) = self.weapon_recoil_info.get_mut(wslot) else {
+                    continue;
+                };
                 if barrels[i].recoil_bone == 0 {
                     recoils[i].state = RecoilState::Idle;
                     continue;
@@ -342,7 +305,7 @@ impl W3DModelDraw {
     ///
     /// Finds the best matching ModelConditionInfo and switches to it if different
     pub fn update_model_condition_state(&mut self, conditions: ModelConditionFlags) {
-        // Skip if conditions haven't changed
+        let conditions = self.apply_pending_carrying(conditions);
         if conditions == self.last_model_conditions {
             return;
         }
@@ -421,24 +384,16 @@ impl W3DModelDraw {
     ///
     /// Reference: C++ W3DModelDraw.cpp:3797 - setAnimationFrame
     pub fn set_animation_frame(&mut self, frame: i32) {
-        self.animation_override.manual_frame = Some(frame);
-        if self.current_anim_num_frames > 0 {
-            self.current_anim_frame = frame.clamp(0, self.current_anim_num_frames - 1);
-        }
+        self.apply_animation_frame_once(frame);
     }
 
     /// Set current animation duration in milliseconds
     ///
-    /// Internal helper that applies duration override to the render object
-    /// Reference: C++ W3DModelDraw.cpp:3716-3745
+    /// C++ setCurAnimDurationInMsec sets HLOD frame-rate multiplier
+    /// (natural / desired). Do not rewrite native frame count.
     fn set_cur_anim_duration_in_msec(&mut self, duration_ms: Real) {
         if duration_ms > 0.0 {
-            let frames = (duration_ms / MSEC_PER_LOGICFRAME_REAL).round() as i32;
-            self.current_anim_num_frames = frames.max(1);
-            self.current_anim_frame = self
-                .current_anim_frame
-                .clamp(0, self.current_anim_num_frames - 1);
-            self.current_anim_complete = false;
+            self.apply_cur_anim_duration_multiplier(duration_ms);
         }
     }
 
@@ -540,8 +495,8 @@ impl W3DModelDraw {
         // do similar UV scrolling on moving parts.
         let mesh_uv_overrides = self.collect_mesh_uv_overrides();
         let sub_object_visibility: Vec<SubObjectVisibilityState> = self
-            .sub_object_vec
-            .iter()
+            .composed_sub_object_visibility()
+            .into_iter()
             .map(|entry| SubObjectVisibilityState {
                 sub_object_name: entry.sub_obj_name.to_string(),
                 hidden: entry.hide,

@@ -507,9 +507,14 @@ impl Snapshotable for BasicDrawable {
             // hidden/shadow behavior from authoritative object state.
             // (C++ Drawable.cpp line 5274: m_stealthLook = STEALTHLOOK_NONE)
             self.stealth_look = StealthLook::None;
+            // C++ Drawable.cpp:5276-5278 — hide draw modules immediately.
+            if self.hidden || self.hidden_by_stealth {
+                self.update_hidden_status();
+            }
             // C++ Drawable.cpp line 5293: stopAmbientSound(); Restarted in loadPostProcess().
             self.stop_ambient_sound();
         }
+
 
         // --- ambient sound enabled (C++ line 5300: version >= 4) ---
         if version >= 4 {
@@ -635,6 +640,25 @@ impl Snapshotable for BasicDrawable {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ Drawable.cpp:5400-5403 — object matrix is authoritative after load.
+        if let Some(object_id) = self.object_id {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(obj) = obj_arc.read() {
+                    let transform = Matrix4::from_glam(obj.get_transform_matrix());
+                    self.position = Vector3::new(
+                        transform.elements[0][3],
+                        transform.elements[1][3],
+                        transform.elements[2][3],
+                    );
+                    let mut rotation = transform;
+                    rotation.elements[0][3] = 0.0;
+                    rotation.elements[1][3] = 0.0;
+                    rotation.elements[2][3] = 0.0;
+                    self.instance_transform = rotation;
+                }
+            }
+        }
+
         if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
             self.start_ambient_sound(true);
         } else {
@@ -642,4 +666,5 @@ impl Snapshotable for BasicDrawable {
         }
         Ok(())
     }
+
 }

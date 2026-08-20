@@ -1778,3 +1778,152 @@ fn cpp_parity_get_status_pre_attack_is_pure_frame_test() {
     weapon.when_pre_attack_finished = 0;
     assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
 }
+
+#[test]
+fn historic_bonus_weapon_dispatches_on_nth_qualifying_hit() {
+    // C++ Weapon.cpp:1214-1251 dealDamageInternal — count >= historicBonusCount-1
+    // fires TheWeaponStore->createAndFireTempWeapon and clears the list.
+    let mut bonus = WeaponTemplate::new("NapalmFirestormSmallCreationWeapon".to_string());
+    bonus.attack_range = 999_999.0;
+    bonus.primary_damage = 40.0;
+    let bonus = Arc::new(bonus);
+
+    let mut gun = WeaponTemplate::new("InfernoCannonGun".to_string());
+    gun.historic_bonus_count = 3;
+    gun.historic_bonus_time = 90;
+    gun.historic_bonus_radius = 20.0;
+    gun.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+    gun.historic_bonus_weapon_name = bonus.name.clone();
+
+    let pos = Coord3D::new(10.0, 10.0, 0.0);
+    let source = 7u32;
+
+    assert!(!gun.apply_historic_bonus(source, &pos));
+    assert_eq!(gun.historic_damage_len(), 1);
+    assert!(!gun.apply_historic_bonus(source, &pos));
+    assert_eq!(gun.historic_damage_len(), 2);
+    assert!(
+        gun.apply_historic_bonus(source, &pos),
+        "3rd close hit must dispatch HistoricBonusWeapon"
+    );
+    assert_eq!(
+        gun.historic_damage_len(),
+        0,
+        "C++ clears m_historicDamage after the bonus fires"
+    );
+
+    // After clear, the next hit records again instead of immediately re-firing.
+    assert!(!gun.apply_historic_bonus(source, &pos));
+    assert_eq!(gun.historic_damage_len(), 1);
+}
+
+#[test]
+fn historic_bonus_weapon_resolves_by_name_when_weak_is_dead() {
+    let _guard = weapon_range_test_guard();
+    let _ = initialize_weapon_store();
+
+    let mut bonus = WeaponTemplate::new("BlackNapalmFirestormSmallCreationWeapon".to_string());
+    bonus.attack_range = 999_999.0;
+    let bonus_name = bonus.name.clone();
+    with_weapon_store_mut(|store| {
+        store.add_weapon_template(bonus);
+    })
+    .expect("register bonus weapon");
+
+    let mut gun = WeaponTemplate::new("InfernoCannonGunUpgraded".to_string());
+    gun.historic_bonus_count = 2;
+    gun.historic_bonus_time = 90;
+    gun.historic_bonus_radius = 20.0;
+    gun.historic_bonus_weapon = None;
+    gun.set_historic_bonus_weapon_name(&bonus_name);
+
+    let pos = Coord3D::new(0.0, 0.0, 0.0);
+    assert!(!gun.apply_historic_bonus(1, &pos));
+    assert_eq!(gun.historic_damage_len(), 1);
+    assert!(
+        gun.apply_historic_bonus(1, &pos),
+        "2nd hit must look up HistoricBonusWeapon by name and dispatch"
+    );
+    assert_eq!(gun.historic_damage_len(), 0);
+}
+
+#[test]
+fn historic_bonus_weapon_ignores_far_hits() {
+    let mut bonus = WeaponTemplate::new("FirestormFar".to_string());
+    bonus.attack_range = 999_999.0;
+    let bonus = Arc::new(bonus);
+
+    let mut gun = WeaponTemplate::new("InfernoFar".to_string());
+    gun.historic_bonus_count = 2;
+    gun.historic_bonus_time = 90;
+    gun.historic_bonus_radius = 10.0;
+    gun.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+
+    let near = Coord3D::new(0.0, 0.0, 0.0);
+    let far = Coord3D::new(100.0, 0.0, 0.0);
+    assert!(!gun.apply_historic_bonus(1, &near));
+    assert!(
+        !gun.apply_historic_bonus(1, &far),
+        "far impact is a new cluster, not the Nth close hit"
+    );
+    assert_eq!(gun.historic_damage_len(), 2);
+}
+
+#[test]
+fn deal_damage_internal_dispatches_historic_bonus_weapon() {
+    // Canonical damage path: Weapon::deal_damage_internal (Weapon.cpp:1197).
+    let mut bonus = WeaponTemplate::new("DealDamageFirestorm".to_string());
+    bonus.attack_range = 999_999.0;
+    let bonus = Arc::new(bonus);
+
+    let mut template = WeaponTemplate::new("DealDamageGun".to_string());
+    template.primary_damage = 10.0;
+    template.historic_bonus_count = 2;
+    template.historic_bonus_time = 90;
+    template.historic_bonus_radius = 20.0;
+    template.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+    template.historic_bonus_weapon_name = bonus.name.clone();
+
+    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let pos = Coord3D::new(5.0, 5.0, 0.0);
+    let bonus_flags = WeaponBonus::default();
+
+    let _ = weapon.deal_damage_internal(1, None, &pos, &bonus_flags, false);
+    assert_eq!(weapon.template.historic_damage_len(), 1);
+    let _ = weapon.deal_damage_internal(1, None, &pos, &bonus_flags, false);
+    assert_eq!(
+        weapon.template.historic_damage_len(),
+        0,
+        "deal_damage_internal must fire HistoricBonusWeapon on the Nth hit"
+    );
+}
+
+#[test]
+fn projectile_detonation_dispatches_historic_bonus_weapon() {
+    // Inferno / napalm: dealDamageInternal is the detonation path (Weapon.cpp:1265).
+    let mut bonus = WeaponTemplate::new("DetonationFirestorm".to_string());
+    bonus.attack_range = 999_999.0;
+    let bonus = Arc::new(bonus);
+
+    let mut template = WeaponTemplate::new("NapalmShell".to_string());
+    template.projectile_name = "NapalmProjectile".to_string();
+    template.historic_bonus_count = 2;
+    template.historic_bonus_time = 90;
+    template.historic_bonus_radius = 20.0;
+    template.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+
+    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let pos = Coord3D::new(1.0, 2.0, 0.0);
+    let bonus_flags = WeaponBonus::default();
+
+    assert!(weapon
+        .deal_damage_internal(1, None, &pos, &bonus_flags, true)
+        .is_ok());
+    assert_eq!(weapon.template.historic_damage_len(), 1);
+    assert!(weapon
+        .deal_damage_internal(1, None, &pos, &bonus_flags, true)
+        .is_ok());
+    assert_eq!(weapon.template.historic_damage_len(), 0);
+}
+
+

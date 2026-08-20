@@ -134,15 +134,6 @@ impl BasicDrawable {
         &self.model_condition_flags
     }
 
-    /// Clear and set model-condition flags in one operation.
-    pub fn clear_and_set_model_condition_flags(
-        &mut self,
-        clr: &ModelConditionBitFlags,
-        set: &ModelConditionBitFlags,
-    ) {
-        self.model_condition_flags.clear_and_set(clr, set);
-    }
-
     /// Wave 965: stamp host presentation residual (no OBJECT_REGISTRY dual-world).
     pub fn set_presentation_host_residual(
         &mut self,
@@ -210,6 +201,7 @@ impl BasicDrawable {
         // generic `isEffectivelyStealthed`: friendly stealthed units use a
         // translucent visible look and must still reach the scene path.
         self.hidden_by_stealth = scene_hidden_by_stealth;
+        self.update_hidden_status();
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
         }
@@ -226,7 +218,7 @@ impl BasicDrawable {
     /// C++ parity: `Drawable::reactToBodyDamageStateChange` (Drawable.cpp:1077-1101).
     ///
     /// Clears DAMAGED / REALLYDAMAGED / RUBBLE and sets the bit for `new_state`.
-    /// Fail-closed residual: condition bits only — not full mesh/animation swap.
+    /// Dirty-applies to draw modules via `clear_and_set_model_condition_flags`.
     pub fn react_to_body_damage_state_change(
         &mut self,
         new_state: gamelogic::common::types::BodyDamageType,
@@ -249,26 +241,6 @@ impl BasicDrawable {
         self.clear_and_set_model_condition_flags(&clear, &set);
     }
 
-    /// Replace full model-condition flags.
-    pub fn replace_model_condition_flags(
-        &mut self,
-        flags: ModelConditionBitFlags,
-        force_replace: bool,
-    ) {
-        if force_replace || self.model_condition_flags != flags {
-            self.model_condition_flags = flags;
-        }
-    }
-
-    /// Set a single model-condition bit by index.
-    pub fn set_model_condition_state(&mut self, index: usize) {
-        self.model_condition_flags.set(index, true);
-    }
-
-    /// Clear a single model-condition bit by index.
-    pub fn clear_model_condition_state(&mut self, index: usize) {
-        self.model_condition_flags.set(index, false);
-    }
 
     /// C++ parity: `Drawable::getShadowsEnabled()`.
     pub fn get_shadows_enabled(&self) -> bool {
@@ -701,9 +673,12 @@ impl BasicDrawable {
     }
 
     pub fn set_effective_opacity(&mut self, pulse_factor: f32, explicit_opacity: Option<f32>) {
+        // C++ `Drawable::setEffectiveOpacity`: the optional value writes
+        // *only* `m_stealthOpacity`. `m_explicitOpacity` is a separate
+        // fade/script channel; multiplying both by the same floor doubles
+        // friendly stealth transparency.
         if let Some(explicit) = explicit_opacity {
             self.stealth_opacity = explicit.clamp(0.0, 1.0);
-            self.explicit_opacity = self.stealth_opacity;
         }
         let pf = pulse_factor.clamp(0.0, 1.0);
         let pulse_margin = 1.0 - self.stealth_opacity;
@@ -759,7 +734,11 @@ impl BasicDrawable {
     }
 
     pub fn set_hidden_by_stealth(&mut self, hidden: bool) {
+        if self.hidden_by_stealth == hidden {
+            return;
+        }
         self.hidden_by_stealth = hidden;
+        self.update_hidden_status();
     }
 
     /// Wave 1055: stamp host control-group residual for dual group numerals.
@@ -837,6 +816,7 @@ impl BasicDrawable {
                     if is_disguised {
                         self.hidden_by_stealth = false;
                         self.stealth_look = look;
+                        self.update_hidden_status();
                         return;
                     }
                     opacity = friendly_opacity;
@@ -874,6 +854,7 @@ impl BasicDrawable {
             }
         }
         self.stealth_look = look;
+        self.update_hidden_status();
     }
 
     /// Propagate indicator color to all draw modules.

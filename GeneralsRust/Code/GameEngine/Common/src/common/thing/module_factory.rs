@@ -209,6 +209,8 @@ const BUILTIN_BEHAVIOR_DESCRIPTORS: &[(&str, ModuleInterfaceType)] = &[
         ModuleInterfaceType::UPDATE,
     ),
     ("BaikonurLaunchPower", ModuleInterfaceType::UPDATE),
+    ("DefectorSpecialPower", ModuleInterfaceType::UPDATE),
+
     ("BattlePlanUpdate", ModuleInterfaceType::UPDATE),
     ("ProjectileStreamUpdate", ModuleInterfaceType::UPDATE),
     ("QueueProductionExitUpdate", ModuleInterfaceType::UPDATE),

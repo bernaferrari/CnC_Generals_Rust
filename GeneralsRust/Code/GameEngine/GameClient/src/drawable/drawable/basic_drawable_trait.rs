@@ -152,38 +152,32 @@ impl Drawable for BasicDrawable {
     }
 
     fn set_selected(&mut self, selected: bool) {
+        // C++ `friend_setSelected` / `friend_clearSelected`: flash only on
+        // the rising edge. `onUnselected` is empty so the envelope decays.
         if !self.selectable {
-            self.selected = false;
-        } else {
-            self.selected = selected;
+            if self.selected {
+                self.selected = false;
+            }
+            return;
         }
-
         if selected {
-            // Start selection flash effect (matches C++ flashAsSelected)
-            if self.selection_flash_envelope.is_none() {
-                self.selection_flash_envelope = Some(TintEnvelope::new());
+            if !self.selected {
+                self.selected = true;
+                self.flash_as_selected(None);
+                if let Some(object_id) = self.object_id {
+                    self.flash_contained_objects(object_id);
+                }
             }
-            if let Some(ref mut envelope) = self.selection_flash_envelope {
-                envelope.play(Vector3::new(0.3, 0.3, 0.3), 5, 10, 0);
-            }
-
-            // Flash contained objects if this drawable has a bound object
-            // Matches C++ Drawable::onSelected() calling contain->clientVisibleContainedFlashAsSelected()
-            if let Some(object_id) = self.object_id {
-                self.flash_contained_objects(object_id);
-            }
-        } else {
-            // C++ onUnselected() is empty but we clear the flash envelope
-            self.selection_flash_envelope = None;
+        } else if self.selected {
+            self.selected = false;
         }
     }
 
     fn get_opacity(&self) -> f32 {
-        match self.stealth_look {
-            StealthLook::Invisible => 0.0,
-            StealthLook::VisibleDetected => self.opacity * 0.3,
-            _ => (self.opacity * self.effective_stealth_opacity).clamp(0.0, 1.0),
-        }
+        // C++ `getEffectiveOpacity` = explicit * stealth. Detected stealth
+        // does not invent a 0.3 first-pass scale; heat-vision is the second
+        // material pass. Invisible is handled by `hidden_by_stealth`.
+        self.get_effective_opacity()
     }
 
     fn set_opacity(&mut self, opacity: f32) {
@@ -204,27 +198,9 @@ impl Drawable for BasicDrawable {
     }
 
     fn get_tint_color(&self) -> Vector3 {
-        let mut color = self.tint_color;
-
-        // Add tint envelope effects
-        if let Some(ref envelope) = self.tint_envelope {
-            if envelope.is_effective {
-                color.x += envelope.current_color.x;
-                color.y += envelope.current_color.y;
-                color.z += envelope.current_color.z;
-            }
-        }
-
-        // Add selection flash effect
-        if let Some(ref envelope) = self.selection_flash_envelope {
-            if envelope.is_effective {
-                color.x += envelope.current_color.x;
-                color.y += envelope.current_color.y;
-                color.z += envelope.current_color.z;
-            }
-        }
-
-        color
+        // C++ `getTintColor` returns only the status/EMP envelope.
+        // Selection flash is a separate light add (`getSelectionColor`).
+        self.tint_color_effect().unwrap_or(self.tint_color)
     }
 
     fn set_tint_color(&mut self, color: Vector3) {
@@ -237,6 +213,7 @@ impl Drawable for BasicDrawable {
 
     fn update(&mut self, _delta_time: f32) {
         self.update_fade();
+        self.flush_dirty_model_condition();
 
         if self.terrain_decal_type != TerrainDecalType::None {
             if self.decal_opacity_fade_rate != 0.0 {
@@ -267,7 +244,15 @@ impl Drawable for BasicDrawable {
         }
 
         if !self.test_tint_status(TintStatus::FRENZY) {
-            if self.second_material_pass_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
+            let effectively_dead = self.object_id.is_some_and(|obj_id| {
+                OBJECT_REGISTRY
+                    .get_object(obj_id)
+                    .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                    .unwrap_or(false)
+            });
+            if effectively_dead {
+                self.second_material_pass_opacity = 0.0;
+            } else if self.second_material_pass_opacity > VERY_TRANSPARENT_MATERIAL_PASS_OPACITY {
                 self.second_material_pass_opacity *= MATERIAL_PASS_OPACITY_FADE_SCALAR;
             } else {
                 self.second_material_pass_opacity = 0.0;
@@ -282,16 +267,16 @@ impl Drawable for BasicDrawable {
 
         self.update_tint_status();
 
-        // Update tint envelopes
-        if let Some(ref mut envelope) = self.tint_envelope {
+        // C++ `updateDrawable` ticks both envelopes every frame so EMP/status
+        // tints and selection flash actually fade instead of sticking.
+        if let Some(envelope) = self.tint_envelope.as_mut() {
             envelope.update();
         }
-        if let Some(ref mut envelope) = self.selection_flash_envelope {
+        if let Some(envelope) = self.selection_flash_envelope.as_mut() {
             envelope.update();
         }
 
-        // Update icon info
-        if let Some(ref mut icon_info) = self.icon_info {
+        if let Some(icon_info) = self.icon_info.as_mut() {
             icon_info.update(self.current_frame);
         }
 
@@ -320,6 +305,8 @@ impl Drawable for BasicDrawable {
         {
             return;
         }
+
+        self.flush_dirty_model_condition();
 
         // C++ parity: Drawable::draw() (Drawable.cpp:2629-2630):
         // if (getObject() && !getObject()->isEffectivelyDead())
@@ -391,7 +378,12 @@ impl Drawable for BasicDrawable {
         // BasicDrawable::render() handles the rendering submission after draw modules
         // have executed. See GameLogic Drawable::draw() at object/drawable.rs:3393.
 
-        let tint = self.get_tint_color();
+        let mut tint = self.get_tint_color();
+        if let Some(selection) = self.selection_color_effect() {
+            tint.x += selection.x;
+            tint.y += selection.y;
+            tint.z += selection.z;
+        }
         let selected = self.is_selected();
 
         // A C++ Drawable dispatches every DrawModule in order.  Preserve every

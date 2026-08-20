@@ -29,6 +29,9 @@ mod store;
 mod template;
 mod weapon_instance;
 mod weapon_instance_combat;
+mod weapon_approach;
+mod weapon_bonus;
+mod weapon_range;
 
 // Phase 12 consolidation: leftover `template` / `weapon_instance` / `store`
 // are the single public Weapon / WeaponTemplate / WeaponStore stack.

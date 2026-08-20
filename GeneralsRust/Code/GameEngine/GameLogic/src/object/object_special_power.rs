@@ -202,7 +202,7 @@ impl Object {
     }
 
     /// Execute a command button ability with no target.
-    pub fn do_command_button(&self, button_id: u32, source: CommandSource) -> Result<(), String> {
+    pub fn do_command_button(&mut self, button_id: u32, source: CommandSource) -> Result<(), String> {
         use crate::ai::{AiCommandParams, AiCommandType};
         use crate::commands::command::CommandType;
         use crate::control_bar::get_control_bar_bridge;
@@ -230,22 +230,12 @@ impl Object {
                         command_button.get_options_bits(),
                     );
                     options.insert(SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT);
-
-                    if options.intersects(
-                        SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
-                            | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
-                            | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
-                    ) {
-                        return Ok(());
-                    }
-                    if self
-                        .with_special_power_module_mut_by_name(template.get_name(), |sp_module| {
-                            sp_module.do_special_power(options);
-                        })
-                        .is_some()
-                    {
-                        return Ok(());
-                    }
+                    self.command_button_special_power_no_target(
+                        template.get_name(),
+                        options,
+                        source,
+                    );
+                    return Ok(());
                 }
             }
             CommandType::DoStop => {
@@ -255,6 +245,7 @@ impl Object {
                 }
             }
             CommandType::SwitchWeapons => {
+                self.lock_switch_weapon_from_command(command_button);
                 return Ok(());
             }
             CommandType::FireWeapon => {
@@ -272,7 +263,7 @@ impl Object {
                     if needs_target {
                         return Ok(());
                     }
-
+                    self.lock_fire_weapon_from_command(command_button);
                     if let Ok(mut guard) = ai.try_lock() {
                         let mut params =
                             AiCommandParams::new(AiCommandType::AttackPosition, source);
@@ -296,9 +287,9 @@ impl Object {
                     }
                 }
             }
-            CommandType::QueueUnitCreate => {
+            CommandType::QueueUnitCreate | CommandType::DozerConstruct => {
                 if let Some(template) = command_button.get_thing_template() {
-                    if self.queue_unit_via_production(template) {
+                    if self.command_button_dozer_construct_no_target(template) {
                         return Ok(());
                     }
                 }
@@ -338,7 +329,7 @@ impl Object {
     }
 
     pub fn do_command_button_at_object(
-        &self,
+        &mut self,
         button_id: u32,
         target: &Object,
         source: CommandSource,
@@ -392,14 +383,13 @@ impl Object {
                         command_button.get_options_bits(),
                     );
                     options.insert(SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT);
-                    if self
-                        .with_special_power_module_mut_by_name(template.get_name(), |sp_module| {
-                            sp_module.do_special_power_at_object(target.get_id(), options);
-                        })
-                        .is_some()
-                    {
-                        return Ok(());
-                    }
+                    self.command_button_special_power_at_object(
+                        template.get_name(),
+                        target.get_id(),
+                        options,
+                        source,
+                    );
+                    return Ok(());
                 }
             }
             CommandType::DoStop => {
@@ -429,6 +419,7 @@ impl Object {
                         return Ok(());
                     }
 
+                    self.lock_fire_weapon_from_command(command_button);
                     if options.contains(SpecialPowerCommandOption::ATTACK_OBJECTS_POSITION) {
                         let mut params =
                             AiCommandParams::new(AiCommandType::AttackPosition, source);
@@ -459,12 +450,6 @@ impl Object {
             | CommandType::ConvertToCarBomb
             | CommandType::SabotageBuilding => {
                 if let Some(ai) = ai {
-                    let options = SpecialPowerCommandOptions::from_bits_truncate(
-                        command_button.get_options_bits(),
-                    );
-                    if !self.is_valid_command_target(target, options) {
-                        return Ok(());
-                    }
                     let mut params = AiCommandParams::new(AiCommandType::Enter, source);
                     params.obj = Some(target.get_id());
                     self.forward_command_to_flight_deck(&params);
@@ -480,7 +465,7 @@ impl Object {
 
     /// Execute a command button ability directed at a location.
     pub fn do_command_button_at_position(
-        &self,
+        &mut self,
         button_id: u32,
         pos: &Coord3D,
         source: CommandSource,
@@ -512,14 +497,14 @@ impl Object {
                         command_button.get_options_bits(),
                     );
                     options.insert(SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT);
-                    if self
-                        .with_special_power_module_mut_by_name(template.get_name(), |sp_module| {
-                            sp_module.do_special_power_at_location(pos, INVALID_ANGLE, options);
-                        })
-                        .is_some()
-                    {
-                        return Ok(());
-                    }
+                    self.command_button_special_power_at_location(
+                        template.get_name(),
+                        pos,
+                        INVALID_ANGLE,
+                        options,
+                        source,
+                    );
+                    return Ok(());
                 }
             }
             CommandType::DoAttackMoveTo => {
@@ -547,122 +532,8 @@ impl Object {
             }
             CommandType::DozerConstruct => {
                 if let Some(template) = command_button.get_thing_template() {
-                    let ai_ref = ai.as_ref();
-                    let validator =
-                        crate::object::production::construction::FoundationValidator::new_strict();
-                    let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
-                    if validator
-                        .validate_placement(pos, template.get_name().as_str(), 0.0, player_id)
-                        .is_err()
-                    {
-                        return Ok(());
-                    }
-                    if let Some(ai) = ai_ref {
-                        if let Ok(ai_guard) = crate::ai::THE_AI.read() {
-                            if let Some(pathfinder) = ai_guard.pathfinder() {
-                                if let Ok(guard) = ai.try_lock() {
-                                    if let Some(locomotor) = guard.get_cur_locomotor() {
-                                        let mut locomotor_set =
-                                            crate::locomotor::LocomotorSet::new();
-                                        locomotor_set
-                                            .add_locomotor("Active".to_string(), locomotor);
-                                        if let Ok(pf) = pathfinder.write() {
-                                            if pf
-                                                .find_path_for_locomotor(
-                                                    self.get_id(),
-                                                    &locomotor_set,
-                                                    self.get_position(),
-                                                    pos,
-                                                )
-                                                .is_none()
-                                            {
-                                                return Ok(());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(team_arc) = self.get_team() {
-                        if let Ok(team) = team_arc.read() {
-                            if let Ok(factory) = crate::helpers::TheThingFactory::get() {
-                                if let Ok(new_obj) = factory.new_object(template.clone(), &*team) {
-                                    let mut build_max_health = 0.0;
-                                    if let Ok(guard) = new_obj.read() {
-                                        if let Some(body) = guard.get_body_module() {
-                                            build_max_health = body.get_max_health();
-                                        }
-                                    }
-                                    if let Ok(mut guard) = new_obj.write() {
-                                        let _ = guard.set_position(pos);
-                                        if let Err(err) = guard.set_orientation(0.0) {
-                                            log::debug!("Object::fire_death_weapon set_orientation failed: {err}");
-                                        }
-                                        guard.set_producer(Some(self));
-                                        guard.set_builder(Some(self));
-                                        guard.set_construction_percent(0.0);
-                                        if build_max_health > 0.0 {
-                                            let _ = guard.set_health(1.0);
-                                        }
-                                    }
-                                    if let Some(ai) = ai_ref {
-                                        if let Ok(mut ai_guard) = ai.try_lock() {
-                                            let total_build_frames = {
-                                                if let Some(player_id) =
-                                                    self.get_controlling_player_id()
-                                                {
-                                                    let player_arc = crate::player::player_list()
-                                                        .read()
-                                                        .ok()
-                                                        .and_then(|list| {
-                                                            list.get_player(player_id as i32)
-                                                                .cloned()
-                                                        });
-                                                    if let Some(player_arc) = player_arc {
-                                                        if let Ok(player) = player_arc.read() {
-                                                            template
-                                                                .calc_time_to_build(Some(&*player))
-                                                                .max(1)
-                                                                as u32
-                                                        } else {
-                                                            template.calc_time_to_build(None).max(1)
-                                                                as u32
-                                                        }
-                                                    } else {
-                                                        template.calc_time_to_build(None).max(1)
-                                                            as u32
-                                                    }
-                                                } else {
-                                                    template.calc_time_to_build(None).max(1) as u32
-                                                }
-                                            };
-                                            if let Some(worker_ai) =
-                                                ai_guard.get_worker_ai_update_interface_mut()
-                                            {
-                                                worker_ai.set_build_task(
-                                                    new_obj.read().map(|g| g.get_id()).unwrap_or(0),
-                                                    total_build_frames,
-                                                    build_max_health,
-                                                    false,
-                                                );
-                                            } else if let Some(dozer_ai) =
-                                                ai_guard.get_dozer_ai_update_interface_mut()
-                                            {
-                                                dozer_ai.set_build_task(
-                                                    new_obj.read().map(|g| g.get_id()).unwrap_or(0),
-                                                    total_build_frames,
-                                                    build_max_health,
-                                                    false,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    return Ok(());
-                                }
-                            }
-                        }
-                    }
+                    self.command_button_dozer_construct_at_position(template, pos);
+                    return Ok(());
                 }
             }
             CommandType::FireWeapon => {
@@ -674,6 +545,7 @@ impl Object {
                         return Ok(());
                     }
 
+                    self.lock_fire_weapon_from_command(command_button);
                     ai.ai_attack_position(pos, command_button.get_max_shots_to_fire(), source);
                     return Ok(());
                 }
@@ -689,7 +561,7 @@ impl Object {
         &self,
         button_id: u32,
         waypoint: &crate::object::special_power_module::Waypoint,
-        _source: CommandSource,
+        source: CommandSource,
     ) -> Result<(), String> {
         use crate::commands::command::CommandType;
         use crate::control_bar::get_control_bar_bridge;
@@ -718,14 +590,13 @@ impl Object {
             if let Some(template) = command_button.get_special_power_template() {
                 let mut command_options = options;
                 command_options.insert(SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT);
-                if self
-                    .with_special_power_module_mut_by_name(template.get_name(), |sp_module| {
-                        sp_module.do_special_power_using_waypoints(waypoint, command_options);
-                    })
-                    .is_some()
-                {
-                    return Ok(());
-                }
+                self.command_button_special_power_using_waypoints(
+                    template.get_name(),
+                    waypoint,
+                    command_options,
+                    source,
+                );
+                return Ok(());
             }
         }
 
@@ -1065,6 +936,7 @@ impl Object {
         &self,
         special_power_template_name: &str,
         location: &Coord3D,
+        angle: f32,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
         forced: bool,
     ) {
@@ -1077,7 +949,7 @@ impl Object {
         }
 
         self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
-            sp_module.do_special_power_at_location(location, INVALID_ANGLE, command_options);
+            sp_module.do_special_power_at_location(location, angle, command_options);
         });
     }
 

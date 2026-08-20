@@ -34,6 +34,9 @@ impl TerrainVisualImpl {
             water_sampler: None,
             water_texture_bind_group: None,
             water_texture_is_fallback: false,
+            river_gpu: RiverGpuState::default(),
+            shroud_gpu: ShroudGpuState::default(),
+            water_named_bind_groups: HashMap::new(),
             road_pipeline: None,
             road_texture_bind_group_layout: None,
             road_texture: None,
@@ -412,6 +415,18 @@ impl TerrainVisualImpl {
                 self.water_y
             }
         }
+        let show_soft = get_global_data()
+            .map(|g| g.read().show_soft_water_edge)
+            .unwrap_or(true);
+        let transparent_depth = get_water_transparency()
+            .and_then(|t| {
+                t.read()
+                    .ok()
+                    .map(|s| s.get_final_override().transparent_water_depth)
+            })
+            .unwrap_or(1.0);
+        self.water_tracks
+            .set_render_enabled(show_soft, transparent_depth);
         let water_y = get_global_data()
             .map(|g| g.read().water_position_z)
             .or_else(|| self.get_water_grid_height(0.0, 0.0))
@@ -431,44 +446,104 @@ impl TerrainVisualImpl {
             self.water_track_meshes.clear();
             return;
         };
-        let flush = &self.last_water_tracks_flush;
+        let flush = self.last_water_tracks_flush.clone();
         if flush.vertices.is_empty() || flush.indices.is_empty() {
             self.water_track_meshes.clear();
             return;
         }
-        let gpu_vertices: Vec<WaterGpuVertex> = flush
-            .vertices
-            .iter()
-            .map(|v| {
-                let rgba = crate::terrain::unpack_bgra_rgba(v.diffuse);
-                WaterGpuVertex {
-                    // C++ water-track verts are Z-up world; wgpu water pipeline is Y-up.
-                    position: [v.x, v.z, v.y],
-                    color: [rgba[0], rgba[1], rgba[2]],
-                    tex_coords: [v.u1, v.v1],
-                    alpha: rgba[3],
-                    packed_c: v.diffuse,
-                }
-            })
-            .collect();
-        let gpu_indices: Vec<u32> = crate::terrain::triangle_list_from_strip(&flush.indices);
-        if gpu_vertices.is_empty() || gpu_indices.is_empty() {
-            self.water_track_meshes.clear();
+        let mut meshes = Vec::new();
+        if flush.ranges.is_empty() {
+            let gpu_vertices: Vec<WaterGpuVertex> = flush
+                .vertices
+                .iter()
+                .map(|v| {
+                    let rgba = crate::terrain::unpack_bgra_rgba(v.diffuse);
+                    WaterGpuVertex {
+                        position: [v.x, v.z, v.y],
+                        color: [rgba[0], rgba[1], rgba[2]],
+                        tex_coords: [v.u1, v.v1],
+                        alpha: rgba[3],
+                        packed_c: v.diffuse,
+                    }
+                })
+                .collect();
+            let gpu_indices: Vec<u32> = crate::terrain::triangle_list_from_strip(&flush.indices);
+            if !gpu_vertices.is_empty() && !gpu_indices.is_empty() {
+                self.ensure_named_water_bind_group(device.as_ref(), "wave256.tga");
+                meshes.push(GpuWaterPlane {
+                    vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Water Tracks Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&gpu_vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                    index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Water Tracks Index Buffer"),
+                        contents: bytemuck::cast_slice(&gpu_indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    }),
+                    index_count: gpu_indices.len() as u32,
+                    texture_name: "wave256.tga".to_string(),
+                    jba: false,
+                });
+            }
+            self.water_track_meshes = meshes;
             return;
         }
-        self.water_track_meshes = vec![GpuWaterPlane {
-            vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Water Tracks Vertex Buffer"),
-                contents: bytemuck::cast_slice(&gpu_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Water Tracks Index Buffer"),
-                contents: bytemuck::cast_slice(&gpu_indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
-            index_count: gpu_indices.len() as u32,
-        }];
+        for range in &flush.ranges {
+            let end_v = (range.first_vertex + range.vertex_count).min(flush.vertices.len());
+            if range.first_vertex >= end_v {
+                continue;
+            }
+            let verts = &flush.vertices[range.first_vertex..end_v];
+            let end_i = (range.first_index + range.index_count).min(flush.indices.len());
+            let strip: Vec<u16> = if range.first_index < end_i {
+                flush.indices[range.first_index..end_i]
+                    .iter()
+                    .map(|i| i.saturating_sub(range.first_vertex as u16))
+                    .collect()
+            } else {
+                continue;
+            };
+            let gpu_vertices: Vec<WaterGpuVertex> = verts
+                .iter()
+                .map(|v| {
+                    let rgba = crate::terrain::unpack_bgra_rgba(v.diffuse);
+                    WaterGpuVertex {
+                        position: [v.x, v.z, v.y],
+                        color: [rgba[0], rgba[1], rgba[2]],
+                        tex_coords: [v.u1, v.v1],
+                        alpha: rgba[3],
+                        packed_c: v.diffuse,
+                    }
+                })
+                .collect();
+            let gpu_indices: Vec<u32> = crate::terrain::triangle_list_from_strip(&strip);
+            if gpu_vertices.is_empty() || gpu_indices.is_empty() {
+                continue;
+            }
+            let texture_name = if range.texture_name.is_empty() {
+                "wave256.tga".to_string()
+            } else {
+                range.texture_name.clone()
+            };
+            self.ensure_named_water_bind_group(device.as_ref(), &texture_name);
+            meshes.push(GpuWaterPlane {
+                vertex_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Water Tracks Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&gpu_vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+                index_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Water Tracks Index Buffer"),
+                    contents: bytemuck::cast_slice(&gpu_indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                index_count: gpu_indices.len() as u32,
+                texture_name,
+                jba: false,
+            });
+        }
+        self.water_track_meshes = meshes;
     }
 
     pub fn water_tracks_mut(&mut self) -> &mut crate::terrain::WaterTracksRenderSystem {

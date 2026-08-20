@@ -50,8 +50,12 @@ impl Locomotor {
             .map_err(|e| format!("Locomotor xfer maxTurnRate: {:?}", e))?;
         xfer.xfer_real(&mut self.close_enough_dist)
             .map_err(|e| format!("Locomotor xfer closeEnoughDist: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.flags)
+        let mut flags = self.flags & LOCO_FLAG_XFER_MASK;
+        xfer.xfer_unsigned_int(&mut flags)
             .map_err(|e| format!("Locomotor xfer flags: {:?}", e))?;
+        if xfer.is_loading() {
+            self.flags = (self.flags & !LOCO_FLAG_XFER_MASK) | (flags & LOCO_FLAG_XFER_MASK);
+        }
         xfer.xfer_real(&mut self.preferred_height)
             .map_err(|e| format!("Locomotor xfer preferredHeight: {:?}", e))?;
         xfer.xfer_real(&mut self.preferred_height_damping)

@@ -158,6 +158,21 @@ impl WeaponStore {
         self.weapon_templates.get(name)
     }
 
+    /// Name lookup that also matches INI case variants (C++ NameKey is case-insensitive).
+    pub fn find_weapon_template_ci(&self, name: &str) -> Option<&Arc<WeaponTemplate>> {
+        if let Some(found) = self.find_weapon_template(name) {
+            return Some(found);
+        }
+        if name.eq_ignore_ascii_case("None") {
+            return None;
+        }
+        self.weapon_templates
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, template)| template)
+    }
+
+
     /// Find weapon template by name key
     pub fn find_weapon_template_by_name_key(&self, key: u32) -> Option<&Arc<WeaponTemplate>> {
         self.weapon_templates_by_key.get(&key)
@@ -232,9 +247,21 @@ impl WeaponStore {
         if template.name_key == 0 && !template.name.is_empty() {
             template.name_key = NameKeyGenerator::name_to_key(&template.name);
         }
+        template.fill_historic_bonus_weapon_name();
+        if template.historic_bonus_weapon.is_none()
+            && !template.historic_bonus_weapon_name.is_empty()
+        {
+            if let Some(bonus) = self
+                .find_weapon_template_ci(&template.historic_bonus_weapon_name)
+                .cloned()
+            {
+                template.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+            }
+        }
         let name = template.name.clone();
         let name_key = template.name_key;
         let arc_template = Arc::new(template);
+
 
         self.weapon_templates
             .insert(name, Arc::clone(&arc_template));

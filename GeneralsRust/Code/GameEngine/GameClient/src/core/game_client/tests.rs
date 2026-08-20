@@ -373,12 +373,8 @@ mod tests {
             }
         }
 
-        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
-            logic.set_current_frame(100);
-        }
-
         let mut client = GameClient::new().expect("GameClient::new should succeed");
-        client.frame = 1;
+        client.set_frame(100);
         assert!(
             !client.should_freeze_visual_time(),
             "first pass at a logic frame should not freeze when no freeze flags are set"
@@ -388,16 +384,13 @@ mod tests {
             "second pass in the same logic frame should freeze (C++ lastFrame == m_frame guard)"
         );
 
-        // Changing client frame alone should not bypass same-frame freeze; logic frame drives this.
-        client.frame = client.frame.wrapping_add(1);
+        client.set_frame(100);
         assert!(
             client.should_freeze_visual_time(),
-            "same logic frame must remain frozen even if client update counter changes"
+            "same host logic frame must remain frozen"
         );
 
-        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
-            logic.set_current_frame(101);
-        }
+        client.set_frame(101);
         assert!(
             !client.should_freeze_visual_time(),
             "advancing simulation frame should clear same-frame freeze guard"

@@ -301,6 +301,37 @@ pub struct OverlayGpuState {
     pub last_sway_version: i32,
 }
 
+#[derive(Default)]
+struct ShroudGpuState {
+    dest_texture: Option<wgpu::Texture>,
+    dest_view: Option<wgpu::TextureView>,
+    sampler: Option<Sampler>,
+    params: Option<Buffer>,
+    bind_layout: Option<Arc<BindGroupLayout>>,
+    bind_group: Option<BindGroup>,
+    water_pipeline: Option<wgpu::RenderPipeline>,
+    road_pipeline: Option<wgpu::RenderPipeline>,
+    tree_pipeline: Option<wgpu::RenderPipeline>,
+    uploaded_len: usize,
+}
+
+#[derive(Default)]
+struct RiverGpuState {
+    pipeline: Option<wgpu::RenderPipeline>,
+    bind_layout: Option<Arc<BindGroupLayout>>,
+    bind_group: Option<BindGroup>,
+    params: Option<Buffer>,
+    river_tex: Option<Texture>,
+    sparkle_tex: Option<Texture>,
+    noise_tex: Option<Texture>,
+    edge_tex: Option<Texture>,
+}
+
+struct NamedWaterBind {
+    _texture: Texture,
+    bind_group: BindGroup,
+}
+
 
 /// Terrain LOD levels matching C++ implementation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

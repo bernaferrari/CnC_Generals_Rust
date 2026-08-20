@@ -13,6 +13,24 @@ use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::{Arc, RwLock};
 use std::sync::OnceLock;
 
+mod draw_events;
+mod map_source;
+mod objects;
+mod snapshot;
+mod terrain;
+mod try_event;
+mod window;
+
+pub use map_source::{register_radar_map_source, RadarMapSource};
+pub use objects::{
+    register_radar_data_sink, register_radar_object_provider, RadarDataSink, RadarObjectInsert,
+    RadarObjectProvider,
+};
+pub use snapshot::{ensure_the_radar_snapshot_block, register_the_radar_snapshot_block};
+pub use terrain::{register_radar_terrain_paint_source, RadarBridgeSample, RadarTerrainPaintSource};
+pub use window::{register_radar_window_source, RadarWindowGeom, RadarWindowSource};
+
+
 /// Victim kind flags used by `tryUnderAttackEvent` / `tryInfiltrationEvent`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RadarVictimInfo {
@@ -61,9 +79,9 @@ pub const W3D_RADAR_OVERLAY_REFRESH_RATE: u32 = 6;
 pub const RADAR_QUEUE_TERRAIN_REFRESH_DELAY: u32 = 90; // 30 FPS * 3 seconds
 
 #[derive(Debug, Clone, Copy, Default)]
-struct RadarTerrainSample {
-    height: f32,
-    is_water: bool,
+pub(crate) struct RadarTerrainSample {
+    pub(crate) height: f32,
+    pub(crate) is_water: bool,
 }
 
 /// Radar event types (matches C++ RadarEventType)
@@ -980,6 +998,9 @@ pub struct RadarSystem {
 
     /// Radar jamming sources (objects creating jamming fields)
     jamming_sources: Vec<JammingSource>,
+
+    /// C++ `m_radarWindow` — bound `ControlBar.wnd:LeftHUD` rectangle.
+    radar_window: Option<window::RadarWindowGeom>,
 }
 
 impl RadarSystem {
@@ -1033,6 +1054,7 @@ impl RadarSystem {
             gps_active_until_frame: 0,
             radar_scans: Vec::new(),
             jamming_sources: Vec::new(),
+            radar_window: None,
         }
     }
 
@@ -1057,7 +1079,14 @@ impl RadarSystem {
 
     /// Update radar per frame (matches C++ Radar::update)
     pub fn update(&mut self, current_frame: u32) {
+        snapshot::ensure_the_radar_snapshot_block();
         self.current_frame = current_frame;
+        if self.radar_window.is_none() {
+            self.bind_left_hud_window();
+        }
+        if !self.has_map_extent() {
+            let _ = self.try_new_map_from_source();
+        }
 
         // Update events - check if any should die
         for event in &mut self.events {
@@ -1065,6 +1094,7 @@ impl RadarSystem {
                 event.active = false;
             }
         }
+        self.play_unplayed_event_sounds();
 
         // Check for queued terrain refresh
         if let Some(refresh_frame) = self.queue_terrain_refresh_frame {
@@ -1086,6 +1116,7 @@ impl RadarSystem {
 
         // Update stealth detection
         self.update_stealth_detection();
+        self.sync_objects_from_provider();
     }
 
     /// Current logic frame used for radar animation and event expiry.
@@ -1109,6 +1140,8 @@ impl RadarSystem {
         map_max: Coord3D,
         terrain_heights: &[(f32, f32, bool)],
     ) {
+        // C++ Radar::newMap: NAMEKEY LeftHUD then reset + sample.
+        self.bind_left_hud_window();
         self.reset();
 
         self.map_extent = Region3D {
@@ -1120,19 +1153,37 @@ impl RadarSystem {
         self.x_sample = self.map_extent.width() / RADAR_CELL_WIDTH as f32;
         self.y_sample = self.map_extent.height() / RADAR_CELL_HEIGHT as f32;
 
-        // Calculate average terrain and water heights
+        // C++ averages every other radar cell (`y+=2`, `x+=2`).
         let mut terrain_sum = 0.0;
         let mut water_sum = 0.0;
         let mut terrain_count = 0;
         let mut water_count = 0;
+        let expected_samples = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let full_grid = terrain_heights.len() == expected_samples;
 
-        for &(_x, z, is_water) in terrain_heights {
-            if is_water {
-                water_sum += z;
-                water_count += 1;
-            } else {
-                terrain_sum += z;
-                terrain_count += 1;
+        if full_grid {
+            for y in (0..RADAR_CELL_HEIGHT).step_by(2) {
+                for x in (0..RADAR_CELL_WIDTH).step_by(2) {
+                    let (_, z, is_water) =
+                        terrain_heights[(y * RADAR_CELL_WIDTH + x) as usize];
+                    if is_water {
+                        water_sum += z;
+                        water_count += 1;
+                    } else {
+                        terrain_sum += z;
+                        terrain_count += 1;
+                    }
+                }
+            }
+        } else {
+            for &(_x, z, is_water) in terrain_heights {
+                if is_water {
+                    water_sum += z;
+                    water_count += 1;
+                } else {
+                    terrain_sum += z;
+                    terrain_count += 1;
+                }
             }
         }
 
@@ -1148,9 +1199,8 @@ impl RadarSystem {
             0.0
         };
 
-        let expected_samples = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
         self.terrain_samples.clear();
-        if terrain_heights.len() == expected_samples {
+        if full_grid {
             self.terrain_samples.reserve(expected_samples);
             for &(_x, z, is_water) in terrain_heights {
                 self.terrain_samples.push(RadarTerrainSample {
@@ -1162,6 +1212,7 @@ impl RadarSystem {
 
         self.terrain_dirty = true;
         self.refresh_terrain();
+        snapshot::ensure_the_radar_snapshot_block();
     }
 
     /// Add object to radar (matches C++ Radar::addObject)
@@ -1314,6 +1365,23 @@ impl RadarSystem {
         self.next_free_event = (self.next_free_event + 1) % MAX_RADAR_EVENTS;
     }
 
+    /// C++ `Radar::tryEvent` — type + 250² + 10s, inactive history still counts.
+    pub fn try_event(&mut self, event_type: RadarEventType, world_loc: &Coord3D) -> bool {
+        if matches!(event_type, RadarEventType::Invalid) {
+            return false;
+        }
+        if try_event::should_suppress_event(
+            &self.events,
+            event_type,
+            world_loc,
+            self.current_frame,
+        ) {
+            return false;
+        }
+        self.create_event(world_loc, event_type, 4.0);
+        true
+    }
+
     /// Try to create under attack event (matches C++ Radar::tryUnderAttackEvent).
     pub fn try_under_attack_event(&mut self, world_loc: &Coord3D) -> bool {
         self.try_under_attack_event_for(world_loc, None)
@@ -1325,24 +1393,10 @@ impl RadarSystem {
         world_loc: &Coord3D,
         victim: Option<&RadarVictimInfo>,
     ) -> bool {
-        const CLOSE_ENOUGH_DISTANCE_SQ: f32 = 250.0 * 250.0;
-        const FRAMES_BETWEEN_EVENTS: u32 = 300; // 10 seconds at 30 FPS
-
-        for event in &self.events {
-            if event.event_type == RadarEventType::UnderAttack && event.active {
-                let dx = event.world_loc.x - world_loc.x;
-                let dy = event.world_loc.y - world_loc.y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq <= CLOSE_ENOUGH_DISTANCE_SQ
-                    && self.current_frame - event.create_frame < FRAMES_BETWEEN_EVENTS
-                {
-                    return false;
-                }
-            }
+        if !self.try_event(RadarEventType::UnderAttack, world_loc) {
+            return false;
         }
 
-        self.create_event(world_loc, RadarEventType::UnderAttack, 4.0);
 
         if let Some(fb) = radar_feedback() {
             fb.trigger_radar_attack_glow();
@@ -1404,76 +1458,9 @@ impl RadarSystem {
         self.last_event.map(|idx| self.events[idx].world_loc)
     }
 
-    /// Refresh terrain texture (matches C++ Radar::refreshTerrain)
+    /// Refresh terrain texture (matches C++ Radar::refreshTerrain / W3DRadar::buildTerrainTexture).
     pub fn refresh_terrain(&mut self) {
-        self.queue_terrain_refresh_frame = None;
-        self.terrain_dirty = true;
-
-        let expected_samples = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
-        if self.terrain_samples.len() == expected_samples {
-            let mut min_h = f32::MAX;
-            let mut max_h = f32::MIN;
-            for sample in &self.terrain_samples {
-                min_h = min_h.min(sample.height);
-                max_h = max_h.max(sample.height);
-            }
-            let range = (max_h - min_h).max(1.0);
-            let mid_h = self.terrain_average_z;
-            let idx = |x: u32, y: u32| -> usize { (y * RADAR_CELL_WIDTH + x) as usize };
-
-            for y in 0..RADAR_CELL_HEIGHT {
-                for x in 0..RADAR_CELL_WIDTH {
-                    let sample = self.terrain_samples[idx(x, y)];
-                    let h = sample.height;
-                    let elevation = ((h - min_h) / range).clamp(0.0, 1.0);
-
-                    let (mut r, mut g, mut b) = if sample.is_water {
-                        (44.0, 86.0, 140.0)
-                    } else {
-                        (
-                            54.0 + (182.0 - 54.0) * elevation,
-                            66.0 + (166.0 - 66.0) * elevation,
-                            46.0 + (120.0 - 46.0) * elevation,
-                        )
-                    };
-
-                    if sample.is_water {
-                        let depth = ((self.water_average_z - h) / range).clamp(0.0, 1.0);
-                        b += 26.0 * depth;
-                        g += 8.0 * depth;
-                        r *= 1.0 - 0.10 * depth;
-                    }
-
-                    let [ir, ig, ib] = interpolate_color_for_height(
-                        [r / 255.0, g / 255.0, b / 255.0],
-                        h,
-                        max_h,
-                        mid_h,
-                        min_h,
-                    );
-                    r = ir * 255.0;
-                    g = ig * 255.0;
-                    b = ib * 255.0;
-
-                    let base = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
-                    self.terrain_texture[base] = r.clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 1] = g.clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 2] = b.clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 3] = 255;
-                }
-            }
-        } else {
-            for i in 0..self.terrain_texture.len() / 4 {
-                let idx = i * 4;
-                // Fallback to legacy terrain tint when detailed samples are unavailable.
-                self.terrain_texture[idx] = 139;
-                self.terrain_texture[idx + 1] = 119;
-                self.terrain_texture[idx + 2] = 70;
-                self.terrain_texture[idx + 3] = 255;
-            }
-        }
-
-        self.terrain_dirty = false;
+        self.build_terrain_texture_cpp();
     }
 
     /// Queue terrain refresh (matches C++ Radar::queueTerrainRefresh)
@@ -1520,9 +1507,9 @@ impl RadarSystem {
         self.radar_force_on
     }
 
-    /// Get all active events
+    /// Get drawable active events (C++ `drawEvents` skips `RADAR_EVENT_FAKE`).
     pub fn get_active_events(&self) -> Vec<&RadarEvent> {
-        self.events.iter().filter(|e| e.active).collect()
+        self.drawable_events()
     }
 
     /// Get all radar objects
@@ -1629,53 +1616,13 @@ impl RadarSystem {
     /// Try to create stealth discovered event
     /// Matches C++ pattern for stealth events (referenced in Radar.h line 50)
     pub fn try_stealth_discovered_event(&mut self, world_loc: &Coord3D) -> bool {
-        const CLOSE_ENOUGH_DISTANCE_SQ: f32 = 250.0 * 250.0;
-        const FRAMES_BETWEEN_EVENTS: u32 = 300; // 10 seconds at 30 FPS
-
-        // Check if there's a recent stealth discovered event nearby
-        for event in &self.events {
-            if event.event_type == RadarEventType::StealthDiscovered && event.active {
-                let dx = event.world_loc.x - world_loc.x;
-                let dy = event.world_loc.y - world_loc.y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq <= CLOSE_ENOUGH_DISTANCE_SQ {
-                    if self.current_frame - event.create_frame < FRAMES_BETWEEN_EVENTS {
-                        return false; // Too soon, reject
-                    }
-                }
-            }
-        }
-
-        // Create new event
-        self.create_event(world_loc, RadarEventType::StealthDiscovered, 4.0);
-        true
+        self.try_event(RadarEventType::StealthDiscovered, world_loc)
     }
 
     /// Try to create stealth neutralized event (our stealth was revealed)
     /// Matches C++ pattern for stealth events (referenced in Radar.h line 51)
     pub fn try_stealth_neutralized_event(&mut self, world_loc: &Coord3D) -> bool {
-        const CLOSE_ENOUGH_DISTANCE_SQ: f32 = 250.0 * 250.0;
-        const FRAMES_BETWEEN_EVENTS: u32 = 300; // 10 seconds at 30 FPS
-
-        // Check if there's a recent stealth neutralized event nearby
-        for event in &self.events {
-            if event.event_type == RadarEventType::StealthNeutralized && event.active {
-                let dx = event.world_loc.x - world_loc.x;
-                let dy = event.world_loc.y - world_loc.y;
-                let dist_sq = dx * dx + dy * dy;
-
-                if dist_sq <= CLOSE_ENOUGH_DISTANCE_SQ {
-                    if self.current_frame - event.create_frame < FRAMES_BETWEEN_EVENTS {
-                        return false; // Too soon, reject
-                    }
-                }
-            }
-        }
-
-        // Create new event
-        self.create_event(world_loc, RadarEventType::StealthNeutralized, 4.0);
-        true
+        self.try_event(RadarEventType::StealthNeutralized, world_loc)
     }
 
     /// Re-examine an object and update its radar data
@@ -2494,10 +2441,19 @@ static RADAR_SYSTEM: RwLock<Option<Arc<RwLock<RadarSystem>>>> = RwLock::new(None
 
 /// Get global radar system
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
-    let mut guard = RADAR_SYSTEM.write().unwrap();
-    if guard.is_none() {
-        *guard = Some(Arc::new(RwLock::new(RadarSystem::new())));
+    let created = {
+        let mut guard = RADAR_SYSTEM.write().unwrap();
+        if guard.is_none() {
+            *guard = Some(Arc::new(RwLock::new(RadarSystem::new())));
+            true
+        } else {
+            false
+        }
+    };
+    if created {
+        snapshot::ensure_the_radar_snapshot_block();
     }
+    let guard = RADAR_SYSTEM.read().unwrap();
     guard.as_ref().unwrap().clone()
 }
 
@@ -3762,5 +3718,22 @@ mod tests {
         assert!(CellShroudStatus::Clear.is_explored());
         assert!(CellShroudStatus::Fogged.is_explored());
         assert!(!CellShroudStatus::Shrouded.is_explored());
+    }
+
+    #[test]
+    fn try_event_throttles_inactive_history_for_ten_seconds() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        let loc = Coord3D::new(100.0, 100.0, 0.0);
+        assert!(radar.try_event(RadarEventType::UnderAttack, &loc));
+        radar.update(150);
+        assert_eq!(radar.get_active_events().len(), 0);
+        assert!(!radar.try_event(RadarEventType::UnderAttack, &loc));
+        radar.update(400);
+        assert!(radar.try_event(RadarEventType::UnderAttack, &loc));
     }
 }

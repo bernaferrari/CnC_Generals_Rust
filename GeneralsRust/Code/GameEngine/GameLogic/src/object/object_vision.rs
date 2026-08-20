@@ -8,13 +8,6 @@ use super::object_impl_imports::*;
 use super::*;
 
 impl Object {
-    pub fn get_shroud_clearing_range(&self) -> Real {
-        self.shroud_clearing_range
-    }
-
-    pub fn set_shroud_clearing_range(&mut self, range: Real) {
-        self.shroud_clearing_range = range.max(0.0);
-    }
 
     pub fn get_shroud_range(&self) -> Real {
         self.shroud_range
@@ -184,23 +177,15 @@ impl Object {
             } else if let (Ok(controller_guard), Ok(list)) =
                 (controller.read(), player_list().read())
             {
-                let controller_team = controller_guard.get_default_team();
                 for current_player_arc in list.iter() {
                     let Ok(current_player) = current_player_arc.read() else {
                         continue;
                     };
 
-                    let is_allied =
-                        match (controller_team.as_ref(), current_player.get_default_team()) {
-                            (Some(a), Some(b)) => {
-                                if let (Ok(a_guard), Ok(b_guard)) = (a.read(), b.read()) {
-                                    a_guard.get_relationship(&b_guard) == Relationship::Allies
-                                } else {
-                                    false
-                                }
-                            }
-                            _ => false,
-                        };
+                    let is_allied = Self::controller_relationship_to_player_default_team(
+                        &controller_guard,
+                        &current_player,
+                    ) == Relationship::Allies;
 
                     if is_allied {
                         looking_mask |= current_player.get_player_mask();
@@ -231,22 +216,14 @@ impl Object {
                 let mut players_mask = PlayerMaskType::none();
                 if let (Ok(controller_guard), Ok(list)) = (controller.read(), player_list().read())
                 {
-                    let controller_team = controller_guard.get_default_team();
                     for current_player_arc in list.iter() {
                         let Ok(current_player) = current_player_arc.read() else {
                             continue;
                         };
-                        let relationship =
-                            match (controller_team.as_ref(), current_player.get_default_team()) {
-                                (Some(a), Some(b)) => {
-                                    if let (Ok(a_guard), Ok(b_guard)) = (a.read(), b.read()) {
-                                        a_guard.get_relationship(&b_guard)
-                                    } else {
-                                        Relationship::Neutral
-                                    }
-                                }
-                                _ => Relationship::Neutral,
-                            };
+                        let relationship = Self::controller_relationship_to_player_default_team(
+                            &controller_guard,
+                            &current_player,
+                        );
                         if matches!(relationship, Relationship::Enemies | Relationship::Neutral) {
                             players_mask |= current_player.get_player_mask();
                         }
@@ -309,22 +286,14 @@ impl Object {
 
         let mut shrouding_mask = PlayerMaskType::none();
         if let (Ok(controller_guard), Ok(list)) = (controller.read(), player_list().read()) {
-            let controller_team = controller_guard.get_default_team();
             for current_player_arc in list.iter() {
                 let Ok(current_player) = current_player_arc.read() else {
                     continue;
                 };
-                let relationship =
-                    match (controller_team.as_ref(), current_player.get_default_team()) {
-                        (Some(a), Some(b)) => {
-                            if let (Ok(a_guard), Ok(b_guard)) = (a.read(), b.read()) {
-                                a_guard.get_relationship(&b_guard)
-                            } else {
-                                Relationship::Neutral
-                            }
-                        }
-                        _ => Relationship::Neutral,
-                    };
+                let relationship = Self::controller_relationship_to_player_default_team(
+                    &controller_guard,
+                    &current_player,
+                );
                 if relationship != Relationship::Allies {
                     shrouding_mask |= current_player.get_player_mask();
                 }
@@ -463,25 +432,6 @@ impl Object {
         self.handle_threat_map();
     }
 
-    /// C++ parity: Object::friend_prepareForMapBoundaryAdjust() (Object.cpp line 2777)
-    pub fn friend_prepare_for_map_boundary_adjust(&mut self) {
-        self.partition_last_look.reset();
-        self.partition_reveal_all_last_look.reset();
-        self.partition_last_shroud.reset();
-        self.partition_last_threat.reset();
-        self.partition_last_value.reset();
-    }
-
-    /// C++ parity: Object::friend_notifyOfNewMapBoundary() (Object.cpp line 2799)
-    pub fn friend_notify_of_new_map_boundary(&mut self) {
-        self.handle_partition_cell_maintenance();
-
-        if self.is_off_map() {
-            self.private_status |= ObjectPrivateStatusBits::OffMap as u8;
-        } else {
-            self.private_status &= !(ObjectPrivateStatusBits::OffMap as u8);
-        }
-    }
 
     /// Set visibility flag for a specific player
     /// Called by rendering system to update visibility based on ShroudManager
@@ -535,42 +485,6 @@ impl Object {
         Ok(())
     }
 
-    /// C++ Object::getShroudedStatus.
-    pub fn get_shrouded_status(&self, player_index: i32) -> ObjectShroudStatus {
-        use crate::system::explored_territory::get_explored_territory_manager;
-        use crate::system::shroud_manager::get_shroud_manager;
-
-        if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
-            return ObjectShroudStatus::Clear;
-        }
-        let player_id = player_index as usize;
-
-        let visible = get_shroud_manager()
-            .lock()
-            .ok()
-            .map(|mgr| mgr.can_see_object(player_id as u32, self.id))
-            .unwrap_or(true);
-
-        if visible {
-            let alpha = self.visibility_alpha[player_id];
-            if alpha > 0.0 && alpha < 1.0 {
-                return ObjectShroudStatus::PartialClear;
-            }
-            return ObjectShroudStatus::Clear;
-        }
-
-        let explored = get_explored_territory_manager()
-            .lock()
-            .ok()
-            .map(|mgr| mgr.has_explored_object(player_id, self.id))
-            .unwrap_or(false);
-
-        if explored {
-            ObjectShroudStatus::Fogged
-        } else {
-            ObjectShroudStatus::Shrouded
-        }
-    }
 
     /// Smoothly interpolate visibility alpha for fade-in/out effects
     /// Used for gradient fog-of-war transitions between visibility states

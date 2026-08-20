@@ -514,20 +514,21 @@ fn fx_local_player_index() -> i32 {
         .unwrap_or(-1)
 }
 
+/// C++ `FXList::doFXPos` (FXList.cpp:784) plays only when
+/// `ThePartitionManager->getShroudStatusForPlayer(localPlayer, primary) == CELLSHROUD_CLEAR`.
+/// `PartitionManager.cpp:3017-3023` returns `CELLSHROUD_SHROUDED` for
+/// `playerIndex < 0` or a missing cell (including an uninitialized grid).
 fn fx_pos_cell_is_clear(primary: Option<&Coord3D>) -> bool {
     let Some(primary) = primary else {
-        return true;
+        return false;
     };
     let player = fx_local_player_index();
     if player < 0 {
-        return true;
+        return false;
     }
     let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
-        return true;
+        return false;
     };
-    if !shroud.has_shroud_grid() {
-        return true;
-    }
     matches!(
         shroud.get_shroud_state(player as u32, primary),
         gamelogic::system::shroud_manager::ShroudState::Visible
@@ -1736,8 +1737,7 @@ mod tests {
 
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
-        let mut list = FXList::new();
-        list.add_fx_nugget(Box::new(TracerFXNugget {
+        let nugget = TracerFXNugget {
             tracer_name: "GenericTracer".to_string(),
             bone_name: String::new(),
             speed: 10.0,
@@ -1746,10 +1746,17 @@ mod tests {
             width: 2.0,
             color: Vec3::new(0.9, 0.2, 0.1),
             probability: 1.0,
-        }));
+        };
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(nugget.clone()));
         let primary = Coord3D::new(0.0, 0.0, 0.0);
         let secondary = Coord3D::new(100.0, 0.0, 0.0);
         list.do_fx_pos(Some(&primary), None, 0.0, Some(&secondary), 0.0);
+        assert!(
+            live_tracer_fx().is_empty(),
+            "FXList::doFXPos must skip Tracer nuggets when the cell is not CELLSHROUD_CLEAR"
+        );
+        nugget.do_fx_pos(Some(&primary), None, 0.0, Some(&secondary), 0.0);
 
         let tracers = live_tracer_fx();
         assert_eq!(
@@ -1807,24 +1814,107 @@ mod tests {
     #[test]
     fn fx_list_do_fx_pos_runs_light_pulse_nugget() {
         let _ = drain_display_light_pulses();
-        let mut list = FXList::new();
-        list.add_fx_nugget(Box::new(LightPulseFXNugget {
+        let nugget = LightPulseFXNugget {
             color: Vec3::new(0.2, 0.4, 0.8),
             radius: 40.0,
             bounding_circle_pct: 0.0,
             increase_frames: 2,
             decrease_frames: 4,
-        }));
+        };
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(nugget.clone()));
         let pos = Coord3D {
             x: -8.0,
             y: 16.0,
             z: 1.0,
         };
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert!(
+            drain_display_light_pulses().is_empty(),
+            "FXList::doFXPos must skip LightPulse nuggets when the cell is not CELLSHROUD_CLEAR"
+        );
+        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         let pulses = drain_display_light_pulses();
         assert_eq!(pulses.len(), 1);
         assert_eq!(pulses[0].outer_radius, 40.0);
         assert_eq!(pulses[0].pos, [-8.0, 16.0, 1.0]);
+    }
+
+    #[test]
+    fn fx_list_do_fx_pos_skips_audio_and_particles_on_unexplored_cell() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let played = Arc::new(AtomicU32::new(0));
+        let hook_played = Arc::clone(&played);
+        register_fx_audio(Box::new(move |name, _pos| {
+            if name == "WeaponFireShrouded" {
+                hook_played.fetch_add(1, Ordering::SeqCst);
+            }
+        }));
+        let _ = drain_display_light_pulses();
+
+        let pos = Coord3D::new(50.0, 50.0, 0.0);
+        let prev_player = gamelogic::player::player_list()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player_index())
+            .unwrap_or(-1);
+
+        {
+            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .expect("shroud");
+            *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+            shroud.init_shroud_grid(500.0, 500.0);
+        }
+        if let Ok(mut list) = gamelogic::player::player_list().write() {
+            list.set_local_player_index(0);
+        }
+
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(SoundFXNugget {
+            sound_name: "WeaponFireShrouded".to_string(),
+        }));
+        list.add_fx_nugget(Box::new(LightPulseFXNugget {
+            color: Vec3::ONE,
+            radius: 40.0,
+            bounding_circle_pct: 0.0,
+            increase_frames: 2,
+            decrease_frames: 4,
+        }));
+
+        list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert_eq!(
+            played.load(Ordering::SeqCst),
+            0,
+            "unexplored CELLSHROUD_SHROUDED must not leak Sound nuggets"
+        );
+        assert!(
+            drain_display_light_pulses().is_empty(),
+            "unexplored CELLSHROUD_SHROUDED must not leak LightPulse/particle nuggets"
+        );
+
+        {
+            let mut shroud = gamelogic::system::shroud_manager::get_shroud_manager()
+                .lock()
+                .expect("shroud");
+            shroud.do_shroud_reveal(&pos, 75.0, 1);
+        }
+        list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert_eq!(
+            played.load(Ordering::SeqCst),
+            1,
+            "CELLSHROUD_CLEAR must play Sound nuggets"
+        );
+        assert_eq!(drain_display_light_pulses().len(), 1);
+
+        if let Ok(mut players) = gamelogic::player::player_list().write() {
+            players.set_local_player_index(prev_player);
+        }
+        *gamelogic::system::shroud_manager::get_shroud_manager()
+            .lock()
+            .expect("shroud") = gamelogic::system::shroud_manager::ShroudManager::new();
+        register_fx_audio(Box::new(|_name, _pos| {}));
     }
 
     #[test]

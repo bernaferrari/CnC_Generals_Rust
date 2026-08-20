@@ -1466,6 +1466,7 @@ impl InGameUISubsystem {
     }
 
     pub fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
+        crate::gui::ingame_ui::start_military_subtitle(label, duration_ms);
         const MAX_MILITARY_SUBTITLES: usize = 8;
         if self.military_subtitles.len() == MAX_MILITARY_SUBTITLES {
             self.military_subtitles.pop_front();

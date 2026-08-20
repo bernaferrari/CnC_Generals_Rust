@@ -134,7 +134,7 @@ impl InGameUI {
                         None => return Ok(()),
                     };
                     let build_id = template.get_id();
-                    let is_line_build = template.is_kind_of(KindOf::Barrier);
+                    let is_line_build = template.is_kind_of(KindOf::LineBuild);
 
                     if is_line_build {
                         let start = MsgICoord2D::new(mouse_pos.x as i32, mouse_pos.y as i32);

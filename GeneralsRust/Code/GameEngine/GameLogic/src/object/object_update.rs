@@ -105,6 +105,7 @@ impl Object {
     pub fn update(&mut self, _delta_time: f32) -> Result<(), String> {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         self.check_disabled_status();
+        self.update_firing_tracker();
 
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {
@@ -351,12 +352,7 @@ impl Object {
             }
         }
 
-        // Award points to new owner for capturing
-        if let Some(new_owner_arc) = &new_owner {
-            if let Ok(_owner_guard) = new_owner_arc.read() {
-                log::debug!("Object {} captured - awarding points to new owner", self.id);
-            }
-        }
+        self.on_capture_award_score(&new_owner);
 
         // Rip through the behavior modules and call the onCapture for any modules that care
         log::debug!("Object {} notifying behavior modules of capture", self.id);
@@ -424,17 +420,7 @@ impl Object {
         log::debug!("Object {} marking UI dirty after capture", self.id);
         crate::control_bar::mark_ui_dirty();
 
-        // Special handling for skirmish AI capturing faction buildings
-        if owners_differ {
-            if let Some(new_owner_arc) = &new_owner {
-                if let Ok(_owner_guard) = new_owner_arc.read() {
-                    // if owner_guard.isSkirmishAIPlayer() && self.isFactionStructure() {
-                    //     log::debug!("Object {} is faction structure captured by AI - selling", self.id);
-                    //     TheBuildAssistant->sellObject(this);
-                    // }
-                }
-            }
-        }
+        self.on_capture_sell_ai_faction_building(owners_differ, &new_owner);
 
         log::debug!("Object {} on_capture processing complete", self.id);
     }
@@ -727,10 +713,7 @@ impl Object {
     /// * `new_team` - The team to defect to
     /// * `defection_type` - Type of defection (0 = normal)
     pub fn defect(&mut self, new_team: Option<Arc<RwLock<Team>>>, defection_type: u32) {
-        // Wave 264: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            return;
-        }
+        // C++ Object::defect does not early-out on an empty dual-world registry.
 
         // C++ parity: contained units do not defect.
         if self.get_container_id().is_some() {
@@ -836,6 +819,7 @@ impl Object {
                 draw_guard.flash_as_selected();
             }
         }
+        self.defect_play_voice_and_timer();
 
         if let Some(contain) = self.get_contain() {
             if let Ok(mut contain_guard) = contain.lock() {
@@ -850,25 +834,6 @@ impl Object {
             parking.defect_all_parked_units(target_team.clone(), detection_time);
         });
 
-        // Host path: empty dual-world registry residual.
-        if OBJECT_REGISTRY.is_empty() {
-            return;
-        }
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let mine = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(mut mine_guard) = mine.write() else {
-                continue;
-            };
-            if !mine_guard.is_kind_of(KindOf::Mine) {
-                continue;
-            }
-            if mine_guard.get_producer_id() != self.id {
-                continue;
-            }
-            let _ = mine_guard.set_team(Some(target_team.clone()));
-        }
+        self.defect_owned_mines(&target_team);
     }
 }

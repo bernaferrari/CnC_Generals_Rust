@@ -288,6 +288,8 @@ fn test_drawable_selection() {
 
     drawable.set_selected(false);
     assert!(!drawable.is_selected());
+    // C++ onUnselected is empty — envelope decays, it is not cut off.
+    assert!(drawable.selection_flash_envelope.is_some());
 }
 
 #[test]
@@ -1482,7 +1484,9 @@ fn test_render_state_from_flags_preserves_condition_overrides() {
     assert!((state.damage_overlay - 0.5).abs() < f32::EPSILON);
     assert!((state.opacity - 0.7).abs() < f32::EPSILON);
     assert!(state.selected);
-    assert_eq!(state.emissive_tint, [1.0, 0.8, 0.1]);
+    assert!((state.emissive_tint[0] - 1.2).abs() < f32::EPSILON);
+    assert!((state.emissive_tint[1] - 1.2).abs() < f32::EPSILON);
+    assert!((state.emissive_tint[2] - 0.15).abs() < f32::EPSILON);
 }
 
 #[test]
@@ -1923,4 +1927,151 @@ fn legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics() {
         recovered, legacy,
         "bridge conversion must round-trip Xfer layout"
     );
+}
+
+#[derive(Debug)]
+struct ConditionAndHiddenTestModule {
+    hidden: Arc<Mutex<Option<bool>>>,
+    conditions: Arc<Mutex<Option<u32>>>,
+}
+
+impl DrawModule for ConditionAndHiddenTestModule {
+    fn set_hidden(&mut self, hidden: bool) {
+        *self.hidden.lock() = Some(hidden);
+    }
+
+    fn replace_model_condition_state(
+        &mut self,
+        flags: &game_engine::common::bit_flags::ModelConditionBitFlags,
+    ) {
+        *self.conditions.lock() = Some(flags.count() as u32);
+    }
+}
+
+#[test]
+fn set_effective_opacity_does_not_overwrite_explicit_opacity() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.set_opacity(1.0);
+    drawable.set_effective_opacity(0.0, Some(0.5));
+    assert_near(drawable.get_explicit_opacity(), 1.0);
+    assert_near(drawable.get_effective_opacity(), 0.5);
+}
+
+#[test]
+fn detected_stealth_does_not_invent_first_pass_opacity() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.apply_stealth_look(StealthLook::VisibleDetected);
+    assert!(!drawable.is_effectively_hidden());
+    assert_near(drawable.get_opacity(), 1.0);
+    assert_near(drawable.second_material_pass_opacity, 1.0);
+}
+
+#[test]
+fn stealth_invisible_hides_modules_and_deselects() {
+    let hidden = Arc::new(Mutex::new(None));
+    let conditions = Arc::new(Mutex::new(None));
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
+        hidden: Arc::clone(&hidden),
+        conditions: Arc::clone(&conditions),
+    }));
+    drawable.set_selected(true);
+    assert!(drawable.is_selected());
+
+    drawable.apply_stealth_look(StealthLook::Invisible);
+    assert!(drawable.hidden_by_stealth);
+    assert!(!drawable.is_selected());
+    assert_eq!(*hidden.lock(), Some(true));
+}
+
+#[test]
+fn condition_flags_dirty_apply_to_draw_modules() {
+    let hidden = Arc::new(Mutex::new(None));
+    let conditions = Arc::new(Mutex::new(None));
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
+        hidden: Arc::clone(&hidden),
+        conditions: Arc::clone(&conditions),
+    }));
+
+    let mut set = game_engine::common::bit_flags::create_model_condition_flags();
+    set.set(ModelConditionFlags::NIGHT, true);
+    set.set(ModelConditionFlags::SNOW, true);
+    drawable.clear_and_set_model_condition_flags(
+        &game_engine::common::bit_flags::create_model_condition_flags(),
+        &set,
+    );
+    assert!(conditions.lock().is_none());
+
+    let _ = drawable.get_draw_modules_mut();
+    assert_eq!(*conditions.lock(), Some(2));
+
+    drawable.clear_model_condition_state(ModelConditionFlags::NIGHT);
+    let _ = drawable.get_draw_modules_mut();
+    assert_eq!(*conditions.lock(), Some(1));
+}
+
+#[test]
+fn signed_disabled_tint_fades_in_instead_of_snapping() {
+    let mut envelope = TintEnvelope::new();
+    envelope.play(DARK_GRAY_DISABLED_COLOR, 30, 30, SUSTAIN_INDEFINITELY);
+    envelope.update();
+    let color = envelope.color();
+    assert!(color.x < 0.0);
+    assert!(color.x > DARK_GRAY_DISABLED_COLOR.x);
+    assert!(envelope.is_effective);
+
+    let state = BasicDrawable::render_state_from_flags(
+        crate::render_bridge::RenderConditionFlags::empty(),
+        1.0,
+        DARK_GRAY_DISABLED_COLOR,
+        false,
+    );
+    assert!((state.emissive_tint[0] + 0.5).abs() < f32::EPSILON);
+    assert!((state.emissive_tint[1] + 0.5).abs() < f32::EPSILON);
+    assert!((state.emissive_tint[2] + 0.5).abs() < f32::EPSILON);
+}
+
+#[test]
+fn selection_flash_uses_saturated_white_and_survives_deselect() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.flash_as_selected(None);
+    let envelope = drawable.selection_flash_envelope.as_ref().unwrap();
+    // saturateRGB(white, 0.5) = (0.25, 0.25, 0.25)
+    assert_near(envelope.peak_color.x, 0.25);
+    assert_near(envelope.peak_color.y, 0.25);
+    assert_near(envelope.peak_color.z, 0.25);
+
+    drawable.set_selected(true);
+    drawable.set_selected(true);
+    drawable.set_selected(false);
+    assert!(drawable.selection_flash_envelope.is_some());
+}
+
+#[test]
+fn color_tint_envelope_ticks_and_is_sampled_by_get_tint_color() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.color_flash_envelope(Some(Vector3::new(1.0, 0.0, 0.0)), 4, 1, 0);
+    drawable.update(0.0);
+    let tint = drawable.get_tint_color();
+    assert!(tint.x > 0.0);
+    assert!(drawable.tint_color_effect().is_some());
+}
+
+#[test]
+fn frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind() {
+    let mut drawable = BasicDrawable::new(DrawableId(1));
+    drawable.set_tint_status(TintStatus::FRENZY);
+    drawable.update(0.0);
+    let envelope = drawable.tint_envelope.as_ref().expect("frenzy envelope");
+    assert_near(envelope.peak_color.x, FRENZY_COLOR.x);
+    assert_near(envelope.peak_color.y, FRENZY_COLOR.y);
+    assert_near(envelope.peak_color.z, FRENZY_COLOR.z);
+}
+
+#[test]
+fn frenzy_infantry_color_matches_cpp_authored_values() {
+    assert_near(FRENZY_COLOR_INFANTRY.x, 0.0);
+    assert_near(FRENZY_COLOR_INFANTRY.y, -0.7);
+    assert_near(FRENZY_COLOR_INFANTRY.z, -0.7);
 }

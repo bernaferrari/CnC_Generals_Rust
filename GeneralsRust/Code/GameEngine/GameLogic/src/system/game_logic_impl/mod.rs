@@ -125,6 +125,11 @@ use std::time::Instant;
 include!("types.rs");
 include!("xfer_crc.rs");
 include!("xfer_helpers.rs");
+include!("xfer_object_load.rs");
+include!("xfer_campaign.rs");
+include!("xfer_player_list.rs");
+include!("xfer_team_factory.rs");
+
 include!("snapshot.rs");
 include!("events.rs");
 include!("physics.rs");

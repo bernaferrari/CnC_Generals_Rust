@@ -62,7 +62,7 @@ impl GameLogic {
             let pos = o.get_position();
             let r = o.selection_radius.max(1.0);
             self.partition_manager
-                .register_object_at(id.0, pos.x, pos.z);
+                .register_object_footprint(id.0, pos.x, pos.z, r);
             entry_by_id.insert(id.0, (pos, r));
             // Only mobile bodies initiate collide queries (structures stay as
             // partition obstacles via neighbor lookup).
@@ -99,6 +99,12 @@ impl GameLogic {
                     continue;
                 }
                 let b_id = ObjectId(b_raw);
+                if let (Some(a), Some(b)) = (self.objects.get(a_id), self.objects.get(&b_id)) {
+                    if let Some((loc, normal)) = super::collide_dispatch::host_geom_collides(a, b) {
+                        super::collide_dispatch::dispatch_collide_modules(*a_id, b_id, loc, normal);
+                        self.dispatch_host_collide_modules(*a_id, b_id);
+                    }
+                }
                 if self.try_physics_collide(*a_id, b_id, a_r) {
                     handled = handled.saturating_add(1);
                 } else if self.try_physics_collide(b_id, *a_id, b_r) {

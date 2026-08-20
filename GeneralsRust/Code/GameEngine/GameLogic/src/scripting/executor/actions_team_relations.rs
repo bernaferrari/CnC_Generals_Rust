@@ -482,24 +482,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    /// C++ Reference: ScriptActions::doTeamGarrisonNearestBuilding()
-    /// Team finds and garrisons nearest garrisonable building
-    pub(crate) fn do_team_garrison_nearest_building(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
-        log::info!("Team '{}' garrisoning nearest building", team_name);
-
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        let write_result = group_arc.write();
-        if let Ok(mut group) = write_result {
-            let params = AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
-        }
-
-        Ok(ScriptActionResult::Success)
-    }
+    // TEAM_GARRISON_NEAREST_BUILDING lives in `actions_garrison.rs`.
 
     /// C++ Reference: ScriptActions::doTeamExitAllBuildings()
     /// Team exits from all garrisoned buildings

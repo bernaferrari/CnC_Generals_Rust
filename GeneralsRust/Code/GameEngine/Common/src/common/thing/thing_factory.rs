@@ -19,8 +19,10 @@ use crate::common::{
     thing::{
         module::{Drawable, Object},
         thing_template::ThingTemplate,
+        thing_template_locomotor::set_locomotor_overrides_allowed,
     },
 };
+
 use log::{debug, info, warn};
 use std::{
     any::Any,
@@ -295,6 +297,7 @@ fn object_field_is_repeatable_property(field: &str) -> bool {
             | "inheritablemodule"
             | "overrideablebylikekind"
             | "removemodule"
+            | "locomotor"
     )
 }
 
@@ -309,9 +312,11 @@ fn canonical_object_field(field: &str) -> String {
         "inheritablemodule" => "InheritableModule".to_string(),
         "overrideablebylikekind" => "OverrideableByLikeKind".to_string(),
         "removemodule" => "RemoveModule".to_string(),
+        "locomotor" => "Locomotor".to_string(),
         _ => field.to_string(),
     }
 }
+
 
 fn is_module_override_field(field: &str) -> bool {
     matches!(
@@ -705,7 +710,11 @@ impl ThingFactory {
             let properties = consume_ini_properties(ini);
             // Use Arc::make_mut to get mutable access for parsing
             let tmpl = Arc::make_mut(&mut thing_template);
-            tmpl.parse_object_fields_from_ini(&properties)?;
+            set_locomotor_overrides_allowed(ini.get_load_type() == IniLoadType::CreateOverrides);
+            let parse_result = tmpl.parse_object_fields_from_ini(&properties);
+            set_locomotor_overrides_allowed(false);
+            parse_result?;
+
 
             // Re-insert the modified template back into the hash map since
             // Arc::make_mut may have cloned it.
@@ -897,6 +906,23 @@ pub fn get_thing_factory() -> Result<
 pub fn try_get_thing_factory() -> Option<std::sync::MutexGuard<'static, Option<ThingFactory>>> {
     THING_FACTORY.try_lock().ok()
 }
+
+/// Replay top-level Locomotor lines into AI module data after the GameLogic hook is registered.
+pub fn apply_stored_locomotors_to_all_templates() {
+    let Ok(mut factory_guard) = get_thing_factory() else {
+        return;
+    };
+    let Some(factory) = factory_guard.as_mut() else {
+        return;
+    };
+    for template in factory.template_hash_map.values_mut() {
+        let template = Arc::make_mut(template);
+        if let Err(err) = template.apply_stored_locomotors_to_ai_module() {
+            warn!("Failed to apply stored locomotors: {err}");
+        }
+    }
+}
+
 
 /// Initialize the global thing factory
 pub fn init_thing_factory() -> Result<(), String> {

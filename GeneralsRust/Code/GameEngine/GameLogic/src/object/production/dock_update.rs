@@ -939,6 +939,22 @@ impl Snapshotable for RepairDockUpdateData {
 
 crate::impl_legacy_module_data_via_base!(RepairDockUpdateData, base);
 
+fn parse_repair_number_approach_positions(
+    ini: &mut INI,
+    data: &mut RepairDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_number_approach_positions(ini, &mut data.base, tokens)
+}
+
+fn parse_repair_allows_passthrough(
+    ini: &mut INI,
+    data: &mut RepairDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_allows_passthrough(ini, &mut data.base, tokens)
+}
+
 fn parse_time_for_full_heal(
     _ini: &mut INI,
     data: &mut RepairDockUpdateData,
@@ -949,10 +965,20 @@ fn parse_time_for_full_heal(
     Ok(())
 }
 
-const REPAIR_DOCK_UPDATE_FIELDS: &[FieldParse<RepairDockUpdateData>] = &[FieldParse {
-    token: "TimeForFullHeal",
-    parse: parse_time_for_full_heal,
-}];
+const REPAIR_DOCK_UPDATE_FIELDS: &[FieldParse<RepairDockUpdateData>] = &[
+    FieldParse {
+        token: "NumberApproachPositions",
+        parse: parse_repair_number_approach_positions,
+    },
+    FieldParse {
+        token: "AllowsPassthrough",
+        parse: parse_repair_allows_passthrough,
+    },
+    FieldParse {
+        token: "TimeForFullHeal",
+        parse: parse_time_for_full_heal,
+    },
+];
 
 /// Repair dock module
 #[derive(Debug)]
@@ -979,8 +1005,8 @@ impl RepairDockUpdate {
         let Some(unit) = resolve_dock_object(unit_id) else {
             return Ok(false);
         };
-        let unit = &unit;
 
+        let source = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
         let mut unit_guard = unit.write().unwrap();
         let current_health = unit_guard.get_health();
         let max_health = unit_guard.get_max_health();
@@ -996,7 +1022,11 @@ impl RepairDockUpdate {
             return Ok(false);
         }
 
-        let _ = unit_guard.heal(self.health_to_add_per_frame);
+        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
+        let _ = unit_guard.attempt_healing(
+            self.health_to_add_per_frame,
+            source_guard.as_deref(),
+        );
         Ok(true)
     }
 }
@@ -1136,7 +1166,12 @@ impl DockUpdateInterface for RepairDockUpdate {
             if let Some(drone_id) = drone_id {
                 if let Some(drone) = resolve_dock_object(drone_id) {
                     if let Ok(mut drone_guard) = drone.write() {
-                        let _ = drone_guard.heal_completely();
+                        let max_health = drone_guard.get_max_health();
+                        let source = crate::helpers::TheGameLogic::find_object_by_id(
+                            self.base.owner_id,
+                        );
+                        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
+                        let _ = drone_guard.attempt_healing(max_health, source_guard.as_deref());
                     }
                 }
             }
@@ -1222,6 +1257,22 @@ impl Snapshotable for SupplyCenterDockUpdateData {
 
 crate::impl_legacy_module_data_via_base!(SupplyCenterDockUpdateData, base);
 
+fn parse_supply_center_number_approach_positions(
+    ini: &mut INI,
+    data: &mut SupplyCenterDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_number_approach_positions(ini, &mut data.base, tokens)
+}
+
+fn parse_supply_center_allows_passthrough(
+    ini: &mut INI,
+    data: &mut SupplyCenterDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_allows_passthrough(ini, &mut data.base, tokens)
+}
+
 fn parse_grant_temporary_stealth(
     _ini: &mut INI,
     data: &mut SupplyCenterDockUpdateData,
@@ -1232,10 +1283,20 @@ fn parse_grant_temporary_stealth(
     Ok(())
 }
 
-const SUPPLY_CENTER_DOCK_UPDATE_FIELDS: &[FieldParse<SupplyCenterDockUpdateData>] = &[FieldParse {
-    token: "GrantTemporaryStealth",
-    parse: parse_grant_temporary_stealth,
-}];
+const SUPPLY_CENTER_DOCK_UPDATE_FIELDS: &[FieldParse<SupplyCenterDockUpdateData>] = &[
+    FieldParse {
+        token: "NumberApproachPositions",
+        parse: parse_supply_center_number_approach_positions,
+    },
+    FieldParse {
+        token: "AllowsPassthrough",
+        parse: parse_supply_center_allows_passthrough,
+    },
+    FieldParse {
+        token: "GrantTemporaryStealth",
+        parse: parse_grant_temporary_stealth,
+    },
+];
 
 /// Supply center dock module
 #[derive(Debug)]
@@ -1427,6 +1488,7 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         if value > 0 {
             if let Ok(mut player_guard) = owner_player.write() {
                 let _ = player_guard.get_money_mut().deposit(value);
+                player_guard.get_score_keeper_mut().add_money_earned(value);
             }
 
             if self.data.grant_temporary_stealth_frames > 0 {
@@ -1435,13 +1497,18 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
                 {
                     if let Ok(owner_guard) = owner.read() {
                         if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
+                            let can_stealth =
+                                docker_guard.test_status(ObjectStatusTypes::CanStealth);
                             if let Some(stealth) = docker_guard.get_stealth() {
                                 if let Ok(mut stealth_guard) = stealth.lock() {
-                                    let _ = stealth_guard.receive_grant(
-                                        true,
-                                        self.data.grant_temporary_stealth_frames,
-                                        crate::helpers::TheGameLogic::get_frame(),
-                                    );
+                                    // GPS / innate stealth wins unless the existing grant is temporary.
+                                    if stealth_guard.is_temporary_grant() || !can_stealth {
+                                        let _ = stealth_guard.receive_grant(
+                                            true,
+                                            self.data.grant_temporary_stealth_frames,
+                                            crate::helpers::TheGameLogic::get_frame(),
+                                        );
+                                    }
                                 }
                             }
                         }

@@ -73,6 +73,8 @@ include!("impl_gpu.rs");
 include!("impl_pipelines.rs");
 include!("impl_world.rs");
 include!("overlay_gpu.rs");
+include!("river_gpu.rs");
+include!("shroud_gpu.rs");
 include!("traits.rs");
 include!("tests.rs");
 include!("api.rs");
@@ -89,6 +91,8 @@ pub const TERRAIN_VISUAL_SRC: &str = concat!(
     include_str!("impl_pipelines.rs"),
     include_str!("impl_world.rs"),
     include_str!("overlay_gpu.rs"),
+    include_str!("river_gpu.rs"),
+    include_str!("shroud_gpu.rs"),
     include_str!("traits.rs"),
     include_str!("api.rs"),
 );

@@ -429,6 +429,108 @@ fn collect_hlod_aggregate_render_items_recursive<F>(
 
                 ancestor_prototype_names.remove(&prototype_key);
             }
+            W3dRenderObjectPrototypeKind::Collection { collection_index } => {
+                let Some(collection) = resolved.source_model.collections.get(collection_index)
+                else {
+                    continue;
+                };
+                if depth >= MAX_HLOD_AGGREGATE_RENDER_DEPTH {
+                    continue;
+                }
+                let child_poses = collection
+                    .object_names
+                    .iter()
+                    .map(|name| RigidAttachmentPose {
+                        name: name.clone(),
+                        parent_transform: Mat4::IDENTITY,
+                        visible: true,
+                    })
+                    .collect::<Vec<_>>();
+                collect_hlod_aggregate_render_items_recursive(
+                    parent_item,
+                    attachment_world,
+                    &child_poses,
+                    camera_position,
+                    depth + 1,
+                    ancestor_prototype_names,
+                    resolve,
+                    output,
+                );
+            }
+            W3dRenderObjectPrototypeKind::Aggregate { aggregate_index } => {
+                let Some(aggregate) = resolved.source_model.aggregates.get(aggregate_index) else {
+                    continue;
+                };
+                if depth >= MAX_HLOD_AGGREGATE_RENDER_DEPTH {
+                    continue;
+                }
+                let mut names = Vec::new();
+                if !aggregate.base_model_name.is_empty() {
+                    names.push(aggregate.base_model_name.clone());
+                }
+                names.extend(
+                    aggregate
+                        .subobjects
+                        .iter()
+                        .map(|sub| sub.subobject_name.clone()),
+                );
+                let child_poses = names
+                    .into_iter()
+                    .map(|name| RigidAttachmentPose {
+                        name,
+                        parent_transform: Mat4::IDENTITY,
+                        visible: true,
+                    })
+                    .collect::<Vec<_>>();
+                collect_hlod_aggregate_render_items_recursive(
+                    parent_item,
+                    attachment_world,
+                    &child_poses,
+                    camera_position,
+                    depth + 1,
+                    ancestor_prototype_names,
+                    resolve,
+                    output,
+                );
+            }
+            W3dRenderObjectPrototypeKind::DistLod { dist_lod_index } => {
+                let Some(dist_lod) = resolved.source_model.dist_lods.get(dist_lod_index) else {
+                    continue;
+                };
+                let Some(first) = dist_lod.lods.first() else {
+                    continue;
+                };
+                if depth >= MAX_HLOD_AGGREGATE_RENDER_DEPTH {
+                    continue;
+                }
+                let child_poses = vec![RigidAttachmentPose {
+                    name: first.render_obj_name.clone(),
+                    parent_transform: Mat4::IDENTITY,
+                    visible: true,
+                }];
+                collect_hlod_aggregate_render_items_recursive(
+                    parent_item,
+                    attachment_world,
+                    &child_poses,
+                    camera_position,
+                    depth + 1,
+                    ancestor_prototype_names,
+                    resolve,
+                    output,
+                );
+            }
+            W3dRenderObjectPrototypeKind::Box { box_index } => {
+                // CLASSID_OBBOX BOUNDINGBOX is instantiated but never drawn.
+                let _ = resolved.source_model.boxes.get(box_index);
+            }
+            W3dRenderObjectPrototypeKind::Emitter { .. }
+            | W3dRenderObjectPrototypeKind::Dazzle { .. }
+            | W3dRenderObjectPrototypeKind::Ring { .. }
+            | W3dRenderObjectPrototypeKind::Sphere { .. }
+            | W3dRenderObjectPrototypeKind::Null { .. } => {
+                // Instantiated as an HLOD child. Particle/dazzle/primitive
+                // submit lives on those render objects, not the mesh path.
+            }
         }
     }
 }

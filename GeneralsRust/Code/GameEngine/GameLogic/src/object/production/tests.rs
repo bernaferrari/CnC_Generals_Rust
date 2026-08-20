@@ -71,6 +71,7 @@ mod integration_tests {
             production_id: 0,
             is_repeat: false,
             queue_index: 0,
+            exit_door: -1,
         };
 
         let high_infantry = BuildQueueEntry {
@@ -84,6 +85,7 @@ mod integration_tests {
             production_id: 0,
             is_repeat: false,
             queue_index: 0,
+            exit_door: -1,
         };
 
         queue.enqueue(low_tank).unwrap();

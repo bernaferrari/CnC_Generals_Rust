@@ -770,37 +770,9 @@ impl ConfigurationSystem {
 
     /// C++ parity: GameEngine.cpp lines 314-530
     fn calculate_xfer_crc(&self) -> u32 {
-        let inner = XferLoad::new(Cursor::new(Vec::new()), 1);
-        let xfer_crc = XferCRC::new(inner);
-
-        let mut ini = INI::new();
-        ini.set_xfer(xfer_crc);
-
-        let ini_paths = [
-            "Data/INI/Default/GameData.ini",
-            "Data/INI/GameData.ini",
-            #[cfg(any(debug_assertions, feature = "internal"))]
-            "Data/INI/GameDataDebug.ini",
-        ];
-
-        for path in &ini_paths {
-            if Path::new(path).exists() || GlobalData::resolve_ini_path(Path::new(path)).is_some() {
-                match ini.load(path, INILoadType::Overwrite) {
-                    Ok(()) => debug!("XferCRC INI loaded: {}", path),
-                    Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),
-                }
-            }
-        }
-
-        let crc = ini.take_xfer().and_then(|mutex| {
-            let mut xfer_crc = mutex.into_inner().ok()?;
-            xfer_crc.close().ok()?;
-            Some(xfer_crc.get_crc())
-        });
-
-        ini.clear_xfer();
-
-        crc.unwrap_or_else(|| self.global_data.calculate_crc())
+        crate::cnc_game_engine::ini_crc_boot::calculate_game_engine_ini_crc(|path| {
+            crate::cnc_game_engine::CnCGameEngine::read_startup_ini_from_disk(path)
+        })
     }
 
     /// Get global data

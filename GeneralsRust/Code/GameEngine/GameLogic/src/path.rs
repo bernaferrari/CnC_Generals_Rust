@@ -12,6 +12,8 @@ pub mod path_optimization;
 pub mod pathfind_cell;
 pub mod pathfind_cell_info;
 pub mod pathfind_layer;
+pub mod pathfind_layer_classify;
+
 pub mod pathfinder;
 pub mod zone_block;
 pub mod zone_manager;
@@ -55,14 +57,37 @@ pub type ZoneStorageType = u16;
 pub enum PathfindLayerEnum {
     Invalid = 0,
     Ground = 1,
+    /// C++ first unnamed bridge slot (`LAYER_GROUND + 1`).
     Top = 2,
-    // Additional layers for bridges and walls
     Bridge1 = 3,
     Bridge2 = 4,
     Bridge3 = 5,
     Bridge4 = 6,
-    Wall = 7,
+    /// C++ `LAYER_WALL = LAYER_LAST = 15`. Unnamed bridge slots are 7–14.
+    Wall = 15,
+    /// Kept for existing matches; C++ `LAYER_LAST` aliases `LAYER_WALL` (15).
     Last = 8,
+}
+
+/// C++ `LAYER_LAST` / `LAYER_WALL`.
+pub const LAYER_LAST: u8 = 15;
+pub const LAYER_WALL: u8 = 15;
+
+impl PathfindLayerEnum {
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => PathfindLayerEnum::Invalid,
+            1 => PathfindLayerEnum::Ground,
+            2 => PathfindLayerEnum::Top,
+            3 => PathfindLayerEnum::Bridge1,
+            4 => PathfindLayerEnum::Bridge2,
+            5 => PathfindLayerEnum::Bridge3,
+            6 => PathfindLayerEnum::Bridge4,
+            7..=14 => PathfindLayerEnum::Top,
+            15 => PathfindLayerEnum::Wall,
+            _ => PathfindLayerEnum::Invalid,
+        }
+    }
 }
 
 impl Default for PathfindLayerEnum {
@@ -196,15 +221,23 @@ pub fn grid_to_world(cell: &ICoord2D, layer: PathfindLayerEnum) -> Coord3D {
         0.0,
     );
 
-    // Adjust Z based on terrain layer height when available (C++ uses TerrainLogic::getLayerHeight)
     if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
-        let common_layer = crate::common::PathfindLayerEnum::from_u32(layer as u32);
+        let common_layer = match layer {
+            PathfindLayerEnum::Wall => crate::common::PathfindLayerEnum::Wall,
+            PathfindLayerEnum::Top
+            | PathfindLayerEnum::Bridge1
+            | PathfindLayerEnum::Bridge2
+            | PathfindLayerEnum::Bridge3
+            | PathfindLayerEnum::Bridge4 => crate::common::PathfindLayerEnum::Top,
+            _ => crate::common::PathfindLayerEnum::Ground,
+        };
         pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
     } else {
         match layer {
             PathfindLayerEnum::Ground => pos.z = 0.0,
             PathfindLayerEnum::Top => pos.z = 10.0,
-            _ => pos.z = 5.0, // Default for bridges/walls
+            PathfindLayerEnum::Wall => pos.z = 10.0,
+            _ => pos.z = 5.0,
         }
     }
 

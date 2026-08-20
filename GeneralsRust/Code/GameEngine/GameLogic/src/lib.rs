@@ -91,6 +91,11 @@ pub mod state_machine;
 pub mod team;
 pub mod template;
 pub mod terrain;
+pub mod terrain_bridge;
+pub mod terrain_cliff;
+pub mod terrain_los;
+pub mod terrain_water;
+
 pub mod thing_template;
 pub mod tunnel_tracker;
 pub mod upgrade;

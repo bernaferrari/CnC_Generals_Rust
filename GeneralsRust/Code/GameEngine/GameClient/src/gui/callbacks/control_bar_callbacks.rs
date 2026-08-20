@@ -86,15 +86,33 @@ fn middle_mouse_is_held() -> bool {
 }
 
 fn local_pixel_to_radar(local_x: i32, local_y: i32, width: i32, height: i32) -> Option<ICoord2D> {
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-    if local_x < 0 || local_y < 0 || local_x >= width || local_y >= height {
-        return None;
-    }
-    let radar_x = (local_x as i64 * RADAR_CELL_WIDTH as i64) / width as i64;
-    let radar_y = (local_y as i64 * RADAR_CELL_HEIGHT as i64) / height as i64;
-    Some(ICoord2D::new(radar_x as i32, radar_y as i32))
+    use crate::gui::ingame_ui::local_pixel_to_radar_cell;
+    use game_engine::common::system::radar::get_radar_system;
+    let extent = get_radar_system()
+        .read()
+        .ok()
+        .map(|radar| radar.map_extent())
+        .unwrap_or(game_engine::common::system::radar::Region3D {
+            lo: game_engine::common::system::radar::Coord3D {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            hi: game_engine::common::system::radar::Coord3D {
+                x: 1.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        });
+    let cell = local_pixel_to_radar_cell(
+        local_x,
+        local_y,
+        width,
+        height,
+        extent.hi.x - extent.lo.x,
+        extent.hi.y - extent.lo.y,
+    )?;
+    Some(ICoord2D::new(cell.x, cell.y))
 }
 
 fn is_alternate_mouse_enabled() -> bool {

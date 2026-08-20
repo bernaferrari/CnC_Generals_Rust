@@ -18,6 +18,7 @@ pub struct AcademyStats {
     pub(super) vehicles_sniped: Int,
     /// Total money earned (for scoreboard / academy stats).
     pub(super) total_income: Int,
+    pub(super) mines: Int,
 }
 
 impl AcademyStats {
@@ -36,6 +37,7 @@ impl AcademyStats {
             special_powers_used: 0,
             vehicles_sniped: 0,
             total_income: 0,
+            mines: 0,
         }
     }
 
@@ -133,6 +135,11 @@ impl AcademyStats {
         _classification: game_engine::common::rts::academy_stats::AcademyClassificationType,
     ) {
         self.special_powers_used = self.special_powers_used.saturating_add(1);
+    }
+
+    /// C++ `AcademyStats::recordMine`.
+    pub fn record_mine(&mut self) {
+        self.mines = self.mines.saturating_add(1);
     }
 }
 

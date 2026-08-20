@@ -182,6 +182,9 @@ impl GameLogic {
         self.neutron_shells_spawned > 0
     }
 
+    /// Apply NeutronBlast residual: kill infantry, unman vehicles, and
+    /// `killAllContained` on every in-radius container (including structures).
+    /// Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
     pub fn apply_neutron_blast_at(
         &mut self,
         impact: glam::Vec3,
@@ -189,6 +192,7 @@ impl GameLogic {
         caster_id: Option<ObjectId>,
         affect_allies: bool,
     ) -> (u32, u32, u32) {
+
         use crate::game_logic::host_neutron_shell::{
             in_neutron_blast_radius_2d, is_legal_neutron_blast_target, neutron_effect_for_target,
             NeutronEffect, HOST_NEUTRON_BLAST_RADIUS, NEUTRON_SHELL_AUDIO,
@@ -199,6 +203,7 @@ impl GameLogic {
         let mut infantry_kills = 0u32;
         let mut vehicles_unmanned = 0u32;
         let mut vehicle_kills = 0u32;
+        let mut passengers_killed = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
         let mut bomb_detonate_ids: Vec<ObjectId> = Vec::new();
 
@@ -223,7 +228,7 @@ impl GameLogic {
                     obj.is_kind_of(KindOf::Vehicle),
                     obj.is_kind_of(KindOf::Aircraft),
                     obj.is_kind_of(KindOf::Structure),
-                    false, // drone residual not modeled on host KindOf
+                    obj.is_kind_of(KindOf::Drone),
                     obj.status.airborne_target,
                     false, // AffectAirborne = No for NeutronCannonShell residual
                     same_team,
@@ -235,6 +240,20 @@ impl GameLogic {
             })
             .collect();
 
+        // C++ neutronBlastToObject: if contain → killAllContained, even on
+        // structures / transports / drones that are otherwise not unmanned.
+        let contain_pairs: Vec<(ObjectId, Vec<ObjectId>)> = candidates
+            .iter()
+            .filter_map(|id| {
+                let occupants = self.objects.get(id).map(|o| o.contained_units())?;
+                if occupants.is_empty() {
+                    None
+                } else {
+                    Some((*id, occupants))
+                }
+            })
+            .collect();
+
         for id in candidates {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
@@ -242,7 +261,7 @@ impl GameLogic {
             let effect = neutron_effect_for_target(
                 obj.is_kind_of(KindOf::Infantry),
                 obj.is_kind_of(KindOf::Vehicle),
-                false,
+                obj.is_kind_of(KindOf::Drone),
                 &obj.template_name,
             );
             match effect {
@@ -279,6 +298,35 @@ impl GameLogic {
             }
         }
 
+        for (container_id, occupants) in contain_pairs {
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                for &occ_id in &occupants {
+                    container.remove_occupant(occ_id);
+                }
+            }
+            for occ_id in occupants {
+                if destroy_ids.contains(&occ_id) {
+                    continue;
+                }
+                let Some(occ) = self.objects.get_mut(&occ_id) else {
+                    continue;
+                };
+                if !occ.is_alive() {
+                    continue;
+                }
+                occ.set_contained_by(None);
+                occ.set_ai_state(AIState::Idle);
+                let _ = occ.take_damage_from(occ.health.current.max(1.0) * 10.0, caster_id);
+                if occ.is_alive() && occ.health.current > 0.0 && !occ.status.destroyed {
+                    let _ = occ.take_damage_from(999_999.0, caster_id);
+                }
+                passengers_killed = passengers_killed.saturating_add(1);
+                infantry_kills = infantry_kills.saturating_add(1);
+                destroy_ids.push(occ_id);
+            }
+        }
+
+
         for id in destroy_ids {
             self.mark_object_for_destruction(id, Some(caster_team));
         }
@@ -293,6 +341,8 @@ impl GameLogic {
         self.neutron_shell_residual_vehicles_unmanned = self
             .neutron_shell_residual_vehicles_unmanned
             .saturating_add(vehicles_unmanned);
+        let _ = passengers_killed;
+
 
         self.queue_audio_event(
             AudioEventRequest::new(NEUTRON_SHELL_AUDIO)

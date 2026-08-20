@@ -12,6 +12,7 @@ pub mod collision;
 pub mod decal_mesh;
 pub mod dynamic_mesh;
 pub mod hlod;
+pub mod hlod_bounding_box;
 pub mod intersection;
 pub mod intersection_utils;
 pub mod math_utils;

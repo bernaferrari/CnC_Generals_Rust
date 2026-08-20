@@ -234,9 +234,62 @@ pub(super) fn is_enemy_target(_local_player: i32, _target_id: ObjectID) -> bool 
 }
 
 pub(super) fn selection_has_quick_path_to(
-    _selection: &HashSet<ObjectID>,
-    _world: &Coord3D,
+    selection: &HashSet<ObjectID>,
+    world: &Coord3D,
 ) -> bool {
+    let dest = LogicCoord3D::new(world.x, world.y, world.z);
+    let local_player = get_local_player_id();
+    if local_player >= 0 {
+        if let Ok(mgr) = get_shroud_manager().lock() {
+            if mgr.get_shroud_state(local_player as u32, &dest) != ShroudState::Visible {
+                return true;
+            }
+        }
+    }
+
+    for id in selection {
+        let Some(obj) = OBJECT_REGISTRY.get_object(*id) else {
+            continue;
+        };
+        let Ok(guard) = obj.read() else {
+            continue;
+        };
+        let Some(ai) = guard.get_ai() else {
+            continue;
+        };
+        let Ok(ai_guard) = ai.lock() else {
+            continue;
+        };
+        if ai_guard.is_quick_path_available(&dest) {
+            return true;
+        }
+        if ai_guard.has_locomotor_for_surface(SURFACE_CLIFF)
+            && TheTerrainLogic.is_cliff_cell(world.x, world.y)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub(super) fn selection_can_set_rally_point(selection: &HashSet<ObjectID>) -> bool {
+    if selection.is_empty() {
+        return false;
+    }
+    for id in selection {
+        let Some(obj) = OBJECT_REGISTRY.get_object(*id) else {
+            return false;
+        };
+        let Ok(guard) = obj.read() else {
+            return false;
+        };
+        if !guard.is_locally_controlled() || guard.is_effectively_dead() {
+            return false;
+        }
+        if guard.get_production_update_interface().is_none() {
+            return false;
+        }
+    }
     true
 }
 

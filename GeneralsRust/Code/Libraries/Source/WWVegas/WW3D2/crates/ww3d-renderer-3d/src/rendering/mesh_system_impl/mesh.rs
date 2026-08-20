@@ -216,48 +216,21 @@ impl MeshClass {
         }
 
         let model_ref = model_arc.as_ref();
-        let mut vertices = Vec::with_capacity(model_ref.vertices.len());
-        for (index, vertex) in model_ref.vertices.iter().enumerate() {
-            let position = Vec3::new(vertex.x, vertex.y, vertex.z);
-            let (indices, weights) = model_ref.vertex_influence_view(index);
-
-            let mut skinned = Vec3::ZERO;
-            let mut accumulated = 0.0;
-
-            for slot in 0..4 {
-                let weight = weights[slot];
-                if weight <= f32::EPSILON {
-                    continue;
-                }
-                let palette_index = indices[slot] as usize;
-                let matrix = self
-                    .bone_palette
-                    .get(palette_index)
-                    .copied()
-                    .unwrap_or(Mat4::IDENTITY);
-                skinned += matrix.transform_point3(position) * weight;
-                accumulated += weight;
-            }
-
-            if accumulated <= f32::EPSILON {
-                let fallback_index = model_ref
-                    .vertex_bone_links()
-                    .and_then(|links| links.get(index))
-                    .copied()
-                    .map(|idx| idx as usize)
-                    .unwrap_or(0);
-                let matrix = self
-                    .bone_palette
-                    .get(fallback_index)
-                    .copied()
-                    .unwrap_or(Mat4::IDENTITY);
-                skinned = matrix.transform_point3(position);
-            }
-
-            vertices.push(skinned);
+        let links = model_ref.vertex_bone_links();
+        if let Some(links) = links.filter(|links| links.len() == model_ref.vertices.len()) {
+            return Some(super::skin_deform::deform_vertices_single_bone(
+                &model_ref.vertices,
+                links,
+                &self.bone_palette,
+            ));
         }
 
-        Some(vertices)
+        Some(super::skin_deform::deform_vertices_weighted(
+            &model_ref.vertices,
+            |index| model_ref.vertex_influence_view(index),
+            &self.bone_palette,
+            model_ref.vertex_bone_links(),
+        ))
     }
 
     pub(super) fn recompute_deformed_vertices_from_palette(&mut self) -> bool {
@@ -329,8 +302,18 @@ impl MeshClass {
             return false;
         }
 
-        // Transform ray to object space
-        let world_to_obj = self.transform.inverse();
+        let world = if let Some(model) = self.model.as_ref() {
+            super::cast_ray_aligned::cast_ray_aligned_world(
+                self.transform,
+                super::mesh_camera_align::mesh_is_camera_aligned(model),
+                super::mesh_camera_align::mesh_is_camera_oriented(model),
+                raytest.line.start,
+                (raytest.line.end - raytest.line.start).normalize_or_zero(),
+            )
+        } else {
+            self.transform
+        };
+        let world_to_obj = world.inverse();
         let mut obj_ray = raytest.transformed_by_matrix(world_to_obj);
         obj_ray.result = RayCollisionResult::default();
         obj_ray.collided_render_obj = None;
@@ -338,19 +321,11 @@ impl MeshClass {
         if let Some(model) = &self.model {
             if model.cast_ray(&mut obj_ray) {
                 raytest.result = obj_ray.result.clone();
-                raytest.result.normal = self
-                    .transform
+                raytest.result.normal = world
                     .transform_vector3(raytest.result.normal)
                     .normalize_or_zero();
-                if raytest.result.compute_contact_point {
-                    raytest.result.contact_point = self
-                        .transform
-                        .transform_point3(obj_ray.result.contact_point);
-                } else {
-                    raytest.result.contact_point = self
-                        .transform
-                        .transform_point3(obj_ray.result.contact_point);
-                }
+                raytest.result.contact_point =
+                    world.transform_point3(obj_ray.result.contact_point);
                 raytest.collided_render_obj = Some(self as *const MeshClass as usize);
                 return true;
             }

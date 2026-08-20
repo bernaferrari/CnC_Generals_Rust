@@ -11,10 +11,12 @@
 use crate::common::audio::{
     audio_cache::AudioFileCache,
     audio_event_rts::{
-        miles_get_effective_volume, miles_positional_gain, miles_positional_ranges, AudioEventInfo,
-        AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, MilesVolumeSliders, ObjectId,
-        PortionToPlay, AC_INTERRUPT, AC_LOOP, ST_GLOBAL,
+        miles_event_world_position, miles_get_effective_volume, miles_positional_gain,
+        miles_positional_ranges, AudioEventInfo, AudioEventRts, AudioHandle, AudioPriority,
+        AudioType, Coord3D, MilesVolumeSliders, ObjectId, PortionToPlay, AC_INTERRUPT, AC_LOOP,
+        ST_GLOBAL,
     },
+    rodio_spatial::miles_slider_volume,
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
     game_sounds::{create_sound_manager, PlayNowAudioQueries},
@@ -1535,8 +1537,11 @@ impl AudioManager {
     }
 
     fn stop_playing_handle(&mut self, handle: AudioHandle) {
-        if let Some(event) = self.active_audio_events.remove(&handle) {
-            self.notify_sample_completion_if_effect(&event);
+        // C++ MilesAudioManager::stopAudioEvent sets m_requestStop and leaves
+        // the sample running so notifyOfAudioCompletion can play Decay.
+        if let Some(event) = self.active_audio_events.get_mut(&handle) {
+            event.set_request_stop(true);
+            return;
         }
         let _ = with_sound_playback_hook(|hook| hook.stop(handle));
     }
@@ -2194,36 +2199,37 @@ impl AudioManager {
             }
 
             if event.is_positional_audio() {
-                if event.get_current_position().is_none() || event.is_dead() {
-                    self.notify_sample_completion_if_effect(&event);
-                    to_stop.push(handle);
-                    continue;
-                }
-
-                if event.is_dead() {
-                    self.notify_sample_completion_if_effect(&event);
-                    to_stop.push(handle);
-                    continue;
-                }
-
-                let vol_for_consideration = {
-                    let effective = self.get_effective_volume(&event);
-                    if self.sound_3d_volume > 0.0 {
-                        effective / self.sound_volume.max(f32::EPSILON)
-                    } else {
-                        effective
+                match event.get_current_position() {
+                    None => {
+                        self.notify_sample_completion_if_effect(&event);
+                        to_stop.push(handle);
+                        continue;
                     }
-                };
-                let play_anyways = event.get_audio_event_info().is_some_and(|info| {
-                    (info.type_field & ST_GLOBAL) != 0 || info.priority == AudioPriority::Critical
-                });
-                if vol_for_consideration < self.audio_settings.min_volume && !play_anyways {
-                    self.notify_sample_completion_if_effect(&event);
-                    to_stop.push(handle);
-                    continue;
+                    Some(_) if event.is_dead() => {
+                        // C++ stopAudioEvent: requestStop, sample keeps playing for Decay.
+                        event.set_request_stop(true);
+                    }
+                    Some(_) => {
+                        let vol_for_consideration = {
+                            let effective = self.get_effective_volume(&event);
+                            if self.sound_3d_volume > 0.0 {
+                                effective / self.sound_volume.max(f32::EPSILON)
+                            } else {
+                                effective
+                            }
+                        };
+                        let play_anyways = event.get_audio_event_info().is_some_and(|info| {
+                            (info.type_field & ST_GLOBAL) != 0
+                                || info.priority == AudioPriority::Critical
+                        });
+                        if vol_for_consideration < self.audio_settings.min_volume && !play_anyways {
+                            self.notify_sample_completion_if_effect(&event);
+                            to_stop.push(handle);
+                            continue;
+                        }
+                        let _ = with_sound_playback_hook(|hook| hook.set_event_volume(&event));
+                    }
                 }
-
-                let _ = with_sound_playback_hook(|hook| hook.set_event_volume(&event));
             }
 
             if !with_sound_playback_hook(|hook| hook.is_playing(handle)).unwrap_or(true) {
@@ -2333,6 +2339,9 @@ impl AudioManager {
     fn start_next_loop(&mut self, event: &mut AudioEventRts) -> bool {
         // C++ MilesAudioManager::startNextLoop (MilesAudioManager.cpp:2719-2756).
         // Loop count is decreased by notifyOfAudioCompletion before this call.
+        if event.get_request_stop() {
+            return false;
+        }
         if !event.has_more_loops() {
             return false;
         }
@@ -2615,7 +2624,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             .ok_or_else(|| "Audio output stream not available".to_string())?;
         let sink = Sink::try_new(&stream_handle)
             .map_err(|e| format!("Failed to create audio sink: {}", e))?;
-        let listener = self
+        let _listener = self
             .listener_position
             .lock()
             .ok()
@@ -2626,13 +2635,18 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         let sliders = get_global_audio_manager()
             .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
             .unwrap_or_default();
-        let mut volume = miles_get_effective_volume(event, &listener, &sliders);
+        let mut volume = miles_slider_volume(event, &sliders);
+        let position = event
+            .is_positional_audio()
+            .then(|| miles_event_world_position(event));
         if event.is_positional_audio() {
             if let Some(info) = event.get_audio_event_info() {
                 if info.low_pass_freq > 0.0 {
                     let on_screen = AUDIO_VIEW_RESOLVER
                         .get()
-                        .map(|resolver| resolver.is_world_position_on_screen(event.get_position()))
+                        .map(|resolver| {
+                            resolver.is_world_position_on_screen(&miles_event_world_position(event))
+                        })
                         .unwrap_or(true);
                     if !on_screen {
                         // C++ AIL_set_3D_sample_occlusion(sample, 1.0 - m_lowPassFreq)
@@ -2657,9 +2671,11 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         } else {
             sink.append(source);
         }
-        let (min_distance, max_distance) =
-            miles_positional_ranges(event.get_audio_event_info().as_deref(), 25.0, 1000.0);
-        let position = event.is_positional_audio().then(|| *event.get_position());
+        let (min_distance, max_distance) = miles_positional_ranges(
+            event.get_audio_event_info().as_deref(),
+            sliders.global_min_range,
+            sliders.global_max_range,
+        );
         let state = RodioSinkState {
             sink: Arc::new(Mutex::new(sink)),
             base_volume: volume,
@@ -2735,9 +2751,12 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             return;
         };
 
-        state.base_volume = event.get_volume();
+        let sliders = get_global_audio_manager()
+            .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
+            .unwrap_or_default();
+        state.base_volume = miles_slider_volume(event, &sliders);
         if event.is_positional_audio() {
-            state.position = Some(*event.get_position());
+            state.position = Some(miles_event_world_position(event));
         }
         self.refresh_sink_volume(state);
     }

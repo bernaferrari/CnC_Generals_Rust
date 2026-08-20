@@ -108,13 +108,22 @@ impl CnCGameEngine {
 
     /// Retail SELECT_NEXT/PREV_UNIT residual.
     pub(super) fn cycle_friendly_selection(&mut self, delta: i32) {
-        // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
         let team = frame.local_team();
-
-        let all: Vec<ObjectId> = frame.alive_selectable_friendly_ids(team);
+        let all: Vec<ObjectId> = frame
+            .objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.team == team
+                    && o.is_mobile
+                    && o.contained_by.is_none()
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            })
+            .map(|o| o.id)
+            .collect();
         if all.is_empty() {
             return;
         }
@@ -134,7 +143,15 @@ impl CnCGameEngine {
             all[all.len() - 1]
         };
 
+        let look = frame
+            .objects
+            .iter()
+            .find(|o| o.id == next)
+            .map(|o| o.position);
         self.host_set_selection(self.current_player_id, vec![next]);
+        if let Some(pos) = look {
+            self.host_center_camera_on(pos);
+        }
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -1464,14 +1481,32 @@ impl CnCGameEngine {
 
     /// Retail SELECT_ALL (KEY_Q) / Ctrl+A residual.
     pub(super) fn select_all_friendly_units(&mut self) {
-        // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
         let team = frame.local_team();
-        let selection = frame.alive_selectable_friendly_ids(team);
+        let selection: Vec<ObjectId> = frame
+            .objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.team == team
+                    && crate::presentation_frame::PresentationFrame::presentation_is_mass_selectable(
+                        o,
+                    )
+                    && o.contained_by.is_none()
+                    && !crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        crate::game_logic::KindOf::Dozer,
+                    )
+                    && !crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        crate::game_logic::KindOf::Harvester,
+                    )
+            })
+            .map(|o| o.id)
+            .collect();
 
-        // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }

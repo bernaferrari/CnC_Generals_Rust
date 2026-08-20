@@ -21,6 +21,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use thiserror::Error;
 
+#[path = "weapon_set_able.rs"]
+mod weapon_set_able;
+pub use weapon_set_able::get_victim_anti_mask;
+
 /// Wave 419: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -76,6 +80,14 @@ impl WeaponSetFlags {
 
     pub fn is_empty(&self) -> bool {
         self.0 == 0
+    }
+
+    pub fn bits(&self) -> u32 {
+        self.0
+    }
+
+    pub fn from_bits(bits: u32) -> Self {
+        Self(bits)
     }
 }
 
@@ -352,6 +364,8 @@ pub struct WeaponSet {
     has_pitch_limit: bool,
     /// Whether any weapon does damage
     has_damage_weapon: bool,
+    /// Thing-template name written before wsFlags (C++ WeaponSet::xfer ttName).
+    thing_template_name: String,
 }
 
 impl WeaponSet {
@@ -367,6 +381,7 @@ impl WeaponSet {
             total_damage_type_mask: crate::damage::DamageTypeFlags::empty(),
             has_pitch_limit: false,
             has_damage_weapon: false,
+            thing_template_name: String::new(),
         }
     }
 
@@ -375,12 +390,40 @@ impl WeaponSet {
         self.weapon_template_sets.push(Arc::new(template_set));
     }
 
+    pub fn remember_thing_template_name(&mut self, name: &str) {
+        self.thing_template_name = name.to_string();
+    }
+
     /// Serialize WeaponSet state for save/load parity with C++ WeaponSet::xfer.
     pub fn xfer_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+
+        let mut tt_name = self.thing_template_name.clone();
+        xfer.xfer_ascii_string(&mut tt_name)
+            .map_err(|e| e.to_string())?;
+        self.thing_template_name = tt_name;
+
+        let mut ws_flags_bits = self
+            .current_weapon_template_set
+            .as_ref()
+            .map(|set| set.conditions.bits() as u128)
+            .unwrap_or(0);
+        xfer_named_weapon_set_flags(xfer, &mut ws_flags_bits)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            let wanted = WeaponSetFlags::from_bits(ws_flags_bits as u32);
+            if let Some(matched) = self
+                .weapon_template_sets
+                .iter()
+                .find(|set| set.conditions.bits() == wanted.bits())
+                .cloned()
+            {
+                self.current_weapon_template_set = Some(matched);
+            }
+        }
+
 
         for slot in [
             WeaponSlotType::Primary,
@@ -443,15 +486,10 @@ impl WeaponSet {
         xfer.xfer_bool(&mut has_damage_weapon_b)
             .map_err(|e| e.to_string())?;
 
-        let mut total_damage_lo = (self.total_damage_type_mask.bits() & 0xFFFF_FFFF) as u32;
-        let mut total_damage_hi = (self.total_damage_type_mask.bits() >> 32) as u32;
-        xfer.xfer_unsigned_int(&mut total_damage_lo)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut total_damage_hi)
-            .map_err(|e| e.to_string())?;
-        let total_damage_type_mask = ((total_damage_hi as u64) << 32) | (total_damage_lo as u64);
+        let mut damage_bits = self.total_damage_type_mask.bits() as u128;
+        xfer_named_damage_type_flags(xfer, &mut damage_bits)?;
         self.total_damage_type_mask =
-            crate::damage::DamageTypeFlags::from_bits_retain(total_damage_type_mask);
+            crate::damage::DamageTypeFlags::from_bits_retain(damage_bits as u64);
 
         // Recompute derived fields such as pitch limits after load.
         if xfer.get_xfer_mode() == XferMode::Load {
@@ -698,13 +736,10 @@ impl WeaponSet {
                 continue;
             }
 
-            // C++ line 838-840: Check anti-mask against victim KINDOF flags
-            if let Some(victim_anti_mask) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_obj, |target_guard| target_guard.get_anti_mask())
-            {
-                if (weapon.get_template().anti_mask.0 & victim_anti_mask) == 0 {
-                    continue;
-                }
+            // C++ line 838-840: exclusive victim anti-mask.
+            let victim_anti_mask = get_victim_anti_mask(target_obj);
+            if (weapon.get_template().anti_mask.0 & victim_anti_mask) == 0 {
+                continue;
             }
 
             // C++ line 842-843: Check target pitch limits
@@ -752,7 +787,7 @@ impl WeaponSet {
             // C++ lines 869-878: Check "preferred against" bonuses
             // If weapon is preferred against this target type, boost its score massively
             let mut damage = damage;
-            let mut attack_range = attack_range;
+            let mut attack_range = weapon.get_attack_range(source_obj);
             if let Some(template_set) = &self.current_weapon_template_set {
                 let preferred_mask = template_set.get_preferred_against_mask(slot);
                 if !preferred_mask.is_empty() {
@@ -1141,148 +1176,6 @@ impl WeaponSet {
             .unwrap_or(0)
     }
 
-    /// Check weapon capability against specific object
-    ///
-    /// Matches C++ WeaponSet::getAbleToAttackSpecificObject() from WeaponSet.h line 231
-    pub fn get_able_to_attack_specific_object(
-        &self,
-        attack_type: AbleToAttackType,
-        source_obj: ObjectID,
-        target_obj: ObjectID,
-        command_source: CommandSourceType,
-        specific_slot: Option<WeaponSlotType>,
-    ) -> CanAttackResult {
-        if let Some(slot) = specific_slot {
-            // Check specific weapon slot
-            if let Some(weapon) = self.get_weapon_in_slot(slot) {
-                self.evaluate_weapon_against_target(
-                    weapon,
-                    source_obj,
-                    target_obj,
-                    attack_type,
-                    command_source,
-                )
-            } else {
-                CanAttackResult::NotPossible
-            }
-        } else {
-            // Check all weapons and return best result
-            let mut best_result = CanAttackResult::NotPossible;
-
-            for weapon_opt in &self.weapons {
-                if let Some(weapon) = weapon_opt {
-                    let result = self.evaluate_weapon_against_target(
-                        weapon,
-                        source_obj,
-                        target_obj,
-                        attack_type,
-                        command_source,
-                    );
-
-                    if result as u32 > best_result as u32 {
-                        best_result = result;
-
-                        if best_result == CanAttackResult::Possible {
-                            break; // Found best possible result
-                        }
-                    }
-                }
-            }
-
-            best_result
-        }
-    }
-
-    /// Determine if the unit can use its weapon against a target position
-    ///
-    /// Matches C++ WeaponSet::getAbleToUseWeaponAgainstTarget() from WeaponSet.cpp line 581
-    /// Supports both attacking an object and attacking the position on the ground.
-    pub fn get_able_to_use_weapon_against_target(
-        &self,
-        _attack_type: AbleToAttackType,
-        source_obj: ObjectID,
-        target_obj: Option<ObjectID>,
-        target_pos: Option<&Coord3D>,
-        _command_source: CommandSourceType,
-        specific_slot: Option<WeaponSlotType>,
-    ) -> CanAttackResult {
-        // Wave 419: empty dual-world → NotPossible.
-        if dual_world_registry_unavailable() {
-            return CanAttackResult::NotPossible;
-        }
-
-        // C++ WeaponSet.cpp line 589-603: Determine anti-mask from target
-        let target_anti_mask = if let Some(target_id) = target_obj {
-            crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_id, |obj_guard| obj_guard.get_anti_mask())
-                .unwrap_or(0xffffffff)
-        } else {
-            0xffffffff // Ground or no target
-        };
-
-        // C++ WeaponSet.cpp line 607-626: Check pitch limits when targeting an object
-        let pitch_ok = if let Some(target_id) = target_obj {
-            self.is_any_within_target_pitch(source_obj, target_id)
-        } else {
-            true
-        };
-
-        // Collect weapon references to check
-        let slots_to_check: Vec<usize> = if let Some(slot) = specific_slot {
-            vec![slot as usize]
-        } else {
-            vec![0, 1, 2]
-        };
-
-        let mut best_result = CanAttackResult::NotPossible;
-
-        for slot_idx in slots_to_check {
-            let weapon = match self.weapons.get(slot_idx).and_then(|w| w.as_ref()) {
-                Some(w) => w,
-                None => continue,
-            };
-
-            // C++ WeaponSet.cpp line 638-639: Check anti-mask against target
-            let weapon_anti = weapon.template.get_anti_mask();
-            if (weapon_anti & target_anti_mask) == 0 {
-                continue;
-            }
-
-            // C++ WeaponSet.cpp line 641-644: Skip weapons out of pitch range
-            if !pitch_ok && !weapon.is_within_target_pitch(source_obj, target_obj.unwrap_or(0)) {
-                continue;
-            }
-
-            // C++ WeaponSet.cpp line 650-656: Check if out of ammo and not auto-reload
-            if weapon.get_status() == WeaponStatus::OutOfAmmo
-                && !weapon.template.get_auto_reloads_clip()
-            {
-                continue;
-            }
-
-            // C++ WeaponSet.cpp line 662-666: Check damage > 0 (unless unresistable)
-            let damage = weapon.estimate_weapon_damage(source_obj, target_obj, target_pos);
-            if weapon.get_damage_type() == DamageType::KillPilot
-                && crate::object::registry::OBJECT_REGISTRY
-                    .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
-                    .unwrap_or(false)
-                && self.current_weapon == WeaponSlotType::Primary
-                && specific_slot.is_none()
-            {
-                continue;
-            }
-
-            // C++ WeaponSet.cpp line 668-676: Check attack range
-            if weapon.is_within_attack_range(source_obj, target_obj, target_pos) {
-                return CanAttackResult::Possible;
-            } else if !matches!(best_result, CanAttackResult::Possible) {
-                best_result = CanAttackResult::PossibleAfterMoving;
-            }
-        }
-
-        best_result
-    }
-
     /// Check if any weapon is within target pitch limits
     ///
     /// Matches C++ WeaponSet::isAnyWithinTargetPitch() from WeaponSet.h line 187
@@ -1296,49 +1189,84 @@ impl WeaponSet {
         }
         false
     }
-
-    /// Evaluate a specific weapon against target
-    fn evaluate_weapon_against_target(
-        &self,
-        weapon: &Weapon,
-        source_obj: ObjectID,
-        target_obj: ObjectID,
-        _attack_type: AbleToAttackType,
-        _command_source: CommandSourceType,
-    ) -> CanAttackResult {
-        // Wave 419: empty dual-world → NotPossible.
-        if dual_world_registry_unavailable() {
-            return CanAttackResult::NotPossible;
-        }
-
-        // Check anti-mask
-        let weapon_anti = weapon.template.get_anti_mask();
-        let target_anti = crate::object::registry::OBJECT_REGISTRY
-            .with_object(target_obj, |guard| guard.get_anti_mask())
-            .unwrap_or(0xffffffff);
-        if (weapon_anti & target_anti) == 0 {
-            return CanAttackResult::InvalidShot;
-        }
-
-        // Check if weapon is in range
-        if !weapon.is_within_attack_range(source_obj, Some(target_obj), None) {
-            return CanAttackResult::PossibleAfterMoving;
-        }
-
-        // Check if weapon can do meaningful damage
-        let estimated_damage = weapon.estimate_weapon_damage(source_obj, Some(target_obj), None);
-        if estimated_damage <= 0.0 {
-            return CanAttackResult::InvalidShot;
-        }
-
-        CanAttackResult::Possible
-    }
 }
 
 impl Default for WeaponSet {
     fn default() -> Self {
         Self::new()
     }
+}
+
+const WEAPON_SET_XFER_NAMES: &[&str] = &[
+    "VETERAN",
+    "ELITE",
+    "HERO",
+    "PLAYER_UPGRADE",
+    "CRATEUPGRADE_ONE",
+    "CRATEUPGRADE_TWO",
+    "VEHICLE_HIJACK",
+    "CARBOMB",
+    "MINE_CLEARING_DETAIL",
+    "WEAPON_RIDER1",
+    "WEAPON_RIDER2",
+    "WEAPON_RIDER3",
+    "WEAPON_RIDER4",
+    "WEAPON_RIDER5",
+    "WEAPON_RIDER6",
+    "WEAPON_RIDER7",
+    "WEAPON_RIDER8",
+];
+
+fn xfer_named_bits(xfer: &mut dyn Xfer, bits: &mut u128, names: &[&str]) -> Result<(), String> {
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)
+        .map_err(|e| e.to_string())?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save => {
+            let mut count = 0i32;
+            for i in 0..names.len() {
+                if (*bits & (1u128 << i)) != 0 {
+                    count += 1;
+                }
+            }
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+            for (i, name) in names.iter().enumerate() {
+                if (*bits & (1u128 << i)) != 0 {
+                    let mut token = (*name).to_string();
+                    xfer.xfer_ascii_string(&mut token)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        XferMode::Load => {
+            *bits = 0;
+            let mut count = 0i32;
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+            for _ in 0..count.max(0) {
+                let mut token = String::new();
+                xfer.xfer_ascii_string(&mut token)
+                    .map_err(|e| e.to_string())?;
+                if let Some(index) = names
+                    .iter()
+                    .position(|name| name.eq_ignore_ascii_case(&token))
+                {
+                    *bits |= 1u128 << index;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn xfer_named_weapon_set_flags(xfer: &mut dyn Xfer, bits: &mut u128) -> Result<(), String> {
+    xfer_named_bits(xfer, bits, WEAPON_SET_XFER_NAMES)
+}
+
+fn xfer_named_damage_type_flags(xfer: &mut dyn Xfer, bits: &mut u128) -> Result<(), String> {
+    xfer_named_bits(xfer, bits, &crate::damage::DAMAGE_TYPE_FLAG_NAMES)
 }
 
 #[cfg(test)]

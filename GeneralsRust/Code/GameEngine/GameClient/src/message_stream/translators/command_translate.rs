@@ -133,6 +133,38 @@ impl GameMessageTranslator for CommandTranslator {
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaSelectNextUnit => {
+                return {
+                    for msg in handle_select_next_or_prev_unit(true) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
+            GameMessageType::MetaSelectPrevUnit => {
+                return {
+                    for msg in handle_select_next_or_prev_unit(false) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
+            GameMessageType::MetaSelectAll => {
+                return {
+                    for msg in handle_select_all(false) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
+            GameMessageType::MetaSelectAllAircraft => {
+                return {
+                    for msg in handle_select_all(true) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
             GameMessageType::MetaDeploy
             | GameMessageType::MetaFollow
             | GameMessageType::MetaChatPlayers

@@ -59,6 +59,8 @@ pub struct BuildQueueEntry {
     pub is_repeat: bool,
     /// Index in the visual queue (for UI)
     pub queue_index: usize,
+    /// C++ ProductionEntry::m_exitDoor (DOOR_NONE_AVAILABLE = -1).
+    pub exit_door: i32,
 }
 
 impl BuildQueueEntry {
@@ -81,6 +83,7 @@ impl BuildQueueEntry {
             production_id: 0,
             is_repeat: false,
             queue_index: 0,
+            exit_door: -1,
         }
     }
 

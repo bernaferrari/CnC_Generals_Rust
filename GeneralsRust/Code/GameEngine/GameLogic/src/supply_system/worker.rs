@@ -824,8 +824,9 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let current_percent = target_guard.get_construction_percent() as Real;
-                    if current_percent >= 100.0 {
+                    let current_percent = target_guard.get_construction_percent();
+                    // Completed/selling is pct < 0 (`CONSTRUCTION_COMPLETE = -1`).
+                    if current_percent < 0.0 || current_percent >= 100.0 {
                         self.dozer_task = None;
                         self.clear_task(WorkerDozerTaskSlot::Build);
                         return;

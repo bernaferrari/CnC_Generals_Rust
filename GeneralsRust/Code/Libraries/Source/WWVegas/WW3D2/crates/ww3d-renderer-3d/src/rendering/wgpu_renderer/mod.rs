@@ -36,6 +36,7 @@ pub mod runtime;
 // Bind helpers and pipeline manager for WGPU
 pub mod wgpu_material_binds;
 pub mod wgpu_pipeline_manager;
+pub mod bone_palette;
 
 // Device and surface management
 pub mod wgpu_adapter;

@@ -126,7 +126,8 @@ impl SpawnPointProductionExitBehavior {
 
         self.spawn_point_count = transforms.len().min(MAX_SPAWN_POINTS);
         for (index, transform) in transforms.iter().enumerate().take(self.spawn_point_count) {
-            let (_, rotation, translation) = transform.to_scale_rotation_translation();
+            let world = owner_guard.convert_bone_pos_to_world_pos(None, Some(transform));
+            let (_, rotation, translation) = world.to_scale_rotation_translation();
             let (_, _, yaw) = rotation.to_euler(EulerRot::XYZ);
             self.world_coord_spawn_points[index] = Coord3D::new(translation.x, translation.y, 0.0);
             self.world_angle_spawn_points[index] = yaw;

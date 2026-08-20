@@ -95,15 +95,31 @@ impl GameClient {
             .into_iter()
             .rev()
             .collect();
-        let subtitle = guard
-            .military_subtitles()
-            .back()
-            .map(|(text, _)| text.clone());
-        let timers: Vec<(String, String, bool)> = guard
-            .presentation_superweapon_timers()
-            .iter()
-            .map(|t| (t.name.clone(), t.countdown_text.clone(), t.ready))
-            .collect();
+        let frame = gamelogic::helpers::TheGameLogic::get_frame();
+        crate::gui::ingame_ui::step_live_hud(frame);
+        let subtitle = crate::gui::ingame_ui::live_military_subtitle_draw(frame)
+            .map(|(text, _, _, _, _)| text)
+            .or_else(|| {
+                guard
+                    .military_subtitles()
+                    .back()
+                    .map(|(text, _)| text.clone())
+            });
+        let timers: Vec<(String, String, bool)> = {
+            let named = crate::gui::ingame_ui::live_named_timer_draw(frame);
+            if !named.is_empty() {
+                named
+                    .into_iter()
+                    .map(|(text, _color, ready)| (text, String::new(), ready))
+                    .collect()
+            } else {
+                guard
+                    .presentation_superweapon_timers()
+                    .iter()
+                    .map(|t| (t.name.clone(), t.countdown_text.clone(), t.ready))
+                    .collect()
+            }
+        };
         let floating = guard.presentation_floating_texts().to_vec();
         (messages, subtitle, timers, floating)
     }
@@ -144,9 +160,35 @@ impl GameClient {
                 y += 14.0;
             }
 
-            // C++ military subtitle (InGameUI.cpp:3461-3484). Default pos (10,380)
-            // scaled from 800x600 like InGameUI::militarySubtitle.
-            if let Some(text) = &subtitle {
+            // C++ military subtitle (InGameUI.cpp:3461-3484) — typed lines + block.
+            let frame = gamelogic::helpers::TheGameLogic::get_frame();
+            if let Some((text, block_drawn, color, pos, block_pos)) =
+                crate::gui::ingame_ui::live_military_subtitle_draw(frame)
+            {
+                let a = ((color >> 24) & 0xFF) as f32 / 255.0;
+                let r = ((color >> 16) & 0xFF) as f32 / 255.0;
+                let g = ((color >> 8) & 0xFF) as f32 / 255.0;
+                let b = (color & 0xFF) as f32 / 255.0;
+                let rgba = [r, g, b, a];
+                let mut y = pos.1 * (screen_h / 600.0);
+                let x = pos.0 * (screen_w / 800.0);
+                for line in text.split('\n') {
+                    let _ = renderer.draw_text_simple(line, Vec2::new(x, y), 12.0, rgba);
+                    y += 12.0;
+                }
+                if block_drawn {
+                    let _ = renderer.draw_rect(
+                        crate::gui::ui_renderer::UIRect::new(
+                            block_pos.0 * (screen_w / 800.0),
+                            block_pos.1 * (screen_h / 600.0),
+                            10.0,
+                            12.0,
+                        ),
+                        rgba,
+                        0.0,
+                    );
+                }
+            } else if let Some(text) = &subtitle {
                 let pos_x = 10.0 * (screen_w / 800.0);
                 let pos_y = 380.0 * (screen_h / 600.0);
                 let _ = renderer.draw_text_simple(
@@ -155,6 +197,20 @@ impl GameClient {
                     12.0,
                     [200.0 / 255.0, 200.0 / 255.0, 30.0 / 255.0, 1.0],
                 );
+            }
+
+            // Named timers (C++ InGameUI.cpp:3699-3784) at constructor pos 0.05, 0.7.
+            let named = crate::gui::ingame_ui::live_named_timer_draw(frame);
+            let mut nt_y = 0.7 * screen_h;
+            let nt_x = 0.05 * screen_w;
+            for (text, color, ready) in &named {
+                let a = ((color >> 24) & 0xFF) as f32 / 255.0;
+                let r = ((color >> 16) & 0xFF) as f32 / 255.0;
+                let g = ((color >> 8) & 0xFF) as f32 / 255.0;
+                let b = (color & 0xFF) as f32 / 255.0;
+                let size = if *ready { 10.0 } else { 10.0 };
+                let _ = renderer.draw_text_simple(text, Vec2::new(nt_x, nt_y), size, [r, g, b, a]);
+                nt_y -= 12.0;
             }
 
             // C++ superweapon timers (InGameUI.cpp:3487-3522). Default 0.7, 0.7.

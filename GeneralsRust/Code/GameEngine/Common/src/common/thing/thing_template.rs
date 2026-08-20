@@ -804,6 +804,19 @@ impl ModuleInfo {
         self.info.get(index).map(|nugget| &nugget.data)
     }
 
+    fn replace_first_ai_module_data(&mut self, data: Arc<dyn ModuleData>) -> bool {
+        if let Some(nugget) = self
+            .info
+            .iter_mut()
+            .find(|nugget| nugget.data.is_ai_module_data())
+        {
+            nugget.data = data;
+            return true;
+        }
+        false
+    }
+
+
     pub fn descriptors(&self) -> Vec<ModuleDescriptor> {
         self.info
             .iter()
@@ -1771,12 +1784,10 @@ impl ThingTemplate {
         &self.geometry_info
     }
     pub fn calc_vision_range(&self) -> Real {
-        if self.vision_range > 0.0 {
-            self.vision_range
-        } else {
-            self.geometry_info.height.max(0.0)
-        }
+        // C++ ThingTemplate.h:405 friend_calcVisionRange — raw field, no geometry fallback.
+        self.vision_range
     }
+
     pub fn calc_shroud_clearing_range(&self) -> Real {
         if self.shroud_clearing_range >= 0.0 {
             self.shroud_clearing_range
@@ -2575,9 +2586,72 @@ impl ThingTemplate {
             .filter(|token| !token.is_empty() && !token.eq_ignore_ascii_case("None"))
             .map(AsciiString::from)
             .collect();
-        self.locomotor_sets.insert(set_name.to_string(), names);
+        if let Some(existing) = self.locomotor_sets.get(set_name) {
+            if !existing.is_empty()
+                && !crate::common::thing::thing_template_locomotor::locomotor_overrides_allowed()
+            {
+                return Err("re-specifying a LocomotorSet is no longer allowed".to_string());
+            }
+        }
+        self.locomotor_sets
+            .insert(set_name.to_string(), names.clone());
+        self.write_locomotor_set_into_ai_module(set_name, &names)
+    }
+
+    /// C++ `ThingTemplate::friend_getAIModuleInfo`.
+    pub fn friend_get_ai_module_info(&self) -> Option<&Arc<dyn ModuleData>> {
+        for i in 0..self.behavior_module_info.get_count() {
+            if let Some(data) = self.behavior_module_info.get_nth_data(i) {
+                if data.is_ai_module_data() {
+                    return Some(data);
+                }
+            }
+        }
+        None
+    }
+
+    fn write_locomotor_set_into_ai_module(
+        &mut self,
+        set_name: &str,
+        names: &[AsciiString],
+    ) -> Result<(), String> {
+        let Some(data) = self.friend_get_ai_module_info().cloned() else {
+            return Err(format!(
+                "Attempted to specify a locomotor for object {} without an AIUpdate block.",
+                self.name_string
+            ));
+        };
+        let updated =
+            crate::common::thing::thing_template_locomotor::apply_locomotor_set_to_module_data(
+                data, set_name, names,
+            )?;
+        self.behavior_module_info
+            .replace_first_ai_module_data(updated);
         Ok(())
     }
+
+    /// Replay stored top-level Locomotor lines into AI module data (late hook install).
+    pub fn apply_stored_locomotors_to_ai_module(&mut self) -> Result<(), String> {
+        if self.locomotor_sets.is_empty() {
+            return Ok(());
+        }
+        crate::common::thing::thing_template_locomotor::set_locomotor_overrides_allowed(true);
+        let sets: Vec<(String, Vec<AsciiString>)> = self
+            .locomotor_sets
+            .iter()
+            .map(|(set, names)| (set.clone(), names.clone()))
+            .collect();
+        let result = (|| {
+            for (set_name, names) in sets {
+                self.write_locomotor_set_into_ai_module(&set_name, &names)?;
+            }
+            Ok(())
+        })();
+        crate::common::thing::thing_template_locomotor::set_locomotor_overrides_allowed(false);
+        result
+    }
+
+
 
     pub fn locomotor_sets(&self) -> &HashMap<String, Vec<AsciiString>> {
         &self.locomotor_sets
@@ -3470,10 +3544,9 @@ fn parse_bool_simple(s: &str) -> Result<bool, ()> {
 }
 
 fn parse_color_int(s: &str) -> Result<Color, ()> {
-    // C++ parseColorInt: expects RRGGBB hex, stored as ARGB u32
-    let v = u32::from_str_radix(s.trim_start_matches("0x"), 16).map_err(|_| ())?;
-    Ok(Color(0xFF000000 | v))
+    crate::common::thing::thing_template_color::parse_color_int(s)
 }
+
 
 fn parse_editor_sorting(s: &str) -> Result<EditorSortingType, String> {
     match s.trim() {

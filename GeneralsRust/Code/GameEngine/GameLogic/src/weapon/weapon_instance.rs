@@ -88,6 +88,8 @@ pub struct Weapon {
     /// Drawable barrel count (C++ sourceObj->getDrawable()->getBarrelCount(m_wslot)).
     /// Default 1 until the drawable reports a multi-barrel count.
     pub(crate) barrel_count: i32,
+    /// Last projectile spawned by private_fire (C++ projectileID out-param).
+    pub(crate) last_projectile_id: ObjectId,
 }
 
 impl Weapon {
@@ -117,6 +119,7 @@ impl Weapon {
             pitch_limited,
             leech_weapon_range_active: false,
             barrel_count: 1,
+            last_projectile_id: INVALID_OBJECT_ID,
         }
     }
 
@@ -396,12 +399,15 @@ impl Weapon {
     ) -> GameLogicResult<Option<ObjectId>> {
         let current_frame = TheGameLogic::get_frame();
         let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
+        self.last_projectile_id = INVALID_OBJECT_ID;
         if !self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)? {
             let _ = self.apply_post_fire_state(source, current_frame, &bonus);
         }
-
-
-        Ok(None)
+        if self.last_projectile_id == INVALID_OBJECT_ID {
+            Ok(None)
+        } else {
+            Ok(Some(self.last_projectile_id))
+        }
     }
 
     /// Estimate weapon damage against target
@@ -420,62 +426,6 @@ impl Weapon {
         )
     }
 
-    pub fn is_within_attack_range(
-        &self,
-        source_obj: ObjectId,
-        target_obj: Option<ObjectId>,
-        target_pos: Option<&Coord3D>,
-    ) -> bool {
-        // Wave 265: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let Some((source_pos, source_radius)) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |guard| {
-                (
-                    *guard.get_position(),
-                    guard.get_geometry_info().get_bounding_circle_radius(),
-                )
-            })
-        else {
-            return false;
-        };
-
-        let (target_pos, target_radius) = if let Some(pos) = target_pos {
-            (*pos, 0.0)
-        } else if let Some(target_id) = target_obj {
-            let Some(pair) = crate::object::registry::OBJECT_REGISTRY.with_object(
-                target_id,
-                |guard| {
-                    (
-                        *guard.get_position(),
-                        guard.get_geometry_info().get_bounding_circle_radius(),
-                    )
-                },
-            ) else {
-                return false;
-            };
-            pair
-        } else {
-            return false;
-        };
-
-        let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
-        let max_range = self.template.get_attack_range(&bonus);
-        let min_range = self.template.get_minimum_attack_range();
-
-        let dx = source_pos.x - target_pos.x;
-        let dy = source_pos.y - target_pos.y;
-        let center_dist = (dx * dx + dy * dy).sqrt();
-        let boundary_dist = (center_dist - source_radius - target_radius).max(0.0);
-        let dist_sqr = boundary_dist * boundary_dist;
-
-        if dist_sqr < min_range * min_range - 0.5 {
-            return false;
-        }
-        dist_sqr <= max_range * max_range
-    }
     /// Check if target is too close
     pub fn is_too_close(
         &self,
@@ -612,15 +562,15 @@ impl Weapon {
     }
 
     /// Load ammo instantly (for newly created units)
-    pub fn load_ammo_now(&mut self, _source: ObjectId) -> GameLogicResult<()> {
-        self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
-        self.status = WeaponStatus::ReadyToFire;
-        Ok(())
+    pub fn load_ammo_now(&mut self, source: ObjectId) -> GameLogicResult<()> {
+        let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
+        self.reload_with_bonus(source, &bonus, true)
     }
 
     /// Reload ammo with delay
     pub fn reload_ammo(&mut self, source: ObjectId) -> GameLogicResult<()> {
-        self.reload_with_bonus(source, &WeaponBonus::new(), false)
+        let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
+        self.reload_with_bonus(source, &bonus, false)
     }
 
     /// Reload with bonus and optional instant load
@@ -895,23 +845,6 @@ impl Weapon {
             );
         }
         Ok(())
-    }
-    /// Compute weapon bonus
-    pub(crate) fn compute_bonus(
-        &self,
-        source: ObjectId,
-        extra_bonus_flags: WeaponBonusConditionFlags,
-    ) -> WeaponBonus {
-        let mut bonus = WeaponBonus::new();
-
-        // Apply extra bonuses from template
-        if let Some(extra_bonus_set) = &self.template.extra_bonus {
-            extra_bonus_set.append_bonuses(extra_bonus_flags, &mut bonus);
-        }
-
-        // Additional bonus computation would be based on source object state
-
-        bonus
     }
 
     /// Get weapon template
@@ -1400,7 +1333,10 @@ impl Weapon {
             return Err(WeaponError::InvalidTarget);
         };
 
-        if !self.is_within_attack_range(source_obj_id, target_obj_id, target_pos) {
+        let skip_max_range = self.template.leech_range_weapon || self.has_leech_range();
+        if !skip_max_range
+            && !self.is_within_attack_range(source_obj_id, target_obj_id, target_pos)
+        {
             let distance = source_pos.distance(target_position);
             let bonus = self.compute_bonus(source_obj_id, WeaponBonusConditionFlags::new());
             return Err(WeaponError::OutOfRange {
@@ -1551,6 +1487,24 @@ impl Weapon {
             return Err(WeaponError::InvalidTarget);
         };
 
+        if let Some(target_id) = victim_id {
+            if let Some(arc) = TheGameLogic::find_object_by_id(target_id) {
+                if let Ok(guard) = arc.read() {
+                    if let Some(ai) = guard.get_ai() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            let mut offset = Coord3D::new(0.0, 0.0, 0.0);
+                            if ai_guard.get_sneaky_targeting_offset(&mut offset) {
+                                target_position.x += offset.x;
+                                target_position.y += offset.y;
+                                target_position.z += offset.z;
+                                victim_id = None;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if let Some(scattered) = self.take_scatter_target_pos(&target_position) {
             victim_id = None;
             target_position = scattered;
@@ -1631,7 +1585,7 @@ impl Weapon {
                         inflict_damage,
                     )?;
                 } else {
-                    self.create_projectile(
+                    let projectile_id = self.create_projectile(
                         source_obj_id,
                         &source_pos,
                         &target_position,
@@ -1640,6 +1594,13 @@ impl Weapon {
                         lifetime,
                         bonus,
                     )?;
+                    self.last_projectile_id = projectile_id;
+                    self.new_projectile_fired(
+                        source_obj_id,
+                        projectile_id,
+                        victim_id,
+                        Some(&target_position),
+                    );
                 }
             }
             FireMode::ContinuousBeam {

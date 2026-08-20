@@ -1559,43 +1559,8 @@ impl CnCGameEngine {
                     }
 
                     {
-                        let mut object_ini_paths: Vec<String> = Vec::new();
-                        for root in Self::startup_ini_disk_roots() {
-                            if root == "." {
-                                continue;
-                            }
-                            let dir = std::path::Path::new(root).join("Data/INI/Object");
-                            if let Ok(rd) = std::fs::read_dir(&dir) {
-                                for ent in rd.flatten() {
-                                    let p = ent.path();
-                                    if p.extension().and_then(|e| e.to_str())
-                                        .is_some_and(|e| e.eq_ignore_ascii_case("ini"))
-                                    {
-                                        if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-                                            object_ini_paths
-                                                .push(format!("Data/INI/Object/{name}"));
-                                        }
-                                    }
-                                }
-                                if !object_ini_paths.is_empty() {
-                                    break;
-                                }
-                            }
-                        }
-                        if object_ini_paths.is_empty() {
-                            object_ini_paths = match crate::assets::manager::get_asset_manager() {
-                                Some(manager_arc) => {
-                                    match manager_arc.try_lock() {
-                                        Ok(mgr) => mgr.list_all_files().into_iter().filter(|p| {
-                                            let lower = p.to_ascii_lowercase().replace('\\', "/");
-                                            lower.starts_with("data/ini/object/") && lower.ends_with(".ini")
-                                        }).collect(),
-                                        Err(_) => Vec::new(),
-                                    }
-                                }
-                                None => Vec::new(),
-                            };
-                        }
+                        let object_ini_paths =
+                            super::object_ini_boot::collect_object_ini_virtual_paths();
                         let mut total_loaded = 0usize;
                         for ini_path in &object_ini_paths {
                             if let Some(content) = extract_ini_text_from_archives(ini_path) {
@@ -1606,8 +1571,16 @@ impl CnCGameEngine {
                             }
                         }
                         if total_loaded > 0 {
-                            info!("Bootstrapped {} object templates from BIG archives", total_loaded);
+                            info!("Bootstrapped {} object templates from Default/Object + FileSystem dir", total_loaded);
                         }
+                    }
+
+                    {
+                        let crc = super::ini_crc_boot::calculate_game_engine_ini_crc(
+                            |path| extract_ini_text_from_archives(path),
+                        );
+                        super::ini_crc_boot::publish_ini_crc(crc);
+                        info!("GameEngine init-table INI CRC: {crc:08X}");
                     }
 
                     // C++ ControlBar data is a paired catalog: CommandSet entries

@@ -821,7 +821,7 @@ pub fn kindof_from_name(name: &str) -> Option<KindOf> {
         "FS_BLACK_MARKET" => Some(KindOf::FsBlackMarket),
         "FS_ADVANCED_TECH" => Some(KindOf::FsAdvancedTech),
         "FS_TECHNOLOGY" => Some(KindOf::FSTechnology),
-        "COUNTS_FOR_VICTORY" => Some(KindOf::CountsForVictory),
+        "COUNTS_FOR_VICTORY" | "MP_COUNT_FOR_VICTORY" => Some(KindOf::CountsForVictory),
         "MINE" => Some(KindOf::Mine),
         "CLEANUP_HAZARD" => Some(KindOf::CleanupHazard),
         "HEAL_PAD" => Some(KindOf::HealPad),

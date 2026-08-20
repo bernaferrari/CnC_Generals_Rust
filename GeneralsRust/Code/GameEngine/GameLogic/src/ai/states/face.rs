@@ -104,6 +104,10 @@ impl StateImplementation for AIFaceObjectState {
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
     }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
 }
 
 impl ClassicState for AIFaceObjectState {
@@ -158,6 +162,10 @@ impl ClassicState for AIFaceObjectState {
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
     }
+
+    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
 }
 
 /// Face position state
@@ -189,6 +197,10 @@ impl StateImplementation for AIFacePositionState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
+    }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
     }
 }
 
@@ -235,6 +247,10 @@ impl ClassicState for AIFacePositionState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         Ok(())
+    }
+
+    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
     }
 }
 
@@ -298,4 +314,44 @@ fn face_towards(
         ai_guard.set_locomotor_goal_position_explicit(target_pos);
     }
     Ok(StateReturnType::Continue)
+}
+
+/// C++ `AIFaceState::xfer` version 1: `m_canTurnInPlace`.
+fn xfer_can_turn_in_place(xfer: &mut dyn Xfer, can_turn_in_place: &mut bool) -> Result<(), String> {
+    let mut version: game_engine::common::system::xfer::XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| format!("AIFaceState xfer version failed: {:?}", e))?;
+    xfer.xfer_bool(can_turn_in_place)
+        .map_err(|e| format!("AIFaceState xfer canTurnInPlace failed: {:?}", e))?;
+    Ok(())
+}
+
+impl Snapshotable for AIFaceObjectState {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut can_turn_in_place = self.can_turn_in_place;
+        xfer_can_turn_in_place(xfer, &mut can_turn_in_place)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer_can_turn_in_place(xfer, &mut self.can_turn_in_place)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Snapshotable for AIFacePositionState {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut can_turn_in_place = self.can_turn_in_place;
+        xfer_can_turn_in_place(xfer, &mut can_turn_in_place)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer_can_turn_in_place(xfer, &mut self.can_turn_in_place)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }

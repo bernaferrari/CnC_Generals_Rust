@@ -106,6 +106,8 @@ mod input;
 #[cfg(feature = "game_client")]
 mod minimap_bridge;
 mod mouse;
+pub(crate) mod object_ini_boot;
+pub(crate) mod ini_crc_boot;
 mod options_bridge;
 mod presentation_terrain_cache;
 #[cfg(feature = "game_client")]
@@ -183,9 +185,11 @@ pub const ENGINE_SRC: &str = concat!(
     include_str!("host.rs"),
     include_str!("host_authority.rs"),
     include_str!("hotkeys.rs"),
+    include_str!("ini_crc_boot.rs"),
     include_str!("input.rs"),
     include_str!("mouse.rs"),
     include_str!("minimap_bridge.rs"),
+    include_str!("object_ini_boot.rs"),
     include_str!("options_bridge.rs"),
     include_str!("presentation_terrain_cache.rs"),
     include_str!("quit_menu_bridge.rs"),

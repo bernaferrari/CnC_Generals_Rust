@@ -7,6 +7,7 @@
 #[path = "core_impl/mod.rs"]
 pub mod core;
 pub mod path_following;
+pub mod ini_bridge;
 
 // Re-export main types
 pub use core::*;

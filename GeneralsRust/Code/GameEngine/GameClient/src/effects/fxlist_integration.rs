@@ -461,6 +461,28 @@ impl FXNugget for FXListAtBonePosFXNugget {
     }
 }
 
+/// C++ `FXList::doFXPos` (FXList.cpp:784) plays only when
+/// `ThePartitionManager->getShroudStatusForPlayer(localPlayer, primary) == CELLSHROUD_CLEAR`.
+/// `PartitionManager.cpp:3017-3023` returns `CELLSHROUD_SHROUDED` for
+/// `playerIndex < 0` or a missing cell (including an uninitialized grid).
+fn fx_pos_cell_is_clear(primary: Point3<f32>, local_player_index: i32) -> bool {
+    if local_player_index < 0 {
+        return false;
+    }
+    let position = gamelogic::common::Coord3D {
+        x: primary.x,
+        y: primary.y,
+        z: primary.z,
+    };
+    let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+        return false;
+    };
+    matches!(
+        shroud.get_shroud_state(local_player_index as u32, &position),
+        gamelogic::system::shroud_manager::ShroudState::Visible
+    )
+}
+
 /// FXList - a collection of FX nuggets executed in order (matches C++ FXList)
 pub struct FXList {
     pub nuggets: Vec<Arc<dyn FXNugget>>,
@@ -481,7 +503,10 @@ impl FXList {
         self.nuggets.clear();
     }
 
-    /// Execute FX at a position (matches C++ FXList::doFXPos)
+    /// Execute FX at a position (matches C++ FXList::doFXPos).
+    ///
+    /// C++ `FXList.cpp:784` skips every nugget unless
+    /// `ThePartitionManager->getShroudStatusForPlayer(local, primary) == CELLSHROUD_CLEAR`.
     pub fn execute_fx_pos(
         &self,
         primary: Point3<f32>,
@@ -491,6 +516,9 @@ impl FXList {
         override_radius: f32,
         context: &mut FXContext,
     ) {
+        if !fx_pos_cell_is_clear(primary, context.local_player_index) {
+            return;
+        }
         for nugget in &self.nuggets {
             nugget.do_fx_pos(
                 primary,
@@ -503,7 +531,9 @@ impl FXList {
         }
     }
 
-    /// Execute FX on objects (matches C++ FXList::doFXObj)
+    /// Execute FX on objects (matches C++ FXList::doFXObj).
+    ///
+    /// Position form uses the same `CELLSHROUD_CLEAR` gate as `doFXPos`.
     pub fn execute_fx_obj(
         &self,
         primary_pos: Option<Point3<f32>>,
@@ -511,6 +541,11 @@ impl FXList {
         secondary_pos: Option<Point3<f32>>,
         context: &mut FXContext,
     ) {
+        if let Some(pos) = primary_pos {
+            if !fx_pos_cell_is_clear(pos, context.local_player_index) {
+                return;
+            }
+        }
         for nugget in &self.nuggets {
             nugget.do_fx_obj(primary_pos, primary_mtx, secondary_pos, context);
         }
@@ -1046,6 +1081,22 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_uses_current_client_bones() {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud");
+            *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+            shroud.init_shroud_grid(500.0, 500.0);
+            shroud.do_shroud_reveal(
+                &gamelogic::common::Coord3D {
+                    x: 4.0,
+                    y: 5.0,
+                    z: 6.0,
+                },
+                75.0,
+                1,
+            );
+        }
+
         let positions = Arc::new(Mutex::new(Vec::new()));
         let mut nested = FXList::new();
         nested.add_nugget(Arc::new(RecordingNugget {
@@ -1059,11 +1110,61 @@ mod tests {
 
         nugget.do_fx_obj(None, None, None, &mut context);
 
+        *shroud_manager.lock().expect("shroud") =
+            gamelogic::system::shroud_manager::ShroudManager::new();
+
         let positions = positions.lock().unwrap();
         assert_eq!(positions.len(), 3);
         assert_eq!(positions[0], Point3::new(1.0, 2.0, 3.0));
         assert_eq!(positions[1], Point3::new(4.0, 5.0, 6.0));
         assert_eq!(positions[2], Point3::new(7.0, 8.0, 9.0));
+    }
+
+    #[test]
+    fn execute_fx_pos_skips_nuggets_unless_cellshroud_clear() {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud");
+            *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+            shroud.init_shroud_grid(500.0, 500.0);
+        }
+
+        let positions = Arc::new(Mutex::new(Vec::new()));
+        let mut list = FXList::new();
+        list.add_nugget(Arc::new(RecordingNugget {
+            positions: Arc::clone(&positions),
+        }));
+        let mut manager = ParticleSystemManager::new();
+        let mut context = test_context(&mut manager, None);
+        let primary = Point3::new(100.0, 100.0, 0.0);
+
+        list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
+        assert!(
+            positions.lock().unwrap().is_empty(),
+            "unexplored CELLSHROUD_SHROUDED must not leak FXList integration nuggets"
+        );
+
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud");
+            shroud.do_shroud_reveal(
+                &gamelogic::common::Coord3D {
+                    x: 100.0,
+                    y: 100.0,
+                    z: 0.0,
+                },
+                75.0,
+                1,
+            );
+        }
+        list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
+        assert_eq!(
+            positions.lock().unwrap().len(),
+            1,
+            "CELLSHROUD_CLEAR must play FXList integration nuggets"
+        );
+
+        *shroud_manager.lock().expect("shroud") =
+            gamelogic::system::shroud_manager::ShroudManager::new();
     }
 
     #[test]

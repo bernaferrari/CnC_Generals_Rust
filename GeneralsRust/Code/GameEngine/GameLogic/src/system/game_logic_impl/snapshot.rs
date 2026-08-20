@@ -10,8 +10,11 @@ impl GameLogicSnapshotBridge {
 
 impl XferSnapshotTrait for GameLogicSnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
+        // C++ GameLogic::crc is empty. DeepCrc must not emit the v10 save blob.
+        let _ = xfer;
+        Ok(())
     }
+
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
         let mut guard = self.logic.lock().map_err(|_| XferStatus::InvalidData)?;
@@ -201,7 +204,7 @@ struct PlayerListSnapshotBridge;
 
 impl XferSnapshotTrait for PlayerListSnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
+        xfer_player_list_crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -225,7 +228,7 @@ struct TeamFactorySnapshotBridge;
 
 impl XferSnapshotTrait for TeamFactorySnapshotBridge {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        self.xfer(xfer)
+        xfer_team_factory_crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -233,9 +236,10 @@ impl XferSnapshotTrait for TeamFactorySnapshotBridge {
     }
 
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
-        Ok(())
+        xfer_team_factory_load_post_process()
     }
 }
+
 
 struct SidesListSnapshotBridge;
 

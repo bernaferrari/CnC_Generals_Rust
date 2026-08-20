@@ -70,6 +70,27 @@ impl Snapshotable for SupplyWarehouseDockUpdateData {
 
 crate::impl_legacy_module_data_via_base!(SupplyWarehouseDockUpdateData, base);
 
+fn parse_number_approach_positions_via_base(
+    _ini: &mut INI,
+    data: &mut SupplyWarehouseDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.base.number_approach_positions_data = INI::parse_int(token)?;
+    Ok(())
+}
+
+fn parse_allows_passthrough_via_base(
+    _ini: &mut INI,
+    data: &mut SupplyWarehouseDockUpdateData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.base.is_allow_passthrough = INI::parse_bool(token)?;
+    Ok(())
+}
+
+
 fn parse_starting_boxes(
     _ini: &mut INI,
     data: &mut SupplyWarehouseDockUpdateData,
@@ -91,6 +112,14 @@ fn parse_delete_when_empty(
 }
 
 const SUPPLY_WAREHOUSE_DOCK_UPDATE_FIELDS: &[FieldParse<SupplyWarehouseDockUpdateData>] = &[
+    FieldParse {
+        token: "NumberApproachPositions",
+        parse: parse_number_approach_positions_via_base,
+    },
+    FieldParse {
+        token: "AllowsPassthrough",
+        parse: parse_allows_passthrough_via_base,
+    },
     FieldParse {
         token: "StartingBoxes",
         parse: parse_starting_boxes,
@@ -192,7 +221,7 @@ impl SupplyWarehouseDockUpdate {
             return Ok(false);
         }
 
-        if self.is_crippled || self.boxes_stored == 0 {
+        if self.boxes_stored == 0 {
             return Ok(false);
         }
 
@@ -305,8 +334,7 @@ impl BehaviorModule for SupplyWarehouseDockUpdate {
 
 impl DockUpdateInterface for SupplyWarehouseDockUpdate {
     fn is_dock_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Warehouse is open if not crippled and has boxes
-        Ok(!self.is_crippled && self.boxes_stored > 0)
+        self.base.is_dock_open()
     }
 
     fn supply_warehouse_boxes_stored(&self) -> Option<i32> {
@@ -363,10 +391,6 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         &self,
         obj_id: ObjectID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Can only enter if not crippled and has boxes
-        if self.is_crippled || self.boxes_stored <= 0 {
-            return Ok(false);
-        }
         self.base.is_clear_to_enter(obj_id)
     }
 
@@ -645,16 +669,17 @@ mod tests {
         let pos = Coord3D::new(0.0, 0.0, 0.0);
         let mut dock = SupplyWarehouseDockUpdate::new(data, 1, &pos);
 
-        // Should be open with boxes
+        // C++ isDockOpen is m_dockOpen only; crippled/empty stay open.
         assert!(dock.is_dock_open().unwrap());
 
-        // Should be closed when crippled
         dock.is_crippled = true;
-        assert!(!dock.is_dock_open().unwrap());
+        assert!(dock.is_dock_open().unwrap());
 
-        // Should be closed when empty
         dock.is_crippled = false;
         dock.boxes_stored = 0;
+        assert!(dock.is_dock_open().unwrap());
+
+        dock.set_dock_open(false);
         assert!(!dock.is_dock_open().unwrap());
     }
 

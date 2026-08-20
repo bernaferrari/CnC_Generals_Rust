@@ -10,13 +10,15 @@ struct PartitionGhostLink {
     frozen_position: Option<Coord3D>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PartitionManager {
     grid: HashMap<(i32, i32), Vec<ObjectID>>,
     object_cells: HashMap<ObjectID, (i32, i32)>,
     object_positions: HashMap<ObjectID, Coord3D>,
     ghost_links: HashMap<ObjectID, PartitionGhostLink>,
     cell_size: Real,
+    /// C++ PartitionCell shroud levels (40wu).
+    shroud: crate::object::collide::partition_shroud::PartitionShroudGrid,
 }
 
 impl PartitionManager {
@@ -26,7 +28,8 @@ impl PartitionManager {
             object_cells: HashMap::new(),
             object_positions: HashMap::new(),
             ghost_links: HashMap::new(),
-            cell_size: 100.0,
+            cell_size: 40.0,
+            shroud: crate::object::collide::partition_shroud::PartitionShroudGrid::new(),
         }
     }
 
@@ -382,6 +385,42 @@ impl PartitionManager {
         let x = (position.x / self.cell_size).floor() as i32;
         let y = (position.y / self.cell_size).floor() as i32;
         (x, y)
+    }
+
+    pub fn cell_size(&self) -> Real {
+        self.cell_size
+    }
+
+    /// C++ `getShroudStatusForPlayer` on the 40wu closest-object grid.
+    pub fn get_shroud_status_for_player(
+        &self,
+        player_index: i32,
+        loc: &Coord3D,
+    ) -> game_engine::common::system::radar::CellShroudStatus {
+        self.shroud.status_at_world(player_index, loc)
+    }
+
+    /// C++ `getPropShroudStatusForPlayer`.
+    pub fn get_prop_shroud_status_for_player(
+        &self,
+        player_index: i32,
+        loc: &Coord3D,
+    ) -> crate::common::ObjectShroudStatus {
+        self.shroud.prop_status(player_index, loc)
+    }
+
+    pub fn do_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
+        self.shroud.reveal_circle(center, radius, player_mask);
+    }
+
+    pub fn undo_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
+        self.shroud.undo_reveal_circle(center, radius, player_mask);
+    }
+}
+
+impl Default for PartitionManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

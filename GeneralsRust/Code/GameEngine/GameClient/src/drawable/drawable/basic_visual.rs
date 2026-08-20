@@ -161,9 +161,7 @@ impl BasicDrawable {
             return;
         }
         self.hidden = hidden;
-        if hidden {
-            self.selected = false;
-        }
+        self.update_hidden_status();
     }
 
     pub fn set_selectable(&mut self, selectable: bool) {
@@ -215,7 +213,12 @@ impl BasicDrawable {
                 self.tint_envelope = Some(TintEnvelope::new());
             }
             if let Some(ref mut envelope) = self.tint_envelope {
-                envelope.play(FRENZY_COLOR, 30, 30, SUSTAIN_INDEFINITELY);
+                let frenzy = if self.is_object_kind_of(gamelogic::common::types::KindOf::Infantry) {
+                    FRENZY_COLOR_INFANTRY
+                } else {
+                    FRENZY_COLOR
+                };
+                envelope.play(frenzy, 30, 30, SUSTAIN_INDEFINITELY);
             }
         } else {
             if self.tint_envelope.is_none() {
@@ -353,10 +356,12 @@ impl BasicDrawable {
     ) -> crate::render_bridge::RenderStateOverrides {
         let mut state = crate::render_bridge::RenderStateOverrides::from_condition_flags(flags);
         state.opacity = state.opacity.min(opacity);
+        // C++ adds getTintColor()/getSelectionColor() to lights; negative
+        // channels darken (disabled gray, subdual blue, frenzy red/cyan).
         state.emissive_tint = [
-            state.emissive_tint[0].max(tint.x.max(0.0)),
-            state.emissive_tint[1].max(tint.y.max(0.0)),
-            state.emissive_tint[2].max(tint.z.max(0.0)),
+            state.emissive_tint[0] + tint.x,
+            state.emissive_tint[1] + tint.y,
+            state.emissive_tint[2] + tint.z,
         ];
         state.selected |= selected;
         state

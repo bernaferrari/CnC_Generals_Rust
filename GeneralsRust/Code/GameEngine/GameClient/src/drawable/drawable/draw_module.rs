@@ -1,6 +1,7 @@
 //! DrawModule trait, logic snapshot adapter, bone data, and terrain decals.
 
 use super::*;
+use game_engine::common::bit_flags::ModelConditionBitFlags;
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::Xfer;
 use game_engine::common::thing::module::Module;
@@ -89,6 +90,14 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     /// C++ `ObjectDrawInterface::replaceIndicatorColor(color)`.
     fn replace_indicator_color(&mut self, _color: Option<(u8, u8, u8)>) {}
 
+
+    /// Hide or show this module's render object and shadow.
+    /// C++ `ObjectDrawInterface::setHidden(Bool)`.
+    fn set_hidden(&mut self, _hidden: bool) {}
+
+    /// Swap condition-state models / hide-show lists / transition anims.
+    /// C++ `ObjectDrawInterface::replaceModelConditionState`.
+    fn replace_model_condition_state(&mut self, _flags: &ModelConditionBitFlags) {}
     /// Called after the drawable is bound to an object.
     /// C++ `DrawModule::onDrawableBoundToObject()`.
     fn on_drawable_bound_to_object(&mut self) {}

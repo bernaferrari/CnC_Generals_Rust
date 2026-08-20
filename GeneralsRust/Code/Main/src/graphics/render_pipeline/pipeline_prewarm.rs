@@ -160,7 +160,36 @@ impl RenderPipeline {
                         ),
                     );
                 }
-                crate::assets::W3dRenderObjectPrototypeKind::Mesh { .. } => {}
+                crate::assets::W3dRenderObjectPrototypeKind::Collection { collection_index } => {
+                    if let Some(collection) = source_model.collections.get(collection_index) {
+                        pending.extend(collection.object_names.iter().cloned());
+                    }
+                }
+                crate::assets::W3dRenderObjectPrototypeKind::Aggregate { aggregate_index } => {
+                    if let Some(aggregate) = source_model.aggregates.get(aggregate_index) {
+                        if !aggregate.base_model_name.is_empty() {
+                            pending.push_back(aggregate.base_model_name.clone());
+                        }
+                        pending.extend(
+                            aggregate
+                                .subobjects
+                                .iter()
+                                .map(|sub| sub.subobject_name.clone()),
+                        );
+                    }
+                }
+                crate::assets::W3dRenderObjectPrototypeKind::DistLod { dist_lod_index } => {
+                    if let Some(dist_lod) = source_model.dist_lods.get(dist_lod_index) {
+                        pending.extend(dist_lod.lods.iter().map(|lod| lod.render_obj_name.clone()));
+                    }
+                }
+                crate::assets::W3dRenderObjectPrototypeKind::Mesh { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Emitter { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Dazzle { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Box { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Ring { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Sphere { .. }
+                | crate::assets::W3dRenderObjectPrototypeKind::Null { .. } => {}
             }
         }
 

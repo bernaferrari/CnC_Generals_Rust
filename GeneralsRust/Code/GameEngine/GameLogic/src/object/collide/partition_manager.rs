@@ -34,8 +34,8 @@ const RING_SPACING: f32 = 5.0;
 /// Matches C++ `RANDOM_START_ANGLE = -99999.9f`
 pub const RANDOM_START_ANGLE: f32 = -99999.9;
 
-/// Very large distance constant. Matches C++ `HUGE_DIST`.
-const HUGE_DIST: f32 = 1.0e10;
+/// Very large distance constant. Matches C++ `HUGE_DIST` (`PartitionManager.h:45`).
+const HUGE_DIST: f32 = 1_000_000.0;
 
 // ---------------------------------------------------------------------------
 // FindPositionFlags  (C++ FindPositionFlags / FPF_*)
@@ -136,7 +136,7 @@ struct TerrainExtremeAccum {
 
 /// Size of each partition cell in world units.
 /// Matches C++ `TheGlobalData->m_partitionCellSize` from GameData.ini (`PartitionCellSize = 40.0`).
-const PARTITION_CELL_SIZE: f32 = 40.0;
+pub const PARTITION_CELL_SIZE: f32 = 40.0;
 
 /// Maximum number of players in the game.
 /// Matches C++ `MAX_PLAYER_COUNT` from GameCommon.h.
@@ -273,13 +273,14 @@ impl PartitionCell {
 }
 
 /// Object registration in partition system
-#[derive(Debug, Clone)]
 struct PartitionObject {
     #[allow(dead_code)]
     id: ObjectId,
     position: Coord3D,
     geometry: GeometryInfo,
     cell: CellCoord,
+    cells: Vec<CellCoord>,
+    angle: f32,
 }
 
 /// Partition filter trait for object queries
@@ -304,6 +305,8 @@ pub struct PartitionManager {
     /// Contact list for collision detection
     contact_list: Vec<(ObjectId, ObjectId)>,
     fogged_cells: HashMap<usize, HashSet<CellCoord>>,
+    /// C++ PartitionCell shroud levels on the 40wu grid.
+    pub(crate) shroud: super::partition_shroud::PartitionShroudGrid,
 }
 
 impl PartitionManager {
@@ -313,6 +316,7 @@ impl PartitionManager {
             objects: HashMap::new(),
             contact_list: Vec::new(),
             fogged_cells: HashMap::new(),
+            shroud: super::partition_shroud::PartitionShroudGrid::new(),
         }
     }
 
@@ -333,146 +337,134 @@ impl PartitionManager {
     pub fn unregister_ghost_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
         self.unregister_object(id)
     }
-
-    /// Register an object in the partition system
     pub fn register_object(
         &mut self,
         id: ObjectId,
         position: Coord3D,
         geometry: GeometryInfo,
     ) -> Result<(), CollisionError> {
-        let cell = CellCoord::from_world_pos(&position);
-
-        let partition_obj = PartitionObject {
-            id,
-            position,
-            geometry,
-            cell,
-        };
-
-        // Add to cell
-        self.cells
-            .entry(cell)
-            .or_insert_with(PartitionCell::new)
-            .add(id);
-
-        // Store object data
-        self.objects.insert(id, partition_obj);
-
-        Ok(())
+        self.register_object_oriented(id, position, geometry, 0.0)
     }
 
-    /// Unregister an object from the partition system
+    pub fn register_object_oriented(
+        &mut self,
+        id: ObjectId,
+        position: Coord3D,
+        geometry: GeometryInfo,
+        angle: f32,
+    ) -> Result<(), CollisionError> {
+        let cells = super::partition_coi::cells_touched_for_geometry(
+            position.x,
+            position.y,
+            &geometry,
+            angle,
+        );
+        let cell = cells
+            .first()
+            .copied()
+            .unwrap_or_else(|| CellCoord::from_world_pos(&position));
+        for &c in &cells {
+            self.cells.entry(c).or_insert_with(PartitionCell::new).add(id);
+        }
+        self.objects.insert(
+            id,
+            PartitionObject {
+                id,
+                position,
+                geometry,
+                cell,
+                cells,
+                angle,
+            },
+        );
+        Ok(())
+    }
     pub fn unregister_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
         if let Some(partition_obj) = self.objects.remove(&id) {
-            // Remove from cell
-            if let Some(cell) = self.cells.get_mut(&partition_obj.cell) {
-                cell.remove(id);
-
-                // Clean up empty cells
-                if cell.is_empty() {
-                    self.cells.remove(&partition_obj.cell);
+            for cell in partition_obj.cells {
+                if let Some(bucket) = self.cells.get_mut(&cell) {
+                    bucket.remove(id);
+                    if bucket.is_empty() {
+                        self.cells.remove(&cell);
+                    }
                 }
             }
         }
-
         Ok(())
     }
-
-    /// Update an object's position (move between cells if needed)
     pub fn update_object_position(
         &mut self,
         id: ObjectId,
         new_position: Coord3D,
     ) -> Result<(), CollisionError> {
-        if let Some(partition_obj) = self.objects.get_mut(&id) {
-            let new_cell = CellCoord::from_world_pos(&new_position);
-
-            // Check if cell changed
-            if new_cell != partition_obj.cell {
-                // Remove from old cell
-                if let Some(old_cell) = self.cells.get_mut(&partition_obj.cell) {
-                    old_cell.remove(id);
-                    if old_cell.is_empty() {
-                        self.cells.remove(&partition_obj.cell);
-                    }
-                }
-
-                // Add to new cell
-                self.cells
-                    .entry(new_cell)
-                    .or_insert_with(PartitionCell::new)
-                    .add(id);
-
-                partition_obj.cell = new_cell;
-            }
-
-            partition_obj.position = new_position;
-        }
-
-        Ok(())
+        let (geometry, angle) = match self.objects.get(&id) {
+            Some(obj) => (obj.geometry, obj.angle),
+            None => return Ok(()),
+        };
+        self.unregister_object(id)?;
+        self.register_object_oriented(id, new_position, geometry, angle)
     }
-
-    /// Find objects within a radius of a position
     pub fn find_objects_in_radius(
         &self,
         center: &Coord3D,
         radius: f32,
         filters: &[Box<dyn PartitionFilter>],
     ) -> Vec<ObjectId> {
-        // Wave 324: empty dual-world → empty set.
+        self.find_objects_in_radius_dc(
+            center,
+            radius,
+            filters,
+            super::partition_distance::DistanceCalculationType::FromCenter2D,
+        )
+    }
+
+    pub fn find_objects_in_radius_dc(
+        &self,
+        center: &Coord3D,
+        radius: f32,
+        filters: &[Box<dyn PartitionFilter>],
+        dc: super::partition_distance::DistanceCalculationType,
+    ) -> Vec<ObjectId> {
         if dual_world_registry_unavailable() {
             return Vec::new();
         }
-
         let center_cell = CellCoord::from_world_pos(center);
         let cells_to_check = center_cell.cells_in_radius(radius);
-
         let mut results = Vec::new();
-        let radius_sqr = radius * radius;
-
         for cell_coord in cells_to_check {
-            if let Some(cell) = self.cells.get(&cell_coord) {
-                for &obj_id in &cell.objects {
-                    if let Some(partition_obj) = self.objects.get(&obj_id) {
-                        // Distance check
-                        let dx = partition_obj.position.x - center.x;
-                        let dy = partition_obj.position.y - center.y;
-                        let dz = partition_obj.position.z - center.z;
-                        let dist_sqr = dx * dx + dy * dy + dz * dz;
-
-                        if dist_sqr <= radius_sqr {
-                            if filters.is_empty() {
-                                results.push(obj_id);
-                                continue;
-                            }
-
-                            let handle = match OBJECT_REGISTRY.get_object(obj_id) {
-                                Some(v) => v,
-                                None => continue,
-                            };
-
-                            let mut allowed = true;
-                            for filter in filters {
-                                if !filter.allow(&handle) {
-                                    allowed = false;
-                                    break;
-                                }
-                            }
-
-                            if allowed {
-                                results.push(obj_id);
-                            }
-                        }
-                    }
+            let Some(cell) = self.cells.get(&cell_coord) else {
+                continue;
+            };
+            for &obj_id in &cell.objects {
+                let Some(partition_obj) = self.objects.get(&obj_id) else {
+                    continue;
+                };
+                if !super::partition_distance::within_radius(
+                    center,
+                    &partition_obj.position,
+                    &partition_obj.geometry,
+                    radius,
+                    dc,
+                ) {
+                    continue;
+                }
+                if filters.is_empty() {
+                    results.push(obj_id);
+                    continue;
+                }
+                let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) else {
+                    continue;
+                };
+                if filters.iter().all(|filter| filter.allow(&handle)) {
+                    results.push(obj_id);
                 }
             }
         }
-
+        results.sort_unstable();
+        results.dedup();
         results
     }
 
-    /// Find closest objects to a position
     pub fn find_closest_objects(
         &self,
         center: &Coord3D,
@@ -480,21 +472,23 @@ impl PartitionManager {
         max_radius: f32,
         filters: &[Box<dyn PartitionFilter>],
     ) -> Vec<(ObjectId, f32)> {
+        let dc = super::partition_distance::DistanceCalculationType::FromCenter2D;
         let mut candidates: Vec<(ObjectId, f32)> = self
-            .find_objects_in_radius(center, max_radius, filters)
+            .find_objects_in_radius_dc(center, max_radius, filters, dc)
             .into_iter()
             .filter_map(|id| {
                 self.objects.get(&id).map(|obj| {
-                    let dist = obj.position.distance_to(center);
+                    let dist = super::partition_distance::distance_from_position(
+                        center,
+                        &obj.position,
+                        &obj.geometry,
+                        dc,
+                    );
                     (id, dist)
                 })
             })
             .collect();
-
-        // Sort by distance
         candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Take top N
         candidates.truncate(max_count);
         candidates
     }
@@ -546,9 +540,8 @@ impl PartitionManager {
         let obj_b = self.objects.get(&id_b).ok_or_else(|| {
             CollisionError::PartitionManagerError(format!("Object {} not found", id_b))
         })?;
-
-        let info_a = CollideInfo::new(obj_a.position, obj_a.geometry, 0.0);
-        let info_b = CollideInfo::new(obj_b.position, obj_b.geometry, 0.0);
+        let info_a = CollideInfo::new(obj_a.position, obj_a.geometry, obj_a.angle);
+        let info_b = CollideInfo::new(obj_b.position, obj_b.geometry, obj_b.angle);
 
         Ok(super::collision_geometry::collision_test(
             &info_a, &info_b, None,
@@ -559,6 +552,12 @@ impl PartitionManager {
         self.objects
             .get(&id)
             .map(|obj| (obj.position, obj.geometry))
+    }
+
+    pub fn get_object_pose(&self, id: ObjectId) -> Option<(Coord3D, GeometryInfo, f32)> {
+        self.objects
+            .get(&id)
+            .map(|obj| (obj.position, obj.geometry, obj.angle))
     }
 
     /// Build contact list of potentially colliding objects
@@ -785,15 +784,28 @@ impl PartitionManager {
             // AI pathfinder's cell grid.
             let _ = &terrain; // used above
         }
-
-        // Water checks
-        if !options.flags.contains(FindPositionFlags::IGNORE_WATER) {
-            let is_underwater = terrain.is_underwater(pos.x, pos.y, None, None);
-            if options.flags.contains(FindPositionFlags::WATER_ONLY) {
-                if !is_underwater {
+        // Impassable / CLEAR_CELLS_ONLY: C++ floors to PATHFIND_CELL_SIZE.
+        {
+            use crate::ai::pathfind_astar::PathfindCellType;
+            use crate::ai::THE_AI;
+            let cell_size = crate::path::PATHFIND_CELL_SIZE_F;
+            let snapped = Coord3D::new(
+                (pos.x / cell_size).floor() * cell_size,
+                (pos.y / cell_size).floor() * cell_size,
+                pos.z,
+            );
+            let cell_type = THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.get_cell_type_at(&snapped));
+            if cell_type == Some(PathfindCellType::Impassable) || cell_type.is_none() && options.flags.contains(FindPositionFlags::CLEAR_CELLS_ONLY) {
+                if cell_type == Some(PathfindCellType::Impassable) {
                     return None;
                 }
-            } else if is_underwater {
+            }
+            if options.flags.contains(FindPositionFlags::CLEAR_CELLS_ONLY)
+                && cell_type != Some(PathfindCellType::Clear)
+            {
                 return None;
             }
         }
@@ -888,11 +900,29 @@ impl PartitionManager {
             }
         }
 
-        // Note: The C++ also does a pathfinding check when
-        // sourceToPathToDest is set.  That requires access to the AI
-        // pathfinder which is not plumbed into this struct, so we skip
-        // it.  The caller can perform the path check after receiving the
-        // position.
+        if let Some(source_id) = options.source_to_path_to_dest {
+            if let Some(src) = self.objects.get(&source_id) {
+                use crate::ai::THE_AI;
+                let src_pos = src.position;
+                let exists = THE_AI.read().ok().and_then(|ai| {
+                    OBJECT_REGISTRY.with_object(source_id, |obj| {
+                        let Some(ai_iface) = obj.get_ai_update_interface() else {
+                            return true;
+                        };
+                        let Ok(ai_guard) = ai_iface.lock() else {
+                            return true;
+                        };
+                        let Some(loco) = ai_guard.get_locomotor_set_clone() else {
+                            return true;
+                        };
+                        ai.client_safe_quick_does_path_exist(&loco, &src_pos, &pos)
+                    })
+                });
+                if exists == Some(false) {
+                    return None;
+                }
+            }
+        }
 
         Some(pos)
     }
@@ -1724,6 +1754,7 @@ impl PartitionManager {
         self.cells.clear();
         self.objects.clear();
         self.contact_list.clear();
+        self.shroud.clear();
     }
 }
 

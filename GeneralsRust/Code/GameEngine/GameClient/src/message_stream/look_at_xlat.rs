@@ -88,6 +88,15 @@ impl LookAtTranslator {
         self.last_mouse_move_frame + LOGICFRAMES_PER_SECOND >= current_frame
     }
 
+    /// C++ LookAtTranslator::resetModes — drop scroll/rotate/pitch/FOV modes.
+    pub fn reset_modes(&mut self) {
+        self.is_scrolling = false;
+        self.is_rotating = false;
+        self.is_pitching = false;
+        self.is_changing_fov = false;
+        self.scroll_type = ScrollType::None;
+    }
+
     fn set_scrolling(&mut self, scroll_type: ScrollType) {
         if !TheInGameUI::get_input_enabled() {
             return;
@@ -130,6 +139,9 @@ impl LookAtTranslator {
     }
 
     fn handle_frame_tick(&mut self) {
+        if crate::core::script_action_handler::take_look_at_reset_modes() {
+            self.reset_modes();
+        }
         let (display_width, display_height) =
             with_tactical_view_ref(|view| (view.width(), view.height()));
         let (h_factor, v_factor, key_factor, _windowed, cutoff) = self.get_global_scroll_factors();
@@ -215,6 +227,9 @@ impl LookAtTranslator {
 
 impl GameMessageTranslator for LookAtTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
+        if crate::core::script_action_handler::take_look_at_reset_modes() {
+            self.reset_modes();
+        }
         let msg_type = msg.get_type();
         match msg_type {
             GameMessageType::RawKeyDown(key) | GameMessageType::RawKeyUp(key) => {

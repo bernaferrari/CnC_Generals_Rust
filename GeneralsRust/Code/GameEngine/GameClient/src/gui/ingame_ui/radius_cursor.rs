@@ -11,10 +11,7 @@ const DEFAULT_RADIUS_DECAL_TEXTURE: &str = "SCCAttackDamageArea";
 
 impl InGameUI {
     fn default_radius_cursor_templates() -> Vec<RadiusDecalTemplate> {
-        vec![
-            RadiusDecalTemplate::with_texture(DEFAULT_RADIUS_DECAL_TEXTURE);
-            RadiusCursorType::COUNT as usize
-        ]
+        Self::radius_cursor_templates_from_ini()
     }
 
     /// C++ `InGameUI::setRadiusCursor` (InGameUI.cpp:1172-1270).
@@ -148,41 +145,7 @@ impl InGameUI {
     }
 
     fn radar_screen_to_world(mx: i32, my: i32) -> Option<Coord3D> {
-        use game_engine::common::system::radar::{
-            get_radar_system, ICoord2D as RadarICoord2D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
-        };
-        let radar = get_radar_system();
-        let radar = radar.read().ok()?;
-        let local_has_radar = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|g| g.has_radar()))
-            .unwrap_or(false);
-        let radar_on = radar.is_radar_forced() || (!radar.is_radar_hidden() && local_has_radar);
-        if !radar_on {
-            return None;
-        }
-        let key = game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-            "ControlBar.wnd:LeftHUD",
-        );
-        with_window_manager_ref(|manager| {
-            let window = manager.get_window_by_id(key as i32)?;
-            let (wx, wy) = window.borrow().get_screen_position();
-            let (ww, wh) = window.borrow().get_size();
-            let lx = mx - wx;
-            let ly = my - wy;
-            if lx < 0 || ly < 0 || lx >= ww || ly >= wh {
-                return None;
-            }
-            if ww <= 0 || wh <= 0 {
-                return None;
-            }
-            let radar_x = (lx as i64 * RADAR_CELL_WIDTH as i64) / ww as i64;
-            let radar_y = (ly as i64 * RADAR_CELL_HEIGHT as i64) / wh as i64;
-            radar.radar_to_world(&RadarICoord2D::new(radar_x as i32, radar_y as i32))
-        })
-        .flatten()
+        radar_screen_pixel_to_world(mx, my)
     }
 
     fn first_selected_object_for_radius_cursor(&self) -> Option<u32> {

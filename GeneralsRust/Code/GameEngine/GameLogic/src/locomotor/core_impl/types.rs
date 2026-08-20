@@ -20,6 +20,47 @@ const DONUT_DISTANCE: Real = 4.0 * PATHFIND_CELL_SIZE_F;
 /// Maximum braking factor clamp. Matches C++ Locomotor.cpp:35 MAX_BRAKING_FACTOR
 const MAX_BRAKING_FACTOR: Real = 5.0;
 
+/// C++ `BIGNUM` used for omitted Braking / MinTurnSpeed.
+const LOCO_BIGNUM: Real = 99999.0;
+
+/// C++ LocomotorTemplate::m_speedLimitZ default.
+const LOCO_DEFAULT_SPEED_LIMIT_Z: Real = 999999.0;
+
+/// C++ `IS_CONDITION_BETTER` on locomotor BodyDamageType (Pristine < Damaged < ReallyDamaged < Rubble).
+fn loco_is_condition_better(a: BodyDamageType, b: BodyDamageType) -> bool {
+    (a as u8) < (b as u8)
+}
+
+/// Damaged maxima of -1 mean "same as undamaged" (C++ LocomotorTemplate::validate).
+fn heal_damaged_stat(damaged: Real, undamaged: Real) -> Real {
+    if damaged < 0.0 {
+        undamaged
+    } else {
+        damaged
+    }
+}
+
+/// C++ `TheGlobalData->m_movementPenaltyDamageState` (default BODY_REALLYDAMAGED).
+fn movement_penalty_damage_state() -> BodyDamageType {
+    use game_engine::common::ini::get_global_data;
+    use game_engine::common::ini::ini_game_data::BodyDamageType as IniBody;
+    get_global_data()
+        .map(|data| match data.read().movement_penalty_damage_state {
+            IniBody::Pristine => BodyDamageType::Pristine,
+            IniBody::Damaged => BodyDamageType::Damaged,
+            IniBody::ReallyDamaged => BodyDamageType::ReallyDamaged,
+            IniBody::Rubble => BodyDamageType::Rubble,
+        })
+        .unwrap_or(BodyDamageType::ReallyDamaged)
+}
+
+/// C++ `TheGlobalData->m_gravity`.
+fn loco_gravity() -> Real {
+    game_engine::common::ini::get_global_data()
+        .map(|data| data.read().gravity)
+        .unwrap_or(-1.0)
+}
+
 /// Locomotor surface type mask - bitmask for allowed terrain types
 pub type LocomotorSurfaceTypeMask = u32;
 
@@ -90,11 +131,11 @@ pub enum LocomotorBehaviorZ {
 }
 
 /// Body damage type affecting locomotor performance
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BodyDamageType {
-    Pristine,
-    Damaged,
-    ReallyDamaged,
-    Rubble,
+    Pristine = 0,
+    Damaged = 1,
+    ReallyDamaged = 2,
+    Rubble = 3,
 }
 

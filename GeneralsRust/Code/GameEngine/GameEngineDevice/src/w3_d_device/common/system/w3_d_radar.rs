@@ -4,8 +4,8 @@
 pub use game_engine::common::system::radar::{
     interpolate_color_for_height, legal_radar_point, radar_draw_positions, radar_event_marker,
     radar_to_pixel, should_refresh_w3d_object_overlay, CellShroudStatus, Coord3D, ICoord2D,
-    RadarEventMarker, RadarEventMarkerKind, RadarHeroReticleRect, RadarObject, RadarPriorityType,
-    RadarSystem, RadarViewBoxLine, Region3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
+    RadarEvent, RadarEventMarker, RadarEventMarkerKind, RadarHeroReticleRect, RadarObject,
+    RadarPriorityType, RadarSystem, RadarViewBoxLine, Region3D, RADAR_CELL_HEIGHT, RADAR_CELL_WIDTH,
     W3D_RADAR_OVERLAY_REFRESH_RATE,
 };
 
@@ -104,6 +104,7 @@ impl W3DRadar {
 
     /// Subsystem init: select default texture formats and reset W3D view/resource state.
     pub fn init(&mut self) {
+        game_engine::common::system::radar::ensure_the_radar_snapshot_block();
         self.initialize_texture_formats();
         self.reset();
         self.resources_allocated = true;
@@ -236,7 +237,17 @@ impl W3DRadar {
 
     /// Mark terrain as dirty and rebuild the software terrain texture.
     pub fn refresh_terrain(&mut self) {
-        self.radar.refresh_terrain();
+        self.radar.build_terrain_texture_cpp();
+    }
+
+    /// C++ `W3DRadar::buildTerrainTexture`.
+    pub fn build_terrain_texture(&mut self) {
+        self.radar.build_terrain_texture_cpp();
+    }
+
+    /// C++ `W3DRadar::drawEvents` — skip FAKE, chirp `RadarEvent` once.
+    pub fn draw_events(&mut self) -> Vec<RadarEvent> {
+        self.radar.draw_events()
     }
 
     /// Clear all shroud cells.

@@ -288,6 +288,25 @@ impl Default for MilesVolumeSliders {
     }
 }
 
+/// Resolve the Miles play position, following object/drawable owners.
+#[must_use]
+pub fn miles_event_world_position(event: &AudioEventRts) -> Coord3D {
+    match event.owner_type {
+        OwnerType::Object => with_audio_event_owner_resolver(|resolver| {
+            resolver.resolve_object_position(event.object_id)
+        })
+        .flatten()
+        .unwrap_or(event.position_of_audio),
+        OwnerType::Drawable => with_audio_event_owner_resolver(|resolver| {
+            resolver.resolve_drawable_position(event.drawable_id)
+        })
+        .flatten()
+        .unwrap_or(event.position_of_audio),
+        OwnerType::Positional | OwnerType::Dead => event.position_of_audio,
+        OwnerType::Invalid => event.position_of_audio,
+    }
+}
+
 /// C++ `MilesAudioManager::getEffectiveVolume`.
 ///
 /// `volume = getVolume() * getVolumeShift()`, then:
@@ -312,7 +331,7 @@ pub fn miles_get_effective_volume(
         _ => {
             if event.is_positional_audio() {
                 volume *= sliders.sound_3d_volume;
-                let pos = event.get_position();
+                let pos = miles_event_world_position(event);
                 let dx = listener.x - pos.x;
                 let dy = listener.y - pos.y;
                 let dz = listener.z - pos.z;
@@ -481,6 +500,8 @@ pub struct AudioEventRts {
     pub all_count: Int,
     pub player_index: Int,
     pub portion_to_play_next: PortionToPlay,
+    /// C++ `PlayingAudio::m_requestStop` — leave the sample running for Decay.
+    pub request_stop: bool,
     // New async-related fields
     pub playback_future: Option<tokio::task::JoinHandle<Result<(), AudioError>>>,
     pub completion_sender: Option<mpsc::UnboundedSender<AudioEventComplete>>,
@@ -568,6 +589,7 @@ impl Clone for AudioEventRts {
             all_count: self.all_count,
             player_index: self.player_index,
             portion_to_play_next: self.portion_to_play_next,
+            request_stop: self.request_stop,
             // Don't clone async handles - they should be recreated
             playback_future: None,
             completion_sender: None,
@@ -603,6 +625,7 @@ impl AudioEventRts {
             all_count: 0,
             player_index: -1,
             portion_to_play_next: PortionToPlay::Attack,
+            request_stop: false,
             // Initialize async fields
             playback_future: None,
             completion_sender: None,
@@ -813,6 +836,14 @@ impl AudioEventRts {
         }
 
         self.playing_handle != 0
+    }
+
+    pub fn get_request_stop(&self) -> bool {
+        self.request_stop
+    }
+
+    pub fn set_request_stop(&mut self, request_stop: bool) {
+        self.request_stop = request_stop;
     }
 
     pub fn set_object_id(&mut self, id: ObjectId) {
@@ -1116,6 +1147,7 @@ impl AudioEventRts {
         self.all_count = 0;
         self.player_index = -1;
         self.portion_to_play_next = PortionToPlay::Attack;
+        self.request_stop = false;
 
         // Reset async components
         if let Some(handle) = self.playback_future.take() {

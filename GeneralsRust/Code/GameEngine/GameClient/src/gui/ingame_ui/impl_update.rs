@@ -13,6 +13,9 @@ impl InGameUI {
             presentation_unit_catalog: Vec::new(),
             presentation_local_team_name: String::new(),
             placement_preview: None,
+            place_icons: Vec::new(),
+            pending_place_icon_template: None,
+            pending_place_icon_source: 0,
             minimap: Minimap::new(
                 Vec2::new(
                     screen_width - minimap_size - minimap_margin,
@@ -31,10 +34,7 @@ impl InGameUI {
             idle_workers: Vec::new(),
             current_frame: 0,
             radius_cursor: RadiusCursorState::new(),
-            radius_cursor_templates: vec![
-                crate::radius_decal::RadiusDecalTemplate::with_texture("SCCAttackDamageArea");
-                RadiusCursorType::COUNT as usize
-            ],
+            radius_cursor_templates: Self::radius_cursor_templates_from_ini(),
             cur_radius_decal: crate::radius_decal::RadiusDecal::new(),
             guard_hint_stashed_position: Coord3D::new(0.0, 0.0, 0.0),
             superweapon_timers: Vec::new(),
@@ -50,19 +50,19 @@ impl InGameUI {
             next_hint_index: 0,
             named_timers: Vec::new(),
             named_timer_last_flash_frame: 0,
-            named_timer_used_flash_color: false,
+            named_timer_used_flash_color: true,
             show_named_timers: true,
-            named_timer_position: (0.05, 0.8),
+            named_timer_position: (0.05, 0.7),
             named_timer_flash_duration: 1.0,
-            named_timer_flash_color: 0xFFFFFFFF,
+            named_timer_flash_color: 0xFF00_FFFF,
             named_timer_normal_font: "Arial".to_string(),
             named_timer_normal_point_size: 10,
             named_timer_normal_bold: false,
-            named_timer_normal_color: 0xFFFFFFFF,
+            named_timer_normal_color: 0xFFFF_FF00,
             named_timer_ready_font: "Arial".to_string(),
             named_timer_ready_point_size: 10,
             named_timer_ready_bold: false,
-            named_timer_ready_color: 0xFFFFFFFF,
+            named_timer_ready_color: 0xFFFF_00FF,
             gui_command: None,
             quit_menu_visible: false,
             window_layouts: HashMap::new(),
@@ -719,6 +719,7 @@ impl InGameUI {
         self.update_named_timers();
         self.update_superweapon_timers(self.current_frame);
         self.last_ui_logic_frame = self.current_frame;
+        self.handle_build_placements();
         self.handle_radius_cursor();
     }
 
@@ -730,6 +731,7 @@ impl InGameUI {
         self.update_superweapon_timers(frame);
         self.update_named_timers();
         self.update_military_subtitle();
+        self.handle_build_placements();
         self.update_and_draw_world_animations();
     }
 
@@ -1159,6 +1161,22 @@ impl InGameUI {
             self.drawable_caption_font = name;
             self.drawable_caption_point_size = size;
             self.drawable_caption_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.named_timer_countdown_normal_font)
+        {
+            self.named_timer_normal_font = name;
+            self.named_timer_normal_point_size = size;
+            self.named_timer_normal_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.named_timer_countdown_ready_font)
+        {
+            self.named_timer_ready_font = name;
+            self.named_timer_ready_point_size = size;
+            self.named_timer_ready_bold = bold;
         }
     }
 

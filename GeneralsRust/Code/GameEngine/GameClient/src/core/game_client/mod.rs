@@ -114,9 +114,11 @@ use game_engine::common::system::{
 use game_engine::common::thing::{get_thing_factory, ThingTemplate};
 use game_engine::common::user_preferences::UserPreferences;
 use game_engine::System::{
-    register_drawable_id_counter_hooks, register_save_load_campaign_hooks,
-    register_save_load_mission_hooks, register_save_load_skirmish_hooks,
+    register_campaign_manager_runtime_hooks, register_drawable_id_counter_hooks,
+    register_save_load_campaign_hooks, register_save_load_mission_hooks,
+    register_save_load_skirmish_hooks,
 };
+
 use game_engine::{
     Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus,
 };

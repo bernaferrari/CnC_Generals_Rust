@@ -1299,10 +1299,6 @@ impl Object {
             return Err(ObjectError::AlreadyDead);
         }
 
-        if self.is_invulnerable() {
-            return Err(ObjectError::Invulnerable);
-        }
-
         // Validate damage amount
         if damage_info.input.amount < 0.0 && damage_info.input.damage_type != DamageType::Healing {
             return Err(ObjectError::InvalidDamage(damage_info.input.amount));
@@ -1328,7 +1324,7 @@ impl Object {
         // Process shockwave forces (C++ lines 1824-1860)
         if damage_info.input.shock_wave_amount > 0.0 && damage_info.input.shock_wave_radius > 0.0 {
             // Check if object is eligible for shockwave (not airborne, not projectile)
-            if !self.is_airborne_target() && self.physics.is_some() {
+            if self.shockwave_applies() {
                 if let Some(physics) = &self.physics {
                     let mut physics_guard =
                         physics.lock().map_err(|_| ObjectError::LockPoisoned)?;
@@ -1362,7 +1358,7 @@ impl Object {
 
                     // Set stunned model condition
                     if stunned {
-                        self.set_model_condition_state(ModelConditionFlags::STUNNED);
+                        self.set_shockwave_stunned_flailing();
                     }
                 }
             }
@@ -1733,6 +1729,7 @@ impl Object {
                 ) {
                     log::debug!("Object::update_weapon_firing_status set flags failed: {err}");
                 }
+                self.stretch_preattack_animation(condition_to_set, slot);
             }
         }
     }

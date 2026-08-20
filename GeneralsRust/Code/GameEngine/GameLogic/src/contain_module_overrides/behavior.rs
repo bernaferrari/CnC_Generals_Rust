@@ -68,6 +68,14 @@ active_behavior_factories!(
     "FireWeaponUpdate"
 );
 active_behavior_factories!(
+    dynamic_geometry_info_update_data_factory,
+    dynamic_geometry_info_update_module_factory,
+    DynamicGeometryInfoUpdateModuleData,
+    DynamicGeometryInfoUpdate,
+    "DynamicGeometryInfoUpdate"
+);
+
+active_behavior_factories!(
     firestorm_dynamic_geometry_info_update_data_factory,
     firestorm_dynamic_geometry_info_update_module_factory,
     FirestormDynamicGeometryInfoUpdateModuleData,

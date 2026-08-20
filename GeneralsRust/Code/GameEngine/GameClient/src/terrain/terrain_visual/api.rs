@@ -60,6 +60,73 @@ fn register_logic_height_hooks() {
             }
         }
     }
+    gamelogic::terrain_water::register_visual_water_hooks(
+        gamelogic::terrain_water::VisualWaterHooks {
+            enable_water_grid: Some(|enable| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.enable_water_grid(enable);
+                    }
+                }
+            }),
+            set_height_clamps: Some(|low, high| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.set_water_grid_height_clamps(low, high);
+                    }
+                }
+            }),
+            set_transform: Some(|angle, x, y, z| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.set_water_transform(angle, x, y, z);
+                    }
+                }
+            }),
+            set_transform_matrix: Some(|cols| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.set_water_transform_matrix(Mat4::from_cols_array(&cols));
+                    }
+                }
+            }),
+            set_resolution: Some(|cells_x, cells_y, cell_size| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.set_water_grid_resolution(cells_x, cells_y, cell_size);
+                    }
+                }
+            }),
+            set_attenuation: Some(|a, b, c, range| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        visual.set_water_attenuation_factors(a, b, c, range);
+                    }
+                }
+            }),
+            get_water_grid_height: Some(|x, y| {
+                get_terrain_visual()
+                    .ok()
+                    .and_then(|guard| guard.as_ref().and_then(|v| v.get_water_grid_height(x, y)))
+            }),
+            get_transform_z: Some(|| {
+                get_terrain_visual()
+                    .ok()
+                    .and_then(|guard| guard.as_ref().map(|v| v.water_transform().w_axis.z))
+                    .unwrap_or(0.0)
+            }),
+            set_transform_z: Some(|height| {
+                if let Ok(mut visual) = get_terrain_visual() {
+                    if let Some(visual) = visual.as_mut() {
+                        let mut transform = visual.water_transform();
+                        transform.w_axis.z = height;
+                        visual.set_water_transform_matrix(transform);
+                    }
+                }
+            }),
+        },
+    );
+
 }
 
 fn rebuild_shoreline_hook() {

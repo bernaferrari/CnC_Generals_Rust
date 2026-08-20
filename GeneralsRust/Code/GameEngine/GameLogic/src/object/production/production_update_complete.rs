@@ -32,10 +32,13 @@ use crate::common::{
 };
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModule, BehaviorModuleInterface, ProductionUpdateInterface, UpdateModuleInterface,
-    UpdateSleepTime, UPDATE_SLEEP_NONE,
+    BehaviorModule, BehaviorModuleInterface, ExitDoorType, ProductionUpdateInterface,
+    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{
+    xfer_update_module_base_state, BehaviorModuleData,
+};
+use game_engine::bit_flags::create_model_condition_flags;
 use crate::system::game_logic;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -52,6 +55,44 @@ use std::sync::{Arc, Mutex};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
+}
+
+fn exit_door_to_i32(door: ExitDoorType) -> i32 {
+    match door {
+        ExitDoorType::None => -2, // C++ DOOR_NONE_NEEDED
+        ExitDoorType::NoneAvailable => -1,
+        ExitDoorType::Primary | ExitDoorType::Door1 => 0,
+        ExitDoorType::Secondary | ExitDoorType::Door2 => 1,
+        ExitDoorType::Emergency | ExitDoorType::Door3 => 2,
+        ExitDoorType::Door4 => 3,
+    }
+}
+
+fn i32_to_exit_door(door: i32) -> ExitDoorType {
+    match door {
+        0 => ExitDoorType::Primary,
+        1 => ExitDoorType::Secondary,
+        2 => ExitDoorType::Emergency,
+        3 => ExitDoorType::Door4,
+        -2 => ExitDoorType::None,
+        _ => ExitDoorType::NoneAvailable,
+    }
+}
+
+fn production_type_to_cpp(production_type: ProductionType) -> i32 {
+    match production_type {
+        ProductionType::Unit => 1,
+        ProductionType::Upgrade => 2,
+        ProductionType::SpecialPower => 0,
+    }
+}
+
+fn production_type_from_cpp(value: i32) -> ProductionType {
+    match value {
+        2 => ProductionType::Upgrade,
+        1 => ProductionType::Unit,
+        _ => ProductionType::SpecialPower,
+    }
 }
 
 /// Quantity modifier for multi-unit production
@@ -339,18 +380,19 @@ struct ProductionEntryState {
     quantity_total: i32,
     /// Quantity already produced
     quantity_produced: i32,
-    /// Exit door reserved for this production
-    exit_door: Option<usize>,
+    /// C++ ProductionEntry::m_exitDoor. DOOR_NONE_AVAILABLE = -1.
+    exit_door: i32,
 }
 
 impl ProductionEntryState {
     /// Create from queue entry
     fn from_entry(entry: BuildQueueEntry) -> Self {
+        let exit_door = entry.exit_door;
         Self {
             entry,
             quantity_total: 1, // Default single unit
             quantity_produced: 0,
-            exit_door: None,
+            exit_door,
         }
     }
 
@@ -363,7 +405,7 @@ impl ProductionEntryState {
     /// Matches C++ ProductionEntry::oneProductionSuccessful line 68
     fn one_production_successful(&mut self) {
         self.quantity_produced += 1;
-        self.exit_door = None; // Re-reserve door for next unit
+        self.exit_door = -1; // Re-reserve door for next unit
     }
 }
 
@@ -387,7 +429,7 @@ pub struct ProductionUpdateComplete {
     current_door: usize,
     /// Reference to the owning object
     owner_id: ObjectID,
-    /// Exit strategy for spawned units
+    /// Exit strategy for spawned units (legacy; spawn uses ModuleExitInterface).
     exit_strategy: Option<Arc<Mutex<dyn ProductionExitStrategy>>>,
     /// Whether production is currently enabled
     production_enabled: bool,
@@ -400,6 +442,14 @@ pub struct ProductionUpdateComplete {
     /// Unique ID counter for production IDs
     /// Matches C++ m_uniqueID line 238
     unique_id: u32,
+    /// C++ UpdateModule::m_nextCallFrameAndPhase
+    next_call_frame_and_phase: u32,
+    /// C++ m_clearFlags
+    clear_flags: ModelConditionFlags,
+    /// C++ m_setFlags
+    set_flags: ModelConditionFlags,
+    /// C++ m_flagsDirty
+    flags_dirty: bool,
 }
 
 impl ProductionUpdateComplete {
@@ -461,7 +511,6 @@ impl ProductionUpdateComplete {
     /// Matches C++ ProductionUpdate constructor lines 162-183
     pub fn new(data: ProductionUpdateModuleData, owner_id: ObjectID) -> Self {
         let queue = BuildQueue::new(data.max_queue_entries);
-
         Self {
             data,
             queue,
@@ -477,6 +526,10 @@ impl ProductionUpdateComplete {
             cost_calculator: BuildCostCalculator::new(),
             prerequisite_checker: PrerequisiteChecker::new(),
             unique_id: 1, // Start from 1 like C++
+            next_call_frame_and_phase: 0,
+            clear_flags: ModelConditionFlags::empty(),
+            set_flags: ModelConditionFlags::empty(),
+            flags_dirty: false,
         }
     }
 
@@ -588,7 +641,7 @@ impl ProductionUpdateComplete {
         }
 
         // Create queue entry
-        let entry = BuildQueueEntry::new(
+        let mut entry = BuildQueueEntry::new(
             template_name.clone(),
             production_type,
             cost,
@@ -596,6 +649,9 @@ impl ProductionUpdateComplete {
             player_id,
         )
         .with_production_id(production_id);
+        if production_type == ProductionType::Unit {
+            entry.exit_door = self.reserve_parking_door_when_queued(&template_name)?;
+        }
         if production_id >= self.unique_id {
             self.unique_id = production_id.saturating_add(1);
         }
@@ -1019,99 +1075,210 @@ impl ProductionUpdateComplete {
 
         false
     }
+    fn reserve_parking_door_when_queued(&self, template_name: &str) -> Result<i32, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(-1);
+        }
+        let Some(template) = TheThingFactory::find_template(template_name) else {
+            return Ok(-1);
+        };
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            return Ok(-1);
+        };
+        let Ok(guard) = owner.read() else {
+            return Ok(-1);
+        };
+        let needs = guard
+            .with_parking_place_behavior(|parking_place| {
+                parking_place.should_reserve_door_when_queued(template.as_ref())
+            })
+            .unwrap_or(false);
+        if !needs {
+            return Ok(-1);
+        }
+        let Some(exit) = guard.get_object_exit_interface() else {
+            return Err("No parking door available".to_string());
+        };
+        drop(guard);
+        let Ok(mut exit_guard) = exit.lock() else {
+            return Err("No parking door available".to_string());
+        };
+        let door = exit_guard.reserve_door_for_exit(None, None);
+        if door == ExitDoorType::NoneAvailable {
+            return Err("No parking door available".to_string());
+        }
+        Ok(exit_door_to_i32(door))
+    }
 
-    /// Spawn a completed unit
-    /// Matches C++ lines 706-856
+    /// Spawn a completed unit through the building ExitInterface.
+    /// Matches C++ ProductionUpdate::update lines 706-856.
     fn spawn_unit(&mut self, current_frame: u32) -> Result<(), String> {
-        // Wave 365: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        if let Some(ref mut prod) = self.current_production {
-            // Check if we've produced all units in this batch
-            if prod.quantity_remaining() <= 0 {
-                // Remove from production
-                self.current_production = None;
+        let Some(prod) = self.current_production.as_ref() else {
+            return Err("No production to spawn".to_string());
+        };
+        if prod.entry.production_type != ProductionType::Unit {
+            return Ok(());
+        }
+        if prod.quantity_remaining() <= 0 {
+            self.current_production = None;
+            if !self.queue.is_empty() {
+                self.start_next_production()?;
+            }
+            return Ok(());
+        }
 
-                // Start next item if available
-                if !self.queue.is_empty() {
-                    self.start_next_production()?;
-                }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            return Err("Cannot create unit, producer object missing".to_string());
+        };
+        let Some(exit) = owner
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_object_exit_interface())
+        else {
+            return Err(format!(
+                "Cannot create '{}', there is no ExitUpdate interface defined for producer",
+                self.current_production
+                    .as_ref()
+                    .map(|p| p.entry.template_name.as_str())
+                    .unwrap_or("<unknown>")
+            ));
+        };
 
-                return Ok(());
+        let number_to_try = self
+            .current_production
+            .as_ref()
+            .map(|p| p.quantity_remaining())
+            .unwrap_or(0);
+        for _ in 0..number_to_try {
+            let Some(prod) = self.current_production.as_mut() else {
+                break;
+            };
+            if prod.exit_door == -1 {
+                let Ok(mut exit_guard) = exit.lock() else {
+                    break;
+                };
+                let door = exit_guard.reserve_door_for_exit(None, None);
+                prod.exit_door = exit_door_to_i32(door);
+            }
+            if prod.exit_door == -1 {
+                break;
             }
 
-            // Open door if needed
-            // Matches C++ lines 736-778
-            if self.data.num_door_animations > 0 {
-                let door_idx = self.current_door
-                    % (DOOR_COUNT_MAX.min(self.data.num_door_animations as usize));
-                let door = &mut self.doors[door_idx];
+            let exit_door = prod.exit_door;
+            let door_idx = if (0..DOOR_COUNT_MAX as i32).contains(&exit_door) {
+                Some(exit_door as usize)
+            } else {
+                None
+            };
 
-                // Start opening door if closed
-                if door.door_opened_frame == 0
-                    && door.door_wait_open_frame == 0
-                    && door.door_closed_frame == 0
-                {
-                    door.door_opened_frame = current_frame;
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if self.data.num_door_animations > 0 {
+                if let Some(door_idx) = door_idx {
+                    let door = &mut self.doors[door_idx];
+                    if door.door_opened_frame == 0
+                        && door.door_wait_open_frame == 0
+                        && door.door_closed_frame == 0
+                    {
+                        door.door_opened_frame = current_frame;
                         if let Ok(mut guard) = owner.write() {
                             guard.set_model_condition_state(OPENING_FLAGS[door_idx]);
                         }
+                    } else if door.door_wait_open_frame != 0 {
+                        door.door_wait_open_frame = current_frame;
+                    } else if door.door_closed_frame != 0 {
+                        door.door_wait_open_frame = current_frame;
+                        door.door_closed_frame = 0;
+                        if let Ok(mut guard) = owner.write() {
+                            guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
+                            guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
+                            guard.set_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
+                        }
                     }
-                }
-
-                // Wait for door to be fully open
-                if door.door_wait_open_frame == 0 {
-                    return Ok(()); // Door not ready yet
                 }
             }
 
-            // Start construction complete animation
-            // Matches C++ lines 781-788
             if self.construction_complete_frame == 0 {
                 self.construction_complete_frame = current_frame;
-                if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                    if let Ok(mut guard) = owner.write() {
-                        guard.set_model_condition_state(ModelConditionFlags::CONSTRUCTION_COMPLETE);
-                    }
+                if let Ok(mut guard) = owner.write() {
+                    guard.set_model_condition_state(ModelConditionFlags::CONSTRUCTION_COMPLETE);
                 }
             }
 
-            // Spawn the unit via exit strategy
-            // Matches C++ lines 790-843
-            if let Some(strategy) = &self.exit_strategy {
-                let rally = self
-                    .rally_points
-                    .get_rally(Some(&prod.entry.template_name))
-                    .clone();
-
-                let mut strategy_guard = strategy
-                    .lock()
-                    .map_err(|_| "Failed to lock exit strategy".to_string())?;
-
-                strategy_guard.spawn_unit(
-                    &prod.entry.template_name,
-                    self.owner_id,
-                    self.current_door,
-                    rally,
-                )?;
-
-                // Mark one successful
-                prod.one_production_successful();
-
-                // Rotate door for next spawn
-                self.current_door =
-                    (self.current_door + 1) % self.data.num_door_animations.max(1) as usize;
-            } else {
-                return Err("No exit strategy configured".to_string());
+            let door_ready = self.data.num_door_animations == 0
+                || door_idx.is_none()
+                || door_idx
+                    .map(|idx| self.doors[idx].door_wait_open_frame != 0)
+                    .unwrap_or(false);
+            if !door_ready {
+                return Ok(());
             }
 
-            Ok(())
-        } else {
-            Err("No production to spawn".to_string())
+            let template_name = self
+                .current_production
+                .as_ref()
+                .map(|p| p.entry.template_name.clone())
+                .unwrap_or_default();
+            let Some(template) = TheThingFactory::find_template(&template_name) else {
+                return Err(format!("Cannot find template '{template_name}'"));
+            };
+            let Some(team) = owner.read().ok().and_then(|guard| {
+                guard
+                    .get_controlling_player()
+                    .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
+            }) else {
+                return Err("Producer has no default team".to_string());
+            };
+            let factory = TheThingFactory::get().map_err(|err| err.to_string())?;
+            let new_obj = factory
+                .new_object_with_team_handle(template, team)
+                .map_err(|err| err.to_string())?;
+            let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
+            if let Ok(mut new_guard) = new_obj.write() {
+                if let Ok(owner_guard) = owner.read() {
+                    new_guard.set_producer(Some(&owner_guard));
+                }
+            }
+
+            if let Ok(mut exit_guard) = exit.lock() {
+                exit_guard
+                    .exit_object_via_door(new_id, i32_to_exit_door(exit_door))
+                    .map_err(|err| err.to_string())?;
+            }
+
+            if let Ok(mut new_guard) = new_obj.write() {
+                new_guard.on_build_complete();
+            }
+            if let Some(player) = owner
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_controlling_player())
+            {
+                if let Ok(mut player_guard) = player.write() {
+                    player_guard.on_unit_created(&owner, &new_obj);
+                }
+            }
+
+            if let Some(prod) = self.current_production.as_mut() {
+                prod.one_production_successful();
+            }
         }
+
+        if self
+            .current_production
+            .as_ref()
+            .map(|p| p.quantity_remaining() == 0)
+            .unwrap_or(false)
+        {
+            self.current_production = None;
+            if !self.queue.is_empty() {
+                self.start_next_production()?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the build queue (read-only)
@@ -1390,7 +1557,7 @@ impl ProductionControlInterface for ProductionUpdateComplete {
 
 impl Snapshotable for ProductionUpdateComplete {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
+        let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -1399,69 +1566,40 @@ impl Snapshotable for ProductionUpdateComplete {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |res: std::io::Result<()>| res.map_err(|e| e.to_string());
 
-        let mut version: u32 = 1;
-        xfer_io(xfer.xfer_u32(&mut version))?;
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        let mut queue_len: u16 = self.queue.len().min(u16::MAX as usize) as u16;
-        xfer_io(xfer.xfer_unsigned_short(&mut queue_len))?;
+        let mut production_count: u16 = self.production_count().min(u16::MAX as usize) as u16;
+        xfer_io(xfer.xfer_unsigned_short(&mut production_count))?;
 
         if xfer.is_writing() {
-            for entry in self.queue.entries().iter() {
-                xfer_build_queue_entry(xfer, entry)?;
+            if let Some(current) = &self.current_production {
+                xfer_cpp_production_entry(xfer, current)?;
+            }
+            for entry in self.queue.entries() {
+                let state = ProductionEntryState::from_entry(entry.clone());
+                xfer_cpp_production_entry(xfer, &state)?;
             }
         } else {
+            self.current_production = None;
             let mut new_queue = BuildQueue::new(self.data.max_queue_entries);
-            for _ in 0..queue_len {
-                let entry = xfer_read_build_queue_entry(xfer)?;
-                let _ = new_queue.enqueue(entry);
+            for index in 0..production_count {
+                let state = xfer_read_cpp_production_entry(xfer)?;
+                if index == 0 {
+                    self.current_production = Some(state);
+                } else {
+                    let _ = new_queue.enqueue(state.entry);
+                }
             }
             self.queue = new_queue;
         }
 
-        let mut has_current = self.current_production.is_some();
-        xfer_io(xfer.xfer_bool(&mut has_current))?;
-        if xfer.is_writing() {
-            if let Some(current) = &self.current_production {
-                xfer_build_queue_entry(xfer, &current.entry)?;
-                let mut qty_total = current.quantity_total;
-                let mut qty_produced = current.quantity_produced;
-                xfer_io(xfer.xfer_i32(&mut qty_total))?;
-                xfer_io(xfer.xfer_i32(&mut qty_produced))?;
-                let mut exit_door = current.exit_door.map(|v| v as i32).unwrap_or(-1);
-                xfer_io(xfer.xfer_i32(&mut exit_door))?;
-            }
-        } else if has_current {
-            let entry = xfer_read_build_queue_entry(xfer)?;
-            let mut qty_total = 0i32;
-            let mut qty_produced = 0i32;
-            let mut exit_door = -1i32;
-            xfer_io(xfer.xfer_i32(&mut qty_total))?;
-            xfer_io(xfer.xfer_i32(&mut qty_produced))?;
-            xfer_io(xfer.xfer_i32(&mut exit_door))?;
-            let mut state = ProductionEntryState::from_entry(entry);
-            state.quantity_total = qty_total;
-            state.quantity_produced = qty_produced;
-            state.exit_door = if exit_door >= 0 {
-                Some(exit_door as usize)
-            } else {
-                None
-            };
-            self.current_production = Some(state);
-        } else {
-            self.current_production = None;
-        }
-
         xfer_io(xfer.xfer_u32(&mut self.unique_id))?;
+        let mut stored_count = self.production_count() as u32;
+        xfer_io(xfer.xfer_u32(&mut stored_count))?;
         xfer_io(xfer.xfer_u32(&mut self.construction_complete_frame))?;
-
-        let mut current_door = self.current_door as u32;
-        xfer_io(xfer.xfer_u32(&mut current_door))?;
-        if xfer.is_reading() {
-            self.current_door = current_door as usize;
-        }
-
-        xfer_io(xfer.xfer_bool(&mut self.production_enabled))?;
-        xfer_io(xfer.xfer_u32(&mut self.last_update_frame))?;
 
         for door in &mut self.doors {
             xfer_io(xfer.xfer_u32(&mut door.door_opened_frame))?;
@@ -1470,6 +1608,9 @@ impl Snapshotable for ProductionUpdateComplete {
             xfer_io(xfer.xfer_bool(&mut door.hold_open))?;
         }
 
+        xfer_model_condition_flags(xfer, &mut self.clear_flags)?;
+        xfer_model_condition_flags(xfer, &mut self.set_flags)?;
+        xfer_io(xfer.xfer_bool(&mut self.flags_dirty))?;
         Ok(())
     }
 
@@ -1478,73 +1619,122 @@ impl Snapshotable for ProductionUpdateComplete {
     }
 }
 
-fn xfer_build_queue_entry(xfer: &mut dyn Xfer, entry: &BuildQueueEntry) -> Result<(), String> {
+fn xfer_cpp_production_entry(
+    xfer: &mut dyn Xfer,
+    state: &ProductionEntryState,
+) -> Result<(), String> {
     let xfer_io = |res: std::io::Result<()>| res.map_err(|e| e.to_string());
-
-    let mut production_type = entry.production_type as u32;
-    xfer_io(xfer.xfer_u32(&mut production_type))?;
-    let mut name = entry.template_name.clone();
+    let mut production_type = production_type_to_cpp(state.entry.production_type);
+    xfer_io(xfer.xfer_i32(&mut production_type))?;
+    let mut name = state.entry.template_name.clone();
     xfer_io(xfer.xfer_ascii_string(&mut name))?;
-    let mut priority = entry.priority as i32;
-    xfer_io(xfer.xfer_i32(&mut priority))?;
-    let mut cost = entry.cost;
-    xfer_io(xfer.xfer_i32(&mut cost))?;
-    let mut build_time = entry.build_time;
-    xfer_io(xfer.xfer_u32(&mut build_time))?;
-    let mut time_spent = entry.time_spent;
-    xfer_io(xfer.xfer_u32(&mut time_spent))?;
-    let mut player_id = entry.player_id;
-    xfer_io(xfer.xfer_object_id(&mut player_id))?;
-    let mut is_repeat = entry.is_repeat;
-    xfer_io(xfer.xfer_bool(&mut is_repeat))?;
-    let mut production_id = entry.production_id;
+    let mut production_id = state.entry.production_id;
     xfer_io(xfer.xfer_u32(&mut production_id))?;
-    let mut queue_index = entry.queue_index as u32;
-    xfer_io(xfer.xfer_u32(&mut queue_index))?;
+    let mut percent = state.entry.progress() * 100.0;
+    xfer_io(xfer.xfer_f32(&mut percent))?;
+    let mut frames = state.entry.time_spent as i32;
+    xfer_io(xfer.xfer_i32(&mut frames))?;
+    let mut qty_total = state.quantity_total;
+    let mut qty_produced = state.quantity_produced;
+    xfer_io(xfer.xfer_i32(&mut qty_total))?;
+    xfer_io(xfer.xfer_i32(&mut qty_produced))?;
+    let mut exit_door = state.exit_door;
+    xfer_io(xfer.xfer_i32(&mut exit_door))?;
     Ok(())
 }
 
-fn xfer_read_build_queue_entry(xfer: &mut dyn Xfer) -> Result<BuildQueueEntry, String> {
+fn xfer_read_cpp_production_entry(xfer: &mut dyn Xfer) -> Result<ProductionEntryState, String> {
     let xfer_io = |res: std::io::Result<()>| res.map_err(|e| e.to_string());
-
-    let mut production_type = 0u32;
-    xfer_io(xfer.xfer_u32(&mut production_type))?;
-    let production_type = match production_type {
-        1 => ProductionType::Upgrade,
-        2 => ProductionType::SpecialPower,
-        _ => ProductionType::Unit,
-    };
+    let mut production_type = 0i32;
+    xfer_io(xfer.xfer_i32(&mut production_type))?;
     let mut name = String::new();
     xfer_io(xfer.xfer_ascii_string(&mut name))?;
-    let mut priority = 1i32;
-    xfer_io(xfer.xfer_i32(&mut priority))?;
-    let mut cost = 0i32;
-    xfer_io(xfer.xfer_i32(&mut cost))?;
-    let mut build_time = 0u32;
-    xfer_io(xfer.xfer_u32(&mut build_time))?;
-    let mut time_spent = 0u32;
-    xfer_io(xfer.xfer_u32(&mut time_spent))?;
-    let mut player_id = 0u32;
-    xfer_io(xfer.xfer_object_id(&mut player_id))?;
-    let mut is_repeat = false;
-    xfer_io(xfer.xfer_bool(&mut is_repeat))?;
     let mut production_id = 0u32;
     xfer_io(xfer.xfer_u32(&mut production_id))?;
-    let mut queue_index = 0u32;
-    xfer_io(xfer.xfer_u32(&mut queue_index))?;
+    let mut percent = 0.0f32;
+    xfer_io(xfer.xfer_f32(&mut percent))?;
+    let mut frames = 0i32;
+    xfer_io(xfer.xfer_i32(&mut frames))?;
+    let mut qty_total = 1i32;
+    let mut qty_produced = 0i32;
+    xfer_io(xfer.xfer_i32(&mut qty_total))?;
+    xfer_io(xfer.xfer_i32(&mut qty_produced))?;
+    let mut exit_door = -1i32;
+    xfer_io(xfer.xfer_i32(&mut exit_door))?;
 
-    let mut entry = BuildQueueEntry::new(name, production_type, cost, build_time, player_id)
-        .with_production_id(production_id);
-    entry.priority = match priority {
-        0 => super::queue::BuildPriority::Low,
-        2 => super::queue::BuildPriority::High,
-        3 => super::queue::BuildPriority::Urgent,
-        _ => super::queue::BuildPriority::Normal,
+    let time_spent = frames.max(0) as u32;
+    let build_time = if percent >= 100.0 {
+        time_spent
+    } else if percent > 0.0 {
+        ((time_spent as f32) * 100.0 / percent).round() as u32
+    } else {
+        time_spent.max(1)
     };
+    let mut entry = BuildQueueEntry::new(
+        name,
+        production_type_from_cpp(production_type),
+        0,
+        build_time,
+        0,
+    )
+    .with_production_id(production_id);
     entry.time_spent = time_spent;
-    entry.is_repeat = is_repeat;
-    entry.queue_index = queue_index as usize;
-    Ok(entry)
+    entry.exit_door = exit_door;
+    let mut state = ProductionEntryState::from_entry(entry);
+    state.quantity_total = qty_total;
+    state.quantity_produced = qty_produced;
+    state.exit_door = exit_door;
+    Ok(state)
+}
+
+fn xfer_model_condition_flags(
+    xfer: &mut dyn Xfer,
+    flags: &mut ModelConditionFlags,
+) -> Result<(), String> {
+    let current_version: u8 = 1;
+    let mut version = current_version;
+    xfer.xfer_version(&mut version, current_version)
+        .map_err(|e| e.to_string())?;
+
+    if xfer.is_writing() {
+        let mut named = create_model_condition_flags();
+        let bits = flags.bits();
+        let max_bits = named.size().min(u128::BITS as usize);
+        for i in 0..max_bits {
+            if (bits & (1u128 << i)) != 0 {
+                named.set(i, true);
+            }
+        }
+        let mut count = named.count().min(i32::MAX as usize) as i32;
+        xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+        for i in 0..named.size() {
+            if let Some(bit_name) = named.get_bit_name_if_set(i) {
+                let mut token = bit_name.to_string();
+                xfer.xfer_ascii_string(&mut token)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    } else if xfer.is_reading() {
+        let mut named = create_model_condition_flags();
+        named.clear();
+        let mut count = 0i32;
+        xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+        for _ in 0..count.max(0) {
+            let mut token = String::new();
+            xfer.xfer_ascii_string(&mut token)
+                .map_err(|e| e.to_string())?;
+            let _ = named.set_bit_by_name(&token);
+        }
+        let mut bits: u128 = 0;
+        let max_bits = named.size().min(u128::BITS as usize);
+        for i in 0..max_bits {
+            if named.test(i) {
+                bits |= 1u128 << i;
+            }
+        }
+        *flags = ModelConditionFlags::from_bits_truncate(bits);
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

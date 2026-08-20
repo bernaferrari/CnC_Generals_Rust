@@ -78,6 +78,12 @@ include!("impl_update.rs");
 include!("impl_input.rs");
 include!("snapshot.rs");
 include!("leftover.rs");
+include!("place_icons.rs");
+include!("radar_map.rs");
+include!("radius_cursor_ini.rs");
+include!("select_all.rs");
+mod live_hud;
+pub use live_hud::*;
 include!("tests.rs");
 
 /// Concatenated live sources for residual `include_str!` scans.
@@ -94,4 +100,8 @@ pub const INGAME_UI_SRC: &str = concat!(
     include_str!("impl_input.rs"),
     include_str!("snapshot.rs"),
     include_str!("leftover.rs"),
+    include_str!("place_icons.rs"),
+    include_str!("radar_map.rs"),
+    include_str!("radius_cursor_ini.rs"),
+    include_str!("select_all.rs"),
 );

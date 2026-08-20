@@ -466,13 +466,34 @@ impl CnCGameEngine {
     }
 
     pub(super) fn is_wall_structure_template(template_name: &str) -> bool {
-        let n = template_name.to_ascii_lowercase();
-        n.contains("wall")
-            || n.contains("fence")
-            || n.contains("bunker") && n.contains("wall")
-            || n.contains("fortresswall")
-            || n.contains("chainlink")
+        game_client::message_stream::is_line_build_template_name(template_name)
     }
+
+    pub(super) fn host_selection_can_set_rally(&self) -> bool {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        let ids = self.ui_selected_ids(self.current_player_id);
+        if ids.is_empty() {
+            return false;
+        }
+        ids.iter().all(|id| {
+            frame
+                .objects
+                .iter()
+                .find(|o| o.id == *id)
+                .map(|o| {
+                    !o.destroyed
+                        && (o.is_structure
+                            || crate::presentation_frame::PresentationFrame::object_has_kind(
+                                o,
+                                crate::game_logic::KindOf::Structure,
+                            ))
+                })
+                .unwrap_or(false)
+        })
+    }
+
 
     /// Presentation-owned object identity for UI/command residual (InGame).
     /// Live GameLogic is boot residual only when no frame is installed.
@@ -1264,10 +1285,70 @@ impl CnCGameEngine {
         }
 
         let builder_id = selected.first().copied();
-        // Wave 924: structure place uses host legal-build residual cache.
+        if let Some(id) = builder_id {
+            if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
+                if pending.source_object_id == id.0 {
+                    self.pending_structure_placement = None;
+                    self.game_hud.construction_panel.clear_structure_placement();
+                    self.ui_manager
+                        .game_hud_mut()
+                        .construction_panel
+                        .clear_structure_placement();
+                    self.host_queue_and_process_command_silent(
+                        crate::command_system::GameCommand {
+                            command_type: crate::command_system::CommandType::DoSpecialPower {
+                                power_type: crate::command_system::SpecialPowerType::SneakAttack,
+                                target: crate::command_system::PowerTarget::Location(location),
+                            },
+                            player_id,
+                            command_id: 0,
+                            timestamp: std::time::SystemTime::now(),
+                            selected_units: selected.clone(),
+                            modifier_keys: crate::command_system::ModifierKeys::default(),
+                        },
+                    );
+                    game_client::helpers::TheInGameUI::place_build_available(None, None);
+                    game_client::helpers::TheInGameUI::clear_pending_special_power();
+                    return;
+                }
+            }
+        }
+
+        if let Some(id) = builder_id {
+            if let Some(builder) = gamelogic::helpers::TheGameLogic::find_object_by_id(id.0) {
+                if let Ok(guard) = builder.read() {
+                    if let Some(tmpl) = gamelogic::helpers::TheThingFactory::find_template(&template)
+                    {
+                        let pending =
+                            game_client::helpers::TheInGameUI::get_pending_special_power();
+                        let cmt = game_client::message_stream::can_make_unit_for_place(
+                            &guard,
+                            tmpl.as_ref(),
+                            pending.as_ref(),
+                        );
+                        if cmt != game_engine::common::system::build_assistant::CanMakeType::Ok {
+                            game_client::message_stream::play_can_make_failure(cmt);
+                            if matches!(
+                                cmt,
+                                game_engine::common::system::build_assistant::CanMakeType::NoMoney
+                                    | game_engine::common::system::build_assistant::CanMakeType::QueueFull
+                                    | game_engine::common::system::build_assistant::CanMakeType::ParkingPlacesFull
+                                    | game_engine::common::system::build_assistant::CanMakeType::MaxedOutForPlayer
+                            ) {
+                                return;
+                            }
+                            game_client::helpers::TheInGameUI::place_build_available(None, None);
+                            self.pending_structure_placement = None;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+
         let lbc = self.host_legal_build_code_at_for_builder(team, location, &template, builder_id);
         if lbc != LBC_OK {
-            // C++ keeps placement mode active on illegal click residual.
             self.pending_structure_placement = Some(template_name.to_string());
             self.game_hud
                 .construction_panel
@@ -1281,16 +1362,12 @@ impl CnCGameEngine {
                 self.game_hud.push_info_message(msg);
                 self.ui_manager.game_hud_mut().push_info_message(msg);
             }
-            log::debug!(
-                "PlaceStructureAt blocked LBC={} for {} at {:?}",
-                lbc,
-                template,
-                location
-            );
+            if let Some(id) = builder_id {
+                game_client::message_stream::play_illegal_place_feedback_for_id(id.0);
+            }
             return;
         }
 
-        // Legal — clear arm and issue DozerConstruct.
         self.pending_structure_placement = None;
         self.game_hud.construction_panel.clear_structure_placement();
         self.ui_manager

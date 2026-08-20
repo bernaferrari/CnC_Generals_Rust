@@ -402,6 +402,11 @@ pub const FRENZY_COLOR: Vector3 = Vector3 {
     y: -0.2,
     z: -0.2,
 };
+pub const FRENZY_COLOR_INFANTRY: Vector3 = Vector3 {
+    x: 0.0,
+    y: -0.7,
+    z: -0.7,
+};
 
 pub(crate) const DEFAULT_STEALTH_FRIENDLY_OPACITY: f32 = 0.5;
 

@@ -417,6 +417,71 @@ impl TeamFactory {
         self.unique_team_prototype_id = next_team_prototype_id.max(1);
     }
 
+    /// C++ `TeamFactory::xfer` only persists `m_uniqueTeamID`.
+    pub fn set_next_team_id(&mut self, next_team_id: TeamID) {
+        self.unique_team_id = next_team_id;
+    }
+
+    /// C++ `TheTeamFactory->createTeamOnPrototype` + `Team::setID`.
+    pub fn create_team_on_prototype_with_id(
+        &mut self,
+        prototype: &TeamPrototype,
+        team_id: TeamID,
+    ) -> Option<Arc<RwLock<Team>>> {
+        if let Some(existing) = self.find_team_by_id(team_id) {
+            return Some(existing);
+        }
+
+        let name = prototype.get_name().to_string();
+        let team = Arc::new(RwLock::new(Team::new(name.clone().into(), team_id)));
+        if let Ok(mut team_guard) = team.write() {
+            team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
+            team_guard.apply_template_script_hooks(prototype);
+        }
+        let owner_name = prototype.get_owner_name().to_string();
+        let owner_player = player_list().read().ok().and_then(|list| {
+            if owner_name.is_empty() {
+                None
+            } else {
+                list.find_player_by_name(&owner_name)
+            }
+            .or_else(|| list.get_neutral_player())
+        });
+        if let Some(owner_player) = owner_player {
+            if let (Ok(owner_guard), Ok(mut team_guard)) = (owner_player.read(), team.write()) {
+                team_guard.set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
+            }
+        }
+        self.teams.insert(team_id, team.clone());
+        if team_id >= self.unique_team_id {
+            self.unique_team_id = team_id.saturating_add(1);
+        }
+        Some(team)
+    }
+
+    /// Replace a prototype after xfer mutates template fields stored by value.
+    pub fn replace_team_prototype(&mut self, prototype: TeamPrototype) {
+        let name = prototype.get_name().to_string();
+        self.prototypes.insert(name, Arc::new(prototype));
+    }
+
+    /// C++ `TeamFactory::loadPostProcess` — next IDs just over the highest in use.
+    pub fn restore_unique_ids_after_load(&mut self) {
+        self.unique_team_id = 0;
+        self.unique_team_prototype_id = 0;
+        for prototype in self.prototypes.values() {
+            if prototype.get_id() >= self.unique_team_prototype_id {
+                self.unique_team_prototype_id = prototype.get_id().saturating_add(1);
+            }
+        }
+        for team_id in self.teams.keys() {
+            if *team_id >= self.unique_team_id {
+                self.unique_team_id = team_id.saturating_add(1);
+            }
+        }
+    }
+
+
     /// Find team by ID
     pub fn find_team_by_id(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
         self.teams.get(&team_id).cloned()

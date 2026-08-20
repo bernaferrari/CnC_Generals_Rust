@@ -386,8 +386,7 @@ impl Locomotor {
         current_speed: Real,
         condition: BodyDamageType,
     ) -> (Coord3D, Real, Real) {
-        // Hover uses the "Other" movement logic for 2D
-        self.move_towards_position_other_physics(
+        let result = self.move_towards_position_other_physics(
             current_pos,
             current_angle,
             goal_pos,
@@ -395,7 +394,32 @@ impl Locomotor {
             desired_speed,
             current_speed,
             condition,
-        )
+        );
+        self.update_hover_over_water(current_pos);
+        result
+    }
+
+    /// C++ moveTowardsPositionHover OVER_WATER model + flag (Locomotor.cpp:1868-1887).
+    fn update_hover_over_water(&mut self, pos: Coord3D) {
+        let underwater = TheTerrainLogic::get()
+            .map(|terrain| terrain.is_underwater(pos.x, pos.y, None, None))
+            .unwrap_or(false);
+        if underwater {
+            if !self.get_flag(FLAG_OVER_WATER) {
+                self.set_flag(FLAG_OVER_WATER, true);
+            }
+        } else if self.get_flag(FLAG_OVER_WATER) {
+            self.set_flag(FLAG_OVER_WATER, false);
+        }
+    }
+
+    /// Apply MODELCONDITION_OVER_WATER to a live object (C++ obj->set/clearModelConditionState).
+    pub fn apply_hover_over_water_model_condition(&self, object: &mut crate::object::Object) {
+        if self.get_flag(FLAG_OVER_WATER) {
+            object.set_model_condition_state(crate::common::MODELCONDITION_OVER_WATER);
+        } else {
+            object.clear_model_condition_state(crate::common::MODELCONDITION_OVER_WATER);
+        }
     }
 
     /// Move towards position - Other/generic locomotor with full physics

@@ -502,6 +502,8 @@ mod tests {
             block_pos: (10.0, 20.0),
             increment_on_frame: 22,
             color: 0xFFC8_C81E,
+            display_lines: vec![String::new()],
+            current_display_string: 0,
         });
 
         assert!(!InGameUI::update_military_subtitle_state(
@@ -514,6 +516,8 @@ mod tests {
         ));
         let state = subtitle.as_ref().unwrap();
         assert_eq!(state.index, 0);
+        assert_eq!(state.visible_text(), "");
+        assert_eq!(state.visible_char_count(), 0);
         assert_eq!(state.block_pos, (10.0, 20.0));
 
         assert!(InGameUI::update_military_subtitle_state(
@@ -528,6 +532,9 @@ mod tests {
         assert_eq!(state.index, 1);
         assert_eq!(state.increment_on_frame, 24);
         assert_eq!(state.block_pos.0, 17.2);
+        assert_eq!(state.visible_text(), "A");
+        assert_eq!(state.visible_char_count(), 1);
+        assert_ne!(state.visible_text(), state.text);
     }
 
     #[test]
@@ -542,6 +549,8 @@ mod tests {
             block_pos: (18.0, 20.0),
             increment_on_frame: 22,
             color: 0xFFC8_C81E,
+            display_lines: vec![String::new()],
+            current_display_string: 0,
         });
 
         assert!(!InGameUI::update_military_subtitle_state(
@@ -557,6 +566,8 @@ mod tests {
         assert_eq!(state.block_pos, (10.0, 32.0));
         assert!(state.block_drawn);
         assert_eq!(state.increment_on_frame, 45);
+        assert_eq!(state.current_display_string, 1);
+        assert_eq!(state.display_lines.len(), 2);
     }
 
     #[test]
@@ -571,6 +582,8 @@ mod tests {
             block_pos: (0.0, 0.0),
             increment_on_frame: 11,
             color: 0x02C8_C81E,
+            display_lines: vec!["A".to_string()],
+            current_display_string: 0,
         });
 
         assert!(!InGameUI::update_military_subtitle_state(
@@ -593,6 +606,70 @@ mod tests {
         ));
         assert!(subtitle.is_none());
     }
+
+    #[test]
+    fn military_caption_visible_text_grows_over_frames() {
+        let mut subtitle = Some(MilitarySubtitle {
+            text: "ABC".to_string(),
+            index: 0,
+            position: (10.0, 20.0),
+            lifetime_frame: 120,
+            block_drawn: true,
+            block_begin_frame: 0,
+            block_pos: (10.0, 20.0),
+            increment_on_frame: 22,
+            color: 0xFFC8_C81E,
+            display_lines: vec![String::new()],
+            current_display_string: 0,
+        });
+
+        assert_eq!(subtitle.as_ref().unwrap().visible_text(), "");
+
+        assert!(InGameUI::update_military_subtitle_state(
+            &mut subtitle, 23, 1, 12, 7.2, 22
+        ));
+        assert_eq!(subtitle.as_ref().unwrap().visible_text(), "A");
+        assert_ne!(subtitle.as_ref().unwrap().visible_text(), "ABC");
+
+        assert!(InGameUI::update_military_subtitle_state(
+            &mut subtitle, 25, 1, 12, 7.2, 22
+        ));
+        assert_eq!(subtitle.as_ref().unwrap().visible_text(), "AB");
+        assert_ne!(subtitle.as_ref().unwrap().visible_text(), "ABC");
+
+        assert!(InGameUI::update_military_subtitle_state(
+            &mut subtitle, 27, 1, 12, 7.2, 22
+        ));
+        assert_eq!(subtitle.as_ref().unwrap().visible_text(), "ABC");
+        assert_eq!(subtitle.as_ref().unwrap().index, 3);
+    }
+
+    #[test]
+    fn military_caption_truncates_after_max_subtitle_lines() {
+        let mut subtitle = Some(MilitarySubtitle {
+            text: "A\nB\nC\nD\nE".to_string(),
+            index: 7,
+            position: (10.0, 20.0),
+            lifetime_frame: 120,
+            block_drawn: true,
+            block_begin_frame: 0,
+            block_pos: (10.0, 68.0),
+            increment_on_frame: 22,
+            color: 0xFFC8_C81E,
+            display_lines: vec!["A".into(), "B".into(), "C".into(), "D".into()],
+            current_display_string: 3,
+        });
+
+        assert!(!InGameUI::update_military_subtitle_state(
+            &mut subtitle, 23, 1, 12, 7.2, 22
+        ));
+        let state = subtitle.as_ref().unwrap();
+        assert_eq!(state.current_display_string, 4);
+        assert_eq!(state.display_lines.len(), 4);
+        assert_eq!(state.visible_text(), "A\nB\nC\nD");
+        assert_eq!(state.index, state.text.chars().count() + 1);
+    }
+
 
     #[test]
     fn message_fade_subtracts_age_times_one_hundredth() {
@@ -619,6 +696,48 @@ mod tests {
     }
 
     #[test]
+    fn named_timer_remaining_frames_decrease_and_can_draw() {
+        let (frames, tick_frame) =
+            InGameUI::resolve_named_timer_frames(90, true, 10, 0, None);
+        assert_eq!(frames, 89);
+        assert_eq!(tick_frame, 10);
+        let (same_frame, _) = InGameUI::resolve_named_timer_frames(89, true, 10, 10, None);
+        assert_eq!(same_frame, 89);
+        let (scripted, _) = InGameUI::resolve_named_timer_frames(89, true, 11, 10, Some(40));
+        assert_eq!(scripted, 40);
+
+        let line = InGameUI::format_named_timer_line("Launch", 89, true);
+        assert_eq!(line, "Launch 0:02");
+
+        let entry = InGameUI::named_timer_draw_layout(
+            &line,
+            40.0,
+            200.0,
+            false,
+            10,
+            0xFFFF_FF00,
+            false,
+        );
+        assert_eq!(entry.text, "Launch 0:02");
+        assert_eq!(entry.x, 40.0);
+        assert_eq!(entry.y, 200.0);
+        assert_eq!(entry.color, 0xFFFF_FF00);
+        assert!(entry.font_point_size > 0);
+
+        let reversed = InGameUI::named_timer_draw_layout(
+            &line,
+            400.0,
+            200.0,
+            true,
+            10,
+            0xFFFF_FF00,
+            false,
+        );
+        assert!(reversed.x < 400.0);
+    }
+
+
+    #[test]
     fn floating_text_rises_by_frame_count_times_speed() {
         assert_eq!(InGameUI::floating_text_screen_offset_y(10, 1.5), 15.0);
         assert!(InGameUI::floating_text_visible_through_shroud(
@@ -633,5 +752,41 @@ mod tests {
     fn message_color_alternates_like_cpp_get_message_color() {
         assert_eq!(InGameUI::pack_argb(255, 255, 255, 255), 0xFFFF_FFFF);
         assert_eq!(InGameUI::pack_argb(180, 180, 180, 255), 0xFFB4_B4B4);
+        let c1 = 0xFFFF_FFFF;
+        let c2 = 0xFFB4_B4B4;
+        assert_eq!(InGameUI::next_message_color(true, 0, c1, c2), c1);
+        assert_eq!(InGameUI::next_message_color(false, c1, c1, c2), c2);
+        assert_eq!(InGameUI::next_message_color(false, c2, c1, c2), c1);
+    }
+
+    #[test]
+    fn message_timeout_matches_cpp_integer_division() {
+        // C++: m_messageDelayMS / LOGICFRAMES_PER_SECOND / 1000
+        // 5000 / 30 / 1000 == 0, so fade starts the next logic frame.
+        assert_eq!(InGameUI::message_timeout_frames(5000), 0);
+        assert_eq!(InGameUI::message_timeout_frames(0), 0);
+    }
+
+    #[test]
+    fn message_older_than_cpp_fade_is_removed() {
+        assert_eq!(InGameUI::message_alpha_at_age(255, 0, 0), 255);
+        assert_eq!(InGameUI::message_alpha_at_age(255, 99, 0), 255);
+        assert_eq!(InGameUI::message_alpha_at_age(255, 100, 0), 254);
+        assert_eq!(InGameUI::message_alpha_at_age(255, 400, 0), 0);
+    }
+
+    #[test]
+    fn floating_text_older_than_cpp_timeout_vanishes() {
+        let timeout = DEFAULT_FLOATING_TEXT_TIMEOUT;
+        assert_eq!(
+            InGameUI::floating_text_alpha_at_frame(255, timeout, timeout, 0.1),
+            255
+        );
+        assert_eq!(
+            InGameUI::floating_text_alpha_at_frame(255, timeout + 500, timeout, 0.1),
+            0
+        );
+        let faded = InGameUI::floating_text_draw_rgba((0, 255, 0), 0);
+        assert_eq!(faded[3], 0.0);
     }
 }

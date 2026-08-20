@@ -450,4 +450,82 @@ mod tests {
         assert_eq!(barrels[0].fx_bone, 41);
         assert_eq!(barrels[0].projectile_offset_mtx.w_axis.x, 3.0);
     }
+
+    #[test]
+    fn construction_percent_z_delta_matches_cpp_translate_z() {
+        assert_eq!(
+            W3DModelDraw::construction_percent_z_delta(0.0, 40.0),
+            Some(-40.0)
+        );
+        assert_eq!(
+            W3DModelDraw::construction_percent_z_delta(25.0, 40.0),
+            Some(-30.0)
+        );
+        assert_eq!(
+            W3DModelDraw::construction_percent_z_delta(50.0, 40.0),
+            Some(-20.0)
+        );
+        assert_eq!(
+            W3DModelDraw::construction_percent_z_delta(100.0, 40.0),
+            Some(0.0)
+        );
+        assert_eq!(
+            W3DModelDraw::construction_percent_z_delta(-1.0, 40.0),
+            None,
+            "C++ CONSTRUCTION_COMPLETE = -1 skips the sink"
+        );
+    }
+
+    #[test]
+    fn partial_construction_lowers_local_z() {
+        let mut mtx = Matrix3D::from_translation(Coord3D::new(10.0, 20.0, 50.0));
+        let dz = W3DModelDraw::construction_percent_z_delta(25.0, 40.0).expect("partial");
+        W3DModelDraw::translate_z(&mut mtx, dz);
+        assert!((mtx.w_axis.x - 10.0).abs() < 1e-5);
+        assert!((mtx.w_axis.y - 20.0).abs() < 1e-5);
+        assert!(
+            (mtx.w_axis.z - 20.0).abs() < 1e-5,
+            "25% of height 40 sinks Z by 30 (50 -> 20), got {}",
+            mtx.w_axis.z
+        );
+    }
+
+    #[test]
+    fn attach_to_drawable_bone_adds_rotated_pristine_offset() {
+        let mut data = W3DModelDrawModuleData::new();
+        data.attach_to_drawable_bone = AsciiString::from("turret");
+        data.attach_to_drawable_bone_offset = Coord3D::new(4.0, 0.0, 2.0);
+
+        let mut state = ModelConditionInfo::new();
+        state.flags = 1u32 << ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT;
+        data.condition_states.push(state);
+
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let yaw = std::f32::consts::FRAC_PI_2;
+        let mtx = Matrix3D::from_rotation_z(yaw)
+            * Matrix3D::from_translation(Coord3D::new(10.0, 20.0, 30.0));
+        let out = draw.adjust_transform_mtx(&mtx);
+
+        // Rotate_Vector((4,0,2)) about +Z 90° → (0,4,2), then add to translation.
+        let expected = mtx.transform_vector3(Coord3D::new(4.0, 0.0, 2.0));
+        assert!((out.w_axis.x - (mtx.w_axis.x + expected.x)).abs() < 1e-4);
+        assert!((out.w_axis.y - (mtx.w_axis.y + expected.y)).abs() < 1e-4);
+        assert!((out.w_axis.z - (mtx.w_axis.z + expected.z)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn construction_sink_without_owner_leaves_transform() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.flags = 1u32 << ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT;
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let mtx = Matrix3D::from_translation(Coord3D::new(1.0, 2.0, 3.0));
+        let out = draw.adjust_transform_mtx(&mtx);
+        assert_eq!(out, mtx);
+    }
 }

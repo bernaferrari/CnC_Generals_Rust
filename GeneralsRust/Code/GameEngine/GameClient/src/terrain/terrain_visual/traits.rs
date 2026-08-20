@@ -51,6 +51,11 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.water_tracks = crate::terrain::WaterTracksRenderSystem::new(
             crate::terrain::DEFAULT_WATER_TRACK_MODULES,
         );
+        self.water_named_bind_groups.clear();
+        self.river_gpu.bind_group = None;
+        self.shroud_gpu.bind_group = None;
+        self.shroud_gpu.dest_texture = None;
+        self.shroud_gpu.dest_view = None;
 
         self.terrain_props.clear();
         self.construction_removals.clear();
@@ -103,6 +108,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         let water_started = std::time::Instant::now();
         self.water_system.update()?;
         self.simulate_water_grid(1.0 / 30.0);
+        self.overlay.river_v_origin = (self.overlay.river_v_origin + 0.002) % 1.0;
         self.overlay.cloud_map.update(1000.0 / 30.0);
         if let Some(snow) = crate::snow::get_snow_manager() {
             if let Ok(mut guard) = snow.lock() {
@@ -117,7 +123,10 @@ impl SubsystemInterface for TerrainVisualImpl {
             if self.water_grid_enabled && self.overlay.water_grid_dirty {
                 self.upload_water_grid_mesh(device.as_ref());
             }
+            self.ensure_river_bind_group(device.as_ref());
         }
+        self.sync_river_params();
+        self.sync_shroud_dest_texture();
         let water_elapsed = water_started.elapsed();
 
 
