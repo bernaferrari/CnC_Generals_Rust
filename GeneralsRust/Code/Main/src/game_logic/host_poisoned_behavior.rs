@@ -38,9 +38,33 @@ pub fn poison_duration_frames() -> u32 {
 }
 
 /// True if damage type should start PoisonedBehavior residual.
+/// C++ `DAMAGE_POISON` maps to host Toxin / Anthrax. Field ticks must
+/// apply Toxin (not Unresistable) so this matches and infects.
 pub fn is_poison_damage_type(damage_type: crate::game_logic::combat::DamageType) -> bool {
     use crate::game_logic::combat::DamageType;
     matches!(damage_type, DamageType::Toxin | DamageType::Anthrax)
+}
+
+/// C++ DAMAGE_POISON — FireWeaponUpdate puddle ticks and infection.
+pub fn poison_weapon_damage_type() -> crate::game_logic::combat::DamageType {
+    crate::game_logic::combat::DamageType::Toxin
+}
+
+/// C++ `m_damageFXOverride = DAMAGE_POISON` on Unresistable DoT pulses.
+pub fn poison_dot_fx_override() -> crate::game_logic::combat::DamageType {
+    crate::game_logic::combat::DamageType::Toxin
+}
+
+/// Weapon.ini DeathType residual for anthrax field tier.
+pub fn death_type_for_anthrax_tier(
+    tier: crate::game_logic::host_toxin_tractor::AnthraxResidualTier,
+) -> HostDeathType {
+    use crate::game_logic::host_toxin_tractor::AnthraxResidualTier;
+    match tier {
+        AnthraxResidualTier::None => HostDeathType::Poisoned,
+        AnthraxResidualTier::Beta => HostDeathType::PoisonedBeta,
+        AnthraxResidualTier::Gamma => HostDeathType::PoisonedGamma,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -207,4 +231,28 @@ mod tests {
         assert!(p.poison_overall_stop_frame > stop1);
         assert!((p.poison_damage_amount - 8.0).abs() < 0.01);
     }
+
+    #[test]
+    fn poison_type_helpers_match_cpp_poison() {
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_toxin_tractor::AnthraxResidualTier;
+        assert!(is_poison_damage_type(DamageType::Toxin));
+        assert!(is_poison_damage_type(DamageType::Anthrax));
+        assert!(!is_poison_damage_type(DamageType::Unresistable));
+        assert_eq!(poison_weapon_damage_type(), DamageType::Toxin);
+        assert_eq!(poison_dot_fx_override(), DamageType::Toxin);
+        assert_eq!(
+            death_type_for_anthrax_tier(AnthraxResidualTier::None),
+            HostDeathType::Poisoned
+        );
+        assert_eq!(
+            death_type_for_anthrax_tier(AnthraxResidualTier::Beta),
+            HostDeathType::PoisonedBeta
+        );
+        assert_eq!(
+            death_type_for_anthrax_tier(AnthraxResidualTier::Gamma),
+            HostDeathType::PoisonedGamma
+        );
+    }
+
 }

@@ -58,12 +58,11 @@
 //!   other damage hits the structure. SPAWNS_ARE_THE_WEAPONS residual: site cannot
 //!   fire with **0** soldiers. SpawnReplaceDelay **30000**ms → **900** frames.
 //!
-//! - **Physical SpawnBehavior slave roster + getClosestSlave residual**:
+//! - **Physical SpawnBehavior slave roster + getClosestSlave**:
 //!   Host tracks **3** residual slave slots at SpawnPoint bone offsets (radius
-//!   **12**, 120° layout). `getClosestSlave` residual picks the alive slave
-//!   nearest the shooter in 2D; HiveStructureBody propagate damages that slot
-//!   via **host API** (`apply_host_hive_damage_from`) — not live skirmish
-//!   `Object::take_damage` combat (fail-closed: combat still structure HP).
+//!   **12**, 120° layout). `getClosestSlave` picks the alive slave nearest the
+//!   shooter in 2D. Live `Object::take_damage` now runs HiveStructureBody
+//!   propagate/swallow (SMALL_ARMS/SNIPER hit slaves, not the bunker).
 //!   Respawn revives the first dead slot.
 //!
 //! - **Physical soldier attach residual** (SpawnPoint facing + AI order + attach):
@@ -1008,6 +1007,22 @@ pub enum HostHiveDamageClass {
     SwallowIfNoSlaves,
     /// All other damage hits the structure body residual.
     HitStructure,
+}
+
+/// Retail Stinger HiveStructureBody damage-type matrix (FactionBuilding.ini).
+///
+/// C++ `HiveStructureBody::attemptDamage` (`HiveStructureBody.cpp:50-112`):
+/// propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to the
+/// closest slave; swallow SNIPER/POISON/SURRENDER when no slave remains.
+pub fn hive_damage_class_for_type(
+    damage_type: crate::game_logic::combat::DamageType,
+) -> HostHiveDamageClass {
+    use crate::game_logic::combat::DamageType as D;
+    match damage_type {
+        D::Sniper | D::Toxin | D::Anthrax | D::Surrender => HostHiveDamageClass::SwallowIfNoSlaves,
+        D::Bullet | D::Radiation | D::Microwave | D::EMP => HostHiveDamageClass::PropagateToSlaves,
+        _ => HostHiveDamageClass::HitStructure,
+    }
 }
 
 /// Result of applying residual HiveStructureBody damage.

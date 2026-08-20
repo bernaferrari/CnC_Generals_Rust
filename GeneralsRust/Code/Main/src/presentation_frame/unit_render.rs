@@ -565,7 +565,8 @@ impl UnitRenderInput {
             let _ = self.moving_backwards; // freeze residual; no dedicated ZH model bit
         }
         // Wave 524: clear door 1..4 banks then set active phase bit on each door bank
-        // (multi-door factory residual; host tracks one production_door_phase).
+        // hq-tjodx: only the reserved hangar is driven by production_door_phase;
+        // other hangars keep pose-authored DOOR_N bits (ProductionUpdate m_doors[]).
         {
             use crate::game_logic::host_enum_table_residual::{
                 door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
@@ -603,19 +604,20 @@ impl UnitRenderInput {
                     door_4_closing_model_bit(),
                 ),
             ];
-            for (open_b, wait_b, wait_close_b, close_b) in banks {
-                bits &= !(1u128 << open_b);
-                bits &= !(1u128 << wait_b);
-                bits &= !(1u128 << wait_close_b);
-                bits &= !(1u128 << close_b);
-                match self.production_door_phase {
-                    1 => bits |= 1u128 << open_b,
-                    2 => bits |= 1u128 << wait_b,
-                    3 => bits |= 1u128 << wait_close_b,
-                    4 => bits |= 1u128 << close_b,
-                    _ => {}
-                }
+            // Door 1 follows the legacy shared phase. Doors 2-4 keep pose bits.
+            let (open_b, wait_b, wait_close_b, close_b) = banks[0];
+            bits &= !(1u128 << open_b);
+            bits &= !(1u128 << wait_b);
+            bits &= !(1u128 << wait_close_b);
+            bits &= !(1u128 << close_b);
+            match self.production_door_phase {
+                1 => bits |= 1u128 << open_b,
+                2 => bits |= 1u128 << wait_b,
+                // C++ ProductionUpdate never plays WAITING_TO_CLOSE.
+                3 | 4 => bits |= 1u128 << close_b,
+                _ => {}
             }
+            let _ = banks;
         }
         // Wave 501: deployed / radar dish residual bits for mesh subobject selection.
         let dep_b = deployed_model_bit();

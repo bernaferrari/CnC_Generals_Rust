@@ -105,11 +105,15 @@ impl GameLogic {
                 {
                     if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
                         // Apply as UNRESISTABLE so it doesn't re-infect (C++).
-                        let killed = obj.take_damage_from_typed_death(
+                        // m_damageFXOverride = DAMAGE_POISON (ActiveBody doDamageFX).
+                        let killed = obj.take_damage_from_typed_death_fx(
                             dot,
                             None,
                             crate::game_logic::combat::DamageType::Unresistable,
                             death_ty,
+                            Some(
+                                crate::game_logic::host_poisoned_behavior::poison_dot_fx_override(),
+                            ),
                         );
                         if killed {
                             poison_kill = true;
@@ -406,6 +410,16 @@ impl GameLogic {
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
             let _ = self.try_idle_crate_pickup(object_id);
+            // C++ AIHuntState parent machine: after AttackThenIdle kill, stay in hunt.
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                if obj.hunting
+                    && matches!(obj.ai_state, AIState::Idle)
+                    && obj.target.is_none()
+                    && obj.is_alive()
+                {
+                    obj.set_ai_state(AIState::Patrolling);
+                }
+            }
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();

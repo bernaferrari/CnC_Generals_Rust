@@ -732,6 +732,9 @@ impl From<LegacyObjectSnapshot> for ObjectSnapshot {
             collector_runtime: None,
             weapon_suspend_fx_frames: Vec::new(),
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }
@@ -849,6 +852,9 @@ impl From<PreHackerDisableObjectSnapshot> for ObjectSnapshot {
             collector_runtime: None,
             weapon_suspend_fx_frames: Vec::new(),
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }
@@ -1124,6 +1130,9 @@ impl From<PreV8ObjectSnapshot> for ObjectSnapshot {
             collector_runtime: snapshot.collector_runtime,
             weapon_suspend_fx_frames: snapshot.weapon_suspend_fx_frames,
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }
@@ -1191,6 +1200,9 @@ impl From<PreV7ObjectSnapshot> for ObjectSnapshot {
             collector_runtime: snapshot.collector_runtime,
             weapon_suspend_fx_frames: Vec::new(),
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }
@@ -1258,6 +1270,9 @@ impl From<PreV5ObjectSnapshot> for ObjectSnapshot {
             collector_runtime: None,
             weapon_suspend_fx_frames: Vec::new(),
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }
@@ -1288,6 +1303,9 @@ impl From<PreV4ObjectSnapshot> for ObjectSnapshot {
             collector_runtime: None,
             weapon_suspend_fx_frames: Vec::new(),
             temporary_weapon_runtime: None,
+            weapon_bonus_frenzy: false,
+            weapon_bonus_frenzy_level: 0,
+            weapon_bonus_frenzy_until_frame: 0,
         }
     }
 }

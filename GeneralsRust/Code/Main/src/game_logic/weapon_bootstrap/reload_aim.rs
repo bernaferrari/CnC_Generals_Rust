@@ -278,3 +278,17 @@ pub fn relative_angle_2d(
 pub fn is_within_aim_delta(rel_angle: f32, aim_delta_rad: f32) -> bool {
     rel_angle.abs() <= aim_delta_rad.max(AIM_DELTA_REL_THRESH_RAD)
 }
+
+/// C++ Weapon.cpp:2645-2662 — next-shot frame is now + firing slot delay.
+pub fn shared_next_ready_time(last_fire_time: f32, firing_interval: f32) -> f32 {
+    last_fire_time + firing_interval.max(0.0)
+}
+
+/// Back-compute `last_fire_time` so the slot becomes ready at `next_ready`.
+///
+/// Live ready is `now - last_fire >= slot_interval`. Matching C++
+/// `setPossibleNextShotFrame(m_whenWeCanFireAgain)` therefore stamps
+/// `last_fire = next_ready - slot_interval`.
+pub fn last_fire_time_matching_shared_ready(next_ready: f32, slot_interval: f32) -> f32 {
+    next_ready - slot_interval.max(0.0)
+}

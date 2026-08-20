@@ -645,6 +645,8 @@ impl GameLogic {
                         let _ = center.replace_weapon_set_slot(0, None);
                         let _ = center.replace_weapon_set_slot(1, None);
                         center.stop_attack();
+                        // C++ enableTurret(false) when leaving Bombardment.
+                        center.turret_enabled = false;
                         // Cancel TurretAI idle-scan / Hold residual when gun unequips.
                         center.turret_idle_scanning = false;
                         center.turret_holding = false;
@@ -829,6 +831,7 @@ impl GameLogic {
                         }
                         HostBattlePlan::Bombardment => {
                             // C++ enableTurret(true) after unpack ACTIVE.
+                            center.turret_enabled = true;
                             let _ = center.replace_weapon_set_slot(0, Some(
                                 crate::game_logic::host_strategy_center::strategy_center_gun_weapon(
                                 ),

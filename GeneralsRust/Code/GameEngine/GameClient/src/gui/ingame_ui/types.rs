@@ -963,6 +963,8 @@ pub struct PresentationUnitCatalogEntry {
     pub ocl_timer_seconds: u32,
     /// Wave 1033: sold residual for dual-world ControlBar clear (C++ OBJECT_STATUS_SOLD).
     pub sold: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE residual for dual-world ControlBar hide.
+    pub script_unsellable: bool,
     /// Wave 1034: unselectable residual for dual-world selection (C++ OBJECT_STATUS_UNSELECTABLE).
     pub unselectable: bool,
     /// Wave 1035: destroyed residual for dual-world selection skip.

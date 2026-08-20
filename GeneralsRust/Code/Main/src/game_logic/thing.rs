@@ -234,6 +234,12 @@ pub struct ContainModuleMetadata {
     /// complete); TunnelContain default is 1 frame.
     #[serde(default)]
     pub frames_for_full_heal: Option<u32>,
+    /// C++ GarrisonContainModuleData::m_immuneToClearBuildingAttacks (default false).
+    #[serde(default)]
+    pub immune_to_clear_building_attacks: bool,
+    /// C++ GarrisonContainModuleData::m_isEnclosingContainer (default true).
+    #[serde(default = "default_enclosing_container")]
+    pub is_enclosing_container: bool,
 }
 
 /// Exact `OverchargeBehaviorModuleData` retained from one Object INI behavior
@@ -272,6 +278,10 @@ const fn default_allow_inside() -> bool {
     true
 }
 
+const fn default_enclosing_container() -> bool {
+    true
+}
+
 impl Default for ContainModuleMetadata {
     fn default() -> Self {
         Self {
@@ -286,6 +296,8 @@ impl Default for ContainModuleMetadata {
             rider_change_scuttle_status: String::new(),
             rider_change_scuttle_status_mask: 0,
             frames_for_full_heal: None,
+            immune_to_clear_building_attacks: false,
+            is_enclosing_container: true,
         }
     }
 }
@@ -400,6 +412,69 @@ impl ParkingPlaceMetadata {
             && self.heal_amount_per_second.is_finite()
     }
 }
+
+/// Exact `FlightDeckBehavior` module data retained from an Object INI.
+///
+/// C++ `FlightDeckBehavior::buildInfo` creates `NumSpacesPerRunway × NumRunways`
+/// stalls and payload-spawns `PayloadTemplate` jets.  `None` on
+/// [`ThingTemplate`] means no `FlightDeckBehavior` was authored — a carrier
+/// KindOf or template basename never fabricates a deck.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlightDeckMetadata {
+    /// C++ `m_thingTemplateName` (`PayloadTemplate`).
+    pub payload_template: String,
+    /// C++ `m_numRows` (`NumSpacesPerRunway`).
+    pub num_rows: i32,
+    /// C++ `m_numCols` (`NumRunways`).
+    pub num_cols: i32,
+    /// C++ `m_approachHeight`.
+    pub approach_height: f32,
+    /// C++ `m_landingDeckHeightOffset`.
+    pub landing_deck_height_offset: f32,
+    /// C++ `m_healAmount`.
+    pub heal_amount_per_second: f32,
+    /// C++ `m_cleanupFrames` (`ParkingCleanupPeriod`).
+    pub cleanup_frames: u32,
+    /// C++ `m_humanFollowFrames` (`HumanFollowPeriod`).
+    pub human_follow_frames: u32,
+    /// C++ `m_replacementFrames` (`ReplacementDelay`).
+    pub replacement_frames: u32,
+    /// C++ `m_dockAnimationFrames` (`DockAnimationDelay`).
+    pub dock_animation_frames: u32,
+    /// C++ `m_launchWaveFrames` (`LaunchWaveDelay`).
+    pub launch_wave_frames: u32,
+    /// C++ `m_launchRampFrames` (`LaunchRampDelay`).
+    pub launch_ramp_frames: u32,
+    /// C++ `m_lowerRampFrames` (`LowerRampDelay`).
+    pub lower_ramp_frames: u32,
+    /// C++ `m_catapultFireFrames` (`CatapultFireDelay`).
+    pub catapult_fire_frames: u32,
+    /// C++ `RunwayNCatapultSystem` names (index 0/1).
+    pub catapult_system: [Option<String>; 2],
+}
+
+impl FlightDeckMetadata {
+    #[inline]
+    pub fn capacity(&self) -> Option<usize> {
+        if !self.is_well_formed() {
+            return None;
+        }
+        let rows = usize::try_from(self.num_rows).ok()?;
+        let cols = usize::try_from(self.num_cols).ok()?;
+        rows.checked_mul(cols)
+    }
+
+    #[inline]
+    pub fn is_well_formed(&self) -> bool {
+        self.num_rows >= 0
+            && self.num_cols >= 0
+            && self.num_cols <= 2
+            && self.approach_height.is_finite()
+            && self.landing_deck_height_offset.is_finite()
+            && self.heal_amount_per_second.is_finite()
+    }
+}
+
 
 /// Exact `DeployStyleAIUpdateModuleData` retained from one Object INI
 /// `Behavior = DeployStyleAIUpdate` declaration.
@@ -1128,6 +1203,134 @@ pub struct HostArmorSet {
     pub damage_fx: Option<String>,
 }
 
+/// C++ `GeometryType` (`Geometry.h:25-33`). SPHERE=0, CYLINDER=1, BOX=2.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum HostGeometryType {
+    #[default]
+    Sphere = 0,
+    Cylinder = 1,
+    Box = 2,
+}
+
+impl HostGeometryType {
+    /// C++ `GeometryNames[]` / `INI::scanIndexList` (`Geometry.cpp:26-29`).
+    pub fn from_ini(token: &str) -> Option<Self> {
+        match token.trim() {
+            t if t.eq_ignore_ascii_case("SPHERE") => Some(Self::Sphere),
+            t if t.eq_ignore_ascii_case("CYLINDER") => Some(Self::Cylinder),
+            t if t.eq_ignore_ascii_case("BOX") => Some(Self::Box),
+            _ => None,
+        }
+    }
+}
+
+/// C++ `ThingTemplate::m_geometryInfo` (`ThingTemplate.cpp:966`, `Geometry.cpp:26-88`).
+///
+/// INI parse writes each field independently (no `set()` copy of sphere/cylinder
+/// radii). Constructor default is SPHERE / not-small / 1 / 1 / 1.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HostGeometryInfo {
+    pub geom_type: HostGeometryType,
+    pub is_small: bool,
+    pub height: f32,
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    /// True when any Object INI `Geometry*` field was parsed onto this template.
+    #[serde(default)]
+    pub authored: bool,
+}
+
+impl Default for HostGeometryInfo {
+    fn default() -> Self {
+        // C++ `ThingTemplate::ThingTemplate()`: `m_geometryInfo(GEOMETRY_SPHERE, FALSE, 1, 1, 1)`.
+        Self {
+            geom_type: HostGeometryType::Sphere,
+            is_small: false,
+            height: 1.0,
+            major_radius: 1.0,
+            minor_radius: 1.0,
+            authored: false,
+        }
+    }
+}
+
+impl HostGeometryInfo {
+    /// C++ `GeometryInfo::calcBoundingStuff` circle (`Geometry.cpp:468-495`).
+    pub fn bounding_circle_radius(&self) -> f32 {
+        match self.geom_type {
+            HostGeometryType::Sphere | HostGeometryType::Cylinder => self.major_radius,
+            HostGeometryType::Box => {
+                (self.major_radius * self.major_radius + self.minor_radius * self.minor_radius)
+                    .sqrt()
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::calcBoundingStuff` sphere (`Geometry.cpp:468-495`).
+    pub fn bounding_sphere_radius(&self) -> f32 {
+        match self.geom_type {
+            HostGeometryType::Sphere => self.major_radius,
+            HostGeometryType::Cylinder => {
+                let half_h = self.height * 0.5;
+                if half_h < self.major_radius {
+                    self.major_radius
+                } else {
+                    half_h
+                }
+            }
+            HostGeometryType::Box => {
+                let half_h = self.height * 0.5;
+                (self.major_radius * self.major_radius
+                    + self.minor_radius * self.minor_radius
+                    + half_h * half_h)
+                    .sqrt()
+            }
+        }
+    }
+
+    /// C++ `GeometryInfo::getMaxHeightAbovePosition` (Sphere→major; Box/Cylinder→height).
+    pub fn max_height_above_position(&self) -> f32 {
+        match self.geom_type {
+            HostGeometryType::Sphere => self.major_radius,
+            HostGeometryType::Cylinder | HostGeometryType::Box => self.height,
+        }
+    }
+
+    /// Stamp host pose `GeometryInfo` (Y-up bounds) from C++ geom extents.
+    pub fn to_host_geometry(&self) -> GeometryInfo {
+        let (bounds_min, bounds_max, radius) = match self.geom_type {
+            HostGeometryType::Sphere => {
+                let r = self.major_radius;
+                (Vec3::splat(-r), Vec3::splat(r), r)
+            }
+            HostGeometryType::Cylinder => {
+                let r = self.major_radius;
+                let h = self.height;
+                (Vec3::new(-r, 0.0, -r), Vec3::new(r, h, r), r)
+            }
+            HostGeometryType::Box => {
+                let a = self.major_radius;
+                let b = self.minor_radius;
+                let h = self.height;
+                (
+                    Vec3::new(-a, 0.0, -b),
+                    Vec3::new(a, h, b),
+                    self.bounding_circle_radius(),
+                )
+            }
+        };
+        GeometryInfo {
+            position: Vec3::ZERO,
+            rotation: 0.0,
+            bounds_min,
+            bounds_max,
+            radius,
+        }
+    }
+}
+
+
 
 /// Thing Template - shared configuration data for Things
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1192,6 +1395,10 @@ pub struct ThingTemplate {
     /// `FSAirfield`; physical aircraft landing then fails closed.
     #[serde(default)]
     pub parking_place: Option<ParkingPlaceMetadata>,
+    /// Exact `FlightDeckBehavior` data.  Absent unless the source object
+    /// declares that Behavior; a carrier KindOf never fabricates a deck.
+    #[serde(default)]
+    pub flight_deck: Option<FlightDeckMetadata>,
     /// Exact `DeployStyleAIUpdate` behavior.  It remains absent unless the
     /// source object actually declares that Behavior; a vehicle name or
     /// `CAN_ATTACK` KindOf never creates deploy authority.
@@ -1319,6 +1526,12 @@ pub struct ThingTemplate {
     /// C++ ThingTemplate `IsTrainable` (default FALSE).
     #[serde(default)]
     pub is_trainable: bool,
+    /// C++ ThingTemplate `EnterGuard` (default FALSE). Guard boards instead of shooting.
+    #[serde(default)]
+    pub enter_guard: bool,
+    /// C++ ThingTemplate `HijackGuard` (default FALSE). Guard hijacks enemy vehicles.
+    #[serde(default)]
+    pub hijack_guard: bool,
     /// Authored `VeterancyGainCreate` modules (StartingLevel / ScienceRequired).
     #[serde(default)]
     pub veterancy_gain_creates: Vec<VeterancyGainCreateMetadata>,
@@ -1433,6 +1646,33 @@ pub struct ThingTemplate {
     /// C++ PhysicsBehaviorModuleData::m_pitchRollYawFactor (default 2.0).
     #[serde(default = "default_template_pitch_roll_yaw_factor")]
     pub pitch_roll_yaw_factor: f32,
+    /// C++ PhysicsBehaviorModuleData friction (per-frame after parseFrictionPerSec).
+    #[serde(default = "default_template_forward_friction")]
+    pub forward_friction: f32,
+    #[serde(default = "default_template_lateral_friction")]
+    pub lateral_friction: f32,
+    #[serde(default = "default_template_z_friction")]
+    pub z_friction: f32,
+    #[serde(default)]
+    pub aerodynamic_friction: f32,
+    /// C++ PhysicsBehaviorModuleData::m_centerOfMassOffset.
+    #[serde(default)]
+    pub center_of_mass_offset: f32,
+    /// C++ PhysicsBehaviorModuleData::m_allowBouncing.
+    #[serde(default)]
+    pub allow_bouncing: bool,
+    /// C++ PhysicsBehaviorModuleData::m_allowCollideForce (default true).
+    #[serde(default = "default_template_allow_collide_force")]
+    pub allow_collide_force: bool,
+    /// C++ PhysicsBehaviorModuleData::m_killWhenRestingOnGround.
+    #[serde(default)]
+    pub kill_when_resting_on_ground: bool,
+    /// C++ m_minFallSpeedForDamage after parseHeightToSpeed.
+    #[serde(default = "default_template_min_fall_speed")]
+    pub min_fall_speed_for_damage: f32,
+    /// C++ PhysicsBehaviorModuleData::m_fallHeightDamageFactor (default 1).
+    #[serde(default = "default_template_fall_height_damage_factor")]
+    pub fall_height_damage_factor: f32,
     /// C++ `ThingTemplate::m_crusherLevel` from Object INI `CrusherLevel`.
     /// Default 0 = cannot crush anything (ThingTemplate.cpp:1023).
     #[serde(default)]
@@ -1441,6 +1681,9 @@ pub struct ThingTemplate {
     /// Default 255 = cannot be crushed (ThingTemplate.cpp:1024).
     #[serde(default = "default_template_crushable_level")]
     pub crushable_level: u8,
+    /// C++ `ThingTemplate::m_geometryInfo` from Object INI Geometry*.
+    #[serde(default)]
+    pub geometry_info: HostGeometryInfo,
 }
 
 impl ThingTemplate {
@@ -1470,6 +1713,7 @@ impl ThingTemplate {
             stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
             stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
             parking_place: None,
+            flight_deck: None,
             deploy_style_metadata: None,
             production_exit_metadata: None,
             veterancy_crate_collide: None,
@@ -1502,6 +1746,8 @@ impl ThingTemplate {
             experience_values: [0.0; 4],
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             is_trainable: false,
+            enter_guard: false,
+            hijack_guard: false,
             veterancy_gain_creates: Vec::new(),
             grant_upgrade_creates: Vec::new(),
             lock_weapon_slot: None,
@@ -1533,8 +1779,19 @@ impl ThingTemplate {
             physics_mass: 1.0,
             shock_resistance: 0.0,
             pitch_roll_yaw_factor: 2.0,
+            forward_friction: 0.15,
+            lateral_friction: 0.15,
+            z_friction: 0.8,
+            aerodynamic_friction: 0.0,
+            center_of_mass_offset: 0.0,
+            allow_bouncing: false,
+            allow_collide_force: true,
+            kill_when_resting_on_ground: false,
+            min_fall_speed_for_damage: 8.944272,
+            fall_height_damage_factor: 1.0,
             crusher_level: 0,
             crushable_level: 255,
+            geometry_info: HostGeometryInfo::default(),
         }
     }
     /// C++ `ThingTemplate::getExperienceValue(level)`. Uses the authored
@@ -2134,6 +2391,25 @@ fn default_template_pitch_roll_yaw_factor() -> f32 {
     2.0
 }
 
+fn default_template_forward_friction() -> f32 {
+    0.15
+}
+fn default_template_lateral_friction() -> f32 {
+    0.15
+}
+fn default_template_z_friction() -> f32 {
+    0.8
+}
+fn default_template_allow_collide_force() -> bool {
+    true
+}
+fn default_template_min_fall_speed() -> f32 {
+    (2.0 * 40.0_f32).sqrt()
+}
+fn default_template_fall_height_damage_factor() -> f32 {
+    1.0
+}
+
 #[cfg(test)]
 mod weapon_resolve_tests {
     use super::*;
@@ -2353,9 +2629,10 @@ pub struct Thing {
 
 impl Thing {
     pub fn new(template: ThingTemplate) -> Self {
+        let geometry = template.geometry_info.to_host_geometry();
         let mut thing = Self {
             template,
-            geometry: GeometryInfo::default(),
+            geometry,
             transform: Mat4::IDENTITY,
             cached_position: Vec3::ZERO,
             cached_angle: 0.0,

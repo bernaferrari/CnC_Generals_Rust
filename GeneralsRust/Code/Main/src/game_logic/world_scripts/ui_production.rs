@@ -497,12 +497,51 @@ impl GameLogic {
     }
 
     /// C++ isLocationLegalToBuild with optional builder for CLEAR_PATH residual.
+    /// Confirm-place: IGNORE_STEALTHED | FAIL_STEALTHED_WITHOUT_FEEDBACK.
     pub fn legal_build_code_at_for_builder(
         &self,
         team: Team,
         position: glam::Vec3,
         template_name: &str,
         builder_id: Option<ObjectId>,
+    ) -> u32 {
+        use crate::game_logic::host_production_buildable_command_residual::{
+            LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
+        };
+        self.legal_build_code_at_for_builder_ex(
+            team,
+            position,
+            template_name,
+            builder_id,
+            LOCAL_LEGAL_IGNORE_STEALTHED | LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK,
+        )
+    }
+
+    /// Preview ghost: IGNORE_STEALTHED so unseen stealthed units do not redden.
+    pub fn legal_build_code_at_for_preview(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+    ) -> u32 {
+        use crate::game_logic::host_production_buildable_command_residual::LOCAL_LEGAL_IGNORE_STEALTHED;
+        self.legal_build_code_at_for_builder_ex(
+            team,
+            position,
+            template_name,
+            builder_id,
+            LOCAL_LEGAL_IGNORE_STEALTHED,
+        )
+    }
+
+    pub fn legal_build_code_at_for_builder_ex(
+        &self,
+        team: Team,
+        position: glam::Vec3,
+        template_name: &str,
+        builder_id: Option<ObjectId>,
+        options: u32,
     ) -> u32 {
         use crate::game_logic::host_production_buildable_command_residual::{
             cell_shroud_blocks_build_residual, footprint_height_delta_residual,
@@ -537,7 +576,10 @@ impl GameLogic {
         let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
         let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
+        let mut blocker_ids: Vec<ObjectId> = Vec::new();
         let mut supply_sources: Vec<(f32, f32, f32)> = Vec::new();
+        let mut stealth_fail_no_bib = false;
+        let mut busy_ally_in_way = false;
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
@@ -555,12 +597,45 @@ impl GameLogic {
             let rel = builder
                 .map(|b| self.object_relationship(b, obj))
                 .unwrap_or(gamelogic::common::Relationship::Neutral);
+            // Patch 1.01: allied USING_ABILITY / isBusy cannot be scooted.
+            if rel == gamelogic::common::Relationship::Allies
+                && (obj.status.using_ability
+                    || matches!(
+                        obj.ai_state,
+                        crate::game_logic::AIState::SpecialAbility
+                            | crate::game_logic::AIState::Capturing
+                    ))
+            {
+                let dx = p.x - position.x;
+                let dz = p.z - position.z;
+                if dx * dx + dz * dz < (place_r + r) * (place_r + r) {
+                    busy_ally_in_way = true;
+                }
+            }
+            // IGNORE_STEALTHED: unseen stealthed non-allies do not redden preview.
+            // FAIL_STEALTHED_WITHOUT_FEEDBACK: confirm fails without a bib.
+            if rel != gamelogic::common::Relationship::Allies && obj.is_effectively_stealthed() {
+                use crate::game_logic::host_production_buildable_command_residual::{
+                    LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK, LOCAL_LEGAL_IGNORE_STEALTHED,
+                };
+                if options & LOCAL_LEGAL_IGNORE_STEALTHED != 0 {
+                    if options & LOCAL_LEGAL_FAIL_STEALTHED_WITHOUT_FEEDBACK != 0 {
+                        let dx = p.x - position.x;
+                        let dz = p.z - position.z;
+                        if dx * dx + dz * dz < (place_r + r) * (place_r + r) {
+                            stealth_fail_no_bib = true;
+                        }
+                    }
+                    continue;
+                }
+            }
             let blocks = obj.is_kind_of(KindOf::Structure)
                 || obj.is_kind_of(KindOf::Immobile)
                 || obj.is_disabled()
                 || rel == gamelogic::common::Relationship::Enemies;
             if blocks {
                 blockers.push((p.x, p.z, r));
+                blocker_ids.push(obj.id);
             }
             // C++ BuildAssistant.cpp:759-870 factory exit-width bibs.
             if let Some(exit) = obj.thing.template.production_exit_metadata {
@@ -593,9 +668,14 @@ impl GameLogic {
                 }
             }
         }
-        let in_way =
-            legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
-        // C++ BuildAssistant checks the requested template's exact
+        let in_way = busy_ally_in_way
+            || legal_build_objects_in_the_way_residual((position.x, position.z), place_r, &blockers);
+        if stealth_fail_no_bib {
+            return crate::game_logic::host_production_buildable_command_residual::LBC_GENERIC_FAILURE;
+        }
+        if in_way && !busy_ally_in_way {
+            self.bib_blocking_objects_for_build(position, &blocker_ids);
+        }
         // KINDOF_CANNOT_BUILD_NEAR_SUPPLIES bit, rather than assigning the
         // rule to every supply-looking basename.
         let too_close = if self
@@ -647,6 +727,64 @@ impl GameLogic {
             too_close_edge,
             no_clear,
         )
+    }
+
+    /// C++ `TheTerrainVisual->addFactionBib(them, TRUE)` on the blocking object.
+    pub(crate) fn bib_blocking_objects_for_build(
+        &self,
+        _position: glam::Vec3,
+        blocker_ids: &[ObjectId],
+    ) {
+        #[cfg(feature = "game_client")]
+        {
+            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
+                return;
+            };
+            let Some(visual) = guard.as_mut() else {
+                return;
+            };
+            for id in blocker_ids {
+                let Some(obj) = self.objects.get(id) else {
+                    continue;
+                };
+                if !obj.is_alive() {
+                    continue;
+                }
+                let p = obj.get_position();
+                let angle = obj.get_orientation();
+                let transform = glam::Mat4::from_translation(glam::Vec3::new(p.x, p.y, p.z))
+                    * glam::Mat4::from_rotation_y(angle);
+                let (major, minor, is_box) = {
+                    let g = &obj.thing.template.geometry_info;
+                    if g.authored {
+                        (
+                            g.major_radius.max(1.0),
+                            g.minor_radius.max(1.0),
+                            g.minor_radius > 0.0 && (g.major_radius - g.minor_radius).abs() > 0.01,
+                        )
+                    } else {
+                        let r = Self::structure_place_radius(obj).max(1.0);
+                        (r, r, false)
+                    }
+                };
+                let _ = visual.add_faction_bib(
+                    id.0,
+                    game_client::terrain::terrain_visual::TerrainBibOwnerKind::Object,
+                    transform,
+                    major,
+                    minor,
+                    is_box,
+                    0.0,
+                    0.0,
+                    true,
+                    0.0,
+                );
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = blocker_ids;
+        }
     }
 
     /// C++ BuildAssistant.cpp:491-499 / :1006-1009 terrain + bridge gate.
@@ -857,7 +995,7 @@ impl GameLogic {
     /// C++ PartitionManager::getShroudStatusForPlayer == CELLSHROUD_CLEAR residual.
     ///
     /// Fail-open when shroud grid is not initialized (synthetic/host tests).
-    pub(in super::super) fn is_build_location_shroud_clear(
+    pub fn is_build_location_shroud_clear(
         &self,
         player_id: u32,
         position: glam::Vec3,
@@ -1346,6 +1484,20 @@ impl GameLogic {
     pub fn can_make_unit_ok(&self, producer_id: ObjectId, template_name: &str) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK;
         self.can_make_unit(producer_id, template_name) == CANMAKE_OK
+    }
+
+    /// C++ ProductionUpdate::queueUpgrade OBJECT gate: already-completed
+    /// add-on on this producer cannot be re-queued.
+    pub fn producer_refuses_completed_object_upgrade(
+        &self,
+        producer_id: ObjectId,
+        upgrade_name: &str,
+    ) -> bool {
+        crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+            && self
+                .objects
+                .get(&producer_id)
+                .is_some_and(|obj| obj.has_object_upgrade_complete(upgrade_name))
     }
 
     pub fn enqueue_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {

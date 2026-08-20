@@ -799,13 +799,28 @@ impl ParticleUplinkCannonUpdate {
             if self.ground_to_orbit_beam_id != INVALID_DRAWABLE_ID {
                 client.destroy_drawable(self.ground_to_orbit_beam_id);
             }
-            if self.orbit_to_target_beam_id != INVALID_DRAWABLE_ID {
-                client.destroy_drawable(self.orbit_to_target_beam_id);
-            }
         }
         self.ground_to_orbit_beam_id = INVALID_DRAWABLE_ID;
-        self.orbit_to_target_beam_id = INVALID_DRAWABLE_ID;
         self.ground_to_orbit_decay_end_frame = 0;
+        // C++ ParticleUplinkCannonUpdate::removeAllEffects (cpp:996-1031) never
+        // touches m_orbitToTargetBeamID. LaserStatus owns that beam; only
+        // killEverything (cpp:187-200) and LASERSTATUS_DECAYING (cpp:453-467)
+        // destroy it.
+        Self::stop_audio_event(&mut self.powerup_sound);
+        Self::stop_audio_event(&mut self.unpack_to_ready_sound);
+        Self::stop_audio_event(&mut self.firing_to_idle_sound);
+        Self::stop_audio_event(&mut self.annihilation_sound);
+    }
+
+    /// C++ `ParticleUplinkCannonUpdate::killEverything` (cpp:187-206).
+    fn kill_everything(&mut self) {
+        self.remove_all_effects();
+        if self.orbit_to_target_beam_id != INVALID_DRAWABLE_ID {
+            if let Some(client) = TheGameClient::get() {
+                client.destroy_drawable(self.orbit_to_target_beam_id);
+            }
+            self.orbit_to_target_beam_id = INVALID_DRAWABLE_ID;
+        }
         Self::stop_audio_event(&mut self.powerup_sound);
         Self::stop_audio_event(&mut self.unpack_to_ready_sound);
         Self::stop_audio_event(&mut self.firing_to_idle_sound);
@@ -2095,6 +2110,34 @@ mod tests {
             "AnnihilationLoop"
         );
     }
+
+    #[test]
+    fn remove_all_effects_preserves_orbit_to_target_beam() {
+        // C++ ParticleUplinkCannonUpdate::removeAllEffects
+        // (ParticleUplinkCannonUpdate.cpp:996-1031) destroys outer FX, connector
+        // lasers, and the ground-to-orbit beam — not m_orbitToTargetBeamID.
+        // LaserStatus owns that beam (cpp:453-467); killEverything (cpp:187-200)
+        // is the destructor-only teardown.
+        let object = test_object_at(Coord3D::new(0.0, 0.0, 0.0));
+        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+        let mut behavior =
+            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+        behavior.orbit_to_target_beam_id = 42;
+        behavior.laser_status = LaserStatus::Born;
+        behavior.ground_to_orbit_beam_id = 7;
+        behavior.laser_beam_ids = vec![9];
+
+        behavior.remove_all_effects();
+
+        assert_eq!(behavior.orbit_to_target_beam_id, 42);
+        assert_eq!(behavior.laser_status, LaserStatus::Born);
+        assert_eq!(behavior.ground_to_orbit_beam_id, INVALID_DRAWABLE_ID);
+        assert_eq!(behavior.laser_beam_ids, vec![INVALID_DRAWABLE_ID]);
+
+        behavior.kill_everything();
+        assert_eq!(behavior.orbit_to_target_beam_id, INVALID_DRAWABLE_ID);
+    }
+
 }
 
 pub struct ParticleUplinkCannonUpdateFactory;
@@ -2433,5 +2476,10 @@ impl Module for ParticleUplinkCannonUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn on_delete(&mut self) {
+        // C++ ~ParticleUplinkCannonUpdate calls killEverything (cpp:211-214).
+        self.behavior.kill_everything();
     }
 }

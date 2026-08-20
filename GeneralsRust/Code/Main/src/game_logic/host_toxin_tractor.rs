@@ -652,6 +652,7 @@ pub struct HostToxinTractorPoisonTickPlan {
     pub source_object: ObjectId,
     pub source_team: super::Team,
     pub hits: Vec<HostToxinTractorPoisonHit>,
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 /// C++ FireOCLAfterWeaponCooldownUpdate residual state (toxin spray secondary).
@@ -910,6 +911,9 @@ impl HostToxinTractorRegistry {
                 source_object: zone.source_object,
                 source_team: zone.source_team,
                 hits,
+                death_type: crate::game_logic::host_poisoned_behavior::death_type_for_anthrax_tier(
+                    zone.anthrax_tier,
+                ),
             });
         }
         plans.sort_by_key(|p| p.zone_id);

@@ -269,6 +269,31 @@ pub enum EvacDisposition {
     BurstFromCenter,
 }
 
+/// Live-host bridge for `NAMED_SET_EVAC_LEFT_OR_RIGHT`. Leftover contain is
+/// never the player path; campaign scripts write this map so host evac can
+/// honor EVAC_TO_LEFT / EVAC_TO_RIGHT.
+static NAMED_EVAC_DISPOSITION: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u32>>,
+> = std::sync::OnceLock::new();
+
+fn named_evac_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, u32>> {
+    NAMED_EVAC_DISPOSITION.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+pub fn record_named_evac_disposition(name: &str, disposition: u32) {
+    if let Ok(mut map) = named_evac_map().lock() {
+        map.insert(name.to_ascii_lowercase(), disposition);
+    }
+}
+
+pub fn named_evac_disposition(name: &str) -> Option<u32> {
+    named_evac_map()
+        .lock()
+        .ok()?
+        .get(&name.to_ascii_lowercase())
+        .copied()
+}
+
 /// Garrison contain module - handles garrisoned unit containment
 #[derive(Debug)]
 pub struct GarrisonContain {

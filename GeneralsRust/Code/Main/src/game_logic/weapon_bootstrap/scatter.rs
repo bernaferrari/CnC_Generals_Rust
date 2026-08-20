@@ -171,10 +171,6 @@ pub(super) fn seed_scatter_radius_vs_infantry_for(name: &str) -> f32 {
     0.0
 }
 
-/// Deterministic scatter offset residual (C++ random radius + angle).
-///
-/// Uses pure ADC stream seeded by shooter^target so re-fire re-query is stable
-/// within the same pairing (fail-closed vs live GameLogic global stream order).
 /// Default geometry hit radius residual when object selection radius is unset.
 pub const DEFAULT_SCATTER_HIT_RADIUS: f32 = 5.0;
 
@@ -197,6 +193,9 @@ pub fn scatter_misses_intended_target(
 }
 
 /// Deterministic scatter seed residual from shooter/target/frame.
+///
+/// Frame must be included: a pairing-only seed repeats the same miss cone
+/// every shot (C++ `GameLogicRandomValueReal` is independent per fire).
 pub fn scatter_seed_for_shot(shooter: u32, target: u32, frame: u32) -> u32 {
     shooter
         .wrapping_mul(0x9E37_79B9)
@@ -210,6 +209,7 @@ pub fn scatter_impact_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     o
 }
 
+/// Pure ADC offset. Prefer `scatter_aim_offset_logic` on the live fire path.
 pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     use crate::game_logic::host_rng_residual::pure_logic_random_real;
     if scatter_radius <= 0.0 {
@@ -219,6 +219,29 @@ pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     let ang = pure_logic_random_real(seed, 1, 0.0, std::f32::consts::TAU);
     // Gameplay XZ plane residual (Y up).
     glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
+}
+
+/// C++ `Weapon.cpp:979-989` — each shot rolls radius + angle from the logic RNG.
+pub fn scatter_aim_offset_logic(scatter_radius: f32) -> glam::Vec3 {
+    use game_engine::common::random_value::get_game_logic_random_value_real;
+    if scatter_radius <= 0.0 {
+        return glam::Vec3::ZERO;
+    }
+    let r = get_game_logic_random_value_real(0.0, scatter_radius);
+    let ang = get_game_logic_random_value_real(0.0, std::f32::consts::TAU);
+    glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
+}
+
+/// C++ `GeometryInfo::getCenterPosition` (Y-up host). Sphere Z-delta is 0.
+pub fn structure_scatter_aim_origin(
+    pos: glam::Vec3,
+    geom: &crate::game_logic::HostGeometryInfo,
+) -> glam::Vec3 {
+    let dy = match geom.geom_type {
+        crate::game_logic::HostGeometryType::Sphere => 0.0,
+        _ => geom.height * 0.5,
+    };
+    glam::Vec3::new(pos.x, pos.y + dy, pos.z)
 }
 
 #[cfg(test)]
@@ -244,5 +267,28 @@ mod tests {
         let targets = host_scatter_targets_for_weapon_name(NAME);
         assert_eq!(targets, vec![(1.0, 0.0), (0.0, 1.0)]);
         assert!((host_scatter_target_scalar_for_weapon_name(NAME) - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn structure_scatter_origin_lifts_box_not_sphere() {
+        let pos = glam::Vec3::new(10.0, 2.0, 4.0);
+        let mut box_geom = crate::game_logic::HostGeometryInfo::default();
+        box_geom.geom_type = crate::game_logic::HostGeometryType::Box;
+        box_geom.height = 20.0;
+        let lifted = structure_scatter_aim_origin(pos, &box_geom);
+        assert!((lifted.y - 12.0).abs() < 1e-4);
+        let sphere = crate::game_logic::HostGeometryInfo::default();
+        let same = structure_scatter_aim_origin(pos, &sphere);
+        assert!((same.y - pos.y).abs() < 1e-4);
+    }
+
+    #[test]
+    fn logic_scatter_is_not_pairing_deterministic() {
+        let a = scatter_aim_offset_logic(15.0);
+        let b = scatter_aim_offset_logic(15.0);
+        assert!(
+            (a - b).length() > 1e-4,
+            "successive logic RNG shots must not land on the same offset"
+        );
     }
 }

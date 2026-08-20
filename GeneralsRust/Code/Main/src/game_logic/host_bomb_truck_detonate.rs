@@ -230,6 +230,7 @@ pub struct HostBombTruckPoisonTickPlan {
     pub source_object: ObjectId,
     pub source_team: super::Team,
     pub hits: Vec<HostBombTruckPoisonHit>,
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 /// Host residual registry for bomb truck detonations + bio poison fields.
@@ -335,17 +336,22 @@ impl HostBombTruckDetonateRegistry {
     pub fn plan_due_ticks(
         &self,
         current_frame: u32,
-        object_positions: &[(ObjectId, Vec3, super::Team, bool)],
+        object_positions: &[(ObjectId, Vec3, super::Team, bool, bool)],
     ) -> Vec<HostBombTruckPoisonTickPlan> {
         let mut plans = Vec::new();
         for zone in &self.active_poison {
             if !zone.is_due_tick(current_frame) {
                 continue;
             }
+            let death_type = if zone.upgraded {
+                crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta
+            } else {
+                crate::game_logic::host_usa_pilot::HostDeathType::Poisoned
+            };
             let mut hits = Vec::new();
             let r2 = zone.radius * zone.radius;
-            for &(id, pos, _team, alive) in object_positions {
-                if !alive || id == zone.source_object {
+            for &(id, pos, _team, alive, airborne) in object_positions {
+                if !alive || id == zone.source_object || airborne {
                     continue;
                 }
                 let dx = pos.x - zone.position.x;
@@ -363,6 +369,7 @@ impl HostBombTruckDetonateRegistry {
                 source_object: zone.source_object,
                 source_team: zone.source_team,
                 hits,
+                death_type,
             });
         }
         plans.sort_by_key(|p| p.zone_id);
@@ -606,12 +613,19 @@ mod tests {
         let id = reg.spawn_poison_field(ObjectId(1), Team::GLA, Vec3::ZERO, 0, false);
         assert!(reg.honesty_bio_ok());
         let objects = vec![
-            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true),
-            (ObjectId(2), Vec3::ZERO, Team::China, true),
+            (ObjectId(1), Vec3::new(500.0, 0.0, 0.0), Team::GLA, true, false),
+            (ObjectId(2), Vec3::ZERO, Team::China, true, false),
+            (ObjectId(3), Vec3::ZERO, Team::USA, true, true),
         ];
         let plans = reg.plan_due_ticks(0, &objects);
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].hits.len(), 1);
+        assert_eq!(plans[0].hits[0].target_id, ObjectId(2));
+        assert!(!plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+        assert_eq!(
+            plans[0].death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Poisoned
+        );
         reg.record_tick_complete(id, 2.0, 1, 0, 0);
         assert!(reg.honesty_bio_damage_ok());
         assert!(reg.honesty_host_path_ok());

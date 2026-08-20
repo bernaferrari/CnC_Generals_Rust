@@ -581,6 +581,8 @@ pub struct PlacedObject {
     pub team_name: Option<String>,
     pub player_id: Option<u32>,
     pub upgrade: Option<String>,
+    /// C++ Dict `objectUnsellable` / OBJECT_STATUS_SCRIPT_UNSELLABLE.
+    pub unsellable: Option<bool>,
 }
 
 /// C++ SidesList build-list entry residual (skirmish army / base placements).
@@ -2113,6 +2115,7 @@ fn parse_map_object_chunk(
     let mut team_name = None;
     let mut player_id = None;
     let mut upgrade = None;
+    let mut unsellable = None;
 
     if version >= 2 && reader.remaining() > 0 {
         let dict = parse_chunk_dict(&mut reader, toc)?;
@@ -2158,6 +2161,12 @@ fn parse_map_object_chunk(
             ],
         )
         .filter(|value| !value.trim().is_empty());
+
+        unsellable = dict_lookup_ci(
+            &dict,
+            &["objectUnsellable", "unsellable", "object_unsellable"],
+        )
+        .map(|value| parse_ini_boolish(&value));
     }
 
     Ok(Some(PlacedObject {
@@ -2168,6 +2177,7 @@ fn parse_map_object_chunk(
         team_name,
         player_id,
         upgrade,
+        unsellable,
     }))
 }
 
@@ -2493,6 +2503,7 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         team_name,
         player_id,
         upgrade,
+        unsellable: None,
     }))
 }
 
@@ -2625,6 +2636,13 @@ fn dict_lookup_ci(dict: &HashMap<String, String>, keys: &[&str]) -> Option<Strin
         }
     }
     None
+}
+
+fn parse_ini_boolish(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
 }
 
 fn dict_contains_key(dict: &HashMap<String, String>, key: &str) -> bool {

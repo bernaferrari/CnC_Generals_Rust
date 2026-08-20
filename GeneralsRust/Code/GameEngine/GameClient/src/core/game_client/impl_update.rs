@@ -559,7 +559,8 @@ impl GameClient {
                 formation_id: 0,
                 caption: String::new(),
                 draw_module_names: Vec::new(),
-
+                health_box_width: 0.0,
+                health_box_z_offset: 0.0,
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -775,6 +776,7 @@ impl GameClient {
             e.formation_id,
             e.caption.clone(),
         );
+        drawable.set_presentation_health_box(e.health_box_width, e.health_box_z_offset);
         // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
         drawable.set_presentation_sold(e.sold);
         Self::tick_presentation_specialized_draw_modules(e);
@@ -995,6 +997,7 @@ impl GameClient {
                     occupant_count: u.occupant_count,
                     ocl_timer_seconds: u.ocl_timer_seconds,
                     sold: u.sold,
+                    script_unsellable: u.script_unsellable,
                     unselectable: u.unselectable,
                     destroyed: u.destroyed,
                     masked: u.masked,
@@ -1080,6 +1083,7 @@ impl GameClient {
                             occupant_count: u.occupant_count,
                             ocl_timer_seconds: u.ocl_timer_seconds,
                             sold: u.sold,
+                            script_unsellable: u.script_unsellable,
                             unselectable: u.unselectable,
                             destroyed: u.destroyed,
                             masked: u.masked,

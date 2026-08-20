@@ -355,24 +355,37 @@ impl Object {
         if let Some(spawns) = cod.on_die() {
             self.pending_create_object_die_spawns = spawns;
             if transfer {
-                // previous health residual ≈ current before death; use max-current.
                 let max_h = self.health.maximum.max(self.max_health).max(1.0);
-                let prev = self.health.current.max(0.0);
+                // C++ getPreviousHealth: health before last damage, not current (often 0).
+                let prev = if self.previous_health > 0.0 {
+                    self.previous_health
+                } else if self.health.current > 0.01 {
+                    self.health.current
+                } else {
+                    max_h
+                };
                 self.create_object_die_transfer_damage = (max_h - prev).max(0.0);
+                self.create_object_die_transfer_subdual = self.subdual_damage.max(0.0);
+                self.create_object_die_transfer_source = self.last_damage_source;
             }
         }
     }
 
-    pub fn take_pending_create_object_die_spawns(&mut self) -> (Vec<String>, f32, bool) {
+    pub fn take_pending_create_object_die_spawns(
+        &mut self,
+    ) -> (Vec<String>, f32, bool, f32, Option<crate::game_logic::ObjectId>) {
         let spawns = std::mem::take(&mut self.pending_create_object_die_spawns);
         let dmg = self.create_object_die_transfer_damage;
         self.create_object_die_transfer_damage = 0.0;
+        let subdual = self.create_object_die_transfer_subdual;
+        self.create_object_die_transfer_subdual = 0.0;
+        let source = self.create_object_die_transfer_source.take();
         let transfer = self
             .create_object_die
             .as_ref()
             .map(|c| c.transfer_previous_health)
             .unwrap_or(false);
-        (spawns, dmg, transfer)
+        (spawns, dmg, transfer, subdual, source)
     }
 
     /// C++ LifetimeUpdate residual. True when object should die this frame.
@@ -425,13 +438,13 @@ impl Object {
         )
     }
 
-    /// C++ FXListDie::onDie residual.
     pub fn fire_fx_list_die(&mut self) {
         self.ensure_fx_list_die();
+        let upgrades: Vec<String> = self.applied_upgrades.iter().cloned().collect();
         let Some(fx) = self.fx_list_die.as_mut() else {
             return;
         };
-        if let Some((f, a)) = fx.on_die() {
+        if let Some((f, a)) = fx.on_die(&upgrades) {
             if self.pending_death_fx.is_none() {
                 self.pending_death_fx = f;
             }
@@ -439,6 +452,71 @@ impl Object {
                 self.pending_death_audio = a;
             }
         }
+    }
+
+    pub fn ensure_crush_die(&mut self) {
+        if self.crush_die.is_some() {
+            return;
+        }
+        if let Some(cfg) =
+            crate::game_logic::host_crush_die::crush_die_config_for_template(&self.template_name)
+        {
+            self.crush_die = Some(cfg);
+        }
+    }
+
+    /// C++ CrushDie::onDie sound residual.
+    pub fn fire_crush_die(&mut self) {
+        if !matches!(
+            self.status.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Crushed
+        ) {
+            return;
+        }
+        self.ensure_crush_die();
+        let kind = crate::game_logic::host_crush_die::crush_kind_from_flags(
+            self.front_crushed,
+            self.back_crushed,
+        );
+        let seed = self.id.0;
+        let Some(crush) = self.crush_die.as_mut() else {
+            return;
+        };
+        if let Some(sound) = crush.on_die(kind, seed) {
+            if self.pending_death_audio.is_none() {
+                self.pending_death_audio = Some(sound);
+            }
+        }
+    }
+
+    /// C++ InstantDeathBehavior::onDie residual — queues FX/OCL/Weapon.
+    pub fn fire_instant_death(&mut self) -> bool {
+        let Some(ini) = crate::game_logic::host_instant_death::first_applicable_instant_death(
+            &self.template_name,
+            self.status.under_construction,
+            self.status.death_type,
+        ) else {
+            return false;
+        };
+        let burst = ini.pick(self.id.0);
+        if let Some(fx) = burst.fx {
+            if self.pending_death_fx.is_none() {
+                self.pending_death_fx = Some(fx);
+            }
+        }
+        if let Some(ocl) = burst.ocl {
+            let templates =
+                crate::game_logic::host_create_object_die::peel_ocl_spawn_templates(&ocl);
+            if !templates.is_empty() {
+                self.pending_create_object_die_spawns = templates;
+            } else {
+                self.pending_create_object_die_spawns = vec![ocl];
+            }
+        }
+        self.pending_instant_death_weapon = burst.weapon;
+        self.set_ai_state(crate::game_logic::AIState::Idle);
+        self.target = None;
+        true
     }
 
     pub fn ensure_fire_weapon_when_damaged(&mut self) {

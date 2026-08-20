@@ -28,6 +28,42 @@ fn template_uses_overlord_draw(template: &str) -> bool {
     false
 }
 
+/// Retail general-object prefixes used by `ThingTemplate::isEquivalentTo` reskins.
+const TYPE_SELECT_GENERAL_PREFIXES: &[&str] = &[
+    "GC_Chem_",
+    "GC_Slth_",
+    "GC_Infa_",
+    "AirF_",
+    "Chem_",
+    "Demo_",
+    "Infa_",
+    "Lazr_",
+    "Nuke_",
+    "Slth_",
+    "SupW_",
+    "SuperWeapon_",
+    "Tank_",
+    "Boss_",
+    "Early_",
+];
+
+fn type_select_template_stem(name: &str) -> String {
+    let mut rest = name;
+    loop {
+        let Some(prefix) = TYPE_SELECT_GENERAL_PREFIXES
+            .iter()
+            .find(|prefix| rest.len() >= prefix.len() && rest[..prefix.len()].eq_ignore_ascii_case(prefix))
+        else {
+            break;
+        };
+        rest = &rest[prefix.len()..];
+    }
+    rest.bytes()
+        .filter(|byte| *byte != b'_')
+        .map(|byte| byte.to_ascii_lowercase() as char)
+        .collect()
+}
+
 
 impl PresentationFrame {
     /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
@@ -286,9 +322,11 @@ impl PresentationFrame {
                 && !object.engine_bridged
                 // Wave 504: contained units are not drawn as free world meshes
                 // unless they are the C++ OverlordContain friend_getRider()
-                // (W3DOverlordTankDraw.cpp:45-78 draws the rider after the hull).
+                // (W3DOverlordTankDraw.cpp:45-78 draws the rider after the hull)
+                // or a non-enclosing Fire Base station occupant.
                 && (object.contained_by.is_none()
-                    || self.overlord_rider_should_draw(object))
+                    || self.overlord_rider_should_draw(object)
+                    || self.firebase_occupant_should_draw(object))
                 && !self.local_viewer_hides_stealthed(object)
         };
         let make_input =
@@ -470,6 +508,26 @@ impl PresentationFrame {
             return false;
         }
         container.garrisoned_units.first().copied() == Some(object.id)
+    }
+
+    /// C++ GarrisonContain IsEnclosingContainer=No: Fire Base infantry stay visible.
+    fn firebase_occupant_should_draw(&self, object: &RenderableObject) -> bool {
+        let Some(container_id) = object.contained_by else {
+            return false;
+        };
+        let container = self
+            .objects
+            .iter()
+            .find(|candidate| candidate.id == container_id)
+            .or_else(|| {
+                self.direct_host_drawables
+                    .iter()
+                    .find(|direct| direct.object.id == container_id)
+                    .map(|direct| &direct.object)
+            });
+        container.is_some_and(|c| {
+            crate::game_logic::host_fire_base::is_fire_base_template(&c.template_name)
+        })
     }
 
 
@@ -847,6 +905,8 @@ impl PresentationFrame {
 
     /// Same-template locally-owned mass-selectables (`similarUnitSelection`, InGameUI.cpp:150).
     /// Map-wide: C++ `selectMatchingAcrossRegion(NULL)` / ALT double-click.
+    /// Matches `ThingTemplate::isEquivalentTo` plus `OBJECT_STATUS_IS_CARBOMB`,
+    /// and skips contained occupants (`!object->isContained()`).
     pub fn similar_unit_ids(
         &self,
         clicked_id: ObjectId,
@@ -855,21 +915,34 @@ impl PresentationFrame {
         let Some(clicked) = self.objects.iter().find(|o| o.id == clicked_id) else {
             return Vec::new();
         };
-        if !self.similar_unit_is_local(clicked, player_team)
+        if clicked.contained_by.is_some()
+            || !self.similar_unit_is_local(clicked, player_team)
             || !Self::presentation_is_mass_selectable(clicked)
         {
             return Vec::new();
         }
+        let clicked_is_carbomb = clicked.is_carbomb;
         let template = clicked.template_name.as_str();
         self.objects
             .iter()
             .filter(|o| {
-                self.similar_unit_is_local(o, player_team)
+                o.contained_by.is_none()
+                    && self.similar_unit_is_local(o, player_team)
                     && Self::presentation_is_mass_selectable(o)
-                    && o.template_name == template
+                    && (Self::templates_equivalent_for_type_select(template, o.template_name.as_str())
+                        || (clicked_is_carbomb && o.is_carbomb))
             })
             .map(|o| o.id)
             .collect()
+    }
+
+    /// C++ `ThingTemplate::isEquivalentTo` residual for presentation type-select.
+    /// Case-insensitive identity, then general-prefix / stem reskin (AirF_/SupW_/…).
+    fn templates_equivalent_for_type_select(left: &str, right: &str) -> bool {
+        if left.eq_ignore_ascii_case(right) {
+            return true;
+        }
+        type_select_template_stem(left) == type_select_template_stem(right)
     }
 
     fn similar_unit_is_local(

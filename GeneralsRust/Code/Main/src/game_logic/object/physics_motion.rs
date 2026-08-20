@@ -511,8 +511,8 @@ impl Object {
         if !self.velocity_is_very_small() {
             return false;
         }
-        let is_drone = self.template_name.to_ascii_lowercase().contains("drone");
-        // C++: kill if !drone OR dead OR unmanned.
+        let is_drone = self.is_kind_of(KindOf::Drone);
+        // C++: kill if !KINDOF_DRONE OR dead OR unmanned.
         if is_drone && self.is_alive() && !self.status.disabled_unmanned {
             return false;
         }
@@ -524,7 +524,7 @@ impl Object {
             return 0.0;
         }
         // netSpeed = -activeVelZ - minFall (C++ Z-up); host Y-up equivalent.
-        let net_speed = (-impact_vy) - Self::min_fall_speed_for_damage();
+        let net_speed = (-impact_vy) - self.min_fall_speed_for_damage;
         if net_speed <= 0.0 {
             return 0.0;
         }
@@ -538,7 +538,7 @@ impl Object {
         if !(steep_x && steep_z) {
             return 0.0;
         }
-        let damage_amt = net_speed * self.physics_get_mass() * Self::FALL_HEIGHT_DAMAGE_FACTOR;
+        let damage_amt = net_speed * self.physics_get_mass() * self.fall_height_damage_factor;
         if damage_amt <= 0.0 {
             return 0.0;
         }
@@ -610,10 +610,18 @@ impl Object {
     ///
     /// `ground_y` is terrain height at object XZ. Returns true if a bounce force was applied.
     pub fn tick_physics_motion_step(&mut self, ground_y: f32) -> bool {
-        if self.status.destroyed || !self.is_alive() {
+        self.ground_height = ground_y;
+
+        // C++ PhysicsUpdate.cpp:626 — DISABLED_HELD skips gravity/friction/Euler.
+        // Landing onCollide / bounce still run outside that gate.
+        if self.is_physics_held() {
+            let old_y = self.get_position().y;
+            let impact_vy = self.movement.velocity.y;
+            self.finish_physics_landing_bookkeeping(old_y, ground_y, impact_vy);
             return false;
         }
-        // Held residual not fully ported — skip if explicitly non-mobile structure without fall.
+
+        // C++ does not bail on isEffectivelyDead — wrecks keep Euler.
         if self.is_kind_of(crate::game_logic::KindOf::Structure) && !self.allow_to_fall {
             return false;
         }
@@ -711,9 +719,10 @@ impl Object {
         }
 
         let airborne_end = new_pos.y > ground_y + 0.05;
-        // Landing damage residual when was airborne last frame.
+        // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd && !IMMUNE
         if self.was_airborne_last_frame && !airborne_end && !self.immune_to_falling_damage {
-            // doBounceSound residual already exists elsewhere; falling damage peel.
+            self.record_bounce_land(old_y);
+            self.pending_ground_collide = true;
             let impact_vy = v.y;
             let _ = self.apply_shock_fall_damage(impact_vy);
         }
@@ -726,6 +735,21 @@ impl Object {
             let _ = self.maybe_kill_when_resting_on_ground();
         }
         bounced
+    }
+
+    /// C++ landing peel that still runs when HELD skips Euler.
+    fn finish_physics_landing_bookkeeping(&mut self, old_y: f32, ground_y: f32, impact_vy: f32) {
+        let airborne_end = self.get_position().y > ground_y + 0.05;
+        if self.was_airborne_last_frame && !airborne_end && !self.immune_to_falling_damage {
+            self.record_bounce_land(old_y);
+            self.pending_ground_collide = true;
+            let _ = self.apply_shock_fall_damage(impact_vy);
+        }
+        self.was_airborne_last_frame = airborne_end;
+        self.status.airborne_target = airborne_end;
+        if !airborne_end {
+            let _ = self.maybe_kill_when_resting_on_ground();
+        }
     }
 
     /// C++ PhysicsBehavior::handleBounce residual (world-Y = C++ Z).
@@ -912,7 +936,10 @@ impl Object {
                 }
                 // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → bounce sound + fall damage.
                 if was_air {
-                    self.record_bounce_land(old_y);
+                    if self.bounce_audio_pending == 0 {
+                        self.record_bounce_land(old_y);
+                    }
+                    self.pending_ground_collide = true;
                     let _ = self.apply_shock_fall_damage(impact_vy);
                 }
                 if bounced <= 0.0 {
@@ -954,21 +981,21 @@ impl Object {
             // C++ killWhenRestingOnGround after settle.
             let _ = self.maybe_kill_when_resting_on_ground();
         }
-        // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or grounded.
+        // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or not significantly airborne.
         self.maybe_clear_shock_stun_relief(already_on_ground);
         self.refresh_model_condition_bits();
     }
 
     /// C++ STUN_RELIEF_EPSILON / !isSignificantlyAboveTerrain residual.
-    fn maybe_clear_shock_stun_relief(&mut self, already_on_ground: bool) {
+    fn maybe_clear_shock_stun_relief(&mut self, _already_on_ground: bool) {
         if self.shock_stun_frames == 0 {
             return;
         }
         let v = self.movement.velocity;
         const EPS: f32 = 0.5; // C++ STUN_RELIEF_EPSILON
         let vel_settled = v.x.abs() < EPS && v.y.abs() < EPS && v.z.abs() < EPS;
-        let grounded = self.get_position().y <= self.ground_height + 0.05;
-        if vel_settled || (grounded && already_on_ground) {
+        // C++: |vel|<0.5 OR !isSignificantlyAboveTerrain (3-frame fall height).
+        if vel_settled || !self.is_significantly_above_terrain() {
             self.shock_stun_frames = 0;
             self.set_status_disabled_freefall(false);
             self.record_host_shock_stun();

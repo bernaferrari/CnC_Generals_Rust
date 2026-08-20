@@ -1064,9 +1064,22 @@ fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
     assert!(reg.radiation_fields().is_empty());
 
     // Toxin tick hits all teams in radius (retail ALLIES ENEMIES NEUTRALS).
-    let tox_plans = reg.plan_due_toxin_ticks(90, &objects);
+    let tox_objects: Vec<_> = objects
+        .iter()
+        .copied()
+        .map(|(id, pos, team, alive)| (id, pos, team, alive, false))
+        .chain(std::iter::once((
+            ObjectId(99),
+            Vec3::new(100.0, 0.0, 100.0),
+            Team::USA,
+            true,
+            true,
+        )))
+        .collect();
+    let tox_plans = reg.plan_due_toxin_ticks(90, &tox_objects);
     assert_eq!(tox_plans.len(), 1);
     // source (1) excluded; epicenter USA (2) + GLA friendly (3) hit; far (4) not.
+    // Airborne (99) skipped — C++ NOT_AIRBORNE / WEAPON_DOESNT_AFFECT_AIRBORNE.
     assert_eq!(tox_plans[0].hits.len(), 2);
     assert!(tox_plans[0]
         .hits
@@ -1074,6 +1087,11 @@ fn anthrax_bomb_impact_spawns_toxin_and_ticks_damage() {
         .any(|h| h.target_id == ObjectId(2)
             && (h.damage - ANTHRAX_TOXIN_DAMAGE_PER_TICK).abs() < 0.01));
     assert!(tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(3)));
+    assert!(!tox_plans[0].hits.iter().any(|h| h.target_id == ObjectId(99)));
+    assert_eq!(
+        tox_plans[0].death_type,
+        crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta
+    );
 
     reg.record_toxin_tick_complete(tox_plans[0].field_id, 80.0, 2, 0, 90);
     assert!(reg.honesty_toxin_damage_ok());
@@ -1392,7 +1410,12 @@ fn scud_storm_multi_missile_scatter_and_poison_residual() {
     );
 
     // Poison tick uses LargePoison residual damage (one plan per field).
-    let tox = reg.plan_due_toxin_ticks(field.spawn_frame, &objects);
+    let tox_objects: Vec<_> = objects
+        .iter()
+        .copied()
+        .map(|(id, pos, team, alive)| (id, pos, team, alive, false))
+        .collect();
+    let tox = reg.plan_due_toxin_ticks(field.spawn_frame, &tox_objects);
     assert!(!tox.is_empty());
     assert!(tox.iter().any(|plan| {
         plan.hits.iter().any(|h| {

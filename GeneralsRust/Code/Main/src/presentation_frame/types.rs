@@ -542,6 +542,9 @@ pub struct RenderableObject {
     pub ocl_timer_seconds: u32,
     /// C++ OBJECT_STATUS_SOLD residual frozen for presentation/UI.
     pub sold: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE residual frozen for ControlBar hide.
+    #[serde(default)]
+    pub script_unsellable: bool,
     /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
     pub unselectable: bool,
     /// C++ RebuildHole residual frozen for presentation/UI.
@@ -897,6 +900,12 @@ pub struct RenderableObject {
     pub mesh_scale: f32,
     /// Cull / selection radius for presentation-only draw (no live GameLogic re-read).
     pub selection_radius: f32,
+    /// C++ getHealthBoxDimensions width (geometry major+minor clamp).
+    #[serde(default)]
+    pub health_box_width: f32,
+    /// C++ getHealthBoxPosition Z lift (maxHeight + 10 + offset [+20 nexus]).
+    #[serde(default)]
+    pub health_box_z_offset: f32,
     /// True when bridged to GameEngine ObjectFactory (retired host dual-id).
     /// Presentation-owned so the unit mesh pass can skip double-draw without
     /// locking live GameLogic for identity.

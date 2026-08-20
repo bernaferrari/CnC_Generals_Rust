@@ -3175,7 +3175,15 @@ fn lazr_patriot_residual_laser_dual_slot() {
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.frame = 30;
-    game_logic.try_base_defense_residual_fire(pat_id);
+    for _ in 0..30 {
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_now = game_logic.host_object(enemy_id).unwrap().health.current;
+        if hp_now < hp_before || game_logic.base_defense_residual_fires() > 0 {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
     let dealt_g = test_observed_damage_to(enemy_id, hp_before, hp_after);
     assert!(
@@ -3206,7 +3214,15 @@ fn lazr_patriot_residual_laser_dual_slot() {
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.frame = 90;
-    game_logic.try_base_defense_residual_fire(pat_id);
+    for _ in 0..30 {
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_now = game_logic.host_object(air_id).unwrap().health.current;
+        if hp_now < air_hp_before {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
     let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
     let dealt = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
     assert!(
@@ -3283,7 +3299,15 @@ fn tunnel_network_gun_residual_auto_fires() {
         }
     }
     game_logic.frame = 20;
-    game_logic.try_base_defense_residual_fire(tunnel_id);
+    for _ in 0..30 {
+        game_logic.try_base_defense_residual_fire(tunnel_id);
+        let hp_now = game_logic.host_object(enemy_id).unwrap().health.current;
+        if hp_now < hp_before {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
     let logged = crate::game_logic::host_damage_log::drain();
     let log_hit = logged

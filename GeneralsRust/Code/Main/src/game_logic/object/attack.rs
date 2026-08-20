@@ -434,9 +434,15 @@ impl Object {
         }
 
         // C++ STEALTH_NOT_WHILE_ATTACKING / IS_FIRING_WEAPON residual:
-        // firing breaks stealth (default host residual).
+        // fire clears STEALTHED. receiveGrant (StealthUpdate.cpp:198) keeps
+        // OBJECT_STATUS_CAN_STEALTH so the unit re-cloaks after StealthDelay.
         if self.stealth_breaks_on_attack && self.status.stealthed {
+            let can_stealth = self.innate_stealth;
             self.break_stealth();
+            if can_stealth {
+                self.innate_stealth = true;
+                self.record_host_stealth_flags();
+            }
         }
         Some(slot)
     }
@@ -596,13 +602,14 @@ impl Object {
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
         crate::game_logic::host_attack_log::record(self.id, None);
-        // C++ parity: guard units return to their guard state after a kill
-        // rather than going fully idle. The guard anchor/radius are preserved
-        // so the support-states update loop will re-engage nearby enemies.
+        // C++ parity: guard units return to guard; Hunt stays in AI_HUNT.
+        let stay_hunt = matches!(self.ai_state, AIState::Patrolling);
         if self.guard_target.is_some() {
             self.set_ai_state(AIState::GuardingObject);
         } else if self.guard_position.is_some() {
             self.set_ai_state(AIState::GuardingArea);
+        } else if stay_hunt {
+            self.set_ai_state(AIState::Patrolling);
         } else {
             self.set_ai_state(AIState::Idle);
         }
@@ -759,5 +766,26 @@ mod tests {
             Some(crate::game_logic::combat::DamageType::Gattling)
         );
         crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+    }
+
+    #[test]
+    fn fire_at_grant_stealth_keeps_can_stealth() {
+        // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH after fire.
+        let mut unit = Object::new(ThingTemplate::new("TestTank"), ObjectId(1), Team::GLA);
+        unit.weapon = Some(Weapon {
+            damage: 20.0,
+            range: 150.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+        unit.apply_grant_stealth();
+        unit.stealth_breaks_on_attack = true;
+        unit.stealth_delay_frames = 30;
+        assert!(unit.fire_at(ObjectId(2), 1.0));
+        assert!(!unit.status.stealthed);
+        assert!(unit.innate_stealth, "GPS grant CAN_STEALTH must survive fire");
+        assert!(unit.stealth_delay_pending);
+        assert!(unit.try_recloak_after_stealth_delay(31, false));
+        assert!(unit.status.stealthed);
     }
 }

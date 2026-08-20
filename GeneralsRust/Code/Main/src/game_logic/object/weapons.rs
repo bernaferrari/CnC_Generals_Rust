@@ -586,22 +586,58 @@ impl Object {
     }
 
     /// C++ Weapon.cpp:2655-2665 / 1898-1909 ShareWeaponReloadTime.
+    ///
+    /// Copy the firing slot's next-shot time (`now + DelayBetweenShots` or
+    /// clip reload) onto every slot. Ready checks still use each slot's own
+    /// interval, so `last_fire` is back-computed to become ready at that
+    /// shared frame.
     pub fn sync_shared_weapon_reload(&mut self) {
         if !self.thing.template.share_weapon_reload_time {
             return;
         }
+        let rof = self.weapon_bonus_fields().2;
         let mut latest = f32::NEG_INFINITY;
+        let mut firing_slot = 0u8;
         for slot in [0u8, 1, 2] {
             if let Some(weapon) = self.weapon_slot(slot) {
-                latest = latest.max(weapon.last_fire_time);
+                if weapon.last_fire_time >= latest {
+                    latest = weapon.last_fire_time;
+                    firing_slot = slot;
+                }
             }
         }
         if !latest.is_finite() {
             return;
         }
+        let firing_interval = {
+            let weapon = match self.weapon_slot(firing_slot) {
+                Some(weapon) => weapon,
+                None => return,
+            };
+            let name = self.weapon_name_for_slot(firing_slot);
+            self.live_reload_interval(weapon, name, rof)
+        };
+        let next_ready = crate::game_logic::weapon_bootstrap::shared_next_ready_time(
+            latest,
+            firing_interval,
+        );
+        let mut stamp = [None; 3];
         for slot in [0u8, 1, 2] {
-            if let Some(weapon) = self.weapon_slot_mut(slot) {
-                weapon.last_fire_time = latest;
+            if let Some(weapon) = self.weapon_slot(slot) {
+                let name = self.weapon_name_for_slot(slot);
+                let interval = self.live_reload_interval(weapon, name, rof);
+                stamp[slot as usize] = Some(
+                    crate::game_logic::weapon_bootstrap::last_fire_time_matching_shared_ready(
+                        next_ready, interval,
+                    ),
+                );
+            }
+        }
+        for slot in [0u8, 1, 2] {
+            if let (Some(last_fire), Some(weapon)) =
+                (stamp[slot as usize], self.weapon_slot_mut(slot))
+            {
+                weapon.last_fire_time = last_fire;
             }
         }
     }
@@ -1087,5 +1123,37 @@ mod tests {
             attacker.secondary_weapon.as_ref().unwrap().last_fire_time,
             4.0
         );
+    }
+
+    #[test]
+    fn share_weapon_reload_time_copies_firing_slot_next_shot() {
+        // C++ Weapon.cpp:2655-2665: siblings wait the firing slot delay,
+        // not their own DelayBetweenShots / ClipReloadTime.
+        let mut attacker = Object::new(
+            {
+                let mut t = ThingTemplate::new("AmericaVehicleComanche");
+                t.share_weapon_reload_time = true;
+                t
+            },
+            ObjectId(1),
+            Team::USA,
+        );
+        attacker.weapon = Some(Weapon {
+            last_fire_time: 4.0,
+            reload_time: 0.2,
+            ..weapon(10.0)
+        });
+        attacker.secondary_weapon = Some(Weapon {
+            last_fire_time: 0.0,
+            reload_time: 3.0,
+            ..weapon(10.0)
+        });
+        attacker.sync_shared_weapon_reload();
+        let gun = attacker.weapon.as_ref().unwrap();
+        let pods = attacker.secondary_weapon.as_ref().unwrap();
+        let gun_ready = gun.last_fire_time + 0.2;
+        let pods_ready = pods.last_fire_time + 3.0;
+        assert!((gun_ready - pods_ready).abs() < 1e-4, "{gun_ready} vs {pods_ready}");
+        assert!((gun.last_fire_time - 4.0).abs() < 1e-4);
     }
 }

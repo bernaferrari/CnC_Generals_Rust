@@ -196,6 +196,9 @@ pub(super) fn default_object_snapshot() -> ObjectSnapshot {
         collector_runtime: None,
         weapon_suspend_fx_frames: Vec::new(),
         temporary_weapon_runtime: None,
+        weapon_bonus_frenzy: false,
+        weapon_bonus_frenzy_level: 0,
+        weapon_bonus_frenzy_until_frame: 0,
     }
 }
 

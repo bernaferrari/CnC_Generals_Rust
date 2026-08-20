@@ -850,6 +850,54 @@ impl GameLogic {
         }
     }
 
+    /// C++ Object::getCarrierDeckHeight — producer's ParkingPlace landing offset.
+    pub(crate) fn carrier_deck_height_for(&self, obj: &Object) -> f32 {
+        let Some(pid) = obj.producer_id else {
+            return 0.0;
+        };
+        self.objects
+            .get(&pid)
+            .and_then(|p| p.thing.template.parking_place.as_ref())
+            .map(|pp| pp.landing_deck_height_offset)
+            .unwrap_or(0.0)
+    }
+
+    /// C++ PhysicsUpdate.cpp:739-743 groundZ += getCarrierDeckHeight when DECK_HEIGHT_OFFSET.
+    pub(crate) fn physics_ground_y_with_deck(&self, obj: &Object, terrain_y: f32) -> f32 {
+        if !obj.has_object_status_bit("DECK_HEIGHT_OFFSET") {
+            return terrain_y;
+        }
+        terrain_y + self.carrier_deck_height_for(obj)
+    }
+
+    /// C++ PhysicsBehavior::update obj->onCollide(NULL) after landing.
+    pub(crate) fn dispatch_physics_ground_collide(&mut self, id: ObjectId) {
+        let (container, is_chute) = {
+            let Some(o) = self.objects.get_mut(&id) else {
+                return;
+            };
+            o.pending_ground_collide = false;
+            o.last_collidee = None;
+            let chute = o.is_parachuting()
+                || o.template_name.to_ascii_lowercase().contains("parachute");
+            (o.contained_by, chute)
+        };
+        let chute_id = if is_chute {
+            Some(id)
+        } else {
+            container.filter(|cid| {
+                self.objects.get(cid).is_some_and(|c| {
+                    c.is_parachuting()
+                        || c.template_name.to_ascii_lowercase().contains("parachute")
+                })
+            })
+        };
+        if let Some(cid) = chute_id {
+            // C++ ParachuteContain::onCollide(NULL) land residual.
+            self.tick_eject_parachute_residual(cid);
+        }
+    }
+
     #[cfg(test)]
     pub fn apply_live_handle_behavior_z_for_test(
         obj: &mut Object,

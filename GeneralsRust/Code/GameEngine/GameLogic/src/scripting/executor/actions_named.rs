@@ -1550,6 +1550,10 @@ impl ScriptActionDispatcher {
             unit_name,
             disposition
         );
+        crate::object::contain::record_named_evac_disposition(
+            &unit_name,
+            disposition.max(0) as u32,
+        );
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {

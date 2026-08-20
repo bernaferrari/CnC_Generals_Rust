@@ -149,6 +149,10 @@ impl CombatParticleRegistry {
         self.systems.get(&id)
     }
 
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut CombatParticleSystemEntry> {
+        self.systems.get_mut(&id)
+    }
+
     pub fn active_systems(&self) -> impl Iterator<Item = &CombatParticleSystemEntry> {
         self.systems.values().filter(|s| s.active)
     }

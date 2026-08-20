@@ -1051,10 +1051,68 @@ fn create_object_die_queues_spawns() {
     o.health.current = 0.0;
     o.status.destroyed = true;
     o.refresh_model_condition_bits();
-    let (spawns, dmg, transfer) = o.take_pending_create_object_die_spawns();
+    let (spawns, dmg, transfer, _sub, _src) = o.take_pending_create_object_die_spawns();
     assert_eq!(spawns, vec!["GLASneakAttackTunnelNetwork".to_string()]);
     assert!(transfer);
     assert!(dmg >= 0.0);
+}
+
+#[test]
+fn create_object_die_uses_previous_health_not_current() {
+    use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("GLASneakAttackTunnelNetworkStart");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Structure);
+    let mut o = Object::new(t, ObjectId(3), Team::GLA);
+    o.create_object_die = Some(HostCreateObjectDieData {
+        ocl_name: "OCL_CreateSneakAttackTunnel".into(),
+        spawn_templates: vec!["GLASneakAttackTunnelNetwork".into()],
+        transfer_previous_health: true,
+        fired: false,
+    });
+    o.health.current = 0.0;
+    o.previous_health = 100.0;
+    o.subdual_damage = 25.0;
+    o.last_damage_source = Some(ObjectId(9));
+    o.fire_create_object_die();
+    let (_spawns, dmg, transfer, sub, src) = o.take_pending_create_object_die_spawns();
+    assert!(transfer);
+    assert!(
+        dmg.abs() < 1e-3,
+        "lifetime kill at full previous health transfers 0, got {dmg}"
+    );
+    assert!((sub - 25.0).abs() < 1e-3);
+    assert_eq!(src, Some(ObjectId(9)));
+}
+
+#[test]
+fn crush_die_queues_sound_on_crushed_death() {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaRanger");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Infantry);
+    let mut o = Object::new(t, ObjectId(4), Team::USA);
+    o.status.death_type = HostDeathType::Crushed;
+    o.front_crushed = true;
+    o.back_crushed = true;
+    o.fire_crush_die();
+    let (_, audio) = o.take_pending_death_fx_audio();
+    assert_eq!(audio.as_deref(), Some("InfantryCrush"));
+}
+
+#[test]
+fn instant_death_under_construction_building() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut t = ThingTemplate::new("AmericaParticleUplinkCannon");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Structure);
+    let mut o = Object::new(t, ObjectId(5), Team::USA);
+    o.status.under_construction = true;
+    assert!(o.fire_instant_death());
+    let (fx, _) = o.take_pending_death_fx_audio();
+    assert_eq!(fx.as_deref(), Some("FX_StructureMediumDeath"));
 }
 
 #[test]
@@ -1205,8 +1263,10 @@ fn healing_and_water_damage_residuals() {
     assert!(!unit.take_damage_from_typed(25.0, Some(ObjectId(99)), DamageType::Healing));
     assert!((unit.health.current - 65.0).abs() < 1e-3);
     assert!(unit.is_alive());
-    // Healing must not stamp hostile last_damage_source.
+    // C++ attemptHealing stamps lastDamageInfo as HEALING (forgets prior attacker).
+    // Live clears source so the medic is not a Guard nemesis (no last-type field).
     assert!(unit.last_damage_source.is_none());
+    assert!(unit.last_healing_timestamp.is_some());
 
     // Cap at maximum.
     assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing));
@@ -1300,6 +1360,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
         detonate_at_frame: None,
         attached_to: None,
         producer_id: None,
+        ..HostMineData::land_mine()
     });
     mine.health.current = 10.0;
     assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm));
@@ -1897,8 +1958,9 @@ fn body_damage_threshold_cpp_surface() {
         host_calc_body_damage_state, HostBodyDamageType, HOST_UNIT_DAMAGED_THRESH,
         HOST_UNIT_REALLY_DAMAGED_THRESH,
     };
-    assert!((HOST_UNIT_DAMAGED_THRESH - 0.5).abs() < 1e-6);
-    assert!((HOST_UNIT_REALLY_DAMAGED_THRESH - 0.25).abs() < 1e-6);
+    // C++ ActiveBody.cpp:88 + GameData.ini UnitDamagedThreshold 0.7 / 0.35.
+    assert!((HOST_UNIT_DAMAGED_THRESH - 0.7).abs() < 1e-6);
+    assert!((HOST_UNIT_REALLY_DAMAGED_THRESH - 0.35).abs() < 1e-6);
     assert_eq!(
         host_calc_body_damage_state(100.0, 100.0),
         HostBodyDamageType::Pristine
@@ -2557,9 +2619,10 @@ fn kill_when_resting_and_bounce_land_residual() {
     assert!(o.maybe_kill_when_resting_on_ground());
     assert!(o.status.destroyed);
 
-    // Drone alive with flag does not kill.
+    // Drone alive with KINDOF_DRONE does not kill (name substring is not the gate).
     let mut td = ThingTemplate::new("CombatDrone");
     td.add_kind_of(KindOf::Vehicle);
+    td.add_kind_of(KindOf::Drone);
     let mut d = Object::new(td, ObjectId(42), Team::USA);
     d.kill_when_resting_on_ground = true;
     d.shock_stun_frames = 5;
@@ -2571,6 +2634,23 @@ fn kill_when_resting_and_bounce_land_residual() {
     d.status.disabled_unmanned = true;
     assert!(d.maybe_kill_when_resting_on_ground());
     assert!(d.status.destroyed);
+
+    // KINDOF_DRONE without "drone" in the name is still spared.
+    let mut tu = ThingTemplate::new("AmericaVehicleComanche");
+    tu.add_kind_of(KindOf::Drone);
+    let mut u = Object::new(tu, ObjectId(44), Team::USA);
+    u.kill_when_resting_on_ground = true;
+    u.set_position(glam::Vec3::ZERO);
+    u.movement.velocity = glam::Vec3::ZERO;
+    assert!(!u.maybe_kill_when_resting_on_ground());
+    // Name contains "drone" but no KINDOF_DRONE → kill.
+    let mut tn = ThingTemplate::new("FakeDroneProp");
+    tn.add_kind_of(KindOf::Vehicle);
+    let mut n = Object::new(tn, ObjectId(45), Team::USA);
+    n.kill_when_resting_on_ground = true;
+    n.set_position(glam::Vec3::ZERO);
+    n.movement.velocity = glam::Vec3::ZERO;
+    assert!(n.maybe_kill_when_resting_on_ground());
 
     // Bounce land event on airborne ground hit.
     let mut tb = ThingTemplate::new("BounceSnd");
@@ -2610,6 +2690,110 @@ fn kill_when_resting_and_bounce_land_residual() {
     i.immune_to_falling_damage = true;
     assert_eq!(i.apply_shock_fall_damage(-30.0), 0.0);
     assert_eq!(i.health.current, 100.0);
+}
+
+#[test]
+fn physics_wave10_held_wreck_friction_stun_shock() {
+    use crate::game_logic::{
+        KindOf, Object, ObjectId, Team, ThingTemplate, MIN_NON_AERO_FRICTION_RESIDUAL,
+    };
+    use glam::Vec3;
+
+    // HELD/contained skips Euler.
+    let mut th = ThingTemplate::new("HeldInf");
+    th.add_kind_of(KindOf::Infantry);
+    let mut held = Object::new(th, ObjectId(501), Team::USA);
+    held.set_contained_by(Some(ObjectId(99)));
+    held.set_position(Vec3::new(0.0, 2.0, 0.0));
+    held.movement.velocity = Vec3::new(4.0, -1.0, 0.0);
+    let _ = held.tick_physics_motion_step(0.0);
+    assert!(
+        (held.get_position().x).abs() < 1e-4,
+        "HELD must not integrate pos+=vel; x={}",
+        held.get_position().x
+    );
+
+    // Dead wrecks keep Euler (fall from mid-air).
+    let mut tw = ThingTemplate::new("DeadTank");
+    tw.add_kind_of(KindOf::Vehicle);
+    let mut wreck = Object::new(tw, ObjectId(502), Team::USA);
+    wreck.health.current = 0.0;
+    wreck.status.effectively_dead = true;
+    wreck.set_position(Vec3::new(0.0, 5.0, 0.0));
+    wreck.movement.velocity = Vec3::new(0.0, -2.0, 0.0);
+    wreck.allow_to_fall = true;
+    wreck.immune_to_falling_damage = true;
+    let _ = wreck.tick_physics_motion_step(0.0);
+    assert!(
+        wreck.get_position().y < 5.0,
+        "dead wreck must keep Euler; y={}",
+        wreck.get_position().y
+    );
+
+    // 5cm hop still uses ground friction (not aero=0).
+    let mut tf = ThingTemplate::new("Hopper");
+    tf.add_kind_of(KindOf::Vehicle);
+    let mut hop = Object::new(tf, ObjectId(503), Team::USA);
+    hop.set_position(Vec3::new(0.0, 0.08, 0.0));
+    hop.ground_height = 0.0;
+    hop.status.airborne_target = true;
+    hop.movement.velocity = Vec3::new(0.0, 0.0, 10.0);
+    hop.physics_mass = 1.0;
+    hop.lateral_friction = 0.15;
+    hop.apply_frictional_forces();
+    hop.integrate_physics_accel();
+    assert!(
+        hop.movement.velocity.z.abs() < 10.0,
+        "5cm hop must scrub with ground friction, vz={}",
+        hop.movement.velocity.z
+    );
+
+    // MIN_NON_AERO floor 0.01.
+    hop.forward_friction = 0.0;
+    hop.extra_friction = -1.0;
+    assert!((hop.get_forward_friction() - MIN_NON_AERO_FRICTION_RESIDUAL).abs() < 1e-6);
+    assert!((hop.get_lateral_friction() - MIN_NON_AERO_FRICTION_RESIDUAL).abs() < 1e-6);
+    // Stun relief at 3-frame height (9 with g=-1), not 5cm.
+    let mut ts = ThingTemplate::new("Tossed");
+    ts.add_kind_of(KindOf::Infantry);
+    let mut stun = Object::new(ts, ObjectId(504), Team::USA);
+    stun.shock_stun_frames = 20;
+    stun.set_position(Vec3::new(0.0, 4.0, 0.0));
+    stun.ground_height = 0.0;
+    stun.movement.velocity = Vec3::new(2.0, -1.0, 0.0);
+    stun.tick_shock_stun();
+    assert_eq!(
+        stun.shock_stun_frames, 0,
+        "height 4 is not significantly airborne"
+    );
+
+    // Shock toss has no invented 80 cap.
+    let mut tk = ThingTemplate::new("MoabVic");
+    tk.add_kind_of(KindOf::Vehicle);
+    let mut tossed = Object::new(tk, ObjectId(505), Team::USA);
+    tossed.physics_mass = 1.0;
+    tossed.shock_resistance = 0.0;
+    tossed.status.airborne_target = false;
+    let applied = tossed.apply_shock_wave_impulse(Vec3::new(200.0, 20.0, 0.0));
+    assert!(applied);
+    assert!(
+        tossed.movement.velocity.length() > 80.0,
+        "shock must not cap |v| at 80; |v|={}",
+        tossed.movement.velocity.length()
+    );
+
+    // Non-stun landing records bounce + pending ground collide.
+    let mut tl = ThingTemplate::new("Lander");
+    tl.add_kind_of(KindOf::Vehicle);
+    let mut land = Object::new(tl, ObjectId(506), Team::USA);
+    land.set_position(Vec3::new(0.0, 3.0, 0.0));
+    land.movement.velocity = Vec3::new(0.0, -4.0, 0.0);
+    land.health.current = 10_000.0;
+    land.was_airborne_last_frame = true;
+    land.immune_to_falling_damage = false;
+    let _ = land.tick_physics_motion_step(0.0);
+    assert!(land.bounce_land_events > 0);
+    assert!(land.pending_ground_collide);
 }
 #[test]
 fn stunned_off_map_cliff_water_kills_without_loco() {

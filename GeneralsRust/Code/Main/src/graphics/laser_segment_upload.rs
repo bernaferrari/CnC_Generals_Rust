@@ -1046,9 +1046,18 @@ impl LaserSegmentUpload {
             }
             let (color, width) = projectile_stream_draw_style(&stream.stream_name);
             for i in 0..stream.points.len() - 1 {
+                let start = stream.points[i];
+                let end = stream.points[i + 1];
+                let start_v = glam::Vec3::new(start.0, start.1, start.2);
+                let end_v = glam::Vec3::new(end.0, end.1, end.2);
+                if crate::game_logic::host_projectile_stream::is_stream_hole(start_v)
+                    || crate::game_logic::host_projectile_stream::is_stream_hole(end_v)
+                {
+                    continue;
+                }
                 let host = HostLaserLine3DSegment {
-                    start: stream.points[i],
-                    end: stream.points[i + 1],
+                    start,
+                    end,
                     width,
                     tile_factor: 1.0,
                     scroll_offset: (i as f32) * 0.05,
@@ -1262,7 +1271,7 @@ mod tests {
         let streams = vec![PresentationProjectileStream {
             shooter_id: ObjectId(1),
             stream_name: "DragonTankFlameStream".into(),
-            points: vec![(0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (20.0, 0.0, 5.0)],
+            points: vec![(1.0, 0.0, 0.0), (10.0, 0.0, 0.0), (20.0, 0.0, 5.0)],
             target_id: None,
         }];
         let pack = LaserSegmentUpload::pack_beams_with_projectile_streams(&[], &streams);
@@ -1270,6 +1279,27 @@ mod tests {
         assert_eq!(pack.honesty.segments_packed, 2);
         assert!(pack.honesty.has_geometry);
         assert!(!pack.vertex_bytes.is_empty());
+    }
+
+    #[test]
+    fn stream_hole_breaks_ribbon_segments() {
+        use crate::game_logic::ObjectId;
+        use crate::presentation_frame::PresentationProjectileStream;
+        let streams = vec![PresentationProjectileStream {
+            shooter_id: ObjectId(1),
+            stream_name: "DragonTankFlameStream".into(),
+            points: vec![
+                (1.0, 0.0, 0.0),
+                (2.0, 0.0, 0.0),
+                (0.0, 0.0, 0.0),
+                (8.0, 0.0, 0.0),
+                (9.0, 0.0, 0.0),
+            ],
+            target_id: None,
+        }];
+        let pack = LaserSegmentUpload::pack_beams_with_projectile_streams(&[], &streams);
+        // Two live spans (1-2 and 8-9); hole-adjacent segments are skipped.
+        assert_eq!(pack.honesty.segments_packed, 2);
     }
     #[test]
     fn packs_line3d_segments_with_expected_byte_layout() {

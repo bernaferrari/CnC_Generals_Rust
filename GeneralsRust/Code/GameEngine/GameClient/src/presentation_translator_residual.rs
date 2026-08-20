@@ -36,6 +36,8 @@ pub struct TranslatorCatalogEntry {
     pub ocl_timer_seconds: u32,
     /// Wave 1033: sold residual.
     pub sold: bool,
+    /// C++ OBJECT_STATUS_SCRIPT_UNSELLABLE residual.
+    pub script_unsellable: bool,
     /// Wave 1034: unselectable residual.
     pub unselectable: bool,
     /// Wave 1035: destroyed residual.

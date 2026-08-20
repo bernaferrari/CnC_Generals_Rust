@@ -32,9 +32,11 @@ impl<'a> CommandExecutor<'a> {
             if obj.status.sold
                 || obj.status.reconstructing
                 || obj.status.under_construction
+                || obj.is_script_unsellable()
                 || self.game_logic.is_object_being_sold(object_id)
             {
-                // C++ sellObject: structures only when complete (not under construction/rebuild).
+                // C++ ControlBar hides GUI_COMMAND_SELL for SCRIPT_UNSELLABLE.
+                // Live host also rejects so a leftover/hardcoded Sell cannot refund.
                 return CommandResult::InvalidCommand;
             }
             // C++ BuildAssistant::sellObject multi-frame residual (scaffold → SOLD → refund).
@@ -247,6 +249,12 @@ impl<'a> CommandExecutor<'a> {
                     if building.production_queue.iter().any(|i| {
                         i.is_upgrade() && i.template_name.eq_ignore_ascii_case(upgrade_name)
                     }) {
+                        return false;
+                    }
+                    // C++ queueUpgrade: OBJECT refuses hasUpgrade on this producer.
+                    if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+                        && source.has_object_upgrade_complete(upgrade_name)
+                    {
                         return false;
                     }
                     true

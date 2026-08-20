@@ -43,6 +43,8 @@ struct HostTurretExtra {
     idle_scan_entered: bool,
     targeter_adds: u32,
     preventing_aim: bool,
+    fires_while_turning: bool,
+    sweep_sound_until: u32,
     seeded: bool,
 }
 
@@ -73,6 +75,8 @@ impl Default for HostTurretExtra {
             idle_scan_entered: false,
             targeter_adds: 0,
             preventing_aim: false,
+            fires_while_turning: false,
+            sweep_sound_until: 0,
             seeded: false,
         }
     }
@@ -96,37 +100,22 @@ fn seed_host_turret_extra(id: ObjectId, template_name: &str, turn_rate: f32) {
             return;
         }
         e.seeded = true;
-        e.pitch_rate = turn_rate.max(crate::game_logic::object::default_turret_turn_rate());
-        let n = template_name.to_ascii_lowercase();
-        if n.contains("strategycenter") || n.contains("strategy center") {
-            e.allows_pitch = true;
-            e.fire_pitch = 45.0_f32.to_radians();
-            e.min_idle_scan_angle = 0.0;
-            e.max_idle_scan_angle = 60.0_f32.to_radians();
-            e.min_idle_scan_interval = 15;
-            e.max_idle_scan_interval = 30;
-        } else if n.contains("tomahawk") {
-            e.allows_pitch = true;
-            e.fire_pitch = 70.0_f32.to_radians();
-            e.min_idle_scan_angle = 0.0;
-            e.max_idle_scan_angle = 45.0_f32.to_radians();
-            e.min_idle_scan_interval = 15;
-            e.max_idle_scan_interval = 30;
-        } else if n.contains("tank")
-            || n.contains("humvee")
-            || n.contains("patriot")
-            || n.contains("cannon")
-            || n.contains("gattling")
-            || n.contains("gatling")
-            || n.contains("missiledefender")
-            || n.contains("scorpion")
-            || n.contains("overlord")
-        {
-            // C++ TurretAI idle scan + recenter on live turreted combat units.
-            e.min_idle_scan_angle = 0.0;
-            e.max_idle_scan_angle = 45.0_f32.to_radians();
-            e.min_idle_scan_interval = 15;
-            e.max_idle_scan_interval = 30;
+        let spec = crate::game_logic::object::turret_spawn_for_template(template_name);
+        if spec.has_turret {
+            e.pitch_rate = spec.pitch_rate_rad.max(turn_rate);
+            e.allows_pitch = spec.allows_pitch;
+            e.fire_pitch = spec.fire_pitch_rad;
+            e.min_pitch = spec.min_pitch_rad;
+            e.ground_unit_pitch = spec.ground_unit_pitch_rad;
+            e.min_idle_scan_angle = spec.min_idle_scan_angle_rad;
+            e.max_idle_scan_angle = spec.max_idle_scan_angle_rad;
+            e.min_idle_scan_interval = spec.min_idle_scan_interval;
+            e.max_idle_scan_interval = spec.max_idle_scan_interval;
+            e.fire_angle_sweep = spec.fire_angle_sweep;
+            e.sweep_speed_mod = spec.sweep_speed_mod;
+            e.fires_while_turning = spec.fires_while_turning;
+        } else {
+            e.pitch_rate = turn_rate.max(crate::game_logic::object::default_turret_turn_rate());
         }
     });
 }
@@ -712,6 +701,7 @@ impl GameLogic {
         with_host_turret_extra(unit_id, |e| {
             e.did_fire = true;
             e.enable_sweep_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+            e.sweep_sound_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
         });
     }
 
@@ -780,20 +770,25 @@ impl GameLogic {
     }
 
     fn apply_turret_rotate_fx(&mut self, unit_id: ObjectId, prev_angle_deg: f32) {
-        let (rotating, angle_deg, pitch_sound, pos, occupants) = {
+        let (rotating, angle_deg, pitch_sound, pos, occupants, keep_loop) = {
             let Some(u) = self.objects.get(&unit_id) else {
                 return;
             };
+            let now = self.frame;
+            let keep_loop = with_host_turret_extra(unit_id, |e| {
+                e.fires_while_turning && e.sweep_sound_until != 0 && now < e.sweep_sound_until
+            });
             (
                 u.turret_rotating,
                 u.turret_angle_deg,
                 with_host_turret_extra(unit_id, |e| e.play_pitch_sound),
                 u.get_position(),
                 u.contained_units(),
+                keep_loop,
             )
         };
         with_host_turret_extra(unit_id, |e| {
-            e.play_rot_sound = rotating;
+            e.play_rot_sound = rotating || keep_loop;
         });
         if let Some(u) = self.objects.get_mut(&unit_id) {
             let bit = crate::game_logic::host_enum_table_residual::turret_rotate_model_bit();
@@ -807,7 +802,7 @@ impl GameLogic {
                 u.record_host_model_condition();
             }
         }
-        let play = rotating || pitch_sound;
+        let play = rotating || pitch_sound || keep_loop;
         let started = with_host_turret_extra(unit_id, |e| {
             if play && !e.move_loop_playing {
                 e.move_loop_playing = true;
@@ -884,21 +879,36 @@ impl GameLogic {
 
         let result = match sub {
             TurretSubState::Idle => {
-                let (min_iv, max_iv) = with_host_turret_extra(unit_id, |e| {
-                    (e.min_idle_scan_interval, e.max_idle_scan_interval)
-                });
-                {
-                    let Some(u) = self.objects.get_mut(&unit_id) else {
-                        return AttackAimResult::Failure;
-                    };
-                    if u.turret_idle_scan_next_frame == 0 {
-                        let span = max_iv.saturating_sub(min_iv);
-                        let mix = if span == 0 {
-                            0
-                        } else {
-                            (u.turret_idle_scan_index % (span + 1)) as u32
-                        };
-                        u.turret_idle_scan_next_frame = logic_frame.saturating_add(min_iv + mix);
+                let strategy_center = crate::game_logic::host_strategy_center::is_strategy_center_template(
+                    &tmpl,
+                );
+                // Strategy Center idle-scan is owned by
+                // `tick_strategy_center_turret_idle_scan` (Bombardment ACTIVE).
+                // Do not double-step the generic SM.
+                if !strategy_center {
+                    let (min_iv, max_iv, scan_authored) = with_host_turret_extra(unit_id, |e| {
+                        (
+                            e.min_idle_scan_interval,
+                            e.max_idle_scan_interval,
+                            e.min_idle_scan_angle != 0.0 || e.max_idle_scan_angle != 0.0,
+                        )
+                    });
+                    if scan_authored {
+                        {
+                            let Some(u) = self.objects.get_mut(&unit_id) else {
+                                return AttackAimResult::Failure;
+                            };
+                            if u.turret_idle_scan_next_frame == 0 {
+                                let span = max_iv.saturating_sub(min_iv);
+                                let mix = if span == 0 {
+                                    0
+                                } else {
+                                    (u.turret_idle_scan_index % (span + 1)) as u32
+                                };
+                                u.turret_idle_scan_next_frame =
+                                    logic_frame.saturating_add(min_iv + mix);
+                            }
+                        }
                     }
                 }
                 self.turret_check_for_idle_mood_target(unit_id);
@@ -910,11 +920,15 @@ impl GameLogic {
                 {
                     return AttackAimResult::Continue;
                 }
-                let due = self
-                    .objects
-                    .get(&unit_id)
-                    .map(|u| logic_frame >= u.turret_idle_scan_next_frame)
-                    .unwrap_or(false);
+                let due = !strategy_center
+                    && self
+                        .objects
+                        .get(&unit_id)
+                        .map(|u| {
+                            u.turret_idle_scan_next_frame != 0
+                                && logic_frame >= u.turret_idle_scan_next_frame
+                        })
+                        .unwrap_or(false);
                 if due {
                     if let Some(u) = self.objects.get_mut(&unit_id) {
                         u.turret_substate = TurretSubState::IdleScan;

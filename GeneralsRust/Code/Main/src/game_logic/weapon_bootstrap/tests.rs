@@ -588,6 +588,25 @@ fn projectile_stream_name_seeds() {
     );
     assert!(host_projectile_stream_name_for_weapon_name("AmericaTankCrusaderGun").is_empty());
 }
+
+#[test]
+fn projectile_stream_name_reads_store_not_just_seed() {
+    ensure_host_weapon_store();
+    const NAME: &str = "Hunt10AuroraStreamWeapon";
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut template = WeaponTemplate::new(NAME.to_string());
+        template.projectile_stream_name = "AuroraBombStream".to_string();
+        store.add_weapon_template(template);
+    });
+    assert_eq!(
+        host_projectile_stream_name_for_weapon_name(NAME),
+        "AuroraBombStream"
+    );
+    assert_eq!(
+        host_projectile_stream_name_for_slots(Some(NAME), None, None, None),
+        "AuroraBombStream"
+    );
+}
 #[test]
 fn shows_ammo_pips_and_waypoint_seeds() {
     assert!(host_shows_ammo_pips_for_weapon_name(

@@ -168,6 +168,10 @@ pub struct PresentationDrawableSync {
     /// W3DDebrisDraw class names from the live Object INI. Empty falls back
     /// to ThingFactory + template/kind inference.
     pub draw_module_names: Vec<String>,
+    /// C++ getHealthBoxDimensions width from host Object geometry.
+    pub health_box_width: f32,
+    /// C++ getHealthBoxPosition height lift (Y-up / Z-up mapped).
+    pub health_box_z_offset: f32,
 
 }
 

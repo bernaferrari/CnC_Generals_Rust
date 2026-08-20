@@ -4,11 +4,13 @@
 //! - `Hijack`: infantry walks to enemy ground vehicle → transfer team +
 //!   OBJECT_STATUS_HIJACKED; hijacker is consumed (fail-closed residual of
 //!   ConvertToHijackedVehicleCrateCollide + HijackerUpdate hide-in-vehicle;
-//!   always consume, never eject-pilot re-spawn). Already-hijacked targets
-//!   are rejected. Observable audio + radar message on success.
-//! - `ConvertToCarbomb`: infantry reaches vehicle (incl. neutral civilians) →
-//!   vehicle defects to converter team, gains IS_CARBOMB + SuicideCarBomb weapon
-//!   residual, converter is consumed (C++ ConvertToCarBombCrateCollide).
+//!   always consume, never eject-pilot re-spawn). Rejects ImmuneToCapture,
+//!   aircraft, boats, drones, occupied transports, and already-hijacked
+//!   targets. Observable audio + radar message on success.
+//! - `ConvertToCarbomb`: infantry reaches a vehicle that authors
+//!   `WEAPONSET_CARBOMB` (civilian cars). Aircraft/boats/already-carbomb
+//!   rejected. Vehicle defects, gains IS_CARBOMB + SuicideCarBomb, converter
+//!   consumed (C++ ConvertToCarBombCrateCollide).
 //! - Car-bomb vehicle attacks (weapon fire in range) → suicide detonation AOE
 //!   (SuicideCarBomb PrimaryDamage/Radius residual) + destroy self; damages
 //!   nearby structures/units for observable splash.
@@ -28,7 +30,6 @@
 //! - Not full HijackerUpdate hide-in-partition / eject-pilot re-spawn path
 //! - Not full SuicideCarBomb secondary radius / NOT_SIMILAR ally filtering
 //! - Not full radar re-add / EVA vehicle-stolen / script name transfer
-//! - Not full immune-to-capture / transport-occupancy / dozer-task cancel matrix
 
 use super::Weapon;
 use serde::{Deserialize, Serialize};
@@ -246,6 +247,134 @@ pub fn car_bomb_damage_at_distance(distance: f32) -> f32 {
 /// Whether residual attack range is legal for suicide car bomb / hijack close gate.
 pub fn car_bomb_range_ok(distance: f32) -> bool {
     distance <= SUICIDE_CAR_BOMB_ATTACK_RANGE
+}
+
+/// Object INI `KindOf` token on the live asset catalog (no ThingFactory load).
+pub fn object_definition_has_kind(template_name: &str, token: &str) -> bool {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return false;
+    };
+    let Ok(guard) = manager.lock() else {
+        return false;
+    };
+    let Some(definition) = guard.get_object_definition(template_name) else {
+        return false;
+    };
+    definition
+        .attributes
+        .get("KindOf")
+        .into_iter()
+        .flat_map(|raw| raw.split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|')))
+        .any(|candidate| candidate.eq_ignore_ascii_case(token))
+}
+
+/// C++ `ThingTemplate::findWeaponTemplateSet(WEAPONSET_CARBOMB)` then
+/// `testWeaponSetFlag(WEAPONSET_CARBOMB)`. Best-match without a CARBOMB row
+/// is the default set, which must reject.
+pub fn template_has_carbomb_weapon_set(template_name: &str) -> bool {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return false;
+    };
+    let Ok(guard) = manager.lock() else {
+        return false;
+    };
+    let Some(definition) = guard.get_object_definition(template_name) else {
+        return false;
+    };
+    definition.weapon_sets.iter().any(weapon_set_is_carbomb)
+}
+
+fn weapon_set_is_carbomb(set: &crate::assets::WeaponSetDefinition) -> bool {
+    set.conditions.iter().any(|condition| {
+        condition
+            .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+            .any(|token| {
+                let token = token.trim().trim_start_matches("WEAPONSET_");
+                token.eq_ignore_ascii_case("CARBOMB") || token.eq_ignore_ascii_case("CAR_BOMB")
+            })
+    })
+}
+
+/// C++ `ConvertToHijackedVehicleCrateCollide::isValidToExecute` extra gates
+/// after the shared vehicle/airborne check.
+pub fn hijack_target_rejected(target: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::KindOf;
+    if !target.is_alive() {
+        return true;
+    }
+    if target.thing.template.immune_to_capture || target.is_kind_of(KindOf::ImmuneToCapture) {
+        return true;
+    }
+    if target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target {
+        return true;
+    }
+    if target.is_kind_of(KindOf::Boat) || object_definition_has_kind(&target.template_name, "BOAT")
+    {
+        return true;
+    }
+    if target.is_kind_of(KindOf::Drone) || object_definition_has_kind(&target.template_name, "DRONE")
+    {
+        return true;
+    }
+    if target.status.hijacked {
+        return true;
+    }
+    let transport = target.is_kind_of(KindOf::Transport)
+        || object_definition_has_kind(&target.template_name, "TRANSPORT")
+        || (target.can_contain() && !target.is_kind_of(KindOf::Structure));
+    if transport && target.transport_count() > 0 {
+        return true;
+    }
+    false
+}
+
+/// C++ `ConvertToCarBombCrateCollide::isValidToExecute` extra gates.
+pub fn carbomb_target_rejected(target: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::KindOf;
+    if !target.is_alive() {
+        return true;
+    }
+    if target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target {
+        return true;
+    }
+    if target.is_kind_of(KindOf::Boat) || object_definition_has_kind(&target.template_name, "BOAT")
+    {
+        return true;
+    }
+    if target.status.is_carbomb || target.weapon_set_carbomb {
+        return true;
+    }
+    !template_has_carbomb_weapon_set(&target.template_name)
+}
+
+/// Authored CRATEUPGRADE primary weapon for salvage weapon-set swap.
+pub fn crateupgrade_primary_weapon(template_name: &str, tier: u8) -> Option<String> {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return None;
+    };
+    let Ok(guard) = manager.lock() else {
+        return None;
+    };
+    let definition = guard.get_object_definition(template_name)?;
+    let want = if tier >= 2 {
+        "CRATEUPGRADE_TWO"
+    } else {
+        "CRATEUPGRADE_ONE"
+    };
+    definition.weapon_sets.iter().find_map(|set| {
+        let matches = set.conditions.iter().any(|condition| {
+            condition
+                .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+                .any(|token| {
+                    let token = token.trim().trim_start_matches("WEAPONSET_");
+                    token.eq_ignore_ascii_case(want)
+                })
+        });
+        matches
+            .then(|| set.primary_weapon.clone())
+            .flatten()
+            .filter(|name| !name.is_empty())
+    })
 }
 
 // --- Wave 59 residual honesty packs ---

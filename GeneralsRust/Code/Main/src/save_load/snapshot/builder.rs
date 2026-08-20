@@ -286,6 +286,9 @@ impl SnapshotBuilder {
             }),
             weapon_suspend_fx_frames,
             temporary_weapon_runtime,
+            weapon_bonus_frenzy: object.weapon_bonus_frenzy,
+            weapon_bonus_frenzy_level: object.weapon_bonus_frenzy_level,
+            weapon_bonus_frenzy_until_frame: object.weapon_bonus_frenzy_until_frame,
         })
     }
 

@@ -830,33 +830,88 @@ impl GameLogic {
             self.combat_particles
                 .sync_projectile_exhausts(frame, &exhausts);
             // C++ ProjectileStreamUpdate residual: track projectile positions for stream draw.
-            for p in self.combat_system.projectiles_snapshot() {
-                let sname = if p.exhaust_name.is_empty() {
-                    // Prefer weapon peel from shooter primary when no exhaust name.
-                    self.objects
-                        .get(&p.shooter_id)
-                        .and_then(|o| o.thing.template.primary_weapon_name.as_deref())
-                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                        .unwrap_or_default()
-                } else {
-                    // Exhaust-bearing projectiles still consult stream peel.
-                    self.objects
-                        .get(&p.shooter_id)
-                        .and_then(|o| o.thing.template.primary_weapon_name.as_deref())
-                        .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                        .unwrap_or_default()
-                };
-                if sname.is_empty() {
-                    continue;
+            // Re-adding every live shot each frame must not flip-flop targets (that
+            // would punch a hole every particle). Lock the stream to the newest
+            // projectile's victim so a retarget inserts one INVALID hole.
+            let mut stream_feeds: Vec<(
+                crate::game_logic::ObjectId,
+                crate::game_logic::ObjectId,
+                String,
+                glam::Vec3,
+                Option<crate::game_logic::ObjectId>,
+                glam::Vec3,
+            )> = self
+                .combat_system
+                .projectiles_snapshot()
+                .into_iter()
+                .filter_map(|p| {
+                    let shooter = self.objects.get(&p.shooter_id);
+                    let firing_name = if !p.historic_weapon_key.is_empty() {
+                        Some(p.historic_weapon_key.as_str())
+                    } else {
+                        shooter.and_then(|o| o.weapon_name_for_slot(o.last_fire_slot))
+                    };
+                    let sname = shooter
+                        .map(|o| {
+                            crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_slots(
+                                firing_name,
+                                o.weapon_name_for_slot(0),
+                                o.weapon_name_for_slot(1),
+                                o.weapon_name_for_slot(2),
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            firing_name
+                                .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                                .unwrap_or_default()
+                        });
+                    if sname.is_empty() {
+                        return None;
+                    }
+                    Some((
+                        p.shooter_id,
+                        p.id,
+                        sname,
+                        p.position,
+                        p.target_id,
+                        p.target_position,
+                    ))
+                })
+                .collect();
+            stream_feeds.sort_by_key(|(shooter, pid, _, _, _, _)| (*shooter, *pid));
+            let mut idx = 0;
+            while idx < stream_feeds.len() {
+                let shooter_id = stream_feeds[idx].0;
+                let end = stream_feeds[idx..]
+                    .iter()
+                    .position(|(sid, _, _, _, _, _)| *sid != shooter_id)
+                    .map(|rel| idx + rel)
+                    .unwrap_or(stream_feeds.len());
+                let newest_target = stream_feeds[end - 1].4;
+                let newest_pos = stream_feeds[end - 1].5;
+                let sname = stream_feeds[idx].2.clone();
+                for feed in &stream_feeds[idx..end] {
+                    self.projectile_streams.add_projectile(
+                        shooter_id,
+                        &sname,
+                        feed.3,
+                        newest_target,
+                        Some(newest_pos),
+                        frame,
+                    );
                 }
-                self.projectile_streams.add_projectile(
-                    p.shooter_id,
-                    &sname,
-                    p.position,
-                    p.target_id,
-                    Some(p.target_position),
-                    frame,
-                );
+                if let Some(owner) = self.objects.get(&shooter_id) {
+                    if owner.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+                        let geom = &owner.thing.template.geometry_info;
+                        self.projectile_streams.apply_vehicle_roof_skim(
+                            shooter_id,
+                            owner.get_position(),
+                            geom.major_radius,
+                            geom.max_height_above_position(),
+                        );
+                    }
+                }
+                idx = end;
             }
             self.projectile_streams.cull_idle(frame, 45);
         }

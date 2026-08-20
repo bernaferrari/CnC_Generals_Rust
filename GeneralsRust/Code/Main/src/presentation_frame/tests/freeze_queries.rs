@@ -227,7 +227,7 @@ fn box_select_unit_ids_from_presentation() {
     let s = logic
         .create_object("WarFactory", Team::USA, glam::Vec3::new(2.0, 0.0, 2.0))
         .unwrap();
-    let _enemy = logic
+    let enemy = logic
         .create_object("Ranger", Team::China, glam::Vec3::new(1.0, 0.0, 1.0))
         .unwrap();
     let frame = PresentationFrame::build_from_logic(&logic, 0);
@@ -237,9 +237,12 @@ fn box_select_unit_ids_from_presentation() {
     expect.sort_by_key(|id| id.0);
     assert_eq!(ids, expect);
     assert!(!ids.contains(&s));
-    // C++ `CanSelectDrawable(draw, TRUE)` never drag-selects a structure.
+    // C++ SelectionXlat.cpp:634 — exactly one locally-owned building in the
+    // region is selected. Mass-drag still refuses extra structures.
     let only_s = frame.box_select_unit_ids(Team::USA, 1.5, 2.5, 1.5, 2.5);
-    assert!(only_s.is_empty());
+    assert_eq!(only_s, vec![s]);
+    let only_enemy = frame.box_select_unit_ids(Team::USA, 0.5, 1.5, 0.5, 1.5);
+    assert_eq!(only_enemy, vec![enemy]);
 }
 
 #[test]
@@ -424,6 +427,94 @@ fn similar_unit_ids_from_presentation() {
     assert!(frame.is_enemy_attackable(d, Team::USA));
     assert!(!frame.is_enemy_attackable(a, Team::USA));
 }
+
+#[test]
+fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
+    // C++ InGameUI.cpp:163-172 — isEquivalentTo + !isContained.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut stock = ThingTemplate::new("AmericaInfantryRanger");
+    stock.set_health(100.0);
+    stock.add_kind_of(KindOf::Infantry);
+    stock.add_kind_of(KindOf::Selectable);
+    logic
+        .templates
+        .insert("AmericaInfantryRanger".into(), stock);
+    let mut airf = ThingTemplate::new("AirF_AmericaInfantryRanger");
+    airf.set_health(100.0);
+    airf.add_kind_of(KindOf::Infantry);
+    airf.add_kind_of(KindOf::Selectable);
+    logic
+        .templates
+        .insert("AirF_AmericaInfantryRanger".into(), airf);
+    let a = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let b = logic
+        .create_object(
+            "AirF_AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let contained = logic
+        .create_object(
+            "AmericaInfantryRanger",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .unwrap();
+    if let Some(obj) = logic.host_object_mut(contained) {
+        obj.set_contained_by(Some(a));
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut ids = frame.similar_unit_ids(a, Team::USA);
+    ids.sort_by_key(|id| id.0);
+    let mut expect = vec![a, b];
+    expect.sort_by_key(|id| id.0);
+    assert_eq!(ids, expect);
+    assert!(!ids.contains(&contained));
+    assert!(frame.similar_unit_ids(contained, Team::USA).is_empty());
+}
+
+#[test]
+fn box_select_firebase_propagates_occupant_to_container() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut fb = ThingTemplate::new("AmericaFireBase");
+    fb.set_health(1000.0);
+    fb.add_kind_of(KindOf::Structure);
+    fb.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("AmericaFireBase".into(), fb);
+    let mut ranger = ThingTemplate::new("Ranger");
+    ranger.set_health(100.0);
+    ranger.add_kind_of(KindOf::Infantry);
+    ranger.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("Ranger".into(), ranger);
+    let container = logic
+        .create_object(
+            "AmericaFireBase",
+            Team::USA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let occupant = logic
+        .create_object("Ranger", Team::USA, glam::Vec3::new(0.5, 0.0, 0.5))
+        .unwrap();
+    if let Some(obj) = logic.host_object_mut(occupant) {
+        obj.set_contained_by(Some(container));
+    }
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut ids = frame.box_select_unit_ids(Team::USA, -1.0, 1.0, -1.0, 1.0);
+    ids.sort_by_key(|id| id.0);
+    assert_eq!(ids, vec![container]);
+    assert!(!ids.contains(&occupant));
+}
+
 
 #[test]
 fn select_similar_is_structure_aware_and_alt_selects_across_map() {

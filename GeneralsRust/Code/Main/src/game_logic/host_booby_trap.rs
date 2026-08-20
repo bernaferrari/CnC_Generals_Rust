@@ -137,6 +137,14 @@ pub struct HostBoobyTrapPlant {
     /// C++ SpecialObject BoobyTrap Thing id residual.
     #[serde(default)]
     pub charge_object_id: Option<ObjectId>,
+    /// C++ StickyBombUpdate immobile plant XY freeze.
+    #[serde(default)]
+    pub plant_x: f32,
+    #[serde(default)]
+    pub plant_z: f32,
+    /// C++ StickyBombUpdate m_nextPingFrame.
+    #[serde(default)]
+    pub next_ping_frame: Option<u32>,
 }
 
 /// Host residual honesty registry for BoobyTrap plant / detonate.
@@ -207,6 +215,9 @@ impl HostBoobyTrapRegistry {
                 plant_frame,
                 geometry_radius: geometry_radius.max(1.0),
                 charge_object_id,
+                plant_x: 0.0,
+                plant_z: 0.0,
+                next_ping_frame: Some(plant_frame.saturating_add(30)),
             },
         );
         self.last_plant_frame.insert(planter_id.0, plant_frame);
@@ -233,6 +244,34 @@ impl HostBoobyTrapRegistry {
             p.charge_object_id = Some(charge_id);
         }
     }
+
+    /// Remember bomber plant XY the first time we see the charge.
+    pub fn capture_plant_xy_if_unset(&mut self, structure_id: ObjectId, x: f32, z: f32) {
+        if let Some(p) = self.plants.get_mut(&structure_id.0) {
+            if p.plant_x == 0.0 && p.plant_z == 0.0 {
+                p.plant_x = x;
+                p.plant_z = z;
+            }
+        }
+    }
+
+    pub fn plants(&self) -> impl Iterator<Item = &HostBoobyTrapPlant> {
+        self.plants.values()
+    }
+
+    pub fn plant_mut(&mut self, structure_id: ObjectId) -> Option<&mut HostBoobyTrapPlant> {
+        self.plants.get_mut(&structure_id.0)
+    }
+
+    /// C++ immobile follow: keep plant XY, ground Y.
+    pub fn immobile_follow_pos(&self, structure_id: ObjectId, ground_y: f32) -> Option<glam::Vec3> {
+        let p = self.plants.get(&structure_id.0)?;
+        if p.plant_x == 0.0 && p.plant_z == 0.0 {
+            return None;
+        }
+        Some(glam::Vec3::new(p.plant_x, ground_y, p.plant_z))
+    }
+
 
     /// Take plant for detonation (clears residual).
     pub fn take_plant(&mut self, structure_id: ObjectId) -> Option<HostBoobyTrapPlant> {

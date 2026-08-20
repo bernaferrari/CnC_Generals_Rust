@@ -238,6 +238,11 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::CanSeeThrough => 61,
         KindOf::NoGarrison => 62,
         KindOf::GarrisonableUntilDestroyed => 63,
+        // Append-only identifiers. Hijack / carbomb gates need BOAT /
+        // TRANSPORT / IMMUNE_TO_CAPTURE without occupying presentation bits.
+        KindOf::Boat => 64,
+        KindOf::Transport => 65,
+        KindOf::ImmuneToCapture => 66,
     }
 }
 
@@ -307,6 +312,9 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         61 => Ok(KindOf::CanSeeThrough),
         62 => Ok(KindOf::NoGarrison),
         63 => Ok(KindOf::GarrisonableUntilDestroyed),
+        64 => Ok(KindOf::Boat),
+        65 => Ok(KindOf::Transport),
+        66 => Ok(KindOf::ImmuneToCapture),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

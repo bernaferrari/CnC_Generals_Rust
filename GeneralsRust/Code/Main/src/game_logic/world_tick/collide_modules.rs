@@ -47,7 +47,8 @@ impl super::super::GameLogic {
     }
 
     /// C++ `FireWeaponCollide::onCollide` — skip ground (other is always an
-    /// object here), then `loadAmmoNow` + `fireWeapon` every frame.
+    /// object here), then `loadAmmoNow` + `fireWeapon` every frame using the
+    /// INI `CollideWeapon` template (damage type / amount), not invented Flame.
     fn fire_host_weapon_collide(&mut self, self_id: ObjectId, other_id: ObjectId) {
         use super::collide_dispatch::{
             host_fire_weapon_collide_damage, host_fire_weapon_collide_spec,
@@ -67,17 +68,17 @@ impl super::super::GameLogic {
             return;
         }
         let damage = host_fire_weapon_collide_damage(&spec.weapon_name);
-        let damage = if damage > 0.0 {
-            damage
-        } else {
-            us.thing
-                .template
-                .primary_weapon
-                .as_ref()
-                .map(|w| w.damage)
-                .filter(|d| *d > 0.0)
-                .unwrap_or(10.0)
-        };
+        if damage <= 0.0 {
+            return;
+        }
+        let damage_type =
+            crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name(
+                &spec.weapon_name,
+            );
+        let death_type = crate::game_logic::host_armor_residual::resolve_host_death_type(
+            Some(&spec.weapon_name),
+            damage_type,
+        );
         if let Some(other) = self.objects.get_mut(&other_id) {
             if !other.is_alive() {
                 return;
@@ -85,8 +86,8 @@ impl super::super::GameLogic {
             let _ = other.take_damage_from_typed_death(
                 damage,
                 Some(self_id),
-                crate::game_logic::combat::DamageType::Flame,
-                crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                damage_type,
+                death_type,
             );
         }
     }

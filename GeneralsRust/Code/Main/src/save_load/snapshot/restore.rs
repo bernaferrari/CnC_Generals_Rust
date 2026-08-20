@@ -188,6 +188,13 @@ impl SnapshotBuilder {
             object.stored_resources.supplies = runtime.stored_supply_boxes;
         }
 
+        // C++ TempWeaponBonusHelper::xfer (`TempWeaponBonusHelper.cpp:112-113`)
+        // writes m_currentBonus + m_frameToRemove. Absent/default tails stay
+        // inactive (fail-closed).
+        object.weapon_bonus_frenzy = snapshot.weapon_bonus_frenzy;
+        object.weapon_bonus_frenzy_level = snapshot.weapon_bonus_frenzy_level;
+        object.weapon_bonus_frenzy_until_frame = snapshot.weapon_bonus_frenzy_until_frame;
+
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
         self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
         Self::rebuild_garrisoned_units_from_occupants(&mut object);

@@ -397,6 +397,7 @@ impl Object {
     /// Convert with optional donor (terrorist) residual endowments.
     pub fn apply_convert_to_car_bomb_from(&mut self, donor: Option<&Object>) {
         self.set_status_is_carbomb(true);
+        let _ = self.set_weapon_set_flag(2, true);
         self.set_status_disabled_unmanned(false);
         self.set_status_disabled_hacked(false);
         self.status.disabled_hacked_until_frame = 0;
@@ -642,11 +643,14 @@ impl Object {
         // Docked aircraft may attack (ParkingPlace takeoff/sortie residual).
         // weapons_jammed: C++ canFireWeapon DISABLED_SUBDUED residual (ECM field).
         // shock stun: C++ Physics IS_STUNNED residual — cannot acquire/fire while stunned.
+        // C++ Object::isAbleToAttack: OBJECT_STATUS_CAN_ATTACK (garrisoned building).
         let parked_aircraft = self.is_parked_at_airfield();
+        let garrison_can = self.has_object_status_bit("CAN_ATTACK");
+        let has_weapon = [0u8, 1, 2]
+            .into_iter()
+            .any(|slot| self.weapon_slot(slot).is_some());
         self.is_alive()
-            && [0u8, 1, 2]
-                .into_iter()
-                .any(|slot| self.weapon_slot(slot).is_some())
+            && (has_weapon || garrison_can)
             && !self.is_disabled()
             && !self.is_shock_stunned()
             && !self.status.weapons_jammed

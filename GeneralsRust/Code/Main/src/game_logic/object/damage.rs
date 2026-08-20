@@ -1,5 +1,19 @@
 use super::*;
 
+thread_local! {
+    static HIVE_SHOOTER_XZ: std::cell::Cell<Option<(f32, f32)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// C++ `getClosestSlave(shooter->pos)` context for live `Object::take_damage`.
+pub fn set_hive_shooter_xz(xz: Option<(f32, f32)>) {
+    HIVE_SHOOTER_XZ.with(|c| c.set(xz));
+}
+
+fn take_hive_shooter_xz() -> Option<(f32, f32)> {
+    HIVE_SHOOTER_XZ.with(|c| c.replace(None))
+}
+
 impl Object {
     pub fn take_damage_from(&mut self, damage: f32, source: Option<ObjectId>) -> bool {
         self.take_damage_from_typed(
@@ -21,6 +35,41 @@ impl Object {
                 crate::game_logic::combat::DamageType::Unresistable,
             ),
             true, // force host HP apply
+            None,
+        )
+    }
+
+    /// Host-only field / strike tick with Armor.ini type (force host HP).
+    pub fn take_damage_from_immediate_typed(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) -> bool {
+        self.take_damage_from_immediate_typed_death(
+            damage,
+            source,
+            damage_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(damage_type),
+        )
+    }
+
+    /// Host-only field tick: armor-typed HP + Weapon.ini DeathType.
+    /// C++ FireWeaponUpdate poison puddles use DAMAGE_POISON, not UNRESISTABLE.
+    pub fn take_damage_from_immediate_typed_death(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
+        self.take_damage_from_typed_death_with_host_hp(
+            damage,
+            source,
+            damage_type,
+            death_type,
+            true,
+            None,
         )
     }
 
@@ -47,6 +96,30 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
     ) -> bool {
+        self.take_damage_from_typed_death_fx(damage, source, damage_type, death_type, None)
+    }
+
+    /// Typed death with C++ `DamageInfo.m_damageFXOverride` residual.
+    /// PoisonedBehavior DoT retakes UNRESISTABLE but plays DAMAGE_POISON FX.
+    pub fn take_damage_from_typed_death_fx(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
+    ) -> bool {
+        // C++ InactiveBody::attemptDamage (InactiveBody.cpp:53-86): no HP except
+        // DAMAGE_UNRESISTABLE (onDie once, never DamageFX).
+        if self.is_inactive_body() {
+            return self.apply_inactive_body_damage(damage_type);
+        }
+        // C++ HiveStructureBody::attemptDamage (HiveStructureBody.cpp:45-112):
+        // propagate SMALL_ARMS/SNIPER/POISON/RADIATION/SURRENDER/MICROWAVE to
+        // closest slave; swallow SNIPER/POISON/SURRENDER when none remain.
+        if self.try_hive_structure_body_damage(damage, source, damage_type) {
+            return false;
+        }
         // C++ DAMAGE_DISARM residual: destroy mine without detonation splash.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Disarm) {
             let _ = (source, death_type, damage);
@@ -69,10 +142,17 @@ impl Object {
             damage_type,
             crate::game_logic::combat::DamageType::KillGarrisoned
         ) {
-            let _ = (source, death_type);
             let kills = damage.max(0.0).floor() as u32;
             self.status.pending_kill_garrisoned =
                 self.status.pending_kill_garrisoned.saturating_add(kills);
+            if damage > 0.0 {
+                self.stamp_last_damage_cpp(source, false);
+            }
+            let fx_type = fx_override.unwrap_or(damage_type);
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, fx_type, damage.max(0.0),
+            );
+            let _ = (source, death_type);
             return false;
         }
         // C++ DAMAGE_SURRENDER residual: lethal hit on surrender-capable infantry
@@ -95,36 +175,36 @@ impl Object {
         }
         // DAMAGE_PENALTY: normal HP path (no special intercept).
         // C++ DAMAGE_HEALING residual: restore HP via attemptHealing; never destroys.
-        // Does not stamp last_damage_source (C++ AIGuardRetaliate / stealth skip).
+        // C++ ActiveBody.cpp:817-820 stamps lastDamageInfo + lastHealingTimestamp
+        // (overwrites prior attacker). doDamageFX always runs (848).
         if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
             let _ = death_type;
             if self.status.destroyed || !self.is_alive() {
                 return false;
             }
-            // C++ PoisonedBehavior::onHealing residual (heal path).
             self.clear_poisoned_on_healing();
-            // C++ ActiveBody::attemptHealing (ActiveBody.cpp:801):
-            // amount = m_curArmor.adjustDamage(DAMAGE_HEALING, in.m_amount)
-            // before internalChangeHealth. Armor.cpp:43-55 apply coefficient.
             let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
                 self,
                 damage_type,
                 damage,
             );
             self.heal(amount.max(0.0));
-            // Optional: record healer without treating as hostile damage source.
-            let _ = source;
+            if amount > 0.0 {
+                let now = crate::game_logic::host_historic_bonus::logic_frame();
+                self.last_healing_timestamp = Some(now);
+            }
+            let fx_type = fx_override.unwrap_or(damage_type);
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, fx_type, amount.max(0.0),
+            );
             return false;
         }
         // DAMAGE_WATER: normal HP damage path (type distinguishes FX in C++).
-        // C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT: no hull HP.
-        // RiderChangeContain (combat bike): moving bike is scored+killed;
-        // stationary bike evacuates then the rider is killed so the bike
-        // scuttles. Ordinary vehicles become unmanned + Neutral.
         if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::KillPilot
         ) {
+            let fx_type = fx_override.unwrap_or(damage_type);
             if self.is_kind_of(crate::game_logic::KindOf::Vehicle)
                 || self.is_kind_of(crate::game_logic::KindOf::Aircraft)
             {
@@ -133,7 +213,6 @@ impl Object {
                         == crate::game_logic::ContainModuleKind::RiderChange;
                 if rider_change {
                     if self.status.moving {
-                        // C++: damager->scoreTheKill(obj); obj->kill();
                         self.health.current = 0.0;
                         self.status.destroyed = true;
                         self.status.death_type = death_type;
@@ -150,16 +229,22 @@ impl Object {
                             true,
                             damage_type.to_store() as u32,
                         );
-                        let _ = damage;
+                        self.stamp_last_damage_cpp(source, false);
+                        let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                            self, fx_type, damage.max(0.0),
+                        );
                         return true;
                     }
-                    // Stationary: evacuate the rider so the bike scuttles.
-                    // Occupant kill is the GameLogic contain list (C++ rider->kill).
                     self.occupants.clear();
-                    self.rider_change_scuttled_on_frame = self
-                        .rider_change_scuttled_on_frame
-                        .max(1);
-                    let _ = (source, death_type, damage);
+                    self.rider_change_scuttled_on_frame =
+                        self.rider_change_scuttled_on_frame.max(1);
+                    if damage > 0.0 {
+                        self.stamp_last_damage_cpp(source, false);
+                    }
+                    let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                        self, fx_type, damage.max(0.0),
+                    );
+                    let _ = (source, death_type);
                     return false;
                 }
                 if self.is_car_bomb() {
@@ -168,7 +253,13 @@ impl Object {
                 self.apply_kill_pilot_unmanned();
                 self.set_team(crate::game_logic::Team::Neutral);
             }
-            let _ = (source, death_type, damage);
+            if damage > 0.0 {
+                self.stamp_last_damage_cpp(source, false);
+            }
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, fx_type, damage.max(0.0),
+            );
+            let _ = (source, death_type);
             return false;
         }
 
@@ -184,13 +275,18 @@ impl Object {
                 damage,
             );
             self.apply_subdual_damage(typed);
+            if typed > 0.0 {
+                self.stamp_last_damage_cpp(source, false);
+            }
+            let fx_type = fx_override.unwrap_or(damage_type);
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, fx_type, typed.max(0.0),
+            );
             let _ = (source, death_type);
             return false;
         }
         // C++ DAMAGE_STATUS residual: amount is duration msec, not hitpoints.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Status) {
-            // C++ ActiveBody.cpp:351 adjustDamage first; 460-464 convert the
-            // ARMOR-ADJUSTED msec via ConvertDurationFromMsecsToFrames.
             let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
                 self,
                 damage_type,
@@ -198,11 +294,16 @@ impl Object {
             );
             let frames = ((amount.max(0.0) * 30.0) / 1000.0).ceil() as u32;
             let frame = crate::game_logic::host_historic_bonus::logic_frame();
-            // Default status peel when caller didn't already apply a named status.
-            // FAERIE_FIRE is the primary retail STATUS residual.
             if frames > 0 {
                 self.do_status_damage("FAERIE_FIRE", frames.max(1), frame);
             }
+            if amount > 0.0 {
+                self.stamp_last_damage_cpp(source, false);
+            }
+            let fx_type = fx_override.unwrap_or(damage_type);
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, fx_type, amount.max(0.0),
+            );
             let _ = (source, death_type);
             return false;
         }
@@ -213,6 +314,7 @@ impl Object {
             damage_type,
             death_type,
             false,
+            fx_override,
         )
     }
 
@@ -223,15 +325,23 @@ impl Object {
         damage_type: crate::game_logic::combat::DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         force_host_hp: bool,
+        fx_override: Option<crate::game_logic::combat::DamageType>,
     ) -> bool {
         if self.status.destroyed {
             return false;
+        }
+        if self.is_inactive_body() {
+            return self.apply_inactive_body_damage(damage_type);
         }
         // OCL InvulnerableTime residual (post-eject pilot shield).
         if self.status.eject_invulnerable {
             return false;
         }
+        if self.try_hive_structure_body_damage(damage, source, damage_type) {
+            return false;
+        }
         let prev_health = self.health.current;
+        self.previous_health = prev_health;
         let old_body_state = self.body_damage_state;
         let max_health = self.health.maximum.max(self.max_health).max(1.0);
 
@@ -255,12 +365,6 @@ impl Object {
             self.break_stealth();
         }
 
-        // BodyModule last damage source residual (Passive WaitForAttack).
-        if let Some(src) = source {
-            self.last_damage_source = Some(src);
-            self.last_damage_timestamp =
-                Some(crate::game_logic::host_historic_bonus::logic_frame());
-        }
 
         // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then
         // m_damageScalar only for non-UNRESISTABLE (ActiveBody.cpp:351, 490-497).
@@ -353,6 +457,12 @@ impl Object {
         } else {
             false
         };
+        // C++ ActiveBody.cpp:501-572: lastDamageInfo only when amount>0 or kill,
+        // after armor+scalar. Same-or-next-frame prefers VEHICLE/INFANTRY/faction
+        // structure over projectiles; 0-amount crush FX does not stamp.
+        if actual_damage > 0.0 || destroyed {
+            self.stamp_last_damage_cpp(source, destroyed);
+        }
         crate::game_logic::host_damage_log::record_typed(
             self.id,
             actual_damage,
@@ -368,9 +478,10 @@ impl Object {
         if let Some(src) = source {
             crate::game_logic::host_attacked_by_log::record(self.id, src);
         }
+        let fx_type = fx_override.unwrap_or(damage_type);
         let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
             self,
-            damage_type,
+            fx_type,
             actual_damage,
         );
 
@@ -396,7 +507,9 @@ impl Object {
         {
             if let Some(fs) = self.fire_spread.as_mut() {
                 let frame = crate::game_logic::host_historic_bonus::logic_frame();
-                let _ = fs.apply_flame_damage(actual_damage, frame);
+                if fs.apply_flame_damage(actual_damage, frame) {
+                    self.apply_flammable_ignite_visuals();
+                }
             }
         }
         // C++ FireWeaponWhenDamagedBehavior::onDamage residual (frame filled by GameLogic).
@@ -469,6 +582,131 @@ impl Object {
             || n.contains("fire_wall_segment")
             || n.contains("trailremnant")
             || (n.contains("gpsscrambler") && n.contains("marker"))
+    }
+
+    /// C++ InactiveBody templates: FireField / PoisonField / RadiationField.
+    pub fn is_inactive_body(&self) -> bool {
+        if self.uses_inactive_body
+            || self.inferno_fire_field
+            || self.nuke_radiation_field
+            || self.anthrax_toxin_field
+        {
+            return true;
+        }
+        let n = self.template_name.to_ascii_lowercase();
+        n.contains("firefield")
+            || n.contains("poisonfield")
+            || n.contains("radiationfield")
+    }
+
+    /// C++ InactiveBody::attemptDamage — no HP; UNRESISTABLE calls onDie once.
+    fn apply_inactive_body_damage(
+        &mut self,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) -> bool {
+        if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
+            return false;
+        }
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::Unresistable
+        ) && !self.inactive_body_die_called
+        {
+            self.inactive_body_die_called = true;
+            self.status.destroyed = true;
+            self.status.effectively_dead = true;
+            return true;
+        }
+        false
+    }
+
+    /// C++ HiveStructureBody::attemptDamage on the live host take_damage path.
+    fn try_hive_structure_body_damage(
+        &mut self,
+        damage: f32,
+        source: Option<ObjectId>,
+        damage_type: crate::game_logic::combat::DamageType,
+    ) -> bool {
+        use crate::game_logic::host_base_defense::{
+            hive_damage_class_for_type, is_stinger_site_structure,
+            resolve_hive_structure_damage_roster, sync_hive_slave_mirrors, HostHiveDamageClass,
+        };
+        if source.is_none() {
+            return false;
+        }
+        if !is_stinger_site_structure(&self.template_name) {
+            return false;
+        }
+        let class = hive_damage_class_for_type(damage_type);
+        if matches!(class, HostHiveDamageClass::HitStructure) {
+            return false;
+        }
+        let struct_hp = self.health.current;
+        let pos = self.get_position();
+        let shooter_xz = take_hive_shooter_xz().map(|(qx, qz)| (pos.x, pos.z, qx, qz));
+        let (_, _, result) = resolve_hive_structure_damage_roster(
+            &mut self.hive_slaves,
+            struct_hp,
+            damage.max(0.0),
+            class,
+            shooter_xz,
+        );
+        let (count, hp) = sync_hive_slave_mirrors(&self.hive_slaves);
+        self.hive_slave_count = count;
+        self.hive_slave_hp = hp;
+        self.record_host_hive();
+        if result.slaves_killed > 0 {
+            let frame = crate::game_logic::host_historic_bonus::logic_frame();
+            self.hive_slave_respawn_frame =
+                crate::game_logic::host_base_defense::next_stinger_slave_respawn_frame(
+                    frame,
+                    self.hive_slave_respawn_frame,
+                );
+        }
+        if result.slave_damage_applied > 0.0 || result.swallowed {
+            let dealt = if result.swallowed {
+                0.0
+            } else {
+                result.slave_damage_applied
+            };
+            let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+                self, damage_type, dealt,
+            );
+            return true;
+        }
+        false
+    }
+    fn stamp_last_damage_always(&mut self, _source: Option<ObjectId>) {
+        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        // C++ lastDamageInfo.m_damageType = HEALING so Guard/stealth skip the healer.
+        // Live host has no last-type field — clear source so a medic is not the nemesis,
+        // but still forget the prior attacker (ActiveBody.cpp:817-820).
+        self.last_damage_source = None;
+        self.last_damage_source_preferred = false;
+        self.last_damage_timestamp = Some(frame);
+    }
+
+    /// C++ ActiveBody.cpp:501-572 lastDamageInfo: amount>0 or kill, after armor.
+    /// Same-or-next-frame overwrites only if new source exists and (old is gone
+    /// or new is VEHICLE/INFANTRY/faction structure).
+    fn stamp_last_damage_cpp(&mut self, source: Option<ObjectId>, preferred: bool) {
+        let frame = crate::game_logic::host_historic_bonus::logic_frame();
+        let same_or_next = self.last_damage_timestamp == Some(frame)
+            || self.last_damage_timestamp == Some(frame.saturating_sub(1));
+        if !same_or_next {
+            self.last_damage_source = source;
+            self.last_damage_timestamp = Some(frame);
+            self.last_damage_source_preferred = preferred;
+            return;
+        }
+        if source.is_none() {
+            return;
+        }
+        if self.last_damage_source.is_none() || preferred {
+            self.last_damage_source = source;
+            self.last_damage_timestamp = Some(frame);
+            self.last_damage_source_preferred = preferred;
+        }
     }
 }
 
@@ -832,5 +1070,173 @@ mod tests {
         assert!(log.contains(&(3, 4)));
     }
 
+    #[test]
+    fn poison_field_tick_infects_and_unresistable_does_not() {
+        // C++ FireWeaponUpdate DAMAGE_POISON → armor + PoisonedBehavior::onDamage.
+        let mut unit = Object::new(ThingTemplate::new("PoisonInfantry"), ObjectId(31), Team::USA);
+        unit.health.current = 100.0;
+        unit.health.maximum = 100.0;
+        assert!(!unit.take_damage_from_immediate_typed_death(
+            10.0,
+            None,
+            DamageType::Toxin,
+            crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta,
+        ));
+        let p = unit.poisoned_behavior.as_ref().expect("field tick must infect");
+        assert!(p.is_active());
+        assert_eq!(
+            p.death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta
+        );
+        assert!((p.poison_damage_amount - 10.0).abs() < 0.01);
+
+        let mut bare = Object::new(ThingTemplate::new("NoPoison"), ObjectId(32), Team::USA);
+        bare.health.current = 100.0;
+        bare.health.maximum = 100.0;
+        bare.take_damage_from_immediate(10.0, None);
+        assert!(bare.poisoned_behavior.is_none());
+    }
+
+    #[test]
+    fn poison_dot_unresistable_does_not_reinfect() {
+        // C++ PoisonedBehavior::update retakes UNRESISTABLE with POISON FX override.
+        let mut unit = Object::new(ThingTemplate::new("DotInfantry"), ObjectId(33), Team::USA);
+        unit.health.current = 100.0;
+        unit.health.maximum = 100.0;
+        unit.take_damage_from_immediate_typed_death(
+            8.0,
+            None,
+            DamageType::Toxin,
+            crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+        );
+        let amount = unit
+            .poisoned_behavior
+            .as_ref()
+            .unwrap()
+            .poison_damage_amount;
+        unit.take_damage_from_typed_death_fx(
+            8.0,
+            None,
+            DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+            Some(DamageType::Toxin),
+        );
+        let p = unit.poisoned_behavior.as_ref().unwrap();
+        assert!(p.is_active());
+        assert!(
+            (p.poison_damage_amount - amount).abs() < 0.01,
+            "Unresistable DoT must not refresh poison amount"
+        );
+    }
+
+
+    #[test]
+    fn last_damage_skips_zero_and_same_frame_first_write_wins() {
+        let mut unit = vehicle("StampTank", 71, 200.0);
+        assert!(!unit.take_damage_from_typed(0.0, Some(ObjectId(1)), DamageType::Bullet));
+        assert!(unit.last_damage_source.is_none());
+        assert!(unit.last_damage_timestamp.is_none());
+
+        assert!(!unit.take_damage_from_typed(10.0, Some(ObjectId(1)), DamageType::Unresistable));
+        assert_eq!(unit.last_damage_source, Some(ObjectId(1)));
+        let ts = unit.last_damage_timestamp;
+        assert!(!unit.take_damage_from_typed(10.0, Some(ObjectId(2)), DamageType::Unresistable));
+        assert_eq!(
+            unit.last_damage_source,
+            Some(ObjectId(1)),
+            "same-frame later hit must not last-write-wins"
+        );
+        assert_eq!(unit.last_damage_timestamp, ts);
+    }
+
+    #[test]
+    fn healing_stamps_last_healing_not_hostile_source() {
+        let mut unit = vehicle("HealTank", 72, 200.0);
+        unit.health.current = 50.0;
+        assert!(!unit.take_damage_from_typed(20.0, Some(ObjectId(9)), DamageType::Healing));
+        assert!(unit.last_damage_source.is_none());
+        assert!(unit.last_healing_timestamp.is_some());
+    }
+
+    #[test]
+    fn inactive_body_fire_field_ignores_hp_unresistable_dies_once() {
+        let mut field = Object::new(
+            ThingTemplate::new("FireFieldSmall"),
+            ObjectId(73),
+            Team::China,
+        );
+        field.health.current = 50.0;
+        field.health.maximum = 50.0;
+        field.uses_inactive_body = true;
+        field.status.effectively_dead = true;
+        assert!(!field.take_damage_from_typed(20.0, Some(ObjectId(1)), DamageType::Bullet));
+        assert!((field.health.current - 50.0).abs() < 1e-3);
+        assert!(!field.status.destroyed);
+        assert!(field.take_damage_from_typed(1.0, Some(ObjectId(1)), DamageType::Unresistable));
+        assert!(field.status.destroyed);
+        assert!(!field.take_damage_from_typed(1.0, Some(ObjectId(1)), DamageType::Unresistable));
+    }
+
+    #[test]
+    fn stinger_small_arms_and_sniper_hit_slaves_not_structure() {
+        use crate::game_logic::host_base_defense::{
+            hive_damage_class_for_type, init_stinger_hive_slave_roster, sync_hive_slave_mirrors,
+            HostHiveDamageClass,
+        };
+        assert_eq!(
+            hive_damage_class_for_type(DamageType::Bullet),
+            HostHiveDamageClass::PropagateToSlaves
+        );
+        assert_eq!(
+            hive_damage_class_for_type(DamageType::Sniper),
+            HostHiveDamageClass::SwallowIfNoSlaves
+        );
+        let mut tmpl = ThingTemplate::new("GLAStingerSite");
+        tmpl.set_health(1000.0);
+        tmpl.add_kind_of(KindOf::Structure);
+        let mut site = Object::new(tmpl, ObjectId(74), Team::GLA);
+        site.health.current = 1000.0;
+        site.health.maximum = 1000.0;
+        site.hive_slaves = init_stinger_hive_slave_roster();
+        let (c, h) = sync_hive_slave_mirrors(&site.hive_slaves);
+        site.hive_slave_count = c;
+        site.hive_slave_hp = h;
+        assert!(!site.take_damage_from_typed(40.0, Some(ObjectId(5)), DamageType::Bullet));
+        assert!((site.health.current - 1000.0).abs() < 0.01);
+        assert!((site.hive_slave_hp - 60.0).abs() < 0.01);
+        assert_eq!(site.hive_slave_count, 3);
+
+        let mut empty = site;
+        crate::game_logic::host_base_defense::clear_hive_slave_roster(&mut empty.hive_slaves);
+        empty.hive_slave_count = 0;
+        empty.hive_slave_hp = 0.0;
+        empty.health.current = 1000.0;
+        assert!(!empty.take_damage_from_typed(200.0, Some(ObjectId(5)), DamageType::Sniper));
+        assert!((empty.health.current - 1000.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn health_box_uses_geometry_not_fixed_twenty() {
+        let mut tmpl = ThingTemplate::new("BoxTank");
+        tmpl.set_health(400.0);
+        tmpl.add_kind_of(KindOf::Vehicle);
+        tmpl.geometry_info = crate::game_logic::HostGeometryInfo {
+            geom_type: crate::game_logic::HostGeometryType::Box,
+            is_small: true,
+            height: 10.0,
+            major_radius: 13.0,
+            minor_radius: 9.0,
+            authored: true,
+        };
+        let tank = Object::new(tmpl, ObjectId(75), Team::USA);
+        let (h, w) = tank.get_health_box_dimensions();
+        assert!((h - 3.0).abs() < 1e-3);
+        assert!(
+            (w - 44.0).abs() < 1e-3,
+            "width = clamp(13+9,20,150)*2 = 44, got {w}"
+        );
+        let pos = tank.get_health_box_position();
+        assert!((pos.y - 20.0).abs() < 1e-3, "y = 0 + height 10 + 10, got {}", pos.y);
+    }
 
 }

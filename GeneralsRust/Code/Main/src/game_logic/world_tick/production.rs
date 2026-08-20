@@ -614,8 +614,7 @@ impl GameLogic {
                 continue;
             }
             let mut start_door_cycle = false;
-            // The C++ exit interface belongs to the Object's authored behavior
-            // module, never to its producer basename.
+            let door_spawn_phase = obj.production_door_spawn_phase();
             let exit_metadata = obj.thing.template.production_exit_metadata;
             let producer_template = obj.template_name.clone();
             let parking_place = obj.thing.template.parking_place.clone();
@@ -734,12 +733,10 @@ impl GameLogic {
                         && (airfield_holds_parking && parking_free == 0
                             || !crate::game_logic::host_production_buildable_command_residual::production_door_allows_spawn(
                             doors,
-                            obj.production_door_phase,
+                            door_spawn_phase,
                         ))
                     {
-                        if obj.production_door_phase == 0
-                            && !(airfield_holds_parking && parking_free == 0)
-                        {
+                        if !(airfield_holds_parking && parking_free == 0) {
                             start_door_cycle = true;
                         }
                         None
@@ -1276,13 +1273,23 @@ impl GameLogic {
                 }
             }
             // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
+            // Completing a unit opens only the reserved ExitDoorType (DOOR_1..4).
+            let reserved_door = self
+                .objects
+                .get(&new_id)
+                .and_then(|unit| unit.airfield_parking_space_index)
+                .and_then(|slot| usize::try_from(slot).ok())
+                .map(|slot| slot % 4);
             if let Some(prod) = self.objects.get_mut(&producer_id) {
                 let now = self.frame.max(1);
                 prod.set_construction_complete_condition_at(now);
                 let door_count = crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations(
                     &prod.template_name,
                 );
-                if door_count > 0 && prod.production_door_phase == 2 {
+                let door = reserved_door
+                    .unwrap_or(prod.production_door_active_index as usize)
+                    .min(3);
+                if door_count > 0 && prod.production_door_phases[door] == 2 {
                     // C++ ProductionUpdate's `m_doorWaitOpenFrame = now` keeps
                     // an already-open reserved exit available for every member
                     // of the terminal QuantityModifier batch.  Do not restart
@@ -1291,13 +1298,13 @@ impl GameLogic {
                         &prod.template_name,
                         2,
                     );
-                    prod.production_door_phase_end_frame = now.saturating_add(wait);
+                    prod.production_door_phase_end_frames[door] = now.saturating_add(wait);
+                    if door == 0 {
+                        prod.production_door_phase_end_frame = now.saturating_add(wait);
+                    }
                     prod.record_host_production_door();
-
-                } else if door_count > 0 {
-                    // A detached/scripted completion may not have passed the
-                    // normal door gate; retain the existing safe fallback.
-                    prod.start_production_door_cycle(self.frame);
+                } else if door_count > 0 && prod.production_door_phases[door] == 0 {
+                    prod.start_production_door_cycle_at(self.frame, door);
                     self.production_door_cycles = self.production_door_cycles.saturating_add(1);
                 }
                 // C++ QueueProductionExitUpdate mutates its own per-Object

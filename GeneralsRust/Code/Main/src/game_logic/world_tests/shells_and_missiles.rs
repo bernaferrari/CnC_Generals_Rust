@@ -724,12 +724,25 @@ fn camouflage_upgrade_queue_complete_stealths_rebel() {
         "rebel must receive Camouflage upgrade tag"
     );
     assert!(
-        rebel.status.stealthed,
-        "Camouflage residual must stealth rebel"
-    );
-    assert!(
         rebel.innate_stealth,
         "Camouflage residual enables innate re-cloak"
+    );
+    assert!(
+        !rebel.status.stealthed,
+        "C++ StealthUpgrade.cpp:31 CAN_STEALTH only; StealthDelay not elapsed"
+    );
+    let allowed = rebel.stealth_allowed_frame;
+    assert!(
+        allowed > game_logic.frame,
+        "StealthUpdate.cpp:739 must re-arm StealthDelay"
+    );
+    drop(rebel);
+    game_logic.frame = allowed;
+    game_logic.update_stealth_and_detection();
+    let rebel = game_logic.host_object(rebel_id).expect("rebel cloaked");
+    assert!(
+        rebel.status.stealthed,
+        "Camouflage residual must stealth rebel after StealthDelay"
     );
     assert!(
         rebel.is_effectively_stealthed(),
@@ -791,10 +804,13 @@ fn camouflage_residual_attack_breaks_and_idle_recloaks() {
         rebel.set_status_attacking(false);
         rebel.target = None;
     }
-    assert!(game_logic
-        .host_object(rebel_id)
-        .map(|r| r.status.stealthed)
-        .unwrap_or(false));
+    assert!(
+        !game_logic
+            .host_object(rebel_id)
+            .map(|r| r.status.stealthed)
+            .unwrap_or(true),
+        "camo unlock must re-arm StealthDelay, not cloak instantly"
+    );
     assert_eq!(
         game_logic
             .host_object(rebel_id)

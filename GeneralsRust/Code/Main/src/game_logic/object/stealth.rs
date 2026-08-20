@@ -260,22 +260,49 @@ impl Object {
         self.record_host_vision_camo();
     }
 
-    /// C++ StealthUpdate::receiveGrant residual (GPS Scrambler / GrantStealthBehavior).
-    ///
-    /// Sets OBJECT_STATUS_STEALTHED (+ host residual CAN_STEALTH via stealthed flag)
-    /// and clears DETECTED so the unit is effectively stealthed until broken by
-    /// attack / mark_detected / break_stealth.
-    ///
-    /// Fail-closed: not full StealthUpdate framesGranted timer / disguise skip
-    /// (callers filter disguise units) / opacity drawable path.
+    /// C++ StealthUpdate.cpp:178-201 `receiveGrant(true)`:
+    /// `OBJECT_STATUS_CAN_STEALTH | OBJECT_STATUS_STEALTHED`,
+    /// `m_stealthAllowedFrame = now`. CAN_STEALTH survives later fire destalth.
     pub fn apply_grant_stealth(&mut self) {
         if self.status.destroyed {
             return;
         }
+        self.innate_stealth = true;
         self.set_status_stealthed(true);
         self.set_status_detected(false);
         self.detection_expires_frame = 0;
+        // receiveGrant keeps CAN_STEALTH; fire destalths then re-arms delay.
+        if self.stealth_delay_frames == 0 {
+            self.stealth_delay_frames = 30;
+        }
+        self.stealth_allowed_frame = 0;
+        self.stealth_delay_pending = false;
+        self.record_host_stealth_flags();
         self.record_host_stealth_delay();
+    }
+
+    /// C++ StealthUpdate.cpp:717-735 — cloak after `m_stealthAllowedFrame` when allowed.
+    pub fn try_recloak_after_stealth_delay(&mut self, now: u32, forbidden: bool) -> bool {
+        if !self.innate_stealth || !self.is_alive() || self.status.disguised {
+            return false;
+        }
+        if self.stealth_delay_pending {
+            self.stealth_allowed_frame = now.saturating_add(self.stealth_delay_frames);
+            self.stealth_delay_pending = false;
+            self.record_host_stealth_delay();
+        }
+        if forbidden || self.status.stealthed {
+            return false;
+        }
+        if self.stealth_allowed_frame > 0 && now < self.stealth_allowed_frame {
+            return false;
+        }
+        self.set_status_stealthed(true);
+        self.set_status_detected(false);
+        self.detection_expires_frame = 0;
+        self.stealth_allowed_frame = 0;
+        self.record_host_stealth_delay();
+        true
     }
 
     /// C++ StealthUpdate.cpp:365-373 — non-garrison container destalths occupants.
@@ -460,8 +487,66 @@ impl Object {
 
 #[cfg(test)]
 mod stealth_grant_tests {
-    use super::Object;
+    use super::{Object, ObjectId, Team, ThingTemplate};
 
+
+    #[test]
+    fn gps_grant_keeps_can_stealth_and_recloaks_after_fire() {
+        // C++ StealthUpdate.cpp:198 receiveGrant stays CAN_STEALTH.
+        let mut unit = Object::new(ThingTemplate::new("TestTank"), super::ObjectId(1), super::Team::GLA);
+        unit.apply_grant_stealth();
+        assert!(unit.status.stealthed);
+        assert!(unit.innate_stealth, "receiveGrant must set CAN_STEALTH");
+
+        unit.stealth_breaks_on_attack = true;
+        unit.stealth_delay_frames = 30;
+        unit.break_stealth();
+        assert!(!unit.status.stealthed);
+        assert!(unit.innate_stealth, "fire must not strip CAN_STEALTH");
+        assert!(unit.stealth_delay_pending);
+
+        assert!(!unit.try_recloak_after_stealth_delay(0, false));
+        assert!(!unit.status.stealthed, "must wait StealthDelay");
+        assert!(unit.try_recloak_after_stealth_delay(30, false));
+        assert!(unit.status.stealthed);
+        assert!(unit.innate_stealth);
+    }
+
+    #[test]
+    fn hero_spawn_delay_does_not_cloak_before_allowed_frame() {
+        // C++ StealthUpdate.cpp:111 ctor delay before STEALTHED.
+        let mut hero = Object::new(
+            ThingTemplate::new("AmericaInfantryColonelBurton"),
+            super::ObjectId(2),
+            super::Team::USA,
+        );
+        hero.innate_stealth = true;
+        hero.stealth_delay_frames = 60;
+        hero.stealth_allowed_frame = 60;
+        assert!(!hero.status.stealthed);
+        assert!(!hero.try_recloak_after_stealth_delay(0, false));
+        assert!(!hero.status.stealthed);
+        assert!(hero.try_recloak_after_stealth_delay(60, false));
+        assert!(hero.status.stealthed);
+    }
+
+    #[test]
+    fn camo_unlock_rearms_delay_not_instant_cloak() {
+        // C++ StealthUpgrade.cpp:31 CAN_STEALTH; StealthUpdate.cpp:739 re-arm.
+        let mut rebel = Object::new(
+            ThingTemplate::new("GLAInfantryRebel"),
+            super::ObjectId(3),
+            super::Team::GLA,
+        );
+        rebel.innate_stealth = true;
+        rebel.stealth_delay_frames = 75;
+        rebel.stealth_allowed_frame = 75;
+        rebel.set_status_stealthed(false);
+        assert!(!rebel.try_recloak_after_stealth_delay(10, false));
+        assert!(!rebel.status.stealthed);
+        assert!(rebel.try_recloak_after_stealth_delay(75, false));
+        assert!(rebel.status.stealthed);
+    }
     #[test]
     fn transport_destalths_non_garrison() {
         assert!(Object::transport_contain_should_destalth(false));

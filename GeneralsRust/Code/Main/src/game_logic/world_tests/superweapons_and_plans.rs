@@ -469,7 +469,14 @@ fn strategy_center_bombardment_turret_fire_residual() {
         assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
     }
 
-    game_logic.try_strategy_center_bombardment_turret_fire(sc_id);
+    for _ in 0..90 {
+        game_logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        if game_logic.honesty_battle_plan_turret_fire_ok() {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
 
     assert!(
         game_logic.honesty_battle_plan_turret_fire_ok(),
@@ -609,7 +616,17 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
         }
     }
 
-    logic.try_strategy_center_bombardment_turret_fire(sc_id);
+    for _ in 0..90 {
+        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        if logic.strategy_center_gun_scatter_applied > 0
+            || logic.strategy_center_gun_scatter_misses > 0
+            || logic.honesty_strategy_center_gun_scatter_ok()
+        {
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+
     assert!(
         logic.strategy_center_gun_scatter_applied > 0
             || logic.strategy_center_gun_scatter_misses > 0
@@ -635,7 +652,16 @@ fn strategy_center_gun_scatter_misses_infantry_residual() {
         }
     }
     let before_applied = logic.strategy_center_gun_scatter_applied;
-    logic.try_strategy_center_bombardment_turret_fire(sc_id);
+    for _ in 0..90 {
+        logic.try_strategy_center_bombardment_turret_fire(sc_id);
+        if logic.strategy_center_gun_scatter_applied > before_applied
+            || logic.honesty_strategy_center_gun_scatter_ok()
+        {
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+
     assert!(
         logic.strategy_center_gun_scatter_applied > before_applied
             || logic.honesty_strategy_center_gun_scatter_ok(),

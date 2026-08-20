@@ -567,6 +567,17 @@ fn lookup_pristine_bone(
     hook(model, scale, frame, bone_name)
 }
 
+/// Live-host FIREPOINT/STATION lookup. Bone space is C++ (X/Y ground, Z up).
+pub fn lookup_pristine_bone_translation(
+    model: &str,
+    scale: Real,
+    bone: &str,
+) -> Option<Coord3D> {
+    let (_, mtx) = lookup_pristine_bone(model, scale, 0, bone)?;
+    let (_, _, translation) = mtx.to_scale_rotation_translation();
+    Some(Coord3D::new(translation.x, translation.y, translation.z))
+}
+
 /// C++ `doSingleBoneName`: base name plus numbered `name01`..`name99` variants.
 fn do_single_bone_name(
     map: &mut HashMap<NameKeyType, PristineBoneInfo>,

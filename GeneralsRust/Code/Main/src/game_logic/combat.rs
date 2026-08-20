@@ -969,15 +969,28 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             }
             fire_target_id = None;
         } else if p.scatter_radius > 0.0 {
-            let seed = p.shooter_id.0.wrapping_mul(0x9E37_79B9).wrapping_add(
-                p.target_id
-                    .map(|t| t.0)
-                    .unwrap_or(0)
-                    .wrapping_mul(0x85EB_CA6B),
+            // C++ fireWeaponTemplate: STRUCTURE aims at geometry center, then
+            // each shot rolls GameLogicRandomValueReal radius + angle.
+            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+                if target.is_kind_of(crate::game_logic::KindOf::Structure) {
+                    target_pos =
+                        crate::game_logic::weapon_bootstrap::structure_scatter_aim_origin(
+                            target_pos,
+                            &target.thing.template.geometry_info,
+                        );
+                }
+            }
+            let offset = crate::game_logic::weapon_bootstrap::scatter_aim_offset_logic(
+                p.scatter_radius,
             );
-            let offset =
-                crate::game_logic::weapon_bootstrap::scatter_aim_offset(seed, p.scatter_radius);
             target_pos += offset;
+            // C++ snaps Z to the victim pathfind layer so a miss hits dirt,
+            // not a far point past the volume. Host Y is up.
+            if let Some(target) = p.target_id.and_then(|tid| objects.get(&tid)) {
+                if target.ground_height_from_terrain {
+                    target_pos.y = target.ground_height;
+                }
+            }
             fire_target_id = None;
         }
 

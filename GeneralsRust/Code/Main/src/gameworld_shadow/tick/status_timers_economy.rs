@@ -159,18 +159,18 @@ impl GameWorldShadow {
             e.fire_spread_flame_damage_accum = fs.flame_damage_accum;
             let mut ignite = None;
             if sr.try_spread {
-                let px = e.transform.position.x;
-                let pz = e.transform.position.z;
+                let origin = e.transform.position;
                 let range = e.fire_spread_try_range;
                 let mut best: Option<(u32, f32)> = None;
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    for &(oid, ox, oz, would) in fire_spread_candidates {
+                    for &(oid, ox, oy, oz, would) in fire_spread_candidates {
                         if oid == hid || !would {
                             continue;
                         }
-                        let dx = ox - px;
-                        let dz = oz - pz;
-                        let dist = (dx * dx + dz * dz).sqrt();
+                        let dist = crate::game_logic::host_fire_spread::fire_spread_center_3d_distance(
+                            glam::Vec3::new(origin.x, origin.y, origin.z),
+                            glam::Vec3::new(ox, oy, oz),
+                        );
                         if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
                             best = Some((oid, dist));
                         }

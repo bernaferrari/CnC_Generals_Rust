@@ -217,6 +217,9 @@ impl ControlBar {
                 if entry.destroyed || entry.sold || entry.unselectable {
                     return Ok(CommandAvailability::Hidden);
                 }
+                if command.command_type == CommandType::Sell && entry.script_unsellable {
+                    return Ok(CommandAvailability::Hidden);
+                }
                 if entry.disabled && !self.force_disabled_evaluation(command) {
                     let cmd_type = command.command_type;
                     if cmd_type != CommandType::Sell

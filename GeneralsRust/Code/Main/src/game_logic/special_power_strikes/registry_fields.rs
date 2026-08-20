@@ -298,22 +298,24 @@ impl HostSpecialPowerStrikeRegistry {
     /// Build toxin damage plans for all fields whose tick frame has arrived.
     ///
     /// Retail `AnthraxBombPoisonFieldWeapon` hits ALLIES ENEMIES NEUTRALS
-    /// NOT_AIRBORNE. Host residual damages all living objects in radius except
-    /// the source launcher object. Fail-closed vs airborne filter / armor
-    /// matrix / cleanup-hazard stacking / gamma upgrade.
+    /// NOT_AIRBORNE. Radius splash skips airborne (C++ `WEAPON_DOESNT_AFFECT_AIRBORNE`
+    /// / `isSignificantlyAboveTerrain`) unless they are the primary target —
+    /// FireWeaponUpdate fires at the field's feet, so aircraft are excluded.
+    /// `object_positions`: (id, pos, team, alive, airborne).
     pub fn plan_due_toxin_ticks(
         &self,
         current_frame: u32,
-        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool)],
+        object_positions: &[(ObjectId, Vec3, crate::game_logic::Team, bool, bool)],
     ) -> Vec<HostToxinTickPlan> {
         let mut plans = Vec::new();
         for field in &self.toxin_fields {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
+            let death_type = toxin_field_death_type_for_template(&field.object_template);
             let mut hits = Vec::new();
-            for &(id, pos, _team, alive) in object_positions {
-                if !alive || id == field.source_object {
+            for &(id, pos, _team, alive, airborne) in object_positions {
+                if !alive || id == field.source_object || airborne {
                     continue;
                 }
                 let dist = horizontal_distance(pos, field.position);
@@ -331,6 +333,7 @@ impl HostSpecialPowerStrikeRegistry {
                 source_team: field.source_team,
                 position: field.position,
                 hits,
+                death_type,
             });
         }
         plans.sort_by_key(|p| p.field_id);

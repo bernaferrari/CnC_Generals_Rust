@@ -329,6 +329,12 @@ pub struct GameLogic {
     pub(super) airfield_runway_was_in_line: std::collections::HashMap<ObjectId, Vec<bool>>,
     /// Produced-at-helipad exits waiting for the next airfield tick (`HeliPark01` + rally).
     pub(super) airfield_pending_helipad_exits: std::collections::HashMap<ObjectId, ObjectId>,
+    /// C++ FlightDeckBehavior runtime stalls / launch-wave / designated orders.
+    pub(crate) flight_decks: std::collections::HashMap<
+        ObjectId,
+        crate::game_logic::host_flight_deck::HostFlightDeckState,
+    >,
+
 
     /// Host China EMP Pulse residual (DISABLED_EMP on vehicles/structures).
     /// Fail-closed: not full OCL EMPPulseBomb / EMPPulseEffectSpheroid drawable path.

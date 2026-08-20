@@ -805,6 +805,9 @@ impl GameLogic {
             o.inferno_fire_field_zone_id = Some(zone_id);
             o.health.current = INFERNO_FIRE_FIELD_MAX_HEALTH;
             o.health.maximum = INFERNO_FIRE_FIELD_MAX_HEALTH;
+            // C++ FireFieldSmall uses InactiveBody: no HP, effectively dead.
+            o.uses_inactive_body = true;
+            o.status.effectively_dead = true;
         }
         self.inferno_fire_zones.record_fire_field_object(1);
         Some(pid)
@@ -1149,6 +1152,44 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&nid) {
                 if crate::game_logic::host_angry_mob::angry_mob_nexus_should_be_masked() {
                     obj.set_status_masked(true);
+                }
+            }
+        }
+
+        // C++ SpawnBehavior averages spawn positions into m_healthBoxOffset
+        // so the Angry Mob bar sits on the swarm, not the invisible nexus.
+        {
+            let plans: Vec<(ObjectId, Vec<ObjectId>)> = self
+                .angry_mobs
+                .active_mobs()
+                .iter()
+                .filter(|m| !m.pending_nexus_destroy)
+                .map(|m| (m.object_id, m.member_ids.clone()))
+                .collect();
+            for (nid, members) in plans {
+                let Some(nexus_pos) = self.objects.get(&nid).map(|o| o.get_position()) else {
+                    continue;
+                };
+                let mut sx = 0.0;
+                let mut sy = 0.0;
+                let mut sz = 0.0;
+                let mut n = 0u32;
+                for mid in members {
+                    if let Some(m) = self.objects.get(&mid) {
+                        if m.is_alive() {
+                            let p = m.get_position();
+                            sx += p.x - nexus_pos.x;
+                            sy += p.y - nexus_pos.y;
+                            sz += p.z - nexus_pos.z;
+                            n = n.saturating_add(1);
+                        }
+                    }
+                }
+                if n > 0 {
+                    let inv = 1.0 / n as f32;
+                    if let Some(obj) = self.objects.get_mut(&nid) {
+                        obj.health_box_offset = [sx * inv, sy * inv, sz * inv];
+                    }
                 }
             }
         }

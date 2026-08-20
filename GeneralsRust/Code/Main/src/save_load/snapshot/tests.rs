@@ -57,6 +57,65 @@ fn snapshot_restore_rebuilds_state_and_object_id_counter() {
     assert_eq!(next_id.0, object_id.0 + 1);
 }
 
+/// C++ `TempWeaponBonusHelper::xfer` (`TempWeaponBonusHelper.cpp:112-113`)
+/// persists `m_currentBonus` + `m_frameToRemove`. A mid-Frenzy host save
+/// must restore `weapon_bonus_frenzy` / `_level` / `_until_frame`.
+#[test]
+fn mid_frenzy_snapshot_restores_weapon_bonus_state() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("FrenzyInfantry".to_string(), ThingTemplate::new("FrenzyInfantry"));
+    source.add_player(Player::new(1, Team::China, "China", true));
+    source.set_current_frame(120);
+
+    let object_id = source
+        .create_object("FrenzyInfantry", Team::China, Vec3::new(4.0, 0.0, 8.0))
+        .expect("create frenzy unit");
+    {
+        let object = source
+            .host_object_mut(object_id)
+            .expect("created object");
+        object.apply_weapon_bonus_frenzy(2, 720);
+        assert!(object.weapon_bonus_frenzy);
+        assert_eq!(object.weapon_bonus_frenzy_level, 2);
+        assert_eq!(object.weapon_bonus_frenzy_until_frame, 720);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    let captured = snapshot
+        .objects
+        .get(&object_id)
+        .expect("object in snapshot");
+    assert!(captured.weapon_bonus_frenzy);
+    assert_eq!(captured.weapon_bonus_frenzy_level, 2);
+    assert_eq!(captured.weapon_bonus_frenzy_until_frame, 720);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let loaded = restored.host_object(object_id).expect("restored object");
+    assert!(loaded.weapon_bonus_frenzy);
+    assert_eq!(loaded.weapon_bonus_frenzy_level, 2);
+    assert_eq!(loaded.weapon_bonus_frenzy_until_frame, 720);
+    assert!(loaded.is_frenzy_buffed());
+}
+
+/// Older ObjectSnapshot records omit the Frenzy tail. `serde(default)` must
+/// fail-closed to inactive so a v12 decode does not invent a mid-Frenzy buff.
+#[test]
+fn omitted_frenzy_tail_defaults_inactive() {
+    let snapshot = super::xfer_helpers::default_object_snapshot();
+    assert!(!snapshot.weapon_bonus_frenzy);
+    assert_eq!(snapshot.weapon_bonus_frenzy_level, 0);
+    assert_eq!(snapshot.weapon_bonus_frenzy_until_frame, 0);
+}
+
 #[test]
 fn snapshot_v5_restores_exact_human_and_ai_skirmish_template_bindings() {
     game_engine::common::ini::ensure_player_templates_loaded();

@@ -2,8 +2,285 @@
 //!
 //! C++: `SupplyTruckAIUpdate`, `SupplyWarehouseDockUpdate`, `SupplyCenterDockUpdate`.
 
-use super::ObjectId;
+use crate::game_logic::{DockKind, ObjectId};
 use glam::Vec3;
+
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
+fn live_dock_queues() -> &'static Mutex<HashMap<ObjectId, HostDockApproachQueue>> {
+    static QUEUES: OnceLock<Mutex<HashMap<ObjectId, HostDockApproachQueue>>> = OnceLock::new();
+    QUEUES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// C++ `DockUpdate::reserveApproachPosition` + `update` promote first arriver.
+pub fn tick_live_dock_approach(
+    dock_id: ObjectId,
+    docker_id: ObjectId,
+    number_approach_positions: i32,
+    docker_alive: bool,
+    current_active: Option<ObjectId>,
+    current_active_alive: bool,
+) -> DockApproachTick {
+    if !docker_alive {
+        return DockApproachTick::Blocked;
+    }
+    let Ok(mut map) = live_dock_queues().lock() else {
+        return DockApproachTick::Blocked;
+    };
+    let queue = map
+        .entry(dock_id)
+        .or_insert_with(|| HostDockApproachQueue::new(number_approach_positions));
+    queue.evict_dead(|_| true);
+    if current_active == Some(docker_id) && current_active_alive {
+        queue.on_enter_reached(docker_id);
+        return DockApproachTick::ClearToAct;
+    }
+    if !queue.is_clear_to_approach(docker_id) {
+        return DockApproachTick::Blocked;
+    }
+    let Some(_slot) = queue.reserve_approach_position(docker_id) else {
+        return DockApproachTick::Blocked;
+    };
+    queue.on_approach_reached(docker_id);
+    if queue.promote_active(current_active, current_active_alive, false) == Some(docker_id) {
+        queue.on_enter_reached(docker_id);
+        DockApproachTick::ClearToAct
+    } else {
+        DockApproachTick::Blocked
+    }
+}
+
+pub fn cancel_live_dock_approach(dock_id: ObjectId, docker_id: ObjectId) {
+    if let Ok(mut map) = live_dock_queues().lock() {
+        if let Some(queue) = map.get_mut(&dock_id) {
+            queue.cancel_docker(docker_id);
+        }
+    }
+}
+
+/// C++ `DYNAMIC_APPROACH_VECTOR_FLAG` (`DockUpdate.h:24`).
+pub const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
+/// C++ `DEFAULT_APPROACH_VECTOR_SIZE` (`DockUpdate.h:19`).
+pub const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
+/// Host arrival slop at a reserved approach point (`PATHFIND_CELL_SIZE_F`).
+pub const DOCK_APPROACH_ARRIVAL_SLOP: f32 = PATHFIND_CELL_SIZE_F;
+
+/// C++ `DockUpdate` approach-slot vectors (`m_approachPositionOwners` / `Reached`).
+#[derive(Debug, Clone)]
+pub struct HostDockApproachQueue {
+    /// C++ `m_numberApproachPositions` (`-1` = dynamic / boneless infinite).
+    pub number_approach_positions: i32,
+    /// C++ `m_numberApproachPositionBones` (`0` = boneless bias).
+    pub number_approach_position_bones: i32,
+    /// Local `DockWaiting` bone positions, index 0 = first queue slot.
+    pub waiting_bones: Vec<Vec3>,
+    pub owners: Vec<Option<ObjectId>>,
+    pub reached: Vec<bool>,
+}
+
+impl HostDockApproachQueue {
+    pub fn new(number_approach_positions: i32) -> Self {
+        let len = if number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
+            DEFAULT_APPROACH_VECTOR_SIZE
+        } else {
+            number_approach_positions.max(0) as usize
+        };
+        Self {
+            number_approach_positions,
+            number_approach_position_bones: 0,
+            waiting_bones: Vec::new(),
+            owners: vec![None; len],
+            reached: vec![false; len],
+        }
+    }
+
+    /// Install pristine `DockWaiting` bones. Empty keeps the boneless bias path.
+    pub fn set_waiting_bones(&mut self, bones: Vec<Vec3>) {
+        self.waiting_bones = bones;
+        self.number_approach_position_bones = self.waiting_bones.len() as i32;
+    }
+
+    pub fn evict_dead(&mut self, mut is_alive: impl FnMut(ObjectId) -> bool) {
+        for (owner, reached) in self.owners.iter_mut().zip(self.reached.iter_mut()) {
+            if owner.is_some_and(|id| !is_alive(id)) {
+                *owner = None;
+                *reached = false;
+            }
+        }
+    }
+
+    /// C++ `DockUpdate::isClearToApproach`.
+    pub fn is_clear_to_approach(&self, docker: ObjectId) -> bool {
+        if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
+            return true;
+        }
+        self.owners
+            .iter()
+            .any(|owner| owner.is_none() || *owner == Some(docker))
+    }
+
+    /// C++ `DockUpdate::reserveApproachPosition` — returns the reserved index.
+    pub fn reserve_approach_position(&mut self, docker: ObjectId) -> Option<i32> {
+        for (index, owner) in self.owners.iter().enumerate() {
+            if *owner == Some(docker) {
+                return Some(index as i32);
+            }
+            if owner.is_none() {
+                self.owners[index] = Some(docker);
+                self.reached[index] = false;
+                return Some(index as i32);
+            }
+        }
+        if self.number_approach_positions == DYNAMIC_APPROACH_VECTOR_FLAG {
+            self.owners.push(Some(docker));
+            self.reached.push(false);
+            self.waiting_bones.push(Vec3::ZERO);
+            return Some((self.owners.len() - 1) as i32);
+        }
+        None
+    }
+
+    /// C++ `DockUpdate::advanceApproachPosition`.
+    pub fn advance_approach_position(&mut self, docker: ObjectId, index: i32) -> Option<i32> {
+        if index <= 0 {
+            return None;
+        }
+        let his = index as usize;
+        if self.owners.get(his) != Some(&Some(docker)) {
+            return None;
+        }
+        if self.owners.get(his - 1) != Some(&None) {
+            return None;
+        }
+        self.owners[his - 1] = Some(docker);
+        self.reached[his - 1] = false;
+        self.owners[his] = None;
+        self.reached[his] = false;
+        Some((his - 1) as i32)
+    }
+
+    /// C++ `DockUpdate::isClearToAdvance`.
+    pub fn is_clear_to_advance(&self, docker: ObjectId, index: i32) -> bool {
+        if index <= 0 {
+            return false;
+        }
+        let i = index as usize;
+        let correct = self.owners.get(i) == Some(&Some(docker));
+        let reached = self.reached.get(i).copied().unwrap_or(false);
+        let next_free = self.owners.get(i - 1) == Some(&None);
+        correct && reached && next_free
+    }
+
+    /// C++ `DockUpdate::onApproachReached`.
+    pub fn on_approach_reached(&mut self, docker: ObjectId) {
+        if let Some(index) = self.index_of(docker) {
+            if let Some(reached) = self.reached.get_mut(index as usize) {
+                *reached = true;
+            }
+        }
+    }
+
+    /// C++ `onEnterReached` — free the approach slot so the line can advance.
+    pub fn on_enter_reached(&mut self, docker: ObjectId) {
+        if let Some(index) = self.index_of(docker) {
+            let i = index as usize;
+            if let Some(owner) = self.owners.get_mut(i) {
+                *owner = None;
+            }
+            if let Some(reached) = self.reached.get_mut(i) {
+                *reached = false;
+            }
+        }
+    }
+
+    /// C++ `DockUpdate::cancelDock` slot half.
+    pub fn cancel_docker(&mut self, docker: ObjectId) {
+        for (owner, reached) in self.owners.iter_mut().zip(self.reached.iter_mut()) {
+            if *owner == Some(docker) {
+                *owner = None;
+                *reached = false;
+            }
+        }
+    }
+
+    pub fn index_of(&self, docker: ObjectId) -> Option<i32> {
+        self.owners
+            .iter()
+            .position(|owner| *owner == Some(docker))
+            .map(|i| i as i32)
+    }
+
+    /// C++ `DockUpdate::update` — first arrived docker becomes `m_activeDocker`.
+    pub fn promote_active(
+        &self,
+        current_active: Option<ObjectId>,
+        current_active_alive: bool,
+        crippled: bool,
+    ) -> Option<ObjectId> {
+        if current_active.is_some() && current_active_alive {
+            return current_active;
+        }
+        if crippled {
+            return None;
+        }
+        for (reached, owner) in self.reached.iter().zip(self.owners.iter()) {
+            if *reached {
+                return *owner;
+            }
+        }
+        None
+    }
+}
+
+/// Retail `NumberApproachPositions` for the live dock kinds the host owns.
+/// Unknown / unauthored docks stay `0` (fail-closed: reserve refuses).
+pub fn number_approach_positions_for_dock(
+    template_name: &str,
+    dock_kind: DockKind,
+    is_repair_dock: bool,
+    delete_when_empty: bool,
+) -> i32 {
+    let name = template_name.to_ascii_lowercase();
+    if is_repair_dock {
+        return super::host_repair::REPAIR_DOCK_NUMBER_APPROACH_POSITIONS as i32;
+    }
+    if name.contains("supplypile") {
+        return 5;
+    }
+    if name.contains("supplydock") {
+        return DYNAMIC_APPROACH_VECTOR_FLAG;
+    }
+    match dock_kind {
+        DockKind::SupplyWarehouse => {
+            if delete_when_empty {
+                5
+            } else {
+                9
+            }
+        }
+        DockKind::SupplyCenter => {
+            if name.contains("china") || name.contains("gla") {
+                DYNAMIC_APPROACH_VECTOR_FLAG
+            } else {
+                9
+            }
+        }
+        DockKind::RailedTransport => 9,
+        DockKind::None => 0,
+    }
+}
+
+/// Result of one live `AIDock` tick against a host dock.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DockApproachTick {
+    /// Queue full, or waiting for the docker ahead. Do not act at the center.
+    Blocked,
+    /// Path to this reserved approach / enter point.
+    PathTo(Vec3),
+    /// C++ `isClearToEnter` — this docker is `m_activeDocker` and may act.
+    ClearToAct,
+}
 
 /// C++ `PATHFIND_CELL_SIZE_F` (`AIPathfind.h:416`).
 pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;

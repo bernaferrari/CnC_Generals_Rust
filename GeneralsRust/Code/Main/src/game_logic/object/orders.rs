@@ -365,6 +365,13 @@ impl Object {
         self.applied_upgrades.contains(upgrade)
     }
 
+    /// C++ Object::hasUpgrade for a completed OBJECT-scoped upgrade tag.
+    pub fn has_object_upgrade_complete(&self, upgrade: &str) -> bool {
+        self.applied_upgrades
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(upgrade))
+    }
+
     /// Install C++ HighlanderBody residual.
     pub fn install_highlander_body(&mut self) {
         self.highlander_body = true;
@@ -489,26 +496,27 @@ impl Object {
 
     /// Tick GuardRetaliate: drop when victim gone; return toward anchor if far.
     ///
-    /// Fail-closed vs full AIGuardRetaliateMachine inner/outer/return states.
+    /// C++ AIGuardRetaliate RETURN stays inside the machine until idle finds
+    /// nothing. Do not `move_to` (that flips to Moving and abandons Guard).
     pub fn tick_guard_retaliate(&mut self, victim_alive: bool, victim_pos: Option<glam::Vec3>) {
         if !matches!(self.ai_state, AIState::GuardRetaliating) {
             return;
         }
         if !victim_alive || self.guard_retaliate_victim.is_none() {
-            // Return residual: move back to anchor then end.
             if let Some(anchor) = self.guard_retaliate_anchor {
                 let us = self.get_position();
                 let dx = us.x - anchor.x;
                 let dz = us.z - anchor.z;
                 // CLOSE_ENOUGH = 25 residual
                 if dx * dx + dz * dz > 25.0 * 25.0 && self.can_move() {
-                    self.move_to(anchor);
-                    // Keep GuardRetaliating until close enough? C++ RETURN state.
-                    // Host: issue move then end attack bit.
+                    self.movement.target_position = Some(anchor);
+                    self.set_status_moving(true);
                     self.target = None;
                     self.status.attacking = false;
-                    self.set_ai_state(AIState::Moving);
-                    // stash that we should re-enter guard when move completes via clear on kill path
+                    crate::game_logic::host_move_log::record(
+                        self.id,
+                        Some([anchor.x, anchor.y, anchor.z]),
+                    );
                     return;
                 }
             }
@@ -642,6 +650,51 @@ impl Object {
                 && !self.thing.template.contain_module.kind.is_cave_contain())
     }
 
+    /// C++ GarrisonContain::isImmuneToClearBuildingAttacks.
+    pub fn is_immune_to_clear_building_attacks(&self) -> bool {
+        if self.thing.template.contain_module.kind == crate::game_logic::ContainModuleKind::Garrison
+        {
+            return self
+                .thing
+                .template
+                .contain_module
+                .immune_to_clear_building_attacks;
+        }
+        // C++ OpenContain default is true; only garrisonable modules are cleared.
+        true
+    }
+
+    /// C++ GarrisonContainModuleData::m_isEnclosingContainer (default true).
+    pub fn is_enclosing_garrison_container(&self) -> bool {
+        if !self.is_garrison_contain() {
+            return true;
+        }
+        self.thing.template.contain_module.is_enclosing_container
+    }
+
+    /// C++ GarrisonContain::onContaining / onRemoving OBJECT_STATUS_CAN_ATTACK.
+    pub fn set_garrison_can_attack(&mut self, enabled: bool) {
+        if enabled {
+            let _ = self.apply_status_bits_upgrade_masks(&["CAN_ATTACK"], &[]);
+        } else {
+            let _ = self.apply_status_bits_upgrade_masks(&[], &["CAN_ATTACK"]);
+        }
+    }
+
+    pub fn garrison_evac_disposition(&self) -> u8 {
+        self.building_data
+            .as_ref()
+            .map(|b| b.evac_disposition)
+            .filter(|&d| d > 0)
+            .unwrap_or(3)
+    }
+
+    pub fn set_garrison_evac_disposition(&mut self, disposition: u8) {
+        if let Some(bd) = self.building_data.as_mut() {
+            bd.evac_disposition = disposition;
+        }
+    }
+
     /// C++ GarrisonContain::isValidContainerFor health / ReallyDamaged gates.
     pub fn garrison_container_accepts_entry(&self) -> bool {
         if self.health.current <= 0.0 {
@@ -688,7 +741,9 @@ impl Object {
             bd.original_team = None;
             bd.hide_garrisoned_state = false;
             bd.garrison_guns.clear();
+            bd.garrison_point_occupant.clear();
         }
+        self.set_garrison_can_attack(false);
         if let Some(orig) = orig {
             self.set_team(orig);
         }

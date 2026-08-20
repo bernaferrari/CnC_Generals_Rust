@@ -1072,6 +1072,8 @@ impl GameLogic {
     pub fn host_apply_production_door_ready_completions(&mut self) -> usize {
         // Wave 627: GameWorld production-door writeback records phase changes;
         // host applies door model-condition residual for the new phase.
+        // apply_production_door_phase_residual maps leftover phase 3 (WAITING_TO_CLOSE)
+        // to CLOSING — C++ ProductionUpdate never plays that pose.
         let events = crate::game_logic::host_production_door_ready_log::drain();
         let mut n = 0usize;
         for ev in events {

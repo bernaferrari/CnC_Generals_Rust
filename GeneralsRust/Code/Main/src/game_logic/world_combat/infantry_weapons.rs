@@ -213,13 +213,19 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
-        if obj.try_ignite_fire_spread(frame) {
-            self.fire_spread_reg.record_ignition();
-            let _ = obj.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
-            true
-        } else {
-            false
+        if !obj.try_ignite_fire_spread(frame) {
+            return false;
         }
+        self.fire_spread_reg.record_ignition();
+        let pos = obj.get_position();
+        let sound = obj
+            .fire_spread
+            .as_ref()
+            .map(|f| f.burning_sound_name.clone())
+            .unwrap_or_default();
+        self.start_fire_spread_burning_sound(id, pos, &sound);
+        self.spawn_auto_aflame_particles(id, pos);
+        true
     }
 
     /// C++ FireSpreadUpdate + FlammableUpdate residual (tree fire chain).
@@ -1339,9 +1345,7 @@ impl GameLogic {
         &mut self,
         ev: crate::game_logic::host_fire_spread_log::FireSpreadTickEvent,
     ) {
-        use crate::game_logic::host_fire_spread::{
-            HostFireSpreadData, HostFlammableState, TREE_OCL_EMBERS,
-        };
+        use crate::game_logic::host_fire_spread::{HostFireSpreadData, HostFlammableState};
         if let Some(obj) = self.objects.get_mut(&ev.id) {
             let mut fs = obj
                 .fire_spread
@@ -1361,30 +1365,33 @@ impl GameLogic {
             obj.fire_spread = Some(fs);
             if ev.became_burned {
                 self.fire_spread_reg.record_burned();
-                let _ = obj.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
+                obj.apply_flammable_extinguish_visuals(true);
             } else if ev.aflame {
-                let _ = obj.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+                let smolder = obj.fire_spread.as_ref().map(|f| f.smoldering).unwrap_or(false);
+                obj.apply_flammable_visuals(true, smolder, false);
             }
         }
         if ev.spawn_embers {
             self.fire_spread_reg.record_embers();
-            let _ = TREE_OCL_EMBERS;
+            let ocl = self
+                .objects
+                .get(&ev.id)
+                .and_then(|o| o.fire_spread.as_ref().map(|f| f.ocl_embers.clone()))
+                .unwrap_or_default();
+            let _ = self.spawn_fire_spread_embers(ev.id, ev.pos, &ocl);
         }
         if ev.try_spread {
             self.fire_spread_reg.record_spread();
         }
         if let Some(tid) = ev.ignite_target {
-            if let Some(t) = self.objects.get_mut(&tid) {
-                if t.try_ignite_fire_spread(self.frame) {
-                    self.fire_spread_reg.record_ignition();
-                    let _ = t.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
-                }
+            if self.ignite_object_fire_spread(tid) {
+                // counted inside helper
             }
         }
     }
 
     pub(in super::super) fn update_fire_spread(&mut self) {
-        use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
+        use crate::game_logic::host_fire_spread::fire_spread_center_3d_distance;
 
         let frame = self.frame as u32;
         let ids: Vec<ObjectId> = self
@@ -1413,8 +1420,14 @@ impl GameLogic {
 
         let mut ignite_targets: Vec<ObjectId> = Vec::new();
         let mut status_aflame: Vec<ObjectId> = Vec::new();
+        let mut status_smolder: Vec<ObjectId> = Vec::new();
         let mut status_burned: Vec<ObjectId> = Vec::new();
+        let mut status_normal: Vec<ObjectId> = Vec::new();
         let mut aflame_dots: Vec<(ObjectId, f32)> = Vec::new();
+        let mut ember_spawns: Vec<(ObjectId, Vec3, String)> = Vec::new();
+        let mut start_sounds: Vec<(ObjectId, Vec3, String)> = Vec::new();
+        let mut stop_sounds: Vec<(ObjectId, Vec3, String)> = Vec::new();
+        let mut auto_aflame: Vec<(ObjectId, Vec3)> = Vec::new();
 
         for id in ids {
             let pos = match self.objects.get(&id) {
@@ -1428,11 +1441,23 @@ impl GameLogic {
                 continue;
             };
             let fr = fs.tick_flammable(frame);
+            if fr.stop_burning_sound {
+                stop_sounds.push((id, pos, fs.burning_sound_name.clone()));
+            }
+            if fr.became_smoldering {
+                status_smolder.push(id);
+            }
             if fr.became_burned {
                 self.fire_spread_reg.record_burned();
                 status_burned.push(id);
+            } else if fr.returned_to_normal {
+                status_normal.push(id);
             } else if fr.aflame {
                 status_aflame.push(id);
+                if fr.start_burning_sound {
+                    start_sounds.push((id, pos, fs.burning_sound_name.clone()));
+                    auto_aflame.push((id, pos));
+                }
             }
             if fr.aflame_damage > 0.0 {
                 aflame_dots.push((id, fr.aflame_damage));
@@ -1441,7 +1466,7 @@ impl GameLogic {
             let range = fs.spread_try_range;
             if sr.spawn_embers {
                 self.fire_spread_reg.record_embers();
-                let _ = TREE_OCL_EMBERS;
+                ember_spawns.push((id, pos, fs.ocl_embers.clone()));
             }
             if sr.try_spread {
                 self.fire_spread_reg.record_spread();
@@ -1450,9 +1475,7 @@ impl GameLogic {
                     if oid == id || !would {
                         continue;
                     }
-                    let dx = op.x - pos.x;
-                    let dz = op.z - pos.z;
-                    let dist = (dx * dx + dz * dz).sqrt();
+                    let dist = fire_spread_center_3d_distance(pos, op);
                     if dist <= range && best.map(|(_, d)| dist < d).unwrap_or(true) {
                         best = Some((oid, dist));
                     }
@@ -1465,21 +1488,39 @@ impl GameLogic {
 
         for id in status_aflame {
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+                let smolder = o.fire_spread.as_ref().map(|f| f.smoldering).unwrap_or(false);
+                o.apply_flammable_visuals(true, smolder, false);
+            }
+        }
+        for id in status_smolder {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.apply_flammable_smoldering_visuals();
             }
         }
         for id in status_burned {
             if let Some(o) = self.objects.get_mut(&id) {
-                let _ = o.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
+                o.apply_flammable_extinguish_visuals(true);
             }
         }
-        for tid in ignite_targets {
-            if let Some(t) = self.objects.get_mut(&tid) {
-                if t.try_ignite_fire_spread(frame) {
-                    self.fire_spread_reg.record_ignition();
-                    let _ = t.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
-                }
+        for id in status_normal {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.apply_flammable_extinguish_visuals(false);
             }
+        }
+        for (id, pos, ocl) in ember_spawns {
+            let _ = self.spawn_fire_spread_embers(id, pos, &ocl);
+        }
+        for (id, pos, sound) in start_sounds {
+            self.start_fire_spread_burning_sound(id, pos, &sound);
+        }
+        for (id, pos, sound) in stop_sounds {
+            self.stop_fire_spread_burning_sound(id, pos, &sound);
+        }
+        for (id, pos) in auto_aflame {
+            self.spawn_auto_aflame_particles(id, pos);
+        }
+        for tid in ignite_targets {
+            let _ = self.ignite_object_fire_spread(tid);
         }
         // C++ FlammableUpdate.cpp:202-212 doAflameDamage DAMAGE_FLAME / DEATH_BURNED.
         for (id, dmg) in aflame_dots {
@@ -1700,10 +1741,18 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_scud_poison_zones(&mut self) {
-        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
-            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                )
+            })
             .collect();
 
         let plans = self
@@ -1722,8 +1771,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                        plan.death_type,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

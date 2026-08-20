@@ -597,8 +597,9 @@ impl GameLogic {
             .last()
         {
             let remaining = self.script_camera_remaining_seconds();
+            let max_zoom = (320.0 + 300.0) / 320.0;
             self.pending_camera_zoom = Some(CameraZoomRequest {
-                zoom: last.zoom,
+                zoom: last.zoom * max_zoom,
                 duration_seconds: remaining,
                 ease_in_seconds: (remaining * last.ease_in.clamp(0.0, 1.0)).max(0.0),
                 ease_out_seconds: (remaining * last.ease_out.clamp(0.0, 1.0)).max(0.0),
@@ -628,8 +629,9 @@ impl GameLogic {
         {
             self.camera_follow_target = None;
             self.request_camera_focus(last.position);
+            let max_zoom = (320.0 + 300.0) / 320.0;
             self.pending_camera_zoom = Some(CameraZoomRequest {
-                zoom: last.zoom,
+                zoom: last.zoom * max_zoom,
                 duration_seconds: 0.0,
                 ease_in_seconds: 0.0,
                 ease_out_seconds: 0.0,

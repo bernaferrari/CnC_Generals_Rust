@@ -277,7 +277,11 @@ impl GameLogic {
         }
     }
 
-    /// Cancel a queued production item by template name (first match).
+    /// Cancel a queued production item by template name (last match).
+    ///
+    /// C++ cancelUnitCreate is by ProductionID. Name-based callers (hotkey /
+    /// legacy HUD) click the newest duplicate icon; first-match would refund
+    /// the in-progress head and leave the fresh tail.
     pub fn cancel_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
         let Some((team, owner_player_id)) = self
             .objects
@@ -298,7 +302,7 @@ impl GameLogic {
                 if let Some(pos) = building
                     .production_queue
                     .iter()
-                    .position(|item| item.template_name == template_name)
+                    .rposition(|item| item.template_name.eq_ignore_ascii_case(&template_name))
                 {
                     cancelled = building.cancel_production(pos);
                 }
@@ -1105,9 +1109,10 @@ impl GameLogic {
 
     /// C++ SpecialPowerModule::onSpecialPowerCreation residual for SW structures.
     ///
-    /// Starts full ReloadTime recharge on the structure's PublicTimer power
-    /// (ParticleCannon / NuclearMissile / ScudStorm). SharedNSync science powers
-    /// are handled separately via `on_special_power_science_creation`.
+    /// Walks every `getSpecialPower()` module — including SharedNSync and
+    /// ScriptedSpecialPowerOnly. SharedNSync then expresses ready-now on the
+    /// player timer (Dustin: start ready to fire). StartsPaused still applies
+    /// after startPowerRecharge.
     pub fn on_structure_superweapon_creation(&mut self, structure_id: ObjectId) {
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
@@ -1115,33 +1120,78 @@ impl GameLogic {
         if !obj.is_alive() || !obj.is_constructed() {
             return;
         }
+        let owner_id = self.player_owner_for_host_object(obj);
         // C++ SpecialPowerCreate walks every getSpecialPower() behavior — not a type whitelist.
         let modules: Vec<_> = obj.thing.template.special_power_modules.clone();
         if modules.is_empty() {
             return;
         }
-        // Non-shared structure SWs: startPowerRecharge only (not express ready-now).
         // C++ `SpecialPowerModule::onSpecialPowerCreation` starts the authored
-        // reload *before* applying StartsPaused.  Skipping a paused module here
-        // would incorrectly leave it immediately ready until an upgrade peeled
-        // the pause count, and would lose its exact parsed ReloadTime.
+        // reload *before* applying StartsPaused, then expresses SharedNSync
+        // ready-now (and a second CC therefore resets a ticking A10 timer).
+        let mut shared_ready = Vec::new();
         if let Some(obj) = self.objects.get_mut(&structure_id) {
-            for module in modules
-                .iter()
-                .filter(|module| !module.shared_n_sync && !module.scripted_special_power_only)
-            {
+            for module in modules.iter() {
                 let Some(power) = module.command_power.as_ref() else {
                     continue;
                 };
                 obj.start_power_recharge_with_frames(power, module.reload_time_frames);
+                if module.shared_n_sync {
+                    shared_ready.push(power.clone());
+                }
                 if module.starts_paused {
                     obj.pause_special_power_countdown(power, true);
+                }
+            }
+        }
+        if let Some(player_id) = owner_id {
+            if let Some(player) = self.players.get_mut(&player_id) {
+                for power in &shared_ready {
+                    player.express_shared_special_power_ready_now(power);
                 }
             }
         }
         let _ = self
             .special_power_strikes
             .reset_timers_for_source_object(structure_id);
+    }
+
+    /// C++ Object::updateUpgradeModules — walk the player's completed PLAYER
+    /// upgrades onto a building that just left UNDER_CONSTRUCTION.
+    pub(in super::super) fn apply_researched_player_upgrades_to_object(
+        &mut self,
+        structure_id: ObjectId,
+    ) {
+        let Some(obj) = self.objects.get(&structure_id) else {
+            return;
+        };
+        if obj.status.under_construction {
+            return;
+        }
+        let Some(player_id) = self.player_owner_for_host_object(obj) else {
+            return;
+        };
+        let upgrades: Vec<String> = self
+            .players
+            .get(&player_id)
+            .map(|player| {
+                let mut names: Vec<String> = player.completed_upgrades.iter().cloned().collect();
+                // Research complete lands in unlocked_sciences; completed_upgrades
+                // is only filled by add_completed_upgrade / GrantUpgradeCreate.
+                for name in &player.unlocked_sciences {
+                    if !names.iter().any(|existing| existing.eq_ignore_ascii_case(name)) {
+                        names.push(name.clone());
+                    }
+                }
+                names
+            })
+            .unwrap_or_default();
+        for name in upgrades {
+            if crate::game_logic::host_upgrades::is_object_scoped_upgrade(&name) {
+                continue;
+            }
+            self.apply_upgrade_to_object(structure_id, &name);
+        }
     }
 
     pub fn notify_structure_construction_complete(&mut self, structure_id: ObjectId) {
@@ -1157,6 +1207,9 @@ impl GameLogic {
         let name = obj.template_name.clone();
         // C++ CreateModules onBuildComplete (Preorder/GrantUpgrade/LockWeapon/SP/Supply).
         self.apply_create_modules_on_build_complete(structure_id);
+        // C++ Object::updateUpgradeModules after UNDER_CONSTRUCTION clears
+        // (DozerAIUpdate.cpp:539-591 / Object.cpp:2410-2438).
+        self.apply_researched_player_upgrades_to_object(structure_id);
         let local = self
             .players
             .values()

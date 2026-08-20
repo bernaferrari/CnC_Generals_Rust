@@ -28,7 +28,7 @@
 
 use super::{ObjectId, Team, Weapon};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Logic frames per second (host fixed step).
 pub const TUNNEL_NETWORK_LOGIC_FPS: f32 = 30.0;
@@ -139,6 +139,10 @@ pub struct HostTunnelNetworkRegistry {
     contained_by_frame: HashMap<u32, u32>,
     /// Per-team shared passenger lists (C++ Player::TunnelTracker contain list).
     networks: HashMap<Team, TeamTunnelNetwork>,
+    /// C++ SpawnBehavior OneShot latch (`m_oneShotCountdown` exhausted / stopSpawning).
+    /// Keyed by tunnel ObjectId bits so dying children cannot re-arm OneShot.
+    #[serde(default)]
+    oneshot_spawn_fired: HashSet<u32>,
 }
 
 /// Shared contain state for one team's tunnel network.
@@ -177,6 +181,16 @@ impl HostTunnelNetworkRegistry {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// C++ OneShot SpawnBehavior already delivered its batch for this tunnel.
+    pub fn oneshot_spawn_fired(&self, tunnel_id: ObjectId) -> bool {
+        self.oneshot_spawn_fired.contains(&tunnel_id.0)
+    }
+
+    /// Latch OneShot so a later empty child list cannot spawn again.
+    pub fn mark_oneshot_spawn_fired(&mut self, tunnel_id: ObjectId) {
+        self.oneshot_spawn_fired.insert(tunnel_id.0);
     }
 
     pub fn network(&self, team: Team) -> Option<&TeamTunnelNetwork> {
@@ -550,6 +564,33 @@ pub fn is_tunnel_network_template(template_name: &str) -> bool {
     true
 }
 
+/// True when this Tunnel Network authors the free OneShot RPG-trooper batch.
+///
+/// Sneak-attack tunnels share the contain residual but do not OneShot-spawn
+/// `GLAInfantryTunnelDefender`.
+pub fn tunnel_network_has_oneshot_spawn(template_name: &str) -> bool {
+    is_tunnel_network_template(template_name)
+        && !template_name.to_ascii_lowercase().contains("sneak")
+}
+
+/// Prefix a stock spawn template with the building's general prefix.
+pub fn general_prefixed_spawn_template(building: &str, stock: &str) -> String {
+    const PREFIXES: &[&str] = &["GC_Slth_", "GC_Chem_", "Demo_", "Chem_", "Slth_"];
+    for prefix in PREFIXES {
+        if building.len() >= prefix.len()
+            && building[..prefix.len()].eq_ignore_ascii_case(prefix)
+        {
+            return format!("{prefix}{stock}");
+        }
+    }
+    stock.to_string()
+}
+
+/// Retail SpawnTemplateName for a Tunnel Network (general-prefixed when needed).
+pub fn tunnel_network_spawn_template_for(template_name: &str) -> String {
+    general_prefixed_spawn_template(template_name, TUNNEL_NETWORK_SPAWN_TEMPLATE)
+}
+
 /// C++ TunnelTracker::isValidContainerFor residual: reject aircraft only.
 pub fn unit_can_use_tunnel(is_aircraft: bool, is_alive: bool, under_construction: bool) -> bool {
     is_alive && !under_construction && !is_aircraft
@@ -599,6 +640,26 @@ mod tests {
         assert!(!is_tunnel_network_template("GLATunnelNetworkNoSpawn"));
         assert!(!is_tunnel_network_template("GLA_Barracks"));
         assert!(!is_tunnel_network_template("TestBunker"));
+    }
+
+    #[test]
+    fn oneshot_spawn_excludes_sneak_and_prefixes_generals() {
+        assert!(tunnel_network_has_oneshot_spawn("GLATunnelNetwork"));
+        assert!(tunnel_network_has_oneshot_spawn("Demo_GLATunnelNetwork"));
+        assert!(!tunnel_network_has_oneshot_spawn("GLASneakAttackTunnelNetwork"));
+        assert_eq!(
+            tunnel_network_spawn_template_for("GLATunnelNetwork"),
+            "GLAInfantryTunnelDefender"
+        );
+        assert_eq!(
+            tunnel_network_spawn_template_for("Demo_GLATunnelNetwork"),
+            "Demo_GLAInfantryTunnelDefender"
+        );
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let id = ObjectId(7);
+        assert!(!reg.oneshot_spawn_fired(id));
+        reg.mark_oneshot_spawn_fired(id);
+        assert!(reg.oneshot_spawn_fired(id));
     }
 
     #[test]

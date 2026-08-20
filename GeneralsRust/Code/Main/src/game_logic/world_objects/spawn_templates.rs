@@ -206,6 +206,7 @@ impl GameLogic {
             rider_change_normal_locomotors.as_deref(),
         );
         Self::apply_authored_parking_place_metadata(&mut template, definition);
+        Self::apply_authored_flight_deck_metadata(&mut template, definition);
         Self::apply_authored_deploy_style_metadata(&mut template, definition);
         Self::apply_authored_supply_truck_metadata(&mut template, definition);
         Self::apply_authored_production_exit_metadata(&mut template, definition);
@@ -220,6 +221,8 @@ impl GameLogic {
         Self::apply_authored_power_plant_update_metadata(&mut template, definition);
         Self::apply_authored_temporary_weapon_behavior_metadata(&mut template, definition);
         Self::apply_authored_physics_behavior_metadata(&mut template, definition);
+        Self::apply_authored_geometry(&mut template, definition);
+
 
         let primary_texture = texture_hint.or_else(|| definition.get_primary_texture());
         if let Some(texture_name) = primary_texture {
@@ -344,6 +347,19 @@ impl GameLogic {
         if let Some(trainable) = Self::object_definition_attr(definition, "istrainable") {
             template.is_trainable = matches!(
                 trainable.trim().to_ascii_lowercase().as_str(),
+                "yes" | "true" | "1"
+            );
+        }
+
+        if let Some(enter_guard) = Self::object_definition_attr(definition, "enterguard") {
+            template.enter_guard = matches!(
+                enter_guard.trim().to_ascii_lowercase().as_str(),
+                "yes" | "true" | "1"
+            );
+        }
+        if let Some(hijack_guard) = Self::object_definition_attr(definition, "hijackguard") {
+            template.hijack_guard = matches!(
+                hijack_guard.trim().to_ascii_lowercase().as_str(),
                 "yes" | "true" | "1"
             );
         }
@@ -646,6 +662,19 @@ impl GameLogic {
         }
         if has_kind("garrisonable_until_destroyed") {
             template.add_kind_of(KindOf::GarrisonableUntilDestroyed);
+        }
+        if has_kind("drone") {
+            template.add_kind_of(KindOf::Drone);
+        }
+        if has_kind("boat") {
+            template.add_kind_of(KindOf::Boat);
+        }
+        if has_kind("transport") {
+            template.add_kind_of(KindOf::Transport);
+        }
+        if has_kind("immune_to_capture") {
+            template.add_kind_of(KindOf::ImmuneToCapture);
+            template.immune_to_capture = true;
         }
     }
 
@@ -1016,6 +1045,22 @@ impl GameLogic {
                     None if kind == ContainModuleKind::Tunnel => Some(1),
                     None => None,
                 };
+                let immune_to_clear_building_attacks = if kind == ContainModuleKind::Garrison {
+                    module
+                        .attribute("ImmuneToClearBuildingAttacks")
+                        .and_then(parse_bool)
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                let is_enclosing_container = if kind == ContainModuleKind::Garrison {
+                    module
+                        .attribute("IsEnclosingContainer")
+                        .and_then(parse_bool)
+                        .unwrap_or(true)
+                } else {
+                    true
+                };
                 let candidate = ContainModuleMetadata {
                     kind,
                     slots,
@@ -1037,6 +1082,8 @@ impl GameLogic {
                     rider_change_scuttle_status,
                     rider_change_scuttle_status_mask,
                     frames_for_full_heal,
+                    immune_to_clear_building_attacks,
+                    is_enclosing_container,
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -1133,6 +1180,126 @@ impl GameLogic {
 
         template.parking_place = parse();
     }
+
+    /// Retain source-authored `FlightDeckBehaviorModuleData`.  A carrier
+    /// KindOf or template basename never fabricates this behavior.
+    fn apply_authored_flight_deck_metadata(
+        template: &mut ThingTemplate,
+        definition: &ObjectDefinition,
+    ) {
+        use crate::game_logic::FlightDeckMetadata;
+
+        fn parse_duration_frames(value: &str) -> Option<u32> {
+            let digits: String = value
+                .trim_start()
+                .bytes()
+                .take_while(u8::is_ascii_digit)
+                .map(char::from)
+                .collect();
+            let milliseconds = digits.parse::<u64>().ok()?;
+            let frames = milliseconds.checked_mul(30)?.checked_add(999)? / 1_000;
+            u32::try_from(frames).ok()
+        }
+
+        let Some(module) = definition.behavior_modules.iter().find(|module| {
+            module
+                .class_name
+                .eq_ignore_ascii_case("FlightDeckBehavior")
+        }) else {
+            template.flight_deck = None;
+            return;
+        };
+
+        let parse = || -> Option<FlightDeckMetadata> {
+            let num_rows = match module.attribute("NumSpacesPerRunway") {
+                Some(value) => value.trim().parse::<i32>().ok()?,
+                None => 0,
+            };
+            let num_cols = match module.attribute("NumRunways") {
+                Some(value) => value.trim().parse::<i32>().ok()?,
+                None => 0,
+            };
+            let approach_height = match module.attribute("ApproachHeight") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+            let landing_deck_height_offset = match module.attribute("LandingDeckHeightOffset") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+            let heal_amount_per_second = match module.attribute("HealAmountPerSecond") {
+                Some(value) => value.trim().parse::<f32>().ok()?,
+                None => 0.0,
+            };
+            let cleanup_frames = match module.attribute("ParkingCleanupPeriod") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let human_follow_frames = match module.attribute("HumanFollowPeriod") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let replacement_frames = match module.attribute("ReplacementDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let dock_animation_frames = match module.attribute("DockAnimationDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let launch_wave_frames = match module.attribute("LaunchWaveDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let launch_ramp_frames = match module.attribute("LaunchRampDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let lower_ramp_frames = match module.attribute("LowerRampDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let catapult_fire_frames = match module.attribute("CatapultFireDelay") {
+                Some(value) => parse_duration_frames(value)?,
+                None => 0,
+            };
+            let payload_template = module
+                .attribute("PayloadTemplate")
+                .map(|value| value.trim().to_string())
+                .unwrap_or_default();
+            let catapult_system = [
+                module
+                    .attribute("Runway1CatapultSystem")
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
+                module
+                    .attribute("Runway2CatapultSystem")
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
+            ];
+            let metadata = FlightDeckMetadata {
+                payload_template,
+                num_rows,
+                num_cols,
+                approach_height,
+                landing_deck_height_offset,
+                heal_amount_per_second,
+                cleanup_frames,
+                human_follow_frames,
+                replacement_frames,
+                dock_animation_frames,
+                launch_wave_frames,
+                launch_ramp_frames,
+                lower_ramp_frames,
+                catapult_fire_frames,
+                catapult_system,
+            };
+            metadata.is_well_formed().then_some(metadata)
+        };
+
+        template.flight_deck = parse();
+    }
+
 
     /// Retain one exact C++ `DeployStyleAIUpdateModuleData` record from the
     /// Object INI.  A vehicle kind, command-set name, or template basename is
@@ -2529,7 +2696,7 @@ impl GameLogic {
             .collect();
     }
 
-    /// C++ PhysicsBehaviorModuleData Mass / ShockResistance / PitchRollYawFactor.
+    /// C++ PhysicsBehaviorModuleData Mass / Shock / friction / COM / fall / KillWhenResting.
     fn apply_authored_physics_behavior_metadata(
         template: &mut ThingTemplate,
         definition: &ObjectDefinition,
@@ -2550,6 +2717,18 @@ impl GameLogic {
                 .parse::<f32>()
                 .ok()
                 .filter(|v| v.is_finite())
+        }
+        fn parse_bool(value: &str) -> Option<bool> {
+            match stripped(value).to_ascii_lowercase().as_str() {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+        // C++ parseFrictionPerSec: per-sec → per-frame.
+        const SECONDS_PER_LOGICFRAME: f32 = 1.0 / 30.0;
+        fn parse_friction(value: &str) -> Option<f32> {
+            parse_real(value).map(|v| v * SECONDS_PER_LOGICFRAME)
         }
 
         let modules: Vec<_> = definition
@@ -2572,8 +2751,116 @@ impl GameLogic {
         {
             template.pitch_roll_yaw_factor = factor;
         }
+        if let Some(f) = module.attribute("ForwardFriction").and_then(parse_friction) {
+            template.forward_friction = f;
+        }
+        if let Some(f) = module.attribute("LateralFriction").and_then(parse_friction) {
+            template.lateral_friction = f;
+        }
+        if let Some(f) = module.attribute("ZFriction").and_then(parse_friction) {
+            template.z_friction = f;
+        }
+        if let Some(f) = module
+            .attribute("AerodynamicFriction")
+            .and_then(parse_friction)
+        {
+            template.aerodynamic_friction = f;
+        }
+        if let Some(off) = module.attribute("CenterOfMassOffset").and_then(parse_real) {
+            template.center_of_mass_offset = off;
+        }
+        if let Some(v) = module.attribute("AllowBouncing").and_then(parse_bool) {
+            template.allow_bouncing = v;
+        }
+        if let Some(v) = module.attribute("AllowCollideForce").and_then(parse_bool) {
+            template.allow_collide_force = v;
+        }
+        if let Some(v) = module
+            .attribute("KillWhenRestingOnGround")
+            .and_then(parse_bool)
+        {
+            template.kill_when_resting_on_ground = v;
+        }
+        if let Some(h) = module
+            .attribute("MinFallHeightForDamage")
+            .and_then(parse_real)
+        {
+            template.min_fall_speed_for_damage = (2.0 * h.abs()).sqrt();
+        }
+        if let Some(f) = module
+            .attribute("FallHeightDamageFactor")
+            .and_then(parse_real)
+        {
+            template.fall_height_damage_factor = f;
+        }
     }
 
+
+    /// C++ `ThingTemplate.cpp:201-205` / `Geometry.cpp:26-58`.
+    /// Each Geometry* field writes independently; unknown tokens fail closed.
+    fn apply_authored_geometry(template: &mut ThingTemplate, definition: &ObjectDefinition) {
+        fn parse_real(value: &str) -> Option<f32> {
+            let parsed = value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_end_matches('f')
+                .parse::<f32>()
+                .ok()?;
+            parsed.is_finite().then_some(parsed)
+        }
+        fn parse_bool(value: &str) -> Option<bool> {
+            match value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "yes" | "true" | "1" => Some(true),
+                "no" | "false" | "0" => Some(false),
+                _ => None,
+            }
+        }
+
+        let mut geom = template.geometry_info;
+        if let Some(raw) = Self::object_definition_attr(definition, "geometry") {
+            if let Some(ty) = crate::game_logic::HostGeometryType::from_ini(&raw) {
+                geom.geom_type = ty;
+                geom.authored = true;
+            }
+        }
+        if let Some(v) = Self::object_definition_attr(definition, "geometrymajorradius")
+            .as_deref()
+            .and_then(parse_real)
+        {
+            geom.major_radius = v;
+            geom.authored = true;
+        }
+        if let Some(v) = Self::object_definition_attr(definition, "geometryminorradius")
+            .as_deref()
+            .and_then(parse_real)
+        {
+            geom.minor_radius = v;
+            geom.authored = true;
+        }
+        if let Some(v) = Self::object_definition_attr(definition, "geometryheight")
+            .as_deref()
+            .and_then(parse_real)
+        {
+            geom.height = v;
+            geom.authored = true;
+        }
+        if let Some(v) =
+            Self::object_definition_attr(definition, "geometryissmall").as_deref().and_then(parse_bool)
+        {
+            geom.is_small = v;
+            geom.authored = true;
+        }
+        template.geometry_info = geom;
+    }
     /// C++ Object.cpp:160-497 builds weapons and modules from ThingTemplate
     /// INI data, not from unit-name residuals.  Capture the create-time
     /// policy bits `create_object_with_owner` used to hardcode.
@@ -2818,6 +3105,7 @@ impl GameLogic {
                     }
                 }
                 Self::apply_authored_parking_place_metadata(template, &definition);
+                Self::apply_authored_flight_deck_metadata(template, &definition);
                 Self::apply_authored_supply_truck_metadata(template, &definition);
                 // Starter templates are retained by the host before the full
                 // Object INI catalogue is seeded.  They still need the exact
@@ -2835,6 +3123,7 @@ impl GameLogic {
                 Self::apply_authored_power_plant_update_metadata(template, &definition);
                 Self::apply_authored_temporary_weapon_behavior_metadata(template, &definition);
                 Self::apply_authored_physics_behavior_metadata(template, &definition);
+                Self::apply_authored_geometry(template, &definition);
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
                 // Existing curated starters keep their broader host combat
                 // bindings, but a mine-clear conditional primary is source
@@ -3606,6 +3895,21 @@ impl GameLogic {
             template.display_name = "GLAInfantryTunnelDefender".to_string();
             self.templates
                 .insert("GLAInfantryTunnelDefender".to_string(), template);
+        }
+        {
+            let mut stinger = ThingTemplate::new("GLAInfantryStingerSoldier");
+            stinger
+                .add_kind_of(KindOf::Infantry)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(crate::game_logic::host_base_defense::STINGER_SOLDIER_MAX_HEALTH)
+                .set_cost(100, 0)
+                .set_primary_weapon_name(
+                    super::super::weapon_bootstrap::STINGER_PRIMARY_WEAPON,
+                )
+                .set_locomotor_name(super::super::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
+            self.templates
+                .insert("GLAInfantryStingerSoldier".to_string(), stinger);
         }
         if let Some(base) = self.templates.get("GLA_Technical").cloned() {
             let mut template = base;
@@ -4580,6 +4884,85 @@ End
             "FSAirfield/name alone must not fabricate ParkingPlaceBehavior"
         );
     }
+
+    #[test]
+    fn parsed_flight_deck_behavior_keeps_authored_shape_without_name_fallback() {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ArbitraryCarrierIdentity
+  Type = Vehicle
+  Model = ArbitraryCarrierModel
+  KindOf = VEHICLE SELECTABLE AIRCRAFT_CARRIER
+  Behavior = FlightDeckBehavior ModuleTag_Deck
+    NumRunways = 2
+    NumSpacesPerRunway = 4
+    ApproachHeight = 50
+    LandingDeckHeightOffset = 22
+    HealAmountPerSecond = 10
+    ParkingCleanupPeriod = 1000
+    HumanFollowPeriod = 500
+    PayloadTemplate = AircraftCarrierRaptor
+    ReplacementDelay = 10000
+    DockAnimationDelay = 2000
+    LaunchWaveDelay = 1500
+    LaunchRampDelay = 1000
+    LowerRampDelay = 2000
+    CatapultFireDelay = 500
+    Runway1CatapultSystem = AircraftCarrierCatapultSteam
+  End
+End
+Object CarrierNamedButNoDeckBehavior
+  Type = Vehicle
+  Model = NoDeckModel
+  KindOf = VEHICLE SELECTABLE AIRCRAFT_CARRIER
+End
+"#,
+                "flight_deck_metadata_probe.ini",
+            )
+            .expect("parse flight deck metadata probe");
+
+        let parsed = GameLogic::build_template_from_object_definition(
+            "ArbitraryCarrierIdentity",
+            parser
+                .get_definition("ArbitraryCarrierIdentity")
+                .expect("carrier definition"),
+            None,
+        );
+        let metadata = parsed.flight_deck.expect("authored flight deck metadata");
+        assert_eq!(metadata.num_rows, 4);
+        assert_eq!(metadata.num_cols, 2);
+        assert_eq!(metadata.capacity(), Some(8));
+        assert_eq!(metadata.payload_template, "AircraftCarrierRaptor");
+        assert!((metadata.approach_height - 50.0).abs() < f32::EPSILON);
+        assert!((metadata.landing_deck_height_offset - 22.0).abs() < f32::EPSILON);
+        assert_eq!(metadata.cleanup_frames, 30);
+        assert_eq!(metadata.human_follow_frames, 15);
+        assert_eq!(metadata.replacement_frames, 300);
+        assert_eq!(metadata.dock_animation_frames, 60);
+        assert_eq!(metadata.launch_wave_frames, 45);
+        assert_eq!(metadata.launch_ramp_frames, 30);
+        assert_eq!(metadata.lower_ramp_frames, 60);
+        assert_eq!(metadata.catapult_fire_frames, 15);
+        assert_eq!(
+            metadata.catapult_system[0].as_deref(),
+            Some("AircraftCarrierCatapultSteam")
+        );
+
+        let no_behavior = GameLogic::build_template_from_object_definition(
+            "CarrierNamedButNoDeckBehavior",
+            parser
+                .get_definition("CarrierNamedButNoDeckBehavior")
+                .expect("no-behavior definition"),
+            None,
+        );
+        assert!(
+            no_behavior.flight_deck.is_none(),
+            "carrier KindOf/name alone must not fabricate FlightDeckBehavior"
+        );
+    }
+
 
     #[test]
     fn retail_deploy_style_modules_preserve_authored_timings_and_flags() {
@@ -6248,6 +6631,64 @@ End
         let bare_obj = Object::new(bare, ObjectId(5), Team::Neutral);
         assert_eq!(bare_obj.crusher_level, 0);
         assert_eq!(bare_obj.crushable_level, 255);
+    }
+
+    #[test]
+    fn ini_geometry_stamps_live_template_not_kind_radii() {
+        // C++ ThingTemplate.cpp:201-205 / Geometry.cpp:26-58 parse Geometry*.
+        // Retail AmericaTankBattleMaster: BOX 13 / 9 / 10, IsSmall Yes.
+        let mut def = ObjectDefinition::new("AmericaTankBattleMaster".to_string());
+        def.attributes
+            .insert("KindOf".to_string(), "VEHICLE SELECTABLE CAN_ATTACK".to_string());
+        def.attributes
+            .insert("Geometry".to_string(), "BOX".to_string());
+        def.attributes
+            .insert("GeometryMajorRadius".to_string(), "13.0".to_string());
+        def.attributes
+            .insert("GeometryMinorRadius".to_string(), "9.0".to_string());
+        def.attributes
+            .insert("GeometryHeight".to_string(), "10.0".to_string());
+        def.attributes
+            .insert("GeometryIsSmall".to_string(), "Yes".to_string());
+
+        let template = GameLogic::build_template_from_object_definition(
+            "AmericaTankBattleMaster",
+            &def,
+            None,
+        );
+        assert!(template.geometry_info.authored);
+        assert_eq!(
+            template.geometry_info.geom_type,
+            crate::game_logic::HostGeometryType::Box
+        );
+        assert!((template.geometry_info.major_radius - 13.0).abs() < 1e-4);
+        assert!((template.geometry_info.minor_radius - 9.0).abs() < 1e-4);
+        assert!((template.geometry_info.height - 10.0).abs() < 1e-4);
+        assert!(template.geometry_info.is_small);
+
+        let obj = Object::new(template, ObjectId(1), Team::USA);
+        let expected_circle = 13.0f32.hypot(9.0);
+        assert!(
+            (obj.selection_radius - expected_circle).abs() < 1e-4,
+            "selection must be bounding circle {}, not Vehicle 15; got {}",
+            expected_circle,
+            obj.selection_radius
+        );
+        assert!((obj.thing.geometry.radius - expected_circle).abs() < 1e-4);
+        assert!((obj.thing.geometry.bounds_max.x - 13.0).abs() < 1e-4);
+        assert!((obj.thing.geometry.bounds_max.z - 9.0).abs() < 1e-4);
+        assert!((obj.thing.geometry.bounds_max.y - 10.0).abs() < 1e-4);
+
+        // Unknown Geometry token fails closed (keeps default SPHERE).
+        let mut bad = ObjectDefinition::new("BogusGeom".to_string());
+        bad.attributes
+            .insert("Geometry".to_string(), "PYRAMID".to_string());
+        let bare = GameLogic::build_template_from_object_definition("BogusGeom", &bad, None);
+        assert!(!bare.geometry_info.authored);
+        assert_eq!(
+            bare.geometry_info.geom_type,
+            crate::game_logic::HostGeometryType::Sphere
+        );
     }
 }
 

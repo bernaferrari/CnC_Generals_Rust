@@ -430,7 +430,8 @@ impl CnCGameEngine {
             .first()
             .copied();
         // Wave 924: placement cursor uses host legal-build residual cache (no live dual-read).
-        let code = self.host_legal_build_code_at_for_builder(team, loc, &template, builder_id);
+        // Preview: IGNORE_STEALTHED so unseen stealthed units do not redden the ghost.
+        let code = self.host_legal_build_code_at_for_preview(team, loc, &template, builder_id);
         let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
         // Dual HUD residual
         self.game_hud

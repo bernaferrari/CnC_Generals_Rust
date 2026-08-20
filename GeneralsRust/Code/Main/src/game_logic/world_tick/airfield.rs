@@ -1408,6 +1408,7 @@ impl GameLogic {
     /// C++ ParkingPlaceBehavior heal residual for docked aircraft at airfields.
     pub(crate) fn tick_airfield_parking_heal(&mut self) {
         self.tick_airfield_parking_lifecycle();
+        self.tick_flight_decks();
         use crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade;
         // Docked jets with Countermeasures (ReloadTime=0 / MustReloadAtAirfield residual)
         // reload flares even when already at full HP.

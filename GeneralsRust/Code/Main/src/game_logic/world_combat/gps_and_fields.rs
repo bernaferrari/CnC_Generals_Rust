@@ -858,39 +858,42 @@ impl GameLogic {
                 if obj.status.under_construction || obj.construction_percent + 0.001 < 1.0 {
                     return None;
                 }
+                // C++ PropagandaTowerBehavior::update:177-188 — isDisabled + any
+                // flag except DISABLED_HELD → removeAllInfluence, skip pulse.
+                // Host is_disabled() already excludes HELD (garrisoned/contained).
+                if obj.is_disabled() {
+                    return None;
+                }
                 // Emperor UpgradeRequired residual uses OverlordPropagandaTower for upgraded rate.
                 // Speaker towers use SubliminalMessaging for upgraded rate.
                 let overlord_style = obj.has_overlord_propaganda_residual()
                     || crate::game_logic::host_overlord_addons::is_emperor_template(
                         &obj.template_name,
                     );
+                let controlling = obj.owner_player_id.and_then(|pid| {
+                    self.players
+                        .get(&pid)
+                        .filter(|p| p.is_alive && p.team == obj.team)
+                });
+                let player_has = |names: &[&str]| {
+                    controlling.is_some_and(|p| {
+                        names.iter().any(|name| {
+                            p.unlocked_sciences.iter().any(|s| s == *name)
+                                || p.completed_upgrades.iter().any(|s| s == *name)
+                        })
+                    })
+                };
                 let upgraded = if overlord_style {
                     obj.has_upgrade_tag(UPGRADE_OVERLORD_PROPAGANDA)
                         || obj.has_upgrade_tag("Upgrade_ChinaOverlordPropagandaTower")
                         || obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                        || self
-                            .players
-                            .values()
-                            .find(|p| p.team == obj.team)
-                            .map(|p| {
-                                p.unlocked_sciences.iter().any(|s| {
-                                    s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING
-                                        || s == UPGRADE_OVERLORD_PROPAGANDA
-                                })
-                            })
-                            .unwrap_or(false)
+                        || player_has(&[
+                            UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+                            UPGRADE_OVERLORD_PROPAGANDA,
+                        ])
                 } else {
                     obj.has_upgrade_tag(UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                        || self
-                            .players
-                            .values()
-                            .find(|p| p.team == obj.team)
-                            .map(|p| {
-                                p.unlocked_sciences
-                                    .iter()
-                                    .any(|s| s == UPGRADE_CHINA_SUBLIMINAL_MESSAGING)
-                            })
-                            .unwrap_or(false)
+                        || player_has(&[UPGRADE_CHINA_SUBLIMINAL_MESSAGING])
                 };
                 let pos = obj.get_position();
                 Some((*id, obj.team, pos.x, pos.z, upgraded, overlord_style))
@@ -1305,5 +1308,148 @@ impl GameLogic {
     /// Combined residual honesty: any hero special ability path observed.
     pub fn honesty_hero_ability_ok(&self) -> bool {
         self.hero_abilities.honesty_any_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::ThingTemplate;
+
+    fn insert_speaker_and_infantry(logic: &mut GameLogic) {
+        let mut tower_tpl = ThingTemplate::new("ChinaSpeakerTower");
+        tower_tpl
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(300.0)
+            .set_cost(500, 0);
+        logic
+            .templates
+            .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+
+        let mut inf = ThingTemplate::new("TestInfantry");
+        inf.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(80.0)
+            .set_cost(0, 0);
+        logic.templates.insert("TestInfantry".to_string(), inf);
+    }
+
+    /// C++ PropagandaTowerBehavior.cpp:177-188 — EMP/underpowered (not HELD)
+    /// stops the pulse and removeAllInfluence clears ENTHUSIASTIC.
+    #[test]
+    fn propaganda_pulse_skips_disabled_except_held_and_removes_influence() {
+        let mut logic = GameLogic::new();
+        insert_speaker_and_infantry(&mut logic);
+
+        let tower_id = logic
+            .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tower");
+        let unit_id = logic
+            .create_object("TestInfantry", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("unit");
+        {
+            let unit = logic.host_object_mut(unit_id).expect("unit");
+            let _ = unit.take_damage(40.0);
+        }
+
+        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = logic.host_object(unit_id).expect("unit");
+            assert!(
+                unit.weapon_bonus_enthusiastic,
+                "enabled tower must grant ENTHUSIASTIC"
+            );
+        }
+        let hp_after_pulse = logic.host_object(unit_id).expect("unit").health.current;
+
+        {
+            let tower = logic.host_object_mut(tower_id).expect("tower");
+            tower.set_status_disabled_emp(true);
+            assert!(tower.is_disabled());
+        }
+        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = logic.host_object(unit_id).expect("unit");
+            assert!(
+                !unit.weapon_bonus_enthusiastic,
+                "disabled tower must removeAllInfluence (clear ENTHUSIASTIC)"
+            );
+            assert!(!unit.weapon_bonus_subliminal);
+            assert!(
+                (unit.health.current - hp_after_pulse).abs() < 0.01,
+                "disabled tower must not keep healing"
+            );
+        }
+
+        // HELD-only (contained) is not is_disabled — pulse continues.
+        {
+            let tower = logic.host_object_mut(tower_id).expect("tower");
+            tower.set_status_disabled_emp(false);
+            tower.contained_by = Some(ObjectId(99));
+            assert!(!tower.is_disabled());
+        }
+        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = logic.host_object(unit_id).expect("unit");
+            assert!(
+                unit.weapon_bonus_enthusiastic,
+                "HELD-only tower must keep pulsing (C++ DISABLED_HELD exception)"
+            );
+        }
+    }
+
+    /// C++ PropagandaTowerBehavior.cpp:275 getControllingPlayer()->hasUpgradeComplete.
+    /// Same-faction teammate upgrade must not key SUBLIMINAL for another owner.
+    #[test]
+    fn propaganda_subliminal_uses_controlling_player_not_first_same_team() {
+        let mut logic = GameLogic::new();
+        insert_speaker_and_infantry(&mut logic);
+
+        let mut teammate = Player::new(3, Team::China, "ChinaA", true);
+        teammate.add_completed_upgrade(
+            crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+        );
+        logic.add_player(teammate);
+        logic.add_player(Player::new(7, Team::China, "ChinaB", false));
+
+        let tower_id = logic
+            .create_object_for_player("ChinaSpeakerTower", 7, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tower");
+        let unit_id = logic
+            .create_object_for_player("TestInfantry", 7, Vec3::new(20.0, 0.0, 0.0))
+            .expect("unit");
+        assert_eq!(
+            logic.objects.get(&tower_id).and_then(|o| o.owner_player_id),
+            Some(7)
+        );
+
+        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = logic.host_object(unit_id).expect("unit");
+            assert!(
+                unit.weapon_bonus_enthusiastic,
+                "owner without upgrade still grants base ENTHUSIASTIC"
+            );
+            assert!(
+                !unit.weapon_bonus_subliminal,
+                "teammate SubliminalMessaging must not upgrade another player's tower"
+            );
+        }
+
+        // Controlling player completes the upgrade → SUBLIMINAL applies.
+        if let Some(owner) = logic.get_player_mut(7) {
+            owner.add_completed_upgrade(
+                crate::game_logic::host_propaganda::UPGRADE_CHINA_SUBLIMINAL_MESSAGING,
+            );
+        }
+        logic.update_propaganda_tower_pulse(1.0 / 30.0);
+        {
+            let unit = logic.host_object(unit_id).expect("unit");
+            assert!(
+                unit.weapon_bonus_subliminal,
+                "controlling player's hasUpgradeComplete must grant SUBLIMINAL"
+            );
+        }
     }
 }
