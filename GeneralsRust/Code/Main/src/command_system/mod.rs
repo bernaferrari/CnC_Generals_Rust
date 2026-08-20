@@ -30,6 +30,9 @@ mod commandable;
 pub use commandable::*;
 mod button_map;
 pub use button_map::*;
+mod record_tap;
+pub use record_tap::*;
+
 
 #[cfg(test)]
 mod tests;
@@ -46,4 +49,5 @@ pub const COMMAND_SYSTEM_SRC: &str = concat!(
     include_str!("system.rs"),
     include_str!("system_impl.rs"),
     include_str!("types.rs"),
+    include_str!("record_tap.rs"),
 );

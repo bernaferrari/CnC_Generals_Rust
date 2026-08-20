@@ -205,6 +205,15 @@ pub enum KindOf {
     ScoreCreate,
     /// C++ `KINDOF_SCORE_DESTROY` (KindOf.h:67).
     ScoreDestroy,
+    /// C++ `KINDOF_CAN_SEE_THROUGH` — transparent obstacles skipped in attack LOS.
+    CanSeeThrough,
+    /// C++ `KINDOF_NO_GARRISON`. Heroes / special infantry cannot enter GarrisonContain.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    NoGarrison,
+    /// C++ `KINDOF_GARRISONABLE_UNTIL_DESTROYED`. Firebase/bunker stays occupied
+    /// through BODY_REALLYDAMAGED until death.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    GarrisonableUntilDestroyed,
 }
 
 impl KindOf {
@@ -216,6 +225,9 @@ impl KindOf {
             "SCORE" => Some(Self::Score),
             "SCORE_CREATE" => Some(Self::ScoreCreate),
             "SCORE_DESTROY" => Some(Self::ScoreDestroy),
+            "CAN_SEE_THROUGH" | "CAN_SEE_THROUGH_STRUCTURE" => Some(Self::CanSeeThrough),
+            "NO_GARRISON" | "NOGARRISON" => Some(Self::NoGarrison),
+            "GARRISONABLE_UNTIL_DESTROYED" => Some(Self::GarrisonableUntilDestroyed),
             _ => None,
         }
     }
@@ -655,6 +667,14 @@ mod tests {
         assert_eq!(
             KindOf::from_ini_token("SCORE_DESTROY"),
             Some(KindOf::ScoreDestroy)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("NO_GARRISON"),
+            Some(KindOf::NoGarrison)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("GARRISONABLE_UNTIL_DESTROYED"),
+            Some(KindOf::GarrisonableUntilDestroyed)
         );
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

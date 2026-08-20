@@ -82,6 +82,28 @@ pub(crate) fn lookat_view_slot(key: NamedKey) -> Option<usize> {
     }
 }
 
+fn should_emit_host_replay_camera(state: GameState, mode: crate::game_logic::GameMode) -> bool {
+    if !matches!(state, GameState::InGame) {
+        return false;
+    }
+    if !game_engine::common::global_data::read().save_camera_in_replay {
+        return false;
+    }
+    if crate::command_system::host_recorder_is_playback() {
+        return false;
+    }
+    // C++ LookAtXlat.cpp:459 — single-player or skirmish only.
+    matches!(
+        mode,
+        crate::game_logic::GameMode::SinglePlayer | crate::game_logic::GameMode::Skirmish
+    )
+}
+
+fn should_apply_host_replay_camera() -> bool {
+    crate::command_system::host_recorder_is_playback()
+        && game_engine::common::global_data::read().use_camera_in_replay
+}
+
 fn lookat_bookmark_message(slot_one_based: usize) -> String {
     #[cfg(feature = "game_client")]
     {
@@ -1175,6 +1197,22 @@ impl CnCGameEngine {
             // C++ LookAtXlat.cpp:270-274: input disabled stops any scroll.
             self.stop_rmb_lookat_scroll();
         }
+        if should_apply_host_replay_camera() {
+            if let Some(pose) = crate::command_system::take_pending_replay_camera() {
+                // C++ GameLogicDispatch.cpp:1801-1815 setLocation during playback.
+                let clamped = self.clamp_to_world_bounds(pose.pos);
+                self.camera_target = clamped;
+                self.camera_yaw_radians = pose.yaw;
+                if pose.pitch.abs() > f32::EPSILON {
+                    self.camera_pitch_radians = pose.pitch;
+                }
+                self.camera_zoom = pose.zoom;
+                self.camera_yaw_target = None;
+                self.camera_pitch_target = None;
+                self.camera_zoom_target = None;
+                self.apply_camera_orbit_transform();
+            }
+        }
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
         let initial_yaw = self.camera_yaw_radians;
@@ -1479,6 +1517,16 @@ impl CnCGameEngine {
                 self.update_mouse_world_position();
                 self.sync_context_mouse_cursor();
             }
+        }
+        if should_emit_host_replay_camera(self.current_state, self.game_logic.game_mode()) {
+            crate::command_system::tap_replay_camera_for_recorder(
+                crate::command_system::ReplayCameraPose {
+                    pos: self.camera_target,
+                    yaw: self.camera_yaw_radians,
+                    pitch: self.camera_pitch_radians,
+                    zoom: self.camera_zoom,
+                },
+            );
         }
     }
 
@@ -2935,5 +2983,22 @@ mod camera_pick_tests {
                 && src.contains("GuardMode::Normal"),
             "double-click attack-move must post DoGuardPosition / Guard Normal"
         );
+    }
+
+    #[test]
+    fn host_replay_camera_emit_matches_cpp_look_at_gates() {
+        // C++ LookAtXlat.cpp:459 — saveCameraInReplay && (SP || skirmish).
+        assert!(!should_emit_host_replay_camera(
+            GameState::Menu,
+            crate::game_logic::GameMode::Skirmish
+        ));
+        assert!(!should_emit_host_replay_camera(
+            GameState::InGame,
+            crate::game_logic::GameMode::Multiplayer
+        ));
+        assert!(!should_emit_host_replay_camera(
+            GameState::InGame,
+            crate::game_logic::GameMode::Shell
+        ));
     }
 }

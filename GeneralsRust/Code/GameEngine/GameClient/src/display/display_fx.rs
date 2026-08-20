@@ -110,6 +110,17 @@ pub fn set_gamma_state(gamma: f32, bright: f32, contrast: f32) {
     }
 }
 
+/// C++ `TheDisplay->setGamma(gamma, bright, contrast, calibrate)` hook body.
+/// wgpu has no DX8 gamma ramp; this stores the LUT used by draw/present.
+pub fn display_set_gamma(gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
+    set_gamma_state(gamma, bright, contrast);
+}
+
+/// Register `display_set_gamma` as C++ `TheDisplay->setGamma` (OnceLock).
+pub fn install_default_display_gamma_hook() {
+    crate::gui::options_host_bridge::set_display_gamma_hook(display_set_gamma);
+}
+
 pub fn gamma_state() -> GammaState {
     GAMMA_STATE.lock().map(|g| g.clone()).unwrap_or_default()
 }
@@ -866,7 +877,9 @@ pub fn color_u32_to_rgba(color: u32) -> [f32; 4] {
 }
 
 pub fn apply_draw_image_color(color: [f32; 4], mode: DrawImageMode) -> ([f32; 4], UIBlendMode) {
-    match mode {
+    // C++ DX8Wrapper::Set_Gamma is a hardware LUT after all draws.
+    // wgpu analog: remap every W3D drawImage tint that reaches the renderer.
+    let (mut color, blend) = match mode {
         DrawImageMode::Alpha => (color, UIBlendMode::Alpha),
         DrawImageMode::Additive => (color, UIBlendMode::Additive),
         DrawImageMode::Solid => ([color[0], color[1], color[2], 1.0], UIBlendMode::None),
@@ -874,9 +887,13 @@ pub fn apply_draw_image_color(color: [f32; 4], mode: DrawImageMode) -> ([f32; 4]
             let gray = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2];
             ([gray, gray, gray, color[3]], UIBlendMode::Grayscale)
         }
-    }
+    };
+    let mapped = apply_gamma_rgba(color[0], color[1], color[2]);
+    color[0] = mapped[0];
+    color[1] = mapped[1];
+    color[2] = mapped[2];
+    (color, blend)
 }
-
 
 /// C++ `W3DDisplay::setGamma` windowed early-out analog for host present.
 pub fn present_gamma_if_fullscreen(windowed: bool, screen_w: u32, screen_h: u32) {
@@ -884,9 +901,12 @@ pub fn present_gamma_if_fullscreen(windowed: bool, screen_w: u32, screen_h: u32)
         return;
     }
     let _ = (screen_w, screen_h);
-    if let Some((w, h, mut rgba)) = current_movie_frame() {
-        apply_gamma_to_rgba_in_place(&mut rgba);
-        store_movie_frame(w, h, rgba);
+    // blit_video_rgba already remaps a copy. Remap the presented backbuffer
+    // sample used for screenshots / host consume of LAST_PRESENTED_FRAME.
+    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+        if let Some((_, _, rgba)) = frame.as_mut() {
+            apply_gamma_to_rgba_in_place(rgba);
+        }
     }
 }
 
@@ -950,11 +970,37 @@ mod tests {
 
     #[test]
     fn grayscale_mode_desaturates_tint() {
+        set_gamma_state(1.0, 0.0, 1.0);
         let (c, blend) = apply_draw_image_color([1.0, 0.0, 0.0, 1.0], DrawImageMode::Grayscale);
         assert!((c[0] - c[1]).abs() < 0.001 && (c[1] - c[2]).abs() < 0.001);
         assert_eq!(blend, UIBlendMode::Grayscale);
         let (_, add) = apply_draw_image_color([1.0, 1.0, 1.0, 0.5], DrawImageMode::Additive);
         assert_eq!(add, UIBlendMode::Additive);
+    }
+
+    #[test]
+    fn draw_image_color_consumes_display_gamma_like_dx8_set_gamma() {
+        // C++ W3DDisplay.cpp:519-524 TheDisplay->setGamma / DX8Wrapper::Set_Gamma.
+        set_gamma_state(2.0, 0.0, 1.0);
+        let (c, _) = apply_draw_image_color([0.25, 0.25, 0.25, 1.0], DrawImageMode::Alpha);
+        let expected = apply_gamma_rgba(0.25, 0.25, 0.25);
+        assert!((c[0] - expected[0]).abs() < 0.01);
+        assert!((c[0] - 0.25).abs() > 0.05);
+        set_gamma_state(1.0, 0.0, 1.0);
+    }
+
+    #[test]
+    fn present_gamma_remaps_presented_backbuffer() {
+        set_gamma_state(2.0, 0.0, 1.0);
+        note_presented_frame(1, 1, vec![64, 0, 0, 255]);
+        present_gamma_if_fullscreen(false, 8, 8);
+        let (_, _, rgba) = current_presented_frame().expect("presented");
+        assert_ne!(rgba[0], 64);
+        present_gamma_if_fullscreen(true, 8, 8);
+        set_gamma_state(1.0, 0.0, 1.0);
+        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+            *frame = None;
+        }
     }
 
     #[test]

@@ -22,6 +22,8 @@ pub struct PartitionManager {
     /// C++ `storeFoggedCells` / `restoreFoggedCells` snapshot, keyed by
     /// `(player_index, store_to_fog)`.
     fogged_cells: HashMap<(usize, bool), HashSet<(i32, i32)>>,
+    /// C++ `m_updatedSinceLastReset`.
+    updated_since_last_reset: bool,
 }
 
 impl PartitionManager {
@@ -34,6 +36,7 @@ impl PartitionManager {
             cell_size: 40.0,
             shroud: crate::object::collide::partition_shroud::PartitionShroudGrid::new(),
             fogged_cells: HashMap::new(),
+            updated_since_last_reset: false,
         }
     }
 
@@ -88,6 +91,8 @@ impl PartitionManager {
     }
 
     pub fn update(&mut self) -> Result<(), GameLogicError> {
+        // C++ PartitionManager::update always sets m_updatedSinceLastReset.
+        self.updated_since_last_reset = true;
         // Host path: OBJECT_REGISTRY is empty; cells were filled via register_object.
         // Keep cached positions — C++ PartitionManager still tracks live objects.
         if dual_world_registry_unavailable() {
@@ -425,11 +430,18 @@ impl PartitionManager {
 
     pub fn do_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
         self.shroud.reveal_circle(center, radius, player_mask);
+        self.updated_since_last_reset = true;
     }
 
     pub fn undo_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
         self.shroud.undo_reveal_circle(center, radius, player_mask);
+        self.updated_since_last_reset = true;
     }
+
+    pub fn updated_since_last_reset(&self) -> bool {
+        self.updated_since_last_reset
+    }
+
 
     pub fn add_looker(&mut self, player_index: i32, x: i32, y: i32) {
         self.shroud.add_looker(player_index, x, y);
@@ -443,7 +455,7 @@ impl PartitionManager {
     pub fn store_fogged_cells(&mut self, player_index: usize, store_to_fog: bool) {
         let player = player_index as i32;
         let mut cells = HashSet::new();
-        for &(x, y) in self.grid.keys() {
+        for (x, y) in self.shroud.iter_known_cells() {
             match self.shroud.cell_status(player, x, y) {
                 game_engine::common::system::radar::CellShroudStatus::Fogged if store_to_fog => {
                     cells.insert((x, y));
@@ -457,6 +469,7 @@ impl PartitionManager {
         self.fogged_cells
             .insert((player_index, store_to_fog), cells);
     }
+
 
     /// C++ `PartitionManager::restoreFoggedCells`.
     pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
@@ -480,6 +493,7 @@ impl PartitionManager {
         self.object_positions.clear();
         self.ghost_links.clear();
         self.shroud.clear();
+        self.updated_since_last_reset = false;
     }
 }
 

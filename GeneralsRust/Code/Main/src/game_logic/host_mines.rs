@@ -639,6 +639,29 @@ pub fn is_mine_clearer(is_worker: bool, template_name: &str) -> bool {
     n.contains("dozer") || n.contains("worker")
 }
 
+/// C++ DemoTrapUpdate.cpp:181-191: skip KINDOF_DOZER only when current weapon
+/// is DAMAGE_DISARM **and** OBJECT_STATUS_IS_ATTACKING. Idle dozers still trigger.
+pub fn demo_trap_skips_dozer_disarm_while_attacking(
+    is_dozer: bool,
+    current_weapon_is_disarm: bool,
+    is_attacking: bool,
+) -> bool {
+    is_dozer && current_weapon_is_disarm && is_attacking
+}
+
+/// C++ DemoTrapUpdate.cpp:196 — proximity trigger requires ENEMIES.
+/// Neutral / Allies never start the fuse (FriendlyDetonation only continues scan).
+pub fn demo_trap_proximity_requires_enemies(is_enemies: bool) -> bool {
+    is_enemies
+}
+
+/// C++ GameLogicDispatch.cpp:594 MSG_SET_MINE_CLEARING_DETAIL.
+/// Idle dozers must not auto-seek/clear unless the player armed the detail set.
+pub fn mine_clear_allowed_for_order(mine_clearing_detail: bool) -> bool {
+    mine_clearing_detail
+}
+
+
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
 pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
     match kind {
@@ -1109,6 +1132,17 @@ mod tests {
         assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
         assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
         assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
+        // C++ DemoTrapUpdate.cpp:181-191 — idle dozer is not skipped.
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(true, true, false));
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(true, false, true));
+        assert!(demo_trap_skips_dozer_disarm_while_attacking(true, true, true));
+        assert!(!demo_trap_skips_dozer_disarm_while_attacking(false, true, true));
+        // C++ DemoTrapUpdate.cpp:196 — ENEMIES only.
+        assert!(demo_trap_proximity_requires_enemies(true));
+        assert!(!demo_trap_proximity_requires_enemies(false));
+        // C++ GameLogicDispatch.cpp:594 — no idle auto-clear.
+        assert!(!mine_clear_allowed_for_order(false));
+        assert!(mine_clear_allowed_for_order(true));
     }
 
     #[test]

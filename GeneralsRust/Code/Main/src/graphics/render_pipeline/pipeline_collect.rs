@@ -202,7 +202,7 @@ impl RenderPipeline {
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for
             // direct test/boot inputs which still provide only `model_key`.
-            let draw_models = if u.draw_models.is_empty() {
+            let mut draw_models = if u.draw_models.is_empty() {
                 (!u.model_key.trim().is_empty())
                     .then(|| crate::assets::AuthoredDrawModel {
                         module_index: 0,
@@ -214,6 +214,21 @@ impl RenderPipeline {
             } else {
                 u.draw_models.clone()
             };
+            #[cfg(feature = "game_client")]
+            if draw_models.is_empty() {
+                if let Some(spec) =
+                    game_client::core::game_client::presentation_specialized_draw_snapshot(object_id.0)
+                {
+                    if spec.is_debris() && !spec.model_name.trim().is_empty() {
+                        draw_models.push(crate::assets::AuthoredDrawModel {
+                            module_index: 0,
+                            model_key: spec.model_name.clone(),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+
 
             alive_objects += 1;
 
@@ -491,8 +506,20 @@ impl RenderPipeline {
                                 render_item.set_presentation_opacity(u.presentation_opacity);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
+                                #[cfg(feature = "game_client")]
+                                if let Some(spec) =
+                                    game_client::core::game_client::presentation_specialized_draw_snapshot(
+                                        object_id.0,
+                                    )
+                                {
+                                    if let Some(uv) = spec.tread_uv_for_mesh(&mesh.name) {
+                                        render_item.uv_offset_override =
+                                            Some(glam::Vec2::new(uv[0], uv[1]));
+                                    }
+                                }
 
                                 self.render_items.push(render_item);
+
                             }
 
                             // `HLodClass` renders each AdditionalModel after

@@ -1235,6 +1235,21 @@ impl GameLogic {
         self.dozer_bored_repair_events > 0
     }
 
+    /// C++ RebuildHoleBehavior::onDie / newWorkerRespawnProcess / dtor:
+    /// always `TheGameLogic->destroyObject(worker)` so the UNSELECTABLE
+    /// generated worker cannot leak when the hole or scaffold dies.
+    fn destroy_rebuild_hole_worker(&mut self, hole_id: ObjectId) {
+        let Some(wid) = self.objects.get(&hole_id).and_then(|h| h.rebuild_worker_id) else {
+            return;
+        };
+        if self.objects.contains_key(&wid) {
+            self.destroy_object(wid);
+        }
+        if let Some(h) = self.objects.get_mut(&hole_id) {
+            h.rebuild_worker_id = None;
+        }
+    }
+
     /// C++ Object::onDie RECONSTRUCTING residual — transfer attackers back to hole
     /// and restart RebuildHole worker spawn process.
     pub fn handle_reconstructing_death(&mut self, destroyed_id: ObjectId) -> bool {
@@ -1254,16 +1269,20 @@ impl GameLogic {
         let Some(hole_id) = producer else {
             return false;
         };
-        let Some(hole) = self.objects.get_mut(&hole_id) else {
+        let Some(hole) = self.objects.get(&hole_id) else {
             return false;
         };
         if !hole.is_rebuild_hole {
             return false;
         }
+        // C++ startRebuildProcess → newWorkerRespawnProcess(existingWorker).
+        self.destroy_rebuild_hole_worker(hole_id);
+        let Some(hole) = self.objects.get_mut(&hole_id) else {
+            return false;
+        };
         // Restart rebuild process residual.
         hole.rebuild_template_name = Some(template_name);
         hole.rebuild_reconstructing_id = None;
-        hole.rebuild_worker_id = None;
         hole.set_status_masked(false);
         hole.set_status_unselectable(false);
         hole.rebuild_ready_frame = self
@@ -1345,7 +1364,9 @@ impl GameLogic {
         None
     }
 
-    /// C++ RebuildHoleExposeDie::onDie residual — spawn hole for GLA structures.
+    /// C++ RebuildHoleExposeDie::onDie residual — spawn hole for authored
+    /// RebuildHoleExposeDie templates. Gate is Neutral / isPlayerActive /
+    /// UNDER_CONSTRUCTION, not faction (captured GLA still exposes a hole).
     pub fn maybe_spawn_rebuild_hole(&mut self, destroyed_id: ObjectId) -> Option<ObjectId> {
         let (
             team,
@@ -1357,6 +1378,8 @@ impl GameLogic {
             is_structure,
             is_hole,
             script_name,
+            dying_geometry,
+            dying_selection_radius,
         ) = {
             let o = self.objects.get(&destroyed_id)?;
             (
@@ -1369,17 +1392,21 @@ impl GameLogic {
                 o.is_kind_of(KindOf::Structure),
                 o.is_rebuild_hole,
                 o.name.clone(),
+                o.thing.geometry.clone(),
+                o.selection_radius,
             )
         };
-        if is_hole || !is_structure || under_construction {
+        // C++ RebuildHoleBehavior::onDie: hole death destroys the generated worker.
+        if is_hole {
+            self.destroy_rebuild_hole_worker(destroyed_id);
+            return None;
+        }
+        if !is_structure || under_construction {
             return None;
         }
         // C++ RebuildHoleExposeDie.cpp:108-110: controlling player != Neutral
-        // && isPlayerActive() && !UNDER_CONSTRUCTION.
+        // && isPlayerActive() && !UNDER_CONSTRUCTION. No KINDOF_GLA / team==GLA test.
         if matches!(team, Team::Neutral) || owner_player_id.is_none() {
-            return None;
-        }
-        if !matches!(team, Team::GLA) {
             return None;
         }
         let hole_name = Self::rebuild_hole_name_for_template(&template_name)?;
@@ -1432,6 +1459,12 @@ impl GameLogic {
             h.is_rebuild_hole = true;
             h.rebuild_template_name = Some(template_name);
             h.rebuild_spawner_id = Some(destroyed_id);
+            // C++ RebuildHoleExposeDie.cpp:126 hole->setGeometryInfo(us->getGeometryInfo()).
+            // Preserve the dying pad's collision / selection / pathfind footprint.
+            let hole_pos = h.thing.geometry.position;
+            h.thing.geometry = dying_geometry;
+            h.thing.geometry.position = hole_pos;
+            h.selection_radius = dying_selection_radius;
             h.rebuild_ready_frame = self
                 .frame
                 .max(1)
@@ -1524,8 +1557,9 @@ impl GameLogic {
                         h.rebuild_worker_id = None;
                         if !recon_alive {
                             h.rebuild_reconstructing_id = None;
-                            h.set_status_masked(false);
                         }
+                        // C++ newWorkerRespawnProcess always maskObject(FALSE).
+                        h.set_status_masked(false);
                         h.rebuild_ready_frame = now
                             .max(1)
                             .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
@@ -1562,12 +1596,13 @@ impl GameLogic {
                     .map(|b| b.is_alive() && !b.status.under_construction)
                     .unwrap_or(false);
                 if finished {
-                    // Clear producer link residual and remove hole.
+                    // C++ RebuildHoleBehavior.cpp:302 transferObjectName(hole, reconstructing).
                     if let Some(rid) = self
                         .objects
                         .get(&hole_id)
                         .and_then(|h| h.rebuild_reconstructing_id)
                     {
+                        let _ = self.transfer_script_object_name(hole_id, rid);
                         if let Some(b) = self.objects.get_mut(&rid) {
                             b.set_status_reconstructing(false);
                             b.set_status_masked(false);
@@ -1582,10 +1617,10 @@ impl GameLogic {
                     self.rebuild_hole_completes = self.rebuild_hole_completes.saturating_add(1);
                     continue;
                 } else {
-                    // Reconstructing object died — reset for new worker.
+                    // Reconstructing object died — C++ newWorkerRespawnProcess(worker).
+                    self.destroy_rebuild_hole_worker(hole_id);
                     if let Some(h) = self.objects.get_mut(&hole_id) {
                         h.rebuild_reconstructing_id = None;
-                        h.rebuild_worker_id = None;
                         h.set_status_masked(false);
                         h.rebuild_ready_frame = now
                             .max(1)
@@ -1598,8 +1633,10 @@ impl GameLogic {
             let Some(h) = self.objects.get(&hole_id) else {
                 continue;
             };
-            // Already reconstructing — keep masked.
-            if h.rebuild_reconstructing_id.is_some() {
+            // Already reconstructing with a live worker — keep masked.
+            // Worker-gone keeps reconstructing_id so a later spawn can
+            // aiResumeConstruction instead of creating a second scaffold.
+            if h.rebuild_reconstructing_id.is_some() && h.rebuild_worker_id.is_some() {
                 continue;
             }
             if h.rebuild_ready_frame == 0 || now < h.rebuild_ready_frame {
@@ -1654,6 +1691,42 @@ impl GameLogic {
             }
             self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
             self.rebuild_hole_workers = self.rebuild_hole_workers.saturating_add(1);
+
+            // C++ ai->aiResumeConstruction when the scaffold is still standing.
+            let existing_recon = self
+                .objects
+                .get(&hole_id)
+                .and_then(|h| h.rebuild_reconstructing_id)
+                .filter(|&rid| {
+                    self.objects
+                        .get(&rid)
+                        .map(|b| b.is_alive() && b.status.under_construction)
+                        .unwrap_or(false)
+                });
+            if let Some(rid) = existing_recon {
+                if let Some(o) = self.objects.get_mut(&rid) {
+                    o.producer_id = Some(hole_id);
+                    o.builder_id = Some(worker_id);
+                    o.set_under_construction_model_conditions(true);
+                }
+                if let Some(w) = self.objects.get_mut(&worker_id) {
+                    w.target = Some(rid);
+                    w.set_actively_constructing(true);
+                }
+                self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
+                if let Some(h) = self.objects.get_mut(&hole_id) {
+                    h.rebuild_worker_id = Some(worker_id);
+                    h.set_status_masked(true);
+                    h.set_status_unselectable(true);
+                }
+                let n = self.transfer_attack(hole_id, rid);
+                if n > 0 {
+                    self.rebuild_hole_attack_transfers =
+                        self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+                }
+                let _ = self.transfer_bombs(hole_id, rid);
+                continue;
+            }
 
             // Spawn reconstructing building (C++ ai->construct residual).
             // Wave 740: entity-first bind when GW pre-spawned the structure.

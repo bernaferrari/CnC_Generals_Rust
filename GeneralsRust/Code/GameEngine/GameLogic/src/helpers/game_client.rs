@@ -386,7 +386,31 @@ impl TheGameClient {
     }
 
     pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
-        log::debug!("GameClient::notify_terrain_object_moved({})", object_id);
+        // C++ W3DGameClient.cpp:202 TheTerrainRenderObject->unitMoved(obj)
+        let Some(info) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let pos = *obj.get_position();
+            let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
+            let geom = obj.get_geometry_info();
+            TerrainUnitMovedInfo {
+                object_id: object_id as u32,
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+                dir_x,
+                dir_y,
+                major_radius: geom.get_major_radius(),
+                minor_radius: geom.get_minor_radius(),
+                is_box: false,
+                crusher_level: obj.get_crusher_level() as i32,
+                immobile: obj.is_kind_of(crate::common::KindOf::Immobile),
+                frame: TheGameLogic::get_frame(),
+            }
+        }) else {
+            return;
+        };
+        if let Some(hook) = get_terrain_unit_moved_hook() {
+            hook(info);
+        }
     }
 
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {

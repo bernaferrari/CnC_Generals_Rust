@@ -65,6 +65,124 @@ fn reveal_ingame_command_window() {
     });
 }
 
+fn leftover_find_window(name: &str) -> Option<std::rc::Rc<std::cell::RefCell<GameWindow>>> {
+    with_window_manager(|manager| manager.find_window_by_name(name))
+}
+
+fn leftover_hide_window(name: &str, hidden: bool) {
+    if let Some(win) = leftover_find_window(name) {
+        let _ = win.borrow_mut().hide(hidden);
+    }
+}
+
+fn leftover_enable_window(name: &str, enabled: bool) {
+    if let Some(win) = leftover_find_window(name) {
+        let _ = win.borrow_mut().enable(enabled);
+    }
+}
+
+fn leftover_window_is_hidden(name: &str) -> bool {
+    leftover_find_window(name)
+        .map(|win| win.borrow().is_hidden())
+        .unwrap_or(true)
+}
+
+fn leftover_mapped_image(name: &str) -> Option<crate::gui::game_window::Image> {
+    let collection = crate::display::image::get_mapped_image_collection();
+    let guard = collection.try_read()?;
+    let found = guard.find_image_by_name(name)?;
+    let size = found.get_image_size();
+    Some(crate::gui::game_window::Image {
+        name: name.to_string(),
+        width: size.x,
+        height: size.y,
+    })
+}
+
+fn leftover_set_enabled_image(window_name: &str, image_name: &str) {
+    let Some(image) = leftover_mapped_image(image_name) else {
+        return;
+    };
+    if let Some(win) = leftover_find_window(window_name) {
+        let _ = win.borrow_mut().set_enabled_image(0, image);
+    }
+}
+
+fn leftover_set_progress(window_name: &str, progress: i32) {
+    if let Some(win) = leftover_find_window(window_name) {
+        let mut win = win.borrow_mut();
+        if let Some(bar) = win.progress_bar_mut() {
+            bar.set_progress(progress.clamp(0, 100) as f32);
+        }
+    }
+}
+
+fn leftover_set_button_text(window_name: &str, text: &str) {
+    if let Some(win) = leftover_find_window(window_name) {
+        let _ = win.borrow_mut().set_text(text);
+    }
+}
+
+fn leftover_animate_windows_enabled() -> bool {
+    game_engine::common::ini::ini_game_data::get_global_data()
+        .map(|data| data.read().animate_windows)
+        .unwrap_or(true)
+}
+
+static LAST_SCIENCE_TRANSITION_GROUP: std::sync::Mutex<Option<&'static str>> =
+    std::sync::Mutex::new(None);
+
+fn leftover_transition_group(group: &'static str) {
+    // C++ ControlBar.cpp:2929-2930 gates GenExpFade on m_animateWindows.
+    // ControlBarArrow (1658) only needs TheTransitionHandler + input enabled.
+    if group == "GenExpFade" && !leftover_animate_windows_enabled() {
+        return;
+    }
+    with_window_manager(|manager| manager.transition_set_group(group, false));
+    if group == "GenExpFade" {
+        if let Ok(mut slot) = LAST_SCIENCE_TRANSITION_GROUP.lock() {
+            *slot = Some(group);
+        }
+    }
+}
+
+fn leftover_ensure_named_window(name: &str) {
+    if leftover_find_window(name).is_some() {
+        return;
+    }
+    with_window_manager(|manager| {
+        if let Ok(win) = manager.create_window(None, 0, 0, 200, 200) {
+            win.borrow_mut().set_name(name);
+            let _ = win.borrow_mut().hide(true);
+        }
+    });
+}
+
+fn leftover_take_last_science_transition_group() -> Option<&'static str> {
+    LAST_SCIENCE_TRANSITION_GROUP
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
+}
+
+fn leftover_display_size() -> (i32, i32) {
+    with_window_manager(|manager| manager.screen_size())
+}
+
+fn leftover_set_tactical_view_height(height: i32) {
+    crate::display::view::with_tactical_view(|view| {
+        view.set_height(height);
+    });
+}
+
+const GEN_EXP_PARENT: &str = "GeneralsExpPoints.wnd:GenExpParent";
+const GEN_EXP_PROGRESS: &str = "GeneralsExpPoints.wnd:ProgressBarExperience";
+const WIN_U_ATTACK: &str = "ControlBar.wnd:WinUAttack";
+const BUTTON_GENERAL: &str = "ControlBar.wnd:ButtonGeneral";
+const BUTTON_LARGE: &str = "ControlBar.wnd:ButtonLarge";
+const CONTROL_BAR_PARENT: &str = "ControlBar.wnd:ControlBarParent";
+
+
 /// C++ ControlBarCommand.cpp:1219-1261 — COMMAND_RESTRICTED unless ScienceVec owned.
 pub fn command_button_science_vec_owned(
     crate_player_has: impl Fn(ScienceType) -> bool,
@@ -104,22 +222,92 @@ impl ControlBar {
     // C++ ControlBar.cpp:143-485, 2907-2966
     // ---------------------------------------------------------------------------
 
+    fn ensure_generals_exp_layout(&mut self) {
+        if leftover_find_window(GEN_EXP_PARENT).is_some() {
+            self.science_layout_loaded = true;
+            return;
+        }
+        // C++ ControlBar.cpp:1058-1062 winCreateLayout("GeneralsExpPoints.wnd")
+        // then bind GenExpParent as CP_PURCHASE_SCIENCE. Retail .wnd may be
+        // absent in this tree — fail-closed stub windows still receive hide.
+        with_window_manager(|manager| {
+            let _ = manager.create_layout_with_windows("GeneralsExpPoints.wnd");
+        });
+        leftover_ensure_named_window(GEN_EXP_PARENT);
+        leftover_ensure_named_window(GEN_EXP_PROGRESS);
+        leftover_ensure_named_window("GeneralsExpPoints.wnd:ButtonExit");
+        leftover_ensure_named_window(BUTTON_GENERAL);
+        leftover_hide_window(GEN_EXP_PARENT, true);
+        leftover_hide_window("GeneralsExpPoints.wnd", true);
+        self.science_layout_loaded = leftover_find_window(GEN_EXP_PARENT).is_some();
+    }
+
+    fn leftover_apply_purchase_science_windows(&self) {
+        let apply_rank = |prefix: &str, buttons: &[ScienceButtonState]| {
+            for (i, button) in buttons.iter().enumerate() {
+                let name = format!("GeneralsExpPoints.wnd:{prefix}{i}");
+                leftover_hide_window(&name, button.is_hidden || button.command_name.is_empty());
+                leftover_enable_window(&name, button.is_enabled && !button.is_purchased);
+                if button.is_purchased {
+                    if let Some(win) = leftover_find_window(&name) {
+                        win.borrow_mut()
+                            .set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                    }
+                }
+            }
+        };
+        apply_rank("ButtonRank1Number", &self.science_state.rank1_buttons);
+        apply_rank("ButtonRank3Number", &self.science_state.rank3_buttons);
+        apply_rank("ButtonRank8Number", &self.science_state.rank8_buttons);
+    }
+
     pub fn show_purchase_science(&mut self) {
+        if gamelogic::helpers::TheScriptEngine::is_game_ending() {
+            return;
+        }
+        self.ensure_generals_exp_layout();
         self.populate_purchase_science();
         self.gen_star_flash = false;
+        self.leftover_apply_purchase_science_windows();
         self.science_state.is_visible = true;
+        if leftover_find_window(GEN_EXP_PARENT).is_some() {
+            if !leftover_window_is_hidden(GEN_EXP_PARENT) {
+                return;
+            }
+            leftover_hide_window(GEN_EXP_PARENT, false);
+            leftover_hide_window("GeneralsExpPoints.wnd", false);
+        }
+        leftover_transition_group("GenExpFade");
     }
 
     pub fn hide_purchase_science(&mut self) {
+        if leftover_find_window(GEN_EXP_PARENT).is_some() {
+            if leftover_window_is_hidden(GEN_EXP_PARENT) {
+                self.science_state.is_visible = false;
+                return;
+            }
+            leftover_hide_window(GEN_EXP_PARENT, true);
+        }
+        leftover_hide_window("GeneralsExpPoints.wnd", true);
         self.science_state.is_visible = false;
     }
 
     pub fn toggle_purchase_science(&mut self) {
-        if self.science_state.is_visible {
-            self.hide_purchase_science();
-        } else {
+        let hidden = leftover_find_window(GEN_EXP_PARENT)
+            .map(|_| leftover_window_is_hidden(GEN_EXP_PARENT))
+            .unwrap_or(!self.science_state.is_visible);
+        if hidden {
             self.show_purchase_science();
+        } else {
+            self.hide_purchase_science();
         }
+    }
+
+    /// C++ ControlBarCallback.cpp:396-399 — ButtonGeneral (and CommandMap
+    /// Alt+G via TheControlBar::toggle_purchase_science) opens/closes the
+    /// GeneralsExpPoints window.
+    pub fn on_generals_button(&mut self) {
+        self.toggle_purchase_science();
     }
 
     fn populate_purchase_science(&mut self) {
@@ -276,6 +464,29 @@ impl ControlBar {
 
 
 
+    fn leftover_experience_progress_percent(player: &gamelogic::player::Player) -> i32 {
+        let skill = player.get_skill_points();
+        let rank = player.get_rank_level();
+        let (down, up) = gamelogic::system::rank_info::the_rank_info_store()
+            .and_then(|store| {
+                let down = store
+                    .get_rank_info(rank as usize)
+                    .map(|info| info.skill_points_needed)
+                    .unwrap_or(0);
+                let up = store
+                    .get_rank_info((rank + 1) as usize)
+                    .map(|info| info.skill_points_needed)
+                    .unwrap_or(down);
+                Some((down, up))
+            })
+            .unwrap_or((0, skill.max(1)));
+        let denom = up - down;
+        if denom == 0 {
+            return 0;
+        }
+        ((skill - down) * 100) / denom
+    }
+
     fn update_context_purchase_science(&mut self) {
         let player_arc = logic_player_list()
             .read()
@@ -287,6 +498,9 @@ impl ControlBar {
         };
 
         self.science_state.available_points = player.get_science_purchase_points();
+        let progress = Self::leftover_experience_progress_percent(&player);
+        self.science_state.experience_progress = (progress as f32 / 100.0).clamp(0.0, 1.0);
+        leftover_set_progress(GEN_EXP_PROGRESS, progress);
     }
 
     /// Feed unlocked science names from PresentationFrame into purchase UI residual.
@@ -351,31 +565,74 @@ impl ControlBar {
     // C++ ControlBar.cpp:2968-3053
     // ---------------------------------------------------------------------------
 
+    fn leftover_capture_default_control_bar_position(&mut self) {
+        if self.default_control_bar_captured {
+            return;
+        }
+        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
+            let (x, y) = parent.borrow().get_position();
+            self.default_control_bar_x = x;
+            self.default_control_bar_y = y;
+            self.default_control_bar_captured = true;
+        }
+    }
+
+    fn leftover_set_up_down_images(&self) {
+        let image = match self.control_bar_stage {
+            ControlBarStage::Low => ["ControlBarUp", "ButtonLargeUp", "ToggleBarUp"],
+            ControlBarStage::Default => ["ControlBarDown", "ButtonLargeDown", "ToggleBarDown"],
+            ControlBarStage::Hidden => return,
+        };
+        for name in image {
+            if leftover_mapped_image(name).is_some() {
+                leftover_set_enabled_image(BUTTON_LARGE, name);
+                break;
+            }
+        }
+    }
+
+    fn leftover_set_default_control_bar_config(&mut self) {
+        self.control_bar_stage = ControlBarStage::Default;
+        reveal_ingame_command_window();
+        self.leftover_capture_default_control_bar_position();
+        let (_sw, sh) = leftover_display_size();
+        leftover_set_tactical_view_height(((sh as f32) * 0.80) as i32);
+        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
+            let _ = parent.borrow_mut().set_position(
+                self.default_control_bar_x,
+                self.default_control_bar_y,
+            );
+            let _ = parent.borrow_mut().hide(false);
+        }
+        self.leftover_set_up_down_images();
+    }
+
+    fn leftover_set_low_control_bar_config(&mut self) {
+        self.leftover_capture_default_control_bar_position();
+        self.control_bar_stage = ControlBarStage::Low;
+        let (_sw, sh) = leftover_display_size();
+        leftover_set_tactical_view_height(sh);
+        let y = sh - ((sh as f32) * 0.10) as i32;
+        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
+            let _ = parent
+                .borrow_mut()
+                .set_position(self.default_control_bar_x, y);
+            let _ = parent.borrow_mut().hide(false);
+        }
+        self.leftover_set_up_down_images();
+    }
+
     pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
         PENDING_CONTROL_BAR_STAGE.store(0xFF, std::sync::atomic::Ordering::SeqCst);
-        self.control_bar_stage = stage;
+        if TheGameLogic::is_in_replay_game() {
+            return;
+        }
         match stage {
-            // C++ ControlBar.cpp:2984-2985 / 3001-3014 setDefaultControlBarConfig.
-            ControlBarStage::Default => reveal_ingame_command_window(),
-            ControlBarStage::Low => {
-                // C++ setLowControlBarConfig :3044 CP_MASTER winHide(FALSE).
-                with_window_manager(|manager| {
-                    if let Some(win) =
-                        manager.find_window_by_name("ControlBar.wnd:ControlBarParent")
-                    {
-                        let _ = win.borrow_mut().hide(false);
-                    }
-                });
-            }
+            ControlBarStage::Default => self.leftover_set_default_control_bar_config(),
+            ControlBarStage::Low => self.leftover_set_low_control_bar_config(),
             ControlBarStage::Hidden => {
-                // C++ setHiddenControlBar :3052 CP_MASTER winHide(TRUE).
-                with_window_manager(|manager| {
-                    if let Some(win) =
-                        manager.find_window_by_name("ControlBar.wnd:ControlBarParent")
-                    {
-                        let _ = win.borrow_mut().hide(true);
-                    }
-                });
+                self.control_bar_stage = ControlBarStage::Hidden;
+                leftover_hide_window(CONTROL_BAR_PARENT, true);
             }
         }
     }
@@ -473,12 +730,29 @@ impl ControlBar {
     // C++ ControlBar.cpp:1651-1682
     // ---------------------------------------------------------------------------
 
+    fn leftover_maybe_flash_control_bar_arrow(&self) {
+        let current_points = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|p| p.read().ok().map(|g| g.get_science_purchase_points()))
+            .unwrap_or(0);
+        if self.last_flashed_at_point_value > current_points {
+            return;
+        }
+        if crate::helpers::TheInGameUI::get_input_enabled() {
+            leftover_transition_group("ControlBarArrow");
+        }
+    }
+
     pub fn on_player_rank_changed(&mut self) {
+        self.leftover_maybe_flash_control_bar_arrow();
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
 
     pub fn on_player_science_purchase_points_changed(&mut self) {
+        self.leftover_maybe_flash_control_bar_arrow();
         self.gen_star_flash = true;
         self.mark_ui_dirty();
     }
@@ -488,9 +762,34 @@ impl ControlBar {
     // C++ ControlBar.cpp:3198-3747
     // ---------------------------------------------------------------------------
 
+    fn leftover_shortcut_button_name(&self, index: usize) -> String {
+        if self.special_power_shortcut_layout.is_empty() {
+            format!("ControlBar.wnd:ButtonCommand{}", index + 1)
+        } else {
+            format!("{}:ButtonCommand{}", self.special_power_shortcut_layout, index + 1)
+        }
+    }
+
+    fn leftover_shortcut_parent_name(&self, index: usize) -> String {
+        if self.special_power_shortcut_layout.is_empty() {
+            format!("ControlBar.wnd:ButtonParent{}", index + 1)
+        } else {
+            format!("{}:ButtonParent{}", self.special_power_shortcut_layout, index + 1)
+        }
+    }
+
+    fn leftover_shortcut_bar_parent_name(&self) -> String {
+        if self.special_power_shortcut_layout.is_empty() {
+            "ControlBar.wnd:GenPowersShortcutBarParent".to_string()
+        } else {
+            format!("{}:GenPowersShortcutBarParent", self.special_power_shortcut_layout)
+        }
+    }
+
     pub fn init_special_power_shortcut_bar(&mut self) {
         self.special_power_shortcuts.clear();
         self.special_power_shortcut_count = 0;
+        self.special_power_shortcut_layout.clear();
 
         let player_arc = logic_player_list()
             .read()
@@ -500,13 +799,29 @@ impl ControlBar {
         let Ok(player) = player_arc.read() else {
             return;
         };
-
         if !player.is_player_active() {
             return;
         }
+        let Some(template) = player.get_player_template() else {
+            return;
+        };
+        let button_count = template.get_special_power_shortcut_button_count();
+        let win_name = template.get_special_power_shortcut_win_name().to_string();
+        if button_count <= 0 || win_name.is_empty() {
+            return;
+        }
+        self.special_power_shortcut_count =
+            (button_count as usize).min(MAX_SPECIAL_POWER_SHORTCUTS);
+        self.special_power_shortcut_layout = win_name.clone();
 
-        self.special_power_shortcut_count = MAX_SPECIAL_POWER_SHORTCUTS;
-        for _ in 0..self.special_power_shortcut_count {
+        with_window_manager(|manager| {
+            let _ = manager.create_layout_with_windows(&win_name);
+        });
+        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), true);
+        leftover_hide_window(&win_name, leftover_find_window(&win_name).is_some());
+
+
+        for i in 0..self.special_power_shortcut_count {
             self.special_power_shortcuts
                 .push(SpecialPowerShortcutState {
                     command_name: String::new(),
@@ -514,6 +829,164 @@ impl ControlBar {
                     multiplier_count: 1,
                     is_hidden: true,
                 });
+            let button_name = self.leftover_shortcut_button_name(i);
+            if let Some(win) = leftover_find_window(&button_name) {
+                let mut win = win.borrow_mut();
+                win.set_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
+                win.set_status(crate::gui::game_window::WindowStatus::SHORTCUT_BUTTON);
+                let _ = win.hide(true);
+            }
+            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
+        }
+    }
+
+    fn leftover_player_has_object_template(
+        player: &gamelogic::player::Player,
+        template_name: &str,
+    ) -> bool {
+        if template_name.is_empty() {
+            return false;
+        }
+        let mut found = false;
+        let _ = player.iterate_objects(|obj_arc| {
+            if found {
+                return Ok(());
+            }
+            if let Ok(obj) = obj_arc.read() {
+                if obj.get_template_name().eq_ignore_ascii_case(template_name) {
+                    found = true;
+                }
+            }
+            Ok(())
+        });
+        found
+    }
+
+    fn leftover_has_any_shortcut_special_power(player: &gamelogic::player::Player) -> bool {
+        let mut found = false;
+        let _ = player.iterate_objects(|obj_arc| {
+            if found {
+                return Ok(());
+            }
+            if let Ok(obj) = obj_arc.read() {
+                if obj
+                    .find_any_shortcut_special_power_module_interface()
+                    .is_some()
+                {
+                    found = true;
+                }
+            }
+            Ok(())
+        });
+        found
+    }
+
+    fn leftover_shortcut_module_name_and_ready(
+        obj: &gamelogic::object::Object,
+    ) -> Option<(String, bool, f32)> {
+        let behavior = obj.find_any_shortcut_special_power_module_interface()?;
+        let mut guard = behavior.lock().ok()?;
+        let sp = guard.get_special_power_module_interface()?;
+        let template_any = sp.get_special_power_template()?;
+        let template = template_any.downcast_ref::<std::sync::Arc<
+            gamelogic::object::special_power_template::SpecialPowerTemplate,
+        >>()?;
+        Some((
+            template.get_name().to_string(),
+            sp.is_ready(),
+            sp.get_percent_ready(),
+        ))
+    }
+
+    fn leftover_count_ready_shortcut_special_powers(
+        player: &gamelogic::player::Player,
+        special_power_name: &str,
+    ) -> i32 {
+        if special_power_name.is_empty() {
+            return 0;
+        }
+        let mut count = 0;
+        let _ = player.iterate_objects(|obj_arc| {
+            let Ok(obj) = obj_arc.read() else {
+                return Ok(());
+            };
+            if let Some((name, ready, _)) = Self::leftover_shortcut_module_name_and_ready(&obj) {
+                if name.eq_ignore_ascii_case(special_power_name) && ready {
+                    count += 1;
+                }
+            }
+            Ok(())
+        });
+        count
+    }
+
+    fn leftover_find_most_ready_shortcut_object(
+        player: &gamelogic::player::Player,
+        special_power_name: &str,
+    ) -> Option<u32> {
+        if special_power_name.is_empty() {
+            return None;
+        }
+        let mut best_id = None;
+        let mut best_ready = -1.0f32;
+        let _ = player.iterate_objects(|obj_arc| {
+            let Ok(obj) = obj_arc.read() else {
+                return Ok(());
+            };
+            if let Some((name, _, ready)) = Self::leftover_shortcut_module_name_and_ready(&obj) {
+                if name.eq_ignore_ascii_case(special_power_name) && ready > best_ready {
+                    best_ready = ready;
+                    best_id = Some(obj.get_id());
+                }
+            }
+            Ok(())
+        });
+        best_id
+    }
+
+    fn leftover_apply_shortcut_window(
+        &self,
+        index: usize,
+        hidden: bool,
+        availability: CommandAvailability,
+        ready_count: i32,
+    ) {
+        let button_name = self.leftover_shortcut_button_name(index);
+        let parent_name = self.leftover_shortcut_parent_name(index);
+        leftover_hide_window(&button_name, hidden);
+        leftover_hide_window(&parent_name, hidden);
+        if hidden {
+            leftover_set_button_text(&button_name, "");
+            return;
+        }
+        if let Some(win) = leftover_find_window(&button_name) {
+            let mut win = win.borrow_mut();
+            win.clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
+            win.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+            match availability {
+                CommandAvailability::Hidden => {
+                    let _ = win.hide(true);
+                }
+                CommandAvailability::Restricted => {
+                    let _ = win.enable(false);
+                }
+                CommandAvailability::NotReady => {
+                    let _ = win.enable(false);
+                    win.set_status(crate::gui::game_window::WindowStatus::NOT_READY);
+                }
+                CommandAvailability::CantAfford => {
+                    let _ = win.enable(false);
+                    win.set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                }
+                _ => {
+                    let _ = win.enable(true);
+                }
+            }
+        }
+        if ready_count > 1 {
+            leftover_set_button_text(&button_name, &ready_count.to_string());
+        } else {
+            leftover_set_button_text(&button_name, "");
         }
     }
 
@@ -532,6 +1005,16 @@ impl ControlBar {
         let Ok(player) = player_arc.read() else {
             return Ok(());
         };
+        if !player.is_local_player() {
+            return Ok(());
+        }
+        let Some(template) = player.get_player_template() else {
+            return Ok(());
+        };
+        let set_name = template.get_special_power_shortcut_command_set();
+        if set_name.is_empty() {
+            return Ok(());
+        }
 
         let control_bar = get_control_bar_bridge();
         let Some(control_bar) = control_bar else {
@@ -539,12 +1022,17 @@ impl ControlBar {
         };
 
         let command_set = control_bar
-            .find_command_set_by_name("SpecialPowerShortcut")
-            .or_else(|| control_bar.find_command_set_by_name("SPECIALPOWERSHORTCUT"));
+            .find_command_set_by_name(set_name)
+            .or_else(|| control_bar.find_command_set_by_name(&set_name.to_ascii_uppercase()));
 
         let Some(command_set) = command_set else {
             return Ok(());
         };
+
+        for i in 0..self.special_power_shortcut_count {
+            leftover_hide_window(&self.leftover_shortcut_button_name(i), true);
+            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
+        }
 
         let mut current_button = 0;
         for i in 0..self
@@ -556,34 +1044,79 @@ impl ControlBar {
             };
 
             if (logic_button.get_options_bits() & CommandOption::NeedUpgrade as u32) != 0 {
-                let upgrade_name = logic_button
-                    .get_upgrade_template()
-                    .map(|t| t.get_name().as_str().to_string())
-                    .unwrap_or_default();
-                if !upgrade_name.is_empty() {
-                    let has_upgrade = with_upgrade_center(|c| {
-                        let template = c.find_upgrade(&upgrade_name);
-                        template.is_some()
-                    });
-                    if !has_upgrade {
+                if let Some(upgrade) = logic_button.get_upgrade_template() {
+                    if !player.has_upgrade_complete(upgrade) {
                         continue;
                     }
                 }
             }
 
+            if (logic_button.get_options_bits() & CommandOption::NeedSpecialPowerScience as u32) != 0
+            {
+                let Some(power) = logic_button.get_special_power_template() else {
+                    continue;
+                };
+                if Self::leftover_find_most_ready_shortcut_object(&player, power.get_name())
+                    .is_none()
+                {
+                    continue;
+                }
+                let required = power.get_required_science();
+                if required != SCIENCE_INVALID && !player.has_science(required) {
+                    continue;
+                }
+            } else if logic_button.get_command_type() == CommandType::MetaSelectMatchingUnits {
+                let template_name = logic_button
+                    .get_thing_template()
+                    .map(|t| t.get_name().as_str().to_string())
+                    .unwrap_or_default();
+                if !Self::leftover_player_has_object_template(&player, &template_name) {
+                    continue;
+                }
+            }
+
             if current_button < self.special_power_shortcuts.len() {
+                let mut cmd = Self::command_from_logic_button(logic_button);
+                if let Some(common_bar) = get_ini_control_bar() {
+                    cmd = Self::command_from_set_slot(&common_bar, Some(logic_button));
+                } else {
+                    Self::apply_need_special_power_science(&mut cmd, logic_button);
+                }
                 self.special_power_shortcuts[current_button].command_name =
                     logic_button.get_name().to_string();
                 self.special_power_shortcuts[current_button].is_hidden = false;
                 self.special_power_shortcuts[current_button].availability =
                     CommandAvailability::Available;
+                leftover_hide_window(&self.leftover_shortcut_button_name(current_button), false);
+                leftover_hide_window(&self.leftover_shortcut_parent_name(current_button), false);
+                leftover_enable_window(&self.leftover_shortcut_button_name(current_button), true);
+                leftover_enable_window(&self.leftover_shortcut_parent_name(current_button), true);
+                if !cmd.button_image.is_empty() {
+                    leftover_set_enabled_image(
+                        &self.leftover_shortcut_button_name(current_button),
+                        &cmd.button_image,
+                    );
+                }
                 current_button += 1;
             }
         }
 
         for i in current_button..self.special_power_shortcuts.len() {
             self.special_power_shortcuts[i].is_hidden = true;
+            self.special_power_shortcuts[i].command_name.clear();
+            leftover_hide_window(&self.leftover_shortcut_button_name(i), true);
+            leftover_hide_window(&self.leftover_shortcut_parent_name(i), true);
         }
+
+        let parent_name = self.leftover_shortcut_bar_parent_name();
+        if leftover_find_window(CONTROL_BAR_PARENT).is_some()
+            && !leftover_window_is_hidden(CONTROL_BAR_PARENT)
+            && leftover_window_is_hidden(&parent_name)
+        {
+            leftover_hide_window(&parent_name, false);
+            self.animate_special_power_shortcut(true);
+        }
+        self.update_special_power_shortcut_availability();
 
         Ok(())
     }
@@ -593,45 +1126,128 @@ impl ControlBar {
             return;
         }
 
-        let player_active = logic_player_list()
+        let player_arc = logic_player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|p| p.read().ok().map(|g| g.is_player_active()))
-            .unwrap_or(false);
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else {
+            return;
+        };
+        let Ok(player) = player_arc.read() else {
+            return;
+        };
 
-        if !player_active {
-            for shortcut in &mut self.special_power_shortcuts {
-                shortcut.is_hidden = true;
-            }
+        let has_select = self.has_any_shortcut_selection();
+        let has_power = Self::leftover_has_any_shortcut_special_power(&player);
+        let parent_name = self.leftover_shortcut_bar_parent_name();
+        let master_visible = leftover_find_window(CONTROL_BAR_PARENT)
+            .map(|w| !w.borrow().is_hidden())
+            .unwrap_or(true);
+
+        if (has_select || has_power)
+            && leftover_window_is_hidden(&parent_name)
+            && master_visible
+        {
+            leftover_hide_window(&parent_name, false);
+            self.animate_special_power_shortcut(true);
+        } else if !has_select && !has_power && !leftover_window_is_hidden(&parent_name) {
+            self.animate_special_power_shortcut(false);
+        }
+
+        if leftover_window_is_hidden(&parent_name) {
             return;
         }
 
-        for shortcut in &mut self.special_power_shortcuts {
-            if shortcut.is_hidden {
+        if !player.is_player_active() {
+            self.hide_special_power_shortcut();
+            return;
+        }
+
+        let control_bar = get_control_bar_bridge();
+        for i in 0..self.special_power_shortcuts.len() {
+            if self.special_power_shortcuts[i].is_hidden {
                 continue;
             }
-            // Default to Available; when count_ready_shortcut_special_powers_of_type
-            // is ported, wire per-button availability checks here.
-            shortcut.availability = CommandAvailability::Available;
+            let command_name = self.special_power_shortcuts[i].command_name.clone();
+            if command_name.is_empty() {
+                continue;
+            }
+            let Some(control_bar) = control_bar.as_ref() else {
+                self.special_power_shortcuts[i].availability = CommandAvailability::Available;
+                continue;
+            };
+            let Some(logic_button) = control_bar.find_command_button_by_name(&command_name) else {
+                // Presentation-seeded ready shortcuts stay Available.
+                self.special_power_shortcuts[i].availability = CommandAvailability::Available;
+                continue;
+            };
+
+            let mut availability = CommandAvailability::Restricted;
+            let mut ready_count = 1;
+            if let Some(power) = logic_button.get_special_power_template() {
+                ready_count = Self::leftover_count_ready_shortcut_special_powers(
+                    &player,
+                    power.get_name(),
+                )
+                .max(1);
+                if let Some(obj_id) =
+                    Self::leftover_find_most_ready_shortcut_object(&player, power.get_name())
+                {
+                    let cmd = Self::command_from_logic_button(&logic_button);
+                    availability = self
+                        .get_command_availability(&cmd, obj_id, player.get_player_index() as u32)
+                        .unwrap_or(CommandAvailability::Restricted);
+                }
+            } else if logic_button.get_command_type() == CommandType::MetaSelectMatchingUnits {
+                let template_name = logic_button
+                    .get_thing_template()
+                    .map(|t| t.get_name().as_str().to_string())
+                    .unwrap_or_default();
+                if Self::leftover_player_has_object_template(&player, &template_name) {
+                    availability = CommandAvailability::Available;
+                } else {
+                    availability = CommandAvailability::Hidden;
+                }
+            }
+
+            self.special_power_shortcuts[i].availability = availability;
+            self.special_power_shortcuts[i].multiplier_count = ready_count;
+            if availability == CommandAvailability::Hidden {
+                self.special_power_shortcuts[i].is_hidden = true;
+            }
+            self.leftover_apply_shortcut_window(i, self.special_power_shortcuts[i].is_hidden, availability, ready_count);
         }
     }
 
     pub fn hide_special_power_shortcut(&mut self) {
-        for shortcut in &mut self.special_power_shortcuts {
+        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), true);
+        for (i, shortcut) in self.special_power_shortcuts.iter_mut().enumerate() {
             shortcut.is_hidden = true;
+            leftover_hide_window(
+                &if self.special_power_shortcut_layout.is_empty() {
+                    format!("ControlBar.wnd:ButtonCommand{}", i + 1)
+                } else {
+                    format!("{}:ButtonCommand{}", self.special_power_shortcut_layout, i + 1)
+                },
+                true,
+            );
         }
     }
 
     pub fn show_special_power_shortcut(&mut self) {
+        if gamelogic::helpers::TheScriptEngine::is_game_ending() {
+            return;
+        }
         if self.special_power_shortcut_count == 0 {
             self.init_special_power_shortcut_bar();
         }
+        leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), false);
         for shortcut in &mut self.special_power_shortcuts {
             if !shortcut.command_name.is_empty() {
                 shortcut.is_hidden = false;
             }
         }
+        let _ = self.populate_special_power_shortcut();
     }
 
     pub fn animate_special_power_shortcut(&mut self, enabled: bool) {
@@ -947,6 +1563,46 @@ mod science_vec_gate_tests {
             &required_ids,
             &required_names
         ));
+    }
+
+    #[test]
+    fn show_purchase_science_unhides_gen_exp_parent_and_sets_fade() {
+        // C++ ControlBar.cpp:2918-2933 showPurchaseScience — winHide(FALSE)
+        // on GeneralsExpPoints.wnd:GenExpParent + setGroup("GenExpFade").
+        let _ = leftover_take_last_science_transition_group();
+        let mut bar = ControlBar::new();
+        bar.show_purchase_science();
+        assert!(
+            leftover_find_window(GEN_EXP_PARENT).is_some(),
+            "showPurchaseScience must bind GeneralsExpPoints.wnd:GenExpParent"
+        );
+        assert!(
+            !leftover_window_is_hidden(GEN_EXP_PARENT),
+            "showPurchaseScience must winHide(FALSE) GenExpParent"
+        );
+        assert!(bar.science_state.is_visible);
+        assert_eq!(
+            leftover_take_last_science_transition_group(),
+            Some("GenExpFade")
+        );
+
+        bar.hide_purchase_science();
+        assert!(
+            leftover_window_is_hidden(GEN_EXP_PARENT),
+            "hidePurchaseScience must winHide(TRUE) GenExpParent"
+        );
+        assert!(!bar.science_state.is_visible);
+    }
+
+    #[test]
+    fn generals_button_and_alt_g_toggle_purchase_science_window() {
+        // C++ ControlBarCallback.cpp:396-399 ButtonGeneral → togglePurchaseScience.
+        // Host Alt+G routes through TheControlBar::toggle_purchase_science.
+        let mut bar = ControlBar::new();
+        bar.on_generals_button();
+        assert!(!leftover_window_is_hidden(GEN_EXP_PARENT));
+        bar.on_generals_button();
+        assert!(leftover_window_is_hidden(GEN_EXP_PARENT));
     }
 }
 

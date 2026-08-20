@@ -280,6 +280,105 @@ impl GameClient {
                         ));
                     }
                 }
+                "W3DTankDraw" => {
+                    if let Some(data) = entry.data.as_any().downcast_ref::<W3DTankDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DTankDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DTruckDraw" => {
+                    if let Some(data) = entry.data.as_any().downcast_ref::<W3DTruckDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DTruckDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DTankTruckDraw" => {
+                    if let Some(data) =
+                        entry.data.as_any().downcast_ref::<W3DTankTruckDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DTankTruckDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DOverlordTankDraw" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DOverlordTankDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DOverlordTankDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DOverlordTruckDraw" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DOverlordTruckDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DOverlordTruckDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DOverlordAircraftDraw" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DOverlordAircraftDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DOverlordAircraftDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DLaserDraw" => {
+                    if let Some(data) = entry.data.as_any().downcast_ref::<W3DLaserDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DLaserDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DDebrisDraw" => {
+                    let data = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<W3DDebrisDrawModuleData>()
+                        .cloned()
+                        .unwrap_or_else(W3DDebrisDrawModuleData::new);
+                    snapshot_modules.push(Box::new(LogicDrawModuleSnapshotAdapter::draw_module(
+                        identifier.to_string(),
+                        Box::new(W3DDebrisDraw::new(data)),
+                    )));
+                }
                 _ => {}
             }
         }
@@ -367,10 +466,13 @@ impl GameClient {
                 if self.drawable_object_map.get(&object_id).copied() == Some(id) {
                     self.drawable_object_map.remove(&object_id);
                 }
+                prune_presentation_specialized_draw(object_id);
             }
         }
         // Direct visual identity is runtime-only and dies with the Drawable.
         self.presentation_direct_drawable_bindings.remove(&id);
+
+
 
         // Remove from text bearing list
         self.text_bearing_drawables

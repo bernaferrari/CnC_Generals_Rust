@@ -5,10 +5,8 @@
 //! Provides tabs for Video, Audio, Controls, and Game settings.
 
 use super::{
-    layout, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent,
-    UIRenderContext,
+    utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext,
 };
-use crate::config::{IniParser, LoadMode};
 use crate::localization;
 use log::info;
 use std::collections::BTreeMap;
@@ -51,7 +49,7 @@ impl Resolution {
 }
 
 /// Option setting that can be adjusted
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum OptionValue {
     Boolean(bool),
     Integer(i32),
@@ -474,6 +472,15 @@ impl OptionsMenu {
             start_y + spacing * 2,
         ));
 
+
+        // Gamma (C++ OptionsMenu.cpp:1239 SliderGamma, 0-100, 50 = 1.0)
+        video_options.push(OptionControl::new(
+            "video.gamma",
+            Self::text("options.video.gamma", "Gamma"),
+            OptionValue::Integer(50),
+            start_x,
+            start_y + spacing * 9,
+        ));
         // Fullscreen
         video_options.push(OptionControl::new(
             "video.fullscreen",
@@ -729,54 +736,113 @@ impl OptionsMenu {
         if !path.exists() {
             return;
         }
-
-        let mut parser = IniParser::new();
-        if parser.load_file(&path, LoadMode::Overwrite).is_err() {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return;
+        };
+        let flat = Self::parse_flat_options_ini(&text);
+        if flat.is_empty() {
             return;
         }
 
         for control in self.iter_controls_mut() {
-            let Some((section, key)) = control.key.split_once('.') else {
-                continue;
-            };
-
-            match &mut control.value {
-                OptionValue::Boolean(val) => {
-                    *val = parser.get_bool(section, key, *val);
-                }
-                OptionValue::Integer(val) => {
-                    *val = parser.get_int(section, key, *val);
-                }
-                OptionValue::Float(val) => {
-                    *val = parser.get_float(section, key, *val);
-                }
-                OptionValue::String(val) => {
-                    *val = parser.get_string(section, key, Some(val.as_str()));
-                }
-                OptionValue::Resolution(res) => {
-                    let raw = parser.get_string(section, key, Some(&res.to_string()));
-                    if let Some((w, h)) = raw.split_once('x') {
-                        if let (Ok(w), Ok(h)) = (w.trim().parse::<u32>(), h.trim().parse::<u32>()) {
-                            *res = Resolution {
-                                width: w,
-                                height: h,
-                            };
+            match control.key.as_str() {
+                "video.resolution" => {
+                    if let Some(raw) = flat.get("Resolution") {
+                        if let Some(res) = Self::parse_resolution_value(raw) {
+                            control.value = OptionValue::Resolution(res);
                         }
                     }
                 }
-                OptionValue::Quality(q) => {
-                    let raw = parser.get_string(section, key, Some(&format!("{q:?}")));
-                    *q = match raw.to_ascii_lowercase().as_str() {
-                        "low" => GraphicsQuality::Low,
-                        "medium" => GraphicsQuality::Medium,
-                        "high" => GraphicsQuality::High,
-                        "ultra" => GraphicsQuality::High,
-                        "custom" => GraphicsQuality::Custom,
-                        _ => *q,
-                    };
+                "video.quality" => {
+                    if let Some(raw) = flat.get("StaticGameLOD") {
+                        control.value = OptionValue::Quality(match raw.to_ascii_lowercase().as_str() {
+                            "low" => GraphicsQuality::Low,
+                            "medium" => GraphicsQuality::Medium,
+                            "high" => GraphicsQuality::High,
+                            "custom" => GraphicsQuality::Custom,
+                            _ => GraphicsQuality::High,
+                        });
+                    }
+                }
+                "video.gamma" => {
+                    if let Some(v) = flat.get("Gamma").and_then(|s| s.parse::<i32>().ok()) {
+                        control.value = OptionValue::Integer(v.clamp(0, 100));
+                    }
+                }
+                "audio.music_volume" => {
+                    if let Some(v) = flat.get("MusicVolume").and_then(|s| s.parse::<f32>().ok()) {
+                        control.value = OptionValue::Float((v / 100.0).clamp(0.0, 1.0));
+                    }
+                }
+                "audio.sfx_volume" => {
+                    if let Some(v) = flat.get("SFXVolume").and_then(|s| s.parse::<f32>().ok()) {
+                        control.value = OptionValue::Float((v / 100.0).clamp(0.0, 1.0));
+                    }
+                }
+                "audio.voice_volume" => {
+                    if let Some(v) = flat.get("VoiceVolume").and_then(|s| s.parse::<f32>().ok()) {
+                        control.value = OptionValue::Float((v / 100.0).clamp(0.0, 1.0));
+                    }
+                }
+                "controls.scroll_speed" => {
+                    if let Some(v) = flat.get("ScrollFactor").and_then(|s| s.parse::<f32>().ok()) {
+                        control.value = OptionValue::Float((v / 100.0).clamp(0.0, 1.0));
+                    }
+                }
+                "controls.alternate_mouse" => {
+                    if let Some(v) = flat.get("UseAlternateMouse") {
+                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
+                    }
+                }
+                "controls.auto_retaliate" => {
+                    if let Some(v) = flat.get("Retaliation") {
+                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
+                    }
+                }
+                "game.language_filter" => {
+                    if let Some(v) = flat.get("LanguageFilter") {
+                        control.value = OptionValue::Boolean(Self::parse_yes_no(v));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn parse_flat_options_ini(text: &str) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('[') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+                if !key.is_empty() && !value.is_empty() {
+                    map.insert(key.to_string(), value.to_string());
                 }
             }
         }
+        map
+    }
+
+    fn parse_resolution_value(raw: &str) -> Option<Resolution> {
+        let mut parts = raw.split(|c: char| c.is_ascii_whitespace() || c == 'x' || c == 'X');
+        let w = parts.next()?.parse::<u32>().ok()?;
+        let h = parts.next()?.parse::<u32>().ok()?;
+        if w > 0 && h > 0 {
+            Some(Resolution::new(w, h))
+        } else {
+            None
+        }
+    }
+
+    fn parse_yes_no(raw: &str) -> bool {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "t" | "true" | "y" | "yes" | "ok"
+        )
     }
 
     fn switch_tab(&mut self, tab: OptionsTab) {
@@ -799,20 +865,49 @@ impl OptionsMenu {
     fn toggle_option(&mut self, key: &str) {
         if let Some(controls) = self.options.get_mut(&self.current_tab) {
             for control in controls {
-                if control.key == key {
-                    if let OptionValue::Boolean(val) = &mut control.value {
-                        *val = !*val;
-                        self.settings_modified = true;
-                    }
-                    info!(
-                        "{}",
-                        localization::localize_with_args(
-                            "options.log.toggle_option",
-                            "Toggled option: {key}",
-                            &[("key", key)],
-                        )
-                    );
+                if control.key != key {
+                    continue;
                 }
+                match &mut control.value {
+                    OptionValue::Boolean(val) => {
+                        *val = !*val;
+                    }
+                    OptionValue::Integer(val) => {
+                        *val = if *val >= 100 { 0 } else { (*val + 10).min(100) };
+                    }
+                    OptionValue::Float(val) => {
+                        *val += 0.1;
+                        if *val > 1.001 {
+                            *val = 0.0;
+                        }
+                    }
+                    OptionValue::Resolution(res) => {
+                        const MODES: &[(u32, u32)] =
+                            &[(800, 600), (1024, 768), (1280, 960), (1600, 1200)];
+                        let idx = MODES
+                            .iter()
+                            .position(|m| m.0 == res.width && m.1 == res.height)
+                            .unwrap_or(0);
+                        let next = MODES[(idx + 1) % MODES.len()];
+                        *res = Resolution::new(next.0, next.1);
+                    }
+                    OptionValue::Quality(q) => {
+                        *q = match q {
+                            GraphicsQuality::Low => GraphicsQuality::Medium,
+                            GraphicsQuality::Medium => GraphicsQuality::High,
+                            GraphicsQuality::High => GraphicsQuality::Custom,
+                            GraphicsQuality::Custom => GraphicsQuality::Low,
+                        };
+                    }
+                    OptionValue::String(s) => {
+                        *s = match s.as_str() {
+                            "Off" => "2x".to_string(),
+                            "2x" => "4x".to_string(),
+                            _ => "Off".to_string(),
+                        };
+                    }
+                }
+                self.settings_modified = true;
             }
         }
     }
@@ -844,48 +939,193 @@ impl OptionsMenu {
             Self::text("options.log.apply_settings", "Applying settings...")
         );
 
-        let Some(path) = Self::options_ini_path() else {
-            self.settings_modified = false;
-            return;
-        };
-
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        // C++ OptionsMenu.cpp:1168 live-apply via WND saveOptions, not a stub.
+        #[cfg(feature = "game_client")]
+        {
+            let _ = game_client::gui::callbacks::apply_options_from_host(self.host_apply_values());
         }
 
-        let mut sections: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
-        for control in self.iter_controls() {
-            let Some((section, key)) = control.key.split_once('.') else {
-                continue;
-            };
-            let value = match &control.value {
-                OptionValue::Boolean(v) => v.to_string(),
-                OptionValue::Integer(v) => v.to_string(),
-                OptionValue::Float(v) => format!("{v:.3}"),
-                OptionValue::String(v) => v.clone(),
-                OptionValue::Resolution(r) => r.to_string(),
-                OptionValue::Quality(q) => format!("{q:?}"),
-            };
-            sections
-                .entry(section.to_string())
-                .or_default()
-                .insert(key.to_string(), value);
-        }
-
-        let mut out = String::new();
-        out.push_str("; Auto-generated options file (Rust port)\n");
-        out.push_str("; Mirrors the C++ Options.ini behaviour at a basic level\n\n");
-        for (section, kv) in sections {
-            out.push_str(&format!("[{section}]\n"));
-            for (key, value) in kv {
-                out.push_str(&format!("{key} = {value}\n"));
+        if let Some(path) = Self::options_ini_path() {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
-            out.push('\n');
+            let _ = std::fs::write(&path, self.format_cpp_options_ini());
         }
-        let _ = std::fs::write(&path, out);
 
         self.original_values = self.snapshot_current_values();
         self.settings_modified = false;
+    }
+
+    fn volume_to_cpp(v: f32) -> i32 {
+        (v.clamp(0.0, 1.0) * 100.0).round() as i32
+    }
+
+    fn control_value(&self, key: &str) -> Option<&OptionValue> {
+        self.iter_controls()
+            .find(|c| c.key == key)
+            .map(|c| &c.value)
+    }
+
+    fn format_cpp_options_ini(&self) -> String {
+        // C++ UserPreferences / OptionsMenu.cpp:1078-1258 — flat Key = Value.
+        let mut out = String::new();
+        for (key, value) in self.cpp_option_pairs() {
+            out.push_str(&format!("{key} = {value}\n"));
+        }
+        out
+    }
+
+    fn cpp_option_pairs(&self) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
+        if let Some(OptionValue::Resolution(r)) = self.control_value("video.resolution") {
+            pairs.push(("Resolution".into(), format!("{} {}", r.width, r.height)));
+        }
+        if let Some(OptionValue::Quality(q)) = self.control_value("video.quality") {
+            let name = match q {
+                GraphicsQuality::High => "High",
+                GraphicsQuality::Medium => "Medium",
+                GraphicsQuality::Low => "Low",
+                GraphicsQuality::Custom => "Custom",
+            };
+            pairs.push(("StaticGameLOD".into(), name.into()));
+        }
+        if let Some(OptionValue::String(s)) = self.control_value("video.antialiasing") {
+            let idx = match s.as_str() {
+                "2x" => 1,
+                "4x" => 2,
+                _ => 0,
+            };
+            pairs.push(("AntiAliasing".into(), idx.to_string()));
+        }
+        if let Some(OptionValue::Integer(g)) = self.control_value("video.gamma") {
+            pairs.push(("Gamma".into(), g.to_string()));
+        }
+        if let Some(OptionValue::Float(v)) = self.control_value("audio.music_volume") {
+            pairs.push(("MusicVolume".into(), Self::volume_to_cpp(*v).to_string()));
+        }
+        if let Some(OptionValue::Float(v)) = self.control_value("audio.sfx_volume") {
+            let n = Self::volume_to_cpp(*v);
+            pairs.push(("SFXVolume".into(), n.to_string()));
+            pairs.push(("SFX3DVolume".into(), n.to_string()));
+        }
+        if let Some(OptionValue::Float(v)) = self.control_value("audio.voice_volume") {
+            pairs.push(("VoiceVolume".into(), Self::volume_to_cpp(*v).to_string()));
+        }
+        if let Some(OptionValue::Float(v)) = self.control_value("controls.scroll_speed") {
+            pairs.push(("ScrollFactor".into(), Self::volume_to_cpp(*v).to_string()));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.alternate_mouse") {
+            pairs.push((
+                "UseAlternateMouse".into(),
+                if *v { "yes" } else { "no" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.auto_retaliate") {
+            pairs.push(("Retaliation".into(), if *v { "yes" } else { "no" }.into()));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.double_click_attack") {
+            pairs.push((
+                "UseDoubleClickAttackMove".into(),
+                if *v { "yes" } else { "no" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.save_camera") {
+            pairs.push((
+                "SaveCameraInReplays".into(),
+                if *v { "yes" } else { "no" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.use_camera") {
+            pairs.push((
+                "UseCameraInReplays".into(),
+                if *v { "yes" } else { "no" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.draw_anchor") {
+            pairs.push((
+                "DrawScrollAnchor".into(),
+                if *v { "Yes" } else { "No" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("controls.move_anchor") {
+            pairs.push((
+                "MoveScrollAnchor".into(),
+                if *v { "Yes" } else { "No" }.into(),
+            ));
+        }
+        if let Some(OptionValue::Boolean(v)) = self.control_value("game.language_filter") {
+            pairs.push((
+                "LanguageFilter".into(),
+                if *v { "true" } else { "false" }.into(),
+            ));
+        }
+        pairs
+    }
+
+    #[cfg(feature = "game_client")]
+    fn host_apply_values(&self) -> game_client::gui::callbacks::HostOptionsApply {
+        use game_client::gui::callbacks::HostOptionsApply;
+        let resolution = match self.control_value("video.resolution") {
+            Some(OptionValue::Resolution(r)) => (r.width as i32, r.height as i32),
+            _ => (1024, 768),
+        };
+        let music_volume = match self.control_value("audio.music_volume") {
+            Some(OptionValue::Float(v)) => Self::volume_to_cpp(*v),
+            _ => 60,
+        };
+        let sfx_volume = match self.control_value("audio.sfx_volume") {
+            Some(OptionValue::Float(v)) => Self::volume_to_cpp(*v),
+            _ => 55,
+        };
+        let voice_volume = match self.control_value("audio.voice_volume") {
+            Some(OptionValue::Float(v)) => Self::volume_to_cpp(*v),
+            _ => 70,
+        };
+        let gamma_slider = match self.control_value("video.gamma") {
+            Some(OptionValue::Integer(v)) => *v,
+            _ => 50,
+        };
+        let scroll_speed = match self.control_value("controls.scroll_speed") {
+            Some(OptionValue::Float(v)) => Self::volume_to_cpp(*v),
+            _ => 50,
+        };
+        let bool_of = |key: &str, default: bool| match self.control_value(key) {
+            Some(OptionValue::Boolean(v)) => *v,
+            _ => default,
+        };
+        let anti_aliasing = match self.control_value("video.antialiasing") {
+            Some(OptionValue::String(s)) => match s.as_str() {
+                "2x" => 1,
+                "4x" => 2,
+                _ => 0,
+            },
+            _ => 0,
+        };
+        let detail_index = match self.control_value("video.quality") {
+            Some(OptionValue::Quality(GraphicsQuality::High)) => 0,
+            Some(OptionValue::Quality(GraphicsQuality::Medium)) => 1,
+            Some(OptionValue::Quality(GraphicsQuality::Low)) => 2,
+            Some(OptionValue::Quality(GraphicsQuality::Custom)) => 3,
+            _ => 1,
+        };
+        HostOptionsApply {
+            resolution,
+            music_volume,
+            sfx_volume,
+            voice_volume,
+            gamma_slider,
+            scroll_speed,
+            alternate_mouse: bool_of("controls.alternate_mouse", false),
+            retaliation: bool_of("controls.auto_retaliate", true),
+            double_click_attack_move: bool_of("controls.double_click_attack", false),
+            language_filter: bool_of("game.language_filter", true),
+            save_camera: bool_of("controls.save_camera", true),
+            use_camera: bool_of("controls.use_camera", true),
+            draw_anchor: bool_of("controls.draw_anchor", true),
+            move_anchor: bool_of("controls.move_anchor", true),
+            anti_aliasing,
+            detail_index,
+        }
     }
 
     fn revert_settings(&mut self) {
@@ -1009,66 +1249,92 @@ impl Interactive for OptionsMenu {
 }
 
 impl Renderable for OptionsMenu {
-    fn render(&self, _context: &mut UIRenderContext) {
-        println!(
-            "{}",
-            Self::text("options.log.header", "=== OPTIONS MENU ===")
+    fn render(&self, context: &mut UIRenderContext) {
+        let (sw, sh) = (self.screen_size.0 as f32, self.screen_size.1 as f32);
+        context.draw_rect(0.0, 0.0, sw, sh, [0.05, 0.06, 0.08, 0.94]);
+        context.draw_text(
+            &Self::text("options.log.header", "OPTIONS"),
+            50.0,
+            36.0,
+            22.0,
+            [0.95, 0.85, 0.35, 1.0],
         );
 
-        // Render tab buttons
-        println!("{}", Self::text("options.log.tabs_header", "Tabs:"));
         for tab_btn in &self.tab_buttons {
-            let state = if tab_btn.active {
-                "[ACTIVE]"
+            let color = if tab_btn.active {
+                [0.35, 0.28, 0.10, 1.0]
             } else if tab_btn.hovered {
-                "[HOVERED]"
+                [0.22, 0.22, 0.26, 1.0]
             } else {
-                ""
+                [0.14, 0.14, 0.16, 1.0]
             };
-            println!("  {} {}", tab_btn.text, state);
+            context.draw_rect(
+                tab_btn.position.0 as f32,
+                tab_btn.position.1 as f32,
+                tab_btn.size.0 as f32,
+                tab_btn.size.1 as f32,
+                color,
+            );
+            context.draw_text(
+                &tab_btn.text,
+                tab_btn.position.0 as f32 + 16.0,
+                tab_btn.position.1 as f32 + 28.0,
+                16.0,
+                [0.95, 0.95, 0.90, 1.0],
+            );
         }
-
-        // Render current tab options
-        println!(
-            "\n{} {:?}",
-            Self::text("options.log.current_tab", "Current Tab:"),
-            self.current_tab
-        );
 
         if let Some(controls) = self.options.get(&self.current_tab) {
             for control in controls {
                 let value_str = match &control.value {
                     OptionValue::Boolean(b) => if *b { "ON" } else { "OFF" }.to_string(),
                     OptionValue::Integer(i) => i.to_string(),
-                    OptionValue::Float(f) => format!("{:.1}", f * 100.0),
+                    OptionValue::Float(f) => format!("{:.0}", f * 100.0),
                     OptionValue::String(s) => s.clone(),
                     OptionValue::Resolution(r) => r.to_string(),
                     OptionValue::Quality(q) => format!("{:?}", q),
                 };
-
-                let state = if !control.enabled {
-                    "[DISABLED]"
-                } else if control.hovered {
-                    "[HOVERED]"
+                let bg = if control.hovered {
+                    [0.20, 0.18, 0.12, 1.0]
                 } else {
-                    ""
+                    [0.10, 0.10, 0.12, 0.0]
                 };
-
-                println!("  {}: {} {}", control.label, value_str, state);
+                context.draw_rect(
+                    control.position.0 as f32,
+                    control.position.1 as f32,
+                    control.size.0 as f32,
+                    control.size.1 as f32,
+                    bg,
+                );
+                context.draw_text(
+                    &format!("{}: {}", control.label, value_str),
+                    control.position.0 as f32,
+                    control.position.1 as f32 + 22.0,
+                    16.0,
+                    [0.92, 0.92, 0.88, 1.0],
+                );
             }
         }
 
-        // Render action buttons
-        println!("\n{}", Self::text("options.log.actions_header", "Actions:"));
         for action_btn in &self.action_buttons {
-            let state = if action_btn.hovered { "[HOVERED]" } else { "" };
-            println!("  {} {}", action_btn.text, state);
-        }
-
-        if self.settings_modified {
-            println!(
-                "\n{}",
-                Self::text("options.log.unsaved_changes", "* Unsaved changes")
+            let color = if action_btn.hovered {
+                [0.40, 0.32, 0.10, 1.0]
+            } else {
+                [0.22, 0.18, 0.08, 1.0]
+            };
+            context.draw_rect(
+                action_btn.position.0 as f32,
+                action_btn.position.1 as f32,
+                action_btn.size.0 as f32,
+                action_btn.size.1 as f32,
+                color,
+            );
+            context.draw_text(
+                &action_btn.text,
+                action_btn.position.0 as f32 + 20.0,
+                action_btn.position.1 as f32 + 28.0,
+                16.0,
+                [0.98, 0.92, 0.55, 1.0],
             );
         }
     }
@@ -1109,5 +1375,51 @@ mod tests {
     fn test_resolution_display() {
         let res = Resolution::new(1920, 1080);
         assert_eq!(res.to_string(), "1920x1080");
+    }
+
+    #[test]
+    fn apply_writes_flat_cpp_options_ini_keys() {
+        // C++ OptionsMenu.cpp:1078 Resolution "%d %d", 1187 MusicVolume 0-100.
+        let mut menu = OptionsMenu::new();
+        menu.initialize().unwrap();
+        let ini = menu.format_cpp_options_ini();
+        assert!(ini.contains("Resolution = 1024 768"), "{ini}");
+        assert!(ini.contains("MusicVolume = 80"), "{ini}");
+        assert!(!ini.contains("[video]"), "{ini}");
+        assert!(!ini.contains("music_volume"), "{ini}");
+        let music: i32 = ini
+            .lines()
+            .find(|l| l.starts_with("MusicVolume"))
+            .and_then(|l| l.split('=').nth(1))
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap();
+        assert!((0..=100).contains(&music));
+    }
+
+    #[test]
+    fn toggle_option_cycles_non_boolean_controls() {
+        let mut menu = OptionsMenu::new();
+        menu.initialize().unwrap();
+        menu.toggle_option("video.gamma");
+        assert_eq!(
+            menu.control_value("video.gamma"),
+            Some(&OptionValue::Integer(60))
+        );
+        menu.toggle_option("audio.music_volume");
+        match menu.control_value("audio.music_volume") {
+            Some(OptionValue::Float(v)) => assert!((*v - 0.9).abs() < 0.001),
+            other => panic!("expected float volume, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_flat_resolution_and_music_volume() {
+        let map = OptionsMenu::parse_flat_options_ini(
+            "Resolution = 800 600\nMusicVolume = 45\n[ignored]\nfoo = bar\n",
+        );
+        assert_eq!(map.get("Resolution").map(String::as_str), Some("800 600"));
+        assert_eq!(map.get("MusicVolume").map(String::as_str), Some("45"));
+        let res = OptionsMenu::parse_resolution_value("800 600").unwrap();
+        assert_eq!(res, Resolution::new(800, 600));
     }
 }

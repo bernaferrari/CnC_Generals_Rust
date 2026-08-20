@@ -692,23 +692,6 @@ impl GameClientScriptActionHandler {
         TheInGameUI::military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS);
     }
 
-    fn stop_all_tracked_music(audio: &TheAudio) {
-        let handles = if let Ok(mut wait_map) = music_wait_slot().lock() {
-            let handles = wait_map
-                .values()
-                .flat_map(|list| list.iter().copied())
-                .collect::<Vec<_>>();
-            wait_map.clear();
-            handles
-        } else {
-            Vec::new()
-        };
-
-        for handle in handles {
-            audio.remove_audio_event(handle);
-        }
-    }
-
     fn music_completed_count_for(track_key: &str) -> i32 {
         let Some(audio) = TheAudio::get() else {
             return music_completed_slot()
@@ -1260,8 +1243,10 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn music_set_track(&self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()> {
         if let Some(audio) = TheAudio::get() {
-            // Match C++ `doMusicTrackChange` by stopping current music before issuing new track.
-            Self::stop_all_tracked_music(audio);
+            // C++ ScriptActions::doMusicTrackChange (ScriptActions.cpp:3271-3285)
+            // only issues AHSV_StopTheMusicFade / AHSV_StopTheMusic. Removing
+            // tracked handles first hard-stops the Miles stream so fade never
+            // starts (hq-ob62m).
             audio.remove_audio_event(if fade_out {
                 AHSV_STOP_THE_MUSIC_FADE
             } else {
@@ -1297,7 +1282,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
 
     fn stop_music(&self) -> GameLogicResult<()> {
         if let Some(audio) = TheAudio::get() {
-            Self::stop_all_tracked_music(audio);
+            // C++ script/UI music stops use AHSV_StopTheMusicFade only
+            // (ScriptActions.cpp:3274-3275, LoadScreen.cpp:1296).
             audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
         }
         Ok(())
@@ -1859,6 +1845,102 @@ mod tests {
             .destroy_win_lose_window()
             .expect("destroy Victorious.wnd");
         assert!(WIN_LOSE_MESSAGE_WINDOW.with(|slot| slot.borrow().is_none()));
+    }
+
+    fn register_script_music_track(name: &str) {
+        use game_engine::common::audio::{AudioEventInfo, AudioPriority, AudioType};
+        let manager =
+            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        if let Ok(mut guard) = manager.lock() {
+            if guard.find_audio_event_info(name).is_none() {
+                guard.register_audio_event_info(AudioEventInfo {
+                    sound_type: AudioType::Music,
+                    audio_name: name.to_string(),
+                    volume: 1.0,
+                    sounds: vec!["theme.wav".to_string()],
+                    filename: "theme.wav".to_string(),
+                    sound_type_field: AudioType::Music,
+                    priority: AudioPriority::Normal,
+                    min_distance: 25.0,
+                    max_distance: 1000.0,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn music_set_track_fade_does_not_hard_stop_before_ahsv_fade() {
+        // C++ ScriptActions::doMusicTrackChange (ScriptActions.cpp:3271-3278)
+        // fadeout=true → only TheAudio->removeAudioEvent(AHSV_StopTheMusicFade).
+        // Hard-stopping tracked handles first leaves nothing for Miles fade.
+        reset_script_action_runtime_state();
+        register_script_music_track("HqOb62ThemeA");
+        register_script_music_track("HqOb62ThemeB");
+
+        let handler = GameClientScriptActionHandler::new();
+        handler
+            .music_set_track("HqOb62ThemeA", false, false)
+            .expect("play first track");
+        if let Some(audio) = TheAudio::get() {
+            audio.update();
+        }
+
+        let manager =
+            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        {
+            let guard = manager.lock().expect("THE_AUDIO lock");
+            assert!(
+                guard.active_event_count() >= 1,
+                "first MUSIC_SET_TRACK must be active so fade has a stream"
+            );
+            assert_eq!(guard.fading_audio_count(), 0);
+        }
+
+        handler
+            .music_set_track("HqOb62ThemeB", true, true)
+            .expect("fade to second track");
+
+        let guard = manager.lock().expect("THE_AUDIO lock");
+        assert_eq!(
+            guard.fading_audio_count(),
+            1,
+            "AHSV_StopTheMusicFade must start Miles fade; hard-stop first would leave 0"
+        );
+    }
+
+    #[test]
+    fn stop_music_uses_ahsv_fade_not_hard_stop() {
+        // C++ LoadScreen.cpp:1296 / doMusicTrackChange fade path: fade sentinel only.
+        reset_script_action_runtime_state();
+        register_script_music_track("HqOb62StopTheme");
+
+        let handler = GameClientScriptActionHandler::new();
+        handler
+            .music_set_track("HqOb62StopTheme", false, false)
+            .expect("play track");
+        if let Some(audio) = TheAudio::get() {
+            audio.update();
+        }
+
+        let manager =
+            game_engine::common::audio::game_audio::initialize_global_audio_manager();
+        {
+            let guard = manager.lock().expect("THE_AUDIO lock");
+            assert!(
+                guard.active_event_count() >= 1,
+                "track must be active before stop_music"
+            );
+        }
+
+        handler.stop_music().expect("stop music");
+
+        let guard = manager.lock().expect("THE_AUDIO lock");
+        assert_eq!(
+            guard.fading_audio_count(),
+            1,
+            "stop_music must issue AHSV_StopTheMusicFade, not remove tracked handles first"
+        );
     }
 
 }

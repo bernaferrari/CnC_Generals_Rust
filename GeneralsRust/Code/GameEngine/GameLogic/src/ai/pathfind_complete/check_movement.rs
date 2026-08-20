@@ -392,6 +392,21 @@ impl PathfindingSystem {
                     continue;
                 }
 
+                // C++ INFANTRY_MOVES_THROUGH_INFANTRY (AIPathfind.cpp:5031-5036).
+                let infantry_through = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj_guard| {
+                        OBJECT_REGISTRY.with_object(pos_unit, |unit_guard| {
+                            obj_guard.is_kind_of(KindOf::Infantry)
+                                && unit_guard.is_kind_of(KindOf::Infantry)
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(false);
+                if infantry_through {
+                    continue;
+                }
+
+
                 // order matters: obj considers unit relationship.
                 let Some((rel, unit_has_ai, can_crush)) = OBJECT_REGISTRY
                     .with_object(obj_id, |obj_guard| {

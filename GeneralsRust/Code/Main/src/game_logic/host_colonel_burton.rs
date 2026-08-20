@@ -33,6 +33,7 @@
 
 use super::Weapon;
 use crate::game_logic::host_red_guard::delay_frames_to_reload_secs;
+use glam::Vec3;
 
 /// Logic frames per second (host fixed step).
 pub const BURTON_LOGIC_FPS: f32 = 30.0;
@@ -341,6 +342,36 @@ pub fn can_plant_timed_charge(active_timed_count: u32) -> bool {
     active_timed_count < BURTON_MAX_TIMED_CHARGES
 }
 
+/// C++ `SpecialAbilityUpdate::startUnpacking` frames with PackUnpackVariationFactor.
+pub fn burton_charge_unpack_frames(variation_factor: f32) -> u32 {
+    let ms = crate::game_logic::vary_pack_unpack_duration_ms(
+        BURTON_CHARGE_UNPACK_TIME_MS,
+        variation_factor,
+    );
+    burton_ms_to_frames(ms.max(1))
+}
+
+/// C++ `SpecialAbilityUpdate::finishAbility` flee point
+/// (`SpecialAbilityUpdate.cpp:1733-1818`): `±dir * FleeRangeAfterCompletion`.
+/// Flip-after-pack/unpack adds the facing vector; otherwise subtract.
+pub fn flee_point_after_charge(
+    pos: Vec3,
+    dir_x: f32,
+    dir_z: f32,
+    flee_range: f32,
+    flip_after: bool,
+) -> Vec3 {
+    let len = (dir_x * dir_x + dir_z * dir_z).sqrt().max(1.0e-4);
+    let ux = dir_x / len;
+    let uz = dir_z / len;
+    let sign = if flip_after { 1.0 } else { -1.0 };
+    Vec3::new(
+        pos.x + sign * ux * flee_range,
+        pos.y,
+        pos.z + sign * uz * flee_range,
+    )
+}
+
 // --- Wave 57 residual honesty packs ---
 
 /// Wave 57 residual honesty: sniper weapon residual.
@@ -536,5 +567,16 @@ mod tests {
         assert!(!can_plant_remote_charge(BURTON_MAX_REMOTE_CHARGES));
         assert!(can_plant_timed_charge(0));
         assert!(!can_plant_timed_charge(BURTON_MAX_TIMED_CHARGES));
+    }
+
+    #[test]
+    fn unpack_variation_and_flee_after_charge() {
+        assert_eq!(burton_charge_unpack_frames(0.0), BURTON_CHARGE_UNPACK_TIME_FRAMES);
+        let pos = Vec3::new(10.0, 0.0, 0.0);
+        let away = flee_point_after_charge(pos, 1.0, 0.0, BURTON_FLEE_RANGE_AFTER_CHARGE, false);
+        assert!((away.x - (10.0 - 100.0)).abs() < 0.01);
+        let flip = flee_point_after_charge(pos, 1.0, 0.0, BURTON_FLEE_RANGE_AFTER_CHARGE, true);
+        assert!((flip.x - (10.0 + 100.0)).abs() < 0.01);
+        assert!(crate::game_logic::vary_pack_unpack_duration_ms(5500, 0.0) == 5500);
     }
 }

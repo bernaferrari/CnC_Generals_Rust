@@ -1422,6 +1422,46 @@ fn capture_channel_uses_authored_ranger_unpack_prepare_and_pack_timing() {
     assert!(captor.target.is_none());
 }
 
+/// C++ `SpecialAbilityUpdate::triggerAbilityEffect` AwardXPForTriggering
+/// (`SpecialAbilityUpdate.cpp:1248-1253`). Retail Ranger capture = 15.
+#[test]
+fn capture_trigger_awards_ranger_award_xp_for_triggering() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+
+    let captor_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+        .expect("captor");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("building");
+    {
+        let captor = game_logic.host_object_mut(captor_id).expect("captor");
+        captor.thing.template.is_trainable = true;
+        captor.target = Some(building_id);
+        captor.set_ai_state(AIState::Capturing);
+        assert_eq!(captor.experience.current, 0.0);
+    }
+
+    // Ranger Unpack 3s + Preparation 20s → trigger.
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic.update_ai(&[captor_id, building_id], 20.0);
+
+    let captor = game_logic.host_object(captor_id).expect("captor after trigger");
+    assert_eq!(
+        captor.experience.current,
+        crate::game_logic::host_structure_economy_residual::CAPTURE_AWARD_XP as f32,
+        "Ranger capture must grant AwardXPForTriggering=15"
+    );
+    assert_eq!(
+        game_logic.host_object(building_id).expect("building").team,
+        Team::USA,
+        "ownership transfer is the trigger that awards XP"
+    );
+}
+
+
 #[test]
 fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
     use crate::game_logic::{CapturePowerKind, ThingTemplate};

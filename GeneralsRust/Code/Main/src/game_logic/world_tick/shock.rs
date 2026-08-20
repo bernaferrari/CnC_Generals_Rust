@@ -679,20 +679,45 @@ impl GameLogic {
         if !obj.is_accepting_experience_points() {
             return;
         }
+        // C++ forwards `experienceGain * m_experienceScalar` to the sink, then
+        // the sink may scale again. Untrainable objects without an explicit
+        // sink do not accept XP (no implicit producer_id).
+        let source_scalar = if obj.experience_scalar.is_finite() && obj.experience_scalar > 0.0 {
+            obj.experience_scalar
+        } else {
+            1.0
+        };
         let dest = obj
             .experience_sink
-            .or_else(|| {
-                if !obj.is_trainable() {
-                    obj.producer_id
-                } else {
-                    None
-                }
-            })
-            .filter(|sid| *sid != recipient_id && self.objects.contains_key(sid))
-            .unwrap_or(recipient_id);
-        if let Some(dest_obj) = self.objects.get_mut(&dest) {
-            dest_obj.gain_experience(amount);
+            .filter(|sid| *sid != recipient_id && self.objects.contains_key(sid));
+        let (dest_id, forwarded) = if let Some(sink_id) = dest {
+            (sink_id, amount * source_scalar)
+        } else {
+            (recipient_id, amount)
+        };
+        if let Some(dest_obj) = self.objects.get_mut(&dest_id) {
+            dest_obj.gain_experience(forwarded);
         }
+    }
+
+    /// C++ Object::scoreTheKill unit XP for residual apply / capture paths.
+    pub(crate) fn award_score_the_kill_experience(
+        &mut self,
+        killer_id: ObjectId,
+        victim_id: ObjectId,
+    ) {
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return;
+        };
+        if victim.is_alive() && victim.health.current > 0.0 && !victim.status.destroyed {
+            return;
+        }
+        let xp = victim.kill_experience_value();
+        let team = victim.team;
+        if !self.kill_awards_unit_experience(killer_id, victim_id, team) {
+            return;
+        }
+        self.award_experience(killer_id, xp);
     }
 
     /// C++ Object::scoreTheKill + getExperienceValue: only ENEMIES, not own/allies.

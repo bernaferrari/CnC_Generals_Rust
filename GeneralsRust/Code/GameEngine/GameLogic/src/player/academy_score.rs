@@ -26,6 +26,8 @@ pub struct AcademyStats {
     pub(super) chose_a_strategy_for_center: Bool,
     /// C++ AcademyStats::m_doubleClickAttackMoveOrdersGiven
     pub(super) double_click_attack_move_orders_given: Int,
+    /// C++ AcademyStats::m_structuresGarrisoned
+    pub(super) structures_garrisoned: Int,
 }
 
 impl AcademyStats {
@@ -49,6 +51,7 @@ impl AcademyStats {
             mines_cleared: 0,
             chose_a_strategy_for_center: false,
             double_click_attack_move_orders_given: 0,
+            structures_garrisoned: 0,
         }
     }
 
@@ -120,6 +123,15 @@ impl AcademyStats {
     /// Record clearing a garrisoned building (matches C++ AcademyStats::recordClearedGarrisonedBuilding).
     pub fn record_cleared_garrisoned_building(&mut self) {
         self.cleared_garrisoned_buildings += 1;
+    }
+
+    /// C++ AcademyStats::recordBuildingGarrisoned — m_structuresGarrisoned++.
+    pub fn record_building_garrisoned(&mut self) {
+        self.structures_garrisoned = self.structures_garrisoned.saturating_add(1);
+    }
+
+    pub fn get_structures_garrisoned(&self) -> Int {
+        self.structures_garrisoned
     }
 
     /// Record a vehicle snipe (C++ AcademyStats::recordVehicleSniped).

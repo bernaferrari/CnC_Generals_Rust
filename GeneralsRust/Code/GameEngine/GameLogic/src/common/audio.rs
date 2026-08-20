@@ -30,9 +30,23 @@ pub enum TimeOfDay {
     Evening,
     Night,
 }
+/// C++ `AudioEventRTS::m_ownerType` (`AudioEventRTS.h`). Exclusive: once Object
+/// or Drawable is set, later `setPosition` is a no-op.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LeftoverAudioOwner {
+    #[default]
+    Invalid,
+    Positional,
+    Object,
+    Drawable,
+    Dead,
+}
+
+/// C++ `AudioEventRTS::m_volume` default `-1` means “use AudioEventInfo”.
+pub const LEFTOVER_UNSET_VOLUME: f32 = -1.0;
 
 /// Audio event for RTS-style events.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioEventRts {
     pub event_name: String,
     pub object_id: u32,
@@ -45,6 +59,14 @@ pub struct AudioEventRts {
     pub should_fade: bool,
     pub playing_handle: AudioHandle,
     pub volume: f32,
+    #[serde(default)]
+    pub owner_type: LeftoverAudioOwner,
+}
+
+impl Default for AudioEventRts {
+    fn default() -> Self {
+        Self::new(String::new())
+    }
 }
 
 impl AudioEventRts {
@@ -64,7 +86,8 @@ impl AudioEventRts {
             uninterruptable: false,
             should_fade: false,
             playing_handle: 0,
-            volume: 1.0,
+            volume: LEFTOVER_UNSET_VOLUME,
+            owner_type: LeftoverAudioOwner::Invalid,
         }
     }
 
@@ -103,11 +126,25 @@ impl AudioEventRts {
     }
 
     pub fn set_object_id(&mut self, id: u32) {
+        if !matches!(
+            self.owner_type,
+            LeftoverAudioOwner::Object | LeftoverAudioOwner::Invalid
+        ) {
+            return;
+        }
         self.object_id = id;
+        self.owner_type = LeftoverAudioOwner::Object;
     }
 
     pub fn set_drawable_id(&mut self, id: u32) {
+        if !matches!(
+            self.owner_type,
+            LeftoverAudioOwner::Drawable | LeftoverAudioOwner::Invalid
+        ) {
+            return;
+        }
         self.drawable_id = Some(id);
+        self.owner_type = LeftoverAudioOwner::Drawable;
     }
 
     pub fn set_time_of_day(&mut self, time_of_day: TimeOfDay) {
@@ -115,7 +152,14 @@ impl AudioEventRts {
     }
 
     pub fn set_position(&mut self, pos: &(f32, f32, f32)) {
+        if !matches!(
+            self.owner_type,
+            LeftoverAudioOwner::Positional | LeftoverAudioOwner::Invalid
+        ) {
+            return;
+        }
         self.position = Some(*pos);
+        self.owner_type = LeftoverAudioOwner::Positional;
     }
 
     pub fn set_player_index(&mut self, index: u32) {
@@ -148,6 +192,11 @@ impl AudioEventRts {
 
     pub fn set_volume(&mut self, volume: f32) {
         self.volume = volume;
+    }
+
+    /// C++ `AudioEventRTS::getVolume`: `-1` means the caller did not scale.
+    pub fn has_caller_volume(&self) -> bool {
+        self.volume != LEFTOVER_UNSET_VOLUME
     }
 }
 
@@ -184,5 +233,27 @@ mod leftover_audio_event_rts_tests {
         let audio = crate::helpers::TheAudio::get().unwrap();
         let event = AudioEventRts::new("DefinitelyNotARealAudioEvent_hq_wlv76_len");
         assert_eq!(audio.get_audio_length_ms(&event), 0.0);
+    }
+
+    #[test]
+    fn leftover_set_object_id_ignores_later_position() {
+        // C++ AudioEventRTS::setPosition is a no-op once owner is OT_Object.
+        let mut ev = AudioEventRts::new("TrainClickety");
+        ev.set_object_id(42);
+        ev.set_position(&(10.0, 20.0, 30.0));
+        assert_eq!(ev.owner_type, LeftoverAudioOwner::Object);
+        assert_eq!(ev.object_id, 42);
+        assert!(ev.position.is_none());
+    }
+
+    #[test]
+    fn leftover_default_volume_is_unset() {
+        // C++ AudioEventRTS default m_volume is -1 (use AudioEventInfo).
+        let ev = AudioEventRts::new("Impact");
+        assert_eq!(ev.volume, LEFTOVER_UNSET_VOLUME);
+        assert!(!ev.has_caller_volume());
+        let mut scaled = ev;
+        scaled.set_volume(0.25);
+        assert!(scaled.has_caller_volume());
     }
 }

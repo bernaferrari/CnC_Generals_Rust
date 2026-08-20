@@ -81,6 +81,8 @@ pub mod host_quad_cannon;
 #[path = "host_ranger.rs"]
 pub mod host_ranger;
 
+#[path = "host_railroad.rs"]
+pub mod host_railroad;
 #[path = "host_raptor.rs"]
 pub mod host_raptor;
 

@@ -698,6 +698,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.do_shroud_reveal(center, radius, player_mask.bits());
+        drop(shroud);
+        crate::object::stamp_partition_cell_lookers(center, radius, player_mask.bits(), true);
     }
 
     /// Mirrors C++ ThePartitionManager->undoShroudReveal().
@@ -706,6 +708,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.undo_shroud_reveal(center, radius, player_mask.bits());
+        drop(shroud);
+        crate::object::stamp_partition_cell_lookers(center, radius, player_mask.bits(), false);
     }
 
     /// Mirrors C++ ThePartitionManager->queueUndoShroudReveal().
@@ -729,6 +733,11 @@ impl ThePartitionManager {
             persist_frames,
             current_frame,
         );
+        drop(shroud);
+        // 40wu SWITCH_BORDER grid shares lookers. Persist delay stays on
+        // ShroudManager; the partition cell undo is applied immediately so
+        // storeFoggedCells cannot keep a looker that already unlooked.
+        crate::object::stamp_partition_cell_lookers(center, radius, player_mask.bits(), false);
     }
 
     /// Mirrors C++ ThePartitionManager->doShroudCover().

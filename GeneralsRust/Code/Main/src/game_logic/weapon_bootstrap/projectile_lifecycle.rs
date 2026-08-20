@@ -158,14 +158,17 @@ fn parse_cpp_duration_unsigned_int(value: &str) -> Option<u32> {
     (frames <= u32::MAX as f64).then_some(frames as u32)
 }
 
-fn optional_duration_frames(data: &dyn EngineModuleData, field: &str) -> Option<Option<u32>> {
+pub(crate) fn optional_duration_frames(
+    data: &dyn EngineModuleData,
+    field: &str,
+) -> Option<Option<u32>> {
     match data.get_ini_field(field) {
         Some(value) => parse_cpp_duration_unsigned_int(value).map(Some),
         None => Some(None),
     }
 }
 
-fn optional_bool(data: &dyn EngineModuleData, field: &str) -> Option<Option<bool>> {
+pub(crate) fn optional_bool(data: &dyn EngineModuleData, field: &str) -> Option<Option<bool>> {
     let Some(value) = data.get_ini_field(field) else {
         return Some(None);
     };
@@ -175,6 +178,79 @@ fn optional_bool(data: &dyn EngineModuleData, field: &str) -> Option<Option<bool
         _ => return None,
     };
     Some(Some(parsed))
+}
+
+pub(crate) fn optional_real(data: &dyn EngineModuleData, field: &str) -> Option<Option<f32>> {
+    let Some(value) = data.get_ini_field(field) else {
+        return Some(None);
+    };
+    value.trim().parse::<f32>().ok().map(Some)
+}
+
+pub(crate) fn optional_percent(data: &dyn EngineModuleData, field: &str) -> Option<Option<f32>> {
+    let Some(value) = data.get_ini_field(field) else {
+        return Some(None);
+    };
+    let trimmed = value.trim().trim_end_matches('%').trim();
+    trimmed.parse::<f32>().ok().map(|n| Some(n / 100.0))
+}
+
+pub(crate) fn optional_velocity_per_frame(
+    data: &dyn EngineModuleData,
+    field: &str,
+) -> Option<Option<f32>> {
+    let Some(value) = data.get_ini_field(field) else {
+        return Some(None);
+    };
+    value
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .map(|per_second| Some(per_second / LOGIC_FRAMES_PER_SECOND as f32))
+}
+
+pub(crate) fn optional_int(data: &dyn EngineModuleData, field: &str) -> Option<Option<i32>> {
+    let Some(value) = data.get_ini_field(field) else {
+        return Some(None);
+    };
+    let digits: String = value
+        .trim()
+        .bytes()
+        .take_while(|b| b.is_ascii_digit() || *b == b'-')
+        .map(char::from)
+        .collect();
+    if digits.is_empty() || digits == "-" {
+        return None;
+    }
+    digits.parse::<i32>().ok().map(Some)
+}
+
+pub(crate) fn optional_string(data: &dyn EngineModuleData, field: &str) -> Option<String> {
+    data.get_ini_field(field).map(|value| value.trim().to_string())
+}
+
+/// Walk the frozen Object INI template for the first DumbProjectile / MissileAI module.
+pub(crate) fn with_projectile_behavior_module<R>(
+    projectile_object_name: &str,
+    f: impl FnOnce(&str, &dyn EngineModuleData) -> Option<R>,
+) -> Option<R> {
+    let name = projectile_object_name.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("none") {
+        return None;
+    }
+    let template = projectile_template_store()
+        .lock()
+        .ok()?
+        .find_template(name, false)?;
+    for module in template.get_behavior_module_info().iter() {
+        let module_name = module.name.as_str();
+        if module_name.eq_ignore_ascii_case("DumbProjectileBehavior")
+            || module_name.eq_ignore_ascii_case("MissileAIUpdate")
+        {
+            return f(module_name, module.data.as_ref());
+        }
+    }
+    None
 }
 
 /// Parse one discovered Object INI tree using the existing generic

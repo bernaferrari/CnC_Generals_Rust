@@ -439,11 +439,8 @@ impl Object {
     }
 
     /// C++ ExperienceTracker::isAcceptingExperiencePoints.
-    /// Untrainable projectiles with a producer accept XP so it can sink to the launcher.
     pub fn is_accepting_experience_points(&self) -> bool {
-        self.is_trainable()
-            || self.experience_sink.is_some()
-            || (!self.is_trainable() && self.producer_id.is_some())
+        self.is_trainable() || self.experience_sink.is_some()
     }
 
     /// C++ ExperienceTracker::getExperienceValue + UNDER_CONSTRUCTION gate.
@@ -480,21 +477,39 @@ impl Object {
         self.experience_sink = sink;
     }
 
+    /// C++ Weapon.cpp:3021 / NeutronMissileUpdate.cpp:219: projectiles sink XP to launcher.
+    pub fn note_producer(&mut self, source: ObjectId) {
+        self.producer_id = Some(source);
+        if self.is_kind_of(crate::game_logic::KindOf::Projectile) {
+            self.set_experience_sink(Some(source));
+        }
+    }
+
+    /// C++ ExperienceTracker::setExperienceScalar.
+    pub fn set_experience_scalar(&mut self, scalar: f32) {
+        self.experience_scalar = if scalar.is_finite() { scalar } else { 1.0 };
+    }
+
+    /// C++ ExperienceScalarUpgrade::upgradeImplementation (get + AddXPScalar).
+    pub fn add_experience_scalar(&mut self, add: f32) {
+        if add.is_finite() && add != 0.0 {
+            self.set_experience_scalar(self.experience_scalar + add);
+        }
+    }
+
     pub fn gain_experience(&mut self, amount: f32) {
         // C++ addExperiencePoints: untrainable objects keep no XP (sink
         // forwarding is handled by GameLogic::award_experience).
         if !self.is_trainable() {
             return;
         }
-        // Wave 79: AdvancedTraining ExperienceScalarUpgrade residual application.
-        // C++ AddXPScalar 1.0 → double XP when the upgrade tag is present.
-        let amount = if self.has_advanced_training_xp_scalar() {
-            crate::game_logic::host_unit_training::residual_xp_gain_with_advanced_training(
-                amount, true,
-            )
+        // C++ amountToGain *= m_experienceScalar when canScaleForBonus.
+        let scalar = if self.experience_scalar.is_finite() && self.experience_scalar > 0.0 {
+            self.experience_scalar
         } else {
-            amount
+            1.0
         };
+        let amount = amount * scalar;
         if amount <= 0.0 || !amount.is_finite() {
             return;
         }

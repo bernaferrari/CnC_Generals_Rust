@@ -576,6 +576,7 @@ impl CommandSystem {
     /// Queue command for execution
     pub fn queue_command(&mut self, command: GameCommand) {
         log::debug!("Queuing command: {:?}", command.command_type);
+        tap_host_command_for_recorder(&command);
         self.command_queue.push_back(command);
     }
 

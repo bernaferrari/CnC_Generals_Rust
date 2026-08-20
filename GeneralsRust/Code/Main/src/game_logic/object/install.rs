@@ -529,6 +529,7 @@ impl Object {
     }
 
     pub fn apply_disabled_hacked(&mut self, until_frame: u32) {
+        let becoming = !self.is_disabled();
         self.set_status_disabled_hacked(true);
         self.status.disabled_hacked_until_frame = until_frame;
         self.record_disable_timers();
@@ -539,9 +540,11 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        if becoming {
+            self.on_disabled_edge(true);
+        }
     }
 
-    /// Expire DISABLED_HACKED when the host frame passes the residual timer.
     pub fn tick_disabled_hacked(&mut self, current_frame: u32) {
         if self.status.disabled_hacked
             && self.status.disabled_hacked_until_frame > 0
@@ -549,6 +552,9 @@ impl Object {
         {
             self.set_status_disabled_hacked(false);
             self.status.disabled_hacked_until_frame = 0;
+            if !self.is_disabled() {
+                self.on_disabled_edge(false);
+            }
         }
     }
 
@@ -567,6 +573,7 @@ impl Object {
     }
 
     pub fn apply_disabled_emp(&mut self, until_frame: u32) {
+        let becoming = !self.is_disabled();
         self.set_status_disabled_emp(true);
         if until_frame > self.status.disabled_emp_until_frame {
             self.status.disabled_emp_until_frame = until_frame;
@@ -579,9 +586,11 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        if becoming {
+            self.on_disabled_edge(true);
+        }
     }
 
-    /// Expire DISABLED_EMP when the host frame passes the residual timer.
     pub fn tick_disabled_emp(&mut self, current_frame: u32) {
         if self.status.disabled_emp
             && self.status.disabled_emp_until_frame > 0
@@ -589,6 +598,9 @@ impl Object {
         {
             self.set_status_disabled_emp(false);
             self.status.disabled_emp_until_frame = 0;
+            if !self.is_disabled() {
+                self.on_disabled_edge(false);
+            }
         }
     }
 
@@ -596,6 +608,7 @@ impl Object {
     /// C++ BattlePlanUpdate::paralyzeTroop: setDisabledUntil(DISABLED_PARALYZED, now + frames).
     /// Refresh extends the timer if a later expiry is provided.
     pub fn apply_disabled_paralyzed(&mut self, until_frame: u32) {
+        let becoming = !self.is_disabled();
         self.set_status_disabled_paralyzed(true);
         if until_frame > self.status.disabled_paralyzed_until_frame {
             self.status.disabled_paralyzed_until_frame = until_frame;
@@ -608,9 +621,11 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         self.set_ai_state(AIState::Idle);
+        if becoming {
+            self.on_disabled_edge(true);
+        }
     }
 
-    /// Expire DISABLED_PARALYZED when the host frame passes the residual timer.
     pub fn tick_disabled_paralyzed(&mut self, current_frame: u32) {
         if self.status.disabled_paralyzed
             && self.status.disabled_paralyzed_until_frame > 0
@@ -618,7 +633,19 @@ impl Object {
         {
             self.set_status_disabled_paralyzed(false);
             self.status.disabled_paralyzed_until_frame = 0;
+            if !self.is_disabled() {
+                self.on_disabled_edge(false);
+            }
         }
+    }
+
+    /// C++ Object::onDisabledEdge. Disable does not turn Overcharge off;
+    /// EnergyBonus is folded out of the live power scan while `is_disabled`.
+    fn on_disabled_edge(&mut self, becoming_disabled: bool) {
+        let _ = becoming_disabled;
+        // Intentionally keep `overcharge_enabled`. C++ OverchargeBehavior
+        // stays active and continues DAMAGE_PENALTY; Energy::adjustPower
+        // only mutates the player's pool.
     }
 
     /// C++ goInvulnerable residual (OCL InvulnerableTime post-eject).

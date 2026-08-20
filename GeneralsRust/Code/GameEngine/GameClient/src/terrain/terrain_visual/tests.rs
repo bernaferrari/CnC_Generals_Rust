@@ -220,4 +220,82 @@ mod tests {
         assert_eq!(flush.ranges[0].texture_name, "wave256.tga");
     }
 
+    #[test]
+    fn runtime_bridges_use_authored_model_scale_towers_not_granite() {
+        // C++ W3DBridge::load (W3DBridgeBuffer.cpp:182-191) uses findBridge
+        // BridgeModelName + BridgeScale + TowerObjectName*, not granite ribbons.
+        use crate::terrain::roads::{RoadType, StoneType};
+        use game_engine::common::ascii_string::AsciiString;
+
+        const TEMPLATE: &str = "hq_mlu40_AuthoredBridge";
+        {
+            let mut roads = game_engine::common::ini::get_terrain_roads_mut();
+            if roads.find_bridge(TEMPLATE).is_none() {
+                let bridge = roads.new_bridge(AsciiString::from(TEMPLATE));
+                bridge.bridge_model_name = AsciiString::from("CBBridgeSt");
+                bridge.bridge_scale = 0.7;
+                bridge.tower_object_name[0] = AsciiString::from("TowerFromLeft");
+                bridge.tower_object_name[1] = AsciiString::from("TowerFromRight");
+                bridge.tower_object_name[2] = AsciiString::from("TowerToLeft");
+                bridge.tower_object_name[3] = AsciiString::from("TowerToRight");
+            }
+        }
+
+        let mut visual = TerrainVisualImpl::new();
+        visual
+            .set_runtime_bridge_segments(&[(
+                [0.0, 0.0, 0.0],
+                [120.0, 0.0, 0.0],
+                12.0,
+                TEMPLATE.to_string(),
+            )])
+            .expect("authored bridge should bake");
+
+        let mut found = 0usize;
+        visual
+            .road_system
+            .for_each_visible_overlay_source(|road, segment| {
+                found += 1;
+                assert_eq!(road.name, TEMPLATE);
+                assert!(
+                    !matches!(
+                        road.road_type,
+                        RoadType::StoneBridge {
+                            stone_type: StoneType::Granite,
+                            ..
+                        }
+                    ),
+                    "must not invent granite StoneBridge ribbons"
+                );
+                let override_text = segment
+                    .properties
+                    .texture_override
+                    .as_deref()
+                    .expect("authored override");
+                assert!(override_text.contains("BridgeModelName=CBBridgeSt"));
+                assert!(override_text.contains("BridgeScale=0.700000"));
+                assert!(override_text.contains("TowerObjectNameFromLeft=TowerFromLeft"));
+                assert!(override_text.contains("TowerObjectNameToRight=TowerToRight"));
+                let geometry = segment.geometry.as_ref().expect("authored span mesh");
+                assert!(!geometry.vertices.is_empty());
+                assert!(!geometry.indices.is_empty());
+            });
+        assert_eq!(found, 1);
+
+        let mut visual_unknown = TerrainVisualImpl::new();
+        visual_unknown
+            .set_runtime_bridge_segments(&[(
+                [0.0, 0.0, 0.0],
+                [80.0, 0.0, 0.0],
+                10.0,
+                "hq_mlu40_MissingBridge".to_string(),
+            )])
+            .expect("unknown template is fail-closed skip");
+        let mut unknown = 0usize;
+        visual_unknown
+            .road_system
+            .for_each_visible_overlay_source(|_, _| unknown += 1);
+        assert_eq!(unknown, 0, "unknown template must not bake granite");
+    }
+
 }

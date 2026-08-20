@@ -118,6 +118,9 @@ impl Object {
         template.bind_weapon_set_from_live_assets();
         let tracker = template.weapon_tracker_bind();
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
+        let vision_range = template.sight_range.max(0.0);
+        let shroud_clearing_range = template.resolved_shroud_clearing_range().max(0.0);
+
 
         Self {
             thing: Thing::new(template),
@@ -547,6 +550,7 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             experience_sink: None,
+            experience_scalar: 1.0,
             weapon: None,
             mine_clearing_primary_weapon: None,
             secondary_weapon: None,
@@ -554,6 +558,8 @@ impl Object {
             target: None,
             capture_channel: None,
             hacker_disable_channel: None,
+            charge_plant_unpack_remaining_seconds: None,
+
             construction_percent: 1.0, // Fully constructed by default
             building_data,
             stored_resources: Resources::default(),
@@ -756,12 +762,13 @@ impl Object {
             last_damage_source: None,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
-            vision_range: default_vision_range(),
-            shroud_clearing_range: default_vision_range(),
+            vision_range,
+            shroud_clearing_range,
             shroud_range: 0.0,
             partition_cash_value: 0,
             partition_threat_value: 0,
             partition_last_affect: None,
+            partition_last_look: None,
 
             auto_acquire_when_idle: true,
             attack_priority_set: None,
@@ -1233,6 +1240,7 @@ impl Object {
             movement: Movement::default(),
             experience: Experience::default(),
             experience_sink: None,
+            experience_scalar: 1.0,
             weapon: None,
             mine_clearing_primary_weapon: None,
             secondary_weapon: None,
@@ -1240,6 +1248,8 @@ impl Object {
             target: None,
             capture_channel: None,
             hacker_disable_channel: None,
+            charge_plant_unpack_remaining_seconds: None,
+
             construction_percent: 1.0,
             building_data: None,
             stored_resources: Resources::default(),
@@ -1448,6 +1458,8 @@ impl Object {
             partition_cash_value: 0,
             partition_threat_value: 0,
             partition_last_affect: None,
+            partition_last_look: None,
+
 
             auto_acquire_when_idle: true,
             attack_priority_set: None,

@@ -32,11 +32,12 @@ pub mod script_action_handler;
 pub mod subsystems;
 
 pub use game_client::{
-    DrawableId, FrozenDirectPresentationPose, FrozenDirectSceneShroudCandidate,
-    FrozenDirectSceneShroudDecision, FrozenDirectShroudStatus, GameClient, GameClientError,
-    GameClientMessageDispatcher, GameClientResult, PresentationDirectDrawableBindingKey,
-    PresentationDirectDrawableState, PresentationDrawableSync, Shadow, ShadowType, ShroudStatus,
-    SubsystemManager,
+    presentation_specialized_draw_snapshot, DrawableId, FrozenDirectPresentationPose,
+    FrozenDirectSceneShroudCandidate, FrozenDirectSceneShroudDecision, FrozenDirectShroudStatus,
+    GameClient, GameClientError, GameClientMessageDispatcher, GameClientResult,
+    PresentationDirectDrawableBindingKey, PresentationDirectDrawableState, PresentationDrawableSync,
+    PresentationSpecializedDrawKind, PresentationSpecializedDrawSnapshot, Shadow, ShadowType,
+    ShroudStatus, SubsystemManager,
 };
 
 // Re-export commonly used types from the original codebase

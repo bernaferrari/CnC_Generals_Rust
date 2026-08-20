@@ -39,6 +39,16 @@ impl HostPartitionAffectStamp {
     }
 }
 
+/// Last doShroudReveal looker for a live host object (C++ SightingInfo).
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostPartitionLookStamp {
+    pub x: f32,
+    pub z: f32,
+    pub range: f32,
+    pub mask: u32,
+}
+
+
 /// Minimal partition manager mirroring WW3D map reveal + collide broadphase residual.
 #[derive(Debug, Default)]
 pub struct PartitionManager {

@@ -7,11 +7,6 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the experience scalar upgrade.
 #[derive(Debug, Clone)]
@@ -138,8 +133,7 @@ impl UpgradeModuleInterface for ExperienceScalarUpgrade {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 448: empty dual-world → false.
-        if dual_world_registry_unavailable() {
+        if self.applied {
             return false;
         }
 

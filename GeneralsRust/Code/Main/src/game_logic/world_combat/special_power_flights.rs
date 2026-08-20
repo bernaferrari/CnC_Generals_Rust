@@ -188,7 +188,7 @@ impl GameLogic {
         }
         let tid = self.create_object(CLUSTER_MINES_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.cluster_mines_transport = Some(HostClusterMinesFlightData::start(edge, target));
             o.set_orientation(dz.atan2(dx));
         }
@@ -395,7 +395,7 @@ impl GameLogic {
         }
         let tid = self.create_object(EMP_PULSE_OCL_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.emp_pulse_transport = Some(HostEmpPulseFlightData::start(
                 edge,
                 target,
@@ -818,7 +818,7 @@ impl GameLogic {
             if let Some(sid) = self.create_object(template, source_team, pos) {
                 if let Some(o) = self.objects.get_mut(&sid) {
                     o.firewall_segment = true;
-                    o.producer_id = Some(source_object);
+                    o.note_producer(source_object);
                     o.firewall_segment_expires_frame = Some(expires);
                     o.firewall_segment_wall_id = Some(wall_id);
                     o.firewall_segment_dir = Some([dir_x, dir_z]);

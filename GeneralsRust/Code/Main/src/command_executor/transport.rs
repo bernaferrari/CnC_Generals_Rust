@@ -167,11 +167,32 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    /// C++ MSG_EXIT occupant: the unit is inside a container / tunnel.
+    fn unit_is_exit_occupant(&self, id: ObjectId) -> bool {
+        let Some(obj) = self.game_logic.host_object(id) else {
+            return false;
+        };
+        let is_contained = matches!(
+            obj.ai_state,
+            AIState::Docked | AIState::Garrisoned | AIState::Entering | AIState::Docking
+        );
+        let in_tunnel = self
+            .game_logic
+            .tunnel_network_residual()
+            .team_holding_unit(id)
+            .is_some();
+        is_contained || in_tunnel || obj.container_id().is_some() || obj.contained_by.is_some()
+    }
+
     pub(super) fn execute_exit(&mut self, units: &[ObjectId]) -> CommandResult {
         let mut to_unload: Vec<(ObjectId, Option<ObjectId>, Vec3)> = Vec::new();
         let mut seen_units: HashSet<ObjectId> = HashSet::new();
         // Tunnel network residual: exit tunnel id for shared-pool bookkeeping.
         let mut tunnel_exit_for: HashMap<ObjectId, ObjectId> = HashMap::new();
+
+        // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT selects the occupant.
+        // If any selected unit is an occupant, do not dump containers (MSG_EVACUATE).
+        let occupant_selected = units.iter().any(|&id| self.unit_is_exit_occupant(id));
 
         for &selected_id in units {
             let Some(selected_obj) = self.game_logic.host_object(selected_id) else {
@@ -179,6 +200,9 @@ impl<'a> CommandExecutor<'a> {
             };
 
             if selected_obj.can_contain() {
+                if occupant_selected {
+                    continue;
+                }
                 // Prefer get_position() (authoritative Thing pos). The pub `position`
                 // field is often left at default ZERO after create_object set_position.
                 let origin = selected_obj
@@ -645,3 +669,77 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command_executor::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{
+        ContainModuleKind, ContainModuleMetadata, GameLogic, KindOf, Team, ThingTemplate,
+    };
+
+    fn contain_pair(logic: &mut GameLogic, transport: ObjectId, pax: ObjectId) {
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            assert!(t.add_occupant(pax));
+        }
+        {
+            let p = logic.host_object_mut(pax).unwrap();
+            p.set_contained_by(Some(transport));
+            p.set_ai_state(AIState::Docked);
+        }
+    }
+
+    #[test]
+    fn execute_exit_unloads_only_the_selected_occupant() {
+        // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT exits argument 0 occupant,
+        // not every rider on the selected container (that is MSG_EVACUATE).
+        let mut logic = GameLogic::new();
+        for (name, kind, transport) in [
+            ("EXIT_T", KindOf::Vehicle, true),
+            ("EXIT_A", KindOf::Infantry, false),
+            ("EXIT_B", KindOf::Infantry, false),
+        ] {
+            let mut tpl = ThingTemplate::new(name);
+            tpl.add_kind_of(kind);
+            tpl.add_kind_of(KindOf::Selectable);
+            tpl.set_health(200.0);
+            if transport {
+                tpl.contain_module = ContainModuleMetadata {
+                    kind: ContainModuleKind::Transport,
+                    slots: Some(5),
+                    ..Default::default()
+                };
+            }
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let transport = logic
+            .create_object("EXIT_T", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let a = logic
+            .create_object("EXIT_A", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("EXIT_B", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, a);
+        contain_pair(&mut logic, transport, b);
+
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[a]), CommandResult::Success);
+        }
+        let remaining = logic
+            .host_object(transport)
+            .unwrap()
+            .contained_units();
+        assert_eq!(remaining, vec![b], "EXIT must leave the unclicked occupant");
+        assert!(logic.host_object(a).unwrap().contained_by.is_none());
+        assert_eq!(
+            logic.host_object(b).unwrap().contained_by,
+            Some(transport)
+        );
+    }
+}
+

@@ -553,6 +553,8 @@ impl GameClient {
                 emoticon_frames_left: 0,
                 formation_id: 0,
                 caption: String::new(),
+                draw_module_names: Vec::new(),
+
             });
         self.sync_presentation_drawables(sync).0
     }
@@ -630,6 +632,11 @@ impl GameClient {
                 drawable.set_template_name(Some(visual_template_name.clone()));
             }
             drawable.set_object_id(Some(e.object_id));
+            // C++ Drawable ctor allocates DrawModules from ThingTemplate
+            // (W3DTankDraw treads, W3DTruckDraw wheels, W3DOverlord* rider,
+            // W3DLaserDraw width, W3DDebrisDraw anims). Live presentation
+            // used to create a bare BasicDrawable here.
+            Self::attach_presentation_specialized_draw_modules(&mut drawable, &e);
             let position = Vector3::new(e.position[0], e.position[1], e.position[2]);
             drawable.set_position(position);
             let transform = Matrix4::rotation_y(e.orientation);
@@ -765,6 +772,8 @@ impl GameClient {
         );
         // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
         drawable.set_presentation_sold(e.sold);
+        Self::tick_presentation_specialized_draw_modules(e);
+
     }
 
     /// Apply presentation cinematic letterbox residual to GraphicsDisplay.

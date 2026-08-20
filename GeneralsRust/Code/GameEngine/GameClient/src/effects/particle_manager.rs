@@ -842,16 +842,20 @@ impl ParticleSystemManager {
     }
 
     /// Destroy a particle system by ID.
-    /// Cascades destruction to any slave system (C++ ParticleSystem::destroy line 1258-1261).
+    ///
+    /// C++ `ParticleSystem::destroy` (ParticleSys.cpp:1255-1261) only sets
+    /// `m_isDestroyed` and cascades to the slave. The manager keeps the system
+    /// registered so leftover particles keep updating until they die
+    /// (ParticleSys.cpp:2028-2060). `ParticleSystemManager::update` then
+    /// deletes the system when `update` returns false (ParticleSys.cpp:2923).
     pub fn destroy_particle_system(&mut self, id: ParticleSystemId) {
         let slave_id = self
             .active_systems
             .get(&id)
             .and_then(|s| s.slave_system_id());
 
-        if let Some(mut system) = self.remove_active_system(id) {
+        if let Some(system) = self.active_systems.get_mut(&id) {
             system.destroy();
-            self.system_count = self.system_count.saturating_sub(1);
         }
 
         // Cascade to slave (C++ line 1258-1260: m_slaveSystem->destroy())
@@ -900,7 +904,20 @@ impl ParticleSystemManager {
                 system.begin_frame_emit(local_player_index, current_frame)
             };
             match phase {
-                crate::effects::particle_system::FrameEmitPhase::Dead => continue,
+                crate::effects::particle_system::FrameEmitPhase::Dead => {
+                    // C++ ParticleSys.cpp:2028-2053 still ages leftover particles
+                    // after destroy; only empty destroyed systems return false.
+                    if let Some(system) = self.active_systems.get_mut(&id) {
+                        if system.particle_count() > 0 {
+                            system.finish_frame_integrate(current_frame);
+                            let dead = system.take_dead_controlled_systems();
+                            for dead_id in dead {
+                                self.destroy_particle_system(dead_id);
+                            }
+                        }
+                    }
+                    continue;
+                }
                 crate::effects::particle_system::FrameEmitPhase::Delayed => continue,
                 crate::effects::particle_system::FrameEmitPhase::Emitted => {}
             }
@@ -2174,5 +2191,89 @@ mod tests {
         assert!(manager
             .create_preset_system_at("TotallyUnknownCombatFx", Point3::origin())
             .is_err());
+    }
+
+    /// C++ ParticleSys.cpp:1255 `ParticleSystem::destroy` only sets
+    /// `m_isDestroyed`. ParticleSys.cpp:1966 stops emit; 2059 removes the
+    /// system only after leftover particles die.
+    #[test]
+    fn destroy_particle_system_keeps_updating_until_particles_die() {
+        let mut manager = ParticleSystemManager::new();
+        let mut template = ParticleSystemTemplate::new("FadeOut".to_string());
+        {
+            let info = template.info_mut();
+            info.priority = ParticlePriorityType::AlwaysRender;
+            info.burst_delay = GameClientRandomVariable::new(0.0, 0.0);
+            info.burst_count = GameClientRandomVariable::new(4.0, 4.0);
+            info.initial_delay = GameClientRandomVariable::new(0.0, 0.0);
+            info.lifetime = GameClientRandomVariable::new(30.0, 30.0);
+            info.system_lifetime = 0; // forever — would keep emitting if not destroyed
+        }
+        let template = Arc::new(template);
+        let system_id = manager
+            .create_particle_system(&template, false)
+            .expect("system");
+
+        let mut info = crate::effects::particle_system::ParticleInfo::default();
+        info.lifetime = 2;
+        let particle = crate::effects::particle_system::Particle::new(&info, 0, 0);
+        manager
+            .find_particle_system_mut(system_id)
+            .expect("active")
+            .push_particle(particle);
+        manager.particle_count = 1;
+
+        manager.destroy_particle_system(system_id);
+
+        let system = manager
+            .find_particle_system(system_id)
+            .expect("C++ destroy leaves the system registered");
+        assert!(system.is_destroyed());
+        assert_eq!(system.particle_count(), 1);
+        assert_eq!(manager.system_count(), 1);
+
+        manager.update(0, 1);
+        let system = manager
+            .find_particle_system(system_id)
+            .expect("particles still in the air");
+        assert!(system.is_destroyed());
+        assert_eq!(
+            system.particle_count(),
+            1,
+            "must not emit after destroy; leftover particle still alive"
+        );
+        assert_eq!(
+            system.particles().front().expect("leftover").lifetime_left,
+            1
+        );
+
+        manager.update(0, 2);
+        assert!(
+            manager.find_particle_system(system_id).is_none(),
+            "C++ ParticleSys.cpp:2059 removes only after last particle dies"
+        );
+        assert_eq!(manager.system_count(), 0);
+        assert_eq!(manager.particle_count(), 0);
+    }
+
+    /// Empty destroyed systems are still removed on the next manager update
+    /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).
+    #[test]
+    fn destroy_empty_system_removed_on_next_update() {
+        let mut manager = ParticleSystemManager::new();
+        let template = manager.new_template("EmptyFade".to_string());
+        let system_id = manager.create_particle_system(&template, false).unwrap();
+
+        manager.destroy_particle_system(system_id);
+        assert!(
+            manager
+                .find_particle_system(system_id)
+                .is_some_and(|s| s.is_destroyed())
+        );
+        assert_eq!(manager.system_count(), 1);
+
+        manager.update(0, 1);
+        assert!(manager.find_particle_system(system_id).is_none());
+        assert_eq!(manager.system_count(), 0);
     }
 }

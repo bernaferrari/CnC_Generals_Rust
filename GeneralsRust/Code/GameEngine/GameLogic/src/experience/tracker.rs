@@ -38,6 +38,8 @@ pub struct ExperienceTracker {
     /// Explicit IsTrainable override when the owner template is not registered.
     /// `None` looks up the owner template and defaults to false (C++ default).
     trainable_override: Option<bool>,
+    /// Test / host-wiring ExperienceValue table when the owner template is absent.
+    experience_value_table: Option<[i32; 4]>,
 
 }
 
@@ -57,6 +59,7 @@ impl ExperienceTracker {
             experience_sink: Self::INVALID_ID,
             experience_scalar: 1.0,
             trainable_override: None,
+            experience_value_table: None,
         }
     }
 
@@ -97,6 +100,12 @@ impl ExperienceTracker {
     pub fn set_trainable_override(&mut self, trainable: bool) {
         self.trainable_override = Some(trainable);
     }
+
+    /// C++ ThingTemplate::getExperienceValue table when no owner object exists.
+    pub fn set_experience_value_table(&mut self, values: [i32; 4]) {
+        self.experience_value_table = Some(values);
+    }
+
 
     /// Get the experience sink ID
     pub fn get_experience_sink(&self) -> ObjectID {
@@ -406,31 +415,24 @@ impl ExperienceTracker {
     ///
     /// # Returns
     /// Experience points to award to the killer
-    pub fn get_experience_value(&self, object_cost: i32, killer_is_ally: bool) -> i32 {
+    pub fn get_experience_value(&self, _object_cost: i32, killer_is_ally: bool) -> i32 {
         // No experience for killing an ally
         if killer_is_ally {
             return 0;
         }
 
-        // Runtime parity path: use owner's template XP table at current veterancy.
+        // C++ ExperienceTracker::getExperienceValue — template table only.
         self.get_owner_template_experience_value(self.current_level as usize)
-            // Fallback for tests with no registered owner object.
-            .unwrap_or_else(|| {
-                let level_multiplier = 1.0 + (self.current_level as i32 as f32) * 0.25;
-                let base_value = (object_cost as f32 * 0.5) as i32;
-                (base_value as f32 * level_multiplier) as i32
+            .or_else(|| {
+                self.experience_value_table
+                    .and_then(|table| table.get(self.current_level as usize).copied())
             })
+            .unwrap_or(0)
     }
 
-    /// Calculate experience from damage dealt (matches C++ formula)
-    ///
-    /// # Parameters
-    /// - `damage_dealt`: Amount of damage dealt to target
-    ///
-    /// # Returns
-    /// Experience points to award
-    pub fn calculate_damage_experience(damage_dealt: f32) -> i32 {
-        (damage_dealt * 0.1) as i32
+    /// C++ ExperienceTracker has no damage/hit XP API.
+    pub fn calculate_damage_experience(_damage_dealt: f32) -> i32 {
+        0
     }
 
     /// Serialize tracker state for save/load parity with C++ ExperienceTracker::xfer.
@@ -653,9 +655,9 @@ mod tests {
     fn test_experience_value_calculation() {
         let tracker = ExperienceTracker::new(123);
 
-        // Regular unit worth 1000
+        // No owner template and no table → 0 (C++ uses ThingTemplate only).
         let xp = tracker.get_experience_value(1000, false);
-        assert_eq!(xp, 500); // 1000 * 0.5 * 1.0 = 500
+        assert_eq!(xp, 0);
 
         // No XP for killing ally
         let xp = tracker.get_experience_value(1000, true);
@@ -666,19 +668,18 @@ mod tests {
     fn test_experience_value_scales_with_level() {
         let mut tracker = ExperienceTracker::new(123);
         let req = test_experience_requirements();
+        tracker.set_experience_value_table([20, 40, 80, 120]);
 
-        // Promote to Veteran
         tracker.set_veterancy_level_with_requirements(VeterancyLevel::Veteran, &req);
 
-        // Veteran unit worth more XP
         let xp = tracker.get_experience_value(1000, false);
-        assert_eq!(xp, 625); // 1000 * 0.5 * 1.25 = 625
+        assert_eq!(xp, 40);
     }
 
     #[test]
     fn test_damage_experience_calculation() {
         let xp = ExperienceTracker::calculate_damage_experience(100.0);
-        assert_eq!(xp, 10); // 100 * 0.1 = 10
+        assert_eq!(xp, 0);
     }
 
     #[test]

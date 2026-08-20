@@ -1765,12 +1765,13 @@ impl SubsystemManager {
             if active { "gained" } else { "lost" }
         );
 
-        if self.get::<AudioManagerSubsystem>().is_some() {
-            // In a complete implementation, AudioManager would implement focus handling
-            // This could pause/resume audio based on focus state
-            info!("Audio focus change handled by AudioManager subsystem");
-        } else {
-            debug!("Audio subsystem not available during focus change notification");
+        // C++ WinMain.cpp:451-464 WM_ACTIVATE → TheAudio->loseFocus/regainFocus.
+        if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+            if active {
+                audio.regain_focus();
+            } else {
+                audio.lose_focus();
+            }
         }
 
         Ok(())

@@ -1396,7 +1396,7 @@ impl GameLogic {
             o.cleanup_stream_ignition_frame = Some(ignites);
             o.cleanup_stream_shooter = Some(source_id.0);
             o.cleanup_stream_player_id = player_id;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
             o.health.maximum = CLEANUP_STREAM_MISSILE_MAX_HEALTH;
         }
@@ -1559,7 +1559,7 @@ impl GameLogic {
             o.angry_mob_projectile_launch_frame = Some(self.frame);
             o.angry_mob_projectile_flight_frames = flight;
             o.angry_mob_projectile_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = ANGRY_MOB_PROJ_MAX_HEALTH;
             o.health.maximum = ANGRY_MOB_PROJ_MAX_HEALTH;
         }

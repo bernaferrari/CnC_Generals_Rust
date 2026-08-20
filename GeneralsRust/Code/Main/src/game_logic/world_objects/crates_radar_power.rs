@@ -867,11 +867,14 @@ impl GameLogic {
 
         let mut factors = std::collections::HashMap::new();
         for player in self.players.values() {
-            let factor = if player.power_consumed <= 0 {
-                1.0
-            } else {
-                let energy_ratio =
-                    (player.power_produced as f32 / player.power_consumed as f32).min(1.0);
+            let sabotaged = player.power_sabotaged_till_frame > 0
+                && self.frame < player.power_sabotaged_till_frame;
+            let factor = if sabotaged || player.power_consumed > 0 {
+                let energy_ratio = if sabotaged {
+                    0.0
+                } else {
+                    (player.power_produced as f32 / player.power_consumed.max(1) as f32).min(1.0)
+                };
                 if energy_ratio >= 1.0 {
                     1.0
                 } else {
@@ -880,19 +883,17 @@ impl GameLogic {
                     rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
                     rate
                 }
+            } else {
+                1.0
             };
             factors.insert(player.id, factor);
         }
         factors
     }
 
-    /// C++ parity (GarrisonContain::onBodyDamageStateChange): when a garrisoned
-    /// building drops below the ReallyDamaged threshold (30% health), all
-    /// occupants are force-ejected.  Buildings with `KINDOF_GARRISONABLE_UNTIL_DESTROYED`
-    /// are exempt from this evacuation.
+    /// C++ GarrisonContain::onBodyDamageStateChange: BODY_REALLYDAMAGED edge
+    /// ejects occupants unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
     pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) {
-        const REALLY_DAMAGED_THRESHOLD: f32 = 0.3;
-
         // Collect buildings that need evacuation to avoid borrow conflicts.
         let mut evacuate_from: Vec<(ObjectId, Vec3)> = Vec::new();
 
@@ -903,8 +904,7 @@ impl GameLogic {
             if !obj.is_alive() || !obj.is_constructed() || !obj.is_kind_of(KindOf::Structure) {
                 continue;
             }
-            // Skip buildings that are garrisonable until destroyed.
-            if obj.is_kind_of(KindOf::Harvestable) {
+            if obj.is_kind_of(KindOf::GarrisonableUntilDestroyed) {
                 continue;
             }
             let Some(building_data) = &obj.building_data else {
@@ -913,19 +913,19 @@ impl GameLogic {
             if building_data.garrisoned_units.is_empty() {
                 continue;
             }
-            let health_pct = obj.health.percentage();
-            if health_pct > REALLY_DAMAGED_THRESHOLD {
+            if obj.body_damage_state
+                != crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+            {
                 continue;
             }
 
-            // Only evacuate once: mark as already-evacuated by clearing the
-            // garrison list.  We collect positions first to avoid mut borrows.
             let pos = obj.get_position();
             let occupants: Vec<ObjectId> = building_data.garrisoned_units.clone();
             for &occ_id in &occupants {
                 evacuate_from.push((occ_id, pos));
             }
         }
+
 
         // Eject occupants.
         for (occ_id, building_pos) in evacuate_from {

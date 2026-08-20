@@ -123,7 +123,7 @@ impl Object {
             firing_tracker: None,
             held_helper: None,
 
-            partition_data: None,
+            partition_data: Some(Arc::new(Mutex::new(PartitionData::new()))),
             radar_data: None,
 
             partition_last_look: SightingInfo::new(),

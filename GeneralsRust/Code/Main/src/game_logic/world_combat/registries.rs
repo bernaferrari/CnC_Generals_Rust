@@ -453,6 +453,7 @@ impl GameLogic {
         }
 
         let mut any = false;
+        let mut packing_hackers: Vec<ObjectId> = Vec::new();
         for (i, pid) in passengers.iter().enumerate() {
             // Remove from container first.
             if let Some(c) = self.objects.get_mut(&container_id) {
@@ -469,9 +470,18 @@ impl GameLogic {
                 p.stop_moving();
                 p.set_ai_state(AIState::Idle);
                 p.status.moving = false;
+                // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
+                // PACKING on evacuate/exit. Riders are dropped Idle, so cash must
+                // stop immediately — idle outside must not keep depositing.
+                if p.thing.template.hack_internet_ai_update.is_some() {
+                    packing_hackers.push(*pid);
+                }
                 any = true;
             }
             self.record_transport_residual_unload();
+        }
+        for hid in packing_hackers {
+            self.hacker_income.stop_hacking(hid);
         }
 
         if let Some(c) = self.objects.get_mut(&container_id) {
@@ -979,7 +989,7 @@ impl GameLogic {
         }
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.carpet_bomb_transport = Some(HostCarpetBombFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
@@ -1132,7 +1142,7 @@ impl GameLogic {
         }
         let tid = self.create_object(ARTILLERY_BARRAGE_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.artillery_barrage_transport =
                 Some(HostArtilleryBarrageFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
@@ -1283,7 +1293,7 @@ impl GameLogic {
         }
         let tid = self.create_object(A10_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.a10_strike_transport = Some(HostA10StrikeFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
@@ -1435,7 +1445,7 @@ impl GameLogic {
         }
         let tid = self.create_object(LEAFLET_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.leaflet_transport_target = Some(target);
             o.set_orientation(dz.atan2(dx));
         }
@@ -1582,7 +1592,7 @@ impl GameLogic {
             edge,
         )?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.paradrop_transport_target = Some(target);
             o.set_orientation(dz.atan2(dx));
         }
@@ -1725,7 +1735,7 @@ impl GameLogic {
         }
         let tid = self.create_object(transport, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.daisy_cutter_transport = Some(HostDaisyCutterFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }
@@ -1886,7 +1896,7 @@ impl GameLogic {
         }
         let tid = self.create_object(ANTHRAX_TRANSPORT, team, edge)?;
         if let Some(o) = self.objects.get_mut(&tid) {
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.anthrax_bomb_transport = Some(HostAnthraxBombFlightData::start(edge, target, tier));
             o.set_orientation(dz.atan2(dx));
         }

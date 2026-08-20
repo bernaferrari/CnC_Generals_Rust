@@ -145,6 +145,9 @@ impl GameLogic {
         object_id: ObjectId,
         target_id: ObjectId,
     ) -> bool {
+        use crate::game_logic::host_hero_abilities::{
+            leftover_sa_timings, LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+        };
         use crate::game_logic::host_missile_defender::{
             can_activate_laser_guided, is_missile_defender_template, laser_guided_in_start_range,
             LASER_GUIDED_INITIATE_AUDIO,
@@ -168,6 +171,13 @@ impl GameLogic {
         if !target.is_alive() {
             return false;
         }
+        // C++ update() aborts SPECIAL_MISSILE_DEFENDER_LASER_GUIDED vs structures.
+        if target.is_kind_of(KindOf::Structure) {
+            return false;
+        }
+        if target.status.stealthed && !target.status.detected {
+            return false;
+        }
         let src_pos = obj.get_position();
         let tgt_pos = target.get_position();
         let dist = {
@@ -175,24 +185,21 @@ impl GameLogic {
             let dz = src_pos.z - tgt_pos.z;
             (dx * dx + dz * dz).sqrt()
         };
-        // Retail StartAbilityRange = 200 residual.
         if !laser_guided_in_start_range(dist) {
             return false;
         }
 
-        let src_pos = src_pos;
-        if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.set_active_weapon_slot(1);
-        }
-        // Laser-guided special: engage secondary-slot target.
-        // Under AI decision authority, log-only for GameWorld writeback.
-        if !self.engage_target_decision_aware(object_id, target_id) {
-            return false;
-        }
-        self.missile_defender_residual_laser_specials = self
-            .missile_defender_residual_laser_specials
-            .saturating_add(1);
-        // C++ SpecialAbilityUpdate SpecialObject = LaserBeam (Muzzle01 attach residual).
+        let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
+        self.hero_abilities.set_leftover_channel(
+            object_id,
+            LeftoverSaChannel::new(
+                LeftoverSaKind::LaserGuided,
+                target_id,
+                LeftoverSaPhase::Preparing,
+                timings.prep_ms,
+            ),
+        );
+        // C++ startPreparation creates LaserBeam SpecialObject immediately.
         let _ = self.spawn_missile_defender_laser_beam(object_id, target_id, src_pos, tgt_pos);
         self.queue_audio_event(
             AudioEventRequest::new(LASER_GUIDED_INITIATE_AUDIO)
@@ -202,6 +209,94 @@ impl GameLogic {
         );
         true
     }
+
+    pub(crate) fn update_leftover_laser_guided_channels(&mut self, dt: f32) {
+        use crate::game_logic::host_hero_abilities::{
+            leftover_sa_timings, leftover_within_abort_range, LeftoverSaKind, LeftoverSaPhase,
+        };
+        use crate::game_logic::KindOf;
+        const EPS: f32 = 0.000_1;
+        let ids: Vec<ObjectId> = self
+            .hero_abilities
+            .leftover_channels
+            .iter()
+            .filter_map(|(id, ch)| {
+                if ch.kind == LeftoverSaKind::LaserGuided {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for object_id in ids {
+            let Some(channel) = self.hero_abilities.leftover_channel(object_id).copied() else {
+                continue;
+            };
+            let timings = leftover_sa_timings(LeftoverSaKind::LaserGuided);
+            let Some((src_pos, tgt_pos, tgt_alive, is_structure, stealth_hidden)) =
+                self.objects.get(&object_id).and_then(|src| {
+                    self.objects.get(&channel.target_id).map(|tgt| {
+                        (
+                            src.get_position(),
+                            tgt.get_position(),
+                            tgt.is_alive(),
+                            tgt.is_kind_of(KindOf::Structure),
+                            tgt.status.stealthed && !tgt.status.detected,
+                        )
+                    })
+                })
+            else {
+                self.hero_abilities.take_leftover_channel(object_id);
+                continue;
+            };
+            let dist = {
+                let dx = src_pos.x - tgt_pos.x;
+                let dz = src_pos.z - tgt_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if !tgt_alive
+                || is_structure
+                || stealth_hidden
+                || !leftover_within_abort_range(dist, timings.abort_range)
+            {
+                self.hero_abilities.take_leftover_channel(object_id);
+                continue;
+            }
+            if channel.phase != LeftoverSaPhase::Preparing {
+                continue;
+            }
+            let remaining = (channel.remaining_seconds - dt.max(0.0)).max(0.0);
+            if remaining > EPS {
+                self.hero_abilities.set_leftover_channel(
+                    object_id,
+                    crate::game_logic::host_hero_abilities::LeftoverSaChannel {
+                        remaining_seconds: remaining,
+                        ..channel
+                    },
+                );
+                continue;
+            }
+            // C++ triggerAbilityEffect: temp-lock SECONDARY and aiAttackObject.
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.set_active_weapon_slot(1);
+            }
+            let _ = self.engage_target_decision_aware(object_id, channel.target_id);
+            self.missile_defender_residual_laser_specials = self
+                .missile_defender_residual_laser_specials
+                .saturating_add(1);
+            // PersistentPrepTime 500ms keeps the beam and re-triggers.
+            self.hero_abilities.set_leftover_channel(
+                object_id,
+                crate::game_logic::host_hero_abilities::LeftoverSaChannel::new(
+                    LeftoverSaKind::LaserGuided,
+                    channel.target_id,
+                    LeftoverSaPhase::Preparing,
+                    timings.persist_prep_ms,
+                ),
+            );
+        }
+    }
+
 
     #[cfg(test)]
     pub fn activate_missile_defender_laser_guided_for_test(
@@ -1023,7 +1118,7 @@ impl GameLogic {
         if let Some(o) = self.objects.get_mut(&pid) {
             o.comanche_rocket_pod_projectile = true;
             o.comanche_rocket_pod_projectile_expires_frame = Some(expires);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, COMANCHE_ROCKET_POD_PROJECTILE_MAX_HEALTH);
             let dir = to - from;
@@ -1722,7 +1817,7 @@ impl GameLogic {
             BUNKER_BUSTER_OCCUPANT_DAMAGE,
         };
 
-        let (occupants, is_bunker, target_pos) = {
+        let (mut occupants, is_bunker, target_pos, is_tunnel, target_team) = {
             let Some(target) = self.objects.get(&target_id) else {
                 return (0, 0.0, false);
             };
@@ -1738,8 +1833,21 @@ impl GameLogic {
                         ) || b.max_garrison > 0
                     })
                     .unwrap_or(false);
-            (occ, bunker, target.get_position())
+            let tunnel = target.is_tunnel_network_style_container()
+                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                    &target.template_name,
+                );
+            (occ, bunker, target.get_position(), tunnel, target.team)
         };
+        // C++ TunnelContain::getContainedItemsList / harmAndForceExitAllContained
+        // (TunnelContain.cpp:95) iterates the shared TunnelTracker pool.
+        if is_tunnel {
+            for uid in self.tunnel_network.contained_for_team(target_team) {
+                if !occupants.contains(&uid) {
+                    occupants.push(uid);
+                }
+            }
+        }
         let had_occupants = !occupants.is_empty();
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
@@ -1779,6 +1887,17 @@ impl GameLogic {
         }
 
         for id in destroy_ids {
+            // C++ TunnelContain::harmAndForceExitAllContained removeFromContain
+            // then attemptDamage — pool must drop the occupant.
+            if let Some(team) = self.tunnel_network.team_holding_unit(id) {
+                if let Some(entry) = self.tunnel_network.record_exit(team, id, target_id) {
+                    if entry != target_id {
+                        if let Some(c) = self.objects.get_mut(&entry) {
+                            c.remove_occupant(id);
+                        }
+                    }
+                }
+            }
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
 
@@ -1884,6 +2003,9 @@ impl GameLogic {
             }
         }
         for id in destroy_ids {
+            if let Some(team) = self.tunnel_network.team_holding_unit(id) {
+                let _ = self.tunnel_network.record_exit(team, id, target_id);
+            }
             self.mark_object_for_destruction(id, Some(attacker_team));
         }
 

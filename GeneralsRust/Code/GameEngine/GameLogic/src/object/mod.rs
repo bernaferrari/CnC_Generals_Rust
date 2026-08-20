@@ -43,6 +43,9 @@ pub mod object_creation_list;
 pub mod object_factory;
 pub mod object_types;
 pub mod partition_manager;
+mod partition_data;
+pub use partition_data::{stamp_partition_cell_lookers, PartitionData};
+
 pub mod registry;
 pub mod simple_object;
 pub mod simple_object_iterator;
@@ -1326,6 +1329,8 @@ enum DieModuleKindMut<'a> {
         &'a mut crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
     ),
     SlowDeath(&'a mut crate::object::behavior::slow_death_behavior::SlowDeathBehavior),
+    Bridge(&'a mut crate::object::behavior::bridge_behavior::BridgeBehaviorModule),
+    BridgeTower(&'a mut crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule),
 }
 
 impl<'a> DieModuleKindMut<'a> {
@@ -1337,6 +1342,8 @@ impl<'a> DieModuleKindMut<'a> {
             Self::Minefield(module) => module.behavior_mut(),
             Self::ProductionUpdate(module) => module.behavior_mut(),
             Self::SlowDeath(module) => module,
+            Self::Bridge(module) => module.behavior_mut(),
+            Self::BridgeTower(module) => module.behavior_mut(),
         }
     }
 }
@@ -1374,6 +1381,22 @@ fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
         return (module as &mut dyn Any)
             .downcast_mut::<Box<dyn DieModuleInterface>>()
             .map(DieModuleKindMut::LegacyBox);
+    }
+    if module
+        .as_any()
+        .is::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>()
+    {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>()
+            .map(DieModuleKindMut::Bridge);
+    }
+    if module
+        .as_any()
+        .is::<crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule>()
+    {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule>()
+            .map(DieModuleKindMut::BridgeTower);
     }
 
     None
@@ -2528,46 +2551,8 @@ impl SightingInfo {
 /// Radar object data (shared with the Common radar system).
 pub type RadarObject = game_engine::common::system::radar::RadarObject;
 
-/// Partition data for spatial management
-#[derive(Debug)]
-pub struct PartitionData {
-    // Implementation details would go here
-}
+// PartitionData lives in `partition_data.rs` (C++ PartitionData::getShroudedStatus).
 
-impl PartitionData {
-    /// C++ `PartitionData::getShroudedStatus`.
-    pub fn get_shrouded_status(
-        &self,
-        player_index: i32,
-        object_id: ObjectID,
-    ) -> ObjectShroudStatus {
-        use crate::system::explored_territory::get_explored_territory_manager;
-        use crate::system::shroud_manager::get_shroud_manager;
-
-        if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
-            return ObjectShroudStatus::Clear;
-        }
-        let player_id = player_index as usize;
-        let visible = get_shroud_manager()
-            .lock()
-            .ok()
-            .map(|mgr| mgr.can_see_object(player_id as u32, object_id))
-            .unwrap_or(false);
-        if visible {
-            return ObjectShroudStatus::Clear;
-        }
-        let explored = get_explored_territory_manager()
-            .lock()
-            .ok()
-            .map(|mgr| mgr.has_explored_object(player_id, object_id))
-            .unwrap_or(false);
-        if explored {
-            ObjectShroudStatus::Fogged
-        } else {
-            ObjectShroudStatus::Shrouded
-        }
-    }
-}
 
 /// Polygon trigger for area detection.
 pub use crate::polygon_trigger::PolygonTrigger;

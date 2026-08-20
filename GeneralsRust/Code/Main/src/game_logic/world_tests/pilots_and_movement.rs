@@ -718,8 +718,8 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         .collect();
     assert_eq!(
         members.len() as u32,
-        ANGRY_MOB_INITIAL_MEMBERS,
-        "InitialBurst must spawn member objects"
+        ANGRY_MOB_MAX_MEMBERS,
+        "SpawnNumber members must spawn immediately"
     );
     assert!(members.iter().all(|m| {
         ANGRY_MOB_MEMBER_TEMPLATES
@@ -727,7 +727,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
             .any(|t| *t == m.template_name.as_str())
     }));
 
-    // Expand residual adds another member object.
+    // Rapid spawn already at SpawnNumber; replace-delay does not add more.
     logic.frame = logic.frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
     logic.update_angry_mobs();
     let members2 = logic
@@ -735,10 +735,8 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         .values()
         .filter(|o| o.angry_mob_member && o.angry_mob_nexus_id == Some(nid))
         .count();
-    assert!(
-        members2 as u32 >= ANGRY_MOB_INITIAL_MEMBERS + 1
-            && (members2 as u32) <= ANGRY_MOB_MAX_MEMBERS
-    );
+    assert_eq!(members2 as u32, ANGRY_MOB_MAX_MEMBERS);
+    let _ = ANGRY_MOB_INITIAL_MEMBERS;
 
     // Follow nexus move.
     if let Some(n) = logic.objects.get_mut(&nid) {
@@ -2892,6 +2890,71 @@ fn steal_cash_hack_command_transfers_cash_after_reach() {
         "victim must lose cash (remaining={victim_cash})"
     );
 }
+
+/// C++ `SpecialAbilityUpdate::triggerAbilityEffect` AwardXPForTriggering
+/// (`SpecialAbilityUpdate.cpp:1248-1253`). Retail StealCashHack = 20.
+#[test]
+fn steal_cash_hack_awards_lotus_award_xp_for_triggering() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_black_lotus_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+    ensure_test_player_for_team(&mut game_logic, Team::China);
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    {
+        let victim = game_logic
+            .get_player_mut_by_team(Team::GLA)
+            .expect("GLA player");
+        victim.resources.supplies = 5_000;
+    }
+
+    let lotus_id = game_logic
+        .create_object(
+            "ChinaInfantryBlackLotus",
+            Team::China,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("lotus");
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.thing.template.is_trainable = true;
+    }
+    let target_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("supply");
+
+    game_logic.queue_command(crate::command_system::GameCommand {
+        command_type: crate::command_system::CommandType::StealCashHack { target_id },
+        player_id: 1,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![lotus_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+    {
+        let lotus = game_logic.host_object_mut(lotus_id).expect("lotus");
+        lotus.set_position(Vec3::new(100.0, 0.0, 0.0));
+        lotus.set_ai_state(AIState::SpecialAbility);
+        lotus.target = Some(target_id);
+    }
+    game_logic.update_ai(&[lotus_id, target_id], 1.0 / 60.0);
+    // C++ leftover SpecialAbilityUpdate: Unpack 6730ms then Preparation 6000ms.
+    game_logic.update_ai(&[lotus_id, target_id], 7.0);
+    game_logic.update_ai(&[lotus_id, target_id], 6.0);
+
+    let lotus = game_logic.host_object(lotus_id).expect("lotus after steal");
+    assert_eq!(
+        lotus.experience.current,
+        crate::game_logic::host_hero_abilities::LOTUS_STEAL_AWARD_XP as f32,
+        "StealCashHack must grant AwardXPForTriggering=20"
+    );
+    assert!(
+        game_logic.hero_abilities().cash_stolen_total > 0
+            || game_logic.honesty_steal_cash_ok(),
+        "steal trigger that awards XP must also steal cash"
+    );
+}
+
 
 /// Residual polish: non-Lotus units cannot issue StealCashHack (fail-closed).
 #[test]

@@ -49,11 +49,13 @@ mod tests;
 
 pub use system::PathfindingSystem;
 pub use types::{
-    BridgeLayer, CheckMovementInfo, LocomotorSurfaceTypeMask, PathRequest, PathResult,
-    LAYER_Z_CLOSE_ENOUGH_F, MAX_PATH_ITERATIONS, MAX_WALL_PIECES, PATHFIND_CELLS_PER_FRAME,
-    PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
-    UNINITIALIZED_ZONE, ZONE_BLOCK_SIZE,
+    compute_point_on_path_from_waypoints, peek_point_on_path_from_waypoints, BridgeLayer,
+    CheckMovementInfo, LocomotorSurfaceTypeMask, PathRequest, PathResult, LAYER_Z_CLOSE_ENOUGH_F,
+    MAX_PATH_ITERATIONS, MAX_WALL_PIECES, PATHFIND_CELLS_PER_FRAME, PATHFIND_QUEUE_LEN,
+    SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER, UNINITIALIZED_ZONE,
+    ZONE_BLOCK_SIZE,
 };
+
 
 pub(crate) use block_zones::{BlockCombiner, ZoneManager};
 pub(crate) use types::{

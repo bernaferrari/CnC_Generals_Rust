@@ -11,8 +11,10 @@
 //! - Nuclear missile DeliveryDecalRadius **210**
 //! - SpecialPower ScudStorm RadiusCursorRadius **200**
 //!
-//! Fail-closed: not full Shadow/W3D decal draw / player color matrix /
-//! network-empty-vs-visible sync beyond is_empty honesty.
+//! Live path: `HostRadiusDecal::create` calls
+//! `game_client::radius_decal::enqueue_delivery_decal` so
+//! `ProjectedShadowManager::collect_render_items` / `forward_render`
+//! draws strike rings (C++ `RadiusDecal.cpp:61` addDecal).
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -90,10 +92,26 @@ pub struct HostRadiusDecal {
     pub opacity: f32,
     pub template: Option<HostRadiusDecalTemplate>,
     pub birth_frame: u32,
+    /// C++ `RadiusDecal::m_decal` — not serialized (C++ xfer clears on load).
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    projected: Option<game_client::radius_decal::ShadowHandle>,
 }
 
 impl HostRadiusDecal {
+    #[cfg(feature = "game_client")]
+    fn release_projected(&mut self) {
+        if let Some(handle) = self.projected.take() {
+            handle.release();
+            game_client::radius_decal::get_projected_shadow_manager()
+                .write()
+                .cleanup();
+        }
+    }
+
     pub fn clear(&mut self) {
+        #[cfg(feature = "game_client")]
+        self.release_projected();
         *self = Self {
             empty: true,
             ..Self::default()
@@ -105,19 +123,50 @@ impl HostRadiusDecal {
         self.empty || self.template.is_none()
     }
 
-    pub fn create(tmpl: HostRadiusDecalTemplate, radius: f32, pos: Vec3, frame: u32) -> Self {
-        let opacity = tmpl.opacity_min;
-        Self {
-            empty: !tmpl.valid(),
-            position: pos,
-            radius: radius.max(0.0),
-            opacity,
-            template: if tmpl.valid() { Some(tmpl) } else { None },
-            birth_frame: frame,
+    /// True when C++ `m_decal` is live in `TheProjectedShadowManager`.
+    pub fn has_projected_shadow(&self) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            self.projected.is_some()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            false
         }
     }
 
-    /// C++ RadiusDecal::update — opacity throb residual.
+    pub fn create(tmpl: HostRadiusDecalTemplate, radius: f32, pos: Vec3, frame: u32) -> Self {
+        let opacity = tmpl.opacity_min;
+        let radius = radius.max(0.0);
+        let empty = !tmpl.valid();
+        #[cfg(feature = "game_client")]
+        let projected = if empty {
+            None
+        } else {
+            // C++ RadiusDecal.cpp:53-66 TheProjectedShadowManager->addDecal.
+            game_client::radius_decal::enqueue_delivery_decal(
+                &tmpl.texture,
+                radius,
+                pos.x,
+                pos.y,
+                pos.z,
+                tmpl.color_rgb,
+                opacity,
+            )
+        };
+        Self {
+            empty,
+            position: pos,
+            radius,
+            opacity,
+            template: if tmpl.valid() { Some(tmpl) } else { None },
+            birth_frame: frame,
+            #[cfg(feature = "game_client")]
+            projected,
+        }
+    }
+
+    /// C++ RadiusDecal::update — opacity throb residual, pushed to m_decal.
     pub fn update(&mut self, frame: u32) {
         if self.is_empty() {
             return;
@@ -133,6 +182,17 @@ impl HostRadiusDecal {
             2.0 - (phase as f32 / period as f32)
         };
         self.opacity = tmpl.opacity_min + (tmpl.opacity_max - tmpl.opacity_min) * t;
+        #[cfg(feature = "game_client")]
+        if let Some(handle) = &self.projected {
+            handle.set_opacity((self.opacity.clamp(0.0, 1.0) * 255.0).trunc() as i32);
+        }
+    }
+}
+
+impl Drop for HostRadiusDecal {
+    fn drop(&mut self) {
+        #[cfg(feature = "game_client")]
+        self.release_projected();
     }
 }
 
@@ -314,5 +374,52 @@ mod tests {
         let killed = d.tick(10, false);
         assert!(killed);
         assert!(d.delivery_decal.is_empty());
+    }
+
+    /// C++ RadiusDecal.cpp:61 addDecal — host create must enqueue so
+    /// `ProjectedShadowManager::collect_render_items` (forward_render.rs)
+    /// draws the strike ring.
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn create_enqueues_projected_shadow_for_forward_render() {
+        let mut d = HostRadiusDecalUpdateData::default();
+        d.create_radius_decal(
+            HostRadiusDecalTemplate::scud_storm(),
+            SCUD_STORM_DELIVERY_DECAL_RADIUS,
+            Vec3::new(1111.0, 2.0, 2222.0),
+            0,
+        );
+        assert!(d.delivery_decal.has_projected_shadow());
+        let items = game_client::radius_decal::get_projected_shadow_manager()
+            .read()
+            .collect_render_items();
+        assert!(
+            items.iter().any(|it| {
+                (it.position.x - 1111.0).abs() < 0.01
+                    && (it.position.y - 2.0).abs() < 0.01
+                    && (it.position.z - 2222.0).abs() < 0.01
+                    && (it.size - SCUD_STORM_DELIVERY_DECAL_RADIUS * 2.0).abs() < 0.01
+            }),
+            "forward_render collect_render_items must see host delivery ring"
+        );
+        d.tick(5, true);
+        let items = game_client::radius_decal::get_projected_shadow_manager()
+            .read()
+            .collect_render_items();
+        let ring = items.iter().find(|it| {
+            (it.position.x - 1111.0).abs() < 0.01 && (it.position.z - 2222.0).abs() < 0.01
+        });
+        assert!(ring.is_some());
+        assert!(ring.unwrap().color[3] > 0.0);
+
+        d.set_kill_when_no_longer_attacking(true);
+        assert!(d.tick(10, false));
+        assert!(!d.delivery_decal.has_projected_shadow());
+        let items = game_client::radius_decal::get_projected_shadow_manager()
+            .read()
+            .collect_render_items();
+        assert!(!items.iter().any(|it| {
+            (it.position.x - 1111.0).abs() < 0.01 && (it.position.z - 2222.0).abs() < 0.01
+        }));
     }
 }

@@ -46,6 +46,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn get_path_destination(&self) -> Option<Coord3D> {
         None
     }
+    /// C++ `AIUpdateInterface::getPath()->peekCachedPointOnPath` residual.
+    /// Default: last node. Concrete AIs override to return the local lead point.
+    fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
+        self.get_path_destination()
+    }
+
     /// Get remaining distance to goal along locomotor path (matches C++ getLocomotorDistanceToGoal).
     fn get_locomotor_distance_to_goal(&self) -> Real {
         0.0

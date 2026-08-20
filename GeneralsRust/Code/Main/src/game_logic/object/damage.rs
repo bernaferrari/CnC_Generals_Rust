@@ -231,6 +231,9 @@ impl Object {
         if self.status.eject_invulnerable {
             return false;
         }
+        let prev_health = self.health.current;
+        let old_body_state = self.body_damage_state;
+        let max_health = self.health.maximum.max(self.max_health).max(1.0);
 
         // C++ BaseRegenerateUpdate::onDamage residual (delay before auto-heal).
         if damage > 0.0 {
@@ -355,6 +358,19 @@ impl Object {
             destroyed,
             damage_type.to_store() as u32,
         );
+        // C++ ActiveBody.cpp:574-581 setAttackedBy + :653 doDamageFX.
+        crate::game_logic::host_transition_damage_fx::queue_attacked_by(
+            self.owner_player_id,
+            source,
+        );
+        if let Some(src) = source {
+            crate::game_logic::host_attacked_by_log::record(self.id, src);
+        }
+        let _ = crate::game_logic::host_transition_damage_fx::dispatch_armor_damage_fx(
+            self,
+            damage_type,
+            actual_damage,
+        );
 
 
 
@@ -403,6 +419,15 @@ impl Object {
         }
 
         self.refresh_model_condition_bits();
+        crate::game_logic::host_transition_damage_fx::queue_voice_fear_event(
+            &mut self.pending_transition_damage_fx,
+            &self.template_name,
+            old_body_state,
+            self.body_damage_state,
+            prev_health,
+            self.health.current,
+            max_health,
+        );
         if battle_bus_start_second {
             false
         } else {
@@ -707,6 +732,102 @@ mod tests {
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(o.is_faerie_fire());
         assert_eq!(o.faerie_fire_until_frame, frame.saturating_add(30));
+    }
+
+    #[test]
+    fn take_damage_dispatches_armor_damage_fx() {
+        // C++ ActiveBody.cpp:653 doDamageFX after attemptDamage.
+        use crate::game_logic::host_transition_damage_fx::{
+            take_dispatched_armor_damage_fx, TemplateDamageAudio,
+        };
+        game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
+        let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
+        dfx.set_major_minor_fx(
+            game_engine::common::ini::ini_damage_fx::DamageType::Unresistable,
+            Some("FX_TestHitSpark".into()),
+            None,
+            0.0,
+        );
+        if let Some(mut store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store_mut() {
+            store.add_damage_fx("TankDamageFX".into(), dfx);
+        }
+        let _ = take_dispatched_armor_damage_fx();
+        let mut tank = vehicle("FxTank", 61, 200.0);
+        tank.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("TankArmor".into()),
+            damage_fx: Some("TankDamageFX".into()),
+        });
+        assert!(!tank.take_damage_from_typed(20.0, None, DamageType::Unresistable));
+        let dispatched = take_dispatched_armor_damage_fx();
+        assert!(
+            dispatched.iter().any(|n| n == "TankDamageFX" || n == "FX_TestHitSpark"),
+            "armor DamageFX must dispatch, got {dispatched:?}"
+        );
+        let _ = TemplateDamageAudio::default();
+    }
+
+    #[test]
+    fn take_damage_queues_template_voice_fear_and_attacked_by() {
+        // C++ ActiveBody.cpp:574 setAttackedBy, :624-637 VoiceFear.
+        use crate::game_logic::host_transition_damage_fx::{
+            set_test_template_audio, set_test_voice_fear_roll, take_pending_attacked_by,
+            TemplateDamageAudio,
+        };
+        crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
+        set_test_template_audio(
+            "FearRanger",
+            TemplateDamageAudio {
+                sound_on_damaged: Some("RangerSoundOnDamaged".into()),
+                sound_on_really_damaged: Some("RangerSoundOnReallyDamaged".into()),
+                voice_fear: Some("RangerVoiceFear".into()),
+            },
+        );
+        set_test_voice_fear_roll(Some(0));
+        let _ = take_pending_attacked_by();
+        let mut tmpl = ThingTemplate::new("FearRanger");
+        tmpl.set_health(100.0);
+        tmpl.add_kind_of(KindOf::Infantry);
+        let mut ranger = Object::new(tmpl, ObjectId(62), Team::USA);
+        ranger.health.current = 40.0;
+        ranger.health.maximum = 100.0;
+        ranger.owner_player_id = Some(1);
+        ranger.template_name = "FearRanger".into();
+        assert!(!ranger.take_damage_from_typed(20.0, Some(ObjectId(77)), DamageType::Unresistable));
+        assert!((ranger.health.current - 20.0).abs() < 1e-3);
+        let pending = ranger.take_pending_transition_damage_fx();
+        assert!(
+            pending
+                .iter()
+                .any(|e| e.audio_name.as_deref() == Some("RangerVoiceFear")),
+            "VoiceFear must queue on yellow cross, got {pending:?}"
+        );
+        let attacked = take_pending_attacked_by();
+        assert_eq!(attacked, vec![(1, ObjectId(77))]);
+        set_test_voice_fear_roll(None);
+        crate::game_logic::host_transition_damage_fx::clear_test_template_audio();
+    }
+
+    #[test]
+    fn apply_set_attacked_by_marks_crate_player() {
+        // C++ Player::setAttackedBy (Player.cpp:3173) for PLAYER_ATTACKED_BY.
+        use crate::game_logic::host_transition_damage_fx::{
+            apply_victim_attacked_by, take_attacked_by_log,
+        };
+        let _ = take_attacked_by_log();
+        let victim = std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(3)));
+        let attacker = std::sync::Arc::new(std::sync::RwLock::new(gamelogic::player::Player::new(4)));
+        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+            list.add_player(victim.clone());
+            list.add_player(attacker);
+        }
+        apply_victim_attacked_by(3, 4);
+        assert!(
+            victim.read().unwrap().get_attacked_by(4),
+            "victim player must record attacker index"
+        );
+        let log = take_attacked_by_log();
+        assert!(log.contains(&(3, 4)));
     }
 
 

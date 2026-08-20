@@ -28,6 +28,14 @@ pub const LOCAL_PLAYER: &str = "<Local Player>";
 pub const THE_PLAYER: &str = "ThePlayer";
 pub const TEAM_THE_PLAYER: &str = "teamThePlayer";
 pub const THIS_PLAYER_ENEMY: &str = "<This Player's Enemy>";
+
+/// C++ ScriptEngine.cpp:5810 / 5935 — THE_PLAYER and teamThePlayer are
+/// Challenge-only aliases. Regular single-player maps author a real side
+/// named ThePlayer that must not be remapped to the local general.
+pub fn is_generals_challenge_campaign() -> bool {
+    game_engine::System::capture_campaign_manager_runtime().is_challenge
+}
+
 const K_SCRIPTS_DATA_VERSION_1: u16 = 1;
 const K_SCRIPT_LIST_DATA_VERSION_1: u16 = 1;
 const K_SCRIPT_GROUP_DATA_VERSION_2: u16 = 2;

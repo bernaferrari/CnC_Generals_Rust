@@ -2265,10 +2265,23 @@ impl GameWorldShadow {
                         // scheduler.  Preserve its first contained schedule
                         // across host remirrors until the first writeback
                         // records the authoritative active state.
-                        e.hacker_hacking = logic.hacker_income.is_hacking(oid) || in_ic;
-                        if let Some(next) = logic.hacker_income.peek_next_deposit(oid) {
+                        // C++ HackInternetAIUpdate::aiDoCommand
+                        // (HackInternetAIUpdate.cpp:105) PACKING on evacuate/exit:
+                        // leftover registry state must not remirror as field
+                        // hacking after leaving InternetHackContain.
+                        let was_in_ic = e.hacker_in_internet_center;
+                        e.hacker_hacking = if in_ic {
+                            true
+                        } else if was_in_ic {
+                            false
+                        } else {
+                            logic.hacker_income.is_hacking(oid)
+                        };
+                        if !e.hacker_hacking {
+                            e.hacker_next_deposit_frame = 0;
+                        } else if let Some(next) = logic.hacker_income.peek_next_deposit(oid) {
                             e.hacker_next_deposit_frame = next;
-                        } else if e.hacker_hacking && e.hacker_next_deposit_frame == 0 {
+                        } else if e.hacker_next_deposit_frame == 0 {
                             // C++ UNPACKING then CashUpdateDelay before first ping.
                             let delay = if in_ic {
                                 metadata.cash_update_delay_fast_frames
@@ -2280,8 +2293,6 @@ impl GameWorldShadow {
                                 .saturating_add(metadata.unpack_time_frames)
                                 .saturating_add(delay)
                                 .saturating_add(1);
-                        } else if !e.hacker_hacking {
-                            e.hacker_next_deposit_frame = 0;
                         }
                         e.hacker_in_internet_center = in_ic;
                         e.hacker_cash_update_delay_frames = metadata.cash_update_delay_frames;

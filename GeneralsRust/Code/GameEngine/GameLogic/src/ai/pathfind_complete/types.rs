@@ -36,6 +36,71 @@ pub(crate) fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
+/// C++ `Path::computePointOnPath` residual for a waypoint polyline (XY ground).
+/// Leads into the next node when the unit is on-path; otherwise projects onto
+/// the closest segment so followers do not hop raw cell centers.
+pub fn compute_point_on_path_from_waypoints(pos: &Coord3D, waypoints: &[Coord3D]) -> Coord3D {
+    if waypoints.is_empty() {
+        return *pos;
+    }
+    if waypoints.len() == 1 {
+        return waypoints[0];
+    }
+    let mut best_dist_sqr = f32::MAX;
+    let mut best_point = waypoints[0];
+    let mut best_seg = 0usize;
+    let mut best_t = 0.0f32;
+    for i in 0..waypoints.len() - 1 {
+        let a = waypoints[i];
+        let b = waypoints[i + 1];
+        let sx = b.x - a.x;
+        let sy = b.y - a.y;
+        let len_sqr = sx * sx + sy * sy;
+        let t = if len_sqr <= 1.0e-8 {
+            0.0
+        } else {
+            let tx = pos.x - a.x;
+            let ty = pos.y - a.y;
+            ((tx * sx + ty * sy) / len_sqr).clamp(0.0, 1.0)
+        };
+        let px = a.x + sx * t;
+        let py = a.y + sy * t;
+        let dx = pos.x - px;
+        let dy = pos.y - py;
+        let d2 = dx * dx + dy * dy;
+        if d2 < best_dist_sqr {
+            best_dist_sqr = d2;
+            best_point = Coord3D::new(px, py, a.z);
+            best_seg = i;
+            best_t = t;
+        }
+    }
+    // On-path: lead into the next optimized node (C++ tryAhead when t > 0.5).
+    let cell = PATHFIND_CELL_SIZE_F;
+    let max_path_error = 3.0 * cell;
+    let offset = best_dist_sqr.sqrt();
+    if offset < max_path_error * 0.5 {
+        if best_t > 0.5 {
+            if let Some(ahead) = waypoints.get(best_seg + 2) {
+                return Coord3D::new(
+                    (waypoints[best_seg + 1].x + ahead.x) * 0.5,
+                    (waypoints[best_seg + 1].y + ahead.y) * 0.5,
+                    waypoints[best_seg + 1].z,
+                );
+            }
+            return waypoints[best_seg + 1];
+        }
+        return waypoints[best_seg + 1];
+    }
+    best_point
+}
+
+/// Peek the lead point on a polyline without mutating cache (C++ peekCachedPointOnPath).
+pub fn peek_point_on_path_from_waypoints(pos: &Coord3D, waypoints: &[Coord3D]) -> Coord3D {
+    compute_point_on_path_from_waypoints(pos, waypoints)
+}
+
+
 /// Pathfinding request
 #[derive(Debug, Clone)]
 pub struct PathRequest {

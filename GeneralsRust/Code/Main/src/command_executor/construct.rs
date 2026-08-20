@@ -75,6 +75,11 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
+            // C++ BuildAssistant.cpp:333-334 / :1365-1383
+            // clearRemovableForConstruction + removeTreesAndPropsForConstruction
+            // before the structure is created so trees do not sit inside it.
+            self.clear_removable_for_construction(location, orientation, template_name);
+
             let building_id = self.game_logic.create_object_under_construction_for_player(
                 template_name,
                 self.current_player_id,
@@ -230,6 +235,65 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
+        }
+    }
+
+    /// C++ BuildAssistant::isRemovableForConstruction (BuildAssistant.cpp:1331-1358).
+    fn is_removable_for_construction(obj: &crate::game_logic::Object) -> bool {
+        if obj.status.effectively_dead {
+            return true;
+        }
+        let name = obj.template_name.to_ascii_lowercase();
+        name.contains("shrub")
+            || name.contains("tree")
+            || name.contains("bush")
+            || name.contains("debris")
+            || name.contains("rubble")
+            || name.contains("clearedbybuild")
+    }
+
+    /// C++ BuildAssistant::clearRemovableForConstruction +
+    /// TerrainVisual::removeTreesAndPropsForConstruction.
+    fn clear_removable_for_construction(
+        &mut self,
+        location: Vec3,
+        angle: f32,
+        _template_name: &str,
+    ) {
+        let place_r = crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
+            * 0.5;
+        let mut to_destroy: Vec<ObjectId> = Vec::new();
+        for (&id, obj) in self.game_logic.host_objects() {
+            if obj.is_kind_of(KindOf::AlwaysSelectable) {
+                continue;
+            }
+            if !Self::is_removable_for_construction(obj) {
+                continue;
+            }
+            let p = obj.get_position();
+            let dx = p.x - location.x;
+            let dz = p.z - location.z;
+            let r = obj.selection_radius.max(1.0);
+            if dx * dx + dz * dz <= (place_r + r) * (place_r + r) {
+                to_destroy.push(id);
+            }
+        }
+        for id in to_destroy {
+            self.game_logic.destroy_object(id);
+        }
+        #[cfg(feature = "game_client")]
+        {
+            if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
+                if let Some(visual) = guard.as_mut() {
+                    visual.remove_trees_and_props_for_construction(
+                        [location.x, location.z, location.y],
+                        place_r,
+                        place_r,
+                        true,
+                        angle,
+                    );
+                }
+            }
         }
     }
 }

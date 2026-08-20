@@ -12,6 +12,51 @@ fn replay_logic_step_count(replay_fast_forward: bool) -> usize {
     }
 }
 
+/// C++ SuperweaponInfo name drawn in the owning player's color
+/// (InGameUI.cpp:245 / 3505). Presentation already stamps enemy/ally + `#RRGGBB`
+/// on non-local rows; fill color from the frozen roster when missing.
+fn superweapon_timer_strip_name(
+    pres: &crate::presentation_frame::PresentationFrame,
+    timer: &crate::presentation_frame::PresentationSuperweaponTimer,
+) -> String {
+    if timer.name.contains(" (Enemy")
+        || timer.name.contains(" (Ally")
+        || timer.name.contains(" (Neutral")
+        || timer.name.contains('#')
+    {
+        return timer.name.clone();
+    }
+    let owner_id = match timer.power_key.rsplit_once('#') {
+        Some((key, id)) if !key.is_empty() => id.parse::<u32>().unwrap_or(pres.local_player_id),
+        _ => pres.local_player_id,
+    };
+    if owner_id == pres.local_player_id {
+        return timer.name.clone();
+    }
+    let owner = pres.players.iter().find(|p| p.id == owner_id);
+    let color = owner.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
+    let local_alliance = pres
+        .players
+        .iter()
+        .find(|lp| lp.id == pres.local_player_id)
+        .map(|lp| lp.alliance_team)
+        .unwrap_or(-1);
+    let rel = owner
+        .map(|p| {
+            if p.alliance_team >= 0 && local_alliance >= 0 && local_alliance == p.alliance_team {
+                "Ally"
+            } else if p.alliance_team >= 0 && local_alliance >= 0 {
+                "Enemy"
+            } else {
+                "Neutral"
+            }
+        })
+        .unwrap_or("Neutral");
+    let (r, g, b) = color;
+    format!("{} ({rel} #{r:02X}{g:02X}{b:02X})", timer.name)
+}
+
+
 impl CnCGameEngine {
     /// Wave 602: via `host_route_shell_owned_screen_change`.
     pub(super) fn route_shell_owned_screen_change(&mut self, screen: Screen) {
@@ -1724,6 +1769,31 @@ impl CnCGameEngine {
         self.host_refresh_match_sim_residuals_from_logic();
     }
 
+    #[cfg(feature = "game_client")]
+    fn presentation_draw_module_names_from_template(template: &str) -> Vec<String> {
+        let Some(manager) = crate::assets::get_asset_manager() else {
+            return Vec::new();
+        };
+        let Ok(manager) = manager.lock() else {
+            return Vec::new();
+        };
+        let Some(definition) = manager.get_object_definition(template) else {
+            return Vec::new();
+        };
+        definition
+            .draw_modules
+            .iter()
+            .filter_map(|module| {
+                module
+                    .declaration
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+
     /// Freeze-to-GameClient direct Drawable association boundary shared by the
     /// ordinary presentation shell tick and the initial match/load seed.
     ///
@@ -1811,6 +1881,14 @@ impl CnCGameEngine {
                             String::new()
                         }
                     },
+                    draw_module_names: Self::presentation_draw_module_names_from_template(
+                        if direct.visual_template_name.trim().is_empty() {
+                            o.template_name.as_str()
+                        } else {
+                            direct.visual_template_name.as_str()
+                        },
+                    ),
+
                 }
             })
             .collect::<Vec<_>>();
@@ -2307,13 +2385,19 @@ impl CnCGameEngine {
                 .iter()
                 .filter(|t| t.unlocked)
                 .map(|t| {
+                    // C++ InGameUI.cpp:3648-3650 name + mm:ss; SuperweaponInfo.m_color
+                    // is the owning player's color (addSuperweapon / postDraw).
                     let countdown = if t.ready || t.remaining <= 0.0 {
                         "READY".to_string()
                     } else {
                         let secs = t.remaining.max(0.0) as u32;
                         format!("{}:{:02}", secs / 60, secs % 60)
                     };
-                    (t.name.clone(), countdown, t.ready)
+                    (
+                        superweapon_timer_strip_name(pres, t),
+                        countdown,
+                        t.ready,
+                    )
                 })
                 .collect();
             self.game_client

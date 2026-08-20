@@ -235,6 +235,10 @@ pub struct PlayerStatistics {
     pub academy_building_captures: u32,
     /// C++ ScoreKeeper::addObjectCaptured residual count.
     pub objects_captured: u32,
+    /// C++ AcademyStats::m_structuresGarrisoned residual.
+    pub structures_garrisoned: u32,
+    /// Alias honesty counter for academy garrison residual.
+    pub academy_buildings_garrisoned: u32,
     /// C++ EVA UnitLost residual fires attributed to this player.
     pub eva_unit_lost: u32,
     /// C++ EVA BuildingLost residual fires attributed to this player.

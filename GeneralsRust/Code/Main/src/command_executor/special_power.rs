@@ -262,9 +262,17 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
 
-            if !self
-                .game_logic
-                .consume_special_power_charge_for(unit_id, power_type)
+            // C++ markSpecialPowerTriggered is startPreparation, after
+            // unpack/face/range. Steal/disable leftover must not consume on click.
+            let consume_at_prep = matches!(
+                *power_type,
+                SpecialPowerType::BlackLotusStealCash
+                    | SpecialPowerType::BlackLotusDisableVehicle
+            );
+            if !consume_at_prep
+                && !self
+                    .game_logic
+                    .consume_special_power_charge_for(unit_id, power_type)
             {
                 continue;
             }

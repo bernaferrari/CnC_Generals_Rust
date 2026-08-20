@@ -22,7 +22,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full GuardTunnelNetwork AI / AITNGuard nemesis path
-//! - Not CaveSystem multi-index / last-tunnel cave-in destroy matrix
+//! - Not CaveSystem multi-index (player TunnelTracker last-tunnel cave-in IS live)
 //! - Not full ExitStart bone / multi-door exit interface
 //! - Not full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
 //! - Not network tunnel-network replication (network deferred)
@@ -130,6 +130,12 @@ pub struct HostTunnelNetworkRegistry {
     pub heal_ticks: u32,
     /// C++ HealContain::update auto-exits after TimeForFullHeal.
     pub heal_auto_exits: u32,
+    /// C++ `TunnelTracker::onTunnelDestroyed` invocations.
+    pub tunnels_destroyed: u32,
+    /// C++ last-tunnel cave-in (`m_tunnelCount == 0`) events.
+    pub cave_ins: u32,
+    /// Units destroyed by last-tunnel cave-in (`TunnelTracker::destroyObject`).
+    pub cave_in_kills: u32,
     /// C++ `Object::m_containedByFrame` residual for HealContain + TunnelTracker.
     contained_by_frame: HashMap<u32, u32>,
     /// Per-team shared passenger lists (C++ Player::TunnelTracker contain list).
@@ -143,7 +149,21 @@ pub struct TeamTunnelNetwork {
     pub contained: Vec<ObjectId>,
     /// Unit → tunnel they entered (scripts / cross-exit honesty).
     pub entry_tunnel: HashMap<u32, ObjectId>,
+    /// C++ `TunnelTracker::m_tunnelIDs` residual for this team.
+    pub tunnel_ids: Vec<ObjectId>,
 }
+
+/// C++ `TunnelTracker::onTunnelDestroyed` result.
+#[derive(Debug, Clone, Default)]
+pub struct TunnelDestroyedOutcome {
+    /// True when this was the last registered tunnel (`m_tunnelCount == 0`).
+    pub cave_in: bool,
+    /// Shared-pool units that must be destroyed (cave-in only).
+    pub cave_in_units: Vec<ObjectId>,
+    /// Remaining valid tunnel for remapping `ContainedBy` (non-last).
+    pub remapped_to: Option<ObjectId>,
+}
+
 
 impl HostTunnelNetworkRegistry {
     pub fn new() -> Self {
@@ -247,6 +267,73 @@ impl HostTunnelNetworkRegistry {
         self.contained_by_frame.remove(&unit_id.0);
         entry
     }
+
+    /// C++ `TunnelTracker::onTunnelCreated`.
+    pub fn on_tunnel_created(&mut self, team: Team, tunnel: ObjectId) {
+        let net = self.network_mut(team);
+        if !net.tunnel_ids.contains(&tunnel) {
+            net.tunnel_ids.push(tunnel);
+        }
+    }
+
+    /// Live tunnel count residual (`TunnelTracker::m_tunnelCount` / `friend_getTunnelCount`).
+    pub fn tunnel_count(&self, team: Team) -> usize {
+        self.networks
+            .get(&team)
+            .map(|n| n.tunnel_ids.len())
+            .unwrap_or(0)
+    }
+
+    /// C++ `TunnelTracker::onTunnelDestroyed`.
+    ///
+    /// `remaining_other_tunnels` is the live team tunnel list after `dead_tunnel`
+    /// is already gone (host scans objects). Last tunnel cave-in kills the
+    /// shared pool via `record_exit` + returned IDs; otherwise occupants stay
+    /// and entry tunnels that pointed at the dead entrance remap to `front()`.
+    pub fn on_tunnel_destroyed(
+        &mut self,
+        team: Team,
+        dead_tunnel: ObjectId,
+        remaining_other_tunnels: &[ObjectId],
+    ) -> TunnelDestroyedOutcome {
+        self.tunnels_destroyed = self.tunnels_destroyed.saturating_add(1);
+        if let Some(net) = self.networks.get_mut(&team) {
+            net.tunnel_ids.retain(|id| *id != dead_tunnel);
+        }
+        if remaining_other_tunnels.is_empty() {
+            let units = self.contained_for_team(team);
+            for &uid in &units {
+                let _ = self.record_exit(team, uid, dead_tunnel);
+            }
+            self.cave_ins = self.cave_ins.saturating_add(1);
+            self.cave_in_kills = self.cave_in_kills.saturating_add(units.len() as u32);
+            TunnelDestroyedOutcome {
+                cave_in: true,
+                cave_in_units: units,
+                remapped_to: None,
+            }
+        } else {
+            let remapped_to = remaining_other_tunnels[0];
+            if let Some(net) = self.networks.get_mut(&team) {
+                for entry in net.entry_tunnel.values_mut() {
+                    if *entry == dead_tunnel {
+                        *entry = remapped_to;
+                    }
+                }
+            }
+            TunnelDestroyedOutcome {
+                cave_in: false,
+                cave_in_units: Vec::new(),
+                remapped_to: Some(remapped_to),
+            }
+        }
+    }
+
+    /// Residual honesty: last-tunnel cave-in destroyed at least one contained unit.
+    pub fn honesty_cave_in_ok(&self) -> bool {
+        self.cave_ins > 0 && self.cave_in_kills > 0
+    }
+
 
     /// C++ `Object::setContainedBy` stamps `m_containedByFrame`.
     pub fn stamp_contained_by_frame(&mut self, unit_id: ObjectId, frame: u32) {
@@ -560,5 +647,44 @@ mod tests {
         reg.clear_contained_by_frame(unit);
         assert_eq!(reg.contained_by_frame(unit), None);
     }
+
+    #[test]
+    fn last_tunnel_cave_in_kills_shared_pool() {
+        // C++ TunnelTracker.cpp:187-197 / destroyObject:215-220.
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let t1 = ObjectId(10);
+        let u1 = ObjectId(1);
+        let u2 = ObjectId(2);
+        reg.on_tunnel_created(Team::GLA, t1);
+        assert!(reg.record_enter(Team::GLA, u1, t1));
+        assert!(reg.record_enter(Team::GLA, u2, t1));
+        let out = reg.on_tunnel_destroyed(Team::GLA, t1, &[]);
+        assert!(out.cave_in);
+        assert_eq!(out.cave_in_units, vec![u1, u2]);
+        assert_eq!(reg.contain_count(Team::GLA), 0);
+        assert!(reg.honesty_cave_in_ok());
+        assert_eq!(reg.exits, 2);
+    }
+
+    #[test]
+    fn non_last_tunnel_keeps_pool_and_remaps_entry() {
+        // C++ TunnelTracker.cpp:199-210 — no eject; remapped ContainedBy.
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let t1 = ObjectId(10);
+        let t2 = ObjectId(20);
+        let u1 = ObjectId(1);
+        reg.on_tunnel_created(Team::GLA, t1);
+        reg.on_tunnel_created(Team::GLA, t2);
+        assert!(reg.record_enter(Team::GLA, u1, t1));
+        let out = reg.on_tunnel_destroyed(Team::GLA, t1, &[t2]);
+        assert!(!out.cave_in);
+        assert!(out.cave_in_units.is_empty());
+        assert_eq!(out.remapped_to, Some(t2));
+        assert_eq!(reg.contain_count(Team::GLA), 1);
+        assert!(reg.is_in_network(Team::GLA, u1));
+        assert_eq!(reg.entry_tunnel_of(u1), Some(t2));
+        assert!(!reg.honesty_cave_in_ok());
+    }
+
 
 }

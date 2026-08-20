@@ -345,6 +345,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_path_destination(self)
     }
 
+    fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
+        UnitAIUpdate::peek_cached_point_on_path(self)
+    }
+
+
     fn get_locomotor_distance_to_goal(&self) -> Real {
         UnitAIUpdate::get_locomotor_distance_to_goal(self)
     }

@@ -160,6 +160,11 @@ pub struct Player {
     pub resource_supply_warehouses: Vec<ObjectId>,
     /// C++ initFromDict / PlayerList relationship leftovers from the map SidesList.
     pub map_side: PlayerMapSideState,
+    /// C++ `Player::m_attackedBy[MAX_PLAYER_COUNT]` (Player.cpp:3864).
+    pub attacked_by: [bool; Self::MAX_ATTACKED_BY_PLAYERS],
+    /// C++ `Player::m_attackedFrame` — last frame `setAttackedBy` fired.
+    pub attacked_frame: u32,
+
 }
 
 /// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
@@ -318,6 +323,9 @@ impl Player {
     /// C&C Generals default starting money is $10,000 (Normal difficulty).
     /// Matches the `StartingMoney::Normal` variant from the LAN API game-info crate.
     pub const DEFAULT_STARTING_MONEY: u32 = 10_000;
+    /// C++ `GameCommon.h MAX_PLAYER_COUNT`.
+    pub const MAX_ATTACKED_BY_PLAYERS: usize = 16;
+
 
     pub fn new(id: u32, team: Team, name: &str, is_local: bool) -> Self {
         Self {
@@ -363,6 +371,8 @@ impl Player {
             completed_upgrades: HashSet::new(),
             resource_supply_centers: Vec::new(),
             resource_supply_warehouses: Vec::new(),
+            attacked_by: [false; Self::MAX_ATTACKED_BY_PLAYERS],
+            attacked_frame: 0,
         }
     }
 
@@ -386,6 +396,28 @@ impl Player {
         if !self.resource_supply_warehouses.contains(&warehouse_id) {
             self.resource_supply_warehouses.push(warehouse_id);
         }
+    }
+
+    /// C++ `Player::setAttackedBy` (Player.cpp:3864-3868).
+    pub fn set_attacked_by(&mut self, player_index: i32) {
+        if player_index >= 0 && (player_index as usize) < Self::MAX_ATTACKED_BY_PLAYERS {
+            self.attacked_by[player_index as usize] = true;
+            self.attacked_frame = crate::game_logic::host_historic_bonus::logic_frame();
+        }
+    }
+
+    /// C++ `Player::getAttackedBy` (Player.cpp:3875-3878).
+    pub fn get_attacked_by(&self, player_index: i32) -> bool {
+        if player_index >= 0 && (player_index as usize) < Self::MAX_ATTACKED_BY_PLAYERS {
+            self.attacked_by[player_index as usize]
+        } else {
+            false
+        }
+    }
+
+    /// C++ `Player::getAttackedFrame`.
+    pub fn get_attacked_frame(&self) -> u32 {
+        self.attacked_frame
     }
 
 
@@ -803,6 +835,13 @@ impl Player {
     /// C++ ScoreKeeper::addObjectCaptured residual.
     pub fn record_object_captured(&mut self) {
         self.statistics.objects_captured = self.statistics.objects_captured.saturating_add(1);
+    }
+    /// C++ AcademyStats::recordBuildingGarrisoned residual.
+    pub fn record_building_garrisoned(&mut self) {
+        self.statistics.structures_garrisoned =
+            self.statistics.structures_garrisoned.saturating_add(1);
+        self.statistics.academy_buildings_garrisoned =
+            self.statistics.academy_buildings_garrisoned.saturating_add(1);
     }
 
     pub fn add_money_earned(&mut self, amount: u32) {

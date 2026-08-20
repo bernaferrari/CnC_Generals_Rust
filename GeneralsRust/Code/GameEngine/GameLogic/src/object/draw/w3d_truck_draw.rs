@@ -513,7 +513,11 @@ impl W3DTruckDraw {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
                         if let Ok(ai_guard) = ai.lock() {
-                            if let Some(point) = ai_guard.get_path_destination() {
+                            if let Some(point) = ai_guard
+                                .peek_cached_point_on_path()
+                                .or_else(|| ai_guard.get_path_destination())
+                            {
+
                                 let pos = *owner_guard.get_position();
                                 let facing = owner_guard.get_orientation();
                                 let angle_to_goal = relative_angle_2d(pos, facing, point);

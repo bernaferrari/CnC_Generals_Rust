@@ -10,6 +10,16 @@ const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 /// C++ `BuildListInfo::UNLIMITED_REBUILDS` (`SidesList.h:240`).
 pub const UNLIMITED_REBUILDS: u32 = u32::MAX;
 
+/// C++ `INVALID_SKILLSET_SELECTION` (`AIPlayer.h:13`).
+const INVALID_SKILLSET_SELECTION: i32 = -1;
+/// C++ `AIPlayer::MAX_STRUCTURES_TO_REPAIR` (`AIPlayer.h:262`).
+const MAX_STRUCTURES_TO_REPAIR: usize = 2;
+/// C++ `HUGE_DIST` (`PartitionManager.h:45`).
+const HUGE_DIST: f32 = 1_000_000.0;
+/// Host residual when a leftover team has no prototype `m_initialIdleFrames`.
+const TEAM_BUILD_TIME_SECONDS: f32 = 180.0;
+
+
 
 /// AI difficulty levels affecting decision making and timing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -120,7 +130,7 @@ impl AIWorkOrder {
     }
 }
 
-/// AI team build queue
+/// AI team build / ready queue entry (`TeamInQueue` residual).
 #[derive(Debug, Clone)]
 pub struct AITeamQueue {
     pub name: String,
@@ -128,7 +138,66 @@ pub struct AITeamQueue {
     pub priority_build: bool,
     pub frame_started: u32,
     pub completed: bool,
+    /// C++ `TeamPrototype::m_executeActions` residual.
+    pub execute_actions: bool,
+    /// C++ `TeamInQueue::m_sentToStartLocation`.
+    pub sent_to_start_location: bool,
+    /// Host residual of `Team::setActive()` / OnCreate.
+    pub activated: bool,
 }
+
+impl AITeamQueue {
+    fn new(
+        name: String,
+        work_orders: Vec<AIWorkOrder>,
+        priority_build: bool,
+        frame_started: u32,
+    ) -> Self {
+        Self {
+            name,
+            work_orders,
+            priority_build,
+            frame_started,
+            completed: false,
+            execute_actions: false,
+            sent_to_start_location: false,
+            activated: false,
+        }
+    }
+
+    /// C++ `TeamInQueue::isAllBuilt`.
+    fn is_all_built(&self) -> bool {
+        self.work_orders
+            .iter()
+            .all(|order| order.num_completed >= order.num_required)
+    }
+
+    /// C++ `TeamInQueue::isMinimumBuilt`: assigned factory counts as +1.
+    fn is_minimum_built(&self) -> bool {
+        for order in self.work_orders.iter().filter(|o| o.is_required) {
+            let mut count = order.num_completed;
+            if order.factory_id.is_some() {
+                count = count.saturating_add(1);
+            }
+            if order.num_required > count {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// C++ `TeamInQueue::areBuildsComplete`: no work order still bound to a factory.
+    fn are_builds_complete(&self) -> bool {
+        self.work_orders.iter().all(|order| order.factory_id.is_none())
+    }
+
+    /// Host residual of `TeamInQueue::isBuildTimeExpired` (180s when no prototype).
+    fn is_build_time_expired(&self, current_time: f32) -> bool {
+        let started = self.frame_started as f32 / LOGIC_FRAMES_PER_SECOND;
+        current_time - started >= TEAM_BUILD_TIME_SECONDS
+    }
+}
+
 
 /// AI building info for base construction
 #[derive(Debug, Clone)]
@@ -215,6 +284,9 @@ pub struct AIPlayer {
 
     // Military Management
     pub team_queue: VecDeque<AITeamQueue>,
+    /// C++ `m_teamReadyQueue` — teams that finished building and await activation.
+    pub team_ready_queue: VecDeque<AITeamQueue>,
+
     pub attack_in_progress: bool,
     pub last_attack_time: f32,
     pub defensive_units: Vec<ObjectId>,
@@ -230,6 +302,19 @@ pub struct AIPlayer {
 
     /// Count of production-linked actions (build/produce/attack) for gates.
     pub activity_count: u64,
+    /// C++ `m_skillsetSelector`. `-1` until first `doUpgradesAndSkills`.
+    skillset_selector: i32,
+    /// Other skirmish AIs' current enemy (set by `AIManager` before `update`).
+    peer_ai_targets: Vec<(u32, Option<u32>)>,
+
+    // C++ `AIPlayer` bridge-repair queue (`AIPlayer.h:261-268`).
+    structures_to_repair: Vec<ObjectId>,
+    repair_dozer: Option<ObjectId>,
+    repair_dozer_origin: Vec3,
+    dozer_queued_for_repair: bool,
+    dozer_is_repairing: bool,
+    last_bridge_repair_time: f32,
+
 
     // C++ `AISkirmishPlayer` front/flank defense fan (`AISkirmishPlayer.cpp:50-57`).
     cur_front_base_defense: i32,
@@ -281,6 +366,7 @@ impl AIPlayer {
             next_team_queue_time: 0.0,
             next_team_time: 0.0,
             team_queue: VecDeque::new(),
+            team_ready_queue: VecDeque::new(),
             attack_in_progress: false,
             last_attack_time: 0.0,
             defensive_units: Vec::new(),
@@ -290,6 +376,14 @@ impl AIPlayer {
             current_strategy: AIStrategy::EarlyGame,
             build_phase: AIBuildPhase::BaseConstruction,
             activity_count: 0,
+            skillset_selector: INVALID_SKILLSET_SELECTION,
+            peer_ai_targets: Vec::new(),
+            structures_to_repair: Vec::new(),
+            repair_dozer: None,
+            repair_dozer_origin: Vec3::ZERO,
+            dozer_queued_for_repair: false,
+            dozer_is_repairing: false,
+            last_bridge_repair_time: -1.0,
             cur_front_base_defense: 0,
             cur_flank_base_defense: 0,
             cur_front_left_defense_angle: 0.0,
@@ -339,14 +433,17 @@ impl AIPlayer {
 
         // doBaseBuilding
         self.update_economic_management(game_logic, current_time);
-        // checkReadyTeams — force-start teams waiting ≥ 60s (AIPlayer.cpp:1658-1663)
+        // checkReadyTeams — activate ready-queue teams (AIPlayer.cpp:2729-2803)
         self.check_ready_teams(game_logic, current_time);
-        // checkQueuedTeams + doTeamBuilding
+        // checkQueuedTeams — expire / disband / promote (AIPlayer.cpp:2810-2870)
+        self.check_queued_teams(current_time);
+        // doTeamBuilding
         self.update_military_management(game_logic, current_time);
         // doUpgradesAndSkills
         self.do_upgrades_and_skills(game_logic);
-        // updateBridgeRepair — resume interrupted construction (dozer reattach)
-        self.resume_interrupted_construction(game_logic);
+        // updateBridgeRepair — queue damaged spans and send a dozer
+        self.check_bridges(game_logic);
+        self.update_bridge_repair(game_logic, current_time);
 
         self.update_strategic_decisions(game_logic, current_time);
         // C++ ScriptActions::doSkirmishFireSpecialPowerAtMostCost — live host
@@ -681,49 +778,142 @@ impl AIPlayer {
         self.next_team_time = self.last_update_time + (Self::TEAM_SECONDS * delay_modifier);
     }
 
-    /// Update enemy assessment and target selection
+    /// C++ `AISkirmishPlayer::acquireEnemy` (`AISkirmishPlayer.cpp:461-522`).
     fn update_enemy_assessment(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        // Check for enemies every 5 seconds
+        // C++ `getAiEnemy` only calls this every 5s.
         if current_time - self.enemy_check_time < 5.0 {
             return;
         }
         self.enemy_check_time = current_time;
 
-        // Find closest enemy player
-        let mut best_enemy: Option<u32> = None;
-        let mut best_distance = f32::MAX;
-
-        for player_id in 0..4 {
-            // Check up to 4 players
-            if player_id == self.player_id {
-                continue;
-            }
-
-            if let Some(player) = game_logic.get_player(player_id) {
-                if player.team != self.team && player.is_alive {
-                    // Calculate distance to enemy base
-                    let enemy_base = self.find_enemy_base_center(game_logic, player.team);
-                    let distance = self.base_center.distance(enemy_base);
-
-                    if distance < best_distance {
-                        best_distance = distance;
-                        best_enemy = Some(player_id);
-                    }
+        if let Some(enemy_id) = self.enemy_player_id {
+            if let Some(enemy) = game_logic.get_player(enemy_id) {
+                if enemy.is_alive
+                    && self.player_is_enemy(game_logic, enemy)
+                    && !self.player_in_bad_shape(game_logic, enemy)
+                {
+                    return;
                 }
             }
         }
 
-        if self.enemy_player_id != best_enemy {
-            self.enemy_player_id = best_enemy;
-            if let Some(enemy_id) = best_enemy {
-                log::debug!(
-                    "AI Player {} ({}) targeting enemy Player {}",
-                    self.player_id,
-                    self.team.get_name(),
-                    enemy_id
-                );
+        let mut best_enemy: Option<u32> = None;
+        let mut best_distance_sqr = HUGE_DIST * HUGE_DIST;
+
+        let player_ids: Vec<u32> = game_logic.get_players().keys().copied().collect();
+        for player_id in player_ids {
+            if player_id == self.player_id {
+                continue;
+            }
+            let Some(player) = game_logic.get_player(player_id) else {
+                continue;
+            };
+            if !player.is_alive || !self.player_is_enemy(game_logic, player) {
+                continue;
+            }
+            if !self.player_has_any_objects(game_logic, player.team) {
+                continue;
+            }
+
+            let in_bad_shape = self.player_in_bad_shape(game_logic, player);
+            let (min_x, min_z, max_x, max_z) =
+                self.player_structure_bounds(game_logic, player.team);
+            let enemy_center = if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
+                self.find_enemy_base_center(game_logic, player.team)
+            } else {
+                Vec3::new(
+                    min_x + (max_x - min_x) * 0.5,
+                    0.0,
+                    min_z + (max_z - min_z) * 0.5,
+                )
+            };
+            let dx = enemy_center.x - self.base_center.x;
+            let dz = enemy_center.z - self.base_center.z;
+            let mut dist_sqr = dx * dx + dz * dz;
+            if in_bad_shape {
+                dist_sqr = HUGE_DIST * HUGE_DIST * 0.5;
+            }
+            for &(other_id, other_target) in &self.peer_ai_targets {
+                if other_id == self.player_id || other_id == player_id {
+                    continue;
+                }
+                if other_target == Some(player_id) {
+                    dist_sqr += 500.0 * 500.0;
+                }
+                if other_target == Some(self.player_id) {
+                    dist_sqr -= 25.0 * 25.0;
+                    if dist_sqr < 0.0 {
+                        dist_sqr = 0.0;
+                    }
+                }
+            }
+            if dist_sqr < best_distance_sqr {
+                best_distance_sqr = dist_sqr;
+                best_enemy = Some(player_id);
             }
         }
+
+        // C++ only replaces when bestEnemy != NULL && bestEnemy != m_currentEnemy.
+        let Some(best) = best_enemy else {
+            return;
+        };
+        if self.enemy_player_id == Some(best) {
+            return;
+        }
+        self.enemy_player_id = Some(best);
+        log::debug!(
+            "AI Player {} ({}) targeting enemy Player {}",
+            self.player_id,
+            self.team.get_name(),
+            best
+        );
+    }
+
+    fn player_is_enemy(&self, _game_logic: &GameLogic, player: &Player) -> bool {
+        if player.team == self.team {
+            return false;
+        }
+        if player.alliance_team >= 0 {
+            if let Some(me) = _game_logic.get_player(self.player_id) {
+                if me.alliance_team >= 0 && me.alliance_team == player.alliance_team {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn player_has_any_objects(&self, game_logic: &GameLogic, team: Team) -> bool {
+        game_logic
+            .host_objects()
+            .values()
+            .any(|object| object.team == team && object.is_alive())
+    }
+
+    fn player_has_any_units(&self, game_logic: &GameLogic, team: Team) -> bool {
+        game_logic.host_objects().values().any(|object| {
+            object.team == team
+                && object.is_alive()
+                && (object.is_kind_of(KindOf::Infantry)
+                    || object.is_kind_of(KindOf::Vehicle)
+                    || object.is_kind_of(KindOf::Aircraft))
+        })
+    }
+
+    fn player_has_any_build_facility(&self, game_logic: &GameLogic, team: Team) -> bool {
+        game_logic.host_objects().values().any(|object| {
+            object.team == team
+                && object.is_alive()
+                && (object.is_kind_of(KindOf::CommandCenter)
+                    || object.is_kind_of(KindOf::FSBarracks)
+                    || object.is_kind_of(KindOf::FSWarFactory)
+                    || object.is_kind_of(KindOf::FSAirfield))
+        })
+    }
+
+    fn player_in_bad_shape(&self, game_logic: &GameLogic, player: &Player) -> bool {
+        !self.player_has_any_units(game_logic, player.team)
+            || !self.player_has_any_build_facility(game_logic, player.team)
     }
 
     /// Update economic management (base building, resource optimization)
@@ -933,13 +1123,12 @@ impl AIPlayer {
             order.queued_count = 1;
             order.observed_unit_ids = preexisting;
         }
-        self.team_queue.push_front(AITeamQueue {
-            name: format!("DOZER - building one at the factory"),
-            work_orders: vec![order],
-            priority_build: true,
-            frame_started: (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-            completed: false,
-        });
+        self.team_queue.push_front(AITeamQueue::new(
+            "DOZER - building one at the factory".to_string(),
+            vec![order],
+            true,
+            (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+        ));
         // C++ m_teamDelay = 0 so queueUnits retries immediately.
         self.next_team_queue_time = current_time;
         if queued {
@@ -1491,13 +1680,12 @@ impl AIPlayer {
             let mut order = AIWorkOrder::new(collector_template, 1, 100);
             order.is_resource_gatherer = true;
             order.supply_center_id = Some(center_id);
-            self.team_queue.push_front(AITeamQueue {
-                name: "Supply truck".to_string(),
-                work_orders: vec![order],
-                priority_build: true,
-                frame_started: (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-                completed: false,
-            });
+            self.team_queue.push_front(AITeamQueue::new(
+                "Supply truck".to_string(),
+                vec![order],
+                true,
+                (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+            ));
             // C++ sets m_teamDelay=0 and proceeds through queueUnits in this
             // same pass, so process_team_queue will enqueue it immediately.
             // Do not return: retail keeps walking completed centers and may
@@ -1569,6 +1757,15 @@ impl AIPlayer {
                     if order.is_resource_gatherer {
                         if let Some(center_id) = order.supply_center_id {
                             completed_resource_collectors.push((unit_id, center_id));
+                        }
+                    }
+                    if self.dozer_queued_for_repair
+                        && Self::is_dozer_work_order_template(&order.template_name)
+                    {
+                        self.repair_dozer = Some(unit_id);
+                        self.dozer_queued_for_repair = false;
+                        if let Some(unit) = game_logic.host_object(unit_id) {
+                            self.repair_dozer_origin = unit.get_position();
                         }
                     }
                     accepted = accepted.saturating_add(1);
@@ -1710,12 +1907,8 @@ impl AIPlayer {
         }
         self.activity_count = self.activity_count.saturating_add(produced);
 
-        // Remove completed teams
-        for &index in completed_teams.iter().rev() {
-            if let Some(team) = self.team_queue.remove(index) {
-                log::debug!("AI Player {} completed team: {}", self.player_id, team.name);
-            }
-        }
+        // C++ checkQueuedTeams (not queueUnits) promotes completed teams.
+        let _ = completed_teams;
     }
 
     /// Estimate average unit-cost residual for a named host team composition.
@@ -1752,76 +1945,303 @@ impl AIPlayer {
             && self.team_factories_ready(game_logic, team_name)
     }
 
-    /// C++ `AIPlayer::checkReadyTeams` — force-complete a team waiting ≥ 60s.
-    fn check_ready_teams(&mut self, _game_logic: &mut GameLogic, current_time: f32) {
+    /// C++ `AIPlayer::checkReadyTeams` (`AIPlayer.cpp:2729-2803`).
+    fn check_ready_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         const READY_TEAM_FORCE_SECONDS: f32 = 60.0;
-        for team in &mut self.team_queue {
-            if team.completed {
+        let mut i = 0;
+        while i < self.team_ready_queue.len() {
+            let time_expired = {
+                let started = self.team_ready_queue[i].frame_started as f32 / LOGIC_FRAMES_PER_SECOND;
+                current_time - started >= READY_TEAM_FORCE_SECONDS
+            };
+            let (mut all_idle, mut any_idle) = (true, false);
+            let member_ids: Vec<ObjectId> = self.team_ready_queue[i]
+                .work_orders
+                .iter()
+                .flat_map(|order| order.observed_unit_ids.iter().copied())
+                .collect();
+            if member_ids.is_empty() {
+                all_idle = false;
+            } else {
+                for id in &member_ids {
+                    let idle = game_logic
+                        .host_object(*id)
+                        .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                        .unwrap_or(false);
+                    if idle {
+                        any_idle = true;
+                    } else {
+                        all_idle = false;
+                    }
+                }
+            }
+            if any_idle && self.team_ready_queue[i].execute_actions {
+                all_idle = true;
+            }
+            if time_expired {
+                all_idle = true;
+            }
+            if !all_idle {
+                i += 1;
                 continue;
             }
-            let started = team.frame_started as f32 / LOGIC_FRAMES_PER_SECOND;
-            if current_time - started >= READY_TEAM_FORCE_SECONDS {
-                team.completed = true;
+            let mut team = self.team_ready_queue.remove(i).expect("ready idx");
+            team.sent_to_start_location = true;
+            team.activated = true;
+            team.completed = true;
+            // C++ Team::setActive() — OnCreate residual: team becomes live.
+            self.activity_count = self.activity_count.saturating_add(1);
+            log::debug!(
+                "AI Player {} activated ready team: {}",
+                self.player_id,
+                team.name
+            );
+        }
+    }
+
+    /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
+    fn check_queued_teams(&mut self, current_time: f32) {
+        let mut i = 0;
+        while i < self.team_queue.len() {
+            if !self.team_queue[i].is_build_time_expired(current_time) {
+                i += 1;
+                continue;
             }
+            if self.team_queue[i].is_minimum_built() {
+                if self.team_queue[i].are_builds_complete() {
+                    if let Some(team) = self.team_queue.remove(i) {
+                        self.team_ready_queue.push_front(team);
+                    }
+                } else {
+                    i += 1;
+                }
+            } else if let Some(team) = self.team_queue.remove(i) {
+                log::debug!(
+                    "AI Player {} disbanded expired team: {}",
+                    self.player_id,
+                    team.name
+                );
+            }
+        }
+
+        let mut i = 0;
+        while i < self.team_queue.len() {
+            if self.team_queue[i].is_all_built() || self.team_queue[i].completed {
+                if let Some(team) = self.team_queue.remove(i) {
+                    self.team_ready_queue.push_front(team);
+                }
+                continue;
+            }
+            i += 1;
         }
     }
 
     /// C++ `AIPlayer::doUpgradesAndSkills` (AIPlayer.cpp:2908) spends science
-    /// points from `AISideInfo` SkillSet1. Host also runs a residual of
-    /// `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728) so structure research is
-    /// not stuck at tier-1.
+    /// points from a randomly chosen `AISideInfo` SkillSet. Host also runs a
+    /// residual of `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728).
     fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
         self.try_queue_structure_upgrade(game_logic);
         self.try_purchase_skillset_science(game_logic);
     }
 
-    /// Retail `AIData.ini` `SideInfo` SkillSet1 sciences for the live team.
-    fn skillset_science_candidates(&self) -> &'static [&'static str] {
+    /// Retail `AIData.ini` `SideInfo` SkillSet1–5 sciences for the live team.
+    fn side_skillsets(&self) -> [&'static [&'static str]; 5] {
         match self.team {
-            Team::USA => &[
-                "SCIENCE_PaladinTank",
-                "SCIENCE_StealthFighter",
-                "SCIENCE_A10ThunderboltMissileStrike1",
-                "SCIENCE_A10ThunderboltMissileStrike2",
-                "SCIENCE_A10ThunderboltMissileStrike3",
-                "SCIENCE_SpectreGunshipSolo",
-                "SCIENCE_DaisyCutter",
+            Team::USA => [
+                &[
+                    "SCIENCE_PaladinTank",
+                    "SCIENCE_StealthFighter",
+                    "SCIENCE_A10ThunderboltMissileStrike1",
+                    "SCIENCE_A10ThunderboltMissileStrike2",
+                    "SCIENCE_A10ThunderboltMissileStrike3",
+                    "SCIENCE_SpectreGunshipSolo",
+                    "SCIENCE_DaisyCutter",
+                ],
+                &[
+                    "SCIENCE_PaladinTank",
+                    "SCIENCE_StealthFighter",
+                    "SCIENCE_Paradrop1",
+                    "SCIENCE_Paradrop2",
+                    "SCIENCE_Paradrop3",
+                    "SCIENCE_SpyDrone",
+                    "SCIENCE_DaisyCutter",
+                ],
+                &[
+                    "SCIENCE_Pathfinder",
+                    "SCIENCE_StealthFighter",
+                    "SCIENCE_A10ThunderboltMissileStrike1",
+                    "SCIENCE_A10ThunderboltMissileStrike2",
+                    "SCIENCE_A10ThunderboltMissileStrike3",
+                    "SCIENCE_LeafletDrop",
+                    "SCIENCE_DaisyCutter",
+                ],
+                &[
+                    "SCIENCE_PaladinTank",
+                    "SCIENCE_Pathfinder",
+                    "SCIENCE_Paradrop1",
+                    "SCIENCE_Paradrop2",
+                    "SCIENCE_Paradrop3",
+                    "SCIENCE_SpyDrone",
+                    "SCIENCE_DaisyCutter",
+                ],
+                &[
+                    "SCIENCE_PaladinTank",
+                    "SCIENCE_StealthFighter",
+                    "SCIENCE_A10ThunderboltMissileStrike1",
+                    "SCIENCE_A10ThunderboltMissileStrike2",
+                    "SCIENCE_A10ThunderboltMissileStrike3",
+                    "SCIENCE_SpectreGunshipSolo",
+                    "SCIENCE_DaisyCutter",
+                ],
             ],
-            Team::China => &[
-                "SCIENCE_NukeLauncher",
-                "SCIENCE_ArtilleryTraining",
-                "SCIENCE_ClusterMines",
-                "SCIENCE_ArtilleryBarrage1",
-                "SCIENCE_ArtilleryBarrage2",
-                "SCIENCE_ArtilleryBarrage3",
-                "SCIENCE_EMPPulse",
+            Team::China => [
+                &[
+                    "SCIENCE_NukeLauncher",
+                    "SCIENCE_ArtilleryTraining",
+                    "SCIENCE_ClusterMines",
+                    "SCIENCE_ArtilleryBarrage1",
+                    "SCIENCE_ArtilleryBarrage2",
+                    "SCIENCE_ArtilleryBarrage3",
+                    "SCIENCE_EMPPulse",
+                ],
+                &[
+                    "SCIENCE_RedGuardTraining",
+                    "SCIENCE_BattlemasterTraining",
+                    "SCIENCE_ClusterMines",
+                    "SCIENCE_ArtilleryBarrage1",
+                    "SCIENCE_ArtilleryBarrage2",
+                    "SCIENCE_ArtilleryBarrage3",
+                    "SCIENCE_EMPPulse",
+                ],
+                &[
+                    "SCIENCE_NukeLauncher",
+                    "SCIENCE_RedGuardTraining",
+                    "SCIENCE_ClusterMines",
+                    "SCIENCE_ArtilleryBarrage1",
+                    "SCIENCE_ArtilleryBarrage2",
+                    "SCIENCE_ArtilleryBarrage3",
+                    "SCIENCE_CarpetBomb",
+                ],
+                &[
+                    "SCIENCE_BattlemasterTraining",
+                    "SCIENCE_ArtilleryTraining",
+                    "SCIENCE_ClusterMines",
+                    "SCIENCE_ArtilleryBarrage1",
+                    "SCIENCE_ArtilleryBarrage2",
+                    "SCIENCE_ArtilleryBarrage3",
+                    "SCIENCE_EMPPulse",
+                ],
+                &[
+                    "SCIENCE_NukeLauncher",
+                    "SCIENCE_ArtilleryTraining",
+                    "SCIENCE_ClusterMines",
+                    "SCIENCE_ArtilleryBarrage1",
+                    "SCIENCE_ArtilleryBarrage2",
+                    "SCIENCE_ArtilleryBarrage3",
+                    "SCIENCE_EMPPulse",
+                ],
             ],
-            Team::GLA => &[
-                "SCIENCE_ScudLauncher",
-                "SCIENCE_CashBounty1",
-                "SCIENCE_CashBounty2",
-                "SCIENCE_CashBounty3",
-                "SCIENCE_SneakAttack",
-                "SCIENCE_GPSScrambler",
-                "SCIENCE_AnthraxBomb",
+            Team::GLA => [
+                &[
+                    "SCIENCE_ScudLauncher",
+                    "SCIENCE_CashBounty1",
+                    "SCIENCE_CashBounty2",
+                    "SCIENCE_CashBounty3",
+                    "SCIENCE_SneakAttack",
+                    "SCIENCE_GPSScrambler",
+                    "SCIENCE_AnthraxBomb",
+                ],
+                &[
+                    "SCIENCE_ScudLauncher",
+                    "SCIENCE_RebelAmbush1",
+                    "SCIENCE_RebelAmbush2",
+                    "SCIENCE_RebelAmbush3",
+                    "SCIENCE_SneakAttack",
+                    "SCIENCE_GPSScrambler",
+                    "SCIENCE_AnthraxBomb",
+                ],
+                &[
+                    "SCIENCE_TechnicalTraining",
+                    "SCIENCE_CashBounty1",
+                    "SCIENCE_CashBounty2",
+                    "SCIENCE_CashBounty3",
+                    "SCIENCE_SneakAttack",
+                    "SCIENCE_GPSScrambler",
+                    "SCIENCE_AnthraxBomb",
+                ],
+                &[
+                    "SCIENCE_ScudLauncher",
+                    "SCIENCE_CashBounty1",
+                    "SCIENCE_RebelAmbush1",
+                    "SCIENCE_RebelAmbush2",
+                    "SCIENCE_SneakAttack",
+                    "SCIENCE_GPSScrambler",
+                    "SCIENCE_AnthraxBomb",
+                ],
+                &[
+                    "SCIENCE_ScudLauncher",
+                    "SCIENCE_RebelAmbush1",
+                    "SCIENCE_RebelAmbush2",
+                    "SCIENCE_RebelAmbush3",
+                    "SCIENCE_SneakAttack",
+                    "SCIENCE_GPSScrambler",
+                    "SCIENCE_AnthraxBomb",
+                ],
             ],
-            _ => &[],
+            _ => [&[][..], &[], &[], &[], &[]],
         }
     }
 
-    fn try_purchase_skillset_science(&self, game_logic: &mut GameLogic) {
+    /// C++ `AIPlayer::selectSkillset`.
+    pub fn select_skillset(&mut self, skillset: i32) {
+        self.skillset_selector = skillset;
+    }
+
+    fn try_purchase_skillset_science(&mut self, game_logic: &mut GameLogic) {
+        let points = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.science_purchase_points)
+            .unwrap_or(0);
+        if points <= 0 {
+            return;
+        }
+        let sets = self.side_skillsets();
+        if self.skillset_selector == INVALID_SKILLSET_SELECTION {
+            let mut limit = 0i32;
+            if !sets[1].is_empty() {
+                limit = 1;
+                if !sets[2].is_empty() {
+                    limit = 2;
+                    if !sets[3].is_empty() {
+                        limit = 3;
+                        if !sets[4].is_empty() {
+                            limit = 4;
+                        }
+                    }
+                }
+            }
+            // Host leftover AIPlayer is the skirmish path — randomize.
+            self.skillset_selector = self.placement_rng.next_int(0, limit);
+        }
+        let idx = self.skillset_selector.clamp(0, 4) as usize;
+        let candidates = sets[idx];
         let Some(player) = game_logic.get_player_mut(self.player_id) else {
             return;
         };
-        if player.science_purchase_points <= 0 {
-            return;
-        }
-        for name in self.skillset_science_candidates() {
-            if player.attempt_to_purchase_science(name) {
-                break;
+        for name in candidates {
+            if player.is_capable_of_purchasing_science(name)
+                && player.attempt_to_purchase_science(name)
+            {
+                log::debug!(
+                    "AI Player {} purchases from SkillSet{} {}",
+                    self.player_id,
+                    idx + 1,
+                    name
+                );
             }
         }
     }
+
 
     /// C++ `AIPlayer::buildUpgrade` residual — queue one structure upgrade.
     fn structure_upgrade_candidates(&self) -> &'static [&'static str] {
@@ -2050,13 +2470,12 @@ impl AIPlayer {
     fn create_team_queue(&self, team_name: &str, current_time: f32) -> AITeamQueue {
         let work_orders = self.create_work_orders_for_team(team_name);
 
-        AITeamQueue {
-            name: team_name.to_string(),
+        AITeamQueue::new(
+            team_name.to_string(),
             work_orders,
-            priority_build: false,
-            frame_started: (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-            completed: false,
-        }
+            false,
+            (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
+        )
     }
 
     /// Create work orders for a specific team type.
@@ -2620,7 +3039,12 @@ impl AIPlayer {
             return;
         };
 
-        let mut ready: Vec<(ObjectId, crate::command_system::SpecialPowerType, bool)> = Vec::new();
+        let mut ready: Vec<(
+            ObjectId,
+            crate::command_system::SpecialPowerType,
+            String,
+            bool,
+        )> = Vec::new();
         for (id, object) in game_logic.host_objects() {
             if object.team != self.team || !object.is_alive() {
                 continue;
@@ -2633,17 +3057,34 @@ impl AIPlayer {
                     continue;
                 }
                 let sneak = matches!(power, crate::command_system::SpecialPowerType::SneakAttack);
-                ready.push((*id, power, sneak));
+                ready.push((
+                    *id,
+                    power,
+                    module.special_power_template.clone(),
+                    sneak,
+                ));
             }
         }
         if ready.is_empty() {
             return;
         }
 
-        for (caster, power, sneak) in ready {
-            let Some(location) =
-                self.compute_superweapon_target(game_logic, enemy_team, 50.0, !sneak)
-            else {
+        for (caster, power, template_name, sneak) in ready {
+            let cluster = matches!(
+                power,
+                crate::command_system::SpecialPowerType::ClusterMines
+                    | crate::command_system::SpecialPowerType::NukeDrop
+            );
+            let Some(location) = (if cluster {
+                self.compute_cluster_mines_target(game_logic, enemy_team)
+            } else {
+                let mut radius = 50.0;
+                let cursor = Self::radius_cursor_for_power(&power, &template_name);
+                if cursor > radius {
+                    radius = cursor;
+                }
+                self.compute_superweapon_target(game_logic, enemy_team, radius, !sneak)
+            }) else {
                 continue;
             };
             if location.length_squared() <= 0.0 {
@@ -2786,6 +3227,239 @@ impl AIPlayer {
             None
         }
     }
+
+    /// C++ `ScriptActions` radius: `max(50, power->getRadiusCursorRadius())`.
+    fn radius_cursor_for_power(
+        power: &crate::command_system::SpecialPowerType,
+        template_name: &str,
+    ) -> f32 {
+        use crate::command_system::SpecialPowerType as P;
+        use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::special_power_template_row_wave109;
+        if let Some(row) = special_power_template_row_wave109(template_name) {
+            return row.radius_cursor_radius;
+        }
+        match power {
+            P::ClusterMines | P::NukeDrop => 100.0,
+            P::ScudStorm => 200.0,
+            P::DaisyCutter | P::AirForceDaisyCutter => 170.0,
+            P::NuclearMissile | P::NukeNeutronMissile | P::SuperweaponNeutronMissile => 210.0,
+            P::EmpPulse => 200.0,
+            P::SpySatellite => 300.0,
+            P::SpyDrone => 250.0,
+            P::Artillery => 125.0,
+            P::CarpetBomb => 100.0,
+            P::EarlyChinaCarpetBomb | P::NukeChinaCarpetBomb | P::AirForceCarpetBomb => 180.0,
+            P::AnthraxBomb => 250.0,
+            P::EmergencyRepair | P::EarlyEmergencyRepair => 100.0,
+            P::GpsScrambler | P::StealthGpsScrambler => 100.0,
+            P::Frenzy | P::EarlyFrenzy => 200.0,
+            P::LeafletDrop | P::EarlyLeafletDrop => 110.0,
+            _ => 0.0,
+        }
+    }
+    /// C++ `AISkirmishPlayer::computeSuperweaponTarget` cluster-mines branch.
+    fn compute_cluster_mines_target(
+        &mut self,
+        game_logic: &GameLogic,
+        enemy_team: Team,
+    ) -> Option<Vec3> {
+        let start_index = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.start_position.max(0))
+            .unwrap_or(0);
+        let mode = self.placement_rng.next_int(0, 2);
+        let _path_label = match mode {
+            1 => format!("SkirmFlank{}", start_index + 1),
+            2 => format!("SkirmBackdoor{}", start_index + 1),
+            _ => format!("SkirmCenter{}", start_index + 1),
+        };
+        // Host leftover has no TerrainLogic waypoint walk; C++ falls back to
+        // enemy structure-bounds center when the labeled path is missing.
+        let (min_x, min_z, max_x, max_z) = self.player_structure_bounds(game_logic, enemy_team);
+        let goal = if min_x == 0.0 && min_z == 0.0 && max_x == 0.0 && max_z == 0.0 {
+            self.find_enemy_base_center(game_logic, enemy_team)
+        } else {
+            Vec3::new(
+                min_x + (max_x - min_x) * 0.5,
+                0.0,
+                min_z + (max_z - min_z) * 0.5,
+            )
+        };
+        let mut offset_x = goal.x - self.base_center.x;
+        let mut offset_z = goal.z - self.base_center.z;
+        let length = (offset_x * offset_x + offset_z * offset_z).sqrt();
+        if length > 0.001 {
+            offset_x /= length;
+            offset_z /= length;
+        }
+        offset_x *= self.base_radius;
+        offset_z *= self.base_radius;
+        Some(Vec3::new(
+            self.base_center.x + offset_x,
+            0.0,
+            self.base_center.z + offset_z,
+        ))
+    }
+
+    fn host_object_is_bridge(object: &crate::game_logic::object::Object) -> bool {
+        let n = object.template_name.to_ascii_lowercase();
+        (n.contains("bridge") && !n.contains("tower") && !n.contains("scaffold"))
+            || object.template_name.eq_ignore_ascii_case("Bridge")
+    }
+
+    fn host_object_is_damaged(object: &crate::game_logic::object::Object) -> bool {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        if !object.is_alive() {
+            return false;
+        }
+        !matches!(object.body_damage_state, HostBodyDamageType::Pristine)
+            || object.health.current + 0.01 < object.health.maximum
+    }
+
+    /// C++ `AIPlayer::repairStructure` (`AIPlayer.cpp:2254-2280`).
+    pub fn repair_structure(&mut self, game_logic: &GameLogic, structure_id: ObjectId) {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let Some(structure) = game_logic.host_object(structure_id) else {
+            return;
+        };
+        if matches!(structure.body_damage_state, HostBodyDamageType::Pristine)
+            && structure.health.current + 0.01 >= structure.health.maximum
+        {
+            return;
+        }
+        if self.structures_to_repair.contains(&structure_id) {
+            return;
+        }
+        if self.structures_to_repair.len() >= MAX_STRUCTURES_TO_REPAIR {
+            return;
+        }
+        self.structures_to_repair.push(structure_id);
+    }
+
+    /// Host residual of `AISkirmishPlayer::checkBridges`: enqueue damaged spans.
+    pub fn check_bridges(&mut self, game_logic: &GameLogic) {
+        let damaged: Vec<ObjectId> = game_logic
+            .host_objects()
+            .iter()
+            .filter_map(|(&id, object)| {
+                (Self::host_object_is_bridge(object) && Self::host_object_is_damaged(object))
+                    .then_some(id)
+            })
+            .collect();
+        for id in damaged {
+            self.repair_structure(game_logic, id);
+        }
+    }
+
+    /// C++ `AIPlayer::updateBridgeRepair` (`AIPlayer.cpp:2296-2384`).
+    fn update_bridge_repair(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        if self.structures_to_repair.is_empty() {
+            return;
+        }
+        if self.last_bridge_repair_time >= 0.0
+            && current_time - self.last_bridge_repair_time < 1.0
+        {
+            return;
+        }
+        self.last_bridge_repair_time = current_time;
+
+        while !self.structures_to_repair.is_empty() {
+            let head = self.structures_to_repair[0];
+            if game_logic
+                .host_object(head)
+                .is_some_and(|o| o.is_alive())
+            {
+                break;
+            }
+            self.structures_to_repair.remove(0);
+        }
+        if self.structures_to_repair.is_empty() {
+            return;
+        }
+        let bridge_id = self.structures_to_repair[0];
+        let Some(bridge) = game_logic.host_object(bridge_id) else {
+            return;
+        };
+        let bridge_pos = bridge.get_position();
+        let bridge_pristine = matches!(bridge.body_damage_state, HostBodyDamageType::Pristine)
+            && bridge.health.current + 0.01 >= bridge.health.maximum;
+
+        if self.repair_dozer.is_none() {
+            self.dozer_is_repairing = false;
+            if self.dozer_queued_for_repair {
+                return;
+            }
+            if let Some(dozer_id) = Self::find_available_dozer(game_logic, self.team, bridge_pos) {
+                self.repair_dozer = Some(dozer_id);
+                if let Some(dozer) = game_logic.host_object(dozer_id) {
+                    self.repair_dozer_origin = dozer.get_position();
+                }
+                game_logic.queue_command(crate::command_system::GameCommand {
+                    command_type: crate::command_system::CommandType::Repair {
+                        target_id: bridge_id,
+                    },
+                    player_id: self.player_id,
+                    command_id: 0,
+                    timestamp: std::time::SystemTime::now(),
+                    selected_units: vec![dozer_id],
+                    modifier_keys: crate::command_system::ModifierKeys::default(),
+                });
+                self.dozer_is_repairing = true;
+                return;
+            }
+            self.queue_dozer(game_logic, current_time);
+            self.dozer_queued_for_repair = true;
+            return;
+        }
+
+        let Some(dozer_id) = self.repair_dozer else {
+            return;
+        };
+        let Some(dozer) = game_logic.host_object(dozer_id) else {
+            self.repair_dozer = None;
+            self.last_bridge_repair_time = -1.0;
+            return;
+        };
+        if !dozer.is_alive() {
+            self.repair_dozer = None;
+            self.last_bridge_repair_time = -1.0;
+            return;
+        }
+        let dozer_idle = dozer.ai_state == AIState::Idle;
+
+        if self.dozer_is_repairing {
+            if !dozer_idle {
+                return;
+            }
+            if bridge_pristine {
+                self.structures_to_repair.remove(0);
+                self.dozer_is_repairing = false;
+                if self.structures_to_repair.is_empty() {
+                    let home = if self.base_center.length_squared() > 0.0 {
+                        self.base_center
+                    } else {
+                        self.repair_dozer_origin
+                    };
+                    let _ = game_logic.unit_command_move_to(dozer_id, home);
+                }
+                return;
+            }
+        }
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Repair {
+                target_id: bridge_id,
+            },
+            player_id: self.player_id,
+            command_id: 0,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![dozer_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        self.dozer_is_repairing = true;
+    }
+
 
     fn player_structure_bounds(&self, game_logic: &GameLogic, enemy_team: Team) -> (f32, f32, f32, f32) {
         let mut any = false;
@@ -3007,10 +3681,15 @@ impl AIManager {
             return;
         }
 
-        // Update each AI player
+        let peer_targets: Vec<(u32, Option<u32>)> = self
+            .ai_players
+            .iter()
+            .map(|(&id, ai)| (id, ai.enemy_player_id))
+            .collect();
         let player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
         for player_id in player_ids {
             if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
+                ai_player.peer_ai_targets = peer_targets.clone();
                 ai_player.update(game_logic, current_time);
             }
         }
@@ -3186,6 +3865,12 @@ impl AIManager {
             // host AI evaluation will issue legal actions on the next update.
             ai.attack_in_progress = false;
             ai.team_queue.clear();
+            ai.team_ready_queue.clear();
+            ai.structures_to_repair.clear();
+            ai.repair_dozer = None;
+            ai.dozer_queued_for_repair = false;
+            ai.dozer_is_repairing = false;
+            ai.skillset_selector = INVALID_SKILLSET_SELECTION;
             ai.last_update_time = 0.0;
             ai.resource_check_time = 0.0;
             ai.enemy_check_time = 0.0;
@@ -3490,12 +4175,13 @@ mod cpp_parity_tests {
         let body = &src[start..src.len().min(start + 1800)];
         let econ = body.find("update_economic_management").expect("doBaseBuilding");
         let ready = body.find("check_ready_teams").expect("checkReadyTeams");
+        let queued = body.find("check_queued_teams").expect("checkQueuedTeams");
         let mil = body.find("update_military_management").expect("doTeamBuilding");
         let upg = body.find("do_upgrades_and_skills").expect("doUpgradesAndSkills");
         let br = body
-            .find("resume_interrupted_construction")
+            .find("update_bridge_repair")
             .expect("updateBridgeRepair");
-        assert!(econ < ready && ready < mil && mil < upg && upg < br);
+        assert!(econ < ready && ready < queued && queued < mil && mil < upg && upg < br);
         assert!(
             AIManager::new().update_interval > 0.0
                 && (AIManager::new().update_interval - 1.0 / 30.0).abs() < 1e-6
@@ -3861,13 +4547,12 @@ mod cpp_parity_tests {
             .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
             .expect("constructed barracks");
         let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-        ai.team_queue.push_back(AITeamQueue {
-            name: "one-ranger".into(),
-            work_orders: vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100)],
-            priority_build: false,
-            frame_started: 0,
-            completed: false,
-        });
+        ai.team_queue.push_back(AITeamQueue::new(
+            "one-ranger".into(),
+            vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100)],
+            false,
+            0,
+        ));
 
         ai.process_team_queue(&mut logic, 0.0);
         let queued = ai.team_queue.front().expect("queue survives enqueue");
@@ -3895,8 +4580,19 @@ mod cpp_parity_tests {
 
         ai.process_team_queue(&mut logic, 1.0);
         assert!(
-            ai.team_queue.is_empty(),
+            ai.team_queue.front().is_some_and(|t| t.is_all_built()),
             "team becomes complete only after its live factory output is observed"
+        );
+        ai.check_queued_teams(1.0);
+        assert!(
+            ai.team_queue.is_empty(),
+            "all-built teams leave the build queue"
+        );
+        assert_eq!(ai.team_ready_queue.len(), 1);
+        ai.check_ready_teams(&mut logic, 1.0);
+        assert!(
+            ai.team_ready_queue.is_empty(),
+            "idle ready team activates without waiting 60s"
         );
     }
 
@@ -5132,6 +5828,161 @@ mod cpp_parity_tests {
             "live AI must queue a structure upgrade via AIPlayer::buildUpgrade residual"
         );
     }
+
+    #[test]
+    fn check_queued_teams_disbands_expired_incomplete_team() {
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
+        order.num_completed = 0;
+        ai.team_queue.push_back(AITeamQueue::new(
+            "stuck".into(),
+            vec![order],
+            false,
+            0,
+        ));
+        ai.check_queued_teams(TEAM_BUILD_TIME_SECONDS + 1.0);
+        assert!(
+            ai.team_queue.is_empty() && ai.team_ready_queue.is_empty(),
+            "expired team below minimum must disband"
+        );
+    }
+
+    #[test]
+    fn acquire_enemy_keeps_healthy_current_target() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        logic.add_player(crate::game_logic::Player::new(2, Team::GLA, "GLA", true));
+        logic.add_player(crate::game_logic::Player::new(3, Team::China, "China", true));
+
+        let mut barracks = crate::game_logic::ThingTemplate::new("GLABarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::FSBarracks)
+            .set_health(1000.0);
+        logic.templates.insert("GLABarracks".into(), barracks);
+        let mut rebel = crate::game_logic::ThingTemplate::new("GLAInfantryRebel");
+        rebel
+            .add_kind_of(crate::game_logic::KindOf::Infantry)
+            .set_health(100.0);
+        logic.templates.insert("GLAInfantryRebel".into(), rebel);
+        let mut china_cc = crate::game_logic::ThingTemplate::new("ChinaCommandCenter");
+        china_cc
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .add_kind_of(crate::game_logic::KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), china_cc);
+
+        let _ = logic.create_object("GLABarracks", Team::GLA, Vec3::new(400.0, 0.0, 0.0));
+        let _ = logic.create_object("GLAInfantryRebel", Team::GLA, Vec3::new(410.0, 0.0, 0.0));
+        let _ = logic.create_object(
+            "ChinaCommandCenter",
+            Team::China,
+            Vec3::new(20.0, 0.0, 0.0),
+        );
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.base_center = Vec3::ZERO;
+        ai.enemy_player_id = Some(2);
+        ai.enemy_check_time = -10.0;
+        ai.update_enemy_assessment(&mut logic, 0.0);
+        assert_eq!(
+            ai.enemy_player_id,
+            Some(2),
+            "healthy current enemy with units and a factory must be kept"
+        );
+    }
+
+    #[test]
+    fn cluster_mines_land_on_own_approach_not_enemy_centroid() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::China, "China AI", false));
+        logic.add_player(crate::game_logic::Player::new(2, Team::USA, "USA", true));
+        let mut barracks = crate::game_logic::ThingTemplate::new("AmericaBarracks");
+        barracks
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_cost(500, 0)
+            .set_health(1000.0);
+        logic.templates.insert("AmericaBarracks".into(), barracks);
+        let _ = logic.create_object(
+            "AmericaBarracks",
+            Team::USA,
+            Vec3::new(400.0, 0.0, 0.0),
+        );
+
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+        ai.base_center = Vec3::ZERO;
+        ai.base_radius = 100.0;
+        let target = ai
+            .compute_cluster_mines_target(&logic, Team::USA)
+            .expect("approach");
+        let dist_from_base = (target.x * target.x + target.z * target.z).sqrt();
+        assert!(
+            (dist_from_base - 100.0).abs() < 1.0,
+            "cluster mines must sit on the AI approach ring, got {target:?} dist={dist_from_base}"
+        );
+        assert!(
+            target.x < 200.0,
+            "mines must not drop on the enemy value centroid"
+        );
+    }
+
+    #[test]
+    fn skillset_selector_uses_chosen_ai_side_info_set() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);
+        player.science_purchase_points = 1;
+        logic.add_player(player);
+
+        let mut ai = AIPlayer::new(1, Team::China, AIDifficulty::Medium);
+        assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
+        assert_eq!(ai.side_skillsets()[1][0], "SCIENCE_RedGuardTraining");
+        ai.select_skillset(1);
+        ai.try_purchase_skillset_science(&mut logic);
+        assert_eq!(ai.skillset_selector, 1);
+        assert_ne!(
+            ai.side_skillsets()[ai.skillset_selector as usize][0],
+            "SCIENCE_NukeLauncher"
+        );
+    }
+    #[test]
+    fn check_bridges_queues_damaged_span_and_assigns_dozer() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+
+        let mut bridge_t = crate::game_logic::ThingTemplate::new("CabinBridge");
+        bridge_t
+            .add_kind_of(crate::game_logic::KindOf::Structure)
+            .set_health(2000.0);
+        logic.templates.insert("CabinBridge".into(), bridge_t);
+        let mut dozer_t = crate::game_logic::ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(crate::game_logic::KindOf::Dozer)
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(200.0);
+        logic.templates.insert("AmericaVehicleDozer".into(), dozer_t);
+
+        let bridge = logic
+            .create_object("CabinBridge", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
+            .expect("bridge");
+        if let Some(o) = logic.host_object_mut(bridge) {
+            o.health.current = 400.0;
+            o.body_damage_state = HostBodyDamageType::Damaged;
+        }
+        let dozer = logic
+            .create_object("AmericaVehicleDozer", Team::USA, Vec3::ZERO)
+            .expect("dozer");
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.base_center = Vec3::ZERO;
+        ai.check_bridges(&logic);
+        assert_eq!(ai.structures_to_repair, vec![bridge]);
+        ai.last_bridge_repair_time = -1.0;
+        ai.update_bridge_repair(&mut logic, 0.0);
+        assert_eq!(ai.repair_dozer, Some(dozer));
+        assert!(ai.dozer_is_repairing);
+    }
+
 
 
 

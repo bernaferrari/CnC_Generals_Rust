@@ -12,6 +12,9 @@ impl ControlBar {
         _draw_id: Option<u32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.portrait_state = PortraitDisplayState::default();
+        if new_state == ControlBarState::None {
+            self.show_rally_point(None);
+        }
 
         let mut context = {
             let mut guard = self

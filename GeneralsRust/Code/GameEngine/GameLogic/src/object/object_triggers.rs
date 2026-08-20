@@ -300,6 +300,15 @@ impl Object {
             return;
         }
 
+        // C++ Object.cpp:2580-2583 notifyTerrainObjectMoved for infantry/vehicle.
+        if !self.is_kind_of(KindOf::Immobile)
+            && (self.is_kind_of(KindOf::Infantry) || self.is_kind_of(KindOf::Vehicle))
+        {
+            if let Some(client) = crate::helpers::TheGameClient::get() {
+                client.notify_terrain_object_moved(self.id);
+            }
+        }
+
         // C++ lines 2565-2568: Update pathfinder position
         if self.get_ai_update_interface().is_some() {
             // TheAI->pathfinder()->updatePos(this, getPosition()) - handled by AI system

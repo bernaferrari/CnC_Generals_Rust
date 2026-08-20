@@ -710,6 +710,12 @@ impl GameLogic {
             self.update_angry_mob_projectiles();
         }
 
+        // Host RailroadBehavior residual: locomotives follow track waypoints,
+        // wait at stations, hitch carriages. Crate RailroadGuideAIUpdate is
+        // gated empty (OBJECT_REGISTRY) so this is the live path.
+        // C++ RailroadBehavior::update (RailroadGuideAIUpdate.cpp:652-832).
+        self.update_railroads();
+
         // Host stealth residual: detector scans + DETECTED expiry.
         // Fail-closed vs full StealthUpdate/StealthDetectorUpdate modules
         // (no IR FX, kindof filters, or disguise).

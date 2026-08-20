@@ -434,6 +434,17 @@ pub fn is_advanced_training_upgrade(name: &str) -> bool {
     n.contains("advancedtraining") || n == "upgradeamericaadvancedtraining"
 }
 
+/// C++ ExperienceScalarUpgrade AddXPScalar for a host upgrade tag.
+/// Unknown / non-scalar upgrades return None (do not invent a multiplier).
+pub fn add_xp_scalar_for_upgrade(name: &str) -> Option<f32> {
+    if is_advanced_training_upgrade(name) {
+        Some(ADVANCED_TRAINING_ADD_XP_SCALAR)
+    } else {
+        None
+    }
+}
+
+
 /// Apply AdvancedTraining ExperienceScalar residual to a base XP gain.
 ///
 /// C++ ExperienceScalarUpgrade AddXPScalar **1.0** → gain × (1 + scalar) = **2×**.

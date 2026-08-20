@@ -740,8 +740,24 @@ impl BridgeBehavior {
     }
 
     /// Handle deletion cleanup
+    ///
+    /// C++ `BridgeBehavior::onDelete` (`BridgeBehavior.cpp:291-297`) only
+    /// clears the scaffold list. Tower teardown lives in the destructor
+    /// (`:242-261`); Rust has no C++ dtor, so `destroy_remaining_towers`
+    /// is invoked from `Drop` and `EngineModule::on_delete`.
     pub fn on_delete(&mut self) {
         self.scaffold_object_id_list.clear();
+    }
+
+    /// C++ `BridgeBehavior::~BridgeBehavior` (`BridgeBehavior.cpp:242-261`).
+    pub fn destroy_remaining_towers(&mut self) {
+        for tower_id in self.tower_id.iter_mut() {
+            let id = *tower_id;
+            *tower_id = OBJECT_INVALID_ID;
+            if id != OBJECT_INVALID_ID {
+                let _ = TheGameLogic::destroy_object_by_id(id);
+            }
+        }
     }
 
     /// Resolve FX references
@@ -1427,7 +1443,9 @@ impl BridgeBehavior {
         ocl: &ObjectCreationList,
         position: &Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        ocl.create_at_position(position, OBJECT_INVALID_ID)
+        // C++ `ObjectCreationList::create(ocl, getObject(), &pos, NULL, INVALID_ANGLE)`
+        // (`BridgeBehavior.cpp:577`, delayed die `:781/:791/:806`).
+        ocl.create_at_position(position, self.owner_object_id())
     }
 
     /// Execute FX at position
@@ -1444,16 +1462,14 @@ impl BridgeBehavior {
         &self,
         id: ObjectID,
     ) -> Result<Option<Arc<RwLock<GameObject>>>, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 301: empty dual-world → Ok(None).
-        if dual_world_registry_unavailable() {
-            return Ok(None);
-        }
-
         if id == OBJECT_INVALID_ID {
             return Ok(None);
         }
 
-        Ok(OBJECT_REGISTRY.get_object(id))
+        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
+            return Ok(Some(obj));
+        }
+        Ok(TheGameLogic::find_object_by_id(id))
     }
 
     /// Get the object this behavior belongs to
@@ -1627,10 +1643,6 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 301: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         self.resolve_fx()?;
 
@@ -1706,10 +1718,6 @@ impl DamageModuleInterface for BridgeBehavior {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 301: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         self.resolve_fx()?;
 
@@ -2100,7 +2108,10 @@ impl EngineModule for BridgeBehaviorModule {
 
     fn on_object_created(&mut self) {}
 
-    fn on_delete(&mut self) {}
+    fn on_delete(&mut self) {
+        self.behavior.on_delete();
+        self.behavior.destroy_remaining_towers();
+    }
 }
 
 /// Helper function: Determine if old state is worse than new state (i.e., got repaired)
@@ -2109,6 +2120,51 @@ fn is_condition_worse(old_state: BodyDamageType, new_state: BodyDamageType) -> b
     let old_index = damage_type_to_index(old_state);
     let new_index = damage_type_to_index(new_state);
     old_index > new_index
+}
+
+impl Drop for BridgeBehavior {
+    fn drop(&mut self) {
+        self.destroy_remaining_towers();
+    }
+}
+
+impl DamageModuleInterface for BridgeBehaviorModule {
+    fn receive_damage(&mut self, object_id: ObjectID, damage: &DamageInfo) -> Real {
+        self.behavior.receive_damage(object_id, damage)
+    }
+
+    fn on_damage(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior.on_damage(damage_info)
+    }
+
+    fn on_healing(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior.on_healing(damage_info)
+    }
+
+    fn on_body_damage_state_change(
+        &mut self,
+        damage_info: &DamageInfo,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior
+            .on_body_damage_state_change(damage_info, old_state, new_state)
+    }
+}
+
+impl DieModuleInterface for BridgeBehaviorModule {
+    fn on_die(
+        &mut self,
+        damage: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DieModuleInterface::on_die(&mut self.behavior, damage)
+    }
 }
 
 /// Convert BodyDamageType to array index
@@ -2171,5 +2227,44 @@ mod tests {
         assert_eq!(data.fx[0].time_and_location_info.bone_name.as_str(), "Mid");
         assert_eq!(data.ocl[0].time_and_location_info.delay, 45);
         assert_eq!(data.ocl[0].time_and_location_info.bone_name.as_str(), "End");
+    }
+
+    #[test]
+    fn interface_mask_includes_damage_die_update() {
+        let mask = BridgeBehavior::get_interface_mask() as u32;
+        assert_ne!(mask & crate::modules::MODULEINTERFACE_DAMAGE, 0);
+        assert_ne!(mask & crate::modules::MODULEINTERFACE_DIE, 0);
+        assert_ne!(mask & crate::modules::MODULEINTERFACE_UPDATE, 0);
+    }
+
+    #[test]
+    fn destroy_remaining_towers_clears_tower_ids() {
+        let data = Arc::new(BridgeBehaviorModuleData::default());
+        let mut behavior =
+            BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data, None);
+        behavior.tower_id = [7, 8, 9, 10];
+        behavior.destroy_remaining_towers();
+        assert!(behavior.tower_id.iter().all(|&id| id == OBJECT_INVALID_ID));
+    }
+
+    #[test]
+    fn module_on_delete_clears_scaffolds_and_towers() {
+        let data = Arc::new(BridgeBehaviorModuleData::default());
+        let mut behavior =
+            BridgeBehavior::construct_with_object_id(OBJECT_INVALID_ID, data.clone(), None);
+        behavior.tower_id = [1, 2, 3, 4];
+        behavior.scaffold_object_id_list.push(99);
+        let mut module = BridgeBehaviorModule::new(
+            behavior,
+            &AsciiString::from("BridgeBehavior"),
+            data,
+        );
+        EngineModule::on_delete(&mut module);
+        assert!(module.behavior().scaffold_object_id_list.is_empty());
+        assert!(module
+            .behavior()
+            .tower_id
+            .iter()
+            .all(|&id| id == OBJECT_INVALID_ID));
     }
 }

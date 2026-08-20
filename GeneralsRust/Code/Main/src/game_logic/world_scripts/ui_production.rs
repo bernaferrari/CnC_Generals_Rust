@@ -393,6 +393,7 @@ impl GameLogic {
     /// Queue a command from the UI
     pub fn queue_command(&mut self, command: crate::command_system::GameCommand) {
         log::trace!("Queuing command: {:?}", command.command_type);
+        crate::command_system::tap_host_command_for_recorder(&command);
         self.command_queue.push_back(command);
     }
 
@@ -428,6 +429,7 @@ impl GameLogic {
 
     pub fn process_commands(&mut self) {
         // Process all queued commands
+        crate::command_system::flush_recorder_and_replay_authority(&mut self.command_queue);
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command(command);
         }
@@ -799,17 +801,11 @@ impl GameLogic {
             return builder_skips_clear_path_residual(true);
         }
         let start = builder.get_position();
-        let dx = start.x - goal.x;
-        let dz = start.z - goal.z;
-        // Already close enough to pad residual — treat as clear.
-        if dx * dx + dz * dz <= 64.0 * 64.0 {
-            return true;
-        }
-        // C++ clientSafeQuickDoesPathExistForUI: terrain-zone connectivity,
-        // ignoring structures. Water/cliff/impassable split zones.
+        // C++ AIPlayer.cpp:595-602 clientSafeQuickDoesPathExist (structure-aware).
+        // No dist<=64 early-true: a walled-off dozer 50 units from the pad is stuck.
         self.pathfinding_system
-            .grid
-            .quick_path_exists_for_ui(start, goal)
+            .client_safe_quick_does_path_exist(start, goal)
+
     }
 
     /// C++ Pathfinder::clientSafeQuickDoesPathExistForUI residual.

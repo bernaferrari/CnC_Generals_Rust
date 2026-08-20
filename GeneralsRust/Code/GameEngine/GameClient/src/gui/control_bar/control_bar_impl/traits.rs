@@ -8,6 +8,13 @@ impl SubsystemInterface for ControlBar {
             scheme_manager.load_scheme("Default")?;
         }
 
+        self.ensure_generals_exp_layout();
+        leftover_ensure_named_window(WIN_U_ATTACK);
+        leftover_ensure_named_window(BUTTON_GENERAL);
+        leftover_ensure_named_window(BUTTON_LARGE);
+        leftover_ensure_named_window(CONTROL_BAR_PARENT);
+
+
         log::info!("Control Bar initialized successfully");
         Ok(())
     }
@@ -38,6 +45,14 @@ impl SubsystemInterface for ControlBar {
         self.last_flashed_at_point_value = -1;
         self.radar_attack_glow_on = false;
         self.remaining_radar_attack_glow_frames = 0;
+        self.science_layout_loaded = false;
+        if self.rally_point_drawable_id != 0 {
+            gamelogic::helpers::TheGameClient.destroy_drawable(self.rally_point_drawable_id);
+        }
+        self.rally_point_drawable_id = 0;
+        self.default_control_bar_captured = false;
+        self.special_power_shortcut_layout.clear();
+        self.radar_glow_window_enabled = true;
         self.displayed_construct_percent = -1.0;
         self.displayed_ocl_timer_seconds = 0;
         self.special_power_shortcuts.clear();

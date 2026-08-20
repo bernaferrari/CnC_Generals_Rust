@@ -340,6 +340,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terrain_visual_update_does_not_double_tick_snow() {
+        // C++ GameClient.cpp:560 is the only TheSnowManager->UPDATE.
+        let traits = include_str!("terrain/terrain_visual/traits.rs");
+        let update_fn = traits
+            .split("fn update(&mut self)")
+            .nth(1)
+            .and_then(|rest| rest.split("fn reset(").next())
+            .unwrap_or(traits);
+        assert!(
+            !update_fn.contains("get_snow_manager") && !update_fn.contains("guard.update("),
+            "TerrainVisual::update must not tick SnowManager"
+        );
+        let client = include_str!("core/game_client/impl_update.rs");
+        assert!(
+            client.contains("update_cpp_snow_and_anim2d"),
+            "GameClient keeps the single C++ snow UPDATE"
+        );
+    }
+
+    #[test]
     fn weather_setting_defaults_match_cpp_constructor() {
         let setting = WeatherSetting::default();
 

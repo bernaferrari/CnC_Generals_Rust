@@ -7,6 +7,39 @@ impl ControlBar {
     // C++ ControlBar.cpp:1621-1647
     // ---------------------------------------------------------------------------
 
+    fn leftover_apply_button_general_image(&self, highlight: bool) {
+        let candidates = if highlight {
+            [
+                "GenStarHighlight",
+                "ButtonGeneralHilite",
+                "ControlBarGeneralHighlight",
+                "SSChevronStarOn",
+            ]
+        } else {
+            [
+                "GenStarEnable",
+                "ButtonGeneralEnable",
+                "ControlBarGeneralEnable",
+                "SSChevronStar",
+            ]
+        };
+        for name in candidates {
+            if leftover_mapped_image(name).is_some() {
+                leftover_set_enabled_image(BUTTON_GENERAL, name);
+                return;
+            }
+        }
+        if !highlight {
+            if let Some(win) = leftover_find_window(BUTTON_GENERAL) {
+                if let Some(data) = win.borrow().get_enabled_draw_data(0) {
+                    if let Some(image) = data.image {
+                        let _ = win.borrow_mut().set_enabled_image(0, image);
+                    }
+                }
+            }
+        }
+    }
+
     fn update_star_image(&mut self) {
         let current_points = logic_player_list()
             .read()
@@ -25,43 +58,19 @@ impl ControlBar {
             self.last_flashed_at_point_value = current_points;
         }
 
-        if self.gen_star_flash
-            && self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2
-        {
-            // C++ flashes the general button highlight
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // Flash buttons
-    // C++ ControlBar.cpp:1438-1469
-    // ---------------------------------------------------------------------------
-
-    fn update_flash_buttons(&mut self) {
-        if !self.flash_active {
+        if !self.gen_star_flash {
+            self.leftover_apply_button_general_image(false);
             return;
         }
-
-        if !self.current_frame.is_multiple_of(10) {
-            return;
-        }
-
-        let mut still_flashing = false;
-        for (name, state) in self.button_states.iter_mut() {
-            if state.flash_time.is_some() {
-                still_flashing = true;
-            }
-        }
-
-        if !still_flashing {
-            self.flash_active = false;
-        }
+        let highlight =
+            self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2;
+        self.leftover_apply_button_general_image(highlight);
     }
 
-    // ---------------------------------------------------------------------------
-    // Radar attack glow
-    // C++ ControlBar.cpp:3169-3197
-    // ---------------------------------------------------------------------------
+    fn leftover_set_win_u_attack_enabled(&mut self, enabled: bool) {
+        self.radar_glow_window_enabled = enabled;
+        leftover_enable_window(WIN_U_ATTACK, enabled);
+    }
 
     fn update_radar_attack_glow(&mut self) {
         if gamelogic::helpers::TheControlBar::take_radar_attack_glow() {
@@ -72,25 +81,89 @@ impl ControlBar {
         }
         if self.remaining_radar_attack_glow_frames == 0 {
             self.radar_attack_glow_on = false;
+            self.leftover_set_win_u_attack_enabled(true);
             return;
         }
         self.remaining_radar_attack_glow_frames =
             self.remaining_radar_attack_glow_frames.saturating_sub(1);
         if self.remaining_radar_attack_glow_frames == 0 {
             self.radar_attack_glow_on = false;
+            self.leftover_set_win_u_attack_enabled(true);
             return;
         }
         if self
             .remaining_radar_attack_glow_frames
             .is_multiple_of(RADAR_ATTACK_GLOW_NUM_TIMES)
         {
-            // C++ toggles winEnable on/off for glow effect
+            let enabled = !self.radar_glow_window_enabled;
+            self.leftover_set_win_u_attack_enabled(enabled);
         }
     }
 
     pub fn trigger_radar_attack_glow(&mut self) {
         self.radar_attack_glow_on = true;
         self.remaining_radar_attack_glow_frames = RADAR_ATTACK_GLOW_FRAMES;
+        if leftover_find_window(WIN_U_ATTACK).is_none() {
+            return;
+        }
+        if self.radar_glow_window_enabled {
+            self.leftover_set_win_u_attack_enabled(false);
+        }
+    }
+
+    pub fn show_rally_point(&mut self, loc: Option<[f32; 3]>) {
+        if loc.is_none() {
+            if self.rally_point_drawable_id != 0 {
+                gamelogic::helpers::TheGameClient.destroy_drawable(self.rally_point_drawable_id);
+                self.rally_point_drawable_id = 0;
+            }
+            self.portrait_state.rally_point = None;
+            return;
+        }
+        let loc = loc.unwrap();
+        if self.rally_point_drawable_id == 0 {
+            if let Some(template) = TheThingFactory::find_template("RallyPointMarker") {
+                let id = gamelogic::helpers::TheGameClient.create_drawable(template.as_ref());
+                if id != 0 {
+                    self.rally_point_drawable_id = id;
+                }
+            }
+        }
+        if self.rally_point_drawable_id == 0 {
+            return;
+        }
+        let pos = gamelogic::common::Coord3D {
+            x: loc[0],
+            y: loc[1],
+            z: loc[2],
+        };
+        gamelogic::helpers::TheGameClient
+            .set_drawable_position(self.rally_point_drawable_id, &pos);
+        let data = game_engine::common::global_data::read();
+        let downwind = data.downwind_angle;
+        let night = matches!(
+            data.time_of_day,
+            game_engine::common::global_data::TimeOfDay::Night
+        );
+        drop(data);
+        gamelogic::helpers::TheGameClient
+            .set_drawable_orientation(self.rally_point_drawable_id, downwind);
+        if let Some(player_arc) = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+        {
+            if let Ok(player) = player_arc.read() {
+                let color = if night {
+                    player.get_player_night_color()
+                } else {
+                    player.get_player_color()
+                };
+                gamelogic::helpers::TheGameClient
+                    .set_drawable_indicator_color(self.rally_point_drawable_id, color);
+            }
+        }
+        self.portrait_state.rally_point = Some(loc);
     }
 
     // ---------------------------------------------------------------------------
@@ -328,7 +401,6 @@ impl ControlBar {
                             build_time: 0.0,
                         })
                         .collect();
-                    context.ui_dirty = true;
                 }
                 self.displayed_queue_count = production_queue.len();
                 self.build_queue_data = production_queue
@@ -400,7 +472,7 @@ impl ControlBar {
         self.portrait_state.upgrade_cameos = cameos;
         self.portrait_state.special_power_ready = special_power_ready;
         self.portrait_state.special_power_cooldown_remaining = special_power_cooldown_remaining;
-        self.portrait_state.rally_point = rally_point;
+        self.show_rally_point(rally_point);
         self.mark_ui_dirty();
     }
 

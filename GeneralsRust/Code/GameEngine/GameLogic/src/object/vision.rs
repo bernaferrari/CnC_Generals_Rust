@@ -108,13 +108,18 @@ impl Object {
         if self.is_kind_of(KindOf::AlwaysVisible) {
             return ObjectShroudStatus::Clear;
         }
+        // C++ garrisoned / unregistered objects have no PartitionData → CLEAR.
+        if self.get_container_id().is_some() {
+            return ObjectShroudStatus::Clear;
+        }
         if let Some(partition_data) = &self.partition_data {
-            if let Ok(data) = partition_data.lock() {
-                return data.get_shrouded_status(player_index, self.id);
+            if let Ok(mut data) = partition_data.lock() {
+                return data.get_shrouded_status(player_index, self);
             }
         }
         ObjectShroudStatus::Clear
     }
+
 
     /// C++ `TheAI->pathfinder()->addObjectToPathfindMap(this)`.
     pub(super) fn add_self_to_pathfind_map(&self) {

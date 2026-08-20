@@ -164,6 +164,11 @@ pub struct PresentationDrawableSync {
     pub formation_id: u32,
     /// Wave 1059: unit caption residual (beacon/script caption) for dual draw_ui_text.
     pub caption: String,
+    /// C++ Draw = W3DTankDraw / W3DTruckDraw / W3DOverlord* / W3DLaserDraw /
+    /// W3DDebrisDraw class names from the live Object INI. Empty falls back
+    /// to ThingFactory + template/kind inference.
+    pub draw_module_names: Vec<String>,
+
 }
 
 // Wave 269: host-only path has no dual-world factory objects.

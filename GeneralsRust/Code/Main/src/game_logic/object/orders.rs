@@ -346,8 +346,15 @@ impl Object {
     }
 
     pub fn apply_upgrade_tag(&mut self, upgrade: &str) {
-        if !upgrade.is_empty() {
-            self.applied_upgrades.insert(upgrade.to_string());
+        if upgrade.is_empty() {
+            return;
+        }
+        if self.applied_upgrades.insert(upgrade.to_string()) {
+            if let Some(add) =
+                crate::game_logic::host_unit_training::add_xp_scalar_for_upgrade(upgrade)
+            {
+                self.add_experience_scalar(add);
+            }
         }
     }
 
@@ -612,6 +619,9 @@ impl Object {
         // Structures: only garrisonable buildings with residual capacity > 0.
         // Fail-closed: faction producers / non-bunker structures reject Enter.
         if self.is_kind_of(KindOf::Structure) {
+            if self.is_garrison_contain() && !self.garrison_container_accepts_entry() {
+                return false;
+            }
             return self
                 .building_data
                 .as_ref()
@@ -619,6 +629,71 @@ impl Object {
                 .unwrap_or(false);
         }
         false
+    }
+
+    /// C++ GarrisonContain vs Heal/Tunnel/transport structures.
+    pub fn is_garrison_contain(&self) -> bool {
+        self.thing.template.contain_module.kind == crate::game_logic::ContainModuleKind::Garrison
+            || (self.is_kind_of(KindOf::Structure)
+                && self
+                    .building_data
+                    .as_ref()
+                    .is_some_and(|b| b.max_garrison > 0)
+                && !self.thing.template.contain_module.kind.is_heal_contain()
+                && !self.thing.template.contain_module.kind.is_tunnel_contain()
+                && !self.thing.template.contain_module.kind.is_cave_contain())
+    }
+
+    /// C++ GarrisonContain::isValidContainerFor health / ReallyDamaged gates.
+    pub fn garrison_container_accepts_entry(&self) -> bool {
+        if self.health.current <= 0.0 {
+            return false;
+        }
+        if self.body_damage_state
+            == crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+            && !self.is_kind_of(KindOf::GarrisonableUntilDestroyed)
+        {
+            return false;
+        }
+        true
+    }
+
+    /// C++ GarrisonContain::onContaining setTeam + hide-from-nonallies seed.
+    pub fn note_garrison_occupant_entered(
+        &mut self,
+        occupant_team: Team,
+        occupant_owner: Option<u32>,
+        occupant_stealthed: bool,
+        occupant_detected: bool,
+    ) {
+        if let Some(bd) = self.building_data.as_mut() {
+            if bd.original_team.is_none() {
+                bd.original_team = Some(self.team);
+            }
+            bd.hide_garrisoned_state = occupant_stealthed && !occupant_detected;
+        }
+        self.set_team_and_owner(occupant_team, occupant_owner);
+    }
+
+    /// C++ GarrisonContain::onRemoving last-occupant original-team restore.
+    pub fn restore_garrison_original_team_if_empty(&mut self) {
+        let empty = self
+            .building_data
+            .as_ref()
+            .map(|b| b.garrisoned_units.is_empty())
+            .unwrap_or(true);
+        if !empty {
+            return;
+        }
+        let orig = self.building_data.as_ref().and_then(|b| b.original_team);
+        if let Some(bd) = self.building_data.as_mut() {
+            bd.original_team = None;
+            bd.hide_garrisoned_state = false;
+            bd.garrison_guns.clear();
+        }
+        if let Some(orig) = orig {
+            self.set_team(orig);
+        }
     }
 
     /// C++ `Object::getTransportSlotCount` subset.  The raw Object INI value
@@ -1329,6 +1404,12 @@ impl Object {
     }
 
     pub fn set_contained_by(&mut self, container: Option<ObjectId>) {
+        if container.is_none() && self.experience_sink == self.contained_by {
+            // C++ never unsinks the portable structure (it never leaves).
+            // Infantry exiting the BattleBunker residual must not keep
+            // forwarding later kills to a tank they no longer ride.
+            self.set_experience_sink(None);
+        }
         self.contained_by = container;
         crate::game_logic::host_contain_log::record_contained_by(self.id, container);
     }
@@ -1383,6 +1464,10 @@ impl Object {
                     &building.garrisoned_units,
                     building.max_garrison.min(u16::MAX as usize) as u16,
                 );
+                let empty = building.garrisoned_units.is_empty();
+                if empty {
+                    self.restore_garrison_original_team_if_empty();
+                }
                 return true;
             }
         }

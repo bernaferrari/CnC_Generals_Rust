@@ -147,6 +147,79 @@ pub(crate) fn localized_command(name: &str) -> String {
     localization::localize(&key, name)
 }
 
+/// C++ `HotKeyManager::searchHotKey` (`HotKey.cpp:182-201`): first `&` marker.
+fn hotkey_char_from_ampersand(text: &str) -> Option<char> {
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '&' {
+            return chars.next();
+        }
+    }
+    None
+}
+
+fn keycode_from_hotkey_char(ch: char) -> Option<KeyCode> {
+    match ch.to_ascii_uppercase() {
+        'A' => Some(KeyCode::A),
+        'B' => Some(KeyCode::B),
+        'C' => Some(KeyCode::C),
+        'D' => Some(KeyCode::D),
+        'E' => Some(KeyCode::E),
+        'F' => Some(KeyCode::F),
+        'G' => Some(KeyCode::G),
+        'H' => Some(KeyCode::H),
+        'I' => Some(KeyCode::I),
+        'J' => Some(KeyCode::J),
+        'K' => Some(KeyCode::K),
+        'L' => Some(KeyCode::L),
+        'M' => Some(KeyCode::M),
+        'N' => Some(KeyCode::N),
+        'O' => Some(KeyCode::O),
+        'P' => Some(KeyCode::P),
+        'Q' => Some(KeyCode::Q),
+        'R' => Some(KeyCode::R),
+        'S' => Some(KeyCode::S),
+        'T' => Some(KeyCode::T),
+        'U' => Some(KeyCode::U),
+        'V' => Some(KeyCode::V),
+        'W' => Some(KeyCode::W),
+        'X' => Some(KeyCode::X),
+        'Y' => Some(KeyCode::Y),
+        'Z' => Some(KeyCode::Z),
+        '0' => Some(KeyCode::Key0),
+        '1' => Some(KeyCode::Key1),
+        '2' => Some(KeyCode::Key2),
+        '3' => Some(KeyCode::Key3),
+        '4' => Some(KeyCode::Key4),
+        '5' => Some(KeyCode::Key5),
+        '6' => Some(KeyCode::Key6),
+        '7' => Some(KeyCode::Key7),
+        '8' => Some(KeyCode::Key8),
+        '9' => Some(KeyCode::Key9),
+        _ => None,
+    }
+}
+
+/// Live HUD hotkeys come from CommandButton TextLabel `&` markers, not a
+/// hardcoded command-name table. C++ `ControlBar.cpp:2472-2476` calls
+/// `TheHotKeyManager->searchHotKey(commandButton->getTextLabel())`.
+fn command_button_hotkey(command_name: &str) -> Option<KeyCode> {
+    let bar = game_engine::common::ini::ini_command_button::get_control_bar()?;
+    let button = bar.find_command_button_resolved(command_name)?;
+    let label = button.text_label.trim();
+    if label.is_empty() {
+        return None;
+    }
+    let (localized, exists) = game_client::game_text::GameText::fetch_with_exists(label);
+    let source = if exists {
+        localized.as_str()
+    } else {
+        label
+    };
+    hotkey_char_from_ampersand(source).and_then(keycode_from_hotkey_char)
+}
+
+
 /// Resource display component
 pub struct ResourceDisplay {
     position: (i32, i32),
@@ -749,14 +822,7 @@ impl GameHUD {
         let start_x = (self.screen_size.0 / 2) as i32 - 200;
         let start_y = self.screen_size.1 as i32 - 60;
         for (i, (name, enabled)) in commands.iter().enumerate() {
-            let hotkey = match name.as_str() {
-                "Command_Stop" => Some(crate::ui::KeyCode::S),
-                "Command_Guard" => Some(crate::ui::KeyCode::G),
-                "Command_AttackMove" | "Command_AttackMoveTo" => Some(crate::ui::KeyCode::A),
-                "Command_Deploy" => Some(crate::ui::KeyCode::D),
-                "Command_Scatter" => Some(crate::ui::KeyCode::X),
-                _ => None,
-            };
+            let hotkey = command_button_hotkey(name);
             self.command_buttons.push(CommandButton {
                 command: name.clone(),
                 position: (start_x + i as i32 * (button_size + spacing) as i32, start_y),
@@ -2030,4 +2096,55 @@ mod tests {
             } if template_name == "AmericaTankCrusader" && *quantity == 1
         ));
     }
+
+    #[test]
+    fn presentation_hotkeys_come_from_command_button_text_label() {
+        // C++ ControlBar.cpp:2472-2476 + HotKey.cpp:182-201 searchHotKey(TextLabel).
+        use game_engine::common::ini::ini_command_button::{
+            get_control_bar_mut, initialize_control_bar,
+        };
+
+        initialize_control_bar();
+        {
+            let mut bar = get_control_bar_mut().expect("control bar");
+            bar.new_command_button("Command_HqD1a8xZap".to_string())
+                .text_label = "&Q".to_string();
+        }
+
+        let mut hud = GameHUD::new();
+        hud.initialize().expect("init");
+        hud.apply_presentation_unit_commands(&[
+            ("Command_HqD1a8xZap".into(), true),
+            ("Command_Scatter".into(), true),
+        ]);
+
+        assert!(
+            hud.handle_key_press(KeyCode::Q),
+            "TextLabel &Q must bind Q"
+        );
+        let pending = hud.drain_pending_ui_events();
+        assert!(matches!(
+            pending.first(),
+            Some(UIEvent::IssueCommand { command_name }) if command_name == "Command_HqD1a8xZap"
+        ));
+
+        // Without a CommandButton TextLabel `&` marker, fail-closed (no invented X).
+        let src = include_str!("hud.rs");
+        assert!(
+            !src.contains("\"Command_Scatter\" => Some")
+                && !src.contains("\"Command_Stop\" => Some")
+                && src.contains("command_button_hotkey(name)"),
+            "HUD must not hardcode five Command_* hotkeys"
+        );
+    }
+
+    #[test]
+    fn ampersand_hotkey_parse_matches_cpp_search_hot_key() {
+        assert_eq!(hotkey_char_from_ampersand("S&top"), Some('t'));
+        assert_eq!(hotkey_char_from_ampersand("&Guard"), Some('G'));
+        assert_eq!(hotkey_char_from_ampersand("Stop"), None);
+        assert_eq!(keycode_from_hotkey_char('q'), Some(KeyCode::Q));
+        assert_eq!(keycode_from_hotkey_char('5'), Some(KeyCode::Key5));
+    }
+
 }

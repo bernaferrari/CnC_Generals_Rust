@@ -245,7 +245,23 @@ pub(super) fn create_radar_event_for_position(
 
 pub(super) fn resolve_player_name_token(raw: &str) -> String {
     match raw {
-        THE_PLAYER | THIS_PLAYER => get_script_engine()
+        THE_PLAYER => {
+            if !crate::scripting::core::is_generals_challenge_campaign() {
+                raw.to_string()
+            } else {
+                player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_local_player().cloned())
+                    .and_then(|p| {
+                        p.read()
+                            .ok()
+                            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                    })
+                    .unwrap_or_else(|| raw.to_string())
+            }
+        }
+        THIS_PLAYER => get_script_engine()
             .read()
             .ok()
             .and_then(|g| {
@@ -309,18 +325,13 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
             })
             .unwrap_or_else(|| raw.to_string()),
         TEAM_THE_PLAYER => {
-            let current_player = get_script_engine().read().ok().and_then(|g| {
-                g.as_ref()
-                    .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
-            });
-            let Some(player_name) = current_player else {
+            if !crate::scripting::core::is_generals_challenge_campaign() {
                 return raw.to_string();
-            };
-
+            }
             player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.find_player_by_name(&player_name))
+                .and_then(|list| list.get_local_player().cloned())
                 .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
                 .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
                 .unwrap_or_else(|| raw.to_string())

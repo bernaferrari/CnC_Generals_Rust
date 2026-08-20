@@ -3,13 +3,17 @@
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D,
 };
-use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
+use super::message_stream::{
+    emit_message, take_emitted_messages, GameMessageDisposition, GameMessageTranslator,
+};
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewLocation};
 use crate::gui::{get_shell, MouseCursor};
 use crate::helpers::TheInGameUI;
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::helpers::TheGameLogic;
+use game_engine::common::global_data;
+use game_engine::common::recorder::with_recorder;
 
 const MAX_VIEW_LOCS: usize = 8;
 const SCROLL_AMT: f32 = 100.0;
@@ -76,6 +80,18 @@ pub struct LookAtTranslator {
     prev_cursor: MouseCursor,
 }
 
+
+fn should_emit_replay_camera() -> bool {
+    if !global_data::read().save_camera_in_replay {
+        return false;
+    }
+    if with_recorder(|recorder| recorder.is_playback()).unwrap_or(false) {
+        return false;
+    }
+    // C++ LookAtXlat.cpp:459 — single-player or skirmish only.
+    let mode = TheGameLogic::get_game_mode();
+    mode == 0 || mode == 2
+}
 impl LookAtTranslator {
     pub fn new() -> Self {
         Self::default()
@@ -226,6 +242,25 @@ impl LookAtTranslator {
                 view.zoom_out();
             }
         });
+
+        // C++ LookAtXlat.cpp:459-470 — record camera for skirmish/SP replays.
+        if should_emit_replay_camera() {
+            with_tactical_view_ref(|view| {
+                let loc = view.get_location();
+                let pos = loc.position();
+                let coord = Coord3D::new(pos.x, pos.y, pos.z);
+                let mut msg = GameMessage::new(GameMessageType::SetReplayCamera(
+                    coord.clone(),
+                    loc.angle(),
+                    loc.zoom(),
+                ));
+                msg.append_location_argument(coord);
+                msg.append_real_argument(loc.angle());
+                msg.append_real_argument(loc.pitch());
+                msg.append_real_argument(loc.zoom());
+                emit_message(msg);
+            });
+        }
     }
 }
 
@@ -422,11 +457,19 @@ impl GameMessageTranslator for LookAtTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::SetReplayCamera(pos, angle, zoom) => {
-                with_tactical_view(|view| {
-                    let mut location = ViewLocation::new();
-                    location.init(pos.x, pos.y, pos.z, *angle, view.pitch(), *zoom);
-                    view.set_location(&location);
-                });
+                // C++ GameLogicDispatch.cpp:1801-1825 applies only during playback.
+                let playback = with_recorder(|recorder| recorder.is_playback()).unwrap_or(false);
+                let use_camera = global_data::read().use_camera_in_replay;
+                if playback && use_camera {
+                    with_tactical_view(|view| {
+                        if view.is_camera_movement_finished() {
+                            let pitch = view.pitch();
+                            let mut location = ViewLocation::new();
+                            location.init(pos.x, pos.y, pos.z, *angle, pitch, *zoom);
+                            view.set_location(&location);
+                        }
+                    });
+                }
             }
             _ => {}
         }
@@ -501,5 +544,33 @@ mod tests {
     fn mmb_click_thresholds_match_cpp() {
         assert_eq!(MMB_CLICK_DURATION_FRAMES, 5);
         assert_eq!(MMB_CLICK_PIXEL_OFFSET, 5);
+    }
+
+    #[test]
+    fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {
+        // C++ LookAtXlat.cpp:459-467 appends MSG_SET_REPLAY_CAMERA on FrameTick.
+        let previous = global_data::read().save_camera_in_replay;
+        global_data::write().save_camera_in_replay = true;
+        let _ = take_emitted_messages();
+        let mut translator = LookAtTranslator::new();
+        let _ = translator.translate_game_message(&GameMessage::new(GameMessageType::FrameTick(1)));
+        let emitted = take_emitted_messages();
+        global_data::write().save_camera_in_replay = previous;
+        let mode = TheGameLogic::get_game_mode();
+        if mode == 0 || mode == 2 {
+            assert!(
+                emitted
+                    .iter()
+                    .any(|msg| matches!(msg.get_type(), GameMessageType::SetReplayCamera(..))),
+                "skirmish/SP FrameTick must emit MSG_SET_REPLAY_CAMERA"
+            );
+        } else {
+            assert!(
+                emitted
+                    .iter()
+                    .all(|msg| !matches!(msg.get_type(), GameMessageType::SetReplayCamera(..))),
+                "non-skirmish/SP must not emit MSG_SET_REPLAY_CAMERA"
+            );
+        }
     }
 }

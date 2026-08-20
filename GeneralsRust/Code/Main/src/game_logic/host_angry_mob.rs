@@ -1,13 +1,14 @@
-//! Host GLA Angry Mob residual (nexus damages nearby enemies / expands).
+//! Host GLA Angry Mob residual (nexus damages nearby enemies / SpawnBehavior members).
 //!
 //! Residual slice (playability):
 //! - `GLAInfantryAngryMobNexus` (and Chem_/Demo_/Slth_ / Boss_ variants) is the
 //!   playable residual "mob" unit. It continuously damages nearby enemies inside
 //!   residual AttackRange, representing aggregate fire from SpawnBehavior members
 //!   (pistol / rock / molotov residual).
-//! - **Expand residual**: member strength grows from retail `InitialBurst = 5`
-//!   toward `SpawnNumber = 10` on `SpawnReplaceDelay = 30000` ms residual, so
-//!   damage over frames increases as the mob expands.
+//! - **SpawnBehavior residual**: rapid-spawns all `SpawnNumber = 10` members, then
+//!   `SpawnReplaceDelay = 30000` ms replacements on death. `member_count` tracks
+//!   live members (DPS shrinks as they die). Last member death destroys the nexus
+//!   (`onSpawnDeath` + AggregateHealth). Nexus is `OBJECT_STATUS_MASKED`.
 //! - `Upgrade_GLAArmTheMob` residual multiplies damage by 1.25× (WeaponBonus
 //!   PLAYER_UPGRADE DAMAGE 125%).
 //!
@@ -57,8 +58,10 @@ pub const ANGRY_MOB_MEMBER_TEMPLATES: &[&str] = &[
 /// Member infantry residual MaxHealth honesty.
 pub const ANGRY_MOB_MEMBER_MAX_HEALTH: f32 = 50.0;
 
-/// Retail SpawnReplaceDelay 30000 ms → 900 frames @ 30 FPS (expand interval).
+/// Retail SpawnReplaceDelay 30000 ms → 900 frames @ 30 FPS (C++ replacement delay).
 pub const ANGRY_MOB_EXPAND_INTERVAL_FRAMES: u32 = 900;
+/// C++ SPAWN_DELAY_MIN_FRAMES (SpawnBehavior.cpp:36) — unused birth-frame stagger.
+pub const ANGRY_MOB_SPAWN_DELAY_MIN_FRAMES: u32 = 16;
 
 /// ArmTheMob PLAYER_UPGRADE damage multiplier residual (WeaponBonus DAMAGE 125%).
 pub const ANGRY_MOB_ARMED_DAMAGE_MULT: f32 = 1.25;
@@ -289,10 +292,13 @@ pub fn is_angry_mob_hostile_team(
     !same_team || target_is_neutral
 }
 
-/// Residual damage for one fire tick given member count and ArmTheMob state.
+/// Residual damage for one fire tick given **live** member count and ArmTheMob.
+/// C++ aggregate fire scales with `m_spawnCount`; dead members do not contribute.
 pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
-    let members = member_count.max(1) as f32;
-    let base = ANGRY_MOB_DAMAGE_PER_MEMBER_TICK * members;
+    if member_count == 0 {
+        return 0.0;
+    }
+    let base = ANGRY_MOB_DAMAGE_PER_MEMBER_TICK * member_count as f32;
     if armed {
         base * ANGRY_MOB_ARMED_DAMAGE_MULT
     } else {
@@ -300,7 +306,13 @@ pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
     }
 }
 
-/// Per-nexus residual state (member expand + fire cadence).
+/// C++ SpawnBehavior::computeAggregateStates OBJECT_STATUS_MASKED
+/// (`SpawnBehavior.cpp:995`) — nexus does not exist as a weapon target.
+pub fn angry_mob_nexus_should_be_masked() -> bool {
+    true
+}
+
+/// Per-nexus residual state (SpawnBehavior slaves + fire cadence).
 /// Pending SpawnBehavior member object residual.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingAngryMobMemberSpawn {
@@ -314,7 +326,7 @@ pub struct PendingAngryMobMemberSpawn {
 pub struct HostAngryMobState {
     pub object_id: ObjectId,
     pub team: super::Team,
-    /// Current residual member strength (InitialBurst..SpawnNumber).
+    /// Live SpawnBehavior slave count (`m_spawnCount`).
     pub member_count: u32,
     /// Live member ObjectIds residual (SpawnBehavior slaves).
     #[serde(default)]
@@ -324,7 +336,7 @@ pub struct HostAngryMobState {
     pub next_template_index: u32,
     /// Next absolute frame for aggregate fire damage tick.
     pub next_tick_frame: u32,
-    /// Next absolute frame for expand residual (+1 member toward max).
+    /// Next absolute frame for a due replacement (diagnostic).
     pub next_expand_frame: u32,
     /// Position snapshot at last plan (diagnostic).
     pub position: Vec3,
@@ -332,8 +344,14 @@ pub struct HostAngryMobState {
     pub total_damage_applied: f32,
     /// Damage application events (object×tick).
     pub damage_applications: u32,
-    /// Expand events applied to this mob.
+    /// Replacement createSpawn events after a death (not initial rapid fill).
     pub expands: u32,
+    /// C++ `m_replacementTimes` — due frames for `createSpawn`.
+    #[serde(default)]
+    pub replacement_times: Vec<u32>,
+    /// C++ `onSpawnDeath` last-member AggregateHealth destroy pending.
+    #[serde(default)]
+    pub pending_nexus_destroy: bool,
 }
 
 impl HostAngryMobState {
@@ -346,25 +364,35 @@ impl HostAngryMobState {
         Self {
             object_id,
             team,
-            member_count: ANGRY_MOB_INITIAL_MEMBERS,
+            member_count: 0,
             member_ids: Vec::new(),
             next_template_index: 0,
             // Immediate first tick so residual damage is observable on first update.
             next_tick_frame: activate_frame,
-            next_expand_frame: activate_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES),
+            next_expand_frame: activate_frame,
             position,
             total_damage_applied: 0.0,
             damage_applications: 0,
             expands: 0,
+            // C++ SpawnBehavior::update first-init: queue SpawnNumber due now
+            // (SpawnBehavior.cpp:194-208). Actual C++ pushes 0/1; host uses
+            // activate_frame so frame 0 is due (`current >= t`).
+            replacement_times: vec![activate_frame; ANGRY_MOB_MAX_MEMBERS as usize],
+            pending_nexus_destroy: false,
         }
     }
 
     pub fn is_due_tick(&self, current_frame: u32) -> bool {
-        current_frame >= self.next_tick_frame
+        !self.pending_nexus_destroy && current_frame >= self.next_tick_frame
     }
 
     pub fn is_due_expand(&self, current_frame: u32) -> bool {
-        self.member_count < ANGRY_MOB_MAX_MEMBERS && current_frame >= self.next_expand_frame
+        !self.pending_nexus_destroy
+            && self.member_count < ANGRY_MOB_MAX_MEMBERS
+            && self
+                .replacement_times
+                .iter()
+                .any(|&t| current_frame >= t)
     }
 
     /// Next SpawnTemplateName residual in rotation.
@@ -435,6 +463,19 @@ impl HostAngryMobRegistry {
         self.members_spawned = self.members_spawned.saturating_add(n);
     }
 
+    /// Roll back a `createSpawn` slot when the host object failed to appear.
+    pub fn rollback_failed_member_spawn(&mut self, nexus_id: ObjectId, current_frame: u32) {
+        if let Some(mob) = self.active.iter_mut().find(|m| m.object_id == nexus_id) {
+            mob.member_count = mob.member_count.saturating_sub(1);
+            mob.replacement_times.push(current_frame);
+        }
+    }
+
+    /// Drop nexuses whose last member already triggered AggregateHealth destroy.
+    pub fn evict_pending_destroyed_nexuses(&mut self) {
+        self.active.retain(|m| !m.pending_nexus_destroy);
+    }
+
     pub fn honesty_member_spawn_ok(&self) -> bool {
         self.members_spawned > 0
     }
@@ -470,62 +511,135 @@ impl HostAngryMobRegistry {
     pub fn sync_mobs(&mut self, living: &[(ObjectId, super::Team, Vec3)], current_frame: u32) {
         let living_ids: std::collections::HashSet<ObjectId> =
             living.iter().map(|(id, _, _)| *id).collect();
-        self.active.retain(|m| living_ids.contains(&m.object_id));
+        self.active.retain(|m| {
+            living_ids.contains(&m.object_id) && !m.pending_nexus_destroy
+        });
 
         for &(id, team, pos) in living {
             if let Some(m) = self.active.iter_mut().find(|m| m.object_id == id) {
                 m.team = team;
                 m.position = pos;
             } else {
-                let mut mob = HostAngryMobState::new(id, team, pos, current_frame);
-                // InitialBurst residual: queue SpawnBehavior members immediately.
-                let mut initial = Vec::new();
-                for slot in 0..ANGRY_MOB_INITIAL_MEMBERS {
-                    let tmpl = mob.take_next_member_template();
-                    initial.push(PendingAngryMobMemberSpawn {
-                        nexus_id: id,
-                        team,
-                        template_name: tmpl.to_string(),
-                        slot_index: slot,
-                    });
-                }
-                self.active.push(mob);
-                self.pending_member_spawns.extend(initial);
+                // Replacement times queued in `new` — drained by apply_due_replacements.
+                self.active
+                    .push(HostAngryMobState::new(id, team, pos, current_frame));
             }
         }
         self.active.sort_by_key(|m| m.object_id.0);
     }
 
-    /// Apply expand residual: grow member_count toward max on interval.
-    pub fn apply_due_expands(&mut self, current_frame: u32) -> u32 {
-        let mut expanded = 0_u32;
-        let mut spawns = Vec::new();
-        for mob in &mut self.active {
-            if !mob.is_due_expand(current_frame) {
+    /// C++ SpawnBehavior::onSpawnDeath (`SpawnBehavior.cpp:730-758`).
+    /// Removes the slave, schedules `now + SpawnReplaceDelay`, and returns true
+    /// when the last live member died (`m_spawnCount == 0 && m_aggregateHealth`).
+    pub fn on_spawn_death(
+        &mut self,
+        nexus_id: ObjectId,
+        dead_spawn: ObjectId,
+        current_frame: u32,
+    ) -> bool {
+        let Some(mob) = self.active.iter_mut().find(|m| m.object_id == nexus_id) else {
+            return false;
+        };
+        let Some(idx) = mob.member_ids.iter().position(|&id| id == dead_spawn) else {
+            return false;
+        };
+        mob.member_ids.remove(idx);
+        mob.member_count = mob.member_ids.len() as u32;
+        // C++ still pushes a replacement even for the last member, then destroys.
+        mob.replacement_times
+            .push(current_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES));
+        if mob.member_count == 0 {
+            mob.pending_nexus_destroy = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Scan live member ids; invoke `on_spawn_death` for each dead slave.
+    /// Returns nexus ids that must be destroyed (last member gone).
+    pub fn process_dead_members(
+        &mut self,
+        current_frame: u32,
+        mut is_dead: impl FnMut(ObjectId) -> bool,
+    ) -> Vec<ObjectId> {
+        let mut deaths = Vec::new();
+        for mob in &self.active {
+            if mob.pending_nexus_destroy {
                 continue;
             }
-            mob.member_count = mob
-                .member_count
-                .saturating_add(1)
-                .min(ANGRY_MOB_MAX_MEMBERS);
-            let slot = mob.member_count.saturating_sub(1);
-            let tmpl = mob.take_next_member_template();
-            spawns.push(PendingAngryMobMemberSpawn {
-                nexus_id: mob.object_id,
-                team: mob.team,
-                template_name: tmpl.to_string(),
-                slot_index: slot,
-            });
-            mob.expands = mob.expands.saturating_add(1);
-            mob.next_expand_frame = current_frame.saturating_add(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
-            self.expands = self.expands.saturating_add(1);
-            expanded = expanded.saturating_add(1);
-            if mob.member_count >= ANGRY_MOB_MAX_MEMBERS {
-                self.fully_expanded = self.fully_expanded.saturating_add(1);
+            for &mid in &mob.member_ids {
+                if is_dead(mid) {
+                    deaths.push((mob.object_id, mid));
+                }
+            }
+        }
+        let mut destroy = Vec::new();
+        for (nid, mid) in deaths {
+            if self.on_spawn_death(nid, mid, current_frame) {
+                destroy.push(nid);
+            }
+        }
+        destroy
+    }
+
+    /// C++ SpawnBehavior::update replacement-times drain + `createSpawn`
+    /// (`SpawnBehavior.cpp:221-243`). Initial fill rapid-spawns all SpawnNumber;
+    /// later dues are SpawnReplaceDelay replacements.
+    pub fn apply_due_replacements(&mut self, current_frame: u32) -> u32 {
+        let mut spawned = 0_u32;
+        let mut spawns = Vec::new();
+        for mob in &mut self.active {
+            if mob.pending_nexus_destroy {
+                continue;
+            }
+            let mut remaining = Vec::new();
+            let mut due_count = 0_u32;
+            for &t in &mob.replacement_times {
+                if current_frame >= t {
+                    due_count = due_count.saturating_add(1);
+                } else {
+                    remaining.push(t);
+                }
+            }
+            mob.replacement_times = remaining;
+            if due_count == 0 {
+                continue;
+            }
+            let started_empty = mob.member_count == 0;
+            for _ in 0..due_count {
+                if mob.member_count >= ANGRY_MOB_MAX_MEMBERS {
+                    break;
+                }
+                let slot = mob.member_count;
+                let tmpl = mob.take_next_member_template();
+                spawns.push(PendingAngryMobMemberSpawn {
+                    nexus_id: mob.object_id,
+                    team: mob.team,
+                    template_name: tmpl.to_string(),
+                    slot_index: slot,
+                });
+                mob.member_count = mob.member_count.saturating_add(1);
+                spawned = spawned.saturating_add(1);
+                if !started_empty {
+                    mob.expands = mob.expands.saturating_add(1);
+                    self.expands = self.expands.saturating_add(1);
+                }
+                if mob.member_count >= ANGRY_MOB_MAX_MEMBERS {
+                    self.fully_expanded = self.fully_expanded.saturating_add(1);
+                }
+            }
+            if let Some(&next) = mob.replacement_times.iter().min() {
+                mob.next_expand_frame = next;
             }
         }
         self.pending_member_spawns.extend(spawns);
-        expanded
+        spawned
+    }
+
+    /// Apply due `createSpawn` slots (name kept for existing callers).
+    pub fn apply_due_expands(&mut self, current_frame: u32) -> u32 {
+        self.apply_due_replacements(current_frame)
     }
 
     /// Plan damage ticks for all mobs due this frame.
@@ -539,7 +653,7 @@ impl HostAngryMobRegistry {
     ) -> Vec<HostAngryMobTickPlan> {
         let mut plans = Vec::new();
         for mob in &self.active {
-            if !mob.is_due_tick(current_frame) {
+            if !mob.is_due_tick(current_frame) || mob.member_count == 0 {
                 continue;
             }
             let armed = armed_by_team(mob.team);
@@ -616,7 +730,7 @@ impl HostAngryMobRegistry {
         self.damage_applications > 0 && self.total_damage_applied > 0.0
     }
 
-    /// Residual honesty: expand residual grew member count at least once.
+    /// Residual honesty: at least one death-triggered replacement createSpawn.
     pub fn honesty_expand_ok(&self) -> bool {
         self.expands > 0
     }
@@ -833,6 +947,9 @@ mod tests {
         assert!((armed5 - 25.0).abs() < f32::EPSILON);
         assert!(base10 > base5);
         assert!(armed5 > base5);
+        // hq-gvqkn: dead members must reduce DPS; 0 live members deal 0.
+        assert!((angry_mob_damage_for_tick(0, false)).abs() < f32::EPSILON);
+        assert!((angry_mob_damage_for_tick(3, false) - 12.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -844,7 +961,9 @@ mod tests {
 
         reg.sync_mobs(&[(mob_id, Team::GLA, Vec3::new(0.0, 0.0, 0.0))], 0);
         assert_eq!(reg.active_count(), 1);
-        assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_INITIAL_MEMBERS));
+        // C++ SpawnBehavior::update queues SpawnNumber immediately (cpp:194-208).
+        assert_eq!(reg.apply_due_expands(0), ANGRY_MOB_MAX_MEMBERS);
+        assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
 
         let candidates = vec![
             (mob_id, Vec3::ZERO, Team::GLA, true, true, false),
@@ -870,7 +989,11 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].hits.len(), 1);
         assert_eq!(plans[0].hits[0].target_id, enemy_id);
-        assert!((plans[0].hits[0].damage - angry_mob_damage_for_tick(5, false)).abs() < 0.01);
+        assert!(
+            (plans[0].hits[0].damage - angry_mob_damage_for_tick(ANGRY_MOB_MAX_MEMBERS, false))
+                .abs()
+                < 0.01
+        );
 
         reg.record_tick_complete(mob_id, plans[0].hits[0].damage, 1, 0, 0, true);
         assert!(reg.honesty_damage_ok());
@@ -884,27 +1007,73 @@ mod tests {
     }
 
     #[test]
-    fn expand_residual_grows_member_count() {
+    fn rapid_spawn_all_spawn_number_then_replace_delay() {
+        // C++ SpawnBehavior::update first-init (SpawnBehavior.cpp:194-208) queues
+        // SpawnNumber replacement times due immediately. onSpawnDeath
+        // (SpawnBehavior.cpp:739-743) schedules now+SpawnReplaceDelay.
         let mut reg = HostAngryMobRegistry::new();
         let mob_id = ObjectId(1);
         reg.sync_mobs(&[(mob_id, Team::GLA, Vec3::ZERO)], 0);
-        assert_eq!(reg.member_count_of(mob_id), Some(5));
+        assert_eq!(reg.member_count_of(mob_id), Some(0));
+        let n = reg.apply_due_expands(0);
+        assert_eq!(n, ANGRY_MOB_MAX_MEMBERS);
+        assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
+        assert_eq!(
+            reg.take_pending_member_spawns().len(),
+            ANGRY_MOB_MAX_MEMBERS as usize
+        );
 
-        // Not due yet.
+        if let Some(mob) = reg.active_mobs_mut().iter_mut().find(|m| m.object_id == mob_id)
+        {
+            mob.member_ids = (10..20).map(ObjectId).collect();
+            mob.member_count = mob.member_ids.len() as u32;
+        }
+
+        assert!(!reg.on_spawn_death(mob_id, ObjectId(10), 1));
+        assert_eq!(
+            reg.member_count_of(mob_id),
+            Some(ANGRY_MOB_MAX_MEMBERS - 1)
+        );
         assert_eq!(reg.apply_due_expands(1), 0);
+        assert_eq!(
+            reg.member_count_of(mob_id),
+            Some(ANGRY_MOB_MAX_MEMBERS - 1)
+        );
         assert!(!reg.honesty_expand_ok());
 
-        let n = reg.apply_due_expands(ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
+        let n = reg.apply_due_expands(1 + ANGRY_MOB_EXPAND_INTERVAL_FRAMES);
         assert_eq!(n, 1);
-        assert_eq!(reg.member_count_of(mob_id), Some(6));
-        assert!(reg.honesty_expand_ok());
-
-        // Cap at max.
-        for i in 0..10 {
-            let frame = ANGRY_MOB_EXPAND_INTERVAL_FRAMES * (i + 2);
-            reg.apply_due_expands(frame);
-        }
         assert_eq!(reg.member_count_of(mob_id), Some(ANGRY_MOB_MAX_MEMBERS));
+        assert!(reg.honesty_expand_ok());
+    }
+
+    #[test]
+    fn last_member_death_destroys_nexus() {
+        // C++ SpawnBehavior::onSpawnDeath (SpawnBehavior.cpp:749-757):
+        // if (m_spawnCount == 0 && m_aggregateHealth) destroyObject(nexus).
+        let mut reg = HostAngryMobRegistry::new();
+        let mob_id = ObjectId(1);
+        reg.sync_mobs(&[(mob_id, Team::GLA, Vec3::ZERO)], 0);
+        reg.apply_due_expands(0);
+        if let Some(mob) = reg.active_mobs_mut().iter_mut().find(|m| m.object_id == mob_id)
+        {
+            mob.member_ids = (1..=10).map(|i| ObjectId(i + 100)).collect();
+            mob.member_count = 10;
+        }
+        for i in 0..9 {
+            assert!(!reg.on_spawn_death(mob_id, ObjectId(101 + i), i as u32));
+        }
+        assert_eq!(reg.member_count_of(mob_id), Some(1));
+        assert!(reg.on_spawn_death(mob_id, ObjectId(110), 9));
+        assert_eq!(reg.member_count_of(mob_id), Some(0));
+        assert!(
+            reg.active_mobs()
+                .iter()
+                .any(|m| m.object_id == mob_id && m.pending_nexus_destroy)
+        );
+        assert!(angry_mob_nexus_should_be_masked());
+        let _ = ANGRY_MOB_SPAWN_DELAY_MIN_FRAMES;
+        let _ = ANGRY_MOB_INITIAL_MEMBERS;
     }
 
     #[test]

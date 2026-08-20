@@ -544,7 +544,7 @@ impl GameLogic {
             self.create_object_for_owner_or_team(tpl_name, team, source_owner_player_id, start)?;
         if let Some(o) = self.objects.get_mut(&pid) {
             o.helix_napalm_bomb_projectile = true;
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = NAPALM_BOMB_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, NAPALM_BOMB_MAX_HEALTH);
             // Fall velocity residual (Y-up).

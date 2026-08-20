@@ -1023,39 +1023,27 @@ fn typed_overcharge_capture_keeps_disabled_bonus_in_cxx_energy_pool() {
     assert_eq!(logic.get_player(0).unwrap().power_produced, 15);
     assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
 
-    // C++ Object::onCapture dispatches after ownership changes, but
-    // OverchargeBehavior returns early when `isDisabled()`.  The active +5
-    // must therefore stay in the original player's Energy pool rather than
-    // following the host object's new owner.
+    // C++ Object::onDisabledEdge already strips base+EnergyBonus from the
+    // current Energy pool. OverchargeBehavior::onCapture then no-ops while
+    // disabled. The live scan omits disabled producers, so both owners are
+    // at 0 until the disable expires (bonus returns with the current owner).
     logic
         .host_object_mut(plant_id)
         .expect("plant to disable")
         .set_status_disabled_hacked(true);
     assert!(logic.host_object(plant_id).unwrap().is_disabled());
+    assert!(logic.host_object(plant_id).unwrap().overcharge_enabled);
     assert!(logic.transfer_object_to_player(plant_id, 1));
     logic.update_player_resources(0.0);
-    assert_eq!(logic.get_player(0).unwrap().power_produced, 5);
-    assert_eq!(logic.get_player(1).unwrap().power_produced, 10);
-    assert_eq!(
-        logic.get_player(0).unwrap().captured_overcharge_power_delta,
-        5
-    );
-    assert_eq!(
-        logic.get_player(1).unwrap().captured_overcharge_power_delta,
-        -5
-    );
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
+    assert!(logic.host_object(plant_id).unwrap().overcharge_enabled);
 
-    // The correction is deliberately not reconciled when the current owner
-    // later disables Overcharge.  C++ enable(FALSE) calls
-    // getControllingPlayer()->removePowerBonus(), so that later subtraction
-    // belongs to player 1 while player 0 retains the earlier disabled-capture
-    // bonus.  This proves the retained delta composes with normal lifecycle
-    // power mutations rather than silently migrating or disappearing.
     assert!(logic.toggle_overcharge_object(plant_id));
     logic.update_player_resources(0.0);
     assert!(!logic.host_object(plant_id).unwrap().overcharge_enabled);
-    assert_eq!(logic.get_player(0).unwrap().power_produced, 5);
-    assert_eq!(logic.get_player(1).unwrap().power_produced, 5);
+    assert_eq!(logic.get_player(0).unwrap().power_produced, 0);
+    assert_eq!(logic.get_player(1).unwrap().power_produced, 0);
 }
 
 #[test]

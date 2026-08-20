@@ -263,7 +263,7 @@ impl CnCGameEngine {
                 science_names,
                 special_power_name,
                 special_power_id: _,
-                exit_object_id: _,
+                exit_object_id,
             } => self.host_apply_control_bar_direct(
                 &command_name,
                 command_type,
@@ -274,6 +274,7 @@ impl CnCGameEngine {
                 player_id,
                 &science_names,
                 special_power_name.as_deref(),
+                exit_object_id,
             ),
             HostControlBarRequest::ArmTarget {
                 command_name,
@@ -303,7 +304,7 @@ impl CnCGameEngine {
                 player_id,
                 selected_object_ids,
                 producer_id,
-                production_id: _,
+                production_id,
                 production_type,
                 upgrade_name,
                 queue_index,
@@ -311,6 +312,7 @@ impl CnCGameEngine {
                 player_id,
                 &selected_object_ids,
                 crate::game_logic::ObjectId(producer_id),
+                production_id,
                 production_type,
                 &upgrade_name,
                 queue_index,
@@ -439,6 +441,7 @@ impl CnCGameEngine {
         player_id: u32,
         science_names: &[String],
         special_power_name: Option<&str>,
+        exit_object_id: Option<u32>,
     ) {
         if !self.host_control_bar_is_local_player(player_id) {
             return;
@@ -513,6 +516,35 @@ impl CnCGameEngine {
         if !selected.is_empty() {
             self.host_set_selection(player_id, selected.clone());
         }
+
+        // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT: argument 0 is the
+        // occupant (`m_containData.objectID`). Fail-closed without it — do
+        // not dump the container (that is MSG_EVACUATE).
+        if command_type == LegacyCommandType::Exit {
+            let Some(occupant) = exit_object_id.filter(|id| *id != 0) else {
+                self.host_reject_control_bar_request("EXIT requires occupant object id");
+                return;
+            };
+            let occupant_id = crate::game_logic::ObjectId(occupant);
+            let occupant_ok = self.last_presentation_frame.as_ref().is_some_and(|frame| {
+                frame.objects.iter().any(|object| {
+                    object.id == occupant_id
+                        && !object.destroyed
+                        && object.team == frame.local_team()
+                })
+            });
+            if !occupant_ok {
+                self.host_reject_control_bar_request("EXIT occupant is not a live local unit");
+                return;
+            }
+            self.host_control_bar_queue_command(
+                player_id,
+                vec![occupant_id],
+                crate::command_system::CommandType::Exit,
+            );
+            return;
+        }
+
 
         if let Some(special_power_name) = special_power_name {
             let special_key = host_control_bar_key(special_power_name);
@@ -799,12 +831,12 @@ impl CnCGameEngine {
             },
         }
     }
-
     fn host_apply_control_bar_cancel(
         &mut self,
         player_id: u32,
         selected_object_ids: &[u32],
         producer: crate::game_logic::ObjectId,
+        production_id: u32,
         production_type: QueueProductionType,
         upgrade_name: &str,
         queue_index: usize,
@@ -816,9 +848,22 @@ impl CnCGameEngine {
             );
             return;
         }
+        let queue_len = self
+            .presentation_ro(producer)
+            .map(|object| object.production_queue.len())
+            .unwrap_or(0);
+        // C++ ControlBarCommandProcessing.cpp:466-479 uses
+        // `m_queueData[i].productionID`. Host ProductionItem has no stored
+        // production ID; GameClient often aliases production_id = queue_index.
+        let Some(cancel_index) =
+            resolve_host_queue_cancel_index(production_id, queue_index, queue_len)
+        else {
+            self.host_reject_control_bar_request("production cancellation queue entry is stale");
+            return;
+        };
         let Some(item) = self
             .presentation_ro(producer)
-            .and_then(|object| object.production_queue.get(queue_index))
+            .and_then(|object| object.production_queue.get(cancel_index).cloned())
         else {
             self.host_reject_control_bar_request("production cancellation queue entry is stale");
             return;
@@ -839,7 +884,7 @@ impl CnCGameEngine {
             return;
         }
         self.host_set_selection(player_id, selected);
-        if self.host_cancel_production_at_index(producer, queue_index) {
+        if self.host_cancel_production_at_index(producer, cancel_index) {
             self.play_sound_effect(SoundType::Command);
         } else {
             self.host_reject_control_bar_request(
@@ -1261,6 +1306,29 @@ fn host_control_bar_key(value: &str) -> String {
         .map(|character| character.to_ascii_lowercase())
         .collect()
 }
+
+/// Resolve the queue slot to cancel.
+///
+/// C++ `ControlBar::processCommand` `GUI_COMMAND_CANCEL_UNIT_BUILD`
+/// (`ControlBarCommandProcessing.cpp:443-479`) looks up the clicked slot,
+/// then cancels `m_queueData[i].productionID` — never first-match-by-template.
+/// Host `ProductionItem` has no stored production ID; GameClient often aliases
+/// `production_id = queue_index`. Prefer a valid production_id slot, else the
+/// displayed queue_index. Fail-closed when neither addresses the queue.
+fn resolve_host_queue_cancel_index(
+    production_id: u32,
+    queue_index: usize,
+    queue_len: usize,
+) -> Option<usize> {
+    if production_id != 0 {
+        let id_index = production_id as usize;
+        if id_index < queue_len {
+            return Some(id_index);
+        }
+    }
+    (queue_index < queue_len).then_some(queue_index)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -1831,4 +1899,58 @@ mod tests {
             Ok(HostControlBarGenericTargetAction::PlaceBeacon)
         ));
     }
+
+    #[test]
+    fn queue_cancel_uses_production_id_or_index_not_template() {
+        // C++ ControlBarCommandProcessing.cpp:466-479 cancels by productionID
+        // from the clicked queue slot, not first-match-by-template.
+        assert_eq!(resolve_host_queue_cancel_index(1, 0, 3), Some(1));
+        assert_eq!(resolve_host_queue_cancel_index(0, 2, 3), Some(2));
+        assert_eq!(resolve_host_queue_cancel_index(17, 1, 3), Some(1));
+        assert_eq!(resolve_host_queue_cancel_index(0, 5, 3), None);
+        assert_eq!(resolve_host_queue_cancel_index(9, 5, 3), None);
+
+        let src = include_str!("control_bar_bridge.rs");
+        let start = src
+            .find("fn host_apply_control_bar_cancel")
+            .expect("cancel apply");
+        let apply = &src[start..];
+        let apply = apply.split("\n    fn host_control_bar_local_selection").next().unwrap();
+        assert!(
+            apply.contains("resolve_host_queue_cancel_index(production_id, queue_index, queue_len)")
+                && apply.contains("host_cancel_production_at_index(producer, cancel_index)")
+                && !apply.contains("host_cancel_production_and_sync_hud"),
+            "live cancel must keep productionID/index identity, not template first-match"
+        );
+        assert!(
+            !src.contains("production_id: _"),
+            "QueueCancel must not discard production_id"
+        );
+    }
+
+    #[test]
+    fn exit_direct_command_keeps_occupant_id_not_unload_all() {
+        // C++ GameLogicDispatch.cpp:978-1004 MSG_EXIT uses argument 0 occupant.
+        let src = include_str!("control_bar_bridge.rs");
+        let start = src
+            .find("fn host_apply_control_bar_direct(")
+            .expect("direct apply");
+        let apply = &src[start..];
+        let apply = apply
+            .split("\n    fn host_apply_control_bar_direct_action")
+            .next()
+            .unwrap();
+        assert!(
+            apply.contains("exit_object_id")
+                && apply.contains("LegacyCommandType::Exit")
+                && apply.contains("vec![occupant_id]")
+                && apply.contains("EXIT requires occupant object id"),
+            "EXIT must queue the occupant, not the container dump-all"
+        );
+        assert!(
+            !src.contains("exit_object_id: _"),
+            "DirectCommand must not discard exit_object_id"
+        );
+    }
+
 }

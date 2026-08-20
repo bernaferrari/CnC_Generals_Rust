@@ -89,7 +89,7 @@ impl GameLogic {
             o.battlemaster_shell_launch_frame = Some(self.frame);
             o.battlemaster_shell_flight_frames = frames;
             o.battlemaster_shell_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = BM_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, BM_SHELL_MAX_HEALTH);
         }
@@ -763,7 +763,7 @@ impl GameLogic {
             o.tank_hunter_missile_travelled = 0.0;
             o.tank_hunter_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(TANK_HUNTER_MISSILE_FUEL_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = TANK_HUNTER_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, TANK_HUNTER_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -1142,7 +1142,7 @@ impl GameLogic {
             o.flashbang_grenade_launch_frame = Some(self.frame);
             o.flashbang_grenade_flight_frames = frames;
             o.flashbang_grenade_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = FLASHBANG_GRENADE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, FLASHBANG_GRENADE_MAX_HEALTH);
         }
@@ -1336,7 +1336,7 @@ impl GameLogic {
             o.humvee_tow_travelled = 0.0;
             o.humvee_tow_fuel_expires_frame = Some(expires);
             o.humvee_tow_ignition_frame = Some(ignites);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = max_hp;
             o.health.maximum = max_hp;
         }
@@ -1518,7 +1518,7 @@ impl GameLogic {
             o.dragon_flame_fuel_expires_frame = Some(expires);
             o.dragon_flame_ignition_frame = Some(ignites);
             o.dragon_flame_shooter = Some(source_id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = DRAGON_FLAME_MISSILE_MAX_HEALTH;
             o.health.maximum = DRAGON_FLAME_MISSILE_MAX_HEALTH;
         }
@@ -1710,7 +1710,7 @@ impl GameLogic {
             o.toxin_stream_fuel_expires_frame = Some(expires);
             o.toxin_stream_ignition_frame = Some(ignites);
             o.toxin_stream_shooter = Some(source_id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = max_hp;
             o.health.maximum = max_hp;
         }
@@ -1885,7 +1885,7 @@ impl GameLogic {
             o.technical_rpg_missile_travelled = 0.0;
             o.technical_rpg_missile_fuel_expires_frame = Some(expires);
             o.technical_rpg_missile_ignition_frame = Some(ignites);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.current = TECH_RPG_MISSILE_MAX_HEALTH;
             o.health.maximum = TECH_RPG_MISSILE_MAX_HEALTH;
         }

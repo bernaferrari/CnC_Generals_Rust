@@ -1867,6 +1867,73 @@ fn drawable_camo_stealth_look_snapshot_residual_wave79() {
     assert!(honesty_drawable_residual_fields_wave79_ok());
 }
 
+/// C++ StealthUpdate::xfer (`StealthUpdate.cpp:1127-1130`) persists
+/// `m_detectionExpiresFrame` + `m_stealthAllowedFrame`. Host
+/// `update_stealth_and_detection` only expires DETECTED when
+/// `detection_expires_frame > 0` — omitting the field left DETECTED stuck
+/// after load (hq-0jeh6).
+#[test]
+fn stealth_detection_expires_frame_survives_snapshot_and_clears_detected() {
+    let mut source = GameLogic::new();
+    source.set_current_frame(50);
+    let mut template = ThingTemplate::new("StealthExpirySnap");
+    template
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable);
+    source.templates.insert("StealthExpirySnap".into(), template);
+    let id = source
+        .create_object("StealthExpirySnap", Team::GLA, glam::Vec3::ZERO)
+        .expect("create");
+    {
+        let obj = source.host_object_mut(id).expect("obj");
+        obj.status.stealthed = true;
+        obj.status.detected = true;
+        obj.detection_expires_frame = 100;
+        obj.stealth_allowed_frame = 80;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snap = builder.create_world_snapshot(&source).expect("snap");
+    let obj_snap = snap.objects.get(&id).expect("obj snap");
+    assert_eq!(obj_snap.status.detection_expires_frame, 100);
+    assert_eq!(obj_snap.status.stealth_allowed_frame, 80);
+    assert!(obj_snap.status.detected);
+    assert!(obj_snap.status.stealthed);
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snap, &mut restored)
+        .expect("restore");
+    {
+        let obj = restored.host_object(id).expect("restored obj");
+        assert_eq!(obj.detection_expires_frame, 100);
+        assert_eq!(obj.stealth_allowed_frame, 80);
+        assert!(obj.status.detected);
+        assert!(obj.status.stealthed);
+    }
+
+    // Before expiry: DETECTED must hold (C++ `m_detectionExpiresFrame > now`).
+    restored.frame = 99;
+    restored.update_stealth_and_detection();
+    {
+        let obj = restored.host_object(id).expect("pre-expiry");
+        assert!(obj.status.detected, "DETECTED must hold before expiry frame");
+        assert_eq!(obj.detection_expires_frame, 100);
+    }
+
+    // At expiry: host gate `frame >= detection_expires_frame` clears DETECTED.
+    restored.frame = 100;
+    restored.update_stealth_and_detection();
+    let obj = restored.host_object(id).expect("post-expiry");
+    assert!(
+        !obj.status.detected,
+        "DETECTED must expire after load once detection_expires_frame is reached"
+    );
+    assert!(obj.status.stealthed, "stealth remains after detection expires");
+    assert_eq!(obj.detection_expires_frame, 0);
+}
+
 /// Popup and host write the same Common CHUNK_*.sav tokens. Load restores
 /// into the store `host_authoritative_*` reads.
 #[test]

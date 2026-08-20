@@ -829,4 +829,121 @@ mod tests {
         assert_eq!(HACKER_CASH_REGULAR, 5);
         assert_eq!(HACKER_FLOATING_TEXT_ADD_CASH_KEY, "GUI:AddCash");
     }
+
+    /// C++ HackInternetAIUpdate.cpp:105 PACKING on evacuate/exit.
+    /// Idle outside after leaving InternetHackContain must not deposit.
+    #[test]
+    fn evacuate_internet_center_stops_hacking_idle_outside() {
+        use crate::game_logic::{
+            ContainAdmission, ContainModuleKind, ContainModuleMetadata, GameLogic,
+            HackInternetAIUpdateMetadata, KindOf, Player, Team, ThingTemplate,
+        };
+
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(1, Team::China, "TestChina", true);
+        player.resources.supplies = 0;
+        logic.add_player(player);
+
+        let mut hacker_t = ThingTemplate::new("TestHackerEvac");
+        hacker_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::MoneyHacker)
+            .set_health(100.0);
+        hacker_t.transport_slot_count = Some(1);
+        hacker_t.hack_internet_ai_update = Some(HackInternetAIUpdateMetadata {
+            unpack_time_frames: 0,
+            pack_time_frames: 0,
+            cash_update_delay_frames: HACKER_CASH_INTERVAL_FRAMES,
+            cash_update_delay_fast_frames: HACKER_CASH_INTERVAL_FAST_FRAMES,
+            regular_cash_amount: HACKER_CASH_REGULAR,
+            veteran_cash_amount: 6,
+            elite_cash_amount: 8,
+            heroic_cash_amount: 10,
+            xp_per_cash_update: 1.0,
+            pack_unpack_variation_factor: 0.0,
+        });
+        logic.templates.insert("TestHackerEvac".into(), hacker_t);
+
+        let mut ic_t = ThingTemplate::new("TestInternetCenterEvac");
+        ic_t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSInternetCenter)
+            .set_health(2000.0);
+        ic_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::InternetHack,
+            slots: Some(8),
+            admission: ContainAdmission::MoneyHackerOnly,
+            ..Default::default()
+        };
+        logic
+            .templates
+            .insert("TestInternetCenterEvac".into(), ic_t);
+
+        let ic = logic
+            .create_object(
+                "TestInternetCenterEvac",
+                Team::China,
+                glam::Vec3::ZERO,
+            )
+            .expect("ic");
+        if let Some(obj) = logic.host_object_mut(ic) {
+            obj.set_status_under_construction(false);
+        }
+        let hacker = logic
+            .create_object("TestHackerEvac", Team::China, glam::Vec3::new(1.0, 0.0, 0.0))
+            .expect("hacker");
+        assert!(logic.host_object_mut(ic).expect("ic").add_occupant(hacker));
+        if let Some(obj) = logic.host_object_mut(hacker) {
+            obj.set_contained_by(Some(ic));
+            obj.set_ai_state(crate::game_logic::AIState::Docked);
+        }
+
+        logic.frame = 0;
+        logic.update_hacker_income();
+        assert!(
+            logic.hacker_income().is_hacking(hacker),
+            "contained hacker must auto-start"
+        );
+
+        assert!(
+            logic.evacuate_container_now(ic, false),
+            "evacuate must dump the hacker"
+        );
+        assert!(
+            !logic.hacker_income().is_hacking(hacker),
+            "C++ PACKING: evacuate must stop hacking"
+        );
+        let rider = logic.host_object(hacker).expect("rider");
+        assert!(rider.contained_by.is_none());
+        assert!(!rider.status.moving);
+
+        logic.frame = HACKER_CASH_INTERVAL_FRAMES + 2;
+        logic.update_hacker_income();
+        let cash = logic
+            .get_player(1)
+            .map(|p| p.resources.supplies)
+            .unwrap_or(u32::MAX);
+        assert_eq!(
+            cash, 0,
+            "idle outside after IC evacuate must not deposit"
+        );
+    }
+
+    /// Field HackInternet while idle must still deposit (not the IC evacuate leak).
+    #[test]
+    fn field_idle_hack_still_deposits_after_evacuate_fix() {
+        let mut reg = HostHackerIncomeRegistry::new();
+        let id = ObjectId(9);
+        reg.start_hacking(id, 0, 0, HACKER_CASH_INTERVAL_FRAMES);
+        assert!(reg.is_hacking(id));
+        assert_eq!(
+            reg.try_deposit(
+                id,
+                HACKER_CASH_INTERVAL_FRAMES + 1,
+                HACKER_CASH_REGULAR,
+                HACKER_CASH_INTERVAL_FRAMES,
+                false
+            ),
+            HACKER_CASH_REGULAR
+        );
+    }
 }

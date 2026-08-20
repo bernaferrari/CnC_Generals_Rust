@@ -42,6 +42,26 @@ pub struct BuildingData {
     /// of damage passed to contained units when this building is destroyed.
     /// 0.0 = no damage (default), 1.0 = full max-health damage.
     pub damage_percent_to_units: f32,
+    /// C++ GarrisonContain::m_originalTeam — restored when the last occupant leaves.
+    #[serde(default)]
+    pub original_team: Option<Team>,
+    /// C++ GarrisonContain::m_hideGarrisonedStateFromNonallies.
+    #[serde(default)]
+    pub hide_garrisoned_state: bool,
+    /// C++ GarrisonPointData effect drawables (`GarrisonGun` + FIRING_A).
+    #[serde(default)]
+    pub garrison_guns: Vec<GarrisonGunEffect>,
+}
+
+/// Live residual of C++ `GarrisonGun` fire-point drawables.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GarrisonGunEffect {
+    #[serde(default)]
+    pub drawable_id: Option<ObjectId>,
+    #[serde(default)]
+    pub last_effect_frame: u32,
+    #[serde(default)]
+    pub firing: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +267,9 @@ impl BuildingData {
             garrisoned_units: Vec::new(),
             max_garrison,
             damage_percent_to_units: 0.0,
+            original_team: None,
+            hide_garrisoned_state: false,
+            garrison_guns: Vec::new(),
         }
     }
 
@@ -1002,14 +1025,24 @@ impl BuildingBehavior {
         unit_id: ObjectId,
         objects: &mut HashMap<ObjectId, Object>,
     ) -> bool {
+        let occupant_snap = objects.get(&unit_id).map(|unit| {
+            (
+                unit.team,
+                unit.owner_player_id,
+                unit.status.stealthed,
+                unit.status.detected,
+            )
+        });
         let can_garrison = if let (Some(building), Some(unit)) =
             (objects.get(&building_id), objects.get(&unit_id))
         {
             building.is_alive()
                 && building.is_constructed()
                 && building.can_contain()
+                && building.garrison_container_accepts_entry()
                 && unit.is_alive()
                 && unit.is_kind_of(KindOf::Infantry)
+                && !unit.is_kind_of(KindOf::NoGarrison)
                 && building.get_position().distance(unit.get_position()) < 20.0
         } else {
             false
@@ -1035,13 +1068,19 @@ impl BuildingBehavior {
             unit.ai_state = AIState::Garrisoned;
             unit.status.moving = false;
             unit.status.attacking = false;
-            true
         } else {
             if let Some(building) = objects.get_mut(&building_id) {
                 let _ = building.remove_occupant(unit_id);
             }
-            false
+            return false;
         }
+
+        if let Some((team, owner, stealthed, detected)) = occupant_snap {
+            if let Some(building) = objects.get_mut(&building_id) {
+                building.note_garrison_occupant_entered(team, owner, stealthed, detected);
+            }
+        }
+        true
     }
 
     /// Handle ungarrison mechanics

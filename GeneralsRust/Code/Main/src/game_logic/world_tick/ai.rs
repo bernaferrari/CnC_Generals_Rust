@@ -21,6 +21,8 @@ impl GameLogic {
 
         // BattlePlan pack/unpack door residual (AnimationTime 7000ms → 210 frames).
         self.tick_battle_plan_door_residuals();
+        // C++ ActiveBody.cpp:574-581 Player::setAttackedBy for PLAYER_ATTACKED_BY.
+        self.apply_host_attacked_by_from_damage();
 
         // First pass: Dispatch object AI through the existing state machine.
         for &object_id in object_ids {
@@ -543,6 +545,47 @@ impl GameLogic {
         // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
         self.update_demo_trap_detonate_when_killed();
         self.update_support_states(object_ids, dt);
+    }
+
+    /// C++ ActiveBody.cpp:574-581 — victim Player::setAttackedBy(srcPlayerIndex).
+    fn apply_host_attacked_by_from_damage(&mut self) {
+        let queued = crate::game_logic::host_transition_damage_fx::take_pending_attacked_by();
+        let mut pairs: Vec<(u32, ObjectId)> = queued;
+        for event in crate::game_logic::host_damage_log::snapshot() {
+            if let Some(src) = event.source {
+                if let Some(victim) = self.objects.get(&event.target) {
+                    if let Some(vp) = victim.owner_player_id {
+                        if !pairs.iter().any(|(v, s)| *v == vp && *s == src) {
+                            pairs.push((vp, src));
+                        }
+                    }
+                }
+            }
+        }
+        for ev in crate::game_logic::host_attacked_by_log::drain() {
+            if let Some(victim) = self.objects.get(&ev.victim) {
+                if let Some(vp) = victim.owner_player_id {
+                    if !pairs.iter().any(|(v, s)| *v == vp && *s == ev.source) {
+                        pairs.push((vp, ev.source));
+                    }
+                }
+            }
+        }
+        for (victim_player, src_id) in pairs {
+            let Some(src) = self.objects.get(&src_id) else {
+                continue;
+            };
+            let Some(attacker_player) = src.owner_player_id else {
+                continue;
+            };
+            if let Some(player) = self.players.get_mut(&victim_player) {
+                player.set_attacked_by(attacker_player as i32);
+            }
+            crate::game_logic::host_transition_damage_fx::apply_victim_attacked_by(
+                victim_player as i32,
+                attacker_player as i32,
+            );
+        }
     }
 
     /// C++ SlavedUpdate::update — drones follow/guard/recall their producer master.

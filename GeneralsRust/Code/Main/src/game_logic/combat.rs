@@ -271,6 +271,10 @@ pub struct Projectile {
     pub historic_bonus_weapon: String,
     /// C++ Weapon.ini MissileCallsOnDie residual.
     pub die_on_detonate: bool,
+    /// C++ DumbProjectile / MissileAI flight + warhead snapshot.
+    pub flight: Option<crate::game_logic::weapon_bootstrap::HostProjectileFlight>,
+    /// Runtime Bezier / ignition / lock / layer state.
+    pub flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime,
 }
 
 impl Projectile {
@@ -324,6 +328,8 @@ impl Projectile {
             historic_bonus_radius: 0.0,
             historic_bonus_weapon: String::new(),
             die_on_detonate: false,
+            flight: None,
+            flight_runtime: crate::game_logic::weapon_bootstrap::HostProjectileRuntime::default(),
         }
     }
 
@@ -337,6 +343,57 @@ impl Projectile {
         self.max_lifetime = lifecycle
             .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::lifetime_seconds)
             .unwrap_or(0.0);
+        if self.flight.is_none() && !self.projectile_object_name.is_empty() {
+            self.flight = crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
+                &self.projectile_object_name,
+            );
+        }
+    }
+
+    /// Bind parsed C++ flight/warhead and build the DumbProjectile Bezier.
+    pub fn bind_authored_flight(&mut self, start: Vec3, end: Vec3, speed: f32) {
+        if self.flight.is_none() && !self.projectile_object_name.is_empty() {
+            self.flight = crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
+                &self.projectile_object_name,
+            );
+        }
+        let Some(flight) = self.flight.clone() else {
+            return;
+        };
+        self.flight_runtime.path_start = start;
+        self.flight_runtime.path_end = end;
+        self.flight_runtime.original_target_pos = end;
+        self.flight_runtime.path_speed_per_frame = if speed > 0.0 { speed / 30.0 } else { 0.0 };
+        match &flight {
+            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb) => {
+                let (path, segs) = crate::game_logic::weapon_bootstrap::build_dumb_bezier_path(
+                    start, end, dumb, speed, 0,
+                );
+                self.flight_runtime.path = path;
+                self.flight_runtime.path_segments = segs;
+                self.flight_runtime.step = 0;
+                self.flight_runtime.missile_armed = true;
+                self.flight_runtime.missile_phase =
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
+            }
+            crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile) => {
+                self.flight_runtime.missile_armed = missile.ignition_delay_frames == 0;
+                self.flight_runtime.missile_phase = if self.flight_runtime.missile_armed {
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack
+                } else {
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Launch
+                };
+            }
+        }
+    }
+
+    pub fn is_warhead_armed(&self) -> bool {
+        match &self.flight {
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(_)) => {
+                self.flight_runtime.missile_armed
+            }
+            _ => true,
+        }
     }
 
     /// Whether an authored MissileAIUpdate has entered C++ `KILL_SELF`.
@@ -390,7 +447,15 @@ impl Projectile {
                 // still detonates when DetonateOnNoFuel is set.  `detonate()`
                 // then enters KILL_SELF so its contrail can catch up before
                 // the projectile object is destroyed.
-                if fuel_lifetime_frames > 0 && frame >= fuel_lifetime_frames && detonate_on_no_fuel
+                let fuel_start = match &self.flight {
+                    Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(
+                        missile,
+                    )) => missile.ignition_delay_frames,
+                    _ => 0,
+                };
+                if fuel_lifetime_frames > 0
+                    && frame >= fuel_start.saturating_add(fuel_lifetime_frames)
+                    && detonate_on_no_fuel
                 {
                     self.missile_kill_self_started_frame = Some(frame);
                     return ProjectileStep::DetonateAndHold;
@@ -425,21 +490,99 @@ impl Projectile {
             return lifecycle_step;
         }
 
-        // Instant residual: already at target (speed 0 / laser).
-        if self.speed <= 0.0 {
-            self.position = self.target_position;
-            return ProjectileStep::Alive;
+        let frame = self.elapsed_logic_frames();
+        if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
+            &self.flight
+        {
+            if !self.flight_runtime.missile_armed {
+                if frame < missile.ignition_delay_frames {
+                    return ProjectileStep::Alive;
+                }
+                self.flight_runtime.missile_armed = true;
+                self.flight_runtime.missile_phase =
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
+            }
         }
 
-        // Homing residual: keep velocity aimed at last known target_position.
+        if self.speed <= 0.0 {
+            self.position = self.target_position;
+            return self.finish_flight_step();
+        }
+
+        if matches!(
+            &self.flight,
+            Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(_))
+        ) && !self.flight_runtime.path.is_empty()
+        {
+            if self.flight_runtime.step >= self.flight_runtime.path.len() {
+                return ProjectileStep::Detonate;
+            }
+            let next = self.flight_runtime.path[self.flight_runtime.step];
+            let tangent = next - self.position;
+            if tangent.length_squared() > 0.0001 {
+                self.velocity = tangent.normalize() * self.speed;
+            }
+            self.position = next;
+            self.flight_runtime.step += 1;
+            return self.finish_flight_step();
+        }
+
+        if let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
+            &self.flight
+        {
+            if self.flight_runtime.missile_armed
+                && self.flight_runtime.missile_phase
+                    != crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+                && crate::game_logic::weapon_bootstrap::missile_inside_lock_distance(
+                    self.position,
+                    self.target_position,
+                    missile.lock_distance,
+                    self.is_homing,
+                )
+            {
+                self.flight_runtime.missile_phase =
+                    crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill;
+            }
+            if self.flight_runtime.missile_phase
+                == crate::game_logic::weapon_bootstrap::HostMissilePhase::Kill
+            {
+                let goal = self.target_position;
+                let close_enough = (self.speed / 30.0).max(1.0);
+                if self.position.distance(goal) <= close_enough {
+                    self.position = goal;
+                    return ProjectileStep::Detonate;
+                }
+                let dir = (goal - self.position).normalize_or_zero();
+                self.velocity = dir * self.speed;
+                self.position += self.velocity * dt;
+                return self.finish_flight_step();
+            }
+        }
+
         if self.is_homing {
             let dir = (self.target_position - self.position).normalize_or_zero();
             self.velocity = dir * self.speed;
         }
-
-        // Update position
         self.position += self.velocity * dt;
+        self.finish_flight_step()
+    }
 
+    fn finish_flight_step(&mut self) -> ProjectileStep {
+        let armed = self.is_warhead_armed();
+        if let Some((snapped, new_layer)) =
+            crate::game_logic::weapon_bootstrap::bridge_deck_detonate_pose(
+                self.position,
+                self.flight_runtime.layer,
+                armed,
+            )
+        {
+            let old_layer = self.flight_runtime.layer;
+            self.flight_runtime.layer = new_layer;
+            if armed && old_layer != 1 && new_layer == 1 && snapped != self.position {
+                self.position = snapped;
+                return ProjectileStep::Detonate;
+            }
+        }
         ProjectileStep::Alive
     }
 
@@ -906,6 +1049,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.die_on_detonate = p.die_on_detonate;
             proj.projectile_collides = p.projectile_collides;
             proj.set_projectile_lifecycle(projectile_lifecycle);
+            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed);
         }
     }
 }
@@ -1143,8 +1287,31 @@ impl CombatSystem {
                         }
                     }
                 }
+                if let Some(
+                    crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb),
+                ) = projectile.flight.clone()
+                {
+                    if dumb.flight_path_adjust_per_frame > 0.0 {
+                        if let Some(tid) = projectile.target_id {
+                            if let Some(tgt) = objects.get(&tid) {
+                                if tgt.is_alive() {
+                                    crate::game_logic::weapon_bootstrap::adjust_flight_path_end(
+                                        &mut projectile.flight_runtime,
+                                        &dumb,
+                                        tgt.get_position(),
+                                    );
+                                    projectile.target_position = projectile.flight_runtime.path_end;
+                                }
+                            }
+                        }
+                    }
+                }
                 match projectile.update(dt, target_is_live) {
-                    ProjectileStep::Alive => {}
+                    ProjectileStep::Alive => {
+                        if !projectile.is_warhead_armed() {
+                            continue;
+                        }
+                    }
                     ProjectileStep::Hold => {
                         // C++ MissileAIUpdate::KILL_SELF holds for the parsed
                         // contrail delay, with no impact FX/OCL or damage.
@@ -1255,6 +1422,36 @@ impl CombatSystem {
                     }
                 }
                 if let Some(sid) = hit_structure {
+                    if let Some(flight) = projectile.flight.clone() {
+                        if let Some(center) =
+                            crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                                objects,
+                                sid,
+                                projectile.shooter_id,
+                                &flight,
+                            )
+                        {
+                            let fx_name = flight.garrison_hit_kill_fx().to_string();
+                            if !fx_name.is_empty() {
+                                self.impact_fx.push(ProjectileImpactFx {
+                                    position: center,
+                                    shooter_id: projectile.shooter_id,
+                                    target_id: Some(sid),
+                                    detonation_fx_name: fx_name,
+                                    detonation_ocl_name: String::new(),
+                                    source_team: projectile.source_team,
+                                    source_veterancy: projectile.source_veterancy,
+                                    source_orientation: projectile
+                                        .velocity
+                                        .z
+                                        .atan2(projectile.velocity.x),
+                                    source_velocity: projectile.velocity,
+                                });
+                            }
+                            projectiles_to_remove.push(proj_id);
+                            continue;
+                        }
+                    }
                     let impact = projectile.position;
                     Self::maybe_record_historic_bonus(projectile, impact, objects);
                     if projectile.explosion_radius > 0.0 {
@@ -1322,6 +1519,36 @@ impl CombatSystem {
                     if let Some(target) = objects.get(&target_id) {
                         let distance = projectile.position.distance(target.get_position());
                         if distance <= 5.0 {
+                            if let Some(flight) = projectile.flight.clone() {
+                                if let Some(center) =
+                                    crate::game_logic::weapon_bootstrap::apply_garrison_hit_kill(
+                                        objects,
+                                        target_id,
+                                        projectile.shooter_id,
+                                        &flight,
+                                    )
+                                {
+                                    let fx_name = flight.garrison_hit_kill_fx().to_string();
+                                    if !fx_name.is_empty() {
+                                        self.impact_fx.push(ProjectileImpactFx {
+                                            position: center,
+                                            shooter_id: projectile.shooter_id,
+                                            target_id: Some(target_id),
+                                            detonation_fx_name: fx_name,
+                                            detonation_ocl_name: String::new(),
+                                            source_team: projectile.source_team,
+                                            source_veterancy: projectile.source_veterancy,
+                                            source_orientation: projectile
+                                                .velocity
+                                                .z
+                                                .atan2(projectile.velocity.x),
+                                            source_velocity: projectile.velocity,
+                                        });
+                                    }
+                                    projectiles_to_remove.push(proj_id);
+                                    continue;
+                                }
+                            }
                             let impact = projectile.position;
                             Self::maybe_record_historic_bonus(projectile, impact, objects);
                             if projectile.explosion_radius > 0.0 {

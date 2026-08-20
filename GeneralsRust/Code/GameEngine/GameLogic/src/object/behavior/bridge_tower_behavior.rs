@@ -562,6 +562,14 @@ impl BehaviorModuleInterface for BridgeTowerBehavior {
     ) -> Option<&mut dyn BridgeTowerBehaviorInterface> {
         Some(self)
     }
+
+    fn get_damage(&mut self) -> Option<&mut dyn DamageModuleInterface> {
+        Some(self)
+    }
+
+    fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
+        Some(self)
+    }
 }
 
 /// Glue that binds the behavior to the module factory infrastructure.
@@ -632,6 +640,45 @@ impl EngineModule for BridgeTowerBehaviorModule {
     fn on_object_created(&mut self) {}
 
     fn on_delete(&mut self) {}
+}
+
+impl DamageModuleInterface for BridgeTowerBehaviorModule {
+    fn receive_damage(&mut self, object_id: ObjectID, damage: &DamageInfo) -> Real {
+        self.behavior.receive_damage(object_id, damage)
+    }
+
+    fn on_damage(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior.on_damage(damage_info)
+    }
+
+    fn on_healing(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior.on_healing(damage_info)
+    }
+
+    fn on_body_damage_state_change(
+        &mut self,
+        damage_info: &DamageInfo,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior
+            .on_body_damage_state_change(damage_info, old_state, new_state)
+    }
+}
+
+impl DieModuleInterface for BridgeTowerBehaviorModule {
+    fn on_die(
+        &mut self,
+        damage: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        DieModuleInterface::on_die(&mut self.behavior, damage)
+    }
 }
 
 #[cfg(test)]

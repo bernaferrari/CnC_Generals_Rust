@@ -6,7 +6,7 @@
 //! Split into focused submodules by helper theme.
 
 use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
-use crate::common::audio::{AudioEventRts, TimeOfDay};
+use crate::common::audio::{AudioEventRts, LeftoverAudioOwner, TimeOfDay};
 use crate::common::types::{
     EmissionVolumeType, FXListManagerInterface, ParticleSystemManagerInterface,
 };

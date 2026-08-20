@@ -16,7 +16,7 @@ use crate::common::audio::{
         AudioType, Coord3D, MilesVolumeSliders, ObjectId, PortionToPlay, AC_INTERRUPT, AC_LOOP,
         ST_GLOBAL,
     },
-    rodio_spatial::miles_slider_volume,
+    rodio_spatial::{miles_slider_volume, stereo_pan},
     audio_request::{AudioRequest, RequestType},
     game_music::create_music_manager,
     game_sounds::{create_sound_manager, PlayNowAudioQueries},
@@ -28,7 +28,7 @@ use glam::Mat4;
 use hound::WavReader;
 use lewton::inside_ogg::OggStreamReader;
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -52,6 +52,8 @@ pub trait SoundPlaybackHook: Send + Sync {
     fn resume(&self, handle: AudioHandle);
     fn is_playing(&self, handle: AudioHandle) -> bool;
     fn set_listener_position(&self, _position: &Coord3D) {}
+    /// C++ `AIL_set_3D_orientation` (`MilesAudioManager.cpp:2630`).
+    fn set_listener_orientation(&self, _orientation: &Coord3D) {}
     fn set_event_volume(&self, _event: &AudioEventRts) {}
     /// C++ `AIL_set_*_volume` used by `processFadingList` / `adjustPlayingVolume`.
     fn set_sink_volume(&self, _handle: AudioHandle, _volume: Real) {}
@@ -1284,11 +1286,18 @@ impl AudioManager {
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.set_listener_position(new_listener_pos);
         }
-        let _ = with_sound_playback_hook(|hook| hook.set_listener_position(new_listener_pos));
+        let _ = with_sound_playback_hook(|hook| {
+            hook.set_listener_position(new_listener_pos);
+            hook.set_listener_orientation(new_listener_orientation);
+        });
     }
 
     pub fn get_listener_position(&self) -> &Coord3D {
         &self.listener_position
+    }
+
+    pub fn get_listener_orientation(&self) -> &Coord3D {
+        &self.listener_orientation
     }
 
     pub fn allocate_audio_request(&self, use_audio_event: Bool) -> AudioRequest {
@@ -1557,9 +1566,6 @@ impl AudioManager {
         let _ = with_sound_playback_hook(|hook| hook.stop(handle));
     }
 
-    /// C++ `MilesAudioManager::playAudioEvent` (MilesAudioManager.cpp:637-714).
-    /// AT_Streaming + uninterruptable: stopAllSpeech then setDisallowSpeech(TRUE)
-    /// after the stream is accepted.
     fn play_audio_event(&mut self, event: AudioEventRts) {
         let Some(info) = event.get_audio_event_info() else {
             return;
@@ -1576,6 +1582,13 @@ impl AudioManager {
             // C++ playAudioEvent handleToKill (MilesAudioManager.cpp:735-813)
             // releasePlayingAudio hard-stops the channel before reuse.
             self.release_playing_handle(handle_to_kill);
+        }
+
+        if sound_type == AudioType::SoundEffect && !self.sample_slot_available(&event) {
+            // C++ getFirst2D/3DSample empty → killLowestPrioritySoundImmediately.
+            if !self.kill_lowest_priority_sound_immediately(&event) {
+                return;
+            }
         }
 
         let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
@@ -1763,7 +1776,8 @@ impl AudioManager {
     }
 
     /// C++ `MilesAudioManager::stopAudio` (MilesAudioManager.cpp:471-524).
-    /// Music/speech streams are paused so `resumeAudio` can restore them.
+    /// Sets playing entries stopped; `processPlayingList` releases them. Here
+    /// we release immediately so paused Rodio sinks cannot stay as zombies.
     pub fn stop_audio(&mut self, which: AudioAffect) {
         let handles: Vec<AudioHandle> = self
             .active_audio_events
@@ -1771,11 +1785,9 @@ impl AudioManager {
             .filter(|event| event_matches_audio_affect(event, which))
             .map(|event| event.get_playing_handle())
             .collect();
-        let _ = with_sound_playback_hook(|hook| {
-            for handle in handles {
-                hook.pause(handle);
-            }
-        });
+        for handle in handles {
+            self.release_playing_handle(handle);
+        }
     }
 
     /// C++ `MilesAudioManager::isMusicPlaying` (MilesAudioManager.cpp:1355-1366).
@@ -2006,6 +2018,72 @@ impl AudioManager {
         })
     }
 
+    fn sample_event_priority(event: &AudioEventRts) -> AudioPriority {
+        event
+            .get_audio_event_info()
+            .map(|info| info.priority)
+            .unwrap_or_else(|| event.get_audio_priority())
+    }
+
+    fn is_playing_sample(event: &AudioEventRts) -> bool {
+        event
+            .get_audio_event_info()
+            .is_some_and(|info| info.sound_type == AudioType::SoundEffect)
+    }
+
+    fn sample_slot_available(&self, event: &AudioEventRts) -> bool {
+        let positional = event.is_positional_audio();
+        let cap = if positional {
+            self.get_num_3d_samples()
+        } else {
+            self.get_num_2d_samples()
+        }
+        .max(0) as usize;
+        let used = self
+            .active_audio_events
+            .values()
+            .filter(|playing| {
+                Self::is_playing_sample(playing) && playing.is_positional_audio() == positional
+            })
+            .count();
+        used < cap
+    }
+
+    /// C++ `MilesAudioManager::findLowestPrioritySound` (1935-1990).
+    fn find_lowest_priority_sound(&self, event: &AudioEventRts) -> Option<AudioHandle> {
+        let priority = Self::sample_event_priority(event);
+        if priority == AudioPriority::Lowest {
+            return None;
+        }
+        let positional = event.is_positional_audio();
+        let mut lowest: Option<(AudioPriority, AudioHandle)> = None;
+        for playing in self.active_audio_events.values() {
+            if !Self::is_playing_sample(playing) || playing.is_positional_audio() != positional {
+                continue;
+            }
+            let playing_priority = Self::sample_event_priority(playing);
+            if playing_priority >= priority {
+                continue;
+            }
+            if lowest.is_none_or(|(current, _)| playing_priority < current) {
+                lowest = Some((playing_priority, playing.get_playing_handle()));
+                if playing_priority == AudioPriority::Lowest {
+                    break;
+                }
+            }
+        }
+        lowest.map(|(_, handle)| handle)
+    }
+
+    /// C++ `MilesAudioManager::killLowestPrioritySoundImmediately` (2027-2074).
+    fn kill_lowest_priority_sound_immediately(&mut self, event: &AudioEventRts) -> bool {
+        let Some(handle) = self.find_lowest_priority_sound(event) else {
+            return false;
+        };
+        self.release_playing_handle(handle);
+        true
+    }
+
     /// Check if a sound with the same event name is already playing.
     /// Used for interrupting sounds of the same type.
     pub fn is_playing_already(&self, event: &AudioEventRts) -> Bool {
@@ -2130,26 +2208,25 @@ impl AudioManager {
         }
     }
 
-    /// Check if there are any 3D-sensitive streams currently playing
+    /// C++ `MilesAudioManager::has3DSensitiveStreamsPlaying` (2381-2404).
+    /// Only music/speech streams count. `Game_` music is not sensitive.
     pub fn has_3d_sensitive_streams_playing(&self) -> Bool {
+        let is_sensitive = |event: &AudioEventRts| -> bool {
+            let Some(info) = event.get_audio_event_info() else {
+                return false;
+            };
+            match info.sound_type {
+                AudioType::Streaming => true,
+                AudioType::Music => !event.get_event_name().starts_with("Game_"),
+                AudioType::SoundEffect => false,
+            }
+        };
         with_sound_playback_hook(|hook| {
-            self.active_audio_events
-                .values()
-                .filter_map(|e| {
-                    if e.is_positional_audio() && hook.is_playing(e.get_playing_handle()) {
-                        Some(())
-                    } else {
-                        None
-                    }
-                })
-                .next()
-                .is_some()
+            self.active_audio_events.values().any(|event| {
+                is_sensitive(event) && hook.is_playing(event.get_playing_handle())
+            })
         })
-        .unwrap_or_else(|| {
-            self.active_audio_events
-                .values()
-                .any(AudioEventRts::is_positional_audio)
-        })
+        .unwrap_or_else(|| self.active_audio_events.values().any(is_sensitive))
     }
 
     fn begin_music_fade(&mut self) {
@@ -2487,13 +2564,71 @@ impl AsRef<[u8]> for CachedAudioBytes {
     }
 }
 
+enum RodioVoice {
+    Flat(Sink),
+    Spatial(SpatialSink),
+}
+
+impl RodioVoice {
+    fn set_volume(&self, volume: f32) {
+        match self {
+            Self::Flat(sink) => sink.set_volume(volume),
+            Self::Spatial(sink) => sink.set_volume(volume),
+        }
+    }
+
+    fn stop(&self) {
+        match self {
+            Self::Flat(sink) => sink.stop(),
+            Self::Spatial(sink) => sink.stop(),
+        }
+    }
+
+    fn pause(&self) {
+        match self {
+            Self::Flat(sink) => sink.pause(),
+            Self::Spatial(sink) => sink.pause(),
+        }
+    }
+
+    fn play(&self) {
+        match self {
+            Self::Flat(sink) => sink.play(),
+            Self::Spatial(sink) => sink.play(),
+        }
+    }
+
+    fn empty(&self) -> bool {
+        match self {
+            Self::Flat(sink) => sink.empty(),
+            Self::Spatial(sink) => sink.empty(),
+        }
+    }
+
+    fn is_paused(&self) -> bool {
+        match self {
+            Self::Flat(sink) => sink.is_paused(),
+            Self::Spatial(sink) => sink.is_paused(),
+        }
+    }
+
+    fn set_stereo_pan(&self, pan: Real) {
+        if let Self::Spatial(sink) = self {
+            sink.set_emitter_position([pan, 0.0, -1.0]);
+            sink.set_left_ear_position([-0.1, 0.0, 0.0]);
+            sink.set_right_ear_position([0.1, 0.0, 0.0]);
+        }
+    }
+}
+
 struct RodioPlaybackHook {
     sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
+    listener_orientation: Mutex<Coord3D>,
 }
 
 struct RodioSinkState {
-    sink: Arc<Mutex<Sink>>,
+    sink: Arc<Mutex<RodioVoice>>,
     base_volume: Real,
     position: Option<Coord3D>,
     min_distance: Real,
@@ -2509,6 +2644,11 @@ impl RodioPlaybackHook {
         Self {
             sinks: Mutex::new(HashMap::new()),
             listener_position: Mutex::new(Coord3D::new()),
+            listener_orientation: Mutex::new(Coord3D {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            }),
         }
     }
 
@@ -2612,6 +2752,37 @@ impl RodioPlaybackHook {
             sink.set_volume(self.effective_volume(state));
         }
     }
+
+    fn listener_pose(&self) -> (Coord3D, Coord3D) {
+        let position = self
+            .listener_position
+            .lock()
+            .ok()
+            .map(|l| *l)
+            .unwrap_or_else(Coord3D::new);
+        let orientation = self
+            .listener_orientation
+            .lock()
+            .ok()
+            .map(|l| *l)
+            .unwrap_or(Coord3D {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            });
+        (position, orientation)
+    }
+
+    fn refresh_positional_pan(&self, state: &RodioSinkState) {
+        let Some(source) = state.position else {
+            return;
+        };
+        let (listener, orientation) = self.listener_pose();
+        let pan = stereo_pan(&listener, orientation.x, orientation.y, &source);
+        if let Ok(sink) = state.sink.lock() {
+            sink.set_stereo_pan(pan);
+        }
+    }
 }
 
 impl SoundPlaybackHook for RodioPlaybackHook {
@@ -2633,14 +2804,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             .map_err(|e| format!("Failed to decode audio file '{}': {}", file_path, e))?;
         let stream_handle = get_rodio_stream_handle()
             .ok_or_else(|| "Audio output stream not available".to_string())?;
-        let sink = Sink::try_new(&stream_handle)
-            .map_err(|e| format!("Failed to create audio sink: {}", e))?;
-        let _listener = self
-            .listener_position
-            .lock()
-            .ok()
-            .map(|l| *l)
-            .unwrap_or_else(Coord3D::new);
+        let (listener, orientation) = self.listener_pose();
         // C++ Miles getEffectiveVolume reads sliders already held by
         // AudioManager::update. Never re-lock THE_AUDIO from this hook.
         let sliders = get_global_audio_manager()
@@ -2666,21 +2830,53 @@ impl SoundPlaybackHook for RodioPlaybackHook {
                 }
             }
         }
+        let voice = if let Some(pos) = position.as_ref() {
+            let pan = stereo_pan(&listener, orientation.x, orientation.y, pos);
+            let spatial = SpatialSink::try_new(
+                &stream_handle,
+                [pan, 0.0, -1.0],
+                [-0.1, 0.0, 0.0],
+                [0.1, 0.0, 0.0],
+            )
+            .map_err(|e| format!("Failed to create spatial audio sink: {}", e))?;
+            RodioVoice::Spatial(spatial)
+        } else {
+            let sink = Sink::try_new(&stream_handle)
+                .map_err(|e| format!("Failed to create audio sink: {}", e))?;
+            RodioVoice::Flat(sink)
+        };
         let pitch = event.get_effective_pitch();
         // C++ MilesAudioManager::playStream (MilesAudioManager.cpp:2762-2764)
         // AIL_set_stream_loop_count(stream, INFINITE_LOOP_COUNT) for AT_Music.
         let is_music = music_repeats_source_infinitely(event);
         let pitched = (pitch - 1.0).abs() > 0.01;
-        if is_music {
-            if pitched {
-                sink.append(source.speed(pitch).repeat_infinite());
-            } else {
-                sink.append(source.repeat_infinite());
+        match &voice {
+            RodioVoice::Flat(sink) => {
+                if is_music {
+                    if pitched {
+                        sink.append(source.speed(pitch).repeat_infinite());
+                    } else {
+                        sink.append(source.repeat_infinite());
+                    }
+                } else if pitched {
+                    sink.append(source.speed(pitch));
+                } else {
+                    sink.append(source);
+                }
             }
-        } else if pitched {
-            sink.append(source.speed(pitch));
-        } else {
-            sink.append(source);
+            RodioVoice::Spatial(sink) => {
+                if is_music {
+                    if pitched {
+                        sink.append(source.speed(pitch).repeat_infinite());
+                    } else {
+                        sink.append(source.repeat_infinite());
+                    }
+                } else if pitched {
+                    sink.append(source.speed(pitch));
+                } else {
+                    sink.append(source);
+                }
+            }
         }
         let (min_distance, max_distance) = miles_positional_ranges(
             event.get_audio_event_info().as_deref(),
@@ -2688,7 +2884,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             sliders.global_max_range,
         );
         let state = RodioSinkState {
-            sink: Arc::new(Mutex::new(sink)),
+            sink: Arc::new(Mutex::new(voice)),
             base_volume: volume,
             position,
             min_distance,
@@ -2713,6 +2909,32 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
             let s = state.sink.lock().unwrap();
             s.pause();
+        }
+    }
+    fn set_listener_position(&self, position: &Coord3D) {
+        if let Ok(mut listener) = self.listener_position.lock() {
+            *listener = *position;
+        }
+        if let Ok(sinks) = self.sinks.lock() {
+            for state in sinks.values() {
+                if state.position.is_some() {
+                    self.refresh_sink_volume(state);
+                    self.refresh_positional_pan(state);
+                }
+            }
+        }
+    }
+
+    fn set_listener_orientation(&self, orientation: &Coord3D) {
+        if let Ok(mut stored) = self.listener_orientation.lock() {
+            *stored = *orientation;
+        }
+        if let Ok(sinks) = self.sinks.lock() {
+            for state in sinks.values() {
+                if state.position.is_some() {
+                    self.refresh_positional_pan(state);
+                }
+            }
         }
     }
 
@@ -2742,19 +2964,6 @@ impl SoundPlaybackHook for RodioPlaybackHook {
         is_playing
     }
 
-    fn set_listener_position(&self, position: &Coord3D) {
-        if let Ok(mut listener) = self.listener_position.lock() {
-            *listener = *position;
-        }
-        if let Ok(sinks) = self.sinks.lock() {
-            for state in sinks.values() {
-                if state.position.is_some() {
-                    self.refresh_sink_volume(state);
-                }
-            }
-        }
-    }
-
     fn set_event_volume(&self, event: &AudioEventRts) {
         let handle = event.get_playing_handle();
         let mut sinks = self.sinks.lock().unwrap();
@@ -2770,6 +2979,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             state.position = Some(miles_event_world_position(event));
         }
         self.refresh_sink_volume(state);
+        self.refresh_positional_pan(state);
     }
 
     fn set_sink_volume(&self, handle: AudioHandle, volume: Real) {
@@ -3534,5 +3744,115 @@ mod tests {
 
 
 
+
+    #[test]
+    fn stop_audio_releases_playing_events() {
+        // C++ MilesAudioManager::stopAudio sets PS_Stopped; processPlayingList
+        // releasePlayingAudio. Paused Rodio sinks must not stay as zombies.
+        let mut manager = AudioManager::new();
+        manager.init();
+        let mut music = event_with(test_info("Theme", AudioType::Music, 0, 0), 1.0);
+        music.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(music);
+        manager.stop_audio(AudioAffect::Music);
+        assert_eq!(manager.active_event_count(), 0);
+    }
+
+    #[test]
+    fn has_3d_sensitive_streams_ignores_positional_sfx() {
+        // C++ has3DSensitiveStreamsPlaying walks streams only (2381-2404).
+        let mut manager = AudioManager::new();
+        manager.init();
+
+        let mut sfx_info = test_info("Gun", AudioType::SoundEffect, 0, 0);
+        sfx_info.type_field = ST_WORLD;
+        let mut sfx = event_with(sfx_info, 1.0);
+        sfx.set_position(&Coord3D {
+            x: 10.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        sfx.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(sfx);
+        assert!(
+            !manager.has_3d_sensitive_streams_playing(),
+            "positional SFX are samples, not streams"
+        );
+
+        let mut speech = event_with(test_info("EvaAlert", AudioType::Streaming, 0, 0), 1.0);
+        speech.set_playing_handle(1002);
+        manager.insert_playing_event_for_test(speech);
+        assert!(manager.has_3d_sensitive_streams_playing());
+    }
+
+    #[test]
+    fn game_underscore_music_is_not_3d_sensitive() {
+        let mut manager = AudioManager::new();
+        manager.init();
+        let mut music = event_with(test_info("Game_Skirmish", AudioType::Music, 0, 0), 1.0);
+        music.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(music);
+        assert!(!manager.has_3d_sensitive_streams_playing());
+
+        let mut cinematic = event_with(test_info("Cine_Intro", AudioType::Music, 0, 0), 1.0);
+        cinematic.set_playing_handle(1002);
+        manager.insert_playing_event_for_test(cinematic);
+        assert!(manager.has_3d_sensitive_streams_playing());
+    }
+
+    #[test]
+    fn play_audio_event_steals_lowest_priority_when_pool_full() {
+        // C++ getFirst3DSample empty → killLowestPrioritySoundImmediately.
+        let mut manager = AudioManager::new();
+        manager.init();
+        manager.audio_settings.sample_count_3d = 1;
+
+        let mut low_info = test_info("Ambient", AudioType::SoundEffect, 0, 0);
+        low_info.type_field = ST_WORLD;
+        low_info.priority = AudioPriority::Lowest;
+        let mut low = event_with(low_info, 1.0);
+        low.set_position(&Coord3D {
+            x: 5.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        low.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(low);
+        let mut high_info = test_info("WeaponFire", AudioType::SoundEffect, 0, 0);
+        high_info.type_field = ST_WORLD;
+        high_info.priority = AudioPriority::High;
+        let mut high = event_with(high_info, 1.0);
+        high.set_position(&Coord3D {
+            x: 8.0,
+            y: 0.0,
+            z: 0.0,
+        });
+        let handle = manager.add_audio_event(&high);
+        assert_ne!(handle, AHSV_NO_SOUND);
+        manager.process_request_list();
+        assert!(
+            manager.active_event_mut_for_test(1001).is_none(),
+            "lowest-priority 3D sample must be evicted for the new higher-priority play"
+        );
+    }
+
+    #[test]
+    fn set_listener_position_stores_orientation() {
+        let mut manager = AudioManager::new();
+        let pos = Coord3D {
+            x: 10.0,
+            y: 20.0,
+            z: 30.0,
+        };
+        let ori = Coord3D {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        };
+        manager.set_listener_position(&pos, &ori);
+        assert_eq!(manager.get_listener_position().x, 10.0);
+        assert_eq!(manager.get_listener_orientation().y, 1.0);
+        assert!((stereo_pan(&pos, 0.0, 1.0, &Coord3D { x: 20.0, y: 20.0, z: 30.0 }) - 1.0).abs() < 1e-5);
+    }
 
 }

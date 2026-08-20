@@ -960,28 +960,159 @@ impl TerrainVisualImpl {
                 continue;
             }
 
+            // C++ W3DBridge::load (W3DBridgeBuffer.cpp:182-191) fails closed
+            // when TheTerrainRoads->findBridge misses or the W3D model is empty.
+            // Do not invent RoadType::StoneBridge granite ribbons.
+            let Some(authored) = resolve_runtime_bridge_authoring(template_name) else {
+                continue;
+            };
+
             let resolved_width = if width.is_finite() && *width > 0.1 {
                 *width
             } else {
                 6.0
             };
             let road_id = self.road_system.create_road(
-                format!("BridgeRoad_{index}"),
-                RoadType::StoneBridge {
-                    arch_count: 1,
-                    stone_type: StoneType::Granite,
+                authored.template_name.clone(),
+                // Overlay marker only. Identity is BridgeModelName + scale + towers.
+                RoadType::WoodenBridge {
+                    plank_width: authored.scale,
+                    support_spacing: 0.0,
                 },
             );
-            self.road_system
-                .create_segment(road_id, start, end, Some(resolved_width))?;
+            let segment_id =
+                self.road_system
+                    .create_segment(road_id, start, end, Some(resolved_width))?;
             if let Some(road) = self.road_system.get_road_mut(road_id) {
-                if !template_name.is_empty() {
-                    road.name = template_name.clone();
-                }
                 road.priority = 40;
             }
+            if let Some(segment) = self.road_system.get_segment_mut(segment_id) {
+                segment.properties.texture_override = Some(format!(
+                    "Kind=AUTHORED_BRIDGE CURVE BridgeModelName={} BridgeScale={:.6} TowerObjectNameFromLeft={} TowerObjectNameFromRight={} TowerObjectNameToLeft={} TowerObjectNameToRight={}",
+                    authored.model_name,
+                    authored.scale,
+                    authored.towers[0],
+                    authored.towers[1],
+                    authored.towers[2],
+                    authored.towers[3],
+                ));
+                let (left, section, right) = default_sectional_bridge_model(authored.scale);
+                let from = [
+                    start.x,
+                    start.z,
+                    start.y + BRIDGE_FLOAT_AMT,
+                ];
+                let to = [
+                    end.x,
+                    end.z,
+                    end.y + BRIDGE_FLOAT_AMT,
+                ];
+                let baked = bake_bridge_span(
+                    from,
+                    to,
+                    true,
+                    left,
+                    Some(section),
+                    Some(right),
+                    0xffff_ffff,
+                );
+                if !baked.vertices.is_empty() && !baked.indices.is_empty() {
+                    let vertices: Vec<super::roads::RoadVertex> = baked
+                        .vertices
+                        .iter()
+                        .map(|vertex| super::roads::RoadVertex {
+                            position: [vertex.x, vertex.z, vertex.y],
+                            normal: [vertex.nx, vertex.nz, vertex.ny],
+                            tex_coords: [vertex.u1, vertex.v1],
+                            color: [1.0, 1.0, 1.0, 1.0],
+                            road_distance: 0.0,
+                        })
+                        .collect();
+                    let indices: Vec<u32> =
+                        baked.indices.iter().map(|index| *index as u32).collect();
+                    segment.geometry = Some(super::roads::RoadGeometry {
+                        vertices,
+                        indices,
+                        uvs: Vec::new(),
+                        colors: Vec::new(),
+                        row_height_samples: Vec::new(),
+                        edge_geometry: None,
+                        marking_geometry: None,
+                    });
+                    segment.dirty = false;
+                }
+            }
+            let _ = index;
         }
 
         Ok(())
     }
+}
+
+struct RuntimeBridgeAuthoring {
+    template_name: String,
+    model_name: String,
+    scale: f32,
+    towers: [String; 4],
+}
+
+/// C++ `W3DBridge::load` (`W3DBridgeBuffer.cpp:182-191`) identity.
+fn resolve_runtime_bridge_authoring(raw: &str) -> Option<RuntimeBridgeAuthoring> {
+    if let Some(authored) = parse_authored_bridge_visual(raw) {
+        return Some(authored);
+    }
+    lookup_runtime_bridge_authoring(raw)
+}
+
+fn parse_authored_bridge_visual(raw: &str) -> Option<RuntimeBridgeAuthoring> {
+    let mut parts = raw.split('\u{1f}');
+    if parts.next()? != "AUTHBR" {
+        return None;
+    }
+    let template_name = parts.next()?.to_string();
+    let model_name = parts.next()?.to_string();
+    let scale: f32 = parts.next()?.parse().ok()?;
+    let towers = [
+        parts.next()?.to_string(),
+        parts.next()?.to_string(),
+        parts.next()?.to_string(),
+        parts.next()?.to_string(),
+    ];
+    authored_bridge_if_valid(template_name, model_name, scale, towers)
+}
+
+fn lookup_runtime_bridge_authoring(template_name: &str) -> Option<RuntimeBridgeAuthoring> {
+    if template_name.is_empty() {
+        return None;
+    }
+    let roads = game_engine::common::ini::try_get_terrain_roads()?;
+    let tmpl = roads.find_bridge(template_name)?;
+    authored_bridge_if_valid(
+        template_name.to_string(),
+        tmpl.bridge_model_name.as_str().to_string(),
+        tmpl.bridge_scale,
+        [
+            tmpl.tower_object_name[0].as_str().to_string(),
+            tmpl.tower_object_name[1].as_str().to_string(),
+            tmpl.tower_object_name[2].as_str().to_string(),
+            tmpl.tower_object_name[3].as_str().to_string(),
+        ],
+    )
+}
+
+fn authored_bridge_if_valid(
+    template_name: String,
+    model_name: String,
+    scale: f32,
+    towers: [String; 4],
+) -> Option<RuntimeBridgeAuthoring> {
+    if template_name.is_empty() || model_name.is_empty() || !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+    Some(RuntimeBridgeAuthoring {
+        template_name,
+        model_name,
+        scale,
+        towers,
+    })
 }

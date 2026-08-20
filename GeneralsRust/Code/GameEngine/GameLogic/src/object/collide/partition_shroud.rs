@@ -40,6 +40,15 @@ impl PartitionShroudGrid {
         self.levels.clear();
     }
 
+    pub fn iter_known_cells(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.levels.keys().copied()
+    }
+
+    pub fn has_known_cell(&self, x: i32, y: i32) -> bool {
+        self.levels.contains_key(&(x, y))
+    }
+
+
     /// C++ `worldToCell` — floor(wx / cellSize). Extents origin is 0 on host maps.
     pub fn world_to_cell(&self, wx: f32, wy: f32) -> (i32, i32) {
         (
@@ -212,10 +221,12 @@ impl PartitionManager {
 
     pub fn do_shroud_reveal_cells(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
         self.shroud.reveal_circle(center, radius, player_mask);
+        self.mark_updated_since_last_reset();
     }
 
     pub fn undo_shroud_reveal_cells(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
         self.shroud.undo_reveal_circle(center, radius, player_mask);
+        self.mark_updated_since_last_reset();
     }
 
     pub fn partition_cell_size() -> f32 {

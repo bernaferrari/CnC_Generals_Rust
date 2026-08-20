@@ -385,7 +385,7 @@ impl GameLogic {
             o.tomahawk_missile_travelled = 0.0;
             o.tomahawk_missile_fuel_expires_frame =
                 Some(self.frame.saturating_add(TOMAHAWK_FUEL_LIFETIME_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = TOMAHAWK_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, TOMAHAWK_MISSILE_MAX_HEALTH);
             o.movement.velocity = vel;
@@ -829,7 +829,7 @@ impl GameLogic {
                 self.frame
                     .saturating_add(RAPTOR_MISSILE_IGNITION_DELAY_FRAMES),
             );
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = RAPTOR_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, RAPTOR_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -1245,7 +1245,7 @@ impl GameLogic {
                 Some(self.frame.saturating_add(MIG_MISSILE_FUEL_FRAMES));
             o.mig_missile_ignition_frame =
                 Some(self.frame.saturating_add(MIG_MISSILE_IGNITION_DELAY_FRAMES));
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = MIG_MISSILE_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, MIG_MISSILE_MAX_HEALTH);
             o.movement.velocity = dir * launch;
@@ -1631,7 +1631,7 @@ impl GameLogic {
             o.fire_base_shell_launch_frame = Some(self.frame);
             o.fire_base_shell_flight_frames = frames;
             o.fire_base_shell_intended = intended.map(|id| id.0);
-            o.producer_id = Some(source_id);
+            o.note_producer(source_id);
             o.health.maximum = FIRE_BASE_SHELL_MAX_HEALTH;
             Self::write_object_health_authority_aware(o, FIRE_BASE_SHELL_MAX_HEALTH);
         }

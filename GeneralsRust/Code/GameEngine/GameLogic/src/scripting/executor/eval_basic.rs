@@ -5,10 +5,11 @@
 
 use super::*;
 
-/// C++ ScriptEngine.cpp:5935 — TEAM_THE_PLAYER alias is Challenge-only.
+/// C++ ScriptEngine.cpp:5810 / 5935 — THE_PLAYER aliases are Challenge-only.
 fn is_generals_challenge_context() -> bool {
-    game_engine::System::capture_campaign_manager_runtime().is_challenge
+    crate::scripting::core::is_generals_challenge_campaign()
 }
+
 
 /// C++ Team.cpp:142-145 locoSetMatches — WB bit1 (air) shifts to locomotor AIR.
 fn loco_set_matches(lstm: u32, surface_bit_flags: u32) -> bool {
@@ -27,7 +28,25 @@ fn bool_result(value: bool) -> ScriptConditionResult {
 impl ScriptConditionEvaluator {
     pub(crate) fn resolve_string_token(&self, raw: &str) -> String {
         match raw {
-            THE_PLAYER | THIS_PLAYER => {
+            THE_PLAYER => {
+                // C++ ScriptEngine::getPlayerFromAsciiString (ScriptEngine.cpp:5809-5814):
+                // remap ThePlayer to the local player only in Generals Challenge.
+                if !is_generals_challenge_context() {
+                    raw.to_string()
+                } else {
+                    player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_local_player().cloned())
+                        .and_then(|p| {
+                            p.read().ok().and_then(|p| {
+                                NameKeyGenerator::key_to_name(p.get_player_name_key())
+                            })
+                        })
+                        .unwrap_or_else(|| raw.to_string())
+                }
+            }
+            THIS_PLAYER => {
                 with_script_engine_ref(|engine| engine.get_current_player_name())
                     .flatten()
                     .unwrap_or_else(|| raw.to_string())

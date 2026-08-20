@@ -57,6 +57,7 @@ pub fn init_command_system() {
         log::info!("Command system initialized");
         Mutex::new(CommandSystem::new())
     });
+    super::install_host_replay_bridges();
 }
 
 /// Get the global command system instance

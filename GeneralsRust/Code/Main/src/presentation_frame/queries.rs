@@ -1,5 +1,34 @@
 use super::*;
 
+fn template_uses_overlord_draw(template: &str) -> bool {
+    let t = template.to_ascii_lowercase();
+    if t.contains("overlord") || t.contains("helix") || t.contains("spectregunship") {
+        return true;
+    }
+    #[cfg(feature = "game_client")]
+    {
+        if let Some(manager) = crate::assets::get_asset_manager() {
+            if let Ok(manager) = manager.lock() {
+                if let Some(definition) = manager.get_object_definition(template) {
+                    return definition.draw_modules.iter().any(|module| {
+                        module
+                            .declaration
+                            .split_whitespace()
+                            .next()
+                            .is_some_and(|name| {
+                                name.eq_ignore_ascii_case("W3DOverlordTankDraw")
+                                    || name.eq_ignore_ascii_case("W3DOverlordTruckDraw")
+                                    || name.eq_ignore_ascii_case("W3DOverlordAircraftDraw")
+                            })
+                    });
+                }
+            }
+        }
+    }
+    false
+}
+
+
 impl PresentationFrame {
     /// C++ `ActionManager::canEnterObject(..., CHECK_CAPACITY)` expressed only
     /// through the immutable frame used by physical RMB input.
@@ -255,8 +284,11 @@ impl PresentationFrame {
         let mesh_allowed = |object: &RenderableObject, allow_destroyed: bool| {
             (allow_destroyed || !object.destroyed)
                 && !object.engine_bridged
-                // Wave 504: contained units are not drawn as free world meshes.
-                && object.contained_by.is_none()
+                // Wave 504: contained units are not drawn as free world meshes
+                // unless they are the C++ OverlordContain friend_getRider()
+                // (W3DOverlordTankDraw.cpp:45-78 draws the rider after the hull).
+                && (object.contained_by.is_none()
+                    || self.overlord_rider_should_draw(object))
                 && !self.local_viewer_hides_stealthed(object)
         };
         let make_input =
@@ -406,6 +438,40 @@ impl PresentationFrame {
         }
         inputs
     }
+
+    /// C++ `OverlordContain::friend_getRider` is the first contained portable
+    /// structure. `W3DOverlordTankDraw::doDrawModule` draws that rider after
+    /// the hull even though contain hides it from the normal Drawable walk.
+    fn overlord_rider_should_draw(&self, object: &RenderableObject) -> bool {
+        let Some(container_id) = object.contained_by else {
+            return false;
+        };
+        let container = self
+            .objects
+            .iter()
+            .find(|candidate| candidate.id == container_id)
+            .or_else(|| {
+                self.direct_host_drawables
+                    .iter()
+                    .find(|direct| direct.object.id == container_id)
+                    .map(|direct| &direct.object)
+            });
+        let Some(container) = container else {
+            return false;
+        };
+        let visual = self
+            .direct_host_drawables
+            .iter()
+            .find(|direct| direct.resident && direct.object.id == container_id)
+            .map(|direct| direct.visual_template_name.as_str())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or(container.template_name.as_str());
+        if !template_uses_overlord_draw(visual) {
+            return false;
+        }
+        container.garrisoned_units.first().copied() == Some(object.id)
+    }
+
 
     /// Projectile mesh pass inputs from frozen in-flight projectiles (model_key residual).
     pub fn projectile_render_inputs(&self) -> Vec<ProjectileRenderInput> {
