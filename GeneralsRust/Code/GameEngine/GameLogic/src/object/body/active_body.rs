@@ -87,7 +87,7 @@ fn play_voice_fear(owner: &Object) {
     event.set_position(&(pos.x, pos.y, pos.z));
     if let Some(player) = owner.get_controlling_player() {
         if let Ok(guard) = player.read() {
-            event.set_player_index(guard.get_player_index());
+            event.set_player_index(guard.get_player_index() as u32);
         }
     }
     if let Some(audio) = TheAudio::get() {
@@ -1616,6 +1616,7 @@ impl BodyModuleInterface for ActiveBody {
                                                 );
                                                 record_cleared_garrison_for_object(victim);
                                                 victim.kill(None, None);
+                                                true
                                             })
                                             .unwrap_or(false)
                                         {

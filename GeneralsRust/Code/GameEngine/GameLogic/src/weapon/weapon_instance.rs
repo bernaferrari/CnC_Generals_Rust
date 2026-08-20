@@ -721,8 +721,11 @@ impl Weapon {
             }
             WeaponPrefireType::PrefirePerAttack => {
                 let consecutive = TheGameLogic::find_object_by_id(source)
-                    .and_then(|arc| arc.read().ok())
-                    .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
+                    .and_then(|arc| {
+                        arc.read()
+                            .ok()
+                            .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
+                    })
                     .unwrap_or(0);
                 if consecutive > 0 {
                     return 0;
@@ -999,6 +1002,11 @@ impl Weapon {
     /// C++ Reference: Weapon.h line 670
     pub fn get_scatter_radius(&self) -> f32 {
         self.template.scatter_radius
+    }
+
+    /// Matches C++ Weapon::getScatterTargetScalar() from Weapon.cpp line 1910
+    pub fn get_scatter_target_scalar(&self) -> f32 {
+        self.template.get_scatter_target_scalar()
     }
 
     /// Get whether this weapon is capable of following waypoint paths.

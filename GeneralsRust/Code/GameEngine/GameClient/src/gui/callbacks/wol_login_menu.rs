@@ -20,6 +20,7 @@ use crate::shell_hooks::{signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLIN
 use chrono::Datelike;
 use crate::w3d_web_browser::W3DWebBrowser;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
 use game_engine::common::system::quoted_printable::{
     ascii_string_to_quoted_printable, quoted_printable_to_ascii_string,

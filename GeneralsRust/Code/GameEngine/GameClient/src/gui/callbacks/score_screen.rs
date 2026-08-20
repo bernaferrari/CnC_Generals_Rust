@@ -1093,7 +1093,8 @@ fn fill_academy_advice(listbox: &Rc<RefCell<GameWindow>>, player: &Player) {
     if !player.get_academy_stats().calculate_academy_advice(&mut info) {
         return;
     }
-    let Some(widget) = listbox.borrow_mut().list_box_mut() else {
+    let mut listbox_ref = listbox.borrow_mut();
+    let Some(widget) = listbox_ref.list_box_mut() else {
         return;
     };
     for i in 0..info.num_tips.max(0) as usize {

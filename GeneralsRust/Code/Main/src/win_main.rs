@@ -446,7 +446,7 @@ fn primary_screen_geometry() -> (i32, i32, u32, u32) {
             size: CGSize,
         }
         #[link(name = "CoreGraphics", kind = "framework")]
-        extern "C" {
+        unsafe extern "C" {
             fn CGMainDisplayID() -> u32;
             fn CGDisplayBounds(display: u32) -> CGRect;
         }

@@ -3,7 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use crate::common::Coord3D;
+use crate::common::{Coord3D, INVALID_ID};
 use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::{KindOf, LocomotorSetType, PathfindLayerEnum};

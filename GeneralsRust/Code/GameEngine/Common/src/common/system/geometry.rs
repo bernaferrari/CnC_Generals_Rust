@@ -7,7 +7,7 @@ use crate::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 
 /// 2D Point structure
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Point2D {
     pub x: f32,
     pub y: f32,

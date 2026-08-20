@@ -7,6 +7,7 @@
 //! Draw modules handle rendering, animation, and visual effects for game objects.
 //! They are the client-side representation of objects in the game world.
 
+pub mod draw_module;
 pub mod client_visual;
 pub mod w3d_debris_draw;
 pub mod w3d_default_draw;

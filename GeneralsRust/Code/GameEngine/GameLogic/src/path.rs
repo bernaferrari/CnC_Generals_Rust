@@ -32,7 +32,7 @@ pub use zone_block::*;
 pub use zone_manager::*;
 
 use crate::common::*;
-use crate::locomotor::SURFACE_AIR;
+pub use crate::locomotor::SURFACE_AIR;
 
 pub use crate::waypoint::Waypoint;
 

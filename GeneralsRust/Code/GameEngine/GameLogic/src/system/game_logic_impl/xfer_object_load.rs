@@ -31,8 +31,7 @@ fn xfer_game_logic_objects_load(
         };
 
         let arc = match default_team.clone() {
-            Some(team) => crate::helpers::TheThingFactory
-                .get()
+            Some(team) => crate::helpers::TheThingFactory::get()
                 .ok()
                 .and_then(|factory| {
                     factory

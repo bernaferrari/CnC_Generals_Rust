@@ -212,12 +212,12 @@ impl BasicDrawable {
             if self.tint_envelope.is_none() {
                 self.tint_envelope = Some(TintEnvelope::new());
             }
+            let frenzy = if self.is_object_kind_of(gamelogic::common::types::KindOf::Infantry) {
+                FRENZY_COLOR_INFANTRY
+            } else {
+                FRENZY_COLOR
+            };
             if let Some(ref mut envelope) = self.tint_envelope {
-                let frenzy = if self.is_object_kind_of(gamelogic::common::types::KindOf::Infantry) {
-                    FRENZY_COLOR_INFANTRY
-                } else {
-                    FRENZY_COLOR
-                };
                 envelope.play(frenzy, 30, 30, SUSTAIN_INDEFINITELY);
             }
         } else {

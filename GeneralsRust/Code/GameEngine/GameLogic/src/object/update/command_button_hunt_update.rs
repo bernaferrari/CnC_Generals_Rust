@@ -283,54 +283,60 @@ impl CommandButtonHuntUpdate {
         let Some(object_arc) = self.object_arc() else {
             return UpdateSleepTime::Forever;
         };
-        let Ok(object) = object_arc.read() else {
-            return UpdateSleepTime::Forever;
-        };
-
-        if !ai.is_idle() {
-            return UpdateSleepTime::Frames(self.module_data.scan_frames);
-        }
-
-        let Some(button_id) = self.command_button else {
-            return UpdateSleepTime::Forever;
-        };
-
-        let Some(control_bar) = get_control_bar_bridge() else {
-            return UpdateSleepTime::Forever;
-        };
-
-        let Some(button) = control_bar.get_command_button(button_id) else {
-            return UpdateSleepTime::Forever;
-        };
-
-        if let Some(sp_template) = button.get_special_power_template() {
-            let power_type_value = sp_template.get_special_power_type() as u32;
-            let Some(common_power_type) =
-                crate::common::types::SpecialPowerType::from_u32(power_type_value)
-            else {
+        {
+            let Ok(object) = object_arc.read() else {
                 return UpdateSleepTime::Forever;
             };
-            let Some(sp_update) = object.find_special_ability_update(common_power_type) else {
-                return UpdateSleepTime::Forever;
-            };
-            if sp_update.is_active() {
+
+            if !ai.is_idle() {
                 return UpdateSleepTime::Frames(self.module_data.scan_frames);
+            }
+
+            let Some(button_id) = self.command_button else {
+                return UpdateSleepTime::Forever;
+            };
+
+            let Some(control_bar) = get_control_bar_bridge() else {
+                return UpdateSleepTime::Forever;
+            };
+
+            let Some(button) = control_bar.get_command_button(button_id) else {
+                return UpdateSleepTime::Forever;
+            };
+
+            if let Some(sp_template) = button.get_special_power_template() {
+                let power_type_value = sp_template.get_special_power_type() as u32;
+                let Some(common_power_type) =
+                    crate::common::types::SpecialPowerType::from_u32(power_type_value)
+                else {
+                    return UpdateSleepTime::Forever;
+                };
+                let Some(sp_update) = object.find_special_ability_update(common_power_type) else {
+                    return UpdateSleepTime::Forever;
+                };
+                if sp_update.is_active() {
+                    return UpdateSleepTime::Frames(self.module_data.scan_frames);
+                }
             }
         }
 
         // Periodic scanning (expensive)
         if let Some(victim_id) = self.scan_closest_target() {
-            if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
-                if let Ok(victim_guard) = victim.read() {
-                    if let Err(err) = object.do_command_button_at_object(
-                        button_id,
-                        &victim_guard,
-                        CommandSourceType::FromAi,
-                    ) {
-                        log::debug!(
-                            "CommandButtonHuntUpdate::idle_enter do_command_button_at_object failed: {}",
-                            err
-                        );
+            if let Some(button_id) = self.command_button {
+                if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
+                    if let Ok(victim_guard) = victim.read() {
+                        if let Ok(mut object) = object_arc.write() {
+                            if let Err(err) = object.do_command_button_at_object(
+                                button_id,
+                                &victim_guard,
+                                CommandSourceType::FromAi,
+                            ) {
+                                log::debug!(
+                                    "CommandButtonHuntUpdate::idle_enter do_command_button_at_object failed: {}",
+                                    err
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -348,9 +354,9 @@ impl CommandButtonHuntUpdate {
         let Some(object_arc) = self.object_arc() else {
             return UpdateSleepTime::Forever;
         };
-        let Ok(object) = object_arc.read() else {
+        if object_arc.read().is_err() {
             return UpdateSleepTime::Forever;
-        };
+        }
 
         if !ai.is_idle() {
             return UpdateSleepTime::Frames(self.module_data.scan_frames);
@@ -361,15 +367,17 @@ impl CommandButtonHuntUpdate {
             if let Some(button_id) = self.command_button {
                 if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
                     if let Ok(victim_guard) = victim.read() {
-                        if let Err(err) = object.do_command_button_at_object(
-                            button_id,
-                            &victim_guard,
-                            CommandSourceType::FromAi,
-                        ) {
-                            log::debug!(
-                                "CommandButtonHuntUpdate::hunt_enter do_command_button_at_object failed: {}",
-                                err
-                            );
+                        if let Ok(mut object) = object_arc.write() {
+                            if let Err(err) = object.do_command_button_at_object(
+                                button_id,
+                                &victim_guard,
+                                CommandSourceType::FromAi,
+                            ) {
+                                log::debug!(
+                                    "CommandButtonHuntUpdate::hunt_enter do_command_button_at_object failed: {}",
+                                    err
+                                );
+                            }
                         }
                     }
                 }

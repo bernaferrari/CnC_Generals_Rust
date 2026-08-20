@@ -3352,16 +3352,6 @@ impl Default for TeamFactory {
     }
 }
 
-// Global team factory singleton (corresponds to C++ TheTeamFactory)
-// In full implementation, this would be managed by the game engine
-lazy_static::lazy_static! {
-    static ref THE_TEAM_FACTORY: std::sync::RwLock<TeamFactory> = std::sync::RwLock::new(TeamFactory::new());
-}
-
-/// Get the global team factory
-pub fn the_team_factory() -> &'static std::sync::RwLock<TeamFactory> {
-    &THE_TEAM_FACTORY
-}
 
 #[cfg(test)]
 mod tests {

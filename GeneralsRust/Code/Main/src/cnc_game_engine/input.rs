@@ -1758,6 +1758,7 @@ impl CnCGameEngine {
             if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
                 let font_size = Self::cinematic_font_size(font);
                 let y = height * 0.9;
+                let wrap_width = (width - 20.0).max(1.0);
                 let layout = TextLayout {
                     text: text.to_string(),
                     font_size,

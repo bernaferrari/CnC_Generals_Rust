@@ -263,7 +263,10 @@ impl W3DModelDraw {
             for i in 0..count {
                 // C++ hides muzzle unless RECOIL_START (one visible frame).
                 if barrels[i].muzzle_flash_bone != 0 {
-                    let hidden = self.weapon_recoil_info[wslot][i].state != RecoilState::RecoilStart;
+                    let hidden = !matches!(
+                        self.weapon_recoil_info[wslot][i].state,
+                        RecoilState::RecoilStart,
+                    );
                     self.set_muzzle_flash_hidden(wslot, i, hidden);
                 }
 

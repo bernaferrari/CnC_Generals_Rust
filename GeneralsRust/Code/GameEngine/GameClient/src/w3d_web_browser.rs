@@ -183,7 +183,7 @@ mod native_browser {
         use objc::{class, msg_send, sel, sel_impl};
 
         #[link(name = "WebKit", kind = "framework")]
-        extern "C" {}
+        unsafe extern "C" {}
 
         unsafe {
             let frame = NSRect::new(

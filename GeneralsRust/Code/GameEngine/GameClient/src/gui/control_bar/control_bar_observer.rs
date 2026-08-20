@@ -6,8 +6,9 @@ use super::control_bar::ControlBar;
 use super::ControlBarContext;
 use crate::game_text::GameText;
 use crate::gui::game_window::{Image, WindowStatus};
-use crate::gui::window_manager::WindowMsgHandled;
-use crate::gui::{with_window_manager, with_window_manager_ref, GameWindow, WindowMessage};
+use crate::gui::{
+    with_window_manager, with_window_manager_ref, GameWindow, WindowMessage, WindowMsgHandled,
+};
 use game_engine::common::ini::ini_command_button::get_control_bar as get_ini_control_bar;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::control_bar::get_control_bar_bridge;

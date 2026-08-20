@@ -416,6 +416,15 @@ impl PartitionManager {
     pub fn undo_shroud_reveal(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
         self.shroud.undo_reveal_circle(center, radius, player_mask);
     }
+
+    /// C++ `PartitionManager::clear` — drop all registered occupants so a
+    /// map-boundary change can re-register objects on the new grid.
+    pub fn clear(&mut self) {
+        self.grid.clear();
+        self.object_cells.clear();
+        self.object_positions.clear();
+        self.ghost_links.clear();
+    }
 }
 
 impl Default for PartitionManager {

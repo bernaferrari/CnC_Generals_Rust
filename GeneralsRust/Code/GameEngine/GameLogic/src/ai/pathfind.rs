@@ -483,6 +483,9 @@ impl Path {
                 OptLayer::Ground => PathfindLayerEnum::Ground,
                 OptLayer::Top => PathfindLayerEnum::Top,
                 OptLayer::Invalid => PathfindLayerEnum::Invalid,
+                OptLayer::Wall => PathfindLayerEnum::Wall,
+                // Layer3–14 are unnamed C++ bridge slots (`LAYER_GROUND+1`…); map like Bridge*.
+                _ => PathfindLayerEnum::Top,
             };
             let mut found = None;
             for raw_idx in search_start..raw_points.len() {

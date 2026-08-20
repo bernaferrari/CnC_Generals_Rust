@@ -2199,36 +2199,34 @@ impl AudioManager {
             }
 
             if event.is_positional_audio() {
-                match event.get_current_position() {
-                    None => {
+                let has_pos = event.get_current_position().is_some();
+                let is_dead = event.is_dead();
+                if !has_pos {
+                    self.notify_sample_completion_if_effect(&event);
+                    to_stop.push(handle);
+                    continue;
+                } else if is_dead {
+                    // C++ stopAudioEvent: requestStop, sample keeps playing for Decay.
+                    event.set_request_stop(true);
+                } else {
+                    let vol_for_consideration = {
+                        let effective = self.get_effective_volume(&event);
+                        if self.sound_3d_volume > 0.0 {
+                            effective / self.sound_volume.max(f32::EPSILON)
+                        } else {
+                            effective
+                        }
+                    };
+                    let play_anyways = event.get_audio_event_info().is_some_and(|info| {
+                        (info.type_field & ST_GLOBAL) != 0
+                            || info.priority == AudioPriority::Critical
+                    });
+                    if vol_for_consideration < self.audio_settings.min_volume && !play_anyways {
                         self.notify_sample_completion_if_effect(&event);
                         to_stop.push(handle);
                         continue;
                     }
-                    Some(_) if event.is_dead() => {
-                        // C++ stopAudioEvent: requestStop, sample keeps playing for Decay.
-                        event.set_request_stop(true);
-                    }
-                    Some(_) => {
-                        let vol_for_consideration = {
-                            let effective = self.get_effective_volume(&event);
-                            if self.sound_3d_volume > 0.0 {
-                                effective / self.sound_volume.max(f32::EPSILON)
-                            } else {
-                                effective
-                            }
-                        };
-                        let play_anyways = event.get_audio_event_info().is_some_and(|info| {
-                            (info.type_field & ST_GLOBAL) != 0
-                                || info.priority == AudioPriority::Critical
-                        });
-                        if vol_for_consideration < self.audio_settings.min_volume && !play_anyways {
-                            self.notify_sample_completion_if_effect(&event);
-                            to_stop.push(handle);
-                            continue;
-                        }
-                        let _ = with_sound_playback_hook(|hook| hook.set_event_volume(&event));
-                    }
+                    let _ = with_sound_playback_hook(|hook| hook.set_event_volume(&event));
                 }
             }
 

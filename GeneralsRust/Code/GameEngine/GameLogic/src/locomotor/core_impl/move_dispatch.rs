@@ -14,8 +14,8 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
         blocked: bool,
-        physics: Option<&mut dyn crate::modules::PhysicsBehavior>,
-        object: Option<&mut crate::object::Object>,
+        mut physics: Option<&mut dyn crate::modules::PhysicsBehavior>,
+        mut object: Option<&mut crate::object::Object>,
     ) -> (Coord3D, Real, Real) {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
 

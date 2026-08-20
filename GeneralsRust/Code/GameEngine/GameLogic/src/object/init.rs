@@ -121,6 +121,7 @@ impl Object {
             crate::player::GameDifficulty::Easy => 0,
             crate::player::GameDifficulty::Normal => 1,
             crate::player::GameDifficulty::Hard => 2,
+            crate::player::GameDifficulty::Brutal => 2,
         };
 
         let health_factor = crate::helpers::TheGlobalData::get()

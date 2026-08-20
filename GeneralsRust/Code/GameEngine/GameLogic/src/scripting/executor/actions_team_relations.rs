@@ -325,11 +325,14 @@ impl ScriptActionDispatcher {
                 continue;
             };
             if guard.is_kind_of(crate::common::KindOf::Transport) {
-                let capacity = guard
-                    .get_contain()
-                    .and_then(|contain| contain.lock().ok())
-                    .map(|contain| contain.get_contain_max().max(0) as u32)
-                    .unwrap_or(0);
+                let capacity = match guard.get_contain() {
+                    Some(contain) => contain
+                        .lock()
+                        .ok()
+                        .map(|c| c.get_contain_max().max(0) as u32)
+                        .unwrap_or(0),
+                    None => 0,
+                };
                 transports.push((member_id, capacity));
             } else {
                 let slots = guard.get_transport_slot_count() as u32;

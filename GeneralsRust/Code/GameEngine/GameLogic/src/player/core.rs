@@ -263,6 +263,11 @@ impl Player {
         self.is_skirmish_ai
     }
 
+    /// C++ `Player::isSkirmishAIPlayer` (Player.cpp:1156-1159).
+    pub fn is_skirmish_ai_player(&self) -> bool {
+        self.is_skirmish_ai()
+    }
+
     pub fn set_is_skirmish_ai(&mut self, value: Bool) {
         self.is_skirmish_ai = value;
     }

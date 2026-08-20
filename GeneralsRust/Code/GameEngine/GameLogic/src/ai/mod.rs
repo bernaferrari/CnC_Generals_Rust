@@ -1426,6 +1426,10 @@ fn from_module_attitude(attitude: AIAttitudeType) -> AttitudeType {
     }
 }
 
+fn to_collide_coord(pos: &Coord3D) -> crate::object::collide::Coord3D {
+    crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z)
+}
+
 impl AiCommandInterface for AiGroup {
     fn ai_do_command(&mut self, params: &AiCommandParams) -> Result<(), AiError> {
         // Wave 263: empty dual-world → Ok(()).
@@ -1579,6 +1583,19 @@ impl AI {
         self.pathfinder.clone()
     }
 
+    /// C++ `TheAI->pathfinder()->changeBridgeState(layer, repaired)`.
+    pub fn change_bridge_state(
+        &mut self,
+        layer: crate::path::PathfindLayerEnum,
+        repaired: bool,
+    ) {
+        if let Some(pathfinder) = &self.pathfinder {
+            if let Ok(mut pf) = pathfinder.write() {
+                pf.change_bridge_state(layer, repaired);
+            }
+        }
+    }
+
     pub fn pathfinding_system(&self) -> Option<pathfinding_system::SharedPathfindingSystem> {
         self.pathfinding_system.clone()
     }
@@ -1715,9 +1732,9 @@ impl AI {
                             let target_pos = *target.get_position();
                             if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
                                 Some(me),
-                                &me_pos,
+                                &to_collide_coord(&me_pos),
                                 Some(target_id),
-                                &target_pos,
+                                &to_collide_coord(&target_pos),
                             ) {
                                 return None;
                             }
@@ -1907,9 +1924,9 @@ impl AI {
                             let target_pos = *target.get_position();
                             if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
                                 Some(me),
-                                me_guard.get_position(),
+                                &to_collide_coord(me_guard.get_position()),
                                 Some(target_id),
-                                &target_pos,
+                                &to_collide_coord(&target_pos),
                             ) {
                                 return None;
                             }

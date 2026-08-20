@@ -85,7 +85,8 @@ pub fn radar_screen_pixel_to_world(mx: i32, my: i32) -> Option<Coord3D> {
             extent.hi.x - extent.lo.x,
             extent.hi.y - extent.lo.y,
         )?;
-        radar.radar_to_world(&cell)
+        radar
+            .radar_to_world(&cell)
+            .map(|p| Coord3D::new(p.x, p.y, p.z))
     })
-    .flatten()
 }

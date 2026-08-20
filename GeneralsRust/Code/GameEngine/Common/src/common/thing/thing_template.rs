@@ -861,44 +861,14 @@ impl ModuleInfo {
         &mut self,
         interface_mask: i32,
         new_name: &AsciiString,
-        full_template: &ThingTemplate,
+        is_trainable: bool,
+        disallowed: bool,
+        candidate: bool,
     ) -> bool {
         // C++ Reference: ThingTemplate.cpp line 382-455 clearCopiedFromDefaultEntries
         //
-        // Build KindOf masks from the retail KindOf.h bit positions
-        // (ALLOW_SURRENDER off). C++ ThingTemplate.cpp:384-409.
-        use crate::common::system::kind_of::KindOfMask;
-
-        // ImmuneToGPSScramblerMask: types that should NOT receive GPS scrambler modules
-        let immune_mask = kindof_mask_from(
-            KindOfMask::AIRCRAFT
-                | KindOfMask::SHRUBBERY
-                | KindOfMask::OPTIMIZED_TREE
-                | KindOfMask::STRUCTURE
-                | KindOfMask::DRAWABLE_ONLY
-                | KindOfMask::MOB_NEXUS
-                | KindOfMask::IGNORED_IN_GUI
-                | KindOfMask::CLEARED_BY_BUILD
-                | KindOfMask::DEFENSIVE_WALL
-                | KindOfMask::BALLISTIC_MISSILE
-                | KindOfMask::SUPPLY_SOURCE
-                | KindOfMask::BOAT
-                | KindOfMask::INERT
-                | KindOfMask::BRIDGE
-                | KindOfMask::LANDMARK_BRIDGE
-                | KindOfMask::BRIDGE_TOWER,
-        );
-        let disallowed = full_template.is_any_kind_of_bits(immune_mask);
-
-        // CandidateForGPSScramblerMask: types that CAN receive GPS scrambler modules
-        let candidate_mask = kindof_mask_from(
-            KindOfMask::SCORE
-                | KindOfMask::VEHICLE
-                | KindOfMask::INFANTRY
-                | KindOfMask::PORTABLE_STRUCTURE,
-        );
-        let candidate = full_template.is_any_kind_of_bits(candidate_mask);
-
+        // KindOf masks computed by the caller so we do not borrow ThingTemplate
+        // while mutating ModuleInfo owned by that same template.
         let mut removed_any = false;
         let mut i = 0;
         while i < self.info.len() {
@@ -907,9 +877,7 @@ impl ModuleInfo {
                 if nugget.inheritable {
                     // Special case: don't inherit DefaultAutoHealBehavior if template
                     // is not trainable (module would be entirely useless).
-                    if nugget.module_tag == "ModuleTag_DefaultAutoHealBehavior"
-                        && !full_template.is_trainable()
-                    {
+                    if nugget.module_tag == "ModuleTag_DefaultAutoHealBehavior" && !is_trainable {
                         self.info.remove(i);
                         removed_any = true;
                         continue;
@@ -936,6 +904,7 @@ impl ModuleInfo {
 
         removed_any
     }
+
 
     pub fn clear_ai_module_info(&mut self) -> bool {
         let initial_len = self.info.len();
@@ -2035,6 +2004,40 @@ impl ThingTemplate {
     pub fn is_trainable(&self) -> bool {
         self.is_trainable
     }
+
+    /// C++ ThingTemplate.cpp:384-409 KindOf masks used when clearing default modules.
+    fn gps_scrambler_inherit_flags(&self) -> (bool, bool, bool) {
+        use crate::common::system::kind_of::KindOfMask;
+        let immune_mask = kindof_mask_from(
+            KindOfMask::AIRCRAFT
+                | KindOfMask::SHRUBBERY
+                | KindOfMask::OPTIMIZED_TREE
+                | KindOfMask::STRUCTURE
+                | KindOfMask::DRAWABLE_ONLY
+                | KindOfMask::MOB_NEXUS
+                | KindOfMask::IGNORED_IN_GUI
+                | KindOfMask::CLEARED_BY_BUILD
+                | KindOfMask::DEFENSIVE_WALL
+                | KindOfMask::BALLISTIC_MISSILE
+                | KindOfMask::SUPPLY_SOURCE
+                | KindOfMask::BOAT
+                | KindOfMask::INERT
+                | KindOfMask::BRIDGE
+                | KindOfMask::LANDMARK_BRIDGE
+                | KindOfMask::BRIDGE_TOWER,
+        );
+        let candidate_mask = kindof_mask_from(
+            KindOfMask::SCORE
+                | KindOfMask::VEHICLE
+                | KindOfMask::INFANTRY
+                | KindOfMask::PORTABLE_STRUCTURE,
+        );
+        (
+            self.is_trainable(),
+            self.is_any_kind_of_bits(immune_mask),
+            self.is_any_kind_of_bits(candidate_mask),
+        )
+    }
     pub fn is_enter_guard(&self) -> bool {
         self.enter_guard
     }
@@ -2353,20 +2356,29 @@ impl ThingTemplate {
         let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
 
         if self.module_parsing_mode != ModuleParseMode::AddRemoveReplace {
+            let new_name = AsciiString::from(module_name);
+            let mask = interface_mask.0 as i32;
+            let (is_trainable, disallowed, candidate) = self.gps_scrambler_inherit_flags();
             self.behavior_module_info.clear_copied_from_default_entries(
-                interface_mask.0 as i32,
-                &AsciiString::from(module_name),
-                self,
+                mask,
+                &new_name,
+                is_trainable,
+                disallowed,
+                candidate,
             );
             self.draw_module_info.clear_copied_from_default_entries(
-                interface_mask.0 as i32,
-                &AsciiString::from(module_name),
-                self,
+                mask,
+                &new_name,
+                is_trainable,
+                disallowed,
+                candidate,
             );
             self.client_update_module_info.clear_copied_from_default_entries(
-                interface_mask.0 as i32,
-                &AsciiString::from(module_name),
-                self,
+                mask,
+                &new_name,
+                is_trainable,
+                disallowed,
+                candidate,
             );
         }
 
@@ -2722,6 +2734,70 @@ impl ThingTemplate {
 
     pub fn get_reskinned_from(&self) -> Option<&Arc<ThingTemplate>> {
         self.reskinned_from.as_ref()
+    }
+
+    /// C++ ThingTemplate::isEquivalentTo (ThingTemplate.cpp:1454).
+    pub fn is_equivalent_to(&self, other: &ThingTemplate) -> bool {
+        if std::ptr::eq(self, other) {
+            return true;
+        }
+
+        if Self::same_final_override(self, other) {
+            return true;
+        }
+
+        if let Some(from) = self.get_reskinned_from() {
+            if std::ptr::eq(from.as_ref(), other) {
+                return true;
+            }
+        }
+        if let Some(from) = other.get_reskinned_from() {
+            if std::ptr::eq(from.as_ref(), self) {
+                return true;
+            }
+        }
+        if let (Some(a), Some(b)) = (self.get_reskinned_from(), other.get_reskinned_from()) {
+            if Arc::ptr_eq(a, b) {
+                return true;
+            }
+        }
+
+        let other_name = other.get_name();
+        if self
+            .get_build_variations()
+            .iter()
+            .any(|variation| variation.eq_ignore_ascii_case(other_name))
+        {
+            return true;
+        }
+        let self_name = self.get_name();
+        if other
+            .get_build_variations()
+            .iter()
+            .any(|variation| variation.eq_ignore_ascii_case(self_name))
+        {
+            return true;
+        }
+        false
+    }
+
+    fn same_final_override(a: &ThingTemplate, b: &ThingTemplate) -> bool {
+        match (Self::final_override_arc(a), Self::final_override_arc(b)) {
+            (None, None) => false,
+            (Some(fa), Some(fb)) => Arc::ptr_eq(&fa, &fb),
+            (Some(fa), None) => std::ptr::eq(fa.as_ref(), b),
+            (None, Some(fb)) => std::ptr::eq(fb.as_ref(), a),
+        }
+    }
+
+    fn final_override_arc(template: &ThingTemplate) -> Option<Arc<ThingTemplate>> {
+        let mut current = template.get_next_override()?;
+        loop {
+            match current.get_next_override() {
+                Some(next) => current = next,
+                None => return Some(current),
+            }
+        }
     }
 
     /// Set buildable status.
@@ -4515,10 +4591,14 @@ mod tests {
             true,
         );
         immune_info.set_copied_from_default(true);
+        let (immune_trainable, immune_disallowed, immune_candidate) =
+            immune_template.gps_scrambler_inherit_flags();
         assert!(immune_info.clear_copied_from_default_entries(
             1,
             &AsciiString::from("OtherModule"),
-            &immune_template,
+            immune_trainable,
+            immune_disallowed,
+            immune_candidate,
         ));
         assert_eq!(immune_info.get_count(), 0);
 
@@ -4534,10 +4614,14 @@ mod tests {
             true,
         );
         candidate_info.set_copied_from_default(true);
+        let (candidate_trainable, candidate_disallowed, candidate_candidate) =
+            candidate_template.gps_scrambler_inherit_flags();
         assert!(!candidate_info.clear_copied_from_default_entries(
             1,
             &AsciiString::from("OtherModule"),
-            &candidate_template,
+            candidate_trainable,
+            candidate_disallowed,
+            candidate_candidate,
         ));
         assert_eq!(candidate_info.get_count(), 1);
     }

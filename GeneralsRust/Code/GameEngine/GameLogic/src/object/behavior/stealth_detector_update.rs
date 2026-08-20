@@ -50,9 +50,7 @@ fn play_misc_stealth_sound(discovered: bool, player_index: i32) {
     let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
         return;
     };
-    let Ok(misc) = misc.read() else {
-        return;
-    };
+    let misc = misc.read();
     let name = if discovered {
         misc.stealth_discovered_sound.sound_file.as_str()
     } else {
@@ -85,7 +83,7 @@ fn emit_first_detection_feedback(
     let local_index = player_list()
         .read()
         .ok()
-        .map(|list| list.get_local_player_index())
+        .map(|list| list.get_local_player_index() as i32)
         .unwrap_or(PLAYER_INDEX_INVALID);
     let pos = *target.get_position();
     let radar_loc = RadarCoord3D::new(pos.x, pos.y, pos.z);
@@ -104,7 +102,7 @@ fn emit_first_detection_feedback(
             .unwrap_or(false);
         if do_feedback {
             if let Some(player_id) = detector.get_controlling_player_id() {
-                play_misc_stealth_sound(true, player_id);
+                play_misc_stealth_sound(true, player_id as i32);
             }
             TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthDiscovered"));
             if let Ok(stealth_guard) = stealth.lock() {
@@ -134,7 +132,7 @@ fn emit_first_detection_feedback(
         };
         if do_feedback {
             if let Some(player_id) = target.get_controlling_player_id() {
-                play_misc_stealth_sound(false, player_id);
+                play_misc_stealth_sound(false, player_id as i32);
             }
             TheInGameUI::display_message(&TheGameText::fetch("MESSAGE:StealthNeutralized"));
             if let Ok(stealth_guard) = stealth.lock() {
@@ -879,9 +877,9 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                     let local_player_index = crate::player::ThePlayerList()
                         .read()
                         .ok()
-                        .map(|list| list.get_local_player_index())
+                        .map(|list| list.get_local_player_index() as i32)
                         .unwrap_or(-1);
-                    let shroud = obj_guard.get_shrouded_status(local_player_index);
+                    let shroud = obj_guard.get_shrouded_status(local_player_index as i32);
                     (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8)
                 } else {
                     false

@@ -36,7 +36,8 @@ fn current_selected_ids() -> Vec<ObjectID> {
     if local_player < 0 {
         return Vec::new();
     }
-    let Ok(manager) = get_selection_manager().read() else {
+    let selection_manager = get_selection_manager();
+    let Ok(manager) = selection_manager.read() else {
         return Vec::new();
     };
     manager

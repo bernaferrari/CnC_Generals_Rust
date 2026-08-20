@@ -38,6 +38,22 @@ pub enum ProjectionResType {
     OutsideFarClip,
 }
 
+/// glam 0.28 has no `Mat4::frustum_rh` (added in 0.29). Vulkan/wgpu [0,1] Z.
+fn frustum_rh(left: f32, right: f32, bottom: f32, top: f32, z_near: f32, z_far: f32) -> Mat4 {
+    let sx = (2.0 * z_near) / (right - left);
+    let sy = (2.0 * z_near) / (top - bottom);
+    let a = (right + left) / (right - left);
+    let b = (top + bottom) / (top - bottom);
+    let c = z_far / (z_near - z_far);
+    let d = (z_near * z_far) / (z_near - z_far);
+    Mat4::from_cols(
+        Vec4::new(sx, 0.0, 0.0, 0.0),
+        Vec4::new(0.0, sy, 0.0, 0.0),
+        Vec4::new(a, b, c, -1.0),
+        Vec4::new(0.0, 0.0, d, 0.0),
+    )
+}
+
 /// Camera Class - Core camera with projection and view matrices
 #[derive(Debug)]
 pub struct CameraClass {
@@ -557,7 +573,7 @@ impl CameraClass {
                 let bottom = self.view_plane_min.y * znear;
                 let top = self.view_plane_max.y * znear;
                 self.projection_matrix =
-                    Mat4::frustum_rh(left, right, bottom, top, znear, self.far_clip.max(znear + 1.0e-4));
+                    frustum_rh(left, right, bottom, top, znear, self.far_clip.max(znear + 1.0e-4));
             }
             ProjectionType::Ortho => {
                 self.projection_matrix = Mat4::orthographic_rh(

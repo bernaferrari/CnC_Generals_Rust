@@ -291,7 +291,7 @@ impl DrawModule for W3DPropDraw {
     ) {
         let (position, orientation, scale) = self
             .current_drawable_pose()
-            .unwrap_or((*_old_pos, *_old_angle, 1.0));
+            .unwrap_or((*_old_pos, _old_angle, 1.0));
         self.react_to_current_transform(position, orientation, scale);
     }
     fn react_to_geometry_change(&mut self) {}

@@ -2,9 +2,8 @@
 //! parsed AIUpdate module data (C++ `AIUpdateModuleData::parseLocomotorSet`).
 
 use super::*;
-use crate::common::LocomotorSetType;
+use crate::common::{AsciiString, LocomotorSetType};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
-use game_engine::common::rts::AsciiString;
 use game_engine::common::thing::module::ModuleData;
 use game_engine::common::thing::thing_template_locomotor::{
     locomotor_overrides_allowed, set_template_locomotor_applier,
@@ -32,19 +31,22 @@ fn parse_locomotor_set_name(set_name: &str) -> Result<LocomotorSetType, String> 
 fn write_set(
     ai: &mut AIUpdateModuleData,
     set: LocomotorSetType,
-    names: &[AsciiString],
+    names: &[String],
 ) -> Result<(), String> {
     if ai.has_locomotor_set(set) && !locomotor_overrides_allowed() {
         return Err("re-specifying a LocomotorSet is no longer allowed".to_string());
     }
-    ai.set_locomotor_set_entries(set, names.to_vec());
+    ai.set_locomotor_set_entries(
+        set,
+        names.iter().map(|n| AsciiString::from(n.as_str())).collect(),
+    );
     Ok(())
 }
 
 fn apply_template_locomotor(
     data: Arc<dyn ModuleData>,
     set_name: &str,
-    names: &[AsciiString],
+    names: &[String],
 ) -> Result<Arc<dyn ModuleData>, String> {
     let set = parse_locomotor_set_name(set_name)?;
 

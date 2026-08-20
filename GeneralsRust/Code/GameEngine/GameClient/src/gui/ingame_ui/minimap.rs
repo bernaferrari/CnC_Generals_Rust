@@ -6,6 +6,12 @@ impl InGameUI {
         self.minimap.world_bounds = (min, max);
     }
 
+    /// Update minimap camera position and viewport size.
+    pub fn update_camera(&mut self, position: Vec3, viewport: Vec2) {
+        self.minimap.camera_position = position;
+        self.minimap.camera_viewport = viewport;
+    }
+
     /// Update minimap camera position
     pub fn update_minimap_unit(&mut self, id: u32, world_pos: Vec2, color: [f32; 4]) {
         self.minimap.update_icon(DrawableID(id), world_pos, color);

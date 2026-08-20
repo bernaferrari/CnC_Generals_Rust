@@ -1329,18 +1329,26 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
         } else {
             None
         };
+        let mut clear_nemesis = false;
+        let mut nemesis_goal_id = None;
         if let Some(target) = nemesis.as_ref() {
             if let Ok(target_guard) = target.read() {
                 if let Ok(owner_guard) = owner.read() {
                     if owner_guard.relationship_to(&target_guard) == Relationship::Enemies {
-                        let _ = self.base.with_machine(|machine| {
-                            machine.set_goal_object_by_id(Some(target_guard.get_id()))
-                        });
+                        nemesis_goal_id = Some(target_guard.get_id());
                     } else {
-                        nemesis = None;
+                        clear_nemesis = true;
                     }
                 }
             }
+        }
+        if let Some(goal_id) = nemesis_goal_id {
+            let _ = self
+                .base
+                .with_machine(|machine| machine.set_goal_object_by_id(Some(goal_id)));
+        }
+        if clear_nemesis {
+            nemesis = None;
         }
 
         let Some(nemesis) = nemesis else {

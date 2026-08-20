@@ -34,6 +34,8 @@ use super::helpers::{
 };
 use super::masks_enums::*;
 use super::store::with_weapon_store;
+use super::weapon_instance::Weapon;
+
 
 /// Weapon template defining weapon properties
 #[derive(Debug, Clone)]
@@ -1534,7 +1536,7 @@ impl WeaponTemplate {
 fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
     game_engine::common::ini::ini_weapon::initialize_weapon_store();
     let store = game_engine::common::ini::ini_weapon::get_weapon_store()?;
-    let tmpl = store.find_template(&AsciiString::from(owner.to_string()))?;
+    let tmpl = store.find_template(&AsciiString::from(owner))?;
     let raw = tmpl.properties.get("HistoricBonusWeapon")?;
     let name = raw.split_whitespace().next().unwrap_or(raw).trim();
     if name.is_empty() || name.eq_ignore_ascii_case("None") {

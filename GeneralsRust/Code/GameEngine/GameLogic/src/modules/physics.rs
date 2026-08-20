@@ -159,10 +159,6 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         false
     }
 
-    /// C++ PhysicsBehavior::getCenterOfMassOffset.
-    fn get_center_of_mass_offset(&self) -> Real {
-        0.0
-    }
 
     /// Clear current acceleration (matches C++ clearAcceleration).
     fn clear_acceleration(&mut self) {}

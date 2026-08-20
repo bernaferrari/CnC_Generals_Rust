@@ -277,7 +277,7 @@ impl ListBox {
             let mut height = if self.one_line {
                 self.wrap_font_height
             } else {
-                self.wrapped_text_height_static(
+                ListBox::wrapped_text_height_static(
                     &item.text,
                     first_width,
                     self.one_line,
@@ -289,7 +289,7 @@ impl ListBox {
                 let width = widths.get(column).copied().unwrap_or(first_width);
                 match data {
                     ListBoxItemData::Text(text) => {
-                        height = height.max(self.wrapped_text_height_static(
+                        height = height.max(ListBox::wrapped_text_height_static(
                             text,
                             width,
                             self.one_line,

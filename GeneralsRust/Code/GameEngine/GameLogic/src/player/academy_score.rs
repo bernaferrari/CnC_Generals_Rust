@@ -19,6 +19,9 @@ pub struct AcademyStats {
     /// Total money earned (for scoreboard / academy stats).
     pub(super) total_income: Int,
     pub(super) mines: Int,
+    pub(super) mines_cleared: Int,
+    /// C++ AcademyStats::m_choseAStrategyForCenter
+    pub(super) chose_a_strategy_for_center: Bool,
 }
 
 impl AcademyStats {
@@ -38,6 +41,8 @@ impl AcademyStats {
             vehicles_sniped: 0,
             total_income: 0,
             mines: 0,
+            mines_cleared: 0,
+            chose_a_strategy_for_center: false,
         }
     }
 
@@ -141,6 +146,43 @@ impl AcademyStats {
     pub fn record_mine(&mut self) {
         self.mines = self.mines.saturating_add(1);
     }
+
+    /// Record a mine/booby-trap/demotrap disarm (C++ AcademyStats::recordMineCleared).
+    pub fn record_mine_cleared(&mut self) {
+        self.mines_cleared = self.mines_cleared.saturating_add(1);
+    }
+
+    /// C++ AcademyStats::recordBattlePlanSelected — sets m_choseAStrategyForCenter.
+    pub fn record_battle_plan_selected(&mut self) {
+        self.chose_a_strategy_for_center = true;
+    }
+
+    /// C++ AcademyStats::calculateAcademyAdvice — fill ScoreScreen war-school tips.
+    pub fn calculate_academy_advice(
+        &self,
+        info: &mut game_engine::common::rts::AcademyAdviceInfo,
+    ) -> bool {
+        info.clear();
+        if !self.researched_radar {
+            info.add_tip("ACADEMY:TryBuildingRadar".to_string());
+        } else if self.generals_points_spent == 0 {
+            info.add_tip("ACADEMY:SpendGeneralsPoints".to_string());
+        } else if self.special_powers_used == 0 {
+            info.add_tip("ACADEMY:TryUsingSuperweapons".to_string());
+        } else if self.upgrades_purchased == 0 {
+            info.add_tip("ACADEMY:ResearchUpgrades".to_string());
+        } else if self.cleared_garrisoned_buildings == 0 {
+            info.add_tip("ACADEMY:ClearBuildings".to_string());
+        } else if self.tunnel_entries == 0 {
+            info.add_tip("ACADEMY:UseTunnelNetwork".to_string());
+        } else if !self.chose_a_strategy_for_center {
+            info.add_tip("ACADEMY:PickStrategyCenterPlan".to_string());
+        } else if self.salvage_collected == 0 {
+            info.add_tip("ACADEMY:PickUpSalvage".to_string());
+        }
+        info.num_tips > 0
+    }
+
 }
 
 /// Score keeping system (matching C++ ScoreKeeper)
@@ -351,6 +393,64 @@ impl ScoreKeeper {
     pub fn get_total_buildings_lost(&self) -> Int {
         self.buildings_lost
     }
+
+    /// C++ ScoreKeeper::getTotalObjectsBuilt — count by template name.
+    pub fn get_total_objects_built(&self, template_name: &str) -> Int {
+        self.objects_built.get(template_name).copied().unwrap_or(0)
+    }
+
+    /// C++ ScoreKeeper::getTotalUnitsBuilt(valid, invalid) — honor filters.
+    pub fn get_total_units_built_filtered(
+        &self,
+        valid_mask: &ScoreKindOfMaskType,
+        invalid_mask: &ScoreKindOfMaskType,
+    ) -> Int {
+        if let Ok(factory_guard) = game_engine::common::thing::thing_factory::get_thing_factory() {
+            if let Some(factory) = factory_guard.as_ref() {
+                let mut total: Int = 0;
+                for (template_name, count) in &self.objects_built {
+                    if let Some(template) = factory.find_template(template_name, false) {
+                        if Self::kindof_matches_multi(
+                            template.get_kindof_mask(),
+                            valid_mask,
+                            invalid_mask,
+                        ) {
+                            total += *count;
+                        }
+                    }
+                }
+                return total;
+            }
+        }
+        self.units_built
+    }
+
+    fn kindof_matches_multi(
+        template_bits: u64,
+        valid_mask: &ScoreKindOfMaskType,
+        invalid_mask: &ScoreKindOfMaskType,
+    ) -> bool {
+        const KINDS: [ScoreKindOf; 7] = [
+            ScoreKindOf::Structure,
+            ScoreKindOf::Score,
+            ScoreKindOf::ScoreCreate,
+            ScoreKindOf::ScoreDestroy,
+            ScoreKindOf::Infantry,
+            ScoreKindOf::Vehicle,
+            ScoreKindOf::Aircraft,
+        ];
+        for kind in KINDS {
+            let bit = 1u64 << (kind as u32);
+            if invalid_mask.is_set(kind) && (template_bits & bit) != 0 {
+                return false;
+            }
+            if valid_mask.is_set(kind) && (template_bits & bit) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
 
     pub fn get_total_money_earned(&self) -> Int {
         self.supplies_collected

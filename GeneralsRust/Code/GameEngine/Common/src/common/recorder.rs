@@ -1615,6 +1615,7 @@ impl Recorder {
     /// Handle CRC message for validation
     /// Matches C++ RecorderClass::handleCRCMessage() from Recorder.cpp:957-994
     pub fn handle_crc_message(&mut self, new_crc: u32, player_index: i32, from_playback: bool) {
+        let frame = self.get_current_frame();
         let crc_info = match &mut self.crc_info {
             Some(info) => info,
             None => return,
@@ -1630,7 +1631,6 @@ impl Recorder {
 
         if same_player || local_player_index < 0 {
             let playback_crc = crc_info.read_crc();
-            let frame = self.get_current_frame();
 
             if frame > 0 && new_crc != playback_crc && !crc_info.saw_crc_mismatch() {
                 crc_info.set_saw_crc_mismatch();

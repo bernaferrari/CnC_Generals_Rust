@@ -112,7 +112,7 @@ impl RadarSystem {
                 c2.alpha.min(255) as u8,
             );
 
-            let mut world = crate::system::xfer::Coord3D {
+            let mut world = crate::System::xfer::Coord3D {
                 x: event.world_loc.x,
                 y: event.world_loc.y,
                 z: event.world_loc.z,
@@ -124,7 +124,7 @@ impl RadarSystem {
                 z: world.z,
             };
 
-            let mut radar_loc = crate::system::xfer::ICoord2D {
+            let mut radar_loc = crate::System::xfer::ICoord2D {
                 x: event.radar_loc.x,
                 y: event.radar_loc.y,
             };

@@ -182,7 +182,7 @@ impl GameClient {
         // C++ `TheInGameUI->getFirstSelectedDrawable()` is the first entry of
         // the selection list. HashMap iteration is unordered, so pick the
         // lowest DrawableId among selected units for a stable follow target.
-        let mut first: Option<(crate::drawable::DrawableId, crate::drawable::Coord3D)> = None;
+        let mut first: Option<(crate::drawable::DrawableId, crate::drawable::Vector3)> = None;
         for (id, drawable) in &self.drawable_map {
             let Some(basic) = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
             else {

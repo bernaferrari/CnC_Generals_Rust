@@ -305,15 +305,15 @@ impl DiplomacyCallbacks {
 
     fn with_listbox_solo<R>(f: impl FnOnce(&mut crate::gui::gadgets::ListBox) -> R) -> Option<R> {
         let key = NameKeyGenerator::name_to_key("Diplomacy.wnd:ListboxSolo") as i32;
-        with_window_manager(|manager| {
-            let window = manager.get_window_by_id(key)?;
-            let mut win = window.borrow_mut();
-            match win.widget.as_mut() {
-                Some(WindowWidget::ListBox(listbox)) => Some(f(listbox)),
-                _ => None,
-            }
-        })
-        .flatten()
+        // `with_window_manager` only has ReentryFallback for known Option types
+        // (`Option<Rc<RefCell<GameWindow>>>`), not generic `Option<R>`. Fetch the
+        // window first, then map the listbox after the helper returns.
+        let window = with_window_manager(|manager| manager.get_window_by_id(key))?;
+        let mut win = window.borrow_mut();
+        match win.widget.as_mut() {
+            Some(WindowWidget::ListBox(listbox)) => Some(f(listbox)),
+            _ => None,
+        }
     }
 
     fn reset_listbox_solo() {
@@ -404,6 +404,21 @@ impl DiplomacyCallbacks {
             self.show_layout(immediate);
         } else {
             self.hide_layout();
+        }
+        Ok(())
+    }
+
+    /// Non-immediate show/hide. C++ ShowDiplomacy registers WIN_ANIMATION_SLIDE_TOP;
+    /// HideDiplomacy reverses that animation once the last show has finished.
+    fn animate_visibility_change(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.active {
+            self.show_layout(false);
+        } else {
+            let state_handle = diplomacy_ui_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            if state.animate_manager.is_finished() {
+                state.animate_manager.reverse_animate_window();
+            }
         }
         Ok(())
     }

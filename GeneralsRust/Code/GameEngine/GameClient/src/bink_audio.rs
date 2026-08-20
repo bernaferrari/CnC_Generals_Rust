@@ -604,7 +604,6 @@ pub fn play_bink_pcm_through_miles(samples: &[f32], sample_rate: u32, channels: 
         settings: kira::sound::static_sound::StaticSoundSettings::new().volume(
             kira::Volume::Amplitude(volume.max(0.0001) as f64),
         ),
-        slice: None,
     };
     let mut slot = kira_playback().lock().unwrap_or_else(|e| e.into_inner());
     let Some(playback) = slot.as_mut() else {

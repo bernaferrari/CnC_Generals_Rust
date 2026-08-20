@@ -1385,8 +1385,9 @@ impl GameWindow {
             .font
             .as_ref()
             .map(|font| {
-                let metrics = font.get_metrics();
-                (font.height.max(1) as u32, metrics.average_width.max(1) as u32)
+                let height = font.size.max(1) as u32;
+                let average_width = ((font.size as f32 * 0.6).round() as i32).max(1) as u32;
+                (height, average_width)
             })
             .unwrap_or((18, 8));
         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {

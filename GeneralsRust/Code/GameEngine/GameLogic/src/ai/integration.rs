@@ -1276,6 +1276,7 @@ fn to_common_difficulty(
         GameDifficulty::Easy => CommonDifficulty::Easy,
         GameDifficulty::Normal => CommonDifficulty::Normal,
         GameDifficulty::Hard => CommonDifficulty::Hard,
+        GameDifficulty::Brutal => CommonDifficulty::Brutal,
     }
 }
 

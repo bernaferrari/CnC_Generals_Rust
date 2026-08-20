@@ -99,7 +99,7 @@ pub(super) fn on_collide(
                         other.set_captured(true);
                         other.defect(infantry_team, 0);
                     }
-                    let _ = crate::scripting::engine::types::transfer_object_name(
+                    let _ = crate::scripting::engine::transfer_object_name(
                         &infantry_name,
                         other_id,
                     );

@@ -73,6 +73,11 @@ pub trait SpecialPowerModuleInterface: Send + Sync {
         _command_options: SpecialPowerCommandOptions,
     ) {
     }
+
+    /// Reference thing template for sneak-attack / construction-site powers.
+    fn get_reference_thing_template(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Extension trait for Arc<Mutex<dyn SpecialPowerModuleInterface>> to provide convenient methods
