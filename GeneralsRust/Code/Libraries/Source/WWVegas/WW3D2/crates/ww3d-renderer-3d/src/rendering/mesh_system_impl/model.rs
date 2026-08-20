@@ -62,6 +62,7 @@ impl MeshModelClass {
         if let Some(header) = &prototype.header {
             model.sort_level = header.attrs;
             model.w3d_attributes = header.attrs;
+            super::mesh_camera_align::apply_camera_align_flags_from_header(&mut model, header);
         }
         model.ensure_stage_zero();
 

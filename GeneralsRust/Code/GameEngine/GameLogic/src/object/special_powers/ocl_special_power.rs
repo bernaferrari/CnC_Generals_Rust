@@ -391,8 +391,11 @@ impl OclSpecialPower {
         let pos = *owner_guard.get_position();
 
         let ctx = crate::object_creation_list::live_creation_context();
-        let _ = ocl.create_with_angle(&ctx, Some(&*owner_guard), &pos, &pos, 0.0, 0);
+        // C++ ObjectCreationList::create(..., false) — createOwner=false so
+        // DeliverPayload reuses the firing object instead of spawning a transport.
+        let _ = ocl.create_with_owner_flag(&ctx, Some(&*owner_guard), &pos, &pos, false, 0);
         Ok(())
+
     }
 
     fn dispatch_do_special_power(

@@ -14,6 +14,7 @@ pub struct FiringTracker {
     frame_to_stop_looping_sound: UnsignedInt,
     audio_handle: crate::common::audio::AudioHandle,
     last_shot_frame: UnsignedInt,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl Drop for FiringTracker {
@@ -42,6 +43,7 @@ impl FiringTracker {
             frame_to_stop_looping_sound: 0,
             audio_handle: 0,
             last_shot_frame: 0,
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -72,6 +74,31 @@ impl FiringTracker {
         xfer.xfer_unsigned_int(&mut self.frame_to_start_cooldown)
             .map_err(|err| format!("FiringTracker xfer frame_to_start_cooldown: {err:?}"))?;
         Ok(())
+    }
+
+    /// C++ FiringTracker::xfer: version + UpdateModule base + 3 runtime fields.
+    pub(crate) fn xfer_ctor_helper_state(
+        &mut self,
+        xfer: &mut dyn game_engine::common::system::Xfer,
+    ) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("FiringTracker xfer version: {err:?}"))?;
+        let mut update_module_version: u8 = 1;
+        xfer.xfer_version(&mut update_module_version, 1)
+            .map_err(|err| format!("FiringTracker UpdateModule xfer version: {err:?}"))?;
+        let mut behavior_module_version: u8 = 1;
+        xfer.xfer_version(&mut behavior_module_version, 1)
+            .map_err(|err| format!("FiringTracker BehaviorModule xfer version: {err:?}"))?;
+        let mut object_module_version: u8 = 1;
+        xfer.xfer_version(&mut object_module_version, 1)
+            .map_err(|err| format!("FiringTracker ObjectModule xfer version: {err:?}"))?;
+        let mut module_version: u8 = 1;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|err| format!("FiringTracker Module xfer version: {err:?}"))?;
+        xfer.xfer_unsigned_int(&mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("FiringTracker xfer next_call_frame_and_phase: {err:?}"))?;
+        self.xfer_cpp_runtime_state(xfer)
     }
 
     #[cfg(test)]
@@ -233,14 +260,23 @@ impl FiringTracker {
     }
 
     pub fn update(&mut self) -> crate::modules::UpdateSleepTime {
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut guard) = owner.write() {
+                return self.update_for_owner(&mut guard);
+            }
+        }
+        self.calc_time_to_sleep(TheGameLogic::get_frame())
+    }
+
+    /// Update using an already-locked owner so Object::update cannot deadlock.
+    pub(crate) fn update_for_owner(
+        &mut self,
+        owner: &mut Object,
+    ) -> crate::modules::UpdateSleepTime {
         let now = TheGameLogic::get_frame();
 
         if self.frame_to_force_reload != 0 && now >= self.frame_to_force_reload {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-                if let Ok(mut guard) = owner.write() {
-                    let _ = guard.reload_all_ammo(true);
-                }
-            }
+            let _ = owner.reload_all_ammo(true);
             self.frame_to_force_reload = 0;
         }
 
@@ -255,15 +291,17 @@ impl FiringTracker {
         if self.frame_to_start_cooldown != 0 && now > self.frame_to_start_cooldown {
             self.frame_to_start_cooldown =
                 now.saturating_add(crate::common::LOGICFRAMES_PER_SECOND);
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-                if let Ok(mut guard) = owner.write() {
-                    self.cool_down(&mut guard);
-                }
-            }
+            self.cool_down(owner);
             return crate::modules::UpdateSleepTime::Frames(crate::common::LOGICFRAMES_PER_SECOND);
         }
 
-        self.calc_time_to_sleep(now)
+        let sleep = self.calc_time_to_sleep(now);
+        self.next_call_frame_and_phase = match sleep {
+            crate::modules::UpdateSleepTime::Forever => 0,
+            crate::modules::UpdateSleepTime::None => now,
+            crate::modules::UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        sleep
     }
 
     fn calc_time_to_sleep(&self, now: UnsignedInt) -> crate::modules::UpdateSleepTime {
@@ -304,8 +342,8 @@ impl FiringTracker {
     }
 
     fn speed_up(&mut self, owner: &mut Object) {
-        let clear = crate::common::ModelConditionFlags::empty();
-        let set = crate::common::ModelConditionFlags::empty();
+        let mut clear = crate::common::ModelConditionFlags::empty();
+        let mut set = crate::common::ModelConditionFlags::empty();
 
         if owner
             .get_weapon_bonus_condition()
@@ -326,24 +364,32 @@ impl FiringTracker {
             owner.set_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireFast,
             );
+            set |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_FAST;
+
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireMean,
             );
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_MEAN;
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_SLOW;
         } else {
             owner.set_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireMean,
             );
+            set |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_MEAN;
+
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireFast,
             );
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_FAST;
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_SLOW;
         }
 
         let _ = owner.clear_and_set_model_condition_flags(clear, set);
     }
 
     fn cool_down(&mut self, owner: &mut Object) {
-        let clear = crate::common::ModelConditionFlags::empty();
-        let set = crate::common::ModelConditionFlags::empty();
+        let mut clear = crate::common::ModelConditionFlags::empty();
+        let mut set = crate::common::ModelConditionFlags::empty();
 
         let bonus_flags = owner.get_weapon_bonus_condition();
         if bonus_flags
@@ -351,12 +397,15 @@ impl FiringTracker {
             || bonus_flags
                 .contains(crate::common::types::WeaponBonusConditionFlags::CONTINUOUS_FIRE_MEAN)
         {
+            set |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_SLOW;
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireFast,
             );
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireMean,
             );
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_FAST;
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_MEAN;
         } else {
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireFast,
@@ -364,6 +413,9 @@ impl FiringTracker {
             owner.clear_weapon_bonus_condition(
                 crate::common::types::WeaponBonusConditionType::ContinuousFireMean,
             );
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_FAST;
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_MEAN;
+            clear |= crate::common::ModelConditionFlags::CONTINUOUS_FIRE_SLOW;
             self.frame_to_start_cooldown = 0;
         }
 

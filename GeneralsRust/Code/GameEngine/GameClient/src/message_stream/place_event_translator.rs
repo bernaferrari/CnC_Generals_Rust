@@ -17,17 +17,7 @@ fn active_special_power_construction(
     builder_id: u32,
     template_name: &str,
 ) -> Option<PendingSpecialPower> {
-    let pending = TheInGameUI::get_pending_special_power()?;
-    if pending.source_object_id != builder_id {
-        return None;
-    }
-
-    let pending_template = TheInGameUI::get_pending_place_template()?;
-    if pending_template != template_name {
-        return None;
-    }
-
-    Some(pending)
+    super::place_event_confirm::special_power_construction_for_builder(builder_id, template_name)
 }
 
 fn clear_completed_placement() {
@@ -35,75 +25,12 @@ fn clear_completed_placement() {
     TheInGameUI::clear_pending_special_power();
 }
 
-fn failure_message_for_can_make(failure: BuildCanMakeType) -> Option<&'static str> {
-    match failure {
-        BuildCanMakeType::NoMoney => Some("GUI:NotEnoughMoneyToBuild"),
-        BuildCanMakeType::QueueFull => Some("GUI:ProductionQueueFull"),
-        BuildCanMakeType::ParkingPlacesFull => Some("GUI:ParkingPlacesFull"),
-        BuildCanMakeType::MaxedOutForPlayer => Some("GUI:UnitMaxedOut"),
-        BuildCanMakeType::FactoryIsDisabled | BuildCanMakeType::NoPrereq => None,
-        BuildCanMakeType::Ok => None,
-    }
-}
-
 fn can_make_unit(
     builder: &Object,
     template: &dyn gamelogic::common::ThingTemplate,
     special_power_pending: Option<&PendingSpecialPower>,
 ) -> BuildCanMakeType {
-    if builder.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptDisabled)
-        || builder
-            .test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered)
-    {
-        return BuildCanMakeType::FactoryIsDisabled;
-    }
-
-    if special_power_pending.is_some() {
-        return BuildCanMakeType::Ok;
-    }
-
-    let Some(player) = builder.get_controlling_player() else {
-        return BuildCanMakeType::NoPrereq;
-    };
-    let Ok(player_guard) = player.read() else {
-        return BuildCanMakeType::NoPrereq;
-    };
-
-    if !player_guard.can_build_template(template) {
-        return BuildCanMakeType::MaxedOutForPlayer;
-    }
-
-    let template_name = template.get_name().as_str();
-    for behavior in builder.get_behavior_modules() {
-        let Ok(mut guard) = behavior.lock() else {
-            continue;
-        };
-
-        if let Some(production) = guard.get_production_update_interface() {
-            if !production.can_produce(template_name) {
-                let parking_full = builder
-                    .with_parking_place_behavior(|parking_place| {
-                        parking_place.should_reserve_door_when_queued(template)
-                            && !parking_place.has_available_space_for(template)
-                    })
-                    .unwrap_or(false);
-
-                return if parking_full {
-                    BuildCanMakeType::ParkingPlacesFull
-                } else {
-                    BuildCanMakeType::QueueFull
-                };
-            }
-            break;
-        }
-    }
-
-    let cost = template.calc_cost_to_build(Some(&*player_guard));
-    if cost > 0 && !player_guard.get_money().can_afford(cost) {
-        return BuildCanMakeType::NoMoney;
-    }
-
-    BuildCanMakeType::Ok
+    super::place_event_confirm::can_make_unit_for_place(builder, template, special_power_pending)
 }
 
 fn screen_to_terrain(pos: &ICoord2D) -> Option<Coord3D> {
@@ -223,9 +150,7 @@ impl PlaceEventTranslator {
             | BuildCanMakeType::QueueFull
             | BuildCanMakeType::ParkingPlacesFull
             | BuildCanMakeType::MaxedOutForPlayer) => {
-                if let Some(message) = failure_message_for_can_make(failure) {
-                    TheInGameUI::message(message);
-                }
+                super::place_event_confirm::play_can_make_failure(failure);
                 return GameMessageDisposition::KeepMessage;
             }
             BuildCanMakeType::FactoryIsDisabled | BuildCanMakeType::NoPrereq => {
@@ -242,6 +167,7 @@ impl PlaceEventTranslator {
             validator.validate_placement(&logic_world, template_name.as_str(), angle, player_id)
         {
             TheInGameUI::display_cant_build_message(err.as_str());
+            super::place_event_confirm::play_illegal_place_feedback(&builder_guard);
             TheInGameUI::set_placement_start(None);
             return GameMessageDisposition::DestroyMessage;
         }
@@ -261,7 +187,7 @@ impl PlaceEventTranslator {
         }
 
         let build_id = template.get_id();
-        let is_line_build = template.is_kind_of(KindOf::Barrier);
+        let is_line_build = template.is_kind_of(KindOf::LineBuild);
         let angle = TheInGameUI::get_placement_angle();
 
         if is_line_build {

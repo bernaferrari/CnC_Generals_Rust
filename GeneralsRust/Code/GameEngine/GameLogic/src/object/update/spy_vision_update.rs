@@ -144,6 +144,7 @@ impl SpyVisionController {
         let spying_player_index = owner.get_player_index();
 
         let Ok(list_guard) = player_list().read() else {
+            // C++: ThePlayerList == NULL → return without changing m_currentlyActive.
             return;
         };
 
@@ -169,15 +170,14 @@ impl SpyVisionController {
                 );
             }
         }
+        self.currently_active = setting;
     }
 
     fn do_activation_work_for_current_owner(&mut self, setting: bool) {
-        // Wave 434: empty dual-world → no-op.
+        // Wave 434: empty dual-world → no-op (m_currentlyActive unchanged).
         if dual_world_registry_unavailable() {
             return;
         }
-
-        self.currently_active = setting;
 
         let Some(spying_player_id) = OBJECT_REGISTRY
             .with_object(self.object_id, |owner_obj_guard| {
@@ -185,6 +185,7 @@ impl SpyVisionController {
             })
             .flatten()
         else {
+            // C++: playerToSetFor == NULL → return without changing m_currentlyActive.
             return;
         };
 
@@ -199,8 +200,10 @@ impl SpyVisionController {
         let Ok(spying_player_guard) = spying_player_arc.read() else {
             return;
         };
+        // currently_active is assigned only after the player-list work succeeds.
         self.do_activation_work_for_owner(&spying_player_guard, setting);
     }
+
 
     pub fn on_capture(
         &mut self,

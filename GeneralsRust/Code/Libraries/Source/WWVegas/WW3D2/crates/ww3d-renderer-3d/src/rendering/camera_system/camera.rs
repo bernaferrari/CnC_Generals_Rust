@@ -337,6 +337,16 @@ impl CameraClass {
         self.get_position()
     }
 
+    /// C++ `CameraClass::Get_Transform` — world matrix including local +Z.
+    pub fn peek_transform(&self) -> Mat4 {
+        self.transform
+    }
+
+    /// C++ `Matrix3D::Get_Z_Vector` of the camera transform.
+    pub fn get_z_vector(&self) -> Vec3 {
+        self.transform.z_axis.truncate()
+    }
+
     /// Project world space point to screen space
     pub fn project(&mut self, world_point: Vec3) -> Result<(Vec3, ProjectionResType)> {
         let view_proj = self.get_view_projection_matrix();

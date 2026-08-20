@@ -265,7 +265,6 @@ impl TerrainVisualImpl {
             }
         }
         self.overlay.water_grid_dirty = true;
-        self.overlay.river_v_origin = (self.overlay.river_v_origin + 0.002) % 1.0;
         self.overlay.bump_frame = (self.overlay.bump_frame + 1) % NUM_BUMP_FRAMES;
     }
 
@@ -310,6 +309,8 @@ impl TerrainVisualImpl {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             index_count: indices.len() as u32,
+            texture_name: String::new(),
+            jba: false,
         }];
     }
 
@@ -375,6 +376,8 @@ impl TerrainVisualImpl {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             index_count: indices.len() as u32,
+            texture_name: String::new(),
+            jba: false,
         });
         self.overlay.water_grid_dirty = false;
     }
@@ -399,7 +402,7 @@ impl TerrainVisualImpl {
             for layer in 0..layers {
                 let z_off = layer as f32 * FEATHER_THICKNESS;
                 let (verts, indices) = if area.is_river {
-                    bake_river_strip(&area.points, area.river_start, water_y + z_off, self.overlay.river_v_origin)
+                    bake_river_strip(&area.points, area.river_start, water_y + z_off, 0.0)
                 } else {
                     bake_trapezoid_water(&area.points, water_y + z_off)
                 };
@@ -407,8 +410,10 @@ impl TerrainVisualImpl {
                     continue;
                 }
                 let gpu = fill_water_gpu_upload_vertices(&verts);
-                if let Some(mesh) = Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
+                if let Some(mut mesh) =
+                    Self::upload_water_overlay(device, "Polygon Water", &gpu, &indices)
                 {
+                    mesh.jba = true;
                     self.polygon_water_meshes.push(mesh);
                 }
             }
@@ -437,6 +442,8 @@ impl TerrainVisualImpl {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             index_count: indices.len() as u32,
+            texture_name: String::new(),
+            jba: false,
         })
     }
 
@@ -823,9 +830,30 @@ impl TerrainVisualImpl {
     }
 
     fn record_extra_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(water_pipeline), Some(camera_bg), Some(water_bg)) = (
+        let Some(camera_bg) = self.terrain_camera_bind_group.as_ref() else {
+            return;
+        };
+
+        if let (Some(river_pipeline), Some(river_bg)) = (
+            self.river_gpu.pipeline.as_ref(),
+            self.river_gpu.bind_group.as_ref(),
+        ) {
+            let mut started = false;
+            for mesh in self.polygon_water_meshes.iter().filter(|m| m.jba) {
+                if !started {
+                    pass.set_pipeline(river_pipeline);
+                    pass.set_bind_group(0, camera_bg, &[]);
+                    pass.set_bind_group(1, river_bg, &[]);
+                    started = true;
+                }
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+        }
+
+        let (Some(water_pipeline), Some(water_bg)) = (
             self.water_pipeline.as_ref(),
-            self.terrain_camera_bind_group.as_ref(),
             self.water_texture_bind_group.as_ref(),
         ) else {
             return;
@@ -836,7 +864,7 @@ impl TerrainVisualImpl {
         for mesh in self
             .shoreline_meshes
             .iter()
-            .chain(self.polygon_water_meshes.iter())
+            .chain(self.polygon_water_meshes.iter().filter(|m| !m.jba))
             .chain(self.water_grid_mesh.iter())
         {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));

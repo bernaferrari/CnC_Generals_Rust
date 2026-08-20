@@ -257,6 +257,30 @@ impl ArchiveFileSystem {
         Ok(loaded)
     }
 
+    /// C++ ArchiveFileSystem::loadMods — overwrite only the user -mod BIG/dir.
+    pub fn load_user_mods(&mut self, mod_dir: &str, mod_big: &str) -> Result<()> {
+        use game_engine::common::AsciiString;
+        if !mod_big.trim().is_empty() {
+            let path = Path::new(mod_big);
+            if path.exists() {
+                self.core
+                    .open_archive_file(mod_big)
+                    .map_err(anyhow::Error::from)?;
+            }
+        }
+        if !mod_dir.trim().is_empty() {
+            let dir = Path::new(mod_dir);
+            if dir.exists() {
+                let dir_ascii = AsciiString::from(dir.to_string_lossy().as_ref());
+                let mask = AsciiString::from("*.big");
+                self.core
+                    .load_big_files_from_directory(&dir_ascii, &mask, true)
+                    .map_err(anyhow::Error::from)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Load an entire file into memory.
     pub async fn open_file(&mut self, filename: &str) -> Result<Vec<u8>> {
         let mut reader = self

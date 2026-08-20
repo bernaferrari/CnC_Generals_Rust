@@ -31,6 +31,8 @@ pub mod meta_event;
 pub use meta_event::take_host_drawable_tod_residual;
 pub use meta_event::take_host_model_condition_weather_residual;
 pub mod place_event_translator;
+pub mod place_event_confirm;
+pub use place_event_confirm::*;
 pub mod player_state;
 pub mod translators;
 pub mod window_xlat;

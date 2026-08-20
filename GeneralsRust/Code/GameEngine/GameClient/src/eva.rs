@@ -669,7 +669,10 @@ impl Eva {
             return;
         }
 
-        if self.eva_speech.is_currently_playing() {
+        if TheAudio::get()
+            .map(|audio| audio.is_currently_playing(self.eva_speech.get_playing_handle()))
+            .unwrap_or(false)
+        {
             return;
         }
 

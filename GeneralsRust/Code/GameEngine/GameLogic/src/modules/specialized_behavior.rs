@@ -216,6 +216,11 @@ pub trait ExitInterface {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
+
+    /// C++ ExitInterface::useSpawnRallyPoint. Default false; DefaultProductionExit authors it.
+    fn use_spawn_rally_point(&self) -> bool {
+        false
+    }
 }
 
 /// Exit door type

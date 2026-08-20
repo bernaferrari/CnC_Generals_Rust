@@ -178,7 +178,7 @@ impl QueueProductionExitBehavior {
 
         // Calculate natural rally point
         // Matches C++ lines 112-117
-        let natural_rally = self.get_natural_rally_point(building_transform, false);
+        let natural_rally = self.get_natural_rally_point(building_transform, true);
 
         // Determine final rally point
         let final_rally = if self.rally_point_exists {
@@ -489,6 +489,10 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                                 let mut starting_force = owner_velocity;
                                 starting_force *= phys_guard.get_mass();
                                 phys_guard.apply_motive_force(&starting_force);
+                                const STARTING_PITCH_COEFF: f32 = 0.04;
+                                let pitch_rate =
+                                    phys_guard.get_center_of_mass_offset() * STARTING_PITCH_COEFF;
+                                phys_guard.set_pitch_rate(pitch_rate);
                             }
                         }
                     }
@@ -503,7 +507,16 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                 }
             }
 
-            let natural_rally = self.get_natural_rally_point(&building_transform, false);
+            let mut natural_rally = self.get_natural_rally_point(&building_transform, true);
+            if let Ok(ai_guard) = THE_AI.read() {
+                if let Some(pathfinder) = ai_guard.pathfinder() {
+                    if let Ok(pf) = pathfinder.read() {
+                        if let Ok(obj_guard) = obj.read() {
+                            pf.snap_position_for_object(&obj_guard, &mut natural_rally);
+                        }
+                    }
+                }
+            }
             let mut exit_path = vec![natural_rally];
             if let Ok(new_obj_guard) = obj.read() {
                 if let Some(ai) = new_obj_guard.get_ai_update_interface() {

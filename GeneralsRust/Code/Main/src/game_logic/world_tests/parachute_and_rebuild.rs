@@ -3135,7 +3135,23 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
         )
         .expect("cc");
 
-    let stolen = logic.activate_cash_hack(0, Some(src));
+    let mut depot = ThingTemplate::new("AmericaSupplyCenter");
+    depot
+        .add_kind_of(KindOf::Structure)
+        .set_health(2000.0);
+    logic.templates.insert("AmericaSupplyCenter".into(), depot);
+    let victim = logic
+        .create_object(
+            "AmericaSupplyCenter",
+            Team::USA,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("victim");
+
+    // Location-only fire is a C++ no-op.
+    assert_eq!(logic.activate_cash_hack(0, Some(src), None), 0);
+
+    let stolen = logic.activate_cash_hack(0, Some(src), Some(victim));
     assert_eq!(stolen, CASH_HACK_MONEY_AMOUNT_TIER3);
     assert_eq!(
         logic.last_cash_hack_request_amount(),
@@ -3151,8 +3167,8 @@ fn superweapon_cash_hack_science_tier_steals_amount() {
         10_000 - CASH_HACK_MONEY_AMOUNT_TIER3
     );
 
-    // DoSpecialPower path residual.
-    let stolen2 = logic.activate_cash_hack(0, Some(src));
+    // Object-target path residual (second steal from the same victim player).
+    let stolen2 = logic.activate_cash_hack(0, Some(src), Some(victim));
     assert_eq!(stolen2, CASH_HACK_MONEY_AMOUNT_TIER3);
     let _ = SpecialPowerType::CashHack;
 }

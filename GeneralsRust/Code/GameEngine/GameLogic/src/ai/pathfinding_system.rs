@@ -68,14 +68,8 @@ pub enum PathfindLayerEnum {
 impl From<crate::common::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::common::PathfindLayerEnum) -> Self {
         match layer {
-            crate::common::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
-            crate::common::PathfindLayerEnum::Top => PathfindLayerEnum::Air,
-            crate::common::PathfindLayerEnum::Water => PathfindLayerEnum::Water,
-            crate::common::PathfindLayerEnum::Bridge1
-            | crate::common::PathfindLayerEnum::Bridge2
-            | crate::common::PathfindLayerEnum::Bridge3
-            | crate::common::PathfindLayerEnum::Bridge4
-            | crate::common::PathfindLayerEnum::Wall => PathfindLayerEnum::Ground,
+            crate::common::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
+            // C++ layers 2–15 are bridge/wall decks, not air.
             _ => PathfindLayerEnum::Ground,
         }
     }
@@ -830,15 +824,13 @@ impl PathfindingSystem {
                             .layers
                             .iter()
                             .map(|layer| match layer {
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Ground => {
-                                    PathfindLayerEnum::Ground
-                                }
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Top => {
-                                    PathfindLayerEnum::Air
-                                }
                                 crate::ai::pathfind_astar::PathfindLayerEnum::Invalid => {
                                     PathfindLayerEnum::Invalid
                                 }
+                                crate::ai::pathfind_astar::PathfindLayerEnum::Ground => {
+                                    PathfindLayerEnum::Ground
+                                }
+                                _ => PathfindLayerEnum::Ground,
                             })
                             .collect();
                         let path = self.build_path_from_positions_with_layers(

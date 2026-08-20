@@ -56,6 +56,15 @@ pub struct W3DModelDraw {
 
     /// Cached animation speed factor selected at animation start.
     current_anim_speed_factor: Real,
+    /// Fractional leftover from AnimationSpeedFactor / duration multiplier ticks.
+    anim_frame_accumulator: Real,
+
+    /// Deferred MODELCONDITION_CARRYING intent (C++ writes this on the Drawable).
+    pending_carrying: Option<bool>,
+
+    /// True after allocateShadows created a projected template shadow.
+    shadow_allocated: bool,
+
 
     /// Sub-objects to hide/show
     sub_object_vec: Vec<HideShowSubObjInfo>,
@@ -108,6 +117,10 @@ impl W3DModelDraw {
             current_anim_num_frames: DEFAULT_ANIMATION_FRAMES,
             current_anim_complete: true,
             current_anim_speed_factor: 1.0,
+            anim_frame_accumulator: 0.0,
+            pending_carrying: None,
+            shadow_allocated: false,
+
             sub_object_vec: Vec::new(),
             sub_objects_dirty: false,
             terrain_decal: TerrainDecalType::None,
@@ -231,29 +244,23 @@ impl W3DModelDraw {
             return 0.0;
         }
         let denom = (self.current_anim_num_frames - 1) as Real;
-        if denom <= 0.0 {
-            return 0.0;
-        }
         let frame = self
             .current_anim_frame
             .clamp(0, self.current_anim_num_frames - 1) as Real;
         (frame / denom).clamp(0.0, 1.0)
     }
 
-    fn current_animation_complete(&self) -> bool {
-        self.current_anim_complete
-    }
-
     fn animation_total_frames(&self, state: &ModelConditionInfo) -> i32 {
-        if let Some(frames) = self.animation_override.duration_frames {
-            return frames.max(1) as i32;
-        }
+        // Native clip length only. Duration overrides become a playback
+        // multiplier (C++ Set_Animation_Frame_Rate_Multiplier), not a
+        // rewritten frame count.
         if self.which_anim_in_cur_state >= 0
             && (self.which_anim_in_cur_state as usize) < state.animations.len()
         {
             let anim = &state.animations[self.which_anim_in_cur_state as usize];
             if anim.natural_duration_ms > 0.0 {
-                let frames = (anim.natural_duration_ms / MSEC_PER_LOGICFRAME_REAL).round() as i32;
+                let frames =
+                    (anim.natural_duration_ms / MSEC_PER_LOGICFRAME_REAL).round() as i32;
                 return frames.max(1);
             }
         }
@@ -347,6 +354,64 @@ impl W3DModelDraw {
         let cols = matrix.to_cols_array();
         cols[1].atan2(cols[0])
     }
+
+    /// C++ `Matrix3D::Translate_Z` — post-multiply a local-Z translation.
+    fn translate_z(mtx: &mut Matrix3D, z: Real) {
+        *mtx *= Matrix3D::from_translation(Coord3D::new(0.0, 0.0, z));
+    }
+
+    /// C++ `W3DModelDraw.cpp:2005-2009`.
+    /// `getConstructionPercent() >= 0` then `Translate_Z(-height + height * pct / 100)`.
+    /// Completed objects use `CONSTRUCTION_COMPLETE = -1` and are not sunk.
+    fn construction_percent_z_delta(pct: Real, height: Real) -> Option<Real> {
+        if pct < 0.0 {
+            None
+        } else {
+            Some(-height + height * pct / 100.0)
+        }
+    }
+
+    /// C++ `CACHE_ATTACH_BONE` path (`W3DModelDraw.cpp:1974-1981`):
+    /// `Rotate_Vector(offset)` then `Adjust_*_Translation`.
+    fn apply_attach_to_drawable_bone_offset(mtx: &mut Matrix3D, offset: Coord3D) {
+        let rotated = mtx.transform_vector3(offset);
+        mtx.w_axis.x += rotated.x;
+        mtx.w_axis.y += rotated.y;
+        mtx.w_axis.z += rotated.z;
+    }
+
+    /// C++ `W3DModelDrawModuleData::getAttachToDrawableBoneOffset`.
+    /// Empty name → no offset. Otherwise always an offset (zero if the bone is missing).
+    fn attach_to_drawable_bone_offset(&self) -> Option<Coord3D> {
+        if self.data.attach_to_drawable_bone.is_empty() {
+            return None;
+        }
+
+        if let Some(pos) = self
+            .with_owner_drawable(|drawable| {
+                drawable
+                    .get_pristine_bone_positions(
+                        self.data.attach_to_drawable_bone.as_str(),
+                        0,
+                        1,
+                    )
+                    .into_iter()
+                    .next()
+            })
+            .flatten()
+        {
+            return Some(pos);
+        }
+
+        if let Some((_, info)) = self.current_state().and_then(|state| {
+            state.find_pristine_bone_by_name(self.data.attach_to_drawable_bone.as_str())
+        }) {
+            return Some(Self::matrix_translation(&info.transform));
+        }
+
+        Some(self.data.attach_to_drawable_bone_offset)
+    }
+
 
     fn recalc_bones_for_client_particle_systems(&mut self) {
         if !self.need_recalc_bone_particle_systems {
@@ -604,18 +669,13 @@ impl W3DModelDraw {
 
     fn adjust_transform_mtx(&self, transform_mtx: &Matrix3D) -> Matrix3D {
         let mut mtx = *transform_mtx;
-        if !self.data.attach_to_drawable_bone.is_empty() {
-            if let Some(bone) = self.with_owner_drawable(|drawable| {
-                drawable.get_current_worldspace_client_bone_positions(
-                    self.data.attach_to_drawable_bone.as_str(),
-                )
-            }) {
-                if let Some(bone) = bone {
-                    mtx = bone;
-                }
-            }
+
+        // C++ W3DModelDraw.cpp:1974-1982 (CACHE_ATTACH_BONE is defined).
+        if let Some(offset) = self.attach_to_drawable_bone_offset() {
+            Self::apply_attach_to_drawable_bone_offset(&mut mtx, offset);
         }
 
+        // C++ W3DModelDraw.cpp:2000-2012 — construction-percent height sink.
         let adjust_height = self
             .current_state()
             .map(|state| test_flag_bit(state.flags, ACBIT_ADJUST_HEIGHT_BY_CONSTRUCTION_PERCENT))
@@ -624,11 +684,10 @@ impl W3DModelDraw {
             if let Some(owner_id) = self.owner_id {
                 if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
                     if let Ok(obj) = object.read() {
-                        if obj.is_under_construction() {
-                            let pct = obj.get_construction_percent() as Real;
-                            let height = obj.get_geometry_info().get_max_height_above_position();
-                            let dz = -height + (height * pct / 100.0);
-                            mtx *= Matrix3D::from_translation(glam::Vec3::new(0.0, 0.0, dz));
+                        let pct = obj.get_construction_percent() as Real;
+                        let height = obj.get_geometry_info().get_max_height_above_position();
+                        if let Some(dz) = Self::construction_percent_z_delta(pct, height) {
+                            Self::translate_z(&mut mtx, dz);
                         }
                     }
                 }

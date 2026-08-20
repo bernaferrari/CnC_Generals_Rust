@@ -696,6 +696,11 @@ impl W3DLoader {
                 }
                 W3D_CHUNK_LODMODEL => {
                     debug!("Found W3D LOD model chunk, size: {}", chunk_size);
+                    if let Some(dist_lod) =
+                        super::w3d_collection_aggregate::parse_dist_lod_chunk(chunk_data)
+                    {
+                        model.dist_lods.push(dist_lod);
+                    }
                     if is_container_chunk {
                         if let Err(e) = self.parse_container_chunk(chunk_data, &mut model) {
                             warn!("Failed to parse LOD model container: {}", e);
@@ -718,6 +723,53 @@ impl W3DLoader {
                                 warn!("Failed to parse HLOD container: {}", e);
                             }
                         }
+                    }
+                }
+                W3D_CHUNK_EMITTER => {
+                    if let Some(emitter) = super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
+                    {
+                        model.emitters.push(emitter);
+                    }
+                }
+                W3D_CHUNK_DAZZLE => {
+                    if let Some(dazzle) = super::w3d_dazzle_loader::parse_dazzle_chunk(chunk_data) {
+                        model.dazzles.push(dazzle);
+                    }
+                }
+                W3D_CHUNK_BOX => {
+                    if let Some(box_proto) = super::w3d_primitive_protos::parse_box_chunk(chunk_data)
+                    {
+                        model.boxes.push(box_proto);
+                    }
+                }
+                W3D_CHUNK_RING => {
+                    if let Some(ring) = super::w3d_primitive_protos::parse_ring_chunk(chunk_data) {
+                        model.rings.push(ring);
+                    }
+                }
+                W3D_CHUNK_SPHERE => {
+                    if let Some(sphere) = super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
+                    {
+                        model.spheres.push(sphere);
+                    }
+                }
+                W3D_CHUNK_NULL_OBJECT => {
+                    if let Some(null) = super::w3d_primitive_protos::parse_null_chunk(chunk_data) {
+                        model.nulls.push(null);
+                    }
+                }
+                W3D_CHUNK_COLLECTION => {
+                    if let Some(collection) =
+                        super::w3d_collection_aggregate::parse_collection_chunk(chunk_data)
+                    {
+                        model.collections.push(collection);
+                    }
+                }
+                W3D_CHUNK_AGGREGATE => {
+                    if let Some(aggregate) =
+                        super::w3d_collection_aggregate::parse_aggregate_chunk(chunk_data)
+                    {
+                        model.aggregates.push(aggregate);
                     }
                 }
                 _ => {
@@ -745,7 +797,20 @@ impl W3DLoader {
             );
         }
 
-        if model.meshes.is_empty() && !allow_animation_only {
+        if model.meshes.is_empty()
+            && model.hlods.is_empty()
+            && model.hmodels.is_empty()
+            && model.emitters.is_empty()
+            && model.dazzles.is_empty()
+            && model.boxes.is_empty()
+            && model.rings.is_empty()
+            && model.spheres.is_empty()
+            && model.nulls.is_empty()
+            && model.collections.is_empty()
+            && model.aggregates.is_empty()
+            && model.dist_lods.is_empty()
+            && !allow_animation_only
+        {
             return Err(anyhow!(
                 "legacy parser: no valid meshes found in '{}'",
                 model.name
@@ -899,6 +964,65 @@ impl W3DLoader {
                             Err(error) => {
                                 warn!("Failed to parse nested HMODEL definition: {}", error)
                             }
+                        }
+                    }
+                }
+                W3D_CHUNK_EMITTER => {
+                    if let Some(emitter) = super::w3d_emitter_loader::parse_emitter_chunk(chunk_data)
+                    {
+                        model.emitters.push(emitter);
+                    }
+                }
+                W3D_CHUNK_DAZZLE => {
+                    if let Some(dazzle) = super::w3d_dazzle_loader::parse_dazzle_chunk(chunk_data) {
+                        model.dazzles.push(dazzle);
+                    }
+                }
+                W3D_CHUNK_BOX => {
+                    if let Some(box_proto) = super::w3d_primitive_protos::parse_box_chunk(chunk_data)
+                    {
+                        model.boxes.push(box_proto);
+                    }
+                }
+                W3D_CHUNK_RING => {
+                    if let Some(ring) = super::w3d_primitive_protos::parse_ring_chunk(chunk_data) {
+                        model.rings.push(ring);
+                    }
+                }
+                W3D_CHUNK_SPHERE => {
+                    if let Some(sphere) = super::w3d_primitive_protos::parse_sphere_chunk(chunk_data)
+                    {
+                        model.spheres.push(sphere);
+                    }
+                }
+                W3D_CHUNK_NULL_OBJECT => {
+                    if let Some(null) = super::w3d_primitive_protos::parse_null_chunk(chunk_data) {
+                        model.nulls.push(null);
+                    }
+                }
+                W3D_CHUNK_COLLECTION => {
+                    if let Some(collection) =
+                        super::w3d_collection_aggregate::parse_collection_chunk(chunk_data)
+                    {
+                        model.collections.push(collection);
+                    }
+                }
+                W3D_CHUNK_AGGREGATE => {
+                    if let Some(aggregate) =
+                        super::w3d_collection_aggregate::parse_aggregate_chunk(chunk_data)
+                    {
+                        model.aggregates.push(aggregate);
+                    }
+                }
+                W3D_CHUNK_LODMODEL => {
+                    if let Some(dist_lod) =
+                        super::w3d_collection_aggregate::parse_dist_lod_chunk(chunk_data)
+                    {
+                        model.dist_lods.push(dist_lod);
+                    }
+                    if is_container_chunk && chunk_size > 0 {
+                        if let Err(e) = self.parse_container_chunk(chunk_data, model) {
+                            warn!("Failed to parse nested LODMODEL container: {}", e);
                         }
                     }
                 }

@@ -1117,7 +1117,13 @@ impl AIGroup {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 match (location, target) {
                     (Some(loc), _) => {
-                        obj_ref.do_special_power_at_location(&template_name, &loc, options, false)
+                        obj_ref.do_special_power_at_location(
+                            &template_name,
+                            &loc,
+                            crate::object_creation_list::nuggets::INVALID_ANGLE,
+                            options,
+                            false,
+                        )
                     }
                     (None, Some(tid)) => {
                         obj_ref.do_special_power_at_object(&template_name, tid, options, false)
@@ -1369,7 +1375,7 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 let _ = obj_ref.do_command_button(button_id, cmd_source);
             });
         }
@@ -1388,7 +1394,7 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 let _ = obj_ref.do_command_button_at_position(button_id, pos, cmd_source);
             });
         }
@@ -1427,7 +1433,7 @@ impl AIGroup {
 
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(target_id, |target_ref| {
-                let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                     let _ = obj_ref.do_command_button_at_object(button_id, target_ref, cmd_source);
                 });
             });

@@ -7,13 +7,18 @@ use super::collide_crates::*;
 use super::contain::*;
 use super::death::*;
 use super::draw_client::*;
+use super::factory_gaps::*;
 use super::helpers::*;
 use super::leftover::*;
 use super::production::*;
+use super::template_locomotor::install_template_locomotor_applier;
 use super::update_modules::*;
 use super::*;
+use game_engine::common::thing::thing_factory::apply_stored_locomotors_to_all_templates;
 
 pub(super) fn install_contain_overrides() -> Result<(), String> {
+    install_template_locomotor_applier();
+
     register_module_override(
         "InactiveBody",
         ModuleType::Behavior,
@@ -555,6 +560,13 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         production_update_data_factory,
     )?;
     register_module_override(
+        "ProneUpdate",
+        ModuleType::Behavior,
+        prone_update_module_factory,
+        prone_update_data_factory,
+    )?;
+
+    register_module_override(
         "RepairDockUpdate",
         ModuleType::Behavior,
         repair_dock_update_module_factory,
@@ -584,6 +596,19 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         supply_warehouse_crippling_behavior_module_factory,
         supply_warehouse_crippling_behavior_data_factory,
     )?;
+    register_module_override(
+        "ActiveShroudUpgrade",
+        ModuleType::Behavior,
+        active_shroud_upgrade_module_factory,
+        active_shroud_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "StatusBitsUpgrade",
+        ModuleType::Behavior,
+        status_bits_upgrade_module_factory,
+        status_bits_upgrade_data_factory,
+    )?;
+
     register_module_override(
         "ArmorUpgrade",
         ModuleType::Behavior,
@@ -896,6 +921,13 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         fire_weapon_update_module_factory,
         fire_weapon_update_data_factory,
     )?;
+    register_module_override(
+        "DynamicGeometryInfoUpdate",
+        ModuleType::Behavior,
+        dynamic_geometry_info_update_module_factory,
+        dynamic_geometry_info_update_data_factory,
+    )?;
+
     register_module_override(
         "FirestormDynamicGeometryInfoUpdate",
         ModuleType::Behavior,
@@ -1287,7 +1319,15 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         spy_vision_special_power_module_factory,
         spy_vision_special_power_module_data_factory,
     )?;
+    register_module_override(
+        "DefectorSpecialPower",
+        ModuleType::Behavior,
+        defector_special_power_module_factory,
+        defector_special_power_module_data_factory,
+    )?;
+    apply_stored_locomotors_to_all_templates();
     Ok(())
+
 }
 
 static CONTAIN_OVERRIDES_READY: OnceLock<Result<(), String>> = OnceLock::new();

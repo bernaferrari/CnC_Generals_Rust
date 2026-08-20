@@ -23,6 +23,15 @@ impl W3DModel {
             hierarchies: Vec::new(),
             hlods: Vec::new(),
             hmodels: Vec::new(),
+            emitters: Vec::new(),
+            dazzles: Vec::new(),
+            boxes: Vec::new(),
+            rings: Vec::new(),
+            spheres: Vec::new(),
+            nulls: Vec::new(),
+            collections: Vec::new(),
+            aggregates: Vec::new(),
+            dist_lods: Vec::new(),
             hlod_parse_failed: false,
             animations: Vec::new(),
         }
@@ -450,6 +459,22 @@ impl W3DModel {
             .as_ref()
             .is_some_and(|influences| !influences.is_empty());
         flagged || influences
+    }
+
+    /// C++ `MeshGeometryClass` load sets ALIGNED from CAMERA_ALIGNED (0x00010000).
+    pub fn mesh_declares_camera_aligned(mesh: &W3DMesh) -> bool {
+        mesh.header.as_ref().is_some_and(|header| {
+            (header.attrs & W3D_MESH_FLAG_GEOMETRY_TYPE_MASK)
+                == W3D_MESH_FLAG_GEOMETRY_TYPE_CAMERA_ALIGNED
+        })
+    }
+
+    /// C++ `MeshGeometryClass` load sets ORIENTED from CAMERA_ORIENTED (0x00060000).
+    pub fn mesh_declares_camera_oriented(mesh: &W3DMesh) -> bool {
+        mesh.header.as_ref().is_some_and(|header| {
+            (header.attrs & W3D_MESH_FLAG_GEOMETRY_TYPE_MASK)
+                == W3D_MESH_FLAG_GEOMETRY_TYPE_CAMERA_ORIENTED
+        })
     }
 
     /// C++ `MeshClass::Render` uses `Set_World_Identity` for SKIN

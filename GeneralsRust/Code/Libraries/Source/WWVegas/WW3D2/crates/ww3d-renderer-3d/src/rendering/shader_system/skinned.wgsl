@@ -24,9 +24,8 @@ struct ModelUniform {
     visibility_pad: f32,        // Padding for alignment
 };
 
-struct BoneUniform {
-    bones: array<mat4x4<f32>, 64>,
-};
+// Runtime-sized HTree palette. C++ deforms every pivot; do not cap at 64.
+// Access as bones[i], not bones.bones[i].
 
 struct PackedLight {
     direction: vec4<f32>,
@@ -100,7 +99,7 @@ struct VertexOutput {
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model: ModelUniform;
 @group(1) @binding(1) var<uniform> lighting: LightingUniform;
-@group(2) @binding(0) var<uniform> bones: BoneUniform;
+@group(2) @binding(0) var<storage, read> bones: array<mat4x4<f32>>;
 @group(2) @binding(1) var<uniform> uv_transform: UVTransformUniform;
 @group(3) @binding(0) var t_stage0_2d: texture_2d<f32>;
 @group(3) @binding(1) var t_stage0_cube: texture_cube<f32>;
@@ -554,7 +553,9 @@ fn vs_main(
     // Apply bone transformations with weights
     for (var i = 0u; i < 4u; i = i + 1u) {
         if input.bone_weights[i] > 0.0 {
-            let bone_matrix = bones.bones[input.bone_indices[i]];
+            let bone_count = arrayLength(&bones);
+            let bone_index = min(input.bone_indices[i], bone_count - 1u);
+            let bone_matrix = bones[bone_index];
             skinned_position += bone_matrix * vec4<f32>(input.position, 1.0) * input.bone_weights[i];
             skinned_normal += bone_matrix * vec4<f32>(input.normal, 0.0) * input.bone_weights[i];
         }

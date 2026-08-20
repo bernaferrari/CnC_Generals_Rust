@@ -190,16 +190,16 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        let Some((pos_a, geom_a)) = self.partition_manager.get_object_info(id_a) else {
+        let Some((pos_a, geom_a, angle_a)) = self.partition_manager.get_object_pose(id_a) else {
             return Ok(false);
         };
-        let Some((pos_b, geom_b)) = self.partition_manager.get_object_info(id_b) else {
+        let Some((pos_b, geom_b, angle_b)) = self.partition_manager.get_object_pose(id_b) else {
             return Ok(false);
         };
 
         let mut cinfo = CollideLocAndNormal::new(Coord3D::zero(), Coord3D::zero());
-        let info_a = CollideInfo::new(pos_a, geom_a, 0.0);
-        let info_b = CollideInfo::new(pos_b, geom_b, 0.0);
+        let info_a = CollideInfo::new(pos_a, geom_a, angle_a);
+        let info_b = CollideInfo::new(pos_b, geom_b, angle_b);
         if !collision_test(&info_a, &info_b, Some(&mut cinfo)) {
             return Ok(false);
         }
@@ -234,22 +234,13 @@ impl CollisionSystem {
 
         self.handle_ai_collision(&obj_a, &obj_b);
 
-        let should_a = COLLISION_MANAGER.would_like_to_collide_with(id_a, &obj_b)?;
-        let should_b = COLLISION_MANAGER.would_like_to_collide_with(id_b, &obj_a)?;
-        if !should_a && !should_b {
-            return Ok(false);
-        }
-
+        // C++ processContactList always calls Object::onCollide on both sides
+        // unless OBJECT_STATUS_NO_COLLISIONS. wouldLikeToCollideWith is not a gate.
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
-
-        if should_a {
-            let _ = COLLISION_MANAGER.handle_collision(id_a, Some(&obj_b), &loc, &normal);
-        }
-        if should_b {
-            let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
-            let _ = COLLISION_MANAGER.handle_collision(id_b, Some(&obj_a), &loc, &inv_normal);
-        }
+        let _ = COLLISION_MANAGER.handle_collision(id_a, Some(&obj_b), &loc, &normal);
+        let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
+        let _ = COLLISION_MANAGER.handle_collision(id_b, Some(&obj_a), &loc, &inv_normal);
 
         if let Some(cfg) = self.object_configs.get(&id_a) {
             let mut a_handle = obj_a.clone();

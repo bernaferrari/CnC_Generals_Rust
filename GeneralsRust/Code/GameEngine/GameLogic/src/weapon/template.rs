@@ -123,6 +123,9 @@ pub struct WeaponTemplate {
     pub historic_bonus_radius: f32,
     pub historic_bonus_count: i32,
     pub historic_bonus_weapon: Option<Weak<WeaponTemplate>>,
+    /// C++ `INI::parseWeaponTemplate` name kept so fire-time lookup works when
+    /// the Weak is not yet wired (Weapon.ini loads HistoricBonusWeapon by name).
+    pub historic_bonus_weapon_name: String,
 
     /// Audio
     pub fire_sound: AudioEventRts,
@@ -421,6 +424,7 @@ impl WeaponTemplate {
             historic_bonus_radius: 0.0,
             historic_bonus_count: 0,
             historic_bonus_weapon: None,
+            historic_bonus_weapon_name: String::new(),
             fire_sound: AudioEventRts::new(String::new()),
             fire_sound_loop_time: 0,
             fire_fx: [None, None, None, None],
@@ -1199,20 +1203,90 @@ impl WeaponTemplate {
         }
     }
 
-    /// C++ Weapon.cpp:1214-1251 — fire historic bonus then clear, else record this hit.
-    pub fn apply_historic_bonus(&self, source_obj: ObjectId, pos: &Coord3D) {
-        self.trim_old_historic_damage();
-        if self.historic_bonus_count <= 0 {
+    /// Hits still inside the historic window (tests / honesty).
+    pub fn historic_damage_len(&self) -> usize {
+        self.historic_damage
+            .lock()
+            .map(|list| list.len())
+            .unwrap_or(0)
+    }
+
+    /// C++ `INI::parseWeaponTemplate` for HistoricBonusWeapon.
+    pub fn set_historic_bonus_weapon_name(&mut self, name: &str) {
+        let name = name.split_whitespace().next().unwrap_or(name).trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("None") {
+            self.historic_bonus_weapon_name.clear();
+            self.historic_bonus_weapon = None;
+        } else {
+            self.historic_bonus_weapon_name = name.to_string();
+        }
+    }
+
+    /// Fill HistoricBonusWeapon name from Common Weapon.ini when the Weak is empty.
+    pub fn fill_historic_bonus_weapon_name(&mut self) {
+        if !self.historic_bonus_weapon_name.trim().is_empty() {
             return;
         }
-        let Some(bonus_weak) = &self.historic_bonus_weapon else {
-            return;
-        };
-        let Some(bonus_weapon) = bonus_weak.upgrade() else {
-            return;
-        };
-        if bonus_weapon.name == self.name {
-            return;
+        if let Some(name) = common_historic_bonus_weapon_name(&self.name) {
+            self.set_historic_bonus_weapon_name(&name);
+        }
+    }
+
+
+    fn historic_bonus_weapon_name_resolved(&self) -> Option<String> {
+        let named = self.historic_bonus_weapon_name.trim();
+        if !named.is_empty() && !named.eq_ignore_ascii_case("None") {
+            return Some(named.to_string());
+        }
+        if let Some(arc) = self
+            .historic_bonus_weapon
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+        {
+            if !arc.name.is_empty() && !arc.name.eq_ignore_ascii_case(&self.name) {
+                return Some(arc.name.clone());
+            }
+        }
+        common_historic_bonus_weapon_name(&self.name)
+    }
+
+    /// Resolve HistoricBonusWeapon: live Weak, stored name, store lookup, Common INI.
+    pub fn resolve_historic_bonus_weapon(&self) -> Option<Arc<WeaponTemplate>> {
+        if let Some(arc) = self
+            .historic_bonus_weapon
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+        {
+            if !arc.name.eq_ignore_ascii_case(&self.name) {
+                return Some(arc);
+            }
+            return None;
+        }
+        let name = self.historic_bonus_weapon_name_resolved()?;
+        if name.eq_ignore_ascii_case(&self.name) || name.eq_ignore_ascii_case("None") {
+            return None;
+        }
+        with_weapon_store(|store| store.find_weapon_template_ci(&name).cloned())
+            .ok()
+            .flatten()
+    }
+
+    /// C++ Weapon.cpp:1214-1251 — fire historic bonus then clear, else record this hit.
+    ///
+    /// Returns true when the Nth qualifying hit dispatched HistoricBonusWeapon
+    /// via `WeaponStore::createAndFireTempWeapon`.
+    pub fn apply_historic_bonus(&self, source_obj: ObjectId, pos: &Coord3D) -> bool {
+        self.trim_old_historic_damage();
+        // C++: if (m_historicBonusCount > 0 && m_historicBonusWeapon != this)
+        if self.historic_bonus_count <= 0 {
+            return false;
+        }
+        let bonus_weapon = self.resolve_historic_bonus_weapon();
+        if bonus_weapon
+            .as_ref()
+            .is_some_and(|bonus| bonus.name.eq_ignore_ascii_case(&self.name))
+        {
+            return false;
         }
 
         let current_frame = TheGameLogic::get_frame();
@@ -1221,6 +1295,7 @@ impl WeaponTemplate {
         let count = if let Ok(list) = self.historic_damage.lock() {
             list.iter()
                 .filter(|info| {
+                    // C++: it->frame >= oldestThatWillCount && 2D dist²
                     if info.frame < oldest {
                         return false;
                     }
@@ -1234,16 +1309,30 @@ impl WeaponTemplate {
         };
 
         if count >= self.historic_bonus_count - 1 {
-            let _ = with_weapon_store(|store| {
-                store.create_and_fire_temp_weapon(&bonus_weapon, source_obj, None, Some(pos))
-            });
+            // minus 1: this hit is included implicitly (Weapon.cpp:1233)
+            let dispatched = if let Some(bonus_weapon) = bonus_weapon {
+                let _ = with_weapon_store(|store| {
+                    store.create_and_fire_temp_weapon(
+                        &bonus_weapon,
+                        source_obj,
+                        None,
+                        Some(pos),
+                    )
+                });
+                true
+            } else {
+                false
+            };
             if let Ok(mut list) = self.historic_damage.lock() {
                 list.clear();
             }
+            dispatched
         } else {
             self.record_historic_damage(pos, current_frame);
+            false
         }
     }
+
 
     /// C++ Weapon.cpp estimateWeaponTemplateDamage: returns estimated damage to
     /// a victim, taking bonuses and armor into account. Does NOT consider range.
@@ -1435,8 +1524,23 @@ impl WeaponTemplate {
         self.projectile_has_behavior("MissileAIUpdate")
             || self.projectile_has_behavior("SmartBombTargetHomingUpdate")
     }
-
     pub fn has_arc_trajectory(&self) -> bool {
         self.projectile_has_behavior("DumbProjectileBehavior")
     }
 }
+
+/// Weapon.ini `HistoricBonusWeapon` is stored on the Common parser template
+/// even when the GameLogic Weak has not been wired yet.
+fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
+    game_engine::common::ini::ini_weapon::initialize_weapon_store();
+    let store = game_engine::common::ini::ini_weapon::get_weapon_store()?;
+    let tmpl = store.find_template(&AsciiString::from(owner.to_string()))?;
+    let raw = tmpl.properties.get("HistoricBonusWeapon")?;
+    let name = raw.split_whitespace().next().unwrap_or(raw).trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+

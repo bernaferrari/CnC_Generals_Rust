@@ -515,7 +515,7 @@ impl AIPlayer {
             let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
                 | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
             guard.clear_status(mask);
-            guard.set_construction_percent(100.0);
+            guard.set_construction_percent(crate::object::CONSTRUCTION_COMPLETE);
             // UnderConstruction just cleared → update upgrades (C++).
             guard.update_upgrade_modules_from_player();
             guard.get_id()

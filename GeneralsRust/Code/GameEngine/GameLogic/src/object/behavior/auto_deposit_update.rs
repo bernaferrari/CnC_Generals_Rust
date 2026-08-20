@@ -6,10 +6,8 @@
 //!
 //! FILE: AutoDepositUpdate.cpp lines 1-268
 
-use crate::common::{
-    AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, UnsignedInt,
-    CONSTRUCTION_COMPLETE,
-};
+use crate::common::{AsciiString, Bool, Coord3D, Int, KindOf, ModuleData, ObjectID, UnsignedInt};
+use crate::object::CONSTRUCTION_COMPLETE;
 use crate::helpers::{game_client_random_value_real, TheGameText, TheInGameUI};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
@@ -266,8 +264,8 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                 return UpdateSleepTime::None; // UPDATE_SLEEP_NONE
             }
 
-            // Don't deposit for buildings under construction. Matches C++ lines 140-141
-            if obj_read.get_construction_percent() != CONSTRUCTION_COMPLETE as i32 {
+            // Don't deposit unless construction is complete (`CONSTRUCTION_COMPLETE = -1`).
+            if obj_read.get_construction_percent() != CONSTRUCTION_COMPLETE {
                 return UpdateSleepTime::None; // UPDATE_SLEEP_NONE
             }
 

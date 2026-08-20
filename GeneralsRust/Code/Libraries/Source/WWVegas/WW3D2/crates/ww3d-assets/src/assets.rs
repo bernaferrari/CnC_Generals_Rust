@@ -1430,6 +1430,9 @@ pub trait RenderObj: std::fmt::Debug + Send + Sync {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
     fn clone_box(&self) -> Box<dyn RenderObj>;
+    fn class_id(&self) -> Option<ww3d_core::RenderObjClassId> {
+        None
+    }
 }
 
 impl std::fmt::Debug for AssetManager {

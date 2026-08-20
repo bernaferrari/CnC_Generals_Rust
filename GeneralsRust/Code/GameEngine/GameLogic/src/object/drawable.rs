@@ -2235,6 +2235,13 @@ impl Drawable {
         }
     }
 
+    /// C++ `Drawable::setSelectable`.
+    pub fn set_selectable(&mut self, selectable: bool) {
+        if !selectable {
+            self.set_selected(false);
+        }
+    }
+
     /// Add visual effect
     pub fn add_effect(&mut self, effect: VisualEffect, duration: Option<Real>) {
         if let Some(dur) = duration {

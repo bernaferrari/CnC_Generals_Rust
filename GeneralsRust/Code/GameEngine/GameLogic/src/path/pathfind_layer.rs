@@ -126,17 +126,29 @@ impl PathfindLayer {
 
     /// Classify cells based on terrain and obstacles
     pub fn classify_cells(&mut self) {
+        let hi = ICoord2D::new(self.x_origin + self.width - 1, self.y_origin + self.height - 1);
+        let lo = ICoord2D::new(self.x_origin, self.y_origin);
         let layer = self.layer;
         let x_origin = self.x_origin;
         let y_origin = self.y_origin;
+        let start = self.start_cell;
+        let end = self.end_cell;
         let destroyed = self.destroyed;
-
-        // Basic terrain classification
+        let width = self.width;
         for y in 0..self.height {
             for x in 0..self.width {
-                if let Some(cell) = self.get_cell_mut(x, y) {
-                    Self::classify_layer_map_cell_static(
-                        layer, x_origin, y_origin, x, y, cell, destroyed,
+                let index = (y * width + x) as usize;
+                if let Some(cell) = self.block_of_map_cells.get_mut(index) {
+                    super::pathfind_layer_classify::classify_layer_map_cell(
+                        layer,
+                        x_origin + x,
+                        y_origin + y,
+                        cell,
+                        lo,
+                        hi,
+                        start,
+                        end,
+                        destroyed,
                     );
                 }
             }
@@ -147,15 +159,14 @@ impl PathfindLayer {
     pub fn classify_wall_cells(&mut self, wall_pieces: &[ObjectID]) {
         let x_origin = self.x_origin;
         let y_origin = self.y_origin;
-
+        let width = self.width;
         for y in 0..self.height {
             for x in 0..self.width {
-                if let Some(cell) = self.get_cell_mut(x, y) {
-                    Self::classify_wall_map_cell_static(
-                        x_origin,
-                        y_origin,
-                        x,
-                        y,
+                let index = (y * width + x) as usize;
+                if let Some(cell) = self.block_of_map_cells.get_mut(index) {
+                    super::pathfind_layer_classify::classify_wall_map_cell(
+                        x_origin + x,
+                        y_origin + y,
                         cell,
                         wall_pieces,
                     );
@@ -166,34 +177,18 @@ impl PathfindLayer {
 
     /// Internal cell classification for layers
     fn classify_layer_map_cell(&mut self, x: i32, y: i32, cell: &mut PathfindCell) {
-        // Convert to world coordinates
-        let _world_x = (self.x_origin + x) as f32 * PATHFIND_CELL_SIZE_F;
-        let _world_y = (self.y_origin + y) as f32 * PATHFIND_CELL_SIZE_F;
-
-        // Default to clear for bridges
-        cell.set_type(PathfindCellType::Clear);
-
-        // Set layer-specific properties
-        match self.layer {
-            PathfindLayerEnum::Bridge1
-            | PathfindLayerEnum::Bridge2
-            | PathfindLayerEnum::Bridge3
-            | PathfindLayerEnum::Bridge4 => {
-                // Bridge cells - check if this is a valid bridge section
-                if self.is_valid_bridge_section(x, y) {
-                    cell.set_type(PathfindCellType::Clear);
-                } else {
-                    cell.set_type(PathfindCellType::BridgeImpassable);
-                }
-            }
-            PathfindLayerEnum::Wall => {
-                // Wall cells are typically impassable
-                cell.set_type(PathfindCellType::Impassable);
-            }
-            _ => {
-                cell.set_type(PathfindCellType::Clear);
-            }
-        }
+        let hi = ICoord2D::new(self.x_origin + self.width - 1, self.y_origin + self.height - 1);
+        super::pathfind_layer_classify::classify_layer_map_cell(
+            self.layer,
+            self.x_origin + x,
+            self.y_origin + y,
+            cell,
+            ICoord2D::new(self.x_origin, self.y_origin),
+            hi,
+            self.start_cell,
+            self.end_cell,
+            self.destroyed,
+        );
     }
 
     /// Internal cell classification for walls
@@ -204,50 +199,17 @@ impl PathfindLayer {
         cell: &mut PathfindCell,
         wall_pieces: &[ObjectID],
     ) {
-        let world_pos = Coord3D::new(
-            (self.x_origin + x) as f32 * PATHFIND_CELL_SIZE_F,
-            (self.y_origin + y) as f32 * PATHFIND_CELL_SIZE_F,
-            0.0,
+        super::pathfind_layer_classify::classify_wall_map_cell(
+            self.x_origin + x,
+            self.y_origin + y,
+            cell,
+            wall_pieces,
         );
-
-        // Check if this point is on a wall
-        if self.is_point_on_wall(wall_pieces, &world_pos) {
-            cell.set_type(PathfindCellType::Obstacle);
-            // Set the first wall piece as the obstacle ID (simplified)
-            if !wall_pieces.is_empty() {
-                let pos = ICoord2D::new(self.x_origin + x, self.y_origin + y);
-                cell.set_type_as_obstacle(wall_pieces[0], true, &pos);
-            }
-        } else {
-            cell.set_type(PathfindCellType::Clear);
-        }
     }
 
     /// Check if a position is on any wall piece
     fn is_point_on_wall(&self, wall_pieces: &[ObjectID], pt: &Coord3D) -> bool {
-        // Wave 450: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let cell_pad = PATHFIND_CELL_SIZE_F * 0.5;
-        for &wall_id in wall_pieces {
-            if OBJECT_REGISTRY
-                .with_object(wall_id, |wall_guard| {
-                    let wall_pos = wall_guard.get_position();
-                    let radius = wall_guard.get_geometry_info().get_major_radius();
-                    let dx = wall_pos.x - pt.x;
-                    let dy = wall_pos.y - pt.y;
-                    let dist_sq = dx * dx + dy * dy;
-                    let allowed = radius + cell_pad;
-                    dist_sq <= allowed * allowed
-                })
-                .unwrap_or(false)
-            {
-                return true;
-            }
-        }
-        false
+        super::pathfind_layer_classify::is_point_on_wall(wall_pieces, pt)
     }
 
     /// Check if this is a valid bridge section (not destroyed)
@@ -259,23 +221,8 @@ impl PathfindLayer {
     pub fn set_destroyed(&mut self, destroyed: bool) -> bool {
         if self.destroyed != destroyed {
             self.destroyed = destroyed;
-
-            // Update all cells when bridge state changes
-            if destroyed {
-                // Mark all bridge cells as impassable
-                for cell in &mut self.block_of_map_cells {
-                    if cell.get_type() == PathfindCellType::Clear {
-                        cell.set_type(PathfindCellType::BridgeImpassable);
-                    }
-                }
-            } else {
-                // Restore bridge cells
-                for cell in &mut self.block_of_map_cells {
-                    if cell.get_type() == PathfindCellType::BridgeImpassable {
-                        cell.set_type(PathfindCellType::Clear);
-                    }
-                }
-            }
+            // C++ PathfindLayer::setDestroyed → classifyCells().
+            self.classify_cells();
             true
         } else {
             false
@@ -296,7 +243,12 @@ impl PathfindLayer {
     pub fn get_cell(&self, x: i32, y: i32) -> Option<&PathfindCell> {
         if x >= 0 && x < self.width && y >= 0 && y < self.height {
             let index = (y * self.width + x) as usize;
-            self.block_of_map_cells.get(index)
+            let cell = self.block_of_map_cells.get(index)?;
+            // C++ PathfindLayer::getCell returns NULL for CELL_IMPASSABLE.
+            if cell.get_type() == PathfindCellType::Impassable {
+                return None;
+            }
+            Some(cell)
         } else {
             None
         }
@@ -428,34 +380,17 @@ impl PathfindLayer {
         cell: &mut PathfindCell,
         destroyed: bool,
     ) {
-        // Convert to world coordinates
-        let _world_x = (x_origin + x) as f32 * PATHFIND_CELL_SIZE_F;
-        let _world_y = (y_origin + y) as f32 * PATHFIND_CELL_SIZE_F;
-
-        // Default to clear for bridges
-        cell.set_type(PathfindCellType::Clear);
-
-        // Set layer-specific properties
-        match layer {
-            PathfindLayerEnum::Bridge1
-            | PathfindLayerEnum::Bridge2
-            | PathfindLayerEnum::Bridge3
-            | PathfindLayerEnum::Bridge4 => {
-                // Bridge cells - check if this is a valid bridge section
-                if !destroyed {
-                    cell.set_type(PathfindCellType::Clear);
-                } else {
-                    cell.set_type(PathfindCellType::BridgeImpassable);
-                }
-            }
-            PathfindLayerEnum::Wall => {
-                // Wall cells are typically impassable
-                cell.set_type(PathfindCellType::Impassable);
-            }
-            _ => {
-                cell.set_type(PathfindCellType::Clear);
-            }
-        }
+        super::pathfind_layer_classify::classify_layer_map_cell(
+            layer,
+            x_origin + x,
+            y_origin + y,
+            cell,
+            ICoord2D::new(x_origin, y_origin),
+            ICoord2D::new(x_origin + x, y_origin + y),
+            ICoord2D::new(x_origin, y_origin),
+            ICoord2D::new(x_origin, y_origin),
+            destroyed,
+        );
     }
 
     /// Static version of classify_wall_map_cell to avoid borrowing conflicts
@@ -467,21 +402,12 @@ impl PathfindLayer {
         cell: &mut PathfindCell,
         wall_pieces: &[ObjectID],
     ) {
-        let _world_pos = Coord3D::new(
-            (x_origin + x) as f32 * PATHFIND_CELL_SIZE_F,
-            (y_origin + y) as f32 * PATHFIND_CELL_SIZE_F,
-            0.0,
+        super::pathfind_layer_classify::classify_wall_map_cell(
+            x_origin + x,
+            y_origin + y,
+            cell,
+            wall_pieces,
         );
-
-        // Check if this point is on a wall (simplified implementation)
-        if !wall_pieces.is_empty() {
-            cell.set_type(PathfindCellType::Obstacle);
-            // Set the first wall piece as the obstacle ID (simplified)
-            let pos = ICoord2D::new(x_origin + x, y_origin + y);
-            cell.set_type_as_obstacle(wall_pieces[0], true, &pos);
-        } else {
-            cell.set_type(PathfindCellType::Clear);
-        }
     }
 }
 
@@ -562,5 +488,23 @@ mod tests {
         assert!(layer.contains_point(12, 13));
         assert!(!layer.contains_point(5, 5));
         assert!(!layer.contains_point(20, 20));
+    }
+
+    #[test]
+    fn wall_cells_without_pieces_are_impassable_not_obstacle() {
+        let mut layer = PathfindLayer::new();
+        layer.init(1, PathfindLayerEnum::Wall);
+        let extent = IRegion2D {
+            lo: ICoord2D::new(0, 0),
+            hi: ICoord2D::new(2, 2),
+        };
+        layer.allocate_cells_for_wall_layer(&extent, &[]);
+        // C++ 0 corners → IMPASSABLE; getCell returns NULL.
+        assert!(layer.get_cell(1, 1).is_none());
+        // Mutable view still holds the classified cell.
+        assert_eq!(
+            layer.get_cell_mut(1, 1).map(|c| c.get_type()),
+            Some(PathfindCellType::Impassable)
+        );
     }
 }

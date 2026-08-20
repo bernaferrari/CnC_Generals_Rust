@@ -59,7 +59,9 @@ impl FrameUniformArena {
         let buffer = Arc::new(device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
             label: Some("WW3D Frame Uniform Arena"),
             size: capacity,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
         FrameUniformPage {

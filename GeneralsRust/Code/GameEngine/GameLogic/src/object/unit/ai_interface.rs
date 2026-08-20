@@ -54,6 +54,18 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::is_turret_enabled(self, turret)
     }
 
+    fn friend_get_turret_sync(&self) -> TurretType {
+        UnitAIUpdate::friend_get_turret_sync(self)
+    }
+
+    fn friend_set_turret_sync(&mut self, turret: TurretType) {
+        UnitAIUpdate::friend_set_turret_sync(self, turret)
+    }
+
+    fn clear_guard_target_type(&mut self) {
+        UnitAIUpdate::clear_guard_target_type(self)
+    }
+
     fn get_turret_rot_and_pitch(&self, turret: TurretType) -> Option<(Real, Real)> {
         UnitAIUpdate::get_turret_rot_and_pitch(self, turret)
     }

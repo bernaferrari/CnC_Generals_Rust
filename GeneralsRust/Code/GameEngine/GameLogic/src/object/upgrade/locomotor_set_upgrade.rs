@@ -6,12 +6,7 @@ use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
+use crate::helpers::TheGameLogic;
 /// Module data describing the locomotor set upgrade.
 #[derive(Debug, Clone)]
 pub struct LocomotorSetUpgradeModuleData {
@@ -127,26 +122,28 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 448: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         if self.applied {
             return false;
         }
-        use crate::object::registry::OBJECT_REGISTRY;
 
-        let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+        // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
+        // Live host objects live on TheGameLogic (registry may be empty).
+        let object = TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+        });
+
+        let Some(object) = object else {
+            log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);
+            return false;
+        };
+
+        if let Ok(object_guard) = object.read() {
             if let Some(ai) = object_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
                     let _ = ai_guard.set_locomotor_upgrade(true);
                 }
             }
-        }) else {
-            log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);
-            return false;
-        };
+        }
 
         self.applied = true;
         true

@@ -29,8 +29,11 @@ mod tests {
 
         let pristine_speed = loco.get_max_speed_for_condition(BodyDamageType::Pristine);
         let damaged_speed = loco.get_max_speed_for_condition(BodyDamageType::Damaged);
+        let really_damaged = loco.get_max_speed_for_condition(BodyDamageType::ReallyDamaged);
 
-        assert!(damaged_speed < pristine_speed);
+        // C++ IS_CONDITION_BETTER(Damaged, ReallyDamaged) → undamaged stats.
+        assert_eq!(damaged_speed, pristine_speed);
+        assert!(really_damaged < pristine_speed);
     }
 
     #[test]

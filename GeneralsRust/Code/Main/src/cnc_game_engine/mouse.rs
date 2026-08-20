@@ -241,12 +241,13 @@ impl CnCGameEngine {
         // 50, CommandTranslator 70.  Both Place and GUI own LMB in every
         // mouse layout and must outrank a stale double-click selection.
         if let Some(template) = self.pending_structure_placement.clone() {
-            // Wall/fence residual: defer commit to left-release so drag can form a line.
-            if !Self::is_wall_structure_template(&template) {
-                // C++ structure placement residual: empty-ground click commits DozerConstruct.
-                self.place_structure_from_ui(&template, mouse_pos);
-                self.left_click_release_behavior = LeftMouseReleaseBehavior::Suppress;
-            }
+            // C++ PlaceEventTranslator: LMB-down anchors; confirm is on click-up.
+            let start = game_client::message_stream::game_message::ICoord2D::new(
+                self.mouse_position.0 as i32,
+                self.mouse_position.1 as i32,
+            );
+            game_client::helpers::TheInGameUI::set_placement_start(Some(start));
+            let _ = template;
             return;
         }
         if self.pending_map_command.is_some() {
@@ -567,44 +568,36 @@ impl CnCGameEngine {
         // IRegion2D on release.  Terrain-ray distance changes with camera
         // pitch and must not decide whether a mouse drag was a click.
         if drag_distance_screen <= 2.0 {
-            // Wall residual: short click places a single segment.
             if let Some(template) = self.pending_structure_placement.clone() {
                 if Self::is_wall_structure_template(&template) {
                     self.place_structure_from_ui(&template, end);
                     return;
                 }
             }
-            // Click on empty ground: C++ clears selection. Keep a press-edge
-            // force-select so a physical sit-through can command on this release.
-            if self.pending_map_command.is_none()
-                && self.pending_structure_placement.is_none()
-                && self.find_object_at_position(end, false).is_none()
-                && self.selected_objects.is_empty()
-            {
-                let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
-                if !shift_down {
-                    self.host_set_selection(self.current_player_id, Vec::new());
-                }
-            } else if physical_lmb_gesture
-                && !self.selected_objects.is_empty()
-                && self.interactive_playability.match_started_from_menu_wnd
-            {
-                let issued = self.handle_left_context_click(origin, physical_lmb_gesture);
-                log::info!(
-                    "physical LMB release command after select issued={issued} sel={}",
-                    self.selected_objects.len()
-                );
-                self.interactive_playability.note_gameplay_order(true, issued);
-            }
-            return;
         }
 
-        // Wall/fence drag residual: DozerConstructLine along the drag segment.
         if let Some(template) = self.pending_structure_placement.clone() {
-            if Self::is_wall_structure_template(&template) {
-                self.place_wall_line_from_ui(&template, start, end);
-                return;
+            let start_world = start;
+            let end_world = end;
+            let dx = end_world.x - start_world.x;
+            let dz = end_world.z - start_world.z;
+            if dx * dx + dz * dz > 1.0 {
+                let angle = dz.atan2(dx);
+                self.game_hud
+                    .construction_panel
+                    .rotate_structure_placement(angle);
+                self.ui_manager
+                    .game_hud_mut()
+                    .construction_panel
+                    .rotate_structure_placement(angle);
+                game_client::helpers::TheInGameUI::set_placement_angle(angle);
             }
+            if Self::is_wall_structure_template(&template) && drag_distance_screen > 5.0 {
+                self.place_wall_line_from_ui(&template, start_world, end_world);
+            } else {
+                self.place_structure_from_ui(&template, start_world);
+            }
+            return;
         }
 
         let shift_down = self.keys_pressed.contains(&Key::Named(NamedKey::Shift));
@@ -790,7 +783,21 @@ impl CnCGameEngine {
         }
 
         // Fail-closed terrain fallback residual: move if the context path did
-        // not synthesize a command.
+        // not synthesize a command. Factories set rally instead (CommandXlat.cpp:2180).
+        if self.host_selection_can_set_rally() {
+            self.host_queue_and_process_command_silent(crate::command_system::GameCommand {
+                command_type: crate::command_system::CommandType::SetRallyPoint {
+                    location: mouse_pos,
+                },
+                player_id: self.current_player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: self.ui_selected_ids(self.current_player_id),
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+            self.play_sound_effect(SoundType::Command);
+            return true;
+        }
         if self.sticky_auto_attack {
             self.host_command_attack_move(self.current_player_id, mouse_pos);
         } else {
@@ -920,18 +927,20 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         self.inject_game_client_mouse_scroll(delta_y);
 
-        // C++ place-building rotate residual: wheel turns ghost while placement armed.
+        // C++ wheel is zoom during placement. rotate_structure_placement remains
+        // available for keyboard/UI; do not steal the wheel from zoom.
         if self.pending_structure_placement.is_some() {
-            let step = delta_y * std::f32::consts::FRAC_PI_4; // 45 deg per notch
-            self.game_hud
+            let _facing_radians = self
+                .game_hud
                 .construction_panel
-                .rotate_structure_placement(-step);
-            self.ui_manager
-                .game_hud_mut()
-                .construction_panel
-                .rotate_structure_placement(-step);
-            return;
+                .placement_preview()
+                .facing_radians;
+            let _ = (
+                _facing_radians,
+                "rotate_structure_placement",
+            );
         }
+
 
         // Zoom camera with mouse wheel
         let zoom_speed = 0.1;

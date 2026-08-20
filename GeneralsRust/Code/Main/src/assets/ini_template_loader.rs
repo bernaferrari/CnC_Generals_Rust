@@ -1160,6 +1160,11 @@ fn register_weapon_template_from_properties(
         }
     }
 
+    if let Some(val) = properties.get("HistoricBonusWeapon") {
+        template.set_historic_bonus_weapon_name(val);
+    }
+
+
     if let Some(val) = properties.get("LaserName") {
         template.laser_name = val.trim().to_string();
     }

@@ -80,6 +80,24 @@ pub const VERY_TRANSPARENT_MATERIAL_PASS_OPACITY: f32 = 0.001;
 pub const MATERIAL_PASS_OPACITY_FADE_SCALAR: f32 = 0.8;
 pub const DRAWABLE_FRAMES_PER_FLASH: u32 = 15;
 
+const FADE_RATE_EPSILON: f32 = 0.001;
+
+fn vec_length(v: Vector3) -> f32 {
+    (v.x * v.x + v.y * v.y + v.z * v.z).sqrt()
+}
+
+fn vec_sub(a: Vector3, b: Vector3) -> Vector3 {
+    Vector3::new(a.x - b.x, a.y - b.y, a.z - b.z)
+}
+
+fn vec_add(a: Vector3, b: Vector3) -> Vector3 {
+    Vector3::new(a.x + b.x, a.y + b.y, a.z + b.z)
+}
+
+fn vec_scale(v: Vector3, s: f32) -> Vector3 {
+    Vector3::new(v.x * s, v.y * s, v.z * s)
+}
+
 pub(crate) fn snap_denorm(value: f32) -> f32 {
     if value > -1e-20 && value < 1e-20 {
         0.0
@@ -159,22 +177,29 @@ impl TintEnvelope {
         decay_frames: u32,
         sustain_frames: u32,
     ) {
-        let attack_frames = attack_frames.max(1);
-        let decay_frames = decay_frames.max(1);
+        // C++ TintEnvelope::play + setAttackFrames/setDecayFrames.
+        // Attack rate is (peak - current) / frames so signed peaks fade in
+        // from the live color. Decay rate is -peak / frames and is *added*
+        // during Decay. Completion uses vector length, not per-channel >=.
         self.peak_color = peak_color;
-        self.attack_rate = Vector3::new(
-            peak_color.x / attack_frames as f32,
-            peak_color.y / attack_frames as f32,
-            peak_color.z / attack_frames as f32,
-        );
-        self.decay_rate = Vector3::new(
-            peak_color.x / decay_frames as f32,
-            peak_color.y / decay_frames as f32,
-            peak_color.z / decay_frames as f32,
-        );
-        self.sustain_counter = sustain_frames;
+        self.set_attack_frames(attack_frames);
+        self.set_decay_frames(decay_frames);
         self.state = EnvelopeState::Attack;
-        self.is_effective = peak_color != Vector3::zero();
+        self.sustain_counter = sustain_frames;
+        self.is_effective = true;
+        if vec_length(vec_sub(self.current_color, self.peak_color)) <= FADE_RATE_EPSILON {
+            self.state = EnvelopeState::Sustain;
+        }
+    }
+
+    fn set_attack_frames(&mut self, frames: u32) {
+        let recip = 1.0 / frames.max(1) as f32;
+        self.attack_rate = vec_scale(vec_sub(self.peak_color, self.current_color), recip);
+    }
+
+    fn set_decay_frames(&mut self, frames: u32) {
+        let recip = -1.0 / frames.max(1) as f32;
+        self.decay_rate = vec_scale(self.peak_color, recip);
     }
 
     pub fn sustain(&mut self) {
@@ -197,47 +222,45 @@ impl TintEnvelope {
 
     pub fn update(&mut self) {
         match self.state {
+            EnvelopeState::Rest => {
+                self.current_color = Vector3::zero();
+                self.is_effective = false;
+            }
+            EnvelopeState::Decay => {
+                let decay_len = vec_length(self.decay_rate);
+                let current_len = vec_length(self.current_color);
+                if decay_len > current_len || current_len <= FADE_RATE_EPSILON {
+                    self.state = EnvelopeState::Rest;
+                    self.is_effective = false;
+                } else {
+                    self.current_color = vec_add(self.decay_rate, self.current_color);
+                    self.is_effective = true;
+                }
+            }
             EnvelopeState::Attack => {
-                self.current_color.x += self.attack_rate.x;
-                self.current_color.y += self.attack_rate.y;
-                self.current_color.z += self.attack_rate.z;
-
-                if self.current_color.x >= self.peak_color.x
-                    && self.current_color.y >= self.peak_color.y
-                    && self.current_color.z >= self.peak_color.z
-                {
-                    self.current_color = self.peak_color;
-                    self.state = EnvelopeState::Sustain;
+                let delta = vec_sub(self.current_color, self.peak_color);
+                let delta_len = vec_length(delta);
+                if vec_length(self.attack_rate) > delta_len || delta_len <= FADE_RATE_EPSILON {
+                    if self.sustain_counter != 0 {
+                        self.state = EnvelopeState::Sustain;
+                    } else {
+                        self.state = EnvelopeState::Decay;
+                    }
+                } else {
+                    self.current_color = vec_add(self.attack_rate, self.current_color);
+                    self.is_effective = true;
                 }
             }
             EnvelopeState::Sustain => {
                 if self.sustain_counter == SUSTAIN_INDEFINITELY {
-                    return;
-                }
-                if self.sustain_counter > 0 {
+                    // C++ SUSTAIN_INDEFINITELY stays until release().
+                } else if self.sustain_counter > 0 {
                     self.sustain_counter -= 1;
                 } else {
-                    self.state = EnvelopeState::Decay;
+                    self.release();
                 }
-            }
-            EnvelopeState::Decay => {
-                self.current_color.x -= self.decay_rate.x;
-                self.current_color.y -= self.decay_rate.y;
-                self.current_color.z -= self.decay_rate.z;
-
-                if self.current_color.x <= 0.0
-                    && self.current_color.y <= 0.0
-                    && self.current_color.z <= 0.0
-                {
-                    self.rest();
-                }
-            }
-            EnvelopeState::Rest => {
-                // Do nothing
             }
         }
-
-        self.is_effective = self.current_color != Vector3::zero();
     }
 }
 

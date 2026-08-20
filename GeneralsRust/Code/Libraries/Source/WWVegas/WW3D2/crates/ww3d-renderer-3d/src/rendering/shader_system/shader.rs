@@ -845,20 +845,16 @@ impl ShaderClass {
             }))
         };
 
-        let pad_bone_matrices = |src: &[Mat4]| -> Vec<Mat4> {
-            let mut bones = vec![Mat4::IDENTITY; 64];
-            let n = src.len().min(64);
-            bones[..n].copy_from_slice(&src[..n]);
-            bones
-        };
-
         let (bone_buffer, bone_bind_group) = if use_skinned_layout {
-            let identity_matrices = pad_bone_matrices(bone_matrices.unwrap_or(&[]));
+            let identity_matrices =
+                crate::rendering::wgpu_renderer::bone_palette::bone_palette_mats(
+                    bone_matrices.unwrap_or(&[]),
+                );
             let buffer = Arc::new(device.create_buffer_init(
                 &wgpu::util::BufferInitDescriptor {
-                    label: Some("Bone Uniform Buffer"),
+                    label: Some("Bone Storage Buffer"),
                     contents: bytemuck::cast_slice(&identity_matrices),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 },
             ));
             let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1008,7 +1004,7 @@ impl ShaderClass {
                             binding: 0,
                             visibility: wgpu::ShaderStages::VERTEX,
                             ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
                                 has_dynamic_offset: false,
                                 min_binding_size: None,
                             },

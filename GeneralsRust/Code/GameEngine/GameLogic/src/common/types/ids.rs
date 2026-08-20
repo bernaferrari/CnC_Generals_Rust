@@ -182,6 +182,11 @@ impl GeometryInfo {
         self.bounds.max.z
     }
 
+    /// C++ `GeometryInfo::setMaxHeightAbovePosition`.
+    pub fn set_max_height_above_position(&mut self, z: Real) {
+        self.bounds.max.z = z;
+    }
+
     /// Get max height below position (matches C++ GeometryInfo::getMaxHeightBelowPosition).
     pub fn get_max_height_below_position(&self) -> Real {
         let below = -self.bounds.min.z;

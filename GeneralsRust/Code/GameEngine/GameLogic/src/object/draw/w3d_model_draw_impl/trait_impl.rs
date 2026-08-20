@@ -11,6 +11,7 @@ impl Module for W3DModelDraw {
     fn on_delete(&mut self) {
         self.stop_client_particle_systems();
         self.unbind_terrain_track();
+        self.release_template_shadow();
         if let Some(owner_id) = self.owner_id {
             if let Some(client) = terrain_decal_client() {
                 client.release(owner_id);
@@ -99,21 +100,15 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadow_enabled = enable;
+        self.apply_shadows_enabled(enable);
     }
 
     fn release_shadows(&mut self) {
-        // When shadow system is implemented, release shadow resources
-        // Reference: C++ W3DModelDraw.cpp - shadow management
-        // - Destroy shadow render objects
-        // - Clear shadow texture/decal references
+        self.release_template_shadow();
     }
 
     fn allocate_shadows(&mut self) {
-        // When shadow system is implemented, allocate shadow resources
-        // Reference: C++ W3DModelDraw.cpp - shadow management
-        // - Create shadow render objects based on model bounds
-        // - Set up shadow textures/decals
+        self.allocate_template_shadow();
     }
 
     fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
@@ -139,13 +134,7 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn set_hidden(&mut self, hidden: bool) {
-        if self.hidden != hidden {
-            self.hidden = hidden;
-            self.do_start_or_stop_particle_sys();
-            if hidden {
-                self.cap_terrain_track();
-            }
-        }
+        self.apply_hidden_shadow_and_decal(hidden);
     }
 
     fn update_bones_for_client_particle_systems(&mut self) -> bool {
@@ -490,59 +479,20 @@ impl ObjectDrawInterface for W3DModelDraw {
         max_shots: u32,
         weapon_slot: usize,
     ) {
-        if weapon_slot >= WEAPONSLOT_COUNT || max_shots < shots_remaining {
-            return;
-        }
-
-        if (self.data.projectile_bone_feedback_enabled_slots & (1u32 << weapon_slot)) == 0 {
-            return;
-        }
-
-        let Some(state) = self.current_state() else {
-            return;
-        };
-        let feedback_prefix = {
-            let override_prefix = state.weapon_projectile_hide_show_bone[weapon_slot].as_str();
-            if !override_prefix.is_empty() {
-                override_prefix
-            } else {
-                state.weapon_projectile_launch_bone[weapon_slot].as_str()
-            }
-            .to_string()
-        };
-        if feedback_prefix.is_empty() {
-            return;
-        }
-
-        // C++ parity: hide first (max-shown) projectile subobjects named PREFIX01, PREFIX02, ...
-        let hide_count = max_shots - shots_remaining;
-        for projectile_index in 0..max_shots {
-            let sub_obj_name = format!("{}{:02}", feedback_prefix, projectile_index + 1);
-            let hide = projectile_index < hide_count;
-            self.show_sub_object(sub_obj_name.as_str(), !hide);
-        }
-        self.update_sub_objects();
+        self.apply_projectile_clip_status(shots_remaining, max_shots, weapon_slot);
     }
 
     fn update_supply_status(&mut self, _max_supply: i32, current_supply: i32) {
-        // C++ parity target is Drawable::set/clear MODELCONDITION_CARRYING.
-        // In Rust this callback runs under the drawable lock, so update this draw module's
-        // condition view directly to avoid object->drawable lock recursion.
-        let mut conditions = self.last_model_conditions;
-        if current_supply > 0 {
-            conditions.insert(ModelConditionFlags::CARRYING);
-        } else {
-            conditions.remove(ModelConditionFlags::CARRYING);
-        }
+        // C++ writes Drawable CARRYING. This callback is under the drawable lock,
+        // so persist the bit on the module and merge it into every later replace.
+        self.note_supply_carrying(current_supply);
+        let conditions = self.apply_pending_carrying(self.last_model_conditions);
         self.last_model_conditions = conditions;
         self.replace_model_condition_state(&conditions);
     }
 
     fn set_hidden(&mut self, hidden: bool) {
-        if self.hidden != hidden {
-            self.hidden = hidden;
-            self.do_start_or_stop_particle_sys();
-        }
+        self.apply_hidden_shadow_and_decal(hidden);
     }
 
     fn notify_draw_module_dependency_cleared(&mut self) {
@@ -550,8 +500,10 @@ impl ObjectDrawInterface for W3DModelDraw {
     }
 
     fn replace_model_condition_state(&mut self, condition: &ModelConditionFlags) {
+        let condition = self.apply_pending_carrying(*condition);
+        self.last_model_conditions = condition;
         self.hide_headlights = !condition.contains(ModelConditionFlags::NIGHT);
-        if let Some(state_index) = self.find_best_state_index(condition) {
+        if let Some(state_index) = self.find_best_state_index(&condition) {
             self.set_model_state(state_index);
         }
         self.hide_all_headlights();

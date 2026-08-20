@@ -78,6 +78,10 @@ mod static_sort;
 mod render_manager;
 mod materials;
 mod render_obj;
+mod skin_deform;
+mod mesh_camera_align;
+mod collect_billboard_xform;
+mod cast_ray_aligned;
 
 #[cfg(test)]
 mod tests;
@@ -235,6 +239,8 @@ pub enum MeshGeometryClass {
     SKIN = 1,
     SORT = 2,
     VISIBLE = 4,
+    ALIGNED = 8,
+    ORIENTED = 16,
 }
 
 /// Mesh model class - contains the actual geometry data

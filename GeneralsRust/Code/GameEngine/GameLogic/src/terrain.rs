@@ -340,6 +340,10 @@ impl Bridge {
     pub fn get_bridge_info(&self) -> &BridgeInfo {
         &self.bridge_info
     }
+    pub(crate) fn bridge_info_mut(&mut self) -> &mut BridgeInfo {
+        &mut self.bridge_info
+    }
+
 
     /// Check if point is on bridge
     pub fn is_point_on_bridge(&self, location: &Coord3D) -> bool {
@@ -399,47 +403,9 @@ impl Bridge {
 
     /// Update damage state
     pub fn update_damage_state(&mut self) {
-        // Wave 341: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        self.bridge_info.damage_state_changed = false;
-        if self.bridge_info.bridge_object_id == crate::common::INVALID_ID {
-            return;
-        }
-
-        let Some(obj_arc) =
-            crate::helpers::TheGameLogic::find_object_by_id(self.bridge_info.bridge_object_id)
-        else {
-            return;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        let next_state = if obj_guard.is_destroyed() {
-            BodyDamageType::Rubble
-        } else {
-            let max = obj_guard.get_max_health().max(f32::EPSILON);
-            let percent = (obj_guard.get_health() / max).clamp(0.0, 1.0);
-
-            if percent >= 0.75 {
-                BodyDamageType::Pristine
-            } else if percent >= 0.5 {
-                BodyDamageType::Damaged
-            } else if percent >= 0.25 {
-                BodyDamageType::ReallyDamaged
-            } else {
-                BodyDamageType::Rubble
-            }
-        };
-
-        if next_state != self.bridge_info.cur_damage_state {
-            self.bridge_info.cur_damage_state = next_state;
-            self.bridge_info.damage_state_changed = true;
-        }
+        crate::terrain_bridge::update_damage_state(self);
     }
+
 
     /// Get layer
     pub fn get_layer(&self) -> PathfindLayerEnum {
@@ -688,6 +654,9 @@ pub struct TerrainLogic {
     boundaries: Vec<ICoord2D>,
     /// Border size in cells (matches map loader)
     border_size: i32,
+    /// Packed WorldHeightMap cliff bits (8 cells/byte).
+    cliff_state: crate::terrain_cliff::CliffBitfield,
+
     /// Active boundary index
     active_boundary: i32,
     /// Waypoint list head
@@ -918,6 +887,8 @@ impl TerrainLogic {
             map_max_z: 1.0,
             boundaries: Vec::new(),
             border_size: 0,
+            cliff_state: crate::terrain_cliff::CliffBitfield::new(),
+
             active_boundary: 0,
             waypoint_list_head: None,
             bridge_list_head: None,
@@ -974,6 +945,9 @@ impl TerrainLogic {
         }
         self.boundaries = map_data.boundaries.clone();
         self.border_size = map_data.border_size;
+        self.cliff_state
+            .rebuild(&self.map_data, self.map_dx, self.map_dy);
+
 
         // Store terrain data including bridges
         self.terrain_data = Some(TerrainData {
@@ -1101,6 +1075,8 @@ impl TerrainLogic {
         self.map_max_z = 1.0;
         self.boundaries.clear();
         self.border_size = 0;
+        self.cliff_state.clear();
+
         self.active_boundary = 0;
         self.waypoint_list_head = None;
         self.bridge_list_head = None;
@@ -1110,6 +1086,9 @@ impl TerrainLogic {
         self.terrain_data = None;
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
+        self.water_grid_enabled = false;
+        crate::terrain_water::reset_water_grid_state();
+
         self.query_load_pending = false;
     }
 
@@ -1640,40 +1619,17 @@ impl TerrainLogic {
 
     /// Check clear line of sight
     pub fn is_clear_line_of_sight(&self, pos1: &Coord3D, pos2: &Coord3D) -> bool {
-        // Terrain-only line of sight check.
-        //
-        // C++ reference: `PartitionManager::isClearLineOfSightTerrain`.
-        //
-        // This intentionally ignores dynamic objects (bridges/structures) until the unified
-        // partition/occlusion system is ported; it only considers terrain elevation.
-
-        let delta = *pos2 - *pos1;
-        let distance_xy = (delta.x * delta.x + delta.y * delta.y).sqrt();
-        if distance_xy <= 0.001 {
-            return true;
-        }
-
-        // Sample at a conservative step. Too coarse gives false positives; too fine costs perf.
-        // Special power targeting is not called per-object per-frame, so this is acceptable.
-        let step_len = 10.0_f32;
-        let steps = (distance_xy / step_len).ceil().clamp(2.0, 512.0) as u32;
-
-        // Allow some slack so units on small bumps don't block LOS.
-        let clearance = 5.0_f32;
-
-        for i in 1..steps {
-            let t = i as f32 / steps as f32;
-            let x = pos1.x + delta.x * t;
-            let y = pos1.y + delta.y * t;
-            let expected_z = pos1.z + delta.z * t;
-            let ground_z = self.get_ground_height(x, y, None);
-            if ground_z > expected_z + clearance {
-                return false;
-            }
-        }
-
-        true
+        crate::terrain_los::is_clear_line_of_sight(
+            pos1,
+            pos2,
+            &self.map_data,
+            self.map_dx,
+            self.map_dy,
+            self.border_size,
+            self.map_max_z,
+        )
     }
+
 
     /// Get source filename
     pub fn get_source_filename(&self) -> &AsciiString {
@@ -1700,10 +1656,11 @@ impl TerrainLogic {
 
         let is_grid = std::ptr::eq(water_handle, &self.grid_water_handle);
         let w_z = if is_grid {
-            self.grid_water_handle.get_current_height()
+            crate::terrain_water::get_water_grid_height(x, y).unwrap_or(0.0)
         } else {
             self.get_water_height(water_handle)
         };
+
         if let Some(wz) = water_z {
             *wz = w_z;
         }
@@ -1713,48 +1670,16 @@ impl TerrainLogic {
 
     /// Check if cell is cliff
     pub fn is_cliff_cell(&self, x: f32, y: f32) -> bool {
-        if self.map_dx <= 0 || self.map_dy <= 0 || self.map_data.is_empty() {
-            return false;
-        }
-
-        let map_x = (x / MAP_XY_FACTOR) as i32;
-        let map_y = (y / MAP_XY_FACTOR) as i32;
-
-        if map_x < 0 || map_x >= self.map_dx || map_y < 0 || map_y >= self.map_dy {
-            return false;
-        }
-
-        let idx = (map_y * self.map_dx + map_x) as usize;
-        if idx >= self.map_data.len() {
-            return false;
-        }
-
-        let height = self.map_data[idx] as f32 * MAP_HEIGHT_SCALE;
-        let cliff_threshold = MAP_HEIGHT_SCALE * 8.0;
-
-        let neighbors = [
-            (map_x - 1, map_y),
-            (map_x + 1, map_y),
-            (map_x, map_y - 1),
-            (map_x, map_y + 1),
-        ];
-
-        for (nx, ny) in neighbors {
-            if nx < 0 || nx >= self.map_dx || ny < 0 || ny >= self.map_dy {
-                continue;
-            }
-            let nidx = (ny * self.map_dx + nx) as usize;
-            if nidx >= self.map_data.len() {
-                continue;
-            }
-            let nheight = self.map_data[nidx] as f32 * MAP_HEIGHT_SCALE;
-            if (height - nheight).abs() >= cliff_threshold {
-                return true;
-            }
-        }
-
-        false
+        crate::terrain_cliff::is_cliff_cell(
+            x,
+            y,
+            &self.cliff_state,
+            self.map_dx,
+            self.map_dy,
+            self.border_size,
+        )
     }
+
 
     /// Get water handle at location
     pub fn get_water_handle(&self, x: f32, y: f32) -> Option<&WaterHandle> {
@@ -1778,16 +1703,13 @@ impl TerrainLogic {
             }
         }
 
-        // C++ parity subset: optional grid-water override when enabled.
-        if self.water_grid_enabled {
-            let bounds = self.grid_water_handle.get_bounds();
-            if x >= bounds.lo.x && x <= bounds.hi.x && y >= bounds.lo.y && y <= bounds.hi.y {
-                let grid_z = self.grid_water_handle.get_current_height();
-                if grid_z >= best_water_z {
-                    return Some(&self.grid_water_handle);
-                }
+        // C++ `TheTerrainVisual->getWaterGridHeight`: on-mesh only, not AABB.
+        if let Some(mesh_z) = crate::terrain_water::get_water_grid_height(x, y) {
+            if mesh_z >= best_water_z {
+                return Some(&self.grid_water_handle);
             }
         }
+
 
         if let Some(trigger_id) = best_trigger_id {
             return self.water_handles_by_trigger_id.get(&trigger_id);
@@ -2018,7 +1940,8 @@ impl TerrainLogic {
         force_pathfind_update: bool,
     ) {
         if Self::is_grid_water_name(water_name) {
-            let previous_height = self.grid_water_handle.get_current_height();
+            let previous_height = crate::terrain_water::get_transform_z();
+            crate::terrain_water::set_transform_z(height);
             self.grid_water_handle.set_height(height);
 
             if damage_amount > 0.0 && height > previous_height {
@@ -2730,48 +2653,9 @@ impl TerrainLogic {
     /// Enable/disable water grid
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
-        if !enable {
-            return;
-        }
-
-        // C++ parity: enabling water grid also validates map-specific vertex-water
-        // settings against GlobalData::vertexWaterAvailableMaps (with stripped-name
-        // fallback for save/load map paths). The visual-side configuration calls are
-        // not fully ported yet, but we keep parity checks and diagnostics here.
-        let Some(global) = game_engine::common::ini::get_global_data() else {
-            return;
-        };
-        let global = global.read();
-        let map_name = global.map_name.trim();
-        if map_name.is_empty() {
-            return;
-        }
-
-        let map_leaf = map_name.rsplit(['\\', '/']).next().unwrap_or(map_name);
-        let mut matched = false;
-        for configured in &global.vertex_water_available_maps {
-            let configured = configured.trim();
-            if configured.is_empty() {
-                continue;
-            }
-            if configured.eq_ignore_ascii_case(map_name) {
-                matched = true;
-                break;
-            }
-            let configured_leaf = configured.rsplit(['\\', '/']).next().unwrap_or(configured);
-            if configured_leaf.eq_ignore_ascii_case(map_leaf) {
-                matched = true;
-                break;
-            }
-        }
-
-        if !matched {
-            log::error!(
-                "Water grid enabled for map '{}' but no matching vertex-water setting exists in GlobalData::vertex_water_available_maps",
-                map_name
-            );
-        }
+        let _ = crate::terrain_water::enable_water_grid(enable);
     }
+
 
     /// Get active boundary
     pub fn get_active_boundary(&self) -> i32 {
@@ -2802,6 +2686,9 @@ impl TerrainLogic {
         let mut len = (self.map_dx as usize).saturating_mul(self.map_dy as usize);
         len = len.min(self.map_data.len()).min(data.len());
         self.map_data[..len].copy_from_slice(&data[..len]);
+        self.cliff_state
+            .rebuild(&self.map_data, self.map_dx, self.map_dy);
+
         if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
             visual.static_lighting_changed();
         }
@@ -2827,6 +2714,9 @@ impl TerrainLogic {
             self.map_min_z = min_height as f32 * MAP_HEIGHT_SCALE;
             self.map_max_z = max_height as f32 * MAP_HEIGHT_SCALE;
         }
+        self.cliff_state
+            .rebuild(&self.map_data, self.map_dx, self.map_dy);
+
         if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
             visual.static_lighting_changed();
         }
@@ -3129,12 +3019,20 @@ impl TerrainLogic {
         let height_clamped = height.max(0).min(255) as u8;
         if self.map_data[idx] > height_clamped {
             self.map_data[idx] = height_clamped;
+            self.cliff_state.refresh_vertex(
+                &self.map_data,
+                self.map_dx,
+                self.map_dy,
+                x,
+                y,
+            );
             // C++ W3DTerrainVisual::setRawMapHeight (W3DTerrainVisual.cpp:923-924)
             // writes the golden logic map then calls staticLightingChanged().
             if let Some(visual) = crate::helpers::TheTerrainVisual::get() {
                 visual.set_raw_map_height(playable_x, playable_y, height);
             }
         }
+
     }
 
     /// Get raw map height at grid position.

@@ -46,6 +46,8 @@ struct InGameUIState {
     /// Set by GameLogic's ClearInGamePopupMessage command handler,
     /// consumed by GameClient's popup message handler.
     popup_clear_requested: bool,
+    /// Pending DISABLE_INPUT / ENABLE_INPUT cinematic lock (None = no request).
+    cinematic_input_lock: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -261,6 +263,36 @@ impl TheInGameUI {
             return std::mem::take(&mut state.popup_clear_requested);
         }
         false
+    }
+
+    /// C++ ScriptActions::doDisableInput / doEnableInput.
+    /// `true` = disable (teardown), `false` = enable (restore mouse).
+    pub fn request_cinematic_input_lock(disable: bool) {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            state.cinematic_input_lock = Some(disable);
+        }
+    }
+
+    /// Consume a pending cinematic input-lock request.
+    pub fn take_cinematic_input_lock() -> Option<bool> {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            return state.cinematic_input_lock.take();
+        }
+        None
+    }
+
+    /// C++ `InGameUI::objectChangedTeam` — move superweapon timers with the object.
+    pub fn object_changed_team(object_id: ObjectID, old_player: i32, new_player: i32) {
+        if old_player < 0 || new_player < 0 {
+            return;
+        }
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            for entry in &mut state.superweapons {
+                if entry.object_id == object_id && entry.player_index == old_player {
+                    entry.player_index = new_player;
+                }
+            }
+        }
     }
 }
 
@@ -482,6 +514,47 @@ impl TheTerrainVisual {
             frame
         );
     }
+
+    /// C++ `TheTerrainVisual->enableWaterGrid`.
+    pub fn enable_water_grid(&self, enable: bool) {
+        crate::terrain_water::visual_enable_water_grid(enable);
+    }
+
+    /// C++ `TheTerrainVisual->setWaterGridHeightClamps`.
+    pub fn set_water_grid_height_clamps(&self, low: Real, high: Real) {
+        crate::terrain_water::visual_set_height_clamps(low, high);
+    }
+
+    /// C++ `TheTerrainVisual->setWaterTransform(NULL, angle, x, y, z)`.
+    pub fn set_water_transform(&self, angle: Real, x: Real, y: Real, z: Real) {
+        crate::terrain_water::visual_set_transform(angle, x, y, z);
+    }
+
+    /// C++ `TheTerrainVisual->setWaterGridResolution`.
+    pub fn set_water_grid_resolution(&self, cells_x: Real, cells_y: Real, cell_size: Real) {
+        crate::terrain_water::visual_set_resolution(cells_x, cells_y, cell_size);
+    }
+
+    /// C++ `TheTerrainVisual->setWaterAttenuationFactors`.
+    pub fn set_water_attenuation_factors(&self, a: Real, b: Real, c: Real, range: Real) {
+        crate::terrain_water::visual_set_attenuation(a, b, c, range);
+    }
+
+    /// C++ `TheTerrainVisual->getWaterGridHeight`.
+    pub fn get_water_grid_height(&self, x: Real, y: Real) -> Option<Real> {
+        crate::terrain_water::get_water_grid_height(x, y)
+    }
+
+    /// C++ `getWaterTransform` Z translation.
+    pub fn get_water_transform_z(&self) -> Real {
+        crate::terrain_water::get_transform_z()
+    }
+
+    /// C++ `transform.Set_Z_Translation` + `setWaterTransform`.
+    pub fn set_water_transform_z(&self, height: Real) {
+        crate::terrain_water::set_transform_z(height);
+    }
+
 }
 
 #[derive(Debug, Clone, Copy)]

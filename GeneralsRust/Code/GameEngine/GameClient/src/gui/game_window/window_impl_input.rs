@@ -353,6 +353,12 @@ impl GameWindow {
                         handled = true;
                         continue;
                     }
+                    if data == "lone_window" {
+                        // C++ GadgetComboBox.cpp:134 / 618 winSetLoneWindow
+                        self.claim_combobox_lone_window();
+                        handled = true;
+                        continue;
+                    }
                     if is_listbox_message && data == "double_click" {
                         let selected = match &self.widget {
                             Some(WindowWidget::ListBox(listbox)) => listbox

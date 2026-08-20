@@ -212,6 +212,21 @@ upgrade_factories!(
     "ArmorUpgrade"
 );
 upgrade_factories!(
+    status_bits_upgrade_data_factory,
+    status_bits_upgrade_module_factory,
+    StatusBitsUpgradeModuleData,
+    StatusBitsUpgrade,
+    "StatusBitsUpgrade"
+);
+upgrade_factories!(
+    active_shroud_upgrade_data_factory,
+    active_shroud_upgrade_module_factory,
+    ActiveShroudUpgradeModuleData,
+    ActiveShroudUpgrade,
+    "ActiveShroudUpgrade"
+);
+
+upgrade_factories!(
     command_set_upgrade_data_factory,
     command_set_upgrade_module_factory,
     CommandSetUpgradeModuleData,
@@ -449,3 +464,11 @@ special_power_factories!(
     SpyVisionSpecialPower,
     "SpyVisionSpecialPower"
 );
+special_power_factories!(
+    defector_special_power_module_data_factory,
+    defector_special_power_module_factory,
+    DefectorSpecialPowerModuleData,
+    DefectorSpecialPower,
+    "DefectorSpecialPower"
+);
+

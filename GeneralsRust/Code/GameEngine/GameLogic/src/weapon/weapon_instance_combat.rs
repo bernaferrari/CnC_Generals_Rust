@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use crate::common::Coord3D;
 use crate::common::Relationship;
 use crate::common::LOGICFRAMES_PER_SECOND;
-use crate::common::{KindOf, PathfindLayerEnum};
+use crate::common::{KindOf, LocomotorSetType, PathfindLayerEnum};
 use crate::common::{Matrix3D, ObjectStatusTypes, TurretType};
 use crate::damage::{DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::effects::{FXList, ObjectCreationList};
@@ -1037,6 +1037,7 @@ impl Weapon {
                     let _ = proj_guard.set_position(target_pos);
                 }
             }
+            report_missile_for_countermeasures(projectile_id, target_obj_id);
 
             return Ok(projectile_id);
         }
@@ -1066,9 +1067,18 @@ impl Weapon {
             let source_guard = source_arc
                 .read()
                 .map_err(|_| WeaponError::SystemError("Source object lock failed".to_string()))?;
-            let Some(team_arc) = source_guard.get_team() else {
+            let team_arc = source_guard
+                .get_controlling_player()
+                .and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_default_team())
+                })
+                .or_else(|| source_guard.get_team());
+            let Some(team_arc) = team_arc else {
                 return Err(WeaponError::SystemError(
-                    "Laser creation requires source team".to_string(),
+                    "Laser creation requires source player default team".to_string(),
                 ));
             };
             (team_arc, *source_guard.get_position())
@@ -1096,14 +1106,26 @@ impl Weapon {
         let mut laser_guard = laser_obj
             .write()
             .map_err(|_| WeaponError::SystemError("Laser object lock failed".to_string()))?;
-        let end_pos = if let Some(target_id) = target_obj_id {
+        let mut end_pos = if let Some(target_id) = target_obj_id {
             TheGameLogic::find_object_by_id(target_id)
                 .and_then(|arc| arc.read().ok().map(|guard| *guard.get_position()))
                 .unwrap_or(*target_pos)
         } else {
             *target_pos
         };
-        let _ = laser_guard.set_position(&end_pos);
+        if let Some(target_id) = target_obj_id {
+            let raise = TheGameLogic::find_object_by_id(target_id)
+                .and_then(|arc| {
+                    arc.read().ok().map(|guard| {
+                        !guard.is_kind_of(KindOf::Projectile) && !guard.is_airborne_target()
+                    })
+                })
+                .unwrap_or(false);
+            if raise {
+                end_pos.z += 10.0;
+            }
+        }
+        let _ = laser_guard.set_position(&source_pos);
         let laser_id = laser_guard.get_id();
 
         for behavior in laser_guard.get_behavior_modules() {
@@ -1352,4 +1374,43 @@ impl Weapon {
     pub(crate) fn random_float(&self, min: f32, max: f32) -> f32 {
         get_game_logic_random_value_real(min, max)
     }
+}
+
+/// C++ Weapon.cpp:1144-1155 — SMALL_MISSILE vs non-supersonic countermeasure jets.
+fn report_missile_for_countermeasures(projectile_id: ObjectId, victim_id: Option<ObjectId>) {
+    let Some(victim_id) = victim_id else {
+        return;
+    };
+    let Some(proj_arc) = TheGameLogic::find_object_by_id(projectile_id) else {
+        return;
+    };
+    let Ok(proj_guard) = proj_arc.read() else {
+        return;
+    };
+    if !proj_guard.is_kind_of(KindOf::SmallMissile) {
+        return;
+    }
+    drop(proj_guard);
+
+    let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) else {
+        return;
+    };
+    let Ok(victim_guard) = victim_arc.read() else {
+        return;
+    };
+    if !victim_guard.has_countermeasures() {
+        return;
+    }
+    let supersonic = victim_guard
+        .get_ai()
+        .and_then(|ai| {
+            ai.lock()
+                .ok()
+                .map(|ai_guard| ai_guard.get_cur_locomotor_set_type() == LocomotorSetType::Supersonic)
+        })
+        .unwrap_or(false);
+    if supersonic {
+        return;
+    }
+    victim_guard.report_missile_for_countermeasures(projectile_id);
 }

@@ -554,5 +554,60 @@ impl TeamPrototype {
     pub fn get_attack_priority_name(&self) -> &AsciiString {
         &self.attack_priority_name
     }
+
+    /// C++ `TeamPrototype::m_productionConditionAlwaysFalse`.
+    pub fn production_condition_always_false(&self) -> Bool {
+        self.production_condition_runtime
+            .lock()
+            .map(|rt| rt.always_false)
+            .unwrap_or(false)
+    }
+
+    /// C++ `TeamPrototype::xfer` writes/restores `m_productionConditionAlwaysFalse`.
+    pub fn set_production_condition_always_false(&self, always_false: Bool) {
+        if let Ok(mut rt) = self.production_condition_runtime.lock() {
+            rt.always_false = always_false;
+        }
+    }
+
+    /// Resolve the controlling player index for `TeamPrototype::xfer`.
+    pub fn owning_player_index(&self) -> Int {
+        let owner_name = self.owner_name.as_str();
+        player_list()
+            .read()
+            .ok()
+            .and_then(|list| {
+                if owner_name.is_empty() {
+                    list.get_neutral_player()
+                } else {
+                    list.find_player_by_name(owner_name)
+                        .or_else(|| list.get_neutral_player())
+                }
+            })
+            .and_then(|player| player.read().ok().map(|p| p.get_player_index()))
+            .unwrap_or(-1)
+    }
+
+    /// C++ load sets `m_owningPlayer = ThePlayerList->getNthPlayer(index)`.
+    pub fn set_owning_player_index(&mut self, index: Int) {
+        if index < 0 {
+            self.owner_name = String::new().into();
+            return;
+        }
+        let owner_name = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(index).cloned())
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+            })
+            .unwrap_or_default();
+        self.owner_name = owner_name.into();
+    }
+
+
 }
 

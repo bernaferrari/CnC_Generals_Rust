@@ -185,6 +185,8 @@ impl ClassicState for AIGuardState {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
+        // C++ AIGuardState::onExit: obj->getAI()->clearGuardTargetType()
+        clear_owner_guard_target_type(&self.base);
         Ok(())
     }
 
@@ -295,6 +297,8 @@ impl ClassicState for AIGuardRetaliateState {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
+        // C++ AIGuardRetaliateState::onExit: obj->getAI()->clearGuardTargetType()
+        clear_owner_guard_target_type(&self.base);
         Ok(())
     }
 
@@ -399,6 +403,8 @@ impl ClassicState for AITunnelNetworkGuardState {
         if let Some(mut machine) = self.guard_machine.take() {
             let _ = machine.halt();
         }
+        // C++ AITunnelNetworkGuardState::onExit: obj->getAI()->clearGuardTargetType()
+        clear_owner_guard_target_type(&self.base);
         Ok(())
     }
 
@@ -554,5 +560,21 @@ impl Snapshotable for AITunnelNetworkGuardState {
             machine.load_post_process()?;
         }
         Ok(())
+    }
+}
+
+/// C++ `AIUpdateInterface::clearGuardTargetType` from the three guard-state onExits.
+fn clear_owner_guard_target_type(state: &State) {
+    let Some(owner) = state.get_machine_owner() else {
+        return;
+    };
+    let Ok(owner_guard) = owner.read() else {
+        return;
+    };
+    let Some(ai) = owner_guard.get_ai_update_interface() else {
+        return;
+    };
+    if let Ok(mut ai_guard) = ai.lock() {
+        ai_guard.clear_guard_target_type();
     }
 }

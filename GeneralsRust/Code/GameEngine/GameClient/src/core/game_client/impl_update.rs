@@ -1323,8 +1323,9 @@ impl GameClient {
             || TheScriptEngine::is_time_frozen_debug()
             || TheScriptEngine::is_time_frozen_script()
             || TheGameLogic::is_game_paused();
-        // C++ compares against simulation frame (m_frame), not client update count.
-        let logic_frame = TheGameLogic::get_frame();
+        // C++ compares against GameClient::m_frame, set from live GameLogic.
+        // Host calls set_frame(host_logic_frame) before the presentation shell.
+        let logic_frame = self.frame;
         freeze_time = freeze_time || (self.last_visual_time_frame == logic_frame);
         self.last_visual_time_frame = logic_frame;
         freeze_time

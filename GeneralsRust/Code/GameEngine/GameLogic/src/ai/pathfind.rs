@@ -423,8 +423,8 @@ impl Path {
             .iter()
             .map(|layer| match layer {
                 PathfindLayerEnum::Ground => OptLayer::Ground,
-                PathfindLayerEnum::Top => OptLayer::Top,
                 PathfindLayerEnum::Invalid => OptLayer::Invalid,
+                _ => OptLayer::Top,
             })
             .collect();
 
@@ -905,7 +905,7 @@ impl Snapshotable for Path {
 fn path_layer_from_u32(value: u32) -> PathfindLayerEnum {
     match value {
         1 => PathfindLayerEnum::Ground,
-        2 => PathfindLayerEnum::Top,
+        2..=15 => PathfindLayerEnum::Top,
         _ => PathfindLayerEnum::Invalid,
     }
 }
@@ -1091,18 +1091,19 @@ pub enum PathfindLayerEnum {
     Invalid = 0,
     Ground = 1,
     Top = 2,
+    Wall = 15,
 }
 
 impl From<crate::path::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::path::PathfindLayerEnum) -> Self {
         match layer {
-            crate::path::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
-            crate::path::PathfindLayerEnum::Ground
+            crate::path::PathfindLayerEnum::Top
             | crate::path::PathfindLayerEnum::Bridge1
             | crate::path::PathfindLayerEnum::Bridge2
             | crate::path::PathfindLayerEnum::Bridge3
-            | crate::path::PathfindLayerEnum::Bridge4
-            | crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Ground,
+            | crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Top,
+            crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
+            crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
             crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
                 PathfindLayerEnum::Invalid
             }
@@ -1163,11 +1164,19 @@ impl Pathfinder {
 
     /// Convert grid coordinate to world coordinate
     pub fn grid_to_world(&self, grid_pos: &ICoord2D) -> Coord3D {
-        Coord3D::new(
+        let mut pos = Coord3D::new(
             grid_pos.x as f32 * self.cell_size + self.world_offset.x,
             grid_pos.y as f32 * self.cell_size + self.world_offset.y,
             0.0,
-        )
+        );
+        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
+            pos.z = terrain.get_layer_height(
+                pos.x,
+                pos.y,
+                crate::common::PathfindLayerEnum::Ground,
+            );
+        }
+        pos
     }
 
     /// Treat the object's footprint as an obstacle wall (matches createAWallFromMyFootprint).

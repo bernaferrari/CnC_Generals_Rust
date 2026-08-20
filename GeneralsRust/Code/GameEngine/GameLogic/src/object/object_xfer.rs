@@ -466,7 +466,7 @@ impl EngineSnapshotable for FiringTracker {
     }
 
     fn xfer(&mut self, xfer: &mut dyn EngineXfer) -> Result<(), String> {
-        self.xfer_cpp_runtime_state(xfer)
+        self.xfer_ctor_helper_state(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -892,6 +892,14 @@ impl Snapshot for Object {
 
         let _ = xfer.xfer_unsigned_int(&mut self.smc_until);
 
+        // C++ Object.cpp:4168-4173 — radar reloads as a separate chunk.
+        if is_loading && self.radar_data.is_some() {
+            let radar = game_engine::common::system::radar::get_radar_system();
+            if let Ok(mut radar_guard) = radar.write() {
+                radar_guard.remove_object(self.id);
+            }
+        }
+
         if self.experience_tracker.is_none() {
             self.experience_tracker = Some(Arc::new(Mutex::new(ExperienceTracker::new(self.id))));
         }
@@ -1046,6 +1054,8 @@ impl Snapshot for Object {
                     );
                 }
             }
+            self.weapon_set
+                .remember_thing_template_name(self.get_template_name());
             if let Err(err) = self.weapon_set.xfer_state(xfer) {
                 warn!(
                     "Object::xfer failed to serialize weapon set for object {}: {}",

@@ -43,6 +43,7 @@ pub mod cinematic_camera;
 pub mod client_draw_schedule;
 pub mod display;
 pub mod display_fx;
+pub mod shader_filter;
 pub mod shadow_pass;
 pub mod image;
 pub mod movie_player;

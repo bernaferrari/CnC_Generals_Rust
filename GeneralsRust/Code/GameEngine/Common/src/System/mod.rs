@@ -42,11 +42,13 @@ pub use xfer_load::XferLoad;
 pub use xfer_save::XferSave;
 
 pub use SaveGame::{
-    get_game_state, get_runtime_drawable_id_counter, get_runtime_object_id_counter,
-    init_game_state, register_drawable_id_counter_hooks, register_object_id_counter_hooks,
+    apply_campaign_manager_runtime, capture_campaign_manager_runtime, get_game_state,
+    get_runtime_drawable_id_counter, get_runtime_object_id_counter, init_game_state,
+    register_campaign_manager_runtime_hooks, register_drawable_id_counter_hooks,
+    register_object_id_counter_hooks, register_save_load_campaign_hooks,
     register_save_load_lifecycle_hooks, register_save_load_mission_hooks,
-    register_save_load_campaign_hooks, register_save_load_skirmish_hooks,
-    register_save_lock_ghost_objects_hook,
-    set_runtime_drawable_id_counter, set_runtime_object_id_counter, AvailableGameInfo, GameState,
-    GameStateMap, SaveCode, SaveDate, SaveFileType, SaveGameInfo, SaveLoadLayoutType, SnapshotType,
+    register_save_load_skirmish_hooks, register_save_lock_ghost_objects_hook,
+    set_runtime_drawable_id_counter, set_runtime_object_id_counter, AvailableGameInfo,
+    CampaignManagerXferState, GameState, GameStateMap, SaveCode, SaveDate, SaveFileType,
+    SaveGameInfo, SaveLoadLayoutType, SnapshotType,
 };

@@ -25,9 +25,7 @@ struct ModelUniform {
     visibility_pad: f32,
 };
 
-struct BoneUniform {
-    bones: array<mat4x4<f32>, 64>,
-};
+// Runtime-sized HTree palette — no 64-bone uniform cap.
 
 struct UVTransformUniform {
     mapper_meta: vec4<u32>,
@@ -41,7 +39,7 @@ var<uniform> camera: CameraUniform;
 @group(1) @binding(0)
 var<uniform> model: ModelUniform;
 @group(2) @binding(0)
-var<uniform> bones: BoneUniform;
+var<storage, read> bones: array<mat4x4<f32>>;
 @group(2) @binding(1)
 var<uniform> uv_transform: UVTransformUniform;
 @group(3) @binding(0)
@@ -71,7 +69,9 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     var skinned = vec4<f32>(0.0);
     for (var i = 0u; i < 4u; i = i + 1u) {
         if vertex.bone_weights[i] > 0.0 {
-            skinned += bones.bones[vertex.bone_indices[i]]
+            let bone_count = arrayLength(&bones);
+            let bone_index = min(vertex.bone_indices[i], bone_count - 1u);
+            skinned += bones[bone_index]
                 * vec4<f32>(vertex.position, 1.0)
                 * vertex.bone_weights[i];
         }

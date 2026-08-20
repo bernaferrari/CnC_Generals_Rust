@@ -17,6 +17,7 @@ pub(super) const W3D_MESH_FLAG_GEOMETRY_TYPE_MASK: u32 = 0x00FF0000;
 pub(super) const W3D_MESH_FLAG_GEOMETRY_TYPE_NORMAL: u32 = 0x00000000;
 pub(super) const W3D_MESH_FLAG_GEOMETRY_TYPE_CAMERA_ALIGNED: u32 = 0x00010000;
 pub(super) const W3D_MESH_FLAG_GEOMETRY_TYPE_SKIN: u32 = 0x00020000;
+pub(super) const W3D_MESH_FLAG_GEOMETRY_TYPE_CAMERA_ORIENTED: u32 = 0x00060000;
 
 /// C++ SAGE engine compatible vertex data - internal format for W3D loading
 /// This gets converted to VertexXYZNDUV2 for rendering
@@ -382,6 +383,24 @@ pub struct W3DModel {
     /// owns the HTree named by its definition and attaches its node records at
     /// their authored pivots.
     pub hmodels: Vec<W3dHmodel>,
+    /// `W3D_CHUNK_EMITTER` prototypes (`ParticleEmitterLoaderClass`).
+    pub emitters: Vec<super::w3d_emitter_loader::W3dEmitterProto>,
+    /// `W3D_CHUNK_DAZZLE` prototypes (`DazzleLoaderClass`).
+    pub dazzles: Vec<super::w3d_dazzle_loader::W3dDazzleProto>,
+    /// `W3D_CHUNK_BOX` prototypes, including hidden BOUNDINGBOX OBBOX.
+    pub boxes: Vec<super::w3d_primitive_protos::W3dBoxProto>,
+    /// `W3D_CHUNK_RING` prototypes.
+    pub rings: Vec<super::w3d_primitive_protos::W3dRingProto>,
+    /// `W3D_CHUNK_SPHERE` prototypes.
+    pub spheres: Vec<super::w3d_primitive_protos::W3dSphereProto>,
+    /// `W3D_CHUNK_NULL_OBJECT` prototypes.
+    pub nulls: Vec<super::w3d_primitive_protos::W3dNullProto>,
+    /// `W3D_CHUNK_COLLECTION` prototypes.
+    pub collections: Vec<super::w3d_collection_aggregate::W3dCollectionProto>,
+    /// `W3D_CHUNK_AGGREGATE` prototypes.
+    pub aggregates: Vec<super::w3d_collection_aggregate::W3dAggregateProto>,
+    /// `W3D_CHUNK_LODMODEL` DistLOD prototypes.
+    pub dist_lods: Vec<super::w3d_collection_aggregate::W3dDistLodProto>,
     /// A malformed HLOD must not silently fall back to generic mesh rendering:
     /// that would falsely claim a usable hierarchy/binding relationship.
     pub hlod_parse_failed: bool,

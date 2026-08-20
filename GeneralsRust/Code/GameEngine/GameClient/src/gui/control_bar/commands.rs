@@ -360,10 +360,15 @@ impl ControlBarCommandProcessor {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let _ = obj.do_command_button(logic_button.get_id(), mapped_source);
+            {
+                let Ok(mut obj) = obj_arc.write() else {
+                    continue;
+                };
+                let _ = obj.do_command_button(logic_button.get_id(), mapped_source);
+                if (button.options & CommandOption::SingleUseCommand as u32) != 0 {
+                    obj.mark_single_use_command_used();
+                }
+            }
             sent_any = true;
         }
 

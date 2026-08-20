@@ -335,6 +335,13 @@ impl LocomotorStore {
 
     pub fn get_template(&self, name: &str) -> Option<Arc<LocomotorTemplate>> {
         if let Ok(templates) = self.templates.read() {
+            if let Some(found) = templates.get(name).cloned() {
+                return Some(found);
+            }
+        }
+        let converted = crate::locomotor::ini_bridge::convert_named(name)?;
+        self.register_template(converted);
+        if let Ok(templates) = self.templates.read() {
             templates.get(name).cloned()
         } else {
             None
@@ -358,7 +365,7 @@ impl LocomotorStore {
 pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
     let store = Arc::new(LocomotorStore::new());
 
-    // Register default templates
+    // Fallback stubs used before / without INI. Retail names come from Common.
     store.register_template(LocomotorTemplate::new_infantry("Infantry".to_string()));
     store.register_template(LocomotorTemplate::new_wheeled("Wheeled".to_string()));
     store.register_template(LocomotorTemplate::new_tracked("Tracked".to_string()));
@@ -366,6 +373,8 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
     store.register_template(LocomotorTemplate::new_thrust("Thrust".to_string()));
     store.register_template(LocomotorTemplate::new_wings("Wings".to_string()));
     store.register_template(LocomotorTemplate::new_climber("Climber".to_string()));
+
+    crate::locomotor::ini_bridge::sync_common_store_into(&store);
 
     store
 });

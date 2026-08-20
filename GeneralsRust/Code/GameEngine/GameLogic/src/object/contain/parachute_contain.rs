@@ -548,13 +548,13 @@ impl ParachuteContain {
                                                 building_guard.get_object_exit_interface()
                                             {
                                                 if let Ok(mut exit_guard) = exit.lock() {
-                                                    // useSpawnRallyPoint is on DefaultProductionExit;
-                                                    // if the exit interface accepts door exit, use it.
-                                                    exit_guard.exit_object_via_door(
-                                                        rider.get_id(),
-                                                        crate::modules::ExitDoorType::Primary,
-                                                    );
-                                                    has_rally = true;
+                                                    if exit_guard.use_spawn_rally_point() {
+                                                        exit_guard.exit_object_via_door(
+                                                            rider.get_id(),
+                                                            crate::modules::ExitDoorType::Primary,
+                                                        );
+                                                        has_rally = true;
+                                                    }
                                                 }
                                             }
                                         }
@@ -623,8 +623,8 @@ impl ParachuteContain {
         if airborne {
             if let Some(rider_arc) = self.resolve_rider() {
                 let _ = self.base.remove_all_contained(false);
-                if self.module_data.free_fall_damage_percent > 0.0 {
-                    if let Ok(mut rider) = rider_arc.write() {
+                if let Ok(mut rider) = rider_arc.write() {
+                    if self.module_data.free_fall_damage_percent > 0.0 {
                         let max_health = rider
                             .get_body_module()
                             .and_then(|body| {
@@ -641,10 +641,11 @@ impl ParachuteContain {
                             DeathType::Splatted,
                         );
                         let _ = rider.attempt_damage(&mut extra);
-                        if let Some(physics) = rider.get_physics() {
-                            physics.set_allow_to_fall(true);
-                            physics.apply_force(&Coord3D::new(0.0, 0.0, 0.0));
-                        }
+                    }
+                    if let Some(physics) = rider.get_physics() {
+                        physics.set_allow_to_fall(true);
+                        physics.set_is_in_freefall(true);
+                        physics.apply_force(&Coord3D::new(0.0, 0.0, 0.0));
                     }
                 }
             }

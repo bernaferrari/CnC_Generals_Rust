@@ -1285,12 +1285,28 @@ impl CnCGameEngine {
     }
 
     /// C++ GameClient.cpp:560-565 — TheSnowManager + TheAnim2DCollection
-    /// UPDATE every client frame in every state.
+    /// UPDATE at the execute/logic cadence, not every 45 Hz present.
     pub(super) fn host_update_cpp_snow_and_anim2d(&mut self) {
         #[cfg(feature = "game_client")]
-        self.game_client.update_cpp_snow_and_anim2d(
-            game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
-        );
+        {
+            let dt = self.snow_anim2d_dt_for_present();
+            self.game_client.update_cpp_snow_and_anim2d(dt);
+        }
+    }
+
+    fn snow_anim2d_dt_for_present(&self) -> f32 {
+        let logic_steps = self
+            .host_match_logic_steps
+            .map(|(steps, _, _)| steps)
+            .unwrap_or(0);
+        if logic_steps > 0 {
+            return game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
+                * logic_steps as f32;
+        }
+        if matches!(self.current_state, GameState::InGame) {
+            return 0.0;
+        }
+        snow_anim2d_client_only_dt()
     }
 
     /// Wave 588: Menu GameClient shell tick + NewGame drain residual.
@@ -1325,6 +1341,7 @@ impl CnCGameEngine {
         }
         let early_menu_frame = self.menu_world_frames_rendered < 5;
         let t0 = std::time::Instant::now();
+        let snow_dt = self.snow_anim2d_dt_for_present();
         {
             let gc = &mut self.game_client;
             if early_menu_frame {
@@ -1341,10 +1358,8 @@ impl CnCGameEngine {
             }
             // Wave 587/588: device bookkeeping on Main-injected state (not dual OS poll).
             let _ = gc.update_input();
-            // C++ GameClient.cpp:560-565 — snow + Anim2D.
-            gc.update_cpp_snow_and_anim2d(
-                game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL,
-            );
+            // C++ GameClient.cpp:560-565 — snow + Anim2D at execute cadence.
+            gc.update_cpp_snow_and_anim2d(snow_dt);
             let t2 = std::time::Instant::now();
             if early_menu_frame {
                 debug!("Menu update_internal: calling gc.update_pre_draw_ui");
@@ -2183,12 +2198,13 @@ impl CnCGameEngine {
     /// `OBJECT_REGISTRY` is populated (opt-in bridge); production host keeps it empty.
     #[cfg(feature = "game_client")]
     pub(super) fn host_tick_game_client_presentation_shell(&mut self) {
+        // C++ GameLogic::update setFrame(TheGameLogic->getFrame()) before client update.
+        // Extra presents with the same host frame freeze drawable/FX time.
+        #[cfg(feature = "game_client")]
+        self.game_client.set_frame(self.game_logic.frame);
         // Wave 587: process Main-injected device state before shell UI residual.
         // inject_game_client_* already wrote THE_MOUSE/THE_KEYBOARD from OS events;
         // update_input only runs Keyboard/Mouse::update bookkeeping (no second OS poll).
-        if let Err(e) = self.game_client.update_input() {
-            log::trace!("GameClient device update failed (non-fatal): {e}");
-        }
         // Wave 586: presentation freeze residual when a frame is installed.
         // C++ `GameClient::update` freezes the per-Drawable update/shroud
         // loop for script/tactical freezes *and* ordinary game pause. The
@@ -2411,6 +2427,24 @@ impl CnCGameEngine {
             log::trace!("GameClient presentation shell update failed (non-fatal): {e}");
         }
     }
+}
+
+fn snow_anim2d_client_only_dt() -> f32 {
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    let now = Instant::now();
+    let Ok(mut last) = LAST.lock() else {
+        return 0.0;
+    };
+    let elapsed = last
+        .map(|t| now.saturating_duration_since(t).as_secs_f32())
+        .unwrap_or(game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL);
+    if elapsed + f32::EPSILON < game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL {
+        return 0.0;
+    }
+    *last = Some(now);
+    game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
 }
 
 #[cfg(any(test, feature = "internal"))]

@@ -16,6 +16,7 @@ pub mod material;
 pub mod proto_loaders;
 pub mod prototype;
 pub mod prototype_loader;
+pub mod prototypes;
 
 pub mod rendering;
 pub mod shatter;

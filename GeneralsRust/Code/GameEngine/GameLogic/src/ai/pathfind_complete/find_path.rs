@@ -308,7 +308,8 @@ impl PathfindingSystem {
                 let common_layer = match layer {
                     PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
                     PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
-                    PathfindLayerEnum::Top => CommonPathfindLayerEnum::Top,
+                    PathfindLayerEnum::Wall => CommonPathfindLayerEnum::Wall,
+                    _ => CommonPathfindLayerEnum::Top,
                 };
                 pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
             }

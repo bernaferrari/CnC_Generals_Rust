@@ -1,108 +1,11 @@
 impl Locomotor {
-    /// Move towards position - Thrust locomotor (helicopters) using core steering.
-    /// Matches C++ Locomotor.cpp:1891-2003 moveTowardsPositionThrust
-    pub fn move_towards_position_thrust_physics(
-        &mut self,
-        current_pos: Coord3D,
-        current_angle: Real,
-        goal_pos: Coord3D,
-        on_path_dist_to_goal: Real,
-        desired_speed: Real,
-        current_speed: Real,
-        condition: BodyDamageType,
-    ) -> (Coord3D, Real, Real) {
-        let max_speed = self.get_max_speed_for_condition(condition);
-        let mut desired_speed = desired_speed.clamp(self.template.min_speed, max_speed);
-        let braking = self.get_braking();
-
-        // Slow down approaching destination - C++ Locomotor.cpp:1899-1904
-        if braking > 0.0 {
-            let slow_down_dist =
-                Self::calc_slow_down_dist(current_speed, self.template.min_speed, braking);
-            if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
-                desired_speed = self.template.min_speed;
-            }
-        }
-
-        // Preferred height adjustment - C++ Locomotor.cpp:1914-1934
-        let mut local_goal_pos = goal_pos;
-        if self.preferred_height != 0.0 && !self.uses_precise_z_pos() {
-            // C++ getSurfaceHtAtPt: checks if underwater, returns waterZ or terrainZ
-            let surface_ht = TheTerrainLogic::get()
-                .map(|terrain| {
-                    let mut water_z = 0.0;
-                    let mut terrain_z = 0.0;
-                    if terrain.is_underwater(
-                        current_pos.x,
-                        current_pos.y,
-                        Some(&mut water_z),
-                        Some(&mut terrain_z),
-                    ) {
-                        water_z
-                    } else {
-                        terrain_z
-                    }
-                })
-                .unwrap_or(0.0);
-            local_goal_pos.z = self.preferred_height + surface_ht;
-            let delta = local_goal_pos.z - current_pos.z;
-            let damped_delta = delta * self.preferred_height_damping;
-            local_goal_pos.z = current_pos.z + damped_delta;
-        }
-
-        // Desired heading toward goal with thrust angle clamping
-        // C++ Locomotor.cpp:1936-1950
-        let raw_desired_angle =
-            (local_goal_pos.y - current_pos.y).atan2(local_goal_pos.x - current_pos.x);
-        let mut desired_angle = if matches!(
-            self.template.appearance,
-            LocomotorAppearance::Wings | LocomotorAppearance::Thrust
-        ) {
-            self.apply_air_corrections(
-                current_angle,
-                self.apply_wings_circling(current_pos, local_goal_pos, raw_desired_angle),
-            )
-        } else {
-            self.desired_angle_with_pivot(
-                current_pos,
-                current_angle,
-                local_goal_pos,
-                self.is_braking(),
-            )
-        };
-
-        // C++ Locomotor.cpp:1948-1950: clamp thrust angle relative to forward direction
-        if self.template.max_thrust_angle > 0.0 {
-            let max_turn_rate = self.get_max_turn_rate(condition);
-            if max_turn_rate > 0.0 {
-                let rel = Self::std_angle_diff(desired_angle, current_angle);
-                let clamped = rel.clamp(
-                    -self.template.max_thrust_angle,
-                    self.template.max_thrust_angle,
-                );
-                desired_angle = Self::normalize_angle(current_angle + clamped);
-            }
-        }
-
-        // Speed delta and acceleration - C++ Locomotor.cpp:1939-1940, 1982-2002
-        let speed_delta = desired_speed - current_speed;
-        let max_accel = if speed_delta > 0.0 || braking == 0.0 {
-            self.get_max_acceleration(condition)
-        } else {
-            -braking
-        };
-
-        // C++ Locomotor.cpp:1988-1991: damping factor
-        let max_forward_speed = if max_speed <= 0.0 { 0.01 } else { max_speed };
-        let damping = (0.0f32).max(max_accel / max_forward_speed).min(1.0);
-
-        // Net acceleration = thrust_accel - velocity_damping
-        // C++ applies: accelVec = thrustDir * maxAccel - curVel * damping
-        // We simplify: the acceleration returned is the net effect per frame
-        let acceleration = max_accel - current_speed * damping;
-
-        (current_pos, desired_angle, acceleration)
-    }
+    /// Move towards position - Wings (fixed-wing aircraft) locomotor.
+    /// Matches C++ Locomotor.cpp:1821-1860 moveTowardsPositionWings
+    ///
+    /// Key behaviors:
+    /// - Circle-for-landing: when `circle_thresh > 0` and the Z delta to goal
+    ///   exceeds the threshold, the aircraft aims for a point on the opposite
+    ///   side of a circle around the goal to gain/lose altitude before resuming.
 
     /// Move towards position - Wings (fixed-wing aircraft) locomotor.
     /// Matches C++ Locomotor.cpp:1821-1860 moveTowardsPositionWings

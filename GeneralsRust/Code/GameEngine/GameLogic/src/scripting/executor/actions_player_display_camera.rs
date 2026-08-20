@@ -690,23 +690,7 @@ impl ScriptActionDispatcher {
         Ok(ScriptActionResult::Success)
     }
 
-    // ============================================================================
-    // INPUT CONTROL
-    // ============================================================================
-
-    pub(crate) fn do_disable_input(&mut self) -> Result<ScriptActionResult, ScriptError> {
-        log::info!("Disabling user input");
-        TheGameLogic::set_input_enabled(false);
-
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_enable_input(&mut self) -> Result<ScriptActionResult, ScriptError> {
-        log::info!("Enabling user input");
-        TheGameLogic::set_input_enabled(true);
-
-        Ok(ScriptActionResult::Success)
-    }
+    // DISABLE_INPUT / ENABLE_INPUT live in `actions_input_ui.rs`.
 
     // ============================================================================
     // COUNTER/FLAG/TIMER ACTION IMPLEMENTATIONS

@@ -262,6 +262,7 @@ pub fn script_cameo_flash(command_button_name: &str, flash_count: i32) {
 }
 
 pub fn script_add_named_timer(name: &str, text: &str, countdown: bool) {
+    crate::gui::ingame_ui::add_named_timer(name, text, countdown);
     if let Ok(mut state) = script_ui_state_slot().lock() {
         state
             .named_timers
@@ -270,12 +271,14 @@ pub fn script_add_named_timer(name: &str, text: &str, countdown: bool) {
 }
 
 pub fn script_remove_named_timer(name: &str) {
+    crate::gui::ingame_ui::remove_named_timer(name);
     if let Ok(mut state) = script_ui_state_slot().lock() {
         state.named_timers.remove(name);
     }
 }
 
 pub fn script_show_named_timer_display(show: bool) {
+    crate::gui::ingame_ui::show_named_timer_display(show);
     if let Ok(mut state) = script_ui_state_slot().lock() {
         state.named_timer_display_shown = show;
     }
@@ -347,6 +350,48 @@ pub fn apply_pending_script_display_state() {
             view.set_3d_wireframe_mode(wireframe);
         }
     });
+
+    if let Some(disable) = gamelogic::helpers::TheInGameUI::take_cinematic_input_lock() {
+        apply_cinematic_input_lock(disable);
+    }
+}
+
+/// C++ ScriptActions::doDisableInput / doEnableInput cinematic teardown.
+fn apply_cinematic_input_lock(disable: bool) {
+    crate::helpers::TheInGameUI::set_input_enabled(!disable);
+    crate::input::mouse::with_mouse(|mouse| {
+        mouse.set_visibility(!disable);
+    });
+    if !disable {
+        return;
+    }
+    crate::helpers::TheInGameUI::deselect_all();
+    if let Ok(list) = player_list().read() {
+        let local_index = list.get_local_player_index();
+        if local_index != gamelogic::player::PLAYER_INDEX_INVALID {
+            let selection_manager = get_selection_manager();
+            if let Ok(mut manager) = selection_manager.write() {
+                if let Some(selection) = manager.get_player_selection(local_index) {
+                    selection.clear_selection();
+                }
+            }
+        }
+    }
+    crate::helpers::TheInGameUI::clear_attack_move_to_mode();
+    crate::helpers::TheInGameUI::set_waypoint_mode(false);
+    let _ = crate::gui::gui_callbacks::control_bar_popup_description::delete_build_tooltip_layout();
+    request_look_at_reset_modes();
+}
+
+fn request_look_at_reset_modes() {
+    LOOK_AT_RESET.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+static LOOK_AT_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Drain a pending LookAtTranslator::resetModes request.
+pub fn take_look_at_reset_modes() -> bool {
+    LOOK_AT_RESET.swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
 fn fullscreen_movie_wait_slot() -> &'static Mutex<HashSet<String>> {

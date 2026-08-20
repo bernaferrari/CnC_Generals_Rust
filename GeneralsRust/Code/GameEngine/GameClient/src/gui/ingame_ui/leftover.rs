@@ -6,17 +6,18 @@ impl InGameUI {
     pub fn start_building_placement(&mut self, template_name: String, footprint: Vec2) {
         self.placement_preview = Some(PlacementPreview::new(template_name, footprint));
         let builder_id = self.find_selected_builder();
-        TheInGameUI::place_build_available(
-            self.placement_preview
-                .as_ref()
-                .map(|preview| preview.template_name.clone()),
-            builder_id,
-        );
+        let name = self
+            .placement_preview
+            .as_ref()
+            .map(|preview| preview.template_name.clone());
+        TheInGameUI::place_build_available(name.clone(), builder_id);
+        self.place_build_available_icons(name, builder_id);
     }
 
     /// Cancel building placement
     pub fn cancel_building_placement(&mut self) {
         self.placement_preview = None;
+        self.destroy_placement_icons();
         TheInGameUI::place_build_available(None, None);
         TheInGameUI::set_placement_start(None);
     }
@@ -118,28 +119,37 @@ impl InGameUI {
     }
 
     // ── Named timer system ─────────────────────────────────────────────
-    // C++: InGameUI::addNamedTimer() (InGameUI.cpp)
-    // C++: InGameUI::removeNamedTimer() (InGameUI.cpp)
-    // C++: InGameUI::showNamedTimerDisplay() (InGameUI.cpp)
-
+    // C++: InGameUI::addNamedTimer() (InGameUI.cpp:709-727)
+    // C++: InGameUI::removeNamedTimer() (InGameUI.cpp:731-741)
+    // C++: InGameUI::showNamedTimerDisplay() (InGameUI.cpp:745-748)
+    // C++: InGameUI::postDraw named-timer block (InGameUI.cpp:3699-3784)
     pub fn add_named_timer(&mut self, name: &str, text: String, is_countdown: bool) {
+        crate::gui::ingame_ui::live_hud::add_named_timer(name, &text, is_countdown);
         self.named_timers.retain(|t| t.name != name);
+        let remaining = Self::script_counter_value(name).unwrap_or(0);
         self.named_timers.push(NamedTimerData {
             name: name.to_string(),
             text,
             is_countdown,
-            timestamp: i32::MIN,
+            timestamp: -1,
             color: self.named_timer_normal_color,
             display_text: String::new(),
             use_ready_font: false,
+            remaining_frames: remaining,
+            last_tick_frame: 0,
+            draw_x: 0.0,
+            draw_y: 0.0,
+            draw_color: self.named_timer_normal_color,
         });
     }
 
     pub fn remove_named_timer(&mut self, name: &str) {
+        crate::gui::ingame_ui::live_hud::remove_named_timer(name);
         self.named_timers.retain(|t| t.name != name);
     }
 
     pub fn show_named_timer_display(&mut self, show: bool) {
+        crate::gui::ingame_ui::live_hud::show_named_timer_display(show);
         self.show_named_timers = show;
     }
 
@@ -151,6 +161,14 @@ impl InGameUI {
         self.show_named_timers
     }
 
+    /// Seed remaining frames when ScriptEngine has not allocated the counter yet.
+    pub fn set_named_timer_remaining_frames(&mut self, name: &str, frames: i32) {
+        if let Some(timer) = self.named_timers.iter_mut().find(|t| t.name == name) {
+            timer.remaining_frames = frames;
+            timer.timestamp = -1;
+        }
+    }
+
     /// C++ postDraw named-timer block (InGameUI.cpp:3699-3784).
     pub fn update_named_timers(&mut self) {
         if !self.show_named_timers || self.current_frame == 0 {
@@ -159,55 +177,127 @@ impl InGameUI {
         let flash_duration = self.named_timer_flash_duration as i32;
         let mut used_flash = self.named_timer_used_flash_color;
         let mut last_flash = self.named_timer_last_flash_frame;
-        let current_frame = self.current_frame as i32;
+        let current_frame = self.current_frame;
+        let current_frame_i = current_frame as i32;
+        let reverse_x = self.named_timer_position.0 >= 0.5;
+        let start_x = self.named_timer_position.0 * self.screen_size.x;
+        let mut start_y = self.named_timer_position.1 * self.screen_size.y;
 
         for timer in &mut self.named_timers {
-            let frames_left = Self::script_counter_value(&timer.name);
-            let ready_secs = if frames_left > 0 { frames_left } else { 0 };
-            let seconds = if timer.is_countdown {
-                (ready_secs as f32 * (1.0 / 30.0)) as i32
-            } else {
-                frames_left
-            };
+            let script_frames = Self::script_counter_value(&timer.name);
+            let (frames_left, last_tick) = Self::resolve_named_timer_frames(
+                timer.remaining_frames,
+                timer.is_countdown,
+                current_frame,
+                timer.last_tick_frame,
+                script_frames,
+            );
+            timer.remaining_frames = frames_left;
+            timer.last_tick_frame = last_tick;
 
+            let ready_secs = Self::named_timer_ready_seconds(frames_left);
             let value_changed = if timer.is_countdown {
-                seconds != timer.timestamp
+                ready_secs != timer.timestamp
             } else {
                 frames_left != timer.timestamp
             };
             if value_changed {
-                timer.use_ready_font = timer.is_countdown && seconds == 0;
+                timer.use_ready_font = timer.is_countdown && ready_secs == 0;
                 timer.timestamp = if timer.is_countdown {
-                    seconds
+                    ready_secs
                 } else {
                     frames_left
                 };
-                timer.display_text = if timer.is_countdown {
-                    let min = seconds / 60;
-                    let sec = seconds - min * 60;
-                    if sec >= 10 {
-                        format!("{} {}:{}", timer.text, min, sec)
-                    } else {
-                        format!("{} {}:0{}", timer.text, min, sec)
-                    }
-                } else {
-                    format!("{} {}", timer.text, frames_left)
-                };
+                timer.display_text =
+                    Self::format_named_timer_line(&timer.text, frames_left, timer.is_countdown);
             }
 
-            if timer.is_countdown && seconds == 0 && flash_duration != 0 {
-                if current_frame >= last_flash + flash_duration {
+            let draw_color = if timer.is_countdown && ready_secs == 0 && flash_duration != 0 {
+                if current_frame_i >= last_flash + flash_duration {
                     used_flash = !used_flash;
-                    last_flash = current_frame;
+                    last_flash = current_frame_i;
                 }
-            }
+                if used_flash {
+                    timer.color
+                } else {
+                    self.named_timer_flash_color
+                }
+            } else {
+                timer.color
+            };
+
+            let font_size = if timer.use_ready_font {
+                self.named_timer_ready_point_size
+            } else {
+                self.named_timer_normal_point_size
+            };
+            let entry = Self::named_timer_draw_layout(
+                &timer.display_text,
+                start_x,
+                start_y,
+                reverse_x,
+                font_size,
+                draw_color,
+                timer.use_ready_font,
+            );
+            timer.draw_x = entry.x;
+            timer.draw_y = entry.y;
+            timer.draw_color = entry.color;
+            start_y -= font_size.max(1) as f32;
         }
 
         self.named_timer_used_flash_color = used_flash;
         self.named_timer_last_flash_frame = last_flash;
+
+        if let Ok(mut renderer) = self.renderer.try_write() {
+            self.draw_named_timers(&mut renderer);
+        }
     }
 
-    fn script_counter_value(name: &str) -> i32 {
+    /// C++ `info->displayString->draw` (InGameUI.cpp:3768-3777).
+    pub fn draw_named_timers(&self, renderer: &mut UIRenderer) {
+        if !self.show_named_timers {
+            return;
+        }
+        for entry in self.named_timer_draw_entries() {
+            let (r, g, b, a) = Self::unpack_argb(entry.color);
+            let _ = renderer.draw_text_simple(
+                &entry.text,
+                Vec2::new(entry.x, entry.y),
+                entry.font_point_size.max(1) as f32,
+                [
+                    r as f32 / 255.0,
+                    g as f32 / 255.0,
+                    b as f32 / 255.0,
+                    a as f32 / 255.0,
+                ],
+            );
+        }
+    }
+
+    pub fn named_timer_draw_entries(&self) -> Vec<NamedTimerDrawEntry> {
+        if !self.show_named_timers {
+            return Vec::new();
+        }
+        self.named_timers
+            .iter()
+            .filter(|timer| !timer.display_text.is_empty())
+            .map(|timer| NamedTimerDrawEntry {
+                text: timer.display_text.clone(),
+                x: timer.draw_x,
+                y: timer.draw_y,
+                color: timer.draw_color,
+                font_point_size: if timer.use_ready_font {
+                    self.named_timer_ready_point_size
+                } else {
+                    self.named_timer_normal_point_size
+                },
+                use_ready_font: timer.use_ready_font,
+            })
+            .collect()
+    }
+
+    fn script_counter_value(name: &str) -> Option<i32> {
         gamelogic::scripting::engine::get_script_engine()
             .read()
             .ok()
@@ -216,18 +306,69 @@ impl InGameUI {
                     .as_ref()
                     .and_then(|engine| engine.get_counter(name).map(|c| c.value))
             })
-            .unwrap_or(0)
+    }
+
+    /// ScriptEngine counter wins (InGameUI.cpp:3716). Otherwise residual
+    /// countdown decrements once per logic frame (ScriptEngine.cpp:5547-5550).
+    fn resolve_named_timer_frames(
+        stored: i32,
+        is_countdown: bool,
+        current_frame: u32,
+        last_tick_frame: u32,
+        script_frames: Option<i32>,
+    ) -> (i32, u32) {
+        if let Some(frames) = script_frames {
+            return (frames, current_frame);
+        }
+        if current_frame == last_tick_frame {
+            return (stored, last_tick_frame);
+        }
+        if is_countdown && stored >= 0 {
+            (stored - 1, current_frame)
+        } else {
+            (stored, current_frame)
+        }
+    }
+
+    /// C++ `readySecs = SECONDS_PER_LOGICFRAME_REAL * framesLeft` (InGameUI.cpp:3718-3720).
+    fn named_timer_ready_seconds(frames_left: i32) -> i32 {
+        if frames_left > 0 {
+            (frames_left as f32 * (1.0 / 30.0)) as i32
+        } else {
+            0
+        }
+    }
+
+    fn named_timer_draw_layout(
+        display_text: &str,
+        start_x: f32,
+        start_y: f32,
+        reverse_x: bool,
+        font_point_size: i32,
+        color: u32,
+        use_ready_font: bool,
+    ) -> NamedTimerDrawEntry {
+        let font_size = font_point_size.max(1) as f32;
+        let text_width = display_text.len() as f32 * font_size * 0.6;
+        NamedTimerDrawEntry {
+            text: display_text.to_string(),
+            x: if reverse_x {
+                start_x - text_width
+            } else {
+                start_x
+            },
+            y: start_y,
+            color,
+            font_point_size,
+            use_ready_font,
+        }
     }
 
     fn format_named_timer_line(text: &str, frames_left: i32, is_countdown: bool) -> String {
         if !is_countdown {
             return format!("{text} {frames_left}");
         }
-        let seconds = if frames_left > 0 {
-            (frames_left as f32 * (1.0 / 30.0)) as i32
-        } else {
-            0
-        };
+        let seconds = Self::named_timer_ready_seconds(frames_left);
         let min = seconds / 60;
         let sec = seconds - min * 60;
         if sec >= 10 {
@@ -236,6 +377,7 @@ impl InGameUI {
             format!("{text} {min}:0{sec}")
         }
     }
+
 
     // ── GUI command system ─────────────────────────────────────────────
     // C++: InGameUI::setGUICommand() (InGameUI.cpp:2865)

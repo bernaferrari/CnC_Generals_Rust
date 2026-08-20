@@ -11,6 +11,9 @@
 //! side that will be wired once the W3D rendering pipeline is complete.
 
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
+use crate::W3DDevice::GameClient::shadow::ShadowHandle;
+use super::wthree_d_model_draw_runtime as runtime;
+
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
 use crate::W3DDevice::GameClient::Module::wthree_d_model_draw as module_data;
 use cgmath::{InnerSpace, Matrix4, Point3, Quaternion, SquareMatrix, Vector3, Zero};
@@ -42,6 +45,25 @@ impl Default for WeaponRecoilInfo {
         }
     }
 }
+
+fn recoil_state_to_u8(state: RecoilState) -> u8 {
+    match state {
+        RecoilState::Idle => runtime::RECOIL_IDLE,
+        RecoilState::RecoilStart => runtime::RECOIL_START,
+        RecoilState::Recoil => runtime::RECOIL_ACTIVE,
+        RecoilState::Settle => runtime::RECOIL_SETTLE,
+    }
+}
+
+fn recoil_state_from_u8(value: u8) -> RecoilState {
+    match value {
+        runtime::RECOIL_START => RecoilState::RecoilStart,
+        runtime::RECOIL_ACTIVE => RecoilState::Recoil,
+        runtime::RECOIL_SETTLE => RecoilState::Settle,
+        _ => RecoilState::Idle,
+    }
+}
+
 
 /// Sub-object visibility rule (C++: HideShowSubObjInfo)
 #[derive(Debug, Clone)]
@@ -167,6 +189,8 @@ pub struct W3DModelDraw {
     next_state_index: i32,
     /// Team color hex value
     hex_color: i32,
+    last_condition_flags: u128,
+
     /// Current animation index within state
     which_anim_in_cur_state: i32,
     /// Per-weapon-slot recoil state (C++: WEAPONSLOT_COUNT = 5)
@@ -178,6 +202,15 @@ pub struct W3DModelDraw {
     /// Render object ID
     render_object_id: Option<RenderObjectId>,
     /// Shadow ID
+    /// Live projected-shadow handle from TheW3DShadowManager.
+    shadow_handle: Option<ShadowHandle>,
+    /// HLOD animation frame-rate multiplier (C++ Set_Animation_Frame_Rate_Multiplier).
+    anim_speed_factor: f32,
+    /// Deferred MODELCONDITION_CARRYING (bit 68) while under drawable lock.
+    pending_carrying: Option<bool>,
+    /// Current animation frame (one-shot setAnimationFrame writes here).
+    current_anim_frame: i32,
+
     shadow_id: Option<RenderObjectId>,
     /// Terrain decal ID
     terrain_decal_id: Option<RenderObjectId>,
@@ -232,11 +265,17 @@ impl W3DModelDraw {
             cur_state_index: -1,
             next_state_index: -1,
             hex_color: 0,
+            last_condition_flags: 0,
             which_anim_in_cur_state: -1,
             weapon_recoil: vec![Vec::new(); 5],
             fully_obscured_by_shroud: false,
             shadow_enabled: true,
             render_object_id: None,
+            shadow_handle: None,
+            anim_speed_factor: 1.0,
+            pending_carrying: None,
+            current_anim_frame: 0,
+
             shadow_id: None,
             terrain_decal_id: None,
             track_render_object_id: None,
@@ -846,8 +885,8 @@ impl W3DModelDraw {
         // C++ parity: Stop particle systems (line 2982)
         // PARITY_NOTE: stopClientParticleSystems() requires ParticleSystemManager
 
-        // C++ parity: Hide muzzle flashes (line 2985)
-        // PARITY_NOTE: hideAllMuzzleFlashes() requires render object bone access
+        // C++ hideAllMuzzleFlashes(newState) — leftover flashes cannot survive a swap.
+        self.hide_all_muzzle_flashes_for_state(effective_new_idx);
 
         let new_state = &self.condition_states[effective_new_idx];
         let cur_model_name = if self.cur_state_index >= 0 {
@@ -857,38 +896,25 @@ impl W3DModelDraw {
         };
 
         let model_changed = new_state.model_name != cur_model_name || self.cur_state_index < 0;
+        let state_hide_show: Vec<HideShowSubObjInfo> = new_state
+            .hide_show_list
+            .iter()
+            .map(|(name, hide)| HideShowSubObjInfo {
+                name: name.clone(),
+                hide: *hide,
+            })
+            .collect();
 
         if model_changed {
-            // C++ parity: nukeCurrentRender + create new render object (lines 2999-3134)
-            // Release old render objects
             self.render_object_id = None;
             self.shadow_id = None;
             self.terrain_decal_id = None;
-
-            if !new_state.model_name.is_empty() {
-                // C++: W3DDisplay::m_assetManager->Create_Render_Obj(modelName, scale, hexColor)
-                // PARITY_NOTE: Render object creation requires W3DAssetManager.
-                // When wired, this creates the render object and stores the ID.
-                log::debug!(
-                    "W3DModelDraw::setModelState: model '{}' not yet loaded (asset manager deferred)",
-                    new_state.model_name
-                );
-            }
-
-            // C++ parity: rebuildWeaponRecoilInfo(newState) (line 3020)
             self.rebuild_weapon_recoil_info(effective_new_idx);
-
-            // C++ parity: doHideShowSubObjs(&newState->m_hideShowVec) (line 3021)
-            // PARITY_NOTE: Requires RenderObjClass sub-object iteration
         } else {
-            // C++ parity: Same model, just validate and rebuild (lines 3137-3149)
             self.rebuild_weapon_recoil_info(effective_new_idx);
         }
+        self.do_hide_show_sub_objs(&state_hide_show);
 
-        // C++ parity: hideAllHeadlights (line 3150)
-        // Applied via submission state (hide_headlights field)
-
-        // C++ parity: Update state pointers (lines 3152-3156)
         let prev_state_index = self.cur_state_index;
         self.cur_state_index = effective_new_idx as i32;
         self.next_state_index = match next_state_idx {
@@ -896,19 +922,24 @@ impl W3DModelDraw {
             None => -1,
         };
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
-
-        // C++ parity: adjustAnimation(prevState, prevAnimFraction) (line 3156)
         self.adjust_animation(prev_state_index, prev_anim_fraction);
     }
 
-    /// C++ parity: W3DModelDraw::replaceModelConditionState (line 3160)
-    /// Public API: given condition flags, find best state and transition to it.
+    /// C++ replaceModelConditionState — merge deferred CARRYING.
     pub fn replace_model_condition_state(&mut self, condition_flags: u128) {
-        // C++: m_hideHeadlights = c.test(MODELCONDITION_NIGHT) ? false : true
-        const NIGHT_BIT: u128 = 1 << 7; // ModelConditionFlagType::Night = 7
-        self.hide_headlights = (condition_flags & NIGHT_BIT) == 0;
-
-        if let Some(idx) = self.find_best_info(condition_flags) {
+        const NIGHT_BIT: u128 = 1 << 7;
+        const CARRYING_BIT: u128 = 1u128 << 68;
+        let mut flags = condition_flags;
+        if let Some(carrying) = self.pending_carrying {
+            if carrying {
+                flags |= CARRYING_BIT;
+            } else {
+                flags &= !CARRYING_BIT;
+            }
+        }
+        self.last_condition_flags = flags;
+        self.hide_headlights = (flags & NIGHT_BIT) == 0;
+        if let Some(idx) = self.find_best_info(flags) {
             self.set_model_state(idx as i32);
         }
     }
@@ -964,14 +995,10 @@ impl W3DModelDraw {
             // PARITY_NOTE: RenderObjClass::Set_Animation not yet wired.
             // Store the animation parameters for when the render pipeline is connected.
             self.animation_mode = cur_state.mode;
-
-            log::debug!(
-                "W3DModelDraw::adjustAnimation: state={}, anim_idx={}, start_frame={}, mode={:?}",
-                cur_state.description,
-                anim_idx,
-                start_frame,
-                cur_state.mode
-            );
+            self.current_anim_frame = start_frame;
+            let min_factor = cur_state.anim_min_speed_factor;
+            let max_factor = cur_state.anim_max_speed_factor;
+            self.anim_speed_factor = runtime::pick_anim_speed_factor(min_factor, max_factor);
         } else {
             self.which_anim_in_cur_state = -1;
         }
@@ -1076,17 +1103,10 @@ impl W3DModelDraw {
         self.set_animation_loop_duration(num_frames);
     }
 
-    /// C++ parity: W3DModelDraw::setAnimationFrame (line 3797)
     pub fn set_animation_frame(&mut self, frame: i32) {
-        if self.render_object_id.is_some() && self.which_anim_in_cur_state >= 0 {
-            // C++: m_renderObject->Set_Animation(animHandle, frame)
-            // PARITY_NOTE: RenderObjClass::Set_Animation not wired
-            log::debug!(
-                "W3DModelDraw::setAnimationFrame: frame={}, anim_idx={}",
-                frame,
-                self.which_anim_in_cur_state
-            );
-        }
+        // C++ one-shot Set_Animation(handle, frame). No latched manual frame.
+        self.current_anim_frame = frame.max(0);
+        self.animation_complete = false;
     }
 
     /// C++ parity: W3DModelDraw::setPauseAnimation (line 3809)
@@ -1095,27 +1115,33 @@ impl W3DModelDraw {
             return;
         }
         self.pause_animation = pause;
-
-        // C++: If pausing, save mode and switch to MANUAL. If resuming, restore saved mode.
-        // PARITY_NOTE: Requires HLodClass::Peek_Animation_And_Info + Set_Animation
-        // When render objects have animation state, this will toggle between
-        // ANIM_MODE_MANUAL (paused) and the saved mode (resumed).
     }
 
-    /// C++ parity: W3DModelDraw::setCurAnimDurationInMsec (line 2210)
+    /// C++ setCurAnimDurationInMsec: Set_Animation_Frame_Rate_Multiplier
     fn set_cur_anim_duration_msec(&mut self, desired_duration_msec: f32) -> bool {
         if desired_duration_msec <= 0.0 {
             return false;
         }
-        // C++: naturalDuration = numFrames * 1000.0 / frameRate
-        //      multiplier = naturalDuration / desiredDuration
-        // PARITY_NOTE: Requires HLodClass::Peek_Animation for actual values.
-        // When wired, this will call hlod->Set_Animation_Frame_Rate_Multiplier(multiplier).
-        log::debug!(
-            "W3DModelDraw::setCurAnimDurationInMsec: desired={}ms",
-            desired_duration_msec
-        );
-        false
+        let natural_ms = if self.cur_state_index >= 0 {
+            let idx = self.cur_state_index as usize;
+            self.condition_states
+                .get(idx)
+                .and_then(|state| {
+                    let anim_idx = self.which_anim_in_cur_state;
+                    if anim_idx >= 0 {
+                        state.animations.get(anim_idx as usize)
+                    } else {
+                        None
+                    }
+                })
+                .map(|anim| anim.natural_duration_msec as f32)
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        self.anim_speed_factor =
+            runtime::duration_frame_rate_multiplier(natural_ms, desired_duration_msec);
+        true
     }
 
     /// C++ parity: W3DModelDraw::getCurrentAnimFraction (line 2103)
@@ -1181,96 +1207,130 @@ impl W3DModelDraw {
         // and RenderObjClass::Capture_Bone/Control_Bone
     }
 
-    /// Per-frame recoil state machine for each weapon slot and barrel.
-    /// IDLE: nothing. RECOIL_START/RECOIL: increase shift by rate, damp.
-    /// SETTLE: decrease shift by settle speed. Return to IDLE at zero.
     fn handle_client_recoil(&mut self) {
-        // PARITY_NOTE: Requires RenderObjClass::Capture_Bone/Control_Bone
-        // for recoil bone manipulation
+        const MAX_RECOIL: f32 = 2.5;
+        const DAMPING: f32 = 0.75;
+        const SETTLE: f32 = 0.15;
+        for slot in 0..self.weapon_recoil.len() {
+            let barrel_count = self.weapon_recoil[slot].len();
+            for barrel_index in 0..barrel_count {
+                let (mut state_u8, mut shift, mut rate) = {
+                    let recoil = &self.weapon_recoil[slot][barrel_index];
+                    (recoil_state_to_u8(recoil.state), recoil.shift, recoil.recoil_rate)
+                };
+                let hide_muzzle = runtime::tick_recoil_barrel(
+                    &mut state_u8,
+                    &mut shift,
+                    &mut rate,
+                    true,
+                    MAX_RECOIL,
+                    DAMPING,
+                    SETTLE,
+                );
+                {
+                    let recoil = &mut self.weapon_recoil[slot][barrel_index];
+                    recoil.state = recoil_state_from_u8(state_u8);
+                    recoil.shift = shift;
+                    recoil.recoil_rate = rate;
+                }
+                if let Some(state) = self.condition_states.get(self.cur_state_index as usize) {
+                    if let Some(Some(name)) = state.weapon_muzzle_bones.get(slot) {
+                        if !name.is_empty() {
+                            let named = format!("{name}{:02}", barrel_index + 1);
+                            let base = name.clone();
+                            self.upsert_sub_object(&base, hide_muzzle);
+                            self.upsert_sub_object(&named, hide_muzzle);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn upsert_sub_object(&mut self, name: &str, hide: bool) {
+        if name.is_empty() {
+            return;
+        }
+        if let Some(entry) = self
+            .sub_object_vec
+            .iter_mut()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        {
+            entry.hide = hide;
+        } else {
+            self.sub_object_vec.push(HideShowSubObjInfo {
+                name: name.to_string(),
+                hide,
+            });
+        }
     }
 
     /// Apply hide/show sub-object list (used by supply draw, upgrade system, etc.)
-    pub fn do_hide_show_sub_objs(&mut self, _info_vec: &[HideShowSubObjInfo]) {
-        // PARITY_NOTE: RenderObjClass::Get_Sub_Object_By_Name() + Set_Hidden()
+    pub fn do_hide_show_sub_objs(&mut self, info_vec: &[HideShowSubObjInfo]) {
+        let state_list: Vec<(String, bool)> = info_vec
+            .iter()
+            .map(|e| (e.name.clone(), e.hide))
+            .collect();
+        let overrides: Vec<(String, bool)> = self
+            .sub_object_vec
+            .iter()
+            .map(|e| (e.name.clone(), e.hide))
+            .collect();
+        for (name, hide) in runtime::compose_hide_show(&state_list, &overrides) {
+            self.upsert_sub_object(&name, hide);
+        }
     }
 
-    /// React to transform change: update render object and track marks.
     pub fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix4<f32>,
         _old_pos: &Point3<f32>,
         _old_angle: f32,
     ) {
-        // PARITY_NOTE: Update render object transform, add track edges
     }
 
-    /// React to geometry change.
-    ///
-    /// C++ parity: `virtual void reactToGeometryChange() { }` — empty in W3DModelDraw.h.
-    /// The base W3DModelDraw has no geometry-specific update to perform; subclasses
-    /// (TankTruckDraw, TruckDraw, SupplyDraw) that override this also leave it empty.
-    /// Geometry bounds are implicitly updated via render object transforms set in doDrawModule.
     pub fn react_to_geometry_change(&mut self) {}
 
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
+        runtime::apply_shadow_render_enabled(
+            &mut self.shadow_handle,
+            runtime::shadow_should_render(self.hidden, enable),
+        );
     }
 
-    /// Release all shadow resources used by this module.
-    ///
-    /// C++ parity: `W3DModelDraw::releaseShadows()` (W3DModelDraw.cpp line 1821):
-    /// ```cpp
-    /// if (m_shadow) m_shadow->release();
-    /// m_shadow = NULL;
-    /// ```
-    /// Called by the Options screen to dynamically enable/disable shadows.
+    /// C++ W3DModelDraw::releaseShadows
     pub fn release_shadows(&mut self) {
-        if let Some(id) = self.shadow_id.take() {
-            let scene = W3DDisplay::global_scene();
-            let mut scene_guard = scene.write();
-            scene_guard.remove_render_object(id);
-        }
+        runtime::release_projected_shadow(self.shadow_handle.take(), self.shadow_id.take());
     }
 
-    /// Allocate shadow resources if not already present.
-    ///
-    /// C++ parity: `W3DModelDraw::allocateShadows()` (W3DModelDraw.cpp line 1829):
-    /// Creates shadow via TheW3DShadowManager when:
-    ///   - m_shadow == NULL (no existing shadow)
-    ///   - m_renderObject exists
-    ///   - ThingTemplate shadow type != SHADOW_NONE
-    /// Shadow info (texture, type, sizeX/Y, offsetX/Y) comes from ThingTemplate.
-    /// After creation, applies shroud visibility and hidden/shadow-disabled states.
+    /// C++ W3DModelDraw::allocateShadows
     pub fn allocate_shadows(&mut self) {
-        if self.shadow_id.is_none() && self.render_object_id.is_some() {
-            // PARITY_NOTE: Full C++ implementation requires:
-            //   const ThingTemplate* tmplate = getDrawable()->getTemplate();
-            //   Shadow::ShadowTypeInfo shadowInfo;
-            //   shadowInfo.m_ShadowName = tmplate->getShadowTextureName();
-            //   shadowInfo.m_type = tmplate->getShadowType();
-            //   shadowInfo.m_sizeX = tmplate->getShadowSizeX();
-            //   shadowInfo.m_sizeY = tmplate->getShadowSizeY();
-            //   shadowInfo.m_offsetX = tmplate->getShadowOffsetX();
-            //   shadowInfo.m_offsetY = tmplate->getShadowOffsetY();
-            //   m_shadow = TheW3DShadowManager->addShadow(m_renderObject, &shadowInfo);
-            //   if (m_shadow) {
-            //       m_shadow->enableShadowInvisible(m_fullyObscuredByShroud);
-            //       if (m_renderObject->Is_Hidden() || !m_shadowEnabled)
-            //           m_shadow->enableShadowRender(FALSE);
-            //   }
-            //
-            // Requires ThingTemplate shadow properties and W3DShadowManager integration.
-            // When wired, this will create a shadow render object via W3DShadowManager::add_shadow()
-            // and store the resulting ID in self.shadow_id.
-        }
+        self.shadow_handle = runtime::allocate_projected_shadow(
+            &self.shadow_handle,
+            self.render_object_id,
+            self.hidden,
+            self.shadow_enabled,
+            self.fully_obscured_by_shroud,
+            40.0,
+            40.0,
+            "shadow",
+        );
     }
 
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.fully_obscured_by_shroud = fully_obscured;
+        if let Some(handle) = self.shadow_handle.as_mut() {
+            handle.is_invisible_enabled = fully_obscured;
+        }
     }
 
     pub fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
+        runtime::apply_shadow_render_enabled(
+            &mut self.shadow_handle,
+            runtime::shadow_should_render(hidden, self.shadow_enabled),
+        );
     }
 
     pub fn is_visible(&self) -> bool {
@@ -1280,6 +1340,63 @@ impl W3DModelDraw {
     // --------------------------------------------------------------------------------------------
     // Xfer / Snapshotable — C++ W3DModelDraw::xfer() lines 4006-4236
     //
+
+    fn hide_all_muzzle_flashes_for_state(&mut self, state_index: usize) {
+        let Some(state) = self.condition_states.get(state_index) else {
+            return;
+        };
+        let names: Vec<String> = state
+            .weapon_muzzle_bones
+            .iter()
+            .flatten()
+            .filter(|name| !name.is_empty())
+            .cloned()
+            .collect();
+        for name in names {
+            self.upsert_sub_object(&name, true);
+            for idx in 1..=8 {
+                self.upsert_sub_object(&format!("{name}{idx:02}"), true);
+            }
+        }
+    }
+
+    /// C++ updateProjectileClipStatus / doHideShowProjectileObjects.
+    pub fn update_projectile_clip_status(
+        &mut self,
+        shots_remaining: u32,
+        max_shots: u32,
+        slot: usize,
+    ) {
+        if self.cur_state_index < 0 || max_shots < shots_remaining {
+            return;
+        }
+        let state = &self.condition_states[self.cur_state_index as usize];
+        let hide_name = state
+            .weapon_projectile_hide_show_name
+            .get(slot)
+            .and_then(|n| n.as_deref())
+            .unwrap_or("");
+        let launch_name = state
+            .weapon_projectile_launch_bone
+            .get(slot)
+            .and_then(|n| n.as_deref())
+            .unwrap_or("");
+        let entries = runtime::projectile_clip_entries(
+            hide_name,
+            launch_name,
+            shots_remaining,
+            max_shots,
+        );
+        for (name, hide) in entries {
+            self.upsert_sub_object(&name, hide);
+        }
+    }
+
+    pub fn update_draw_module_supply_status(&mut self, _max_supply: i32, current_supply: i32) {
+        self.pending_carrying = Some(current_supply > 0);
+        self.replace_model_condition_state(self.last_condition_flags);
+    }
+
     // Version history:
     //   1: Initial version
     //   2: Added animation frame (CBD)
@@ -1564,7 +1681,7 @@ impl W3DModelDraw {
     }
 
     fn on_delete(&mut self) {
-        // PARITY_NOTE: Unbind track render object, nukeCurrentRender (shadow, decal, render object)
+        self.release_shadows();
         self.render_object_id = None;
         self.shadow_id = None;
         self.terrain_decal_id = None;

@@ -205,9 +205,20 @@ impl UnitAIUpdate {
             Self::xfer_turret_ai(machine, xfer)?;
         }
 
-        let mut turret_sync_flag: u32 = 0;
+        let mut turret_sync_flag = match self.turret_sync_flag {
+            TurretType::Primary => 0u32,
+            TurretType::Secondary => 1u32,
+            TurretType::Invalid => u32::MAX,
+        };
         xfer.xfer_unsigned_int(&mut turret_sync_flag)
             .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.turret_sync_flag = match turret_sync_flag {
+                0 => TurretType::Primary,
+                1 => TurretType::Secondary,
+                _ => TurretType::Invalid,
+            };
+        }
         let mut attitude = self.attitude as u32;
         xfer.xfer_unsigned_int(&mut attitude)
             .map_err(|e| e.to_string())?;

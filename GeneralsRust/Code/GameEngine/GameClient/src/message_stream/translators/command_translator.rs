@@ -779,9 +779,26 @@ impl CommandTranslator {
                 SPECIAL_POWER_INVALID,
                 gamelogic::common::INVALID_ID,
             ))
+        } else if selection_can_set_rally_point(&self.current_selection) {
+            None
         } else {
             Some(self.resolve_move_command(world.clone()))
         };
+
+        if command.is_none()
+            && target.is_none()
+            && !force_attack_active
+            && selection_can_set_rally_point(&self.current_selection)
+        {
+            let mut messages = Vec::new();
+            let mut ids: Vec<ObjectID> = self.current_selection.iter().copied().collect();
+            ids.sort_unstable();
+            for id in ids {
+                messages.push(GameMessageType::SetRallyPoint(id, world.clone()));
+            }
+            TheInGameUI::clear_attack_move_to_mode();
+            return messages;
+        }
 
         TheInGameUI::clear_attack_move_to_mode();
 
@@ -864,6 +881,10 @@ impl CommandTranslator {
             return vec![GameMessageType::DoSpecialPowerOverrideDestinationHint(
                 pos.clone(),
             )];
+        }
+
+        if selection_can_set_rally_point(&self.current_selection) {
+            return vec![GameMessageType::SetRallyPointHint(pos.clone())];
         }
 
         vec![self.resolve_move_hint(pos.clone())]

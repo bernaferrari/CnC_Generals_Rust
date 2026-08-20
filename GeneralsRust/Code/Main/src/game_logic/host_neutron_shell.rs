@@ -148,15 +148,17 @@ pub fn is_neutron_kill_vehicle_name(template_name: &str) -> bool {
 
 /// Whether residual target receives neutron blast effects.
 ///
-/// C++ NeutronBlastBehavior: infantry kill; vehicle unmanned (not drones);
-/// skip dead / optionally allies / airborne.
+/// C++ `neutronBlastToObject` is invoked for every alive same-map object in
+/// radius except aircraft/airborne (unless AffectAirborne) and allies when
+/// `!AffectAllies`. Structures stay legal so `killAllContained` can run;
+/// drones stay legal so passengers dump even though the husk is not unmanned.
 pub fn is_legal_neutron_blast_target(
     is_alive: bool,
-    is_infantry: bool,
-    is_vehicle: bool,
+    _is_infantry: bool,
+    _is_vehicle: bool,
     is_aircraft: bool,
-    is_structure: bool,
-    is_drone: bool,
+    _is_structure: bool,
+    _is_drone: bool,
     is_airborne: bool,
     affect_airborne: bool,
     same_team_ally: bool,
@@ -165,26 +167,15 @@ pub fn is_legal_neutron_blast_target(
     if !is_alive {
         return false;
     }
-    if is_structure {
-        return false;
-    }
     if is_aircraft || (is_airborne && !affect_airborne) {
-        // Residual: airborne non-infantry skipped when AffectAirborne=No.
-        if is_aircraft {
-            return false;
-        }
-        if is_airborne && !affect_airborne {
-            return false;
-        }
+        return false;
     }
     if same_team_ally && !affect_allies {
         return false;
     }
-    if is_drone {
-        return false;
-    }
-    is_infantry || is_vehicle
+    true
 }
+
 
 /// Classify residual neutron effect for one target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -556,16 +547,16 @@ mod tests {
         assert!(is_legal_neutron_blast_target(
             true, false, true, false, false, false, false, false, false, true
         ));
-        // structure skip
-        assert!(!is_legal_neutron_blast_target(
+        // structure legal so contain wipe can run
+        assert!(is_legal_neutron_blast_target(
             true, false, false, false, true, false, false, false, false, true
         ));
         // ally skipped when affect_allies=false
         assert!(!is_legal_neutron_blast_target(
             true, true, false, false, false, false, false, false, true, false
         ));
-        // drone skip
-        assert!(!is_legal_neutron_blast_target(
+        // drone legal (skip unman, still dump passengers)
+        assert!(is_legal_neutron_blast_target(
             true, false, true, false, false, true, false, false, false, true
         ));
         // aircraft skip

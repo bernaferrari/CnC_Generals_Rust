@@ -204,6 +204,8 @@ pub struct BridgeLayer {
     /// C++ layer cells with getConnectLayer()==LAYER_GROUND (entry points).
     /// Populated at classify/add time; scanned by `connectsZones`.
     pub ground_connect_cells: Vec<GridCoord>,
+    /// C++ PathfindLayer cell matrix (NULL/Impassable omitted).
+    pub cell_types: HashMap<GridCoord, PathfindCellType>,
 }
 
 impl BridgeLayer {
@@ -227,7 +229,7 @@ impl BridgeLayer {
         } else {
             ground_connect_cells.push(start_cell);
         }
-        Self {
+        let mut layer = Self {
             layer_id,
             bounds,
             destroyed: false,
@@ -236,7 +238,10 @@ impl BridgeLayer {
             start_cell,
             end_cell,
             ground_connect_cells,
-        }
+            cell_types: HashMap::new(),
+        };
+        layer.reclassify_cells();
+        layer
     }
 
     pub fn contains(&self, coord: GridCoord) -> bool {
@@ -244,6 +249,41 @@ impl BridgeLayer {
             && coord.x <= self.bounds.1.x
             && coord.y >= self.bounds.0.y
             && coord.y <= self.bounds.1.y
+    }
+
+    /// C++ classifyLayerMapCell over the allocated AABB.
+    pub fn reclassify_cells(&mut self) {
+        self.cell_types.clear();
+        let lo = self.bounds.0;
+        let hi = self.bounds.1;
+        for x in lo.x..=hi.x {
+            for y in lo.y..=hi.y {
+                let c = GridCoord::new(x, y);
+                if let Some(ty) = crate::path::pathfind_layer_classify::classify_bridge_aabb_cell(
+                    x,
+                    y,
+                    crate::common::ICoord2D::new(lo.x, lo.y),
+                    crate::common::ICoord2D::new(hi.x, hi.y),
+                    crate::common::ICoord2D::new(self.start_cell.x, self.start_cell.y),
+                    crate::common::ICoord2D::new(self.end_cell.x, self.end_cell.y),
+                    self.destroyed,
+                ) {
+                    self.cell_types.insert(c, ty);
+                }
+            }
+        }
+    }
+
+    /// C++ PathfindLayer::getCell → type. Impassable/missing → None.
+    pub fn cell_type_at(&self, coord: GridCoord) -> Option<PathfindCellType> {
+        if self.destroyed {
+            return if self.contains(coord) {
+                Some(PathfindCellType::BridgeImpassable)
+            } else {
+                None
+            };
+        }
+        self.cell_types.get(&coord).copied()
     }
 
     /// Replace entry-point cells after C++-style classifyCells.

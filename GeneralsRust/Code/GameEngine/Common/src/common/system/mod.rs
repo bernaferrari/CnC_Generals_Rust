@@ -72,7 +72,11 @@ pub use xfer::{
     XferVersion, Xferable,
 };
 pub use radar::{
-    register_radar_event_feedback, RadarEventFeedback, RadarVictimInfo,
+    ensure_the_radar_snapshot_block, register_radar_data_sink, register_radar_event_feedback,
+    register_radar_map_source, register_radar_object_provider, register_radar_terrain_paint_source,
+    register_radar_window_source, register_the_radar_snapshot_block, RadarBridgeSample,
+    RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectInsert, RadarObjectProvider,
+    RadarTerrainPaintSource, RadarVictimInfo, RadarWindowGeom, RadarWindowSource,
 };
 pub use registry::{
     get_registry_game_name, get_registry_language, get_registry_map_pack_version,

@@ -9,8 +9,8 @@ pub struct PartitionManager {
     revealed_players: HashSet<u32>,
     /// Cell key (cx, cz) → object ids currently registered for collide residual.
     cells: HashMap<(i32, i32), Vec<u32>>,
-    /// Object id → cell key.
-    object_cells: HashMap<u32, (i32, i32)>,
+    /// Object id → every overlapping cell (C++ COI list).
+    object_cells: HashMap<u32, Vec<(i32, i32)>>,
 }
 
 impl PartitionManager {
@@ -39,31 +39,49 @@ impl PartitionManager {
         ((x / s).floor() as i32, (z / s).floor() as i32)
     }
 
-    /// C++ registerObject residual for collide broadphase.
+    /// C++ registerObject residual for collide broadphase (center cell).
     pub fn register_object_at(&mut self, id: u32, x: f32, z: f32) {
-        let key = Self::cell_coords(x, z);
-        if let Some(old) = self.object_cells.get(&id).copied() {
-            if old == key {
-                return;
-            }
-            if let Some(list) = self.cells.get_mut(&old) {
-                list.retain(|&i| i != id);
-                if list.is_empty() {
-                    self.cells.remove(&old);
-                }
+        self.register_object_footprint(id, x, z, 0.0);
+    }
+
+    /// Stamp every partition cell overlapping a circle of `radius`.
+    pub fn register_object_footprint(&mut self, id: u32, x: f32, z: f32, radius: f32) {
+        self.unregister_object(id);
+        let keys = Self::cells_for_circle(x, z, radius);
+        for key in &keys {
+            self.cells.entry(*key).or_default().push(id);
+        }
+        self.object_cells.insert(id, keys);
+    }
+
+    fn cells_for_circle(x: f32, z: f32, radius: f32) -> Vec<(i32, i32)> {
+        let s = PARTITION_CELL_SIZE_RESIDUAL;
+        let r = radius.max(0.0);
+        let min_cx = ((x - r) / s).floor() as i32;
+        let max_cx = ((x + r) / s).floor() as i32;
+        let min_cz = ((z - r) / s).floor() as i32;
+        let max_cz = ((z + r) / s).floor() as i32;
+        let mut keys = Vec::new();
+        for cz in min_cz..=max_cz {
+            for cx in min_cx..=max_cx {
+                keys.push((cx, cz));
             }
         }
-        self.object_cells.insert(id, key);
-        self.cells.entry(key).or_default().push(id);
+        if keys.is_empty() {
+            keys.push(Self::cell_coords(x, z));
+        }
+        keys
     }
 
     /// C++ unRegisterObject residual.
     pub fn unregister_object(&mut self, id: u32) {
         if let Some(old) = self.object_cells.remove(&id) {
-            if let Some(list) = self.cells.get_mut(&old) {
-                list.retain(|&i| i != id);
-                if list.is_empty() {
-                    self.cells.remove(&old);
+            for key in old {
+                if let Some(list) = self.cells.get_mut(&key) {
+                    list.retain(|&i| i != id);
+                    if list.is_empty() {
+                        self.cells.remove(&key);
+                    }
                 }
             }
         }

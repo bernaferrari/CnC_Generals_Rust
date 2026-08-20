@@ -229,6 +229,8 @@ impl Object {
             self.firing_tracker = Some(Arc::new(Mutex::new(FiringTracker::new(self.id))));
         }
 
+        self.init_object_cpp_sequence();
+
         Ok(())
     }
 
@@ -376,9 +378,6 @@ impl Object {
         self.name = name;
     }
 
-    pub fn set_receiving_difficulty_bonus(&mut self, value: bool) {
-        self.is_receiving_difficulty_bonus = value;
-    }
 
     pub fn is_receiving_difficulty_bonus(&self) -> bool {
         self.is_receiving_difficulty_bonus
@@ -596,6 +595,13 @@ impl Object {
             .as_ref()
             .and_then(|team_ref| team_ref.read().ok())
             .and_then(|team_guard| team_guard.get_controlling_player_id());
+        let incoming_player_id = team
+            .as_ref()
+            .and_then(|team_ref| team_ref.read().ok())
+            .and_then(|team_guard| team_guard.get_controlling_player_id());
+        if old_player_id != incoming_player_id {
+            self.adjust_power_for_player(false);
+        }
 
         // Store ID when factory-resolvable; keep pin only as unregistered fallback.
         match &team {
@@ -659,6 +665,12 @@ impl Object {
                     }
                 }
             }
+            drop(list_guard);
+            self.adjust_power_for_player(true);
+            self.notify_team_switch_side_effects(
+                old_player_id.map(|id| id as i32),
+                new_player_id.map(|id| id as i32),
+            );
         }
 
         // Keep per-team member lists in sync with object team ownership.
@@ -688,6 +700,16 @@ impl Object {
                 (None, None)
             };
             self.on_capture(old_owner, new_owner);
+        }
+
+        if !restoring {
+            if let Some(new_id) = new_player_id {
+                if let Ok(list_guard) = player_list().read() {
+                    let player = list_guard.get_player(new_id as PlayerIndex).cloned();
+                    drop(list_guard);
+                    self.award_initial_capture_bonus_if_needed(player);
+                }
+            }
         }
 
         self.refresh_radar_object_from_state();
@@ -758,8 +780,7 @@ impl Object {
         // Mark as effectively dead immediately to prevent recursive death
         self.set_effectively_dead(true);
 
-        // Set destroyed status
-        self.status.set_status(ObjectStatusTypes::Destroyed);
+        // OBJECT_STATUS_DESTROYED is set later in GameLogic::destroyObject.
 
         log::debug!("Object {} is dying (health reached 0)", self.id);
 
@@ -789,18 +810,6 @@ impl Object {
             self.on_die(&default_damage);
         }
 
-        // Handle group removal (not in C++ on_die, but needed here)
-        self.group_id = None;
-
-        // Release any contained objects (not in C++ on_die, but needed here)
-        if let Some(contain) = &self.contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                let contained_ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
-                for contained_id in contained_ids {
-                    let _ = contain_guard.release_object(contained_id);
-                }
-            }
-        }
 
         log::debug!("Object {} death processing complete", self.id);
     }
@@ -897,6 +906,8 @@ impl Object {
         }
 
         let self_inflicted = damage_info.input.source_id == self.id;
+        self.on_die_detonate_booby_trap();
+
 
         // FIRST, call our die modules
         log::debug!("Object {} calling die modules", self.id);
@@ -910,21 +921,11 @@ impl Object {
             }
         }
 
-        // When objects die we remove from radar as they're not interesting anymore
-        if let Some(player_id) = self.get_controlling_player_id() {
-            let pos = self.get_position();
-            crate::system::radar_notifier::push(&crate::system::game_logic::RadarUpdate {
-                player_id: player_id as Int,
-                position: (pos.x, pos.y),
-                event_type: crate::system::game_logic::RadarEventType::UnitDestroyed,
-            });
-        }
+        self.on_die_remove_from_radar();
 
         // Just in case I have been sporting one of those fancy Terrain Decals,
         // I naturally lose it now, because I'm dead.
-        if let Some(_drawable) = &self.drawable {
-            log::trace!("Object {} fading terrain decal", self.id);
-        }
+        self.on_die_fade_terrain_decal();
 
         // Objects that were spawned from something need to tell their spawner that they have died
         if self.producer_id != INVALID_ID {
@@ -981,14 +982,7 @@ impl Object {
                         err
                     );
                 }
-                if let Some(player_id) = self.get_controlling_player_id() {
-                    let pos = self.get_position();
-                    crate::system::radar_notifier::push(&crate::system::game_logic::RadarUpdate {
-                        player_id: player_id as Int,
-                        position: (pos.x, pos.y),
-                        event_type: crate::system::game_logic::RadarEventType::UnitDestroyed,
-                    });
-                }
+                self.on_die_unit_lost_fake_radar();
             }
         }
 
@@ -998,11 +992,7 @@ impl Object {
             crate::helpers::TheInGameUI::remove_idle_worker(self, player_id as Int);
         }
 
-        // Handle GLA rebuild hole logic
-        if self.status.test_status(ObjectStatusTypes::Reconstructing) {
-            log::debug!("Object {} handling rebuild hole logic", self.id);
-            // This transfers attackers from destroyed building to the hole
-        }
+        self.on_die_rebuild_hole_transfer();
 
         log::debug!("Object {} on_die processing complete", self.id);
     }

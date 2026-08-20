@@ -1514,6 +1514,10 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
         self.cancel_task(task);
     }
 
+    fn get_current_task(&self) -> DozerTask {
+        self.get_current_task()
+    }
+
     fn is_task_pending(&self, task: DozerTask) -> bool {
         self.is_task_pending(task)
     }

@@ -623,7 +623,7 @@ impl ScriptActionDispatcher {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
+            let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
             let _ =
@@ -762,7 +762,7 @@ impl ScriptActionDispatcher {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
+            let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
             let _ = obj_guard.do_command_button(button_id, CommandSourceType::FromScript);
@@ -779,7 +779,7 @@ impl ScriptActionDispatcher {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
+            let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
             let _ = obj_guard.do_command_button_at_position(
@@ -803,7 +803,7 @@ impl ScriptActionDispatcher {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
+            let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
             let _ = obj_guard.do_command_button_at_object(

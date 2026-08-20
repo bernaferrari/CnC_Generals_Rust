@@ -365,6 +365,13 @@ impl HlodLodLevel {
 
     fn render(&self) {
         for model in &self.models {
+            if model
+                .object
+                .as_ref()
+                .is_some_and(|obj| obj.class_id() == Some(RenderObjClassId::ObBox))
+            {
+                continue;
+            }
             model.render();
         }
     }
@@ -466,6 +473,28 @@ pub struct HlodInstance {
     current_lod: usize,
     aggregates: Vec<HlodAggregateGroup>,
     proxies: Vec<HlodProxyEntry>,
+    bounding_box_index: i32,
+}
+
+fn hlod_child_leaf_name(name: &str) -> &str {
+    name.split_once('.').map(|(_, leaf)| leaf).unwrap_or(name)
+}
+
+fn scan_hlod_bounding_box_index(instance: &HlodInstance) -> i32 {
+    let Some(high) = instance.lods.last() else {
+        return -1;
+    };
+    for (index, model) in high.models.iter().enumerate().rev() {
+        let Some(object) = model.object.as_ref() else {
+            continue;
+        };
+        if object.class_id() == Some(RenderObjClassId::ObBox)
+            && hlod_child_leaf_name(object.get_name()).eq_ignore_ascii_case("BOUNDINGBOX")
+        {
+            return index as i32;
+        }
+    }
+    -1
 }
 
 impl HlodInstance {
@@ -484,7 +513,9 @@ impl HlodInstance {
             current_lod: 0,
             aggregates,
             proxies,
+            bounding_box_index: -1,
         };
+        instance.bounding_box_index = scan_hlod_bounding_box_index(&instance);
         instance.propagate_transform();
         instance
     }
@@ -649,6 +680,29 @@ impl RenderObj for HlodInstance {
         &self.transform
     }
 
+    fn get_obj_space_bounding_box(&self) -> Option<(glam::Vec3, glam::Vec3)> {
+        let index = usize::try_from(self.bounding_box_index).ok()?;
+        let high = self.lods.last()?;
+        let child = high.models.get(index)?;
+        let object = child.object.as_ref()?;
+        if object.class_id() != Some(RenderObjClassId::ObBox) {
+            return None;
+        }
+        let (local_center, local_extent) = object.get_obj_space_bounding_box()?;
+        let world_to_hlod = self.transform.inverse();
+        let box_to_hlod = world_to_hlod * *object.get_transform();
+        let center = box_to_hlod.transform_point3(local_center);
+        let extent = box_to_hlod.x_axis.truncate().abs() * local_extent.x
+            + box_to_hlod.y_axis.truncate().abs() * local_extent.y
+            + box_to_hlod.z_axis.truncate().abs() * local_extent.z;
+        Some((center, extent))
+    }
+
+    fn get_obj_space_bounding_sphere(&self) -> Option<(glam::Vec3, f32)> {
+        let (center, extent) = self.get_obj_space_bounding_box()?;
+        Some((center, extent.length()))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -666,6 +720,7 @@ impl RenderObj for HlodInstance {
             current_lod: self.current_lod,
             aggregates: self.aggregates.to_vec(),
             proxies: self.proxies.clone(),
+            bounding_box_index: self.bounding_box_index,
         })
     }
 }
@@ -1686,6 +1741,9 @@ impl Prototype for BoxPrototype {
         Some(Box::new(PrimitiveInstance {
             name: self.name.clone(),
             transform: Mat4::IDENTITY,
+            class_id: self.class_id(),
+            local_center: Vec3::new(self.center.x, self.center.y, self.center.z),
+            local_extent: Vec3::new(self.extent.x, self.extent.y, self.extent.z),
         }))
     }
     fn name(&self) -> &str {
@@ -1719,6 +1777,9 @@ impl Prototype for SpherePrototype {
         Some(Box::new(PrimitiveInstance {
             name: self.name.clone(),
             transform: Mat4::IDENTITY,
+            class_id: self.class_id(),
+            local_center: Vec3::new(self.center.x, self.center.y, self.center.z),
+            local_extent: Vec3::splat(self.radius),
         }))
     }
     fn name(&self) -> &str {
@@ -1749,6 +1810,9 @@ impl Prototype for RingPrototype {
         Some(Box::new(PrimitiveInstance {
             name: self.name.clone(),
             transform: Mat4::IDENTITY,
+            class_id: self.class_id(),
+            local_center: Vec3::new(self.center.x, self.center.y, self.center.z),
+            local_extent: Vec3::splat(self.outer_radius),
         }))
     }
     fn name(&self) -> &str {
@@ -1775,6 +1839,9 @@ impl Prototype for NullPrototype {
         Some(Box::new(PrimitiveInstance {
             name: self.name.clone(),
             transform: Mat4::IDENTITY,
+            class_id: self.class_id(),
+            local_center: Vec3::ZERO,
+            local_extent: Vec3::ZERO,
         }))
     }
     fn name(&self) -> &str {
@@ -1795,11 +1862,16 @@ impl Prototype for NullPrototype {
 pub struct PrimitiveInstance {
     name: String,
     transform: Mat4,
+    class_id: Option<RenderObjClassId>,
+    local_center: Vec3,
+    local_extent: Vec3,
 }
 
 impl RenderObj for PrimitiveInstance {
     fn render(&self) {
-        println!("Rendering primitive: {}", self.name);
+        if self.class_id == Some(RenderObjClassId::ObBox) {
+            return;
+        }
     }
     fn get_name(&self) -> &str {
         &self.name
@@ -1809,6 +1881,9 @@ impl RenderObj for PrimitiveInstance {
     }
     fn get_transform(&self) -> &Mat4 {
         &self.transform
+    }
+    fn get_obj_space_bounding_box(&self) -> Option<(glam::Vec3, glam::Vec3)> {
+        Some((self.local_center, self.local_extent))
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -1822,7 +1897,14 @@ impl RenderObj for PrimitiveInstance {
         Box::new(Self {
             name: self.name.clone(),
             transform: self.transform,
+            class_id: self.class_id,
+            local_center: self.local_center,
+            local_extent: self.local_extent,
         })
+    }
+
+    fn class_id(&self) -> Option<RenderObjClassId> {
+        self.class_id
     }
 }
 

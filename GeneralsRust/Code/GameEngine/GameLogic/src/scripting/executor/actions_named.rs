@@ -1109,7 +1109,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let (Ok(source_guard), Ok(target_guard)) = (source_obj.read(), target_obj.read()) {
+        if let (Ok(mut source_guard), Ok(target_guard)) = (source_obj.write(), target_obj.read()) {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button_at_object(
                     button_id,
@@ -1164,7 +1164,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(source_guard) = source_obj.read() {
+        if let Ok(mut source_guard) = source_obj.write() {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button_at_position(
                     button_id,
@@ -1202,7 +1202,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(source_guard) = source_obj.read() {
+        if let Ok(mut source_guard) = source_obj.write() {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button(button_id, CommandSourceType::FromScript);
             }

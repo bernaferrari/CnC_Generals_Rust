@@ -131,26 +131,27 @@ pub struct LocomotorTemplate {
 
 impl LocomotorTemplate {
     /// Create new locomotor template with defaults
+    /// Matches C++ LocomotorTemplate::LocomotorTemplate (Locomotor.cpp:257-334)
     pub fn new(name: String) -> Self {
         Self {
             name,
-            surfaces: SURFACE_GROUND,
-            max_speed: 10.0,
-            max_speed_damaged: 5.0,
+            surfaces: 0,
+            max_speed: 0.0,
+            max_speed_damaged: -1.0,
             min_speed: 0.0,
-            max_turn_rate: 0.1,
-            max_turn_rate_damaged: 0.05,
-            acceleration: 2.0,
-            acceleration_damaged: 1.0,
+            max_turn_rate: 0.0,
+            max_turn_rate_damaged: -1.0,
+            acceleration: 0.0,
+            acceleration_damaged: -1.0,
             lift: 0.0,
-            lift_damaged: 0.0,
-            braking: 3.0,
-            min_turn_speed: 0.0,
+            lift_damaged: -1.0,
+            braking: LOCO_BIGNUM,
+            min_turn_speed: LOCO_BIGNUM,
             preferred_height: 0.0,
-            preferred_height_damping: 0.5,
+            preferred_height_damping: 1.0,
             circling_radius: 0.0,
             circle_thresh: 0.0,
-            speed_limit_z: 5.0,
+            speed_limit_z: LOCO_DEFAULT_SPEED_LIMIT_Z,
             extra_2d_friction: 0.0,
             max_thrust_angle: 0.0,
             behavior_z: LocomotorBehaviorZ::NoZMotiveForce,
@@ -159,10 +160,10 @@ impl LocomotorTemplate {
             accel_pitch_limit: 0.0,
             decel_pitch_limit: 0.0,
             bounce_kick: 0.0,
-            pitch_stiffness: 0.0,
-            roll_stiffness: 0.0,
-            pitch_damping: 0.0,
-            roll_damping: 0.0,
+            pitch_stiffness: 0.1,
+            roll_stiffness: 0.1,
+            pitch_damping: 0.9,
+            roll_damping: 0.9,
             pitch_by_z_vel_coef: 0.0,
             thrust_roll: 0.0,
             wobble_rate: 0.0,
@@ -172,12 +173,12 @@ impl LocomotorTemplate {
             lateral_vel_coef: 0.0,
             forward_accel_coef: 0.0,
             lateral_accel_coef: 0.0,
-            uniform_axial_damping: 0.0,
+            uniform_axial_damping: 1.0,
             turn_pivot_offset: 0.0,
-            airborne_targeting_height: 0,
-            close_enough_dist: 5.0,
+            airborne_targeting_height: i32::MAX,
+            close_enough_dist: 1.0,
             is_close_enough_dist_3d: false,
-            ultra_accurate_slide_factor: 1.0,
+            ultra_accurate_slide_factor: 0.0,
             locomotor_works_when_dead: false,
             allow_motive_force_while_airborne: false,
             apply_2d_friction_when_airborne: false,
@@ -189,7 +190,7 @@ impl LocomotorTemplate {
             maximum_wheel_compression: 0.0,
             wheel_turn_angle: 0.0,
             wander_width_factor: 0.0,
-            wander_length_factor: 0.0,
+            wander_length_factor: 1.0,
             wander_about_point_radius: 0.0,
             rudder_correction_degree: 0.0,
             rudder_correction_rate: 0.0,
@@ -321,6 +322,44 @@ impl LocomotorTemplate {
         template.can_move_backward = true;
         template.close_enough_dist = 3.0;
         template
+    }
+
+    /// Matches C++ LocomotorTemplate::validate (Locomotor.cpp:343-406)
+    pub fn validate(&mut self) {
+        if self.max_speed_damaged < 0.0 {
+            self.max_speed_damaged = self.max_speed;
+        }
+        if self.max_turn_rate_damaged < 0.0 {
+            self.max_turn_rate_damaged = self.max_turn_rate;
+        }
+        if self.acceleration_damaged < 0.0 {
+            self.acceleration_damaged = self.acceleration;
+        }
+        if self.lift_damaged < 0.0 {
+            self.lift_damaged = self.lift;
+        }
+        if self.appearance == LocomotorAppearance::Wings {
+            if self.min_speed <= 0.0 {
+                self.min_speed = 0.01;
+            }
+            if self.min_turn_speed <= 0.0 {
+                self.min_turn_speed = 0.01;
+            }
+        }
+        if self.appearance == LocomotorAppearance::Thrust {
+            if self.max_speed <= 0.0 {
+                self.max_speed = 0.01;
+            }
+            if self.max_speed_damaged <= 0.0 {
+                self.max_speed_damaged = 0.01;
+            }
+            if self.min_speed <= 0.0 {
+                self.min_speed = 0.01;
+            }
+        }
+        if self.wander_length_factor.abs() < 1.0e-6 {
+            self.wander_length_factor = 1.0;
+        }
     }
 }
 

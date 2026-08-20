@@ -75,7 +75,8 @@ impl PathfindingSystem {
             let common_layer = match layer {
                 PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
                 PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
-                PathfindLayerEnum::Top => CommonPathfindLayerEnum::Top,
+                PathfindLayerEnum::Wall => CommonPathfindLayerEnum::Wall,
+                _ => CommonPathfindLayerEnum::Top,
             };
             pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
         }
@@ -550,11 +551,12 @@ impl PathfindingSystem {
         }
         None
     }
-
-    /// Set bridge destroyed state
     pub fn set_bridge_destroyed(&mut self, layer_id: u32, destroyed: bool) {
         if let Some(bridge) = self.bridges.iter_mut().find(|b| b.layer_id == layer_id) {
-            bridge.destroyed = destroyed;
+            if bridge.destroyed != destroyed {
+                bridge.destroyed = destroyed;
+                bridge.reclassify_cells();
+            }
         }
     }
 
@@ -626,8 +628,7 @@ impl PathfindingSystem {
                 b.contains(coord) && (b.layer_id == layer_id || layer == PathfindLayerEnum::Top)
             });
             return match bridge {
-                Some(b) if b.destroyed => Some(PathfindCellType::BridgeImpassable),
-                Some(_) => Some(PathfindCellType::Clear),
+                Some(b) => b.cell_type_at(coord),
                 None => None,
             };
         }

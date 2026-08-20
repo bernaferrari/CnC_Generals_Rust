@@ -222,6 +222,10 @@ pub struct ModelConditionInfo {
     pub pristine_bones: HashMap<String, PristineBoneInfo>,
     pub weapon_barrel_bones: [Option<String>; WEAPONSLOT_COUNT],
     pub weapon_muzzle_bones: [Option<String>; WEAPONSLOT_COUNT],
+    pub hide_show_list: Vec<(String, bool)>,
+    pub weapon_projectile_hide_show_name: [Option<String>; WEAPONSLOT_COUNT],
+    pub weapon_projectile_launch_bone: [Option<String>; WEAPONSLOT_COUNT],
+
     pub valid_stuff: u32,
 }
 
@@ -252,6 +256,10 @@ impl ModelConditionInfo {
             pristine_bones: HashMap::new(),
             weapon_barrel_bones: Default::default(),
             weapon_muzzle_bones: Default::default(),
+            hide_show_list: Vec::new(),
+            weapon_projectile_hide_show_name: Default::default(),
+            weapon_projectile_launch_bone: Default::default(),
+
             valid_stuff: 0,
         }
     }

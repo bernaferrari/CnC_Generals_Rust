@@ -36,6 +36,7 @@ impl BasicDrawable {
     /// C++ parity: Drawable constructor allocates DrawModules from ThingTemplate.
     pub fn add_draw_module(&mut self, module: Box<dyn DrawModule>) {
         self.draw_modules.push(module);
+        self.is_model_dirty = true;
     }
 
     /// Get reference to the draw modules list.
@@ -45,6 +46,7 @@ impl BasicDrawable {
 
     /// Get mutable reference to the draw modules list.
     pub fn get_draw_modules_mut(&mut self) -> &mut Vec<Box<dyn DrawModule>> {
+        self.flush_dirty_model_condition();
         &mut self.draw_modules
     }
 

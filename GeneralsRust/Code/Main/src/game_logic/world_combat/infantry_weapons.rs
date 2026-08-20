@@ -638,6 +638,11 @@ impl GameLogic {
         use crate::game_logic::{KindOf, ThingTemplate};
 
         let plan = self.plan_ocl_special_power(power_template, caster_id, target_pos)?;
+        // C++ createOwner=false (USE_OWNER_OBJECT / doSpecialPower): reuse firer.
+        if !plan.create_owner {
+            self.ocl_special_power_reg.record_transport_spawn();
+            return Some(caster_id);
+        }
         let (team, source_owner_player_id) = {
             let caster = self.objects.get(&caster_id)?;
             let owner_player_id = if caster.owner_player_id.is_some() {
@@ -770,6 +775,26 @@ impl GameLogic {
         Some(transport_id)
     }
 
+    /// C++ `OCLSpecialPower::doSpecialPower` — no-target fire at owner pos
+    /// with `createOwner=false` so DeliverPayload reuses the firing object.
+    pub fn execute_ocl_special_power_no_target(
+        &mut self,
+        power_template: &str,
+        caster_id: ObjectId,
+    ) -> Option<ObjectId> {
+        let pos = self.objects.get(&caster_id)?.get_position();
+        let mut plan = self.plan_ocl_special_power(power_template, caster_id, pos)?;
+        plan.create_owner = crate::game_logic::host_ocl_special_power::ocl_create_owner_for_no_target();
+        plan.creation_coord = pos;
+        plan.target_coord = pos;
+        if !plan.create_owner {
+            self.ocl_special_power_reg.record_transport_spawn();
+            return Some(caster_id);
+        }
+        self.execute_ocl_special_power(power_template, caster_id, pos)
+    }
+
+
     pub fn plan_ocl_special_power(
         &mut self,
         power_template: &str,
@@ -800,16 +825,26 @@ impl GameLogic {
             })
             .unwrap_or(false);
         let (minx, minz, maxx, maxz) = default_map_extents();
-        let plan = plan_ocl_special_power_at_location(
-            power_template,
-            source_pos,
-            target_pos,
-            |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)),
-            minx,
-            minz,
-            maxx,
-            maxz,
-        )?;
+        let plan = {
+            use gamelogic::ai::pathfind_astar::PathfindCellType;
+            let grid = &self.pathfinding_system.grid;
+            let is_clear = |pos: Vec3| {
+                let cell = grid.world_to_grid(pos);
+                matches!(grid.cell_type(cell), PathfindCellType::Clear) && !grid.is_blocked(cell)
+            };
+            plan_ocl_special_power_at_location(
+                power_template,
+                source_pos,
+                target_pos,
+                |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)),
+                minx,
+                minz,
+                maxx,
+                maxz,
+                Some(&is_clear as &dyn Fn(Vec3) -> bool),
+            )
+        }?;
+
         self.ocl_special_power_reg.record_plan(&plan, used_upgrade);
         Some(plan)
     }

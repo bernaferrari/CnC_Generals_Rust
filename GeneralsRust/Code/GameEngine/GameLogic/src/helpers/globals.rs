@@ -312,6 +312,17 @@ impl TheGlobalData {
             .unwrap_or(0)
     }
 
+    pub fn solo_player_health_bonus(&self, player_type: usize, difficulty: usize) -> f32 {
+        let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
+        let guard = data.read();
+        guard
+            .solo_player_health_bonus_for_difficulty
+            .get(player_type)
+            .and_then(|row| row.get(difficulty))
+            .copied()
+            .unwrap_or(1.0)
+    }
+
     pub fn get_clear_alpha(&self) -> u8 {
         get_engine_global_data()
             .map(|data| data.read().clear_alpha)

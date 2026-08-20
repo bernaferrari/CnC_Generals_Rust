@@ -102,6 +102,8 @@ mod hint_spy;
 pub use hint_spy::*;
 mod factory;
 pub use factory::*;
+mod select_meta;
+pub(in crate::message_stream::translators) use select_meta::*;
 
 #[cfg(test)]
 mod tests;

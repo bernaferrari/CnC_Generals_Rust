@@ -102,6 +102,11 @@ pub trait DozerAIUpdateInterface: Send + Sync {
     fn cancel_task(&mut self, _task: crate::object::update::ai_update::dozer_ai_update::DozerTask) {
     }
 
+    /// C++ DozerAIInterface::getCurrentTask
+    fn get_current_task(&self) -> crate::object::update::ai_update::dozer_ai_update::DozerTask {
+        crate::object::update::ai_update::dozer_ai_update::DozerTask::Invalid
+    }
+
     /// C++ DozerAIInterface::isTaskPending
     fn is_task_pending(
         &self,

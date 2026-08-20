@@ -3,10 +3,16 @@ use super::w3d_model_draw::*;
 use crate::common::*;
 use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
+use std::sync::{Arc, RwLock};
+
+fn find_object(id: ObjectID) -> Option<Arc<RwLock<crate::object::Object>>> {
+    TheGameLogic::find_object_by_id(id).or_else(|| OBJECT_REGISTRY.get_object(id))
+}
 
 #[derive(Debug, Clone)]
 pub struct W3DDependencyModelDrawModuleData {
@@ -124,7 +130,7 @@ impl W3DDependencyModelDraw {
         let Some(owner_id) = self.base.owner_id() else {
             return *transform_mtx;
         };
-        let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
+        let Some(owner) = find_object(owner_id) else {
             return *transform_mtx;
         };
         let Ok(owner_guard) = owner.read() else {
@@ -133,7 +139,7 @@ impl W3DDependencyModelDraw {
         let Some(container) = owner_guard.get_contained_by() else {
             return *transform_mtx;
         };
-        let Some(container_arc) = TheGameLogic::find_object_by_id(container) else {
+        let Some(container_arc) = find_object(container) else {
             return *transform_mtx;
         };
         let Ok(container_guard) = container_arc.read() else {
@@ -198,14 +204,10 @@ impl DrawModule for W3DDependencyModelDraw {
         let adjusted = self.adjusted_transform(transform_mtx);
         self.base.do_draw_module(&adjusted);
         self.dependency_cleared = false;
-        if let Some(owner_id) = self
-            .base
-            .owner_id()
-            .and_then(TheGameLogic::find_object_by_id)
-        {
-            if let Ok(owner_guard) = owner_id.read() {
+        if let Some(owner) = self.base.owner_id().and_then(find_object) {
+            if let Ok(owner_guard) = owner.read() {
                 if let Some(container) = owner_guard.get_contained_by() {
-                    if let Some(container_arc) = TheGameLogic::find_object_by_id(container) {
+                    if let Some(container_arc) = find_object(container) {
                         if let Ok(container_guard) = container_arc.read() {
                             if let Some(contain) = container_guard.get_contain() {
                                 if let Ok(contain_guard) = contain.lock() {
@@ -218,7 +220,7 @@ impl DrawModule for W3DDependencyModelDraw {
                                 if let (Some(my_drawable), Ok(container_drawable_guard)) =
                                     (owner_guard.get_drawable(), container_drawable.read())
                                 {
-                                    if let Ok(mut my_drawable_guard) = my_drawable.write() {
+                                    if let Ok(mut my_drawable_guard) = my_drawable.try_write() {
                                         my_drawable_guard.set_stealth_look(
                                             container_drawable_guard.get_stealth_look(),
                                         );

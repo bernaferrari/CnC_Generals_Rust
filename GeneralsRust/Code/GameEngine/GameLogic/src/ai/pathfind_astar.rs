@@ -16,6 +16,20 @@ pub const ZONE_IMPASSABLE_COST: u32 = 100 * COST_ORTHOGONAL;
 pub const PATHFIND_CELL_SIZE: i32 = 10;
 pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
 
+/// Terrain/layer Z for a path node (C++ TerrainLogic::getLayerHeight).
+fn layer_world_height(x: f32, y: f32, layer: PathfindLayerEnum) -> f32 {
+    let common = match layer {
+        PathfindLayerEnum::Invalid => crate::common::PathfindLayerEnum::Invalid,
+        PathfindLayerEnum::Ground => crate::common::PathfindLayerEnum::Ground,
+        PathfindLayerEnum::Wall => crate::common::PathfindLayerEnum::Wall,
+        _ => crate::common::PathfindLayerEnum::Top,
+    };
+    crate::helpers::TheTerrainLogic::get()
+        .map(|t| t.get_layer_height(x, y, common))
+        .unwrap_or(0.0)
+}
+
+
 /// Maximum frames ahead for synchronization matching C++ Connection.cpp
 pub const MAX_FRAMES_AHEAD: u32 = 300;
 const SURFACE_GROUND: u32 = 0x01;
@@ -54,8 +68,53 @@ pub enum CellFlags {
 pub enum PathfindLayerEnum {
     Invalid = 0,
     Ground = 1,
+    /// C++ first unnamed bridge slot (`LAYER_GROUND + 1`).
     Top = 2,
-    // Additional layers can be added as needed
+    Layer3 = 3,
+    Layer4 = 4,
+    Layer5 = 5,
+    Layer6 = 6,
+    Layer7 = 7,
+    Layer8 = 8,
+    Layer9 = 9,
+    Layer10 = 10,
+    Layer11 = 11,
+    Layer12 = 12,
+    Layer13 = 13,
+    Layer14 = 14,
+    /// C++ `LAYER_WALL = LAYER_LAST = 15`.
+    Wall = 15,
+}
+
+impl PathfindLayerEnum {
+    pub const LAST: Self = Self::Wall;
+
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => Self::Invalid,
+            1 => Self::Ground,
+            2 => Self::Top,
+            3 => Self::Layer3,
+            4 => Self::Layer4,
+            5 => Self::Layer5,
+            6 => Self::Layer6,
+            7 => Self::Layer7,
+            8 => Self::Layer8,
+            9 => Self::Layer9,
+            10 => Self::Layer10,
+            11 => Self::Layer11,
+            12 => Self::Layer12,
+            13 => Self::Layer13,
+            14 => Self::Layer14,
+            15 => Self::Wall,
+            _ => Self::Invalid,
+        }
+    }
+
+    pub fn is_elevated(self) -> bool {
+        let v = self as u8;
+        v >= 2 && v <= 15
+    }
 }
 
 /// Grid coordinate for pathfinding
@@ -81,12 +140,11 @@ impl GridCoord {
 
     /// Convert grid coordinates to world coordinates
     /// Matches C++ adjustCoordToCell()
-    pub fn to_world(&self, _layer: PathfindLayerEnum) -> Coord3D {
-        Coord3D::new(
-            (self.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F,
-            (self.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F,
-            0.0, // Z will be set by terrain logic
-        )
+    pub fn to_world(&self, layer: PathfindLayerEnum) -> Coord3D {
+        let x = (self.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+        let y = (self.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+        let z = layer_world_height(x, y, layer);
+        Coord3D::new(x, y, z)
     }
 
     /// Manhattan distance for heuristic
@@ -638,6 +696,19 @@ impl AStarPathfinder {
         cost
     }
 
+    /// C++ UNIT_PRESENT_FIXED / UNIT_GOAL occupancy surcharge.
+    fn cell_occupancy_cost(&self, cell: GridCoord) -> u32 {
+        let Some(c) = self.get_cell(cell) else {
+            return 0;
+        };
+        match c.get_flags() {
+            CellFlags::UnitPresentFixed | CellFlags::UnitGoal => 3 * COST_DIAGONAL,
+            CellFlags::UnitPresentMoving | CellFlags::UnitGoalOtherMoving => COST_DIAGONAL,
+            CellFlags::NoUnits => 0,
+        }
+    }
+
+
     /// Find path using A* algorithm
     /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
     pub fn find_path(
@@ -678,7 +749,21 @@ impl AStarPathfinder {
         ignore_cells: Option<&HashSet<GridCoord>>,
         extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
     ) -> Option<(Vec<GridCoord>, usize)> {
-        self.find_path_ex2(
+        // Thin callers (host find_path_via_crate) used to skip layers/zones/
+        // occupancy/tunneling. Apply C++ internalFindPath defaults here.
+        let start_is_obstacle =
+            self.get_cell_type(start) == Some(PathfindCellType::Obstacle);
+        let occupancy = |cell: GridCoord| -> u32 {
+            extra_cost.map(|f| f(cell)).unwrap_or(0)
+                + self.cell_occupancy_cost(cell)
+        };
+        let ground_h = |cell: GridCoord| -> f32 {
+            let wx = (cell.x as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            let wy = (cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
+            layer_world_height(wx, wy, PathfindLayerEnum::Ground)
+        };
+        let line_ok = |_cell: GridCoord| -> bool { true };
+        self.find_path_ex6(
             start,
             goal,
             surfaces,
@@ -686,8 +771,14 @@ impl AStarPathfinder {
             max_iterations,
             allow_partial,
             ignore_cells,
-            extra_cost,
+            Some(&occupancy as &dyn Fn(GridCoord) -> u32),
             false,
+            Some(&ground_h as &dyn Fn(GridCoord) -> f32),
+            None,
+            Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+            !start_is_obstacle,
+            start_is_obstacle,
+            None,
             None,
         )
     }

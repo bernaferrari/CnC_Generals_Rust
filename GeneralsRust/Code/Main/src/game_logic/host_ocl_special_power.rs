@@ -17,8 +17,10 @@
 //! | SuperweaponEmergencyRepair | SUPERWEAPON_RepairVehicles1 | AT_LOCATION | Repair2/3 |
 //! | SuperweaponLeafletDrop | SUPERWEAPON_LeafletDrop | EDGE_NEAR_SOURCE | — |
 //!
-//! Fail-closed: not full ObjectCreationList::create deliverer/payload matrix /
-//! partition findPositionAround passable search (flag recorded only).
+//! Fail-closed: not full ObjectCreationList::create deliverer/payload matrix.
+//! OCLAdjustPositionToPassable snaps via findPositionAround(CLEAR_CELLS_ONLY, r=500);
+//! a failed search keeps the original click (C++ fail-closed).
+
 
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -220,8 +222,12 @@ pub struct OclSpecialPowerSpawnPlan {
     pub target_coord: Vec3,
     pub create_loc: OclCreateLocType,
     pub adjust_passable_requested: bool,
+    /// C++ ObjectCreationList::create `createOwner`. False for USE_OWNER_OBJECT
+    /// and for no-target `doSpecialPower` so DeliverPayload reuses the firer.
+    pub create_owner: bool,
     pub special_power_template: String,
 }
+
 
 /// Compute creation coordinate (host Y-up; C++ Z-up height → Y).
 pub fn compute_creation_coord(
@@ -271,6 +277,77 @@ pub fn compute_creation_coord(
     }
 }
 
+/// C++ `createOwner` for a location fire. USE_OWNER_OBJECT passes false.
+pub fn ocl_create_owner_for_create_loc(create_loc: OclCreateLocType) -> bool {
+    create_loc != OclCreateLocType::UseOwnerObject
+}
+
+/// C++ `OCLSpecialPower::doSpecialPower` always passes `createOwner=false`.
+pub fn ocl_create_owner_for_no_target() -> bool {
+    false
+}
+
+/// C++ `PartitionManager::findPositionAround` with `FPF_CLEAR_CELLS_ONLY`.
+///
+/// Samples rings out to `max_radius` (C++ RING_SPACING = 5). Returns the first
+/// clear-cell sample, or `None` so the caller keeps the original click.
+pub fn find_ocl_passable_around(
+    target: Vec3,
+    max_radius: f32,
+    is_clear_cell: impl Fn(Vec3) -> bool,
+) -> Option<Vec3> {
+    const RING_SPACING: f32 = 5.0;
+    const TWO_PI: f32 = std::f32::consts::PI * 2.0;
+    let min_radius = 0.0;
+    let mut dist = min_radius;
+    while dist <= max_radius {
+        let angle_spacing = if (dist - min_radius).abs() < f32::EPSILON {
+            TWO_PI
+        } else {
+            (RING_SPACING / (dist + 1.0)) * (TWO_PI / 6.0)
+        };
+        let samples = ((TWO_PI / angle_spacing) / 2.0).ceil() as i32;
+        for i in 0..samples {
+            let angle_offset = angle_spacing * i as f32;
+            let try_at = |angle: f32| -> Option<Vec3> {
+                let pos = Vec3::new(
+                    target.x + dist * angle.cos(),
+                    target.y,
+                    target.z + dist * angle.sin(),
+                );
+                is_clear_cell(pos).then_some(pos)
+            };
+            if let Some(pos) = try_at(angle_offset) {
+                return Some(pos);
+            }
+            if i != 0 {
+                if let Some(pos) = try_at(-angle_offset) {
+                    return Some(pos);
+                }
+            }
+        }
+        dist += RING_SPACING;
+    }
+    None
+}
+
+/// Apply C++ OCLAdjustPositionToPassable. Missing searcher or failed search
+/// keeps `target` (C++: "if findPosition() fails, then don't monkey with target").
+pub fn adjust_ocl_target_to_passable(
+    target: Vec3,
+    requested: bool,
+    is_clear_cell: Option<&dyn Fn(Vec3) -> bool>,
+) -> Vec3 {
+    if !requested {
+        return target;
+    }
+    let Some(is_clear) = is_clear_cell else {
+        return target;
+    };
+    find_ocl_passable_around(target, OCL_MAX_ADJUST_RADIUS, is_clear).unwrap_or(target)
+}
+
+
 pub fn plan_ocl_special_power_at_location(
     power_template: &str,
     source_pos: Vec3,
@@ -280,13 +357,19 @@ pub fn plan_ocl_special_power_at_location(
     map_min_z: f32,
     map_max_x: f32,
     map_max_z: f32,
+    is_clear_cell: Option<&dyn Fn(Vec3) -> bool>,
 ) -> Option<OclSpecialPowerSpawnPlan> {
     let peel = peel_for_special_power(power_template)?;
     let ocl = find_ocl_name(peel, player_has_science).to_string();
+    let target_coord = adjust_ocl_target_to_passable(
+        target_pos,
+        peel.adjust_position_to_passable,
+        is_clear_cell,
+    );
     let creation = compute_creation_coord(
         peel.create_loc,
         source_pos,
-        target_pos,
+        target_coord,
         map_min_x,
         map_min_z,
         map_max_x,
@@ -295,12 +378,14 @@ pub fn plan_ocl_special_power_at_location(
     Some(OclSpecialPowerSpawnPlan {
         ocl_name: ocl,
         creation_coord: creation,
-        target_coord: target_pos,
+        target_coord,
         create_loc: peel.create_loc,
         adjust_passable_requested: peel.adjust_position_to_passable,
+        create_owner: ocl_create_owner_for_create_loc(peel.create_loc),
         special_power_template: peel.special_power_template.clone(),
     })
 }
+
 
 pub fn default_map_extents() -> (f32, f32, f32, f32) {
     (
@@ -580,6 +665,7 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
                 minz,
                 maxx,
                 maxz,
+                None,
             )
             .expect("drone");
             (plan.creation_coord.y - 300.0).abs() < 0.1 && plan.ocl_name == "SUPERWEAPON_SpyDrone"
@@ -629,6 +715,7 @@ mod tests {
             minz,
             maxx,
             maxz,
+            None,
         )
         .unwrap();
         assert_eq!(plan.create_loc, OclCreateLocType::EdgeNearSource);
@@ -638,4 +725,25 @@ mod tests {
         let d_tgt = (plan.creation_coord.x - 400.0).hypot(plan.creation_coord.z - 400.0);
         assert!(d_src < d_tgt);
     }
+
+    #[test]
+    fn adjust_passable_snaps_when_searcher_finds_clear_cell() {
+        let click = Vec3::new(10.0, 0.0, 10.0);
+        let snapped = Vec3::new(40.0, 0.0, 10.0);
+        let is_clear = |p: Vec3| (p.x - snapped.x).abs() < 3.0 && (p.z - snapped.z).abs() < 3.0;
+        let got = adjust_ocl_target_to_passable(click, true, Some(&is_clear));
+        assert!((got.x - snapped.x).abs() < 3.0);
+        // Failed search keeps the original click.
+        let none = adjust_ocl_target_to_passable(click, true, Some(&|_| false));
+        assert_eq!(none, click);
+        // Flag off never moves the click.
+        let raw = adjust_ocl_target_to_passable(click, false, Some(&is_clear));
+        assert_eq!(raw, click);
+        assert!(!ocl_create_owner_for_create_loc(
+            OclCreateLocType::UseOwnerObject
+        ));
+        assert!(!ocl_create_owner_for_no_target());
+        assert!(ocl_create_owner_for_create_loc(OclCreateLocType::EdgeNearSource));
+    }
+
 }

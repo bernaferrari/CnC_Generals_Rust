@@ -41,6 +41,7 @@ pub mod game_music;
 pub mod game_sounds;
 pub mod game_speech;
 pub mod gameplay_audio_dispatch;
+pub mod rodio_spatial;
 pub mod simple_player;
 pub mod simpleplayer;
 pub mod url_launch;

@@ -214,6 +214,13 @@ impl GameClient {
                 campaign_manager.get_current_map().unwrap_or_default(),
             ))
         })));
+        register_campaign_manager_runtime_hooks(
+            Some(Arc::new(|| get_campaign_manager().capture_logic_chunk_state())),
+            Some(Arc::new(|state| {
+                get_campaign_manager().apply_logic_chunk_state(state);
+            })),
+        );
+
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
                 let setup = get_skirmish_setup();

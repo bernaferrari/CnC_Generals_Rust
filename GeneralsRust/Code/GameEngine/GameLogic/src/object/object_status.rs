@@ -133,20 +133,10 @@ impl Object {
             return;
         }
 
-        // Repulsor status side effect (C++ lines 965-970)
-        // Repulsor helper clears the status when it wakes.
+        // Repulsor status side effect (C++ lines 965-970).
+        // Only existing helpers (CAN_BE_REPULSED) sleep 2 seconds; do not create one.
         if set && object_status.test_status(ObjectStatusTypes::Repulsor) {
-            let wake_frame = crate::helpers::TheGameLogic::get_frame();
-            if self.repulsor_helper.is_none() {
-                self.repulsor_helper = Some(Arc::new(Mutex::new(ObjectRepulsorHelper::new(
-                    ObjectRepulsorHelperModuleData::new(),
-                ))));
-            }
-            if let Some(helper) = &self.repulsor_helper {
-                if let Ok(mut guard) = helper.lock() {
-                    guard.wake_for_clear(wake_frame);
-                }
-            }
+            self.wake_repulsor_helper_for_status();
         }
 
         // Stealth/Detection status side effects (C++ lines 972-980).
@@ -364,13 +354,6 @@ impl Object {
         &self.geometry_info
     }
 
-    pub fn set_geometry_info(&mut self, geom: GeometryInfo) {
-        self.geometry_info = geom;
-    }
-
-    pub fn set_geometry_info_z(&mut self, new_z: Real) {
-        self.geometry_info.position.z = new_z;
-    }
 
     /// Mark this object as unmanned (DisabledUnmanned flag).
     pub fn set_disabled_unmanned(&mut self) {
@@ -453,9 +436,6 @@ impl Object {
             && !self.is_effectively_dead()
     }
 
-    pub fn set_selectable(&mut self, selectable: bool) {
-        self.is_selectable = selectable;
-    }
 
     pub fn is_mass_selectable(&self) -> bool {
         self.is_selectable() && !self.is_kind_of(KindOf::Structure)
@@ -511,17 +491,6 @@ impl Object {
         (self.private_status & ObjectPrivateStatusBits::EffectivelyDead as u8) != 0
     }
 
-    /// C++ parity: Object::hasSingleUseCommandBeenUsed()
-    pub fn has_single_use_command_been_used(&self) -> bool {
-        self.status
-            .test_status(ObjectStatusTypes::MissileKillingSelf)
-    }
-
-    /// C++ parity: Object::isScriptUnsellable()
-    pub fn is_script_unsellable(&self) -> bool {
-        // C++ OBJECT_STATUS_SCRIPT_UNSELLABLE is a script status bit, not ObjectStatusTypes
-        (self.private_status & 0x04) != 0
-    }
 
     /// Mark object as effectively dead
     pub(crate) fn set_effectively_dead(&mut self, dead: bool) {

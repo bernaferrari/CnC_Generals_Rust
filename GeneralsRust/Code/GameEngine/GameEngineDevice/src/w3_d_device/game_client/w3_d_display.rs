@@ -8,6 +8,12 @@ pub use game_client::fx_list::{
     DisplayDynamicLight, DisplayLightPulse,
 };
 
+/// C++ `W3DShaderManager::startRenderToTexture` / `endRenderToTexture` /
+/// `filterPostRender` — live GameClient wgpu analog.
+pub use game_client::display::shader_filter::{
+    end_render_to_texture, filter_post_render, start_render_to_texture, MOTION_BLUR_MAX_COUNT,
+};
+
 /// C++ `TheDisplay->createLightPulse`.
 pub fn create_light_pulse(pulse: DisplayLightPulse) -> bool {
     create_display_light_pulse(pulse)

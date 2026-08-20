@@ -82,6 +82,11 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         1.0
     }
 
+    /// C++ PhysicsBehavior::getCenterOfMassOffset.
+    fn get_center_of_mass_offset(&self) -> Real {
+        0.0
+    }
+
     /// Set or clear the bounce sound used by collisions.
     fn set_bounce_sound(&mut self, _sound: Option<AudioEventRts>) {}
 
@@ -142,6 +147,21 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
     /// Readable alias for [`Self::get_allow_to_fall`].
     fn allow_to_fall(&self) -> bool {
         self.get_allow_to_fall()
+    }
+
+    /// C++ PhysicsBehavior::setIsInFreeFall.
+    fn set_is_in_freefall(&mut self, allow: bool) {
+        let _ = allow;
+    }
+
+    /// C++ PhysicsBehavior::getIsInFreeFall.
+    fn get_is_in_freefall(&self) -> bool {
+        false
+    }
+
+    /// C++ PhysicsBehavior::getCenterOfMassOffset.
+    fn get_center_of_mass_offset(&self) -> Real {
+        0.0
     }
 
     /// Clear current acceleration (matches C++ clearAcceleration).
@@ -226,6 +246,9 @@ pub trait PhysicsBehaviorExt {
     fn set_allow_to_fall(&self, allow: bool);
     fn get_allow_to_fall(&self) -> bool;
     fn allow_to_fall(&self) -> bool;
+    fn set_is_in_freefall(&self, allow: bool);
+    fn get_is_in_freefall(&self) -> bool;
+    fn get_center_of_mass_offset(&self) -> Real;
     fn set_turning(&self, turning: i32);
     fn set_angles(&self, yaw: Real, pitch: Real, roll: Real);
     fn apply_angular_velocity(&self, angular_velocity: &Vec3D);
@@ -332,6 +355,28 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
 
     fn allow_to_fall(&self) -> bool {
         self.get_allow_to_fall()
+    }
+
+    fn set_is_in_freefall(&self, allow: bool) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.set_is_in_freefall(allow);
+        }
+    }
+
+    fn get_is_in_freefall(&self) -> bool {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_is_in_freefall()
+        } else {
+            false
+        }
+    }
+
+    fn get_center_of_mass_offset(&self) -> Real {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_center_of_mass_offset()
+        } else {
+            0.0
+        }
     }
 
     fn set_turning(&self, turning: i32) {

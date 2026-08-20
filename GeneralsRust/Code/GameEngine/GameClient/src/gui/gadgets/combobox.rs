@@ -3,6 +3,8 @@
 //! Dropdown list selection control.
 
 use super::*;
+use gamelogic::common::audio::AudioEventRts;
+use gamelogic::helpers::TheAudio;
 
 /// ComboBox item
 #[derive(Debug, Clone)]
@@ -286,9 +288,12 @@ impl ComboBox {
         self.letters_and_numbers
     }
 
-    /// Open dropdown
+    /// Open dropdown.
+    ///
+    /// C++ `GadgetComboBoxInput` `GWM_LEFT_UP` unhides the list even when
+    /// `entryCount == 0` (multiplier 0, a 4px strip). Do not require items.
     pub fn open(&mut self) {
-        if self.enabled && !self.items.is_empty() {
+        if self.enabled {
             self.dropdown_open = true;
         }
     }
@@ -375,6 +380,33 @@ impl ComboBox {
         } else {
             None
         }
+    }
+
+    /// C++ `GadgetComboBox.cpp:124-129` plays `GUIClick` on every body LeftUp.
+    fn play_gui_click() {
+        if let Some(audio) = TheAudio::get() {
+            let event = AudioEventRts::new("GUIClick");
+            audio.add_audio_event(&event);
+        }
+    }
+
+    /// C++ `GadgetComboBoxInput` `GWM_LEFT_UP` (`GadgetComboBox.cpp:115-181`):
+    /// `dontHide = FALSE`, play `GUIClick`, `winSetLoneWindow(window)`, then
+    /// show or hide the list.
+    fn handle_body_left_up(&mut self) -> Vec<GadgetMessage> {
+        self.dont_hide_next = false;
+        Self::play_gui_click();
+        self.toggle();
+        vec![
+            GadgetMessage::Custom {
+                gadget_id: self.id,
+                data: "lone_window".to_string(),
+            },
+            GadgetMessage::Custom {
+                gadget_id: self.id,
+                data: "input_handled".to_string(),
+            },
+        ]
     }
 
     fn drop_down_button_width(&self) -> u32 {
@@ -592,6 +624,10 @@ impl Gadget for ComboBox {
                     let dropdown = self.dropdown_bounds_internal();
                     if !dropdown.contains_point(*x, *y) {
                         self.close();
+                        return vec![GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "input_handled".to_string(),
+                        }];
                     }
                 }
             }
@@ -599,7 +635,7 @@ impl Gadget for ComboBox {
             InputEvent::MouseUp { x, y, button } => {
                 if *button == MouseButton::Left {
                     if self.bounds.contains_point(*x, *y) {
-                        self.toggle();
+                        return self.handle_body_left_up();
                     } else if self.dropdown_open {
                         if let Some(index) = self.item_at_position(*x, *y) {
                             if self.select_index(index) {
@@ -609,6 +645,14 @@ impl Gadget for ComboBox {
                                     value: GadgetValue::Integer(self.items[index].id as i32),
                                 }];
                             }
+                        } else {
+                            // C++ GameWindowManager.cpp:1117-1134: mouse-up
+                            // outside the lone combo sends GGM_CLOSE.
+                            self.close();
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "input_handled".to_string(),
+                            }];
                         }
                     }
                 }
@@ -802,7 +846,13 @@ mod tests {
             y: 25,
             button: MouseButton::Left,
         });
-        assert!(up.is_empty());
+        assert!(
+            up.iter().any(|message| matches!(
+                message,
+                GadgetMessage::Custom { gadget_id: 1, data } if data == "lone_window"
+            )),
+            "C++ GWM_LEFT_UP calls winSetLoneWindow"
+        );
         assert!(combobox.is_open());
 
         let up = combobox.handle_input(&InputEvent::MouseUp {
@@ -810,9 +860,36 @@ mod tests {
             y: 25,
             button: MouseButton::Left,
         });
-        assert!(up.is_empty());
+        assert!(up.iter().any(|message| matches!(
+            message,
+            GadgetMessage::Custom { gadget_id: 1, data } if data == "lone_window"
+        )));
         assert!(!combobox.is_open());
     }
+
+    #[test]
+    fn outside_mouse_up_closes_open_dropdown_like_cpp_lone_window() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        let _ = combobox.handle_input(&InputEvent::MouseUp {
+            x: 20,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert!(combobox.is_open());
+
+        let outside = combobox.handle_input(&InputEvent::MouseUp {
+            x: 400,
+            y: 400,
+            button: MouseButton::Left,
+        });
+        assert!(!combobox.is_open());
+        assert!(matches!(
+            outside.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data }] if data == "input_handled"
+        ));
+    }
+
 
     #[test]
     fn combobox_render_commands_cover_main_edit_and_dropdown_button() {

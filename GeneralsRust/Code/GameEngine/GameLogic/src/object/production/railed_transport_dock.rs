@@ -603,9 +603,8 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.docking_object_id == obj_id {
-            self.docking_object_id = INVALID_ID;
-        }
+        // C++ RailedTransportDockUpdate does not override cancelDock. Keep
+        // docking_object_id so do_pull_in_docking can finish the swallow.
         self.base.cancel_dock(obj_id)
     }
 

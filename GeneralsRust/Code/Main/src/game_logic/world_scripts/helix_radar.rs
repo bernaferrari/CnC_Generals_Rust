@@ -1215,7 +1215,12 @@ impl GameLogic {
         spawned
     }
 
-    pub fn activate_cash_hack(&mut self, player_id: u32, caster_id: Option<ObjectId>) -> u32 {
+    pub fn activate_cash_hack(
+        &mut self,
+        player_id: u32,
+        caster_id: Option<ObjectId>,
+        victim_id: Option<ObjectId>,
+    ) -> u32 {
         use crate::game_logic::host_hero_abilities::{
             cash_hack_money_from_sciences, CASH_HACK_ACTIVATE_AUDIO,
         };
@@ -1249,27 +1254,23 @@ impl GameLogic {
             .unwrap_or_default();
         let amount = cash_hack_money_from_sciences(sciences.iter().map(|s| s.as_str()));
 
-        let mut victim_player_id: Option<u32> = None;
-        let mut victim_cash: u32 = 0;
-        for (&candidate_player_id, candidate) in &self.players {
-            let Some(caster_owner_player_id) = caster_owner_player_id else {
-                break;
-            };
-            if candidate.team == Team::Neutral
-                || !candidate.is_alive
-                || !matches!(
-                    self.player_relationship(caster_owner_player_id, candidate_player_id),
-                    gamelogic::common::Relationship::Enemies
-                )
-            {
-                continue;
+        // C++ CashHackSpecialPower::doSpecialPowerAtLocation is a no-op.
+        // Object fire steals from the clicked victim's controlling player.
+        let Some(victim_id) = victim_id else {
+            self.last_cash_hack_request_amount = amount;
+            self.last_cash_hack_stolen_amount = 0;
+            return 0;
+        };
+        let (victim_team, victim_owner) = match self.objects.get(&victim_id) {
+            Some(victim) => (victim.team, victim.owner_player_id),
+            None => {
+                self.last_cash_hack_request_amount = amount;
+                self.last_cash_hack_stolen_amount = 0;
+                return 0;
             }
-            let cash = candidate.resources.supplies;
-            if victim_player_id.is_none() || cash > victim_cash {
-                victim_cash = cash;
-                victim_player_id = Some(candidate_player_id);
-            }
-        }
+        };
+        let victim_player_id = self.player_owner_for_event(victim_owner, victim_team);
+
 
         let stolen = match (caster_owner_player_id, victim_player_id) {
             (Some(to_player_id), Some(from_player_id)) => {
@@ -1296,7 +1297,8 @@ impl GameLogic {
                     .with_priority(180),
             );
             if stolen > 0 {
-                self.spawn_sabotage_cash_floating_texts(cid, cid, stolen);
+                // C++ GUI:AddCash over self (z+20 green), GUI:LoseCash over victim (z+30 red).
+                self.spawn_sabotage_cash_floating_texts(cid, victim_id, stolen);
             }
         }
         // Honesty residual: last requested science-tier amount.
@@ -1304,6 +1306,7 @@ impl GameLogic {
         self.last_cash_hack_stolen_amount = stolen;
         stolen
     }
+
 
     pub fn activate_spy_satellite(
         &mut self,

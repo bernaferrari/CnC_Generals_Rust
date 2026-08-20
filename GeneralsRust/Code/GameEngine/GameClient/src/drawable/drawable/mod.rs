@@ -18,6 +18,9 @@ mod basic_drawable_trait;
 mod basic_modules;
 mod basic_overlay;
 mod basic_visual;
+mod condition_apply;
+mod hidden_status;
+mod selection_flash;
 mod draw_module;
 mod drawable_trait;
 mod icons;
@@ -33,8 +36,9 @@ mod tests;
 pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
 pub use types::{
     Color, DrawableId, DrawableOverlayData, DrawableStatus, ICoord2D, IRegion2D, Matrix4,
-    StealthLook, TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, INVALID_DRAWABLE_ID,
-    RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
+    StealthLook, TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR,
+    FRENZY_COLOR_INFANTRY, INVALID_DRAWABLE_ID, RED_IRRADIATED_COLOR,
+    SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
 };
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};
@@ -111,6 +115,8 @@ pub struct BasicDrawable {
     /// Live C++ `m_ambientSound` event after startAmbientSound.
     ambient_sound_event: Option<AudioEventRts>,
     current_frame: u32,
+    /// C++ `m_isModelDirty` (`DIRTY_CONDITION_FLAGS`).
+    is_model_dirty: bool,
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
     /// Wave 965: presentation KindOf Debug names (host empty dual-world).
@@ -247,6 +253,7 @@ impl BasicDrawable {
             custom_sound_ambient_dynamic_info: None,
             ambient_sound_event: None,
             current_frame: 0,
+            is_model_dirty: true,
             model_condition_flags: create_model_condition_flags(),
             presentation_kind_names: Vec::new(),
             presentation_indicator_color: None,
@@ -299,6 +306,9 @@ pub const DRAWABLE_SRC: &str = concat!(
     include_str!("basic_visual.rs"),
     include_str!("basic_overlay.rs"),
     include_str!("basic_modules.rs"),
+    include_str!("condition_apply.rs"),
+    include_str!("hidden_status.rs"),
+    include_str!("selection_flash.rs"),
     include_str!("basic_drawable_trait.rs"),
     include_str!("snapshot.rs"),
 );

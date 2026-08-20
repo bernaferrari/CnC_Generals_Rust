@@ -3,23 +3,32 @@ impl Locomotor {
     // MISSING METHODS — Ported from C++ Locomotor.cpp
     // ========================================================================
 
-    /// Set physics options on the given physics state to match this locomotor.
-    /// Matches C++ Locomotor::setPhysicsOptions (Locomotor.cpp:911-926)
+    /// Set physics options on leftover PhysicsState (signature kept for callers).
+    /// Live path uses [`Self::apply_physics_options`].
     pub fn set_physics_options(&self, physics: &mut PhysicsState) {
+        let extra = self.ultra_accurate_extra_friction();
+        physics.friction = extra;
+        physics.allow_motive_force_while_airborne = self.template.allow_motive_force_while_airborne;
+        let _ = physics;
+    }
+
+    /// Matches C++ Locomotor::setPhysicsOptions (Locomotor.cpp:911-926).
+    pub fn apply_physics_options(&self, physics: &mut dyn crate::modules::PhysicsBehavior) {
+        physics.set_extra_friction(self.ultra_accurate_extra_friction());
+        physics.set_allow_airborne_friction(self.template.apply_2d_friction_when_airborne);
+        // C++ setStickToGround — PhysicsBehavior has no setter in this crate;
+        // extra friction + airborne-friction flags are the live PhysicsBehavior path.
+        let _stick = self.template.stick_to_ground;
+        let _ = _stick;
+    }
+
+    fn ultra_accurate_extra_friction(&self) -> Real {
         const EXTRA_FRIC: Real = 0.5;
-        let extra_friction = if self.is_ultra_accurate() {
+        if self.is_ultra_accurate() {
             self.template.extra_2d_friction + EXTRA_FRIC
         } else {
             self.template.extra_2d_friction
-        };
-        physics.friction = extra_friction;
-        physics.drag = if self.template.apply_2d_friction_when_airborne {
-            0.95
-        } else {
-            0.98
-        };
-        physics.affected_by_gravity = self.template.stick_to_ground;
-        physics.allow_motive_force_while_airborne = self.template.allow_motive_force_while_airborne;
+        }
     }
 
     /// Rotate unit towards a desired angle without translating.
@@ -522,72 +531,8 @@ impl Locomotor {
         }
     }
 
-    /// Handle Z-axis behavior — compute Z force for the current behavior mode.
-    /// Returns the Z-axis acceleration to apply, and whether constant calling is required.
-    /// Matches C++ Locomotor::handleBehaviorZ (Locomotor.cpp:2196-2323)
-    pub fn handle_behavior_z(
-        &self,
-        current_pos: Coord3D,
-        goal_pos: Coord3D,
-        condition: BodyDamageType,
-        gravity: Real,
-    ) -> (Real, bool) {
-        match self.template.behavior_z {
-            LocomotorBehaviorZ::NoZMotiveForce => (0.0, false),
-
-            LocomotorBehaviorZ::SeaLevel => {
-                // Force to water level — handled by Z target computation
-                (0.0, true)
-            }
-
-            LocomotorBehaviorZ::FixedSurfaceRelativeHeight
-            | LocomotorBehaviorZ::FixedAbsoluteHeight => {
-                // Directly set Z — no force needed in physics-less approach
-                (0.0, true)
-            }
-
-            LocomotorBehaviorZ::RelativeToGroundAndBuildings => (0.0, true),
-
-            LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-            | LocomotorBehaviorZ::SurfaceRelativeHeight
-            | LocomotorBehaviorZ::AbsoluteHeight => {
-                if self.preferred_height != 0.0 || self.uses_precise_z_pos() {
-                    let surface_rel = matches!(
-                        self.template.behavior_z,
-                        LocomotorBehaviorZ::SurfaceRelativeHeight
-                            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
-                    );
-                    let surface_ht = if surface_rel {
-                        self.get_surface_ht_at_pt(current_pos.x, current_pos.y)
-                    } else {
-                        0.0
-                    };
-                    let mut preferred =
-                        self.preferred_height + if surface_rel { surface_ht } else { 0.0 };
-                    if self.uses_precise_z_pos() {
-                        preferred = goal_pos.z;
-                    }
-
-                    let delta = preferred - current_pos.z;
-                    let damped = delta * self.preferred_height_damping;
-                    let damped_preferred = current_pos.z + damped;
-
-                    let lift = self.calc_lift_to_use_at_pt(
-                        current_pos.z,
-                        surface_ht,
-                        damped_preferred,
-                        0.0, // vel_z not available in this context
-                        condition,
-                        gravity,
-                    );
-
-                    (lift, true)
-                } else {
-                    (0.0, true)
-                }
-            }
-        }
-    }
+    /// Compute Z-axis force for a movement step using compute_z_target.
+    /// Helper for move_towards_angle and other methods.
 
     /// Compute Z-axis force for a movement step using compute_z_target.
     /// Helper for move_towards_angle and other methods.

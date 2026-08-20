@@ -43,6 +43,7 @@ pub struct UnitAIUpdate {
     pub(super) mood_attack_check_rate_frames: UnsignedInt,
     pub(super) forbid_player_commands: Bool,
     pub(super) turrets_linked: Bool,
+    pub(super) turret_sync_flag: TurretType,
     pub(super) turret_primary_data: Option<TurretAIData>,
     pub(super) turret_secondary_data: Option<TurretAIData>,
     pub(super) locomotor_upgraded: Bool,
@@ -180,6 +181,7 @@ impl UnitAIUpdate {
             mood_attack_check_rate_frames: LOGICFRAMES_PER_SECOND * 2,
             forbid_player_commands: false,
             turrets_linked: false,
+            turret_sync_flag: TurretType::Invalid,
             turret_primary_data: None,
             turret_secondary_data: None,
             locomotor_upgraded: false,
@@ -253,6 +255,12 @@ impl UnitAIUpdate {
     pub(super) fn clear_guard_target_type(&mut self) {
         self.guard_target_type[1] = self.guard_target_type[0];
         self.guard_target_type[0] = GuardTargetType::None_;
+    }
+    pub(super) fn friend_get_turret_sync(&self) -> TurretType {
+        self.turret_sync_flag
+    }
+    pub(super) fn friend_set_turret_sync(&mut self, turret: TurretType) {
+        self.turret_sync_flag = turret;
     }
     pub(super) fn owner_object_id(&self) -> Option<ObjectID> {
         if self.unit_id != INVALID_ID {

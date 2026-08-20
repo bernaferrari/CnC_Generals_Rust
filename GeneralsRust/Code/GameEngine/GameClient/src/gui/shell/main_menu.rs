@@ -79,6 +79,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
+#[path = "main_menu_online.rs"]
+mod main_menu_online;
 use thiserror::Error;
 
 #[cfg(feature = "online_ui")]
@@ -2296,19 +2299,13 @@ impl MainMenu {
         state.online_cancel_window_open = false;
     }
 
-    fn finish_online_handoff_state(state: &mut MainMenuState) {
-        if !state.checking_for_patch_before_gamespy {
-            return;
+    fn finish_online_handoff_state(&self, state: &mut MainMenuState) {
+        match main_menu_online::start_online(state) {
+            main_menu_online::OnlineHandoff::NeedPatchDownload => {
+                self.start_downloading_patches();
+            }
+            _ => {}
         }
-
-        state.checking_for_patch_before_gamespy = false;
-        state.cant_connect_before_online = false;
-        state.checks_left_before_online = 0;
-        state.online_cancel_window_open = false;
-        TheScriptEngine::signal_ui_interact(
-            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED as usize],
-        );
-        log::info!("Patch check completed - entering online handoff");
     }
 
     fn http_think_wrapper(&self, state: &mut MainMenuState) {
@@ -2325,10 +2322,10 @@ impl MainMenu {
         if state.checks_left_before_online > 0 {
             state.checks_left_before_online -= 1;
             if state.checks_left_before_online == 0 {
-                Self::finish_online_handoff_state(state);
+                self.finish_online_handoff_state(state);
             }
         } else {
-            Self::finish_online_handoff_state(state);
+            self.finish_online_handoff_state(state);
         }
     }
 

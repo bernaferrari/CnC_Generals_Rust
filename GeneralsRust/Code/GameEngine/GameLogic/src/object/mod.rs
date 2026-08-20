@@ -2335,7 +2335,8 @@ pub const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 pub const WEAPONSLOT_COUNT: usize = 3;
 pub const DISABLED_COUNT: usize = 13;
 pub const NUM_SLEEP_HELPERS: usize = 8;
-pub const CONSTRUCTION_COMPLETE: Real = 100.0;
+/// C++ `BuildAssistant.h:25` `enum { CONSTRUCTION_COMPLETE = -1 }`.
+pub const CONSTRUCTION_COMPLETE: Real = -1.0;
 pub const NEVER: UnsignedInt = 0xFFFFFFFF;
 pub const INVALID_ID: ObjectID = 0;
 
@@ -2448,6 +2449,41 @@ pub type RadarObject = game_engine::common::system::radar::RadarObject;
 #[derive(Debug)]
 pub struct PartitionData {
     // Implementation details would go here
+}
+
+impl PartitionData {
+    /// C++ `PartitionData::getShroudedStatus`.
+    pub fn get_shrouded_status(
+        &self,
+        player_index: i32,
+        object_id: ObjectID,
+    ) -> ObjectShroudStatus {
+        use crate::system::explored_territory::get_explored_territory_manager;
+        use crate::system::shroud_manager::get_shroud_manager;
+
+        if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
+            return ObjectShroudStatus::Clear;
+        }
+        let player_id = player_index as usize;
+        let visible = get_shroud_manager()
+            .lock()
+            .ok()
+            .map(|mgr| mgr.can_see_object(player_id as u32, object_id))
+            .unwrap_or(false);
+        if visible {
+            return ObjectShroudStatus::Clear;
+        }
+        let explored = get_explored_territory_manager()
+            .lock()
+            .ok()
+            .map(|mgr| mgr.has_explored_object(player_id, object_id))
+            .unwrap_or(false);
+        if explored {
+            ObjectShroudStatus::Fogged
+        } else {
+            ObjectShroudStatus::Shrouded
+        }
+    }
 }
 
 /// Polygon trigger for area detection.
@@ -2751,6 +2787,14 @@ mod object_triggers;
 mod object_update;
 mod object_upgrade;
 mod object_vision;
+mod command_weapon;
+mod disabled;
+mod init;
+mod status_cmds;
+mod vision;
+mod die_hooks;
+mod capture;
+mod command_buttons;
 mod object_xfer;
 
 pub use object_thing::ObjectArcExt;

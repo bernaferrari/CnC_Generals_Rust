@@ -438,7 +438,7 @@ impl CrateCollide {
             return guard.is_kind_of(KindOf::Structure);
         }
         if _kind == KINDOF_PARACHUTE {
-            return guard.test_status(ObjectStatusTypes::Parachuting);
+            return guard.is_kind_of(KindOf::Parachute);
         }
         false
     }

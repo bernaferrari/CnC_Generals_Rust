@@ -518,7 +518,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let source_guard = match source_obj.read() {
+        let mut source_guard = match source_obj.write() {
             Ok(guard) => guard,
             Err(_) => return Ok(ScriptActionResult::Success),
         };

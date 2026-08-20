@@ -4,6 +4,8 @@ pub mod wthree_d_default_draw;
 pub mod wthree_d_dependency_model_draw;
 pub mod wthree_d_laser_draw;
 pub mod wthree_d_model_draw;
+pub mod wthree_d_model_draw_runtime;
+
 pub mod wthree_d_overlord_aircraft_draw;
 pub mod wthree_d_overlord_tank_draw;
 pub mod wthree_d_overlord_truck_draw;
