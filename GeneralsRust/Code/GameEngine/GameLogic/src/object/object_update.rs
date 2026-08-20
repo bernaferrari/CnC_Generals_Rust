@@ -189,9 +189,15 @@ impl Object {
                             {
                                 let misc_audio = misc_audio.read();
                                 let sound_name = if play_ding {
-                                    misc_audio.defector_timer_ding_sound.sound_file.clone()
+                                    misc_audio
+                                        .defector_timer_ding_sound
+                                        .playable_event_name()
+                                        .to_string()
                                 } else {
-                                    misc_audio.defector_timer_tick_sound.sound_file.clone()
+                                    misc_audio
+                                        .defector_timer_tick_sound
+                                        .playable_event_name()
+                                        .to_string()
                                 };
                                 let mut event =
                                     crate::object::special_power_template::AudioEventRts::new(

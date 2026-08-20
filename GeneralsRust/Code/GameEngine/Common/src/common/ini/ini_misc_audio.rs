@@ -75,6 +75,16 @@ impl AudioEventRTS {
         }
     }
 
+    /// C++ `INI::parseAudioEventRTS` stores the MiscAudio.ini token as the event name.
+    /// Leftover `sound_file` is only a fallback for unparsed callers.
+    pub fn playable_event_name(&self) -> &str {
+        if !self.event_name.is_empty() {
+            self.event_name.as_str()
+        } else {
+            self.sound_file.as_str()
+        }
+    }
+
     /// Create from sound file name
     pub fn from_sound_file(sound_file: String) -> Self {
         Self {
@@ -119,32 +129,27 @@ impl AudioEventRTS {
     }
 
     /// Play this audio event through the global audio manager.
+    /// C++ `AudioManager::addAudioEvent` (GameAudio.cpp:391-396) returns AHSV_Error
+    /// when the name is missing. Do not invent a blank SoundEffect.
     pub fn play(&self) {
-        if self.is_valid() {
-            let name = if !self.event_name.is_empty() {
-                self.event_name.as_str()
-            } else {
-                self.sound_file.as_str()
-            };
-            let mut event = EngineAudioEventRts::with_event_name(name);
-
-            event.set_volume(self.volume);
-            if self.is_looped {
-                event.set_loop_count(2);
-            }
-
-            let manager =
-                get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-            let mut manager = manager.lock().expect("audio manager mutex poisoned");
-            if let Some(info) = manager
-                .find_audio_event_info(event.get_event_name())
-                .or_else(|| manager.new_audio_event_info(event.get_event_name().to_string()))
-            {
-                event.set_audio_event_info(info.clone());
-                event.set_volume(info.volume);
-            }
-            let _ = manager.add_audio_event(&event);
+        if !self.is_valid() {
+            return;
         }
+        let mut event = EngineAudioEventRts::with_event_name(self.playable_event_name());
+
+        event.set_volume(self.volume);
+        if self.is_looped {
+            event.set_loop_count(2);
+        }
+
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let mut manager = manager.lock().expect("audio manager mutex poisoned");
+        let Some(info) = manager.find_audio_event_info(event.get_event_name()) else {
+            return;
+        };
+        event.set_audio_event_info(info.clone());
+        event.set_volume(info.volume);
+        let _ = manager.add_audio_event(&event);
     }
 
     /// Parse from INI string value
@@ -730,6 +735,30 @@ mod tests {
 
         audio_event.sound_file = "test_sound.wav".to_string();
         assert!(audio_event.is_valid());
+    }
+
+    #[test]
+    fn playable_event_name_prefers_ini_token_over_sound_file() {
+        // C++ INI::parseAudioEventRTS (INI.cpp:1146+) writes the token as the event name.
+        let mut from_ini = AudioEventRTS::from_event_name("CrateHeal".to_string());
+        from_ini.sound_file.clear();
+        assert_eq!(from_ini.playable_event_name(), "CrateHeal");
+
+        let file_only = AudioEventRTS::from_sound_file("legacy.wav".to_string());
+        assert_eq!(file_only.playable_event_name(), "legacy.wav");
+    }
+
+    #[test]
+    fn play_missing_info_does_not_invent_blank_event() {
+        // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396) returns AHSV_Error.
+        let name = "DefinitelyNotARealAudioEvent_hq_wlv76_play";
+        AudioEventRTS::from_event_name(name.to_string()).play();
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let manager = manager.lock().expect("audio manager mutex poisoned");
+        assert!(
+            manager.find_audio_event_info(name).is_none(),
+            "play() must not insert a blank AudioEventInfo for an unknown name"
+        );
     }
 
     #[test]

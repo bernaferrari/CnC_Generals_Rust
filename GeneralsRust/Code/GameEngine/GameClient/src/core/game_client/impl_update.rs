@@ -806,6 +806,20 @@ impl GameClient {
         self.letterbox_overlay_fade() > 0.0
     }
 
+    pub fn letterbox_overlay_enabled(&self) -> bool {
+        self.letterbox_overlay_enabled
+    }
+
+    /// C++ W3DDisplay::draw movie blit + copyright + letterbox on the live present path.
+    pub fn queue_host_display_overlays(&self, width: f32, height: f32) {
+        crate::display::display_fx::present_host_overlays(
+            width.max(1.0) as u32,
+            height.max(1.0) as u32,
+            self.letterbox_overlay_fade(),
+            self.letterbox_overlay_enabled,
+        );
+    }
+
     /// Apply presentation military caption residual to InGameUI subsystem.
     ///
     /// C++ military subtitle residual; duration from presentation freeze.

@@ -80,7 +80,8 @@ pub fn parse_death_type_flags_tokens(tokens: &[&str]) -> Result<DeathTypeFlags, 
         return Err(INIError::InvalidData);
     }
 
-    let mut flags = DEATH_TYPE_FLAGS_NONE;
+    // C++ INI.cpp:1819 parseDeathTypeFlags starts at DEATH_TYPE_FLAGS_ALL.
+    let mut flags = DEATH_TYPE_FLAGS_ALL;
     for token in tokens {
         for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if entry.eq_ignore_ascii_case("ALL") {
@@ -120,7 +121,8 @@ pub fn parse_veterancy_level_flags_tokens(
         return Err(INIError::InvalidData);
     }
 
-    let mut flags = VETERANCY_LEVEL_FLAGS_NONE;
+    // C++ INI.cpp:1729 parseVeterancyLevelFlags starts at VETERANCY_LEVEL_FLAGS_ALL.
+    let mut flags = VETERANCY_LEVEL_FLAGS_ALL;
     for token in tokens {
         for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if entry.eq_ignore_ascii_case("ALL") {
@@ -259,7 +261,10 @@ impl DieMuxData {
 }
 
 fn death_type_from_name(name: &str) -> Option<DeathType> {
+    // C++ Damage.h:177-200 TheDeathNames[]
     match name.to_ascii_uppercase().as_str() {
+        "NORMAL" => Some(DeathType::Normal),
+        "NONE" => Some(DeathType::None),
         "CRUSHED" => Some(DeathType::Crushed),
         "BURNED" => Some(DeathType::Burned),
         "EXPLODED" => Some(DeathType::Exploded),
@@ -272,13 +277,13 @@ fn death_type_from_name(name: &str) -> Option<DeathType> {
         "SPLATTED" => Some(DeathType::Splatted),
         "POISONED_BETA" => Some(DeathType::PoisonedBeta),
         "POISONED_GAMMA" => Some(DeathType::PoisonedGamma),
-        "EXTRA2" => Some(DeathType::Extra2),
-        "EXTRA3" => Some(DeathType::Extra3),
-        "EXTRA4" => Some(DeathType::Extra4),
-        "EXTRA5" => Some(DeathType::Extra5),
-        "EXTRA6" => Some(DeathType::Extra6),
-        "EXTRA7" => Some(DeathType::Extra7),
-        "EXTRA8" => Some(DeathType::Extra8),
+        "EXTRA_2" | "EXTRA2" => Some(DeathType::Extra2),
+        "EXTRA_3" | "EXTRA3" => Some(DeathType::Extra3),
+        "EXTRA_4" | "EXTRA4" => Some(DeathType::Extra4),
+        "EXTRA_5" | "EXTRA5" => Some(DeathType::Extra5),
+        "EXTRA_6" | "EXTRA6" => Some(DeathType::Extra6),
+        "EXTRA_7" | "EXTRA7" => Some(DeathType::Extra7),
+        "EXTRA_8" | "EXTRA8" => Some(DeathType::Extra8),
         _ => None,
     }
 }
@@ -725,5 +730,39 @@ mod tests {
 
         let none = ObjectStatusMask::NONE;
         assert!(!none.intersects(ObjectStatusMask::ALL));
+    }
+
+    #[test]
+    fn parse_death_types_starts_from_all_like_cpp() {
+        // C++ INI.cpp:1819 DeathTypeFlags flags = DEATH_TYPE_FLAGS_ALL
+        let flags = parse_death_type_flags_tokens(&["-SUICIDED"]).unwrap();
+        assert_ne!(flags, DEATH_TYPE_FLAGS_NONE);
+        assert!(!crate::damage::get_death_type_flag(
+            flags,
+            DeathType::Suicided
+        ));
+        assert!(crate::damage::get_death_type_flag(
+            flags,
+            DeathType::Crushed
+        ));
+    }
+
+    #[test]
+    fn parse_veterancy_levels_starts_from_all_like_cpp() {
+        // C++ INI.cpp:1729 VeterancyLevelFlags flags = VETERANCY_LEVEL_FLAGS_ALL
+        let flags = parse_veterancy_level_flags_tokens(&["-HEROIC"]).unwrap();
+        assert_ne!(flags, VETERANCY_LEVEL_FLAGS_NONE);
+        assert!(!get_veterancy_level_flag(flags, VeterancyLevel::Heroic));
+        assert!(get_veterancy_level_flag(flags, VeterancyLevel::Regular));
+    }
+
+    #[test]
+    fn death_type_from_name_matches_the_death_names() {
+        // C++ Damage.h:180-200 TheDeathNames NORMAL/NONE/EXTRA_2
+        assert_eq!(death_type_from_name("NORMAL"), Some(DeathType::Normal));
+        assert_eq!(death_type_from_name("NONE"), Some(DeathType::None));
+        assert_eq!(death_type_from_name("EXTRA_2"), Some(DeathType::Extra2));
+        assert_eq!(death_type_from_name("extra_8"), Some(DeathType::Extra8));
+        assert!(parse_death_type_flags_tokens(&["ALL", "-NORMAL"]).is_ok());
     }
 }

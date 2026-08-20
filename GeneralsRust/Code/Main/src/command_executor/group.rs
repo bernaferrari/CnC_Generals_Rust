@@ -206,6 +206,57 @@ impl<'a> CommandExecutor<'a> {
         best_id
     }
 
+    /// C++ `AIUpdateInterface` stand-in: structures without AI never contribute
+    /// to `getMinMaxAndCenter` (`AIGroup.cpp:339-362`).
+    fn member_has_ai_update(o: &crate::game_logic::object::Object) -> bool {
+        o.is_mobile() || o.can_attack()
+    }
+
+    /// C++ `Pathfinder::isLinePassable` host analog for
+    /// `AIGroup::friend_computeGroundPath` (`AIGroup.cpp:590-611`).
+    fn infantry_line_passable_to_center(&self, from: Vec3, center: Vec3) -> bool {
+        let (w, h, mask) = self.game_logic.snapshot_pathfinding_passability();
+        if w == 0 || h == 0 || mask.is_empty() {
+            return true;
+        }
+        let (origin, _) = self.game_logic.world_bounds();
+        const CELL: f32 = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let to_cell = |p: Vec3| -> (i32, i32) {
+            (
+                ((p.x - origin.x) / CELL) as i32,
+                ((p.z - origin.z) / CELL) as i32,
+            )
+        };
+        let (mut x0, mut y0) = to_cell(from);
+        let (x1, y1) = to_cell(center);
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            if x0 < 0 || y0 < 0 || x0 >= w as i32 || y0 >= h as i32 {
+                return false;
+            }
+            let idx = (y0 as u32 * w + x0 as u32) as usize;
+            if mask.get(idx).copied().unwrap_or(true) {
+                return false;
+            }
+            if x0 == x1 && y0 == y1 {
+                return true;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
     /// C++ AIGroup::getMinMaxAndCenter residual (XZ plane; skip held).
     /// Returns (min_xz, max_xz, center) or None if empty.
     pub(crate) fn group_min_max_and_center(
@@ -224,7 +275,11 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
+            // C++ AIGroup.cpp:335-362 — skip DISABLED_HELD and members with no AI.
             if !o.is_alive() || o.contained_by.is_some() {
+                continue;
+            }
+            if !Self::member_has_ai_update(o) {
                 continue;
             }
             let p = o.get_position();
@@ -278,12 +333,25 @@ impl<'a> CommandExecutor<'a> {
         }
 
         // Closest unit → dest distance.
+        // C++ friend_computeGroundPath (AIGroup.cpp:534-549): only members with
+        // AI that are KINDOF_INFANTRY or KINDOF_VEHICLE. Aircraft continue;
+        // no-AI objects are skipped. "ANY type" means any remaining ground type.
         let mut closest_sqr = f32::INFINITY;
         for &id in units {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !o.is_alive() {
+            if !o.is_alive() || o.contained_by.is_some() {
+                continue;
+            }
+            if !Self::member_has_ai_update(o) {
+                continue;
+            }
+            let is_infantry = o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                || o.object_type == crate::game_logic::ObjectType::Infantry;
+            let is_vehicle = o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                && !o.is_kind_of(crate::game_logic::KindOf::Aircraft);
+            if !is_infantry && !is_vehicle {
                 continue;
             }
             let p = o.get_position();
@@ -325,7 +393,51 @@ impl<'a> CommandExecutor<'a> {
         {
             close_enough = true;
         }
-        let _ = center;
+        // C++ AIGroup.cpp:590-611 — if still not closeEnough, every infantry
+        // must have isLinePassable to the center vehicle. An empty infantry
+        // set leaves isPassable true (C++ default).
+        if !close_enough {
+            let mut center_vehicle = center;
+            let mut best_d2 = f32::INFINITY;
+            for &id in units {
+                let Some(o) = self.game_logic.host_object(id) else {
+                    continue;
+                };
+                if !o.is_alive() || o.contained_by.is_some() || !Self::member_has_ai_update(o) {
+                    continue;
+                }
+                if o.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+                    continue;
+                }
+                let p = o.get_position();
+                let d2 = (p.x - center.x).powi(2) + (p.z - center.z).powi(2);
+                if d2 < best_d2 {
+                    best_d2 = d2;
+                    center_vehicle = p;
+                }
+            }
+            let mut is_passable = true;
+            for &id in units {
+                let Some(o) = self.game_logic.host_object(id) else {
+                    continue;
+                };
+                if !o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    && o.object_type != crate::game_logic::ObjectType::Infantry
+                {
+                    continue;
+                }
+                if !o.is_alive() || o.contained_by.is_some() {
+                    continue;
+                }
+                if !self.infantry_line_passable_to_center(o.get_position(), center_vehicle) {
+                    is_passable = false;
+                    break;
+                }
+            }
+            if is_passable {
+                close_enough = true;
+            }
+        }
         close_enough
     }
 

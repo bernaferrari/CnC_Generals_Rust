@@ -100,6 +100,7 @@ pub enum UIBlendMode {
     Multiply,
     Screen,
     None,
+    Grayscale,
 }
 
 /// Rectangle for UI elements
@@ -223,9 +224,10 @@ pub struct UIRenderer {
     device: Arc<Device>,
     queue: Arc<Queue>,
 
-    // Render pipelines
     solid_pipeline: RenderPipeline,
     textured_pipeline: RenderPipeline,
+    textured_additive_pipeline: RenderPipeline,
+    textured_grayscale_pipeline: RenderPipeline,
     text_pipeline: RenderPipeline,
 
     // Shader modules
@@ -448,6 +450,85 @@ impl UIRenderer {
             cache: None,
         });
 
+        let textured_additive_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("UI Textured Additive Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: &ui_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[vertex_buffer_layout.clone()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(FragmentState {
+                module: &ui_shader,
+                entry_point: Some("fs_textured"),
+                targets: &[Some(ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let textured_grayscale_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("UI Textured Grayscale Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: &ui_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[vertex_buffer_layout.clone()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(FragmentState {
+                module: &ui_shader,
+                entry_point: Some("fs_disabled"),
+                targets: &[Some(ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let text_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("UI Text Pipeline"),
             layout: Some(&pipeline_layout),
@@ -604,6 +685,8 @@ impl UIRenderer {
             queue,
             solid_pipeline,
             textured_pipeline,
+            textured_additive_pipeline,
+            textured_grayscale_pipeline,
             text_pipeline,
             ui_shader,
             text_shader,
@@ -749,6 +832,85 @@ impl UIRenderer {
     pub const MAX_DRAW_COMMANDS_PER_FRAME: usize = 8_192;
     pub const MAX_UI_VERTICES: usize = 1 << 20;
 
+
+    /// Textured rect with an explicit blend mode (C++ `DrawImageMode`).
+    pub fn draw_textured_rect_ex(
+        &mut self,
+        rect: UIRect,
+        texture: Arc<TextureView>,
+        color: [f32; 4],
+        tex_rect: Option<UIRect>,
+        blend_mode: UIBlendMode,
+        z_order: f32,
+    ) {
+        if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
+            return;
+        }
+        let tex_rect = tex_rect.unwrap_or(UIRect::new(0.0, 0.0, 1.0, 1.0));
+        let vertices = vec![
+            UIVertex {
+                position: [rect.x, rect.y, z_order],
+                tex_coord: [tex_rect.x, tex_rect.y],
+                color,
+            },
+            UIVertex {
+                position: [rect.x + rect.width, rect.y, z_order],
+                tex_coord: [tex_rect.x + tex_rect.width, tex_rect.y],
+                color,
+            },
+            UIVertex {
+                position: [rect.x + rect.width, rect.y + rect.height, z_order],
+                tex_coord: [tex_rect.x + tex_rect.width, tex_rect.y + tex_rect.height],
+                color,
+            },
+            UIVertex {
+                position: [rect.x, rect.y + rect.height, z_order],
+                tex_coord: [tex_rect.x, tex_rect.y + tex_rect.height],
+                color,
+            },
+        ];
+        self.push_draw_command(UIDrawCommand {
+            vertices,
+            indices: vec![0, 1, 2, 0, 2, 3],
+            texture: Some(texture),
+            blend_mode,
+            scissor_rect: None,
+            z_order,
+        });
+    }
+
+    /// Arbitrary textured mesh (C++ `Add_Tri` rotate-90 path).
+    pub fn draw_textured_mesh(
+        &mut self,
+        positions: &[[f32; 2]],
+        uvs: &[[f32; 2]],
+        indices: &[u32],
+        texture: Arc<TextureView>,
+        color: [f32; 4],
+        blend_mode: UIBlendMode,
+        z_order: f32,
+    ) {
+        if positions.len() != uvs.len() || positions.is_empty() {
+            return;
+        }
+        let vertices = positions
+            .iter()
+            .zip(uvs.iter())
+            .map(|(pos, uv)| UIVertex {
+                position: [pos[0], pos[1], z_order],
+                tex_coord: *uv,
+                color,
+            })
+            .collect();
+        self.push_draw_command(UIDrawCommand {
+            vertices,
+            indices: indices.to_vec(),
+            texture: Some(texture),
+            blend_mode,
+            scissor_rect: None,
+            z_order,
+        });
+    }
     fn push_draw_command(&mut self, command: UIDrawCommand) {
         if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
             return;
@@ -1295,6 +1457,8 @@ impl UIRenderer {
             enum PipelineKind {
                 Solid,
                 Textured,
+                TexturedAdditive,
+                TexturedGrayscale,
             }
             let mut current_pipeline: Option<PipelineKind> = None;
             let mut current_texture: Option<Arc<TextureView>> = None;
@@ -1302,10 +1466,15 @@ impl UIRenderer {
             for (command, (start, count)) in
                 self.frame_buffers.draw_commands.iter().zip(command_ranges)
             {
-                let (pipeline, pipeline_kind) = if command.texture.is_some() {
-                    (&self.textured_pipeline, PipelineKind::Textured)
-                } else {
-                    (&self.solid_pipeline, PipelineKind::Solid)
+                let (pipeline, pipeline_kind) = match (command.texture.is_some(), command.blend_mode) {
+                    (true, UIBlendMode::Additive) => {
+                        (&self.textured_additive_pipeline, PipelineKind::TexturedAdditive)
+                    }
+                    (true, UIBlendMode::Grayscale) => {
+                        (&self.textured_grayscale_pipeline, PipelineKind::TexturedGrayscale)
+                    }
+                    (true, _) => (&self.textured_pipeline, PipelineKind::Textured),
+                    (false, _) => (&self.solid_pipeline, PipelineKind::Solid),
                 };
                 if current_pipeline != Some(pipeline_kind) {
                     render_pass.set_pipeline(pipeline);

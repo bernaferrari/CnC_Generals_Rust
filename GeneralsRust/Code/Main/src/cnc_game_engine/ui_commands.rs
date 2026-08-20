@@ -1918,6 +1918,9 @@ impl CnCGameEngine {
                     | crate::command_system::CommandType::ViewLastRadarEvent
                     | crate::command_system::CommandType::PlaceBeacon { .. }
                     | crate::command_system::CommandType::RemoveBeacon
+                    | crate::command_system::CommandType::SetBeaconText { .. }
+                    | crate::command_system::CommandType::SelfDestruct { .. }
+                    | crate::command_system::CommandType::EnableRetaliationMode { .. }
             )
         {
             return;

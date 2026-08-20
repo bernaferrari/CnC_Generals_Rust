@@ -105,12 +105,30 @@ impl RayCollisionQuery {
         })
     }
 
-    /// Test ray intersection with OBBox
+    /// C++ CollisionMath::Collide(LineSeg, OBBox) — colmathline.cpp:276
+    /// Transform the ray by Basis.Transpose() then run the aligned slab test.
     pub fn test_obbox(&self, obbox: &OBBoxClass) -> Option<CollisionResult> {
-        // For simplified OBBox (axis-aligned), just use AABox intersection
+        let basis = glam::Mat3::from_cols(obbox.basis[0], obbox.basis[1], obbox.basis[2]);
+        let basis_t = basis.transpose();
+        let local_origin = basis_t * (self.origin - obbox.center) + obbox.center;
+        let local_dir = basis_t * self.direction;
+        let local_len = local_dir.length();
+        if local_len < 1e-8 {
+            return None;
+        }
+        let local_query = RayCollisionQuery {
+            origin: local_origin,
+            direction: local_dir / local_len,
+            max_distance: self.max_distance,
+        };
         let aabox = AABoxClass::from_center_and_extent(obbox.center, obbox.extent);
-        self.test_aabox(&aabox)
+        let mut result = local_query.test_aabox(&aabox)?;
+        result.contact_normal = basis * result.contact_normal;
+        let world_t = (result.contact_point - local_origin).dot(local_query.direction);
+        result.contact_point = self.origin + self.direction * world_t;
+        Some(result)
     }
+
 
     /// Test ray intersection with Sphere
     pub fn test_sphere(&self, sphere: &SphereClass) -> Option<CollisionResult> {
@@ -213,10 +231,47 @@ pub fn test_aabox_sphere(aabox: &AABoxClass, sphere: &SphereClass) -> bool {
     (closest_point - sphere.center).length_squared() <= sphere.radius * sphere.radius
 }
 
+/// C++ CollisionMath::Intersection_Test(AABox, OBBox) — colmathobbobb.cpp 15-axis SAT
 pub fn test_aabox_obbox(aabox: &AABoxClass, obbox: &OBBoxClass) -> bool {
-    let obbox_aabox = AABoxClass::from_center_and_extent(obbox.center, obbox.extent);
-    test_aabox_aabox(aabox, &obbox_aabox)
+    let a_axes = [Vec3::X, Vec3::Y, Vec3::Z];
+    let b_axes = obbox.basis;
+    let t = obbox.center - aabox.center;
+    let ra = |axis: Vec3| {
+        aabox.extent.x * axis.x.abs() + aabox.extent.y * axis.y.abs() + aabox.extent.z * axis.z.abs()
+    };
+    let rb = |axis: Vec3| {
+        obbox.extent.x * b_axes[0].dot(axis).abs()
+            + obbox.extent.y * b_axes[1].dot(axis).abs()
+            + obbox.extent.z * b_axes[2].dot(axis).abs()
+    };
+    let separated = |axis: Vec3| {
+        let len2 = axis.length_squared();
+        if len2 <= 1e-12 {
+            return false;
+        }
+        t.dot(axis).abs() > ra(axis) + rb(axis)
+    };
+    for &axis in &a_axes {
+        if separated(axis) {
+            return false;
+        }
+    }
+    for &axis in &b_axes {
+        if separated(axis) {
+            return false;
+        }
+    }
+    for &a_axis in &a_axes {
+        for &b_axis in &b_axes {
+            if separated(a_axis.cross(b_axis)) {
+                return false;
+            }
+        }
+    }
+    true
 }
+
+
 
 pub fn test_sphere_sphere(a: &SphereClass, b: &SphereClass) -> bool {
     let distance_squared = (a.center - b.center).length_squared();
@@ -319,4 +374,43 @@ mod tests {
         let distant_sphere = SphereClass::new(Vec3::new(0.0, 2.0, 0.0), 0.5);
         assert!(!test_plane_sphere(&plane, &distant_sphere)); // Not intersecting
     }
+
+    // C++ colmathline.cpp:283 — 45° thin OBB is not treated as its local AABB
+    #[test]
+    fn test_ray_obbox_uses_orientation() {
+        let angle = std::f32::consts::FRAC_PI_4;
+        let (s, c) = angle.sin_cos();
+        let obbox = OBBoxClass::new(
+            Vec3::ZERO,
+            Vec3::new(2.0, 0.05, 0.05),
+            [Vec3::new(c, s, 0.0), Vec3::new(-s, c, 0.0), Vec3::Z],
+        );
+        let hit_ray =
+            RayCollisionQuery::new(Vec3::new(1.2, 1.2, 2.0), Vec3::new(0.0, 0.0, -1.0), 10.0);
+        assert!(hit_ray.test_obbox(&obbox).is_some());
+
+        let miss_ray =
+            RayCollisionQuery::new(Vec3::new(1.5, 0.0, -2.0), Vec3::new(0.0, 0.0, 1.0), 10.0);
+        assert!(miss_ray.test_obbox(&obbox).is_none());
+    }
+
+    // C++ colmathobbobb.cpp Intersection_Test(AABox, OBBox) uses orientation
+    #[test]
+    fn test_aabox_obbox_uses_orientation() {
+        let aabox = AABoxClass::from_center_extent(Vec3::new(1.5, 0.0, 0.0), Vec3::splat(0.2));
+        let angle = std::f32::consts::FRAC_PI_4;
+        let (s, c) = angle.sin_cos();
+        let obbox = OBBoxClass::new(
+            Vec3::ZERO,
+            Vec3::new(2.0, 0.05, 0.05),
+            [Vec3::new(c, s, 0.0), Vec3::new(-s, c, 0.0), Vec3::Z],
+        );
+        // AABB of local extents would overlap (1.5,0) with extent 0.2; rotated diamond does not
+        assert!(!test_aabox_obbox(&aabox, &obbox));
+
+        let along_diag =
+            AABoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
+        assert!(test_aabox_obbox(&along_diag, &obbox));
+    }
 }
+

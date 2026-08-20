@@ -103,7 +103,10 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         from_position: Vec3,
     ) -> Option<ObjectId> {
-        // Pure residual acquire: nearest friendly constructed SupplyCenter (3D).
+        let manager_ids: Vec<ObjectId> = owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|player| player.resource_supply_centers.clone())
+            .unwrap_or_default();
         let candidates: Vec<_> = self
             .objects
             .iter()
@@ -112,9 +115,19 @@ impl GameLogic {
                     || !obj.is_alive()
                     || !obj.is_constructed()
                     || self.player_owner_for_host_object(obj) != owner_player_id
-                    || (obj.thing.template.dock_kind != crate::game_logic::DockKind::SupplyCenter
-                        && !obj.is_kind_of(KindOf::SupplyCenter))
                 {
+                    return None;
+                }
+                let on_manager = manager_ids.contains(&obj_id);
+                let kind_fallback = obj.thing.template.dock_kind
+                    == crate::game_logic::DockKind::SupplyCenter
+                    || obj.is_kind_of(KindOf::SupplyCenter)
+                    || obj.thing.template.has_supply_center_create;
+                if !manager_ids.is_empty() {
+                    if !on_manager {
+                        return None;
+                    }
+                } else if !kind_fallback {
                     return None;
                 }
                 Some(

@@ -41,16 +41,31 @@ impl WindowManager {
         end_y: i32,
         color: Color,
     ) {
-        let rect = UIRect::new(
-            start_x as f32,
-            start_y as f32,
-            (end_x - start_x) as f32,
-            (end_y - start_y) as f32,
+        self.win_draw_image_ex(
+            image,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            color,
+            crate::display::DrawImageMode::Alpha,
         );
+    }
+
+    /// C++ `TheDisplay->drawImage(..., DrawImageMode)`.
+    pub fn win_draw_image_ex(
+        &self,
+        image: &Image,
+        start_x: i32,
+        start_y: i32,
+        end_x: i32,
+        end_y: i32,
+        color: Color,
+        mode: crate::display::DrawImageMode,
+    ) {
         let color_rgba = if color != WIN_COLOR_UNDEFINED {
             color_to_rgba(color)
         } else {
-            // White / scheme-ish tint so found-but-untextured art stays visible.
             [1.0, 1.0, 1.0, 1.0]
         };
         let submitted = with_ui_renderer_mut(|renderer| {
@@ -66,21 +81,47 @@ impl WindowManager {
                     }
                     mapped.get_gpu_texture().map(|gpu| {
                         let uv = mapped.get_uv();
+                        let rotated = mapped
+                            .get_status()
+                            .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
                         (
                             std::sync::Arc::new(gpu.view().clone()),
-                            UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
+                            uv.min.x,
+                            uv.min.y,
+                            uv.max.x,
+                            uv.max.y,
+                            rotated,
                         )
                     })
                 } else {
                     None
                 }
             };
-            if let Some((texture, tex_rect)) = texture {
-                renderer.draw_textured_rect(rect, texture, color_rgba, Some(tex_rect), 0.0);
+            if let Some((texture, u0, v0, u1, v1, rotated)) = texture {
+                crate::display::display_fx::queue_draw_image_mesh_on(
+                    renderer,
+                    texture,
+                    start_x as f32,
+                    start_y as f32,
+                    end_x as f32,
+                    end_y as f32,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
+                    color_rgba,
+                    mode,
+                    rotated,
+                );
                 note_win_draw_image_command();
                 true
             } else if found_mapped {
-                // Name resolved but pixels/GPU failed: still queue a visible fill.
+                let rect = UIRect::new(
+                    start_x as f32,
+                    start_y as f32,
+                    (end_x - start_x) as f32,
+                    (end_y - start_y) as f32,
+                );
                 renderer.draw_rect(rect, color_rgba, 0.0);
                 note_win_draw_image_command();
                 true
@@ -89,8 +130,6 @@ impl WindowManager {
             }
         });
         if submitted != Some(true) {
-            // No UIRenderer/GPU: still record a visible-intent command when the
-            // mapped image exists so menus are never silently dropped.
             let _ = ensure_client_mapped_image(&image.name);
             if get_mapped_image_collection()
                 .read()

@@ -635,6 +635,63 @@ mod tests {
         OBJECT_REGISTRY.clear();
     }
 
+    /// C++ GameState.cpp:1528-1529 — production registers ThePartitionManager->update
+    /// so gameStatePostProcessLoad is not a no-op after CHUNK_GameStateMap.
+    #[test]
+    fn game_state_post_process_load_updates_partition_after_snapshots() {
+        let _guard = test_state_lock();
+        use crate::object::registry::OBJECT_REGISTRY;
+        use crate::object::Object;
+
+        OBJECT_REGISTRY.clear();
+        let _ = get_game_logic();
+
+        let obj_id: ObjectID = 9001;
+        let pos = Coord3D::new(250.0, 250.0, 0.0);
+        let obj = Arc::new(RwLock::new(Object::new_test(obj_id, 100.0)));
+        obj.write()
+            .expect("object write")
+            .set_position(&pos)
+            .expect("set position");
+        OBJECT_REGISTRY.register_object(obj_id, &obj);
+
+        {
+            let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
+            logic.partition_manager.remove_object(obj_id);
+            assert!(
+                !logic
+                    .partition_manager
+                    .find_objects_in_radius(pos, 10.0)
+                    .contains(&obj_id),
+                "precondition: object must be absent from partition before post-process"
+            );
+        }
+
+        {
+            let mut state = game_engine::System::get_game_state();
+            state
+                .game_state_post_process_load()
+                .expect("C++ GameState::gameStatePostProcessLoad");
+        }
+
+        {
+            let logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
+            assert!(
+                logic
+                    .partition_manager
+                    .find_objects_in_radius(pos, 10.0)
+                    .contains(&obj_id),
+                "production hook must call PartitionManager::update after all snapshots"
+            );
+            // Drop the object so later tests do not see it.
+        }
+
+        OBJECT_REGISTRY.clear();
+        if let Ok(mut logic) = get_game_logic().lock() {
+            logic.partition_manager.remove_object(obj_id);
+        }
+    }
+
     #[test]
     fn empty_registry_falls_back_to_game_logic_objects_like_cpp() {
         let _guard = test_state_lock();

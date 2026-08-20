@@ -110,6 +110,15 @@ impl TheObjectFactory {
         template: Arc<dyn crate::common::ThingTemplate>,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::new_object_with_status(template, team, crate::common::ObjectStatusMaskType::NONE)
+    }
+
+    /// C++ `ThingFactory::newObject` / `friend_createObject` — statusBits then onCreate.
+    pub fn new_object_with_status(
+        template: Arc<dyn crate::common::ThingTemplate>,
+        team: Option<Arc<RwLock<Team>>>,
+        status_bits: crate::common::ObjectStatusMaskType,
+    ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = {
             let mutex = get_game_logic();
             let mut logic = mutex
@@ -118,8 +127,9 @@ impl TheObjectFactory {
             logic.allocate_object_id()
         };
 
-        let status_mask = template.get_initial_object_status();
-        let object = Object::new_with_id(template, object_id, status_mask, team)?;
+        let mut status_mask = template.get_initial_object_status();
+        status_mask |= status_bits;
+        let object = Object::new_with_id(template.clone(), object_id, status_mask, team)?;
 
         {
             let mutex = get_game_logic();
@@ -129,6 +139,15 @@ impl TheObjectFactory {
             logic
                 .register_object(object.clone())
                 .map_err(|err| format!("Failed to register object: {:?}", err))?;
+        }
+
+
+
+        {
+            let mut obj_guard = object
+                .write()
+                .map_err(|e| format!("object write lock poisoned: {}", e))?;
+            obj_guard.init_object()?;
         }
 
         Ok(object)

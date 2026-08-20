@@ -123,13 +123,92 @@ pub fn get_command_map_entries() -> Vec<CommandMapEntry> {
     guard
         .iter()
         .map(|record| CommandMapEntry {
+            name: record.name.clone(),
             key: record.key,
             mod_state: record.mod_state,
             category: record.category.clone(),
-            description: record.description.clone(),
-            display_name: record.display_name.clone(),
+            description: translate_command_map_label(&record.description),
+            display_name: translate_command_map_label(&record.display_name),
         })
         .collect()
+}
+
+/// C++ `MetaEventTranslator::translateGameMessage` key+modifier lookup.
+/// Returns the CommandMap name bound to this key chord, if any.
+pub fn lookup_command_map_name(key: u32, mod_state: u32) -> Option<String> {
+    ensure_meta_map_loaded();
+    let guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
+    guard
+        .iter()
+        .find(|record| {
+            record.key == key
+                && record.mod_state == mod_state
+                && record.transition == Transition::Down
+                && (record.usable_in & COMMANDUSABLE_GAME) != 0
+        })
+        .map(|record| record.name.clone())
+}
+
+/// True when CommandMap.ini / Keyboard Options still owns this command name.
+pub fn command_map_binds(name: &str) -> bool {
+    ensure_meta_map_loaded();
+    get_meta_map()
+        .read()
+        .map(|guard| {
+            guard
+                .iter()
+                .any(|record| record.name.eq_ignore_ascii_case(name))
+        })
+        .unwrap_or(false)
+}
+
+/// C++ `INI::parseAndTranslateLabel` (`MetaEvent.cpp:337-339`).
+pub fn translate_command_map_label(label: &str) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let (text, exists) = crate::game_text::GameText::fetch_with_exists(trimmed);
+    if exists {
+        text
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn command_map_labels_match(stored: &str, query: &str) -> bool {
+    stored.eq_ignore_ascii_case(query)
+        || translate_command_map_label(stored).eq_ignore_ascii_case(query)
+}
+
+/// C++ CommandXlat.cpp:3098-3140 `MSG_META_TOGGLE_LOWER_DETAILS`.
+/// Returns `Some(now_low)` after a successful toggle.
+pub fn apply_toggle_lower_details() -> Option<bool> {
+    let global_data = get_global_data()?;
+    let mut global = global_data.write();
+    let mut state = get_lower_detail_toggle_state().write().ok()?;
+    if state.is_low_details {
+        global.use_shadow_volumes = state.old_use_shadow_volumes;
+        global.use_light_map = state.old_use_light_map;
+        global.use_cloud_map = state.old_use_cloud_map;
+        global.max_particle_count = state.old_max_particle_count;
+        TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
+        TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
+    } else {
+        state.old_use_shadow_volumes = global.use_shadow_volumes;
+        global.use_shadow_volumes = false;
+        state.old_use_light_map = global.use_light_map;
+        global.use_light_map = false;
+        state.old_use_cloud_map = global.use_cloud_map;
+        global.use_cloud_map = false;
+        state.old_show_behind_building_markers = TheGameLogic::get_show_behind_building_markers();
+        TheGameLogic::set_show_behind_building_markers(false);
+        state.old_max_particle_count = global.max_particle_count;
+        global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+        TheInGameUI::message("GUI:DetailsSetToLowest");
+    }
+    state.is_low_details = !state.is_low_details;
+    Some(state.is_low_details)
 }
 
 pub fn update_command_map_entry(
@@ -144,8 +223,8 @@ pub fn update_command_map_entry(
     };
 
     let Some(record) = guard.records.iter_mut().find(|record| {
-        record.category.eq_ignore_ascii_case(category)
-            && record.display_name.eq_ignore_ascii_case(display_name)
+        command_map_labels_match(&record.display_name, display_name)
+            && record.category.eq_ignore_ascii_case(category)
     }) else {
         return false;
     };
@@ -227,12 +306,12 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
             }
             "DESCRIPTION" => {
                 if let Some(value) = values.first() {
-                    record.description = value.to_string();
+                    record.description = translate_command_map_label(value);
                 }
             }
             "DISPLAYNAME" => {
                 if let Some(value) = values.first() {
-                    record.display_name = value.to_string();
+                    record.display_name = translate_command_map_label(value);
                 }
             }
             _ => {}
@@ -406,3 +485,53 @@ where
     f(&mut local_guard);
     true
 }
+
+#[cfg(test)]
+mod command_map_parity_tests {
+    use super::*;
+
+    #[test]
+    fn display_name_and_description_use_parse_and_translate_label() {
+        // C++ MetaEvent.cpp:337-339 INI::parseAndTranslateLabel.
+        let raw = "GUI:CommandMapMissingLabelForTest";
+        let translated = translate_command_map_label(raw);
+        assert_eq!(
+            translated, raw,
+            "missing GameText keys must keep the INI token for later fetch"
+        );
+        assert!(translate_command_map_label("").is_empty());
+    }
+
+    #[test]
+    fn lookup_command_map_name_sees_options_remaps() {
+        // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
+        ensure_meta_map_loaded();
+        {
+            let Ok(mut guard) = get_meta_map().write() else {
+                panic!("meta map");
+            };
+            guard.add_record(MetaMapRec {
+                name: "TOGGLE_LOWER_DETAILS".to_string(),
+                meta: None,
+                key: 0x4C,
+                transition: Transition::Down,
+                mod_state: 0,
+                usable_in: COMMANDUSABLE_GAME,
+                category: "CONTROL".to_string(),
+                description: String::new(),
+                display_name: "Lower Details".to_string(),
+            });
+        }
+        assert_eq!(
+            lookup_command_map_name(0x4C, 0).as_deref(),
+            Some("TOGGLE_LOWER_DETAILS")
+        );
+        assert!(update_command_map_entry("CONTROL", "Lower Details", 0x4B, 1));
+        assert_eq!(
+            lookup_command_map_name(0x4B, 1).as_deref(),
+            Some("TOGGLE_LOWER_DETAILS")
+        );
+        reset_command_map_entries();
+    }
+}
+

@@ -307,6 +307,14 @@ fn ensure_audio_event_resolvers_registered() {
     });
 }
 
+/// C++ `INI::parseAudioEventRTS` stores the MiscAudio.ini token as the event name.
+fn leftover_misc_event_name(
+    event: &game_engine::common::ini::ini_misc_audio::AudioEventRTS,
+) -> &str {
+    event.playable_event_name()
+}
+
+
 impl TheAudio {
     pub fn get() -> Option<&'static Self> {
         static AUDIO: OnceLock<TheAudio> = OnceLock::new();
@@ -315,48 +323,41 @@ impl TheAudio {
         Some(audio)
     }
 
-    pub fn get_misc_audio() -> &'static MiscAudioEvents {
-        static MISC_AUDIO: OnceLock<MiscAudioEvents> = OnceLock::new();
-        MISC_AUDIO.get_or_init(|| {
-            let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio()
-            else {
-                return MiscAudioEvents::default();
-            };
+    pub fn get_misc_audio() -> MiscAudioEvents {
+        // C++ `TheAudio->getMiscAudio()` returns the live MiscAudio filled by INI parse.
+        // Do not OnceLock empty leftover defaults before MiscAudio.ini is loaded.
+        let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
+            return MiscAudioEvents::default();
+        };
 
-            let misc_audio = misc_audio.read();
-            let crate_heal = AudioEventRts::new(misc_audio.crate_heal.sound_file.as_str());
-            let crate_shroud = AudioEventRts::new(misc_audio.crate_shroud.sound_file.as_str());
-            let crate_salvage = AudioEventRts::new(misc_audio.crate_salvage.sound_file.as_str());
-            let crate_free_unit =
-                AudioEventRts::new(misc_audio.crate_free_unit.sound_file.as_str());
-            let crate_money = AudioEventRts::new(misc_audio.crate_money.sound_file.as_str());
-            let battle_cry_sound =
-                AudioEventRts::new(misc_audio.battle_cry_sound.sound_file.as_str());
-            let money_deposit =
-                AudioEventRts::new(misc_audio.money_deposit_sound.sound_file.as_str());
-            let money_withdraw =
-                AudioEventRts::new(misc_audio.money_withdraw_sound.sound_file.as_str());
-            let sabotage_shut_down_building =
-                AudioEventRts::new(misc_audio.sabotage_shut_down_building.sound_file.as_str());
-            let sabotage_reset_timer_building =
-                AudioEventRts::new(misc_audio.sabotage_reset_timer_building.sound_file.as_str());
-            let unit_promoted = AudioEventRts::new(misc_audio.unit_promoted.sound_file.as_str());
-
-            MiscAudioEvents {
-                crate_heal,
-                crate_shroud,
-                crate_salvage,
-                crate_free_unit,
-                crate_money,
-                battle_cry_sound,
-                money_deposit,
-                money_withdraw,
-                sabotage_shut_down_building,
-                sabotage_reset_timer_building,
-                unit_promoted,
-            }
-
-        })
+        let misc_audio = misc_audio.read();
+        MiscAudioEvents {
+            crate_heal: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_heal)),
+            crate_shroud: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_shroud)),
+            crate_salvage: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.crate_salvage,
+            )),
+            crate_free_unit: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.crate_free_unit,
+            )),
+            crate_money: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_money)),
+            battle_cry_sound: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.battle_cry_sound,
+            )),
+            money_deposit: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.money_deposit_sound,
+            )),
+            money_withdraw: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.money_withdraw_sound,
+            )),
+            sabotage_shut_down_building: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.sabotage_shut_down_building,
+            )),
+            sabotage_reset_timer_building: AudioEventRts::new(leftover_misc_event_name(
+                &misc_audio.sabotage_reset_timer_building,
+            )),
+            unit_promoted: AudioEventRts::new(leftover_misc_event_name(&misc_audio.unit_promoted)),
+        }
     }
 
     pub fn add_audio_event(&self, event: &AudioEventRts) -> u32 {
@@ -397,12 +398,9 @@ impl TheAudio {
         if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
             engine_event.set_audio_event_info(info.clone());
             engine_event.set_volume(info.volume);
-        } else if let Some(info) =
-            manager.new_audio_event_info(engine_event.get_event_name().to_string())
-        {
-            engine_event.set_audio_event_info(info.clone());
-            engine_event.set_volume(info.volume);
         }
+        // C++ AudioManager::addAudioEvent (GameAudio.cpp:391-396) returns AHSV_Error
+        // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
 
         manager.add_audio_event(&engine_event)
     }
@@ -470,11 +468,8 @@ impl TheAudio {
         if let Some(info) = manager.find_audio_event_info(engine_event.get_event_name()) {
             engine_event.set_audio_event_info(info.clone());
             engine_event.set_volume(info.volume);
-        } else if let Some(info) =
-            manager.new_audio_event_info(engine_event.get_event_name().to_string())
-        {
-            engine_event.set_audio_event_info(info.clone());
-            engine_event.set_volume(info.volume);
+        } else {
+            return 0.0;
         }
 
         manager.get_audio_length_ms(&engine_event)
@@ -551,5 +546,40 @@ impl TheAudio {
             return false;
         };
         guard.has_music_track_completed(track_name, number_of_times)
+    }
+}
+
+#[cfg(test)]
+mod leftover_the_audio_tests {
+    use super::*;
+
+    #[test]
+    fn leftover_misc_prefers_event_name_over_sound_file() {
+        // C++ INI::parseAudioEventRTS (INI.cpp:1146+) writes the token as the event name.
+        let mut src = game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+            "CrateHeal".to_string(),
+        );
+        src.sound_file.clear();
+        assert_eq!(leftover_misc_event_name(&src), "CrateHeal");
+
+        let file_only = game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
+            "legacy.wav".to_string(),
+        );
+        assert_eq!(leftover_misc_event_name(&file_only), "legacy.wav");
+    }
+
+    #[test]
+    fn leftover_get_misc_audio_reads_live_ini_event_name() {
+        // C++ TheAudio->getMiscAudio() returns the live MiscAudio after INI parse.
+        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
+        {
+            let mut misc = handle.write();
+            misc.crate_heal =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                    "CrateHeal".to_string(),
+                );
+        }
+        let events = TheAudio::get_misc_audio();
+        assert_eq!(events.crate_heal.get_event_name(), "CrateHeal");
     }
 }

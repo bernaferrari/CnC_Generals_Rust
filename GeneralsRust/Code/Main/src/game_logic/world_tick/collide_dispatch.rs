@@ -130,3 +130,110 @@ pub fn dispatch_collide_modules(
         let _ = COLLISION_MANAGER.handle_collision(b_id.0, None, &collide_loc, &inv_n);
     }
 }
+
+/// C++ `FireWeaponCollideModuleData` residual on a live host object.
+#[derive(Debug, Clone)]
+pub struct HostFireWeaponCollideSpec {
+    pub weapon_name: String,
+    pub fire_once: bool,
+    pub required_status: u64,
+    pub forbidden_status: u64,
+}
+
+/// C++ `FireWeaponCollide::shouldFireWeapon` (`FireWeaponCollide.cpp:71-88`).
+/// `m_everFired` is never set in C++ — pass `false` to match.
+pub fn host_should_fire_weapon_collide(
+    status_bits: u64,
+    spec: &HostFireWeaponCollideSpec,
+    ever_fired: bool,
+) -> bool {
+    if spec.required_status != 0 && (status_bits & spec.required_status) != spec.required_status {
+        return false;
+    }
+    if spec.forbidden_status != 0 && (status_bits & spec.forbidden_status) != 0 {
+        return false;
+    }
+    if ever_fired && spec.fire_once {
+        return false;
+    }
+    true
+}
+
+/// Resolve a live-host FireWeaponCollide module (firestorm leftover / AFLAME).
+///
+/// C++ INI: `CollideWeapon` + optional `RequiredStatus` / `ForbiddenStatus` /
+/// `FireOnce`. Host objects are not in crate `OBJECT_REGISTRY`, so this is the
+/// live path used by [`super::collide_modules`].
+pub fn host_fire_weapon_collide_spec(obj: &Object) -> Option<HostFireWeaponCollideSpec> {
+    use crate::game_logic::host_status_bits_upgrade::object_status_bit;
+    let n = obj.template_name.to_ascii_lowercase();
+    let leftover = n.contains("firestorm")
+        || n.contains("firefield")
+        || n.contains("firewallsegment")
+        || n.contains("fireweaponcollide");
+    let aflame = crate::game_logic::host_status_bits_upgrade::status_bits_has(
+        obj.object_status_bits,
+        "AFLAME",
+    );
+    if !leftover && !aflame {
+        return None;
+    }
+    let weapon_name = obj
+        .thing
+        .template
+        .primary_weapon_name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "FirestormSmall".to_string());
+    let required = if leftover {
+        0
+    } else {
+        object_status_bit("AFLAME")
+            .map(|idx| 1u64 << idx)
+            .unwrap_or(0)
+    };
+    Some(HostFireWeaponCollideSpec {
+        weapon_name,
+        fire_once: false,
+        required_status: required,
+        forbidden_status: 0,
+    })
+}
+
+/// Primary damage for a collide weapon (WeaponStore residual; fail-closed 0).
+pub fn host_fire_weapon_collide_damage(weapon_name: &str) -> f32 {
+    let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    gamelogic::weapon::with_weapon_store(|store| {
+        store
+            .find_weapon_template(weapon_name)
+            .map(|template| template.primary_damage.max(0.0))
+            .unwrap_or(0.0)
+    })
+    .unwrap_or(0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_fire_matches_cpp_status_gates() {
+        // C++ FireWeaponCollide.cpp:71-88 — testForAll / testForAny / fireOnce.
+        let spec = HostFireWeaponCollideSpec {
+            weapon_name: "FirestormSmall".into(),
+            fire_once: false,
+            required_status: 0b0010,
+            forbidden_status: 0b1000,
+        };
+        assert!(!host_should_fire_weapon_collide(0, &spec, false));
+        assert!(host_should_fire_weapon_collide(0b0010, &spec, false));
+        assert!(!host_should_fire_weapon_collide(0b1010, &spec, false));
+        let once = HostFireWeaponCollideSpec {
+            fire_once: true,
+            ..spec
+        };
+        // C++ never sets m_everFired — ever_fired=false still fires.
+        assert!(host_should_fire_weapon_collide(0b0010, &once, false));
+        assert!(!host_should_fire_weapon_collide(0b0010, &once, true));
+    }
+}

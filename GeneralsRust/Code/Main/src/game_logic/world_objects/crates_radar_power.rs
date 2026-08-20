@@ -792,13 +792,20 @@ impl GameLogic {
     /// production speed factor based on the energy supply ratio.
     ///
     ///   energy_ratio = produced / max(consumed, 1) clamped to [0,1]
-    ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (0.4)
+    ///   energy_short = (1.0 - ratio) * LowEnergyPenaltyModifier (retail 1.0)
     ///   rate = max(1.0 - energy_short, MinLowEnergyProductionSpeed (0.5))
     ///   if ratio < 1.0: rate = min(rate, MaxLowEnergyProductionSpeed (0.8))
     pub(in super::super) fn compute_player_power_factors(
         &self,
     ) -> std::collections::HashMap<u32, f32> {
-        const LOW_ENERGY_PENALTY_MODIFIER: f32 = 0.4;
+        // C++ ThingTemplate.cpp:1541-1555 calcTimeToBuild uses
+        // TheGlobalData->m_LowEnergyPenaltyModifier (GameData.ini retail 1.0).
+        let low_energy_penalty_modifier = game_engine::common::ini::get_global_data()
+            .map(|data| data.read().low_energy_penalty_modifier)
+            .filter(|modifier| *modifier > 0.0)
+            .unwrap_or(
+                crate::game_logic::host_structure_economy_residual::LOW_ENERGY_PENALTY_MODIFIER,
+            );
         const MIN_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.5;
         const MAX_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.8;
 
@@ -812,7 +819,7 @@ impl GameLogic {
                 if energy_ratio >= 1.0 {
                     1.0
                 } else {
-                    let energy_short = (1.0 - energy_ratio) * LOW_ENERGY_PENALTY_MODIFIER;
+                    let energy_short = (1.0 - energy_ratio) * low_energy_penalty_modifier;
                     let mut rate = (1.0 - energy_short).max(MIN_LOW_ENERGY_PRODUCTION_SPEED);
                     rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
                     rate

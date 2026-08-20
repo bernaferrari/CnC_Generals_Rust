@@ -406,6 +406,45 @@ impl MeshClass {
         }
     }
 
+    /// Cast OBBox against this mesh — C++ MeshClass::Cast_OBBox
+    pub fn cast_obbox(&self, boxtest: &mut OBBoxCollisionTestClass) -> bool {
+        if (self.get_collision_type() & boxtest.collision_type) == 0 {
+            return false;
+        }
+
+        let world_to_obj = self.transform.inverse();
+        let mut obj_box = boxtest.transformed_by_matrix(world_to_obj);
+
+        if let Some(model) = &self.model {
+            if model.cast_obbox(&mut obj_box) {
+                if let Some(result) = obj_box.result.clone() {
+                    let transformed_contacts = result
+                        .contact_points
+                        .iter()
+                        .map(|point| self.transform.transform_point3(*point))
+                        .collect::<Vec<_>>();
+                    boxtest.result = Some(OBBoxCollisionResult {
+                        intersection: result.intersection,
+                        contact_points: transformed_contacts,
+                    });
+                } else {
+                    boxtest.result = Some(OBBoxCollisionResult {
+                        intersection: true,
+                        contact_points: Vec::new(),
+                    });
+                }
+                boxtest.collided_render_obj = Some(self as *const MeshClass as usize);
+                return true;
+            } else {
+                boxtest.result = obj_box.result;
+            }
+            false
+        } else {
+            false
+        }
+    }
+
+
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
     pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
         if !ww3d_core::WW3D::are_decals_enabled() {

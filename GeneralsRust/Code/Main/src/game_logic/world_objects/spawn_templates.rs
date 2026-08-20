@@ -347,6 +347,7 @@ impl GameLogic {
         }
 
         Self::apply_authored_veterancy_gain_create(&mut template, definition);
+        Self::apply_authored_create_modules(&mut template, definition);
 
         // C++ parity: parse Armor from INI (default 0).
         if let Some(armor_val) = Self::object_definition_attr(definition, "armor")
@@ -1506,6 +1507,63 @@ impl GameLogic {
                     .filter(|s| !s.is_empty()),
             })
             .collect();
+    }
+
+    /// C++ Create modules authored on the Object INI (not template-name heuristics).
+    fn apply_authored_create_modules(template: &mut ThingTemplate, definition: &ObjectDefinition) {
+        template.grant_upgrade_creates = definition
+            .behavior_modules
+            .iter()
+            .filter(|module| module.class_name.eq_ignore_ascii_case("GrantUpgradeCreate"))
+            .filter_map(|module| {
+                let upgrade_name = module
+                    .attribute("UpgradeToGrant")
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())?;
+                let exempt = module
+                    .attribute("ExemptStatus")
+                    .map(|s| s.to_ascii_uppercase())
+                    .unwrap_or_default();
+                Some(crate::game_logic::GrantUpgradeCreateMetadata {
+                    upgrade_name,
+                    exempt_under_construction: exempt.contains("UNDER_CONSTRUCTION"),
+                })
+            })
+            .collect();
+
+        template.lock_weapon_slot = definition.behavior_modules.iter().find_map(|module| {
+            if !module.class_name.eq_ignore_ascii_case("LockWeaponCreate") {
+                return None;
+            }
+            let slot = module
+                .attribute("SlotToLock")
+                .unwrap_or("PRIMARY_WEAPON")
+                .trim()
+                .to_ascii_uppercase();
+            match slot.as_str() {
+                "PRIMARY" | "PRIMARY_WEAPON" => Some(0),
+                "SECONDARY" | "SECONDARY_WEAPON" => Some(1),
+                "TERTIARY" | "TERTIARY_WEAPON" => Some(2),
+                _ => Some(0),
+            }
+        });
+
+        template.has_preorder_create = definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.class_name.eq_ignore_ascii_case("PreorderCreate"));
+        template.has_special_power_create = definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.class_name.eq_ignore_ascii_case("SpecialPowerCreate"));
+        template.has_supply_center_create = definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.class_name.eq_ignore_ascii_case("SupplyCenterCreate"));
+        template.has_supply_warehouse_create = definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.class_name.eq_ignore_ascii_case("SupplyWarehouseCreate"));
     }
 
     /// Retain one C++ `EjectPilotDieModuleData` declaration as typed Object

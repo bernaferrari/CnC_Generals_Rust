@@ -112,6 +112,7 @@ use game_engine::common::rts::energy::{
 use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
 use game_engine::common::system::build_assistant::init_build_assistant;
 use game_engine::System::XferVersion;
+use game_engine::System::SaveGame::register_partition_manager_update;
 use game_engine::System::{
     register_object_id_counter_hooks, register_save_load_lifecycle_hooks,
     register_save_load_mission_hooks, register_save_lock_ghost_objects_hook,

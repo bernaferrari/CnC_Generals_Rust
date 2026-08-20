@@ -1503,7 +1503,8 @@ impl AudioManager {
         self.disallow_speech = disallow_speech;
     }
 
-    /// C++ `MilesAudioManager::stopAllSpeech` (MilesAudioManager.cpp:1243-1260).
+    /// C++ `MilesAudioManager::stopAllSpeech` (MilesAudioManager.cpp:1243-1260)
+    /// `releasePlayingAudio` hard-stops AT_Streaming and erases the playing entry.
     pub fn stop_all_speech(&mut self) {
         let handles: Vec<AudioHandle> = self
             .active_audio_events
@@ -1516,7 +1517,7 @@ impl AudioManager {
             })
             .collect();
         for handle in handles {
-            self.stop_playing_handle(handle);
+            self.release_playing_handle(handle);
         }
     }
 
@@ -1536,12 +1537,22 @@ impl AudioManager {
         }
     }
 
+    /// C++ `MilesAudioManager::stopAudioEvent` sets `m_requestStop` so Decay can play.
     fn stop_playing_handle(&mut self, handle: AudioHandle) {
-        // C++ MilesAudioManager::stopAudioEvent sets m_requestStop and leaves
-        // the sample running so notifyOfAudioCompletion can play Decay.
         if let Some(event) = self.active_audio_events.get_mut(&handle) {
             event.set_request_stop(true);
             return;
+        }
+        let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+    }
+
+    /// C++ `MilesAudioManager::releasePlayingAudio` — hard-stop the sample and drop it.
+    fn release_playing_handle(&mut self, handle: AudioHandle) {
+        if handle < AHSV_FIRST_HANDLE {
+            return;
+        }
+        if let Some(event) = self.active_audio_events.remove(&handle) {
+            self.notify_sample_completion_if_effect(&event);
         }
         let _ = with_sound_playback_hook(|hook| hook.stop(handle));
     }
@@ -1562,7 +1573,9 @@ impl AudioManager {
 
         let handle_to_kill = event.get_handle_to_kill();
         if handle_to_kill != 0 {
-            self.stop_playing_handle(handle_to_kill);
+            // C++ playAudioEvent handleToKill (MilesAudioManager.cpp:735-813)
+            // releasePlayingAudio hard-stops the channel before reuse.
+            self.release_playing_handle(handle_to_kill);
         }
 
         let hook_result = with_sound_playback_hook(|hook| hook.play(&event));
@@ -3047,10 +3060,11 @@ fn apply_loaded_audio_settings_to_manager() {
         let insert = |map: &mut std::collections::HashMap<String, AudioEventRts>,
                       name: &str,
                       event: &crate::common::ini::ini_misc_audio::AudioEventRTS| {
-            if !event.sound_file.is_empty() {
+            let event_name = event.playable_event_name();
+            if !event_name.is_empty() {
                 map.insert(
                     name.to_string(),
-                    AudioEventRts::with_event_name(&event.sound_file),
+                    AudioEventRts::with_event_name(event_name),
                 );
             }
         };
@@ -3480,6 +3494,44 @@ mod tests {
             "blocking THE_AUDIO lock from Rodio play deadlocks Menu TheAudio::update"
         );
     }
+
+    #[test]
+    fn stop_all_speech_hard_releases_streaming_handles() {
+        // C++ MilesAudioManager::stopAllSpeech (MilesAudioManager.cpp:1243-1260)
+        // releasePlayingAudio + erase, not requestStop.
+        let mut manager = AudioManager::new();
+        manager.init();
+        let mut playing = event_with(test_info("BriefingA", AudioType::Streaming, 0, 0), 1.0);
+        playing.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(playing);
+        manager.stop_all_speech();
+        assert!(manager.active_event_mut_for_test(1001).is_none());
+        assert_eq!(manager.active_event_count(), 0);
+    }
+
+    #[test]
+    fn play_audio_event_kills_oldest_same_name_immediately() {
+        // C++ MilesAudioManager::playAudioEvent handleToKill (MilesAudioManager.cpp:735-813)
+        // releasePlayingAudio hard-stops the channel before reuse.
+        let mut manager = AudioManager::new();
+        manager.init();
+        let mut first = event_with(test_info("Boom", AudioType::SoundEffect, 0, 1), 1.0);
+        first.set_playing_handle(1001);
+        manager.insert_playing_event_for_test(first);
+
+        let incoming = event_with(
+            test_info("Boom", AudioType::SoundEffect, AC_INTERRUPT, 1),
+            1.0,
+        );
+        let handle = manager.add_audio_event(&incoming);
+        assert_ne!(handle, AHSV_NO_SOUND);
+        manager.process_request_list();
+        assert!(
+            manager.active_event_mut_for_test(1001).is_none(),
+            "oldest same-name handle must be hard-released, not left requestStop"
+        );
+    }
+
 
 
 

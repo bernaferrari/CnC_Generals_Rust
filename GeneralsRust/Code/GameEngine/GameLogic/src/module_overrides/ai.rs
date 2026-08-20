@@ -194,8 +194,18 @@ fn assault_transport_ai_update_module_data_factory(ini: Option<&mut INI>) -> Box
     Box::new(data)
 }
 
-fn transport_ai_update_module_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-    Box::new(TransportAIUpdateModuleData::default())
+fn transport_ai_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = TransportAIUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse TransportAIUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
 }
 
 fn transport_ai_update_module_factory(
@@ -281,8 +291,18 @@ fn deploy_style_ai_update_module_factory(
     ))
 }
 
-fn wander_ai_update_module_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-    Box::new(WanderAIUpdateModuleData::default())
+fn wander_ai_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = WanderAIUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse WanderAIUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
 }
 
 fn wander_ai_update_module_factory(

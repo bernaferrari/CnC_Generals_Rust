@@ -1314,6 +1314,9 @@ impl GameLogic {
     }
 
     /// Wave 233: C++ groupIdle stealth mood delay residual for one unit.
+    /// C++ AIGroup.cpp:2042-2061: CAN_STEALTH + canAutoAcquire + not STEALTHED/DETECTED
+    /// **and** !canAutoAcquireWhileStealthed. Host residual for the while-stealthed
+    /// gate is `stealth_breaks_on_attack` (units that fight while stealthed skip).
     pub fn unit_command_apply_stealth_mood_delay(
         &mut self,
         id: ObjectId,
@@ -1329,6 +1332,7 @@ impl GameLogic {
             && unit.can_attack()
             && !unit.status.stealthed
             && !unit.status.detected
+            && unit.stealth_breaks_on_attack
         {
             let delay = unit.stealth_delay_frames.max(1);
             unit.next_mood_check_time = now_frame.saturating_add(delay).saturating_add(skew);

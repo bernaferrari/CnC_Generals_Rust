@@ -5,7 +5,7 @@ use super::game_message::{
 };
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewLocation};
-use crate::gui::get_shell;
+use crate::gui::{get_shell, MouseCursor};
 use crate::helpers::TheInGameUI;
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -72,6 +72,8 @@ pub struct LookAtTranslator {
     rotate_right: bool,
     zoom_in: bool,
     zoom_out: bool,
+    /// C++ `LookAtXlat.cpp:47` static `prevCursor`.
+    prev_cursor: MouseCursor,
 }
 
 impl LookAtTranslator {
@@ -101,16 +103,20 @@ impl LookAtTranslator {
         if !TheInGameUI::get_input_enabled() {
             return;
         }
+        // C++ LookAtXlat.cpp:55-61: save cursor, setScrolling, setMouseLock.
+        self.prev_cursor = TheInGameUI::get_mouse_cursor();
         self.is_scrolling = true;
         self.scroll_type = scroll_type;
         TheInGameUI::set_scrolling(true);
+        with_tactical_view(|view| view.set_mouse_lock(true));
     }
 
     fn stop_scrolling(&mut self) {
         self.is_scrolling = false;
         self.scroll_type = ScrollType::None;
         TheInGameUI::set_scrolling(false);
-        TheInGameUI::set_cursor_arrow();
+        with_tactical_view(|view| view.set_mouse_lock(false));
+        TheInGameUI::set_mouse_cursor(self.prev_cursor);
     }
 
     fn update_scroll_dir(&mut self, key: u32, pressed: bool) {
@@ -139,9 +145,7 @@ impl LookAtTranslator {
     }
 
     fn handle_frame_tick(&mut self) {
-        if crate::core::script_action_handler::take_look_at_reset_modes() {
-            self.reset_modes();
-        }
+        // Host Main update_camera drains take_look_at_reset_modes (doDisableInput).
         let (display_width, display_height) =
             with_tactical_view_ref(|view| (view.width(), view.height()));
         let (h_factor, v_factor, key_factor, _windowed, cutoff) = self.get_global_scroll_factors();
@@ -227,9 +231,7 @@ impl LookAtTranslator {
 
 impl GameMessageTranslator for LookAtTranslator {
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        if crate::core::script_action_handler::take_look_at_reset_modes() {
-            self.reset_modes();
-        }
+        // Live drain is Main update_camera → apply_look_at_reset_modes.
         let msg_type = msg.get_type();
         match msg_type {
             GameMessageType::RawKeyDown(key) | GameMessageType::RawKeyUp(key) => {
@@ -387,13 +389,24 @@ impl GameMessageTranslator for LookAtTranslator {
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaCameraReset => {
-                with_tactical_view(|view| view.set_angle_and_pitch_to_default());
+                // C++ InGameUI::resetCamera keeps look-at and restores default pose.
+                with_tactical_view(|view| {
+                    view.set_angle_and_pitch_to_default();
+                    view.set_zoom_to_default();
+                });
                 return GameMessageDisposition::DestroyMessage;
             }
             GameMessageType::MetaSaveView(slot) => {
                 let index = (*slot as usize).saturating_sub(1);
                 if index < self.view_location.len() {
                     self.view_location[index] = with_tactical_view_ref(|view| view.get_location());
+                    let template = crate::game_text::GameText::fetch("GUI:BookmarkXSet");
+                    let msg = if template.contains("%d") {
+                        template.replacen("%d", &(*slot).to_string(), 1)
+                    } else {
+                        format!("{template} {slot}")
+                    };
+                    TheInGameUI::message(&msg);
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
@@ -442,5 +455,51 @@ mod tests {
 
         assert!(translator.has_mouse_moved_recently(10));
         assert_eq!(translator.last_mouse_move_frame, 0);
+    }
+
+    #[test]
+    fn reset_modes_clears_scroll_rotate_pitch_fov() {
+        let mut translator = LookAtTranslator::new();
+        translator.is_scrolling = true;
+        translator.is_rotating = true;
+        translator.is_pitching = true;
+        translator.is_changing_fov = true;
+        translator.scroll_type = ScrollType::Rmb;
+        translator.reset_modes();
+        assert!(!translator.is_scrolling);
+        assert!(!translator.is_rotating);
+        assert!(!translator.is_pitching);
+        assert!(!translator.is_changing_fov);
+        assert_eq!(translator.scroll_type, ScrollType::None);
+    }
+
+    #[test]
+    fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
+        TheInGameUI::set_mouse_cursor(MouseCursor::Waypoint);
+        with_tactical_view(|view| view.set_mouse_lock(false));
+
+        let mut translator = LookAtTranslator::new();
+        translator.set_scrolling(ScrollType::Rmb);
+
+        assert!(translator.is_scrolling);
+        assert_eq!(translator.scroll_type, ScrollType::Rmb);
+        assert!(TheInGameUI::is_scrolling());
+        assert!(with_tactical_view_ref(|view| view.is_mouse_locked()));
+        assert_eq!(translator.prev_cursor, MouseCursor::Waypoint);
+
+        TheInGameUI::set_mouse_cursor(MouseCursor::Scroll);
+        translator.stop_scrolling();
+
+        assert!(!translator.is_scrolling);
+        assert_eq!(translator.scroll_type, ScrollType::None);
+        assert!(!TheInGameUI::is_scrolling());
+        assert!(!with_tactical_view_ref(|view| view.is_mouse_locked()));
+        assert_eq!(TheInGameUI::get_mouse_cursor(), MouseCursor::Waypoint);
+    }
+
+    #[test]
+    fn mmb_click_thresholds_match_cpp() {
+        assert_eq!(MMB_CLICK_DURATION_FRAMES, 5);
+        assert_eq!(MMB_CLICK_PIXEL_OFFSET, 5);
     }
 }

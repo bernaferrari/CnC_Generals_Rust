@@ -81,6 +81,8 @@ pub mod matrix3d;
 pub mod matrix4;
 pub mod matrix_extensions;
 pub mod normal_cone;
+pub mod obbox;
+
 pub mod ode;
 pub mod plane;
 pub mod pot;
@@ -139,6 +141,8 @@ pub use plane::{Plane, PlaneSide};
 pub use pot::{find_pot, find_pot_log2, is_power_of_2, next_power_of_2, prev_power_of_2};
 pub use quat::Quaternion;
 pub use rect::Rect;
+pub use obbox::OBBox;
+
 pub use sphere::{add_spheres, spheres_intersect, transform_sphere, Sphere};
 pub use tcb_spline::{TcbParams, TcbSpline1D, TcbSpline3D};
 pub use triangle::{

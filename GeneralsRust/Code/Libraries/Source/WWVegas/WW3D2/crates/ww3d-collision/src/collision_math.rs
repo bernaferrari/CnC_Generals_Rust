@@ -106,63 +106,39 @@ impl CollisionMath {
         tri_max >= -box_radius && tri_min <= box_radius
     }
 
-    /// AABox-Triangle swept collision test
+    /// C++ CollisionMath::Collide(AABox, move, Tri) — colmathaabtri.cpp:544
     pub fn aabox_triangle_swept(
         aabox: &AABoxClass,
         movement: Vec3,
         triangle: &Triangle,
         result: &mut CastResult,
     ) -> bool {
-        // Full swept collision test using continuous collision detection
-
-        let tri_v0 = triangle.vertices[0];
-        let tri_v1 = triangle.vertices[1];
-        let tri_v2 = triangle.vertices[2];
-        let tri_normal = triangle.normal;
-
-        // Check if movement is towards triangle
-        let dot = movement.dot(tri_normal);
-        if dot >= 0.0 {
-            return false; // Moving away or parallel
+        let mut ctx = AabTriSweep::new(aabox, movement, triangle);
+        if ctx.check_normal_axis() {
+            return ctx.finalize(result);
         }
-
-        // Expand triangle by box extent to handle swept volume
-        let _expanded_tri_v0 =
-            tri_v0 - aabox.extent.x * Vec3::X - aabox.extent.y * Vec3::Y - aabox.extent.z * Vec3::Z;
-        let _expanded_tri_v1 =
-            tri_v1 + aabox.extent.x * Vec3::X - aabox.extent.y * Vec3::Y - aabox.extent.z * Vec3::Z;
-        let _expanded_tri_v2 =
-            tri_v2 + aabox.extent.x * Vec3::X + aabox.extent.y * Vec3::Y - aabox.extent.z * Vec3::Z;
-
-        // Simple approach: test ray from box center against triangle plane
-        let plane_d = -tri_normal.dot(tri_v0);
-        let start_dist = tri_normal.dot(aabox.center) + plane_d;
-        let end_dist = tri_normal.dot(aabox.center + movement) + plane_d;
-
-        // Check if we cross the plane
-        if (start_dist > 0.0 && end_dist > 0.0) || (start_dist < 0.0 && end_dist < 0.0) {
-            return false;
+        for axis in 0..3 {
+            if ctx.check_basis_axis(axis) {
+                return ctx.finalize(result);
+            }
         }
-
-        // Calculate intersection fraction
-        let t = start_dist / (start_dist - end_dist);
-        if !(0.0..=1.0).contains(&t) || t >= result.fraction {
-            return false;
+        for box_axis in 0..3 {
+            for edge_idx in 0..3 {
+                if ctx.check_cross_axis(box_axis, edge_idx) {
+                    return ctx.finalize(result);
+                }
+            }
         }
-
-        // Point of intersection on plane
-        let hit_point = aabox.center + movement * t;
-
-        // Check if point is inside triangle (2D test)
-        if !Self::point_in_triangle(&hit_point, &tri_v0, &tri_v1, &tri_v2, &tri_normal) {
-            return false;
+        if !ctx.start_bad {
+            for axis in 0..3 {
+                if ctx.check_move_axis(axis) {
+                    return ctx.finalize(result);
+                }
+            }
         }
-
-        // Valid collision
-        result.fraction = t;
-        result.normal = tri_normal;
-        true
+        ctx.finalize(result)
     }
+
 
     /// Test if point is inside triangle
     fn point_in_triangle(point: &Vec3, v0: &Vec3, v1: &Vec3, v2: &Vec3, normal: &Vec3) -> bool {
@@ -343,6 +319,224 @@ impl CollisionMath {
     }
 }
 
+/// C++ colmathaabtri.cpp BTCollisionStruct / aabtri_* axis tests
+struct AabTriSweep {
+    extent: Vec3,
+    d: Vec3,
+    movement: Vec3,
+    edges: [Vec3; 3],
+    normal: Vec3,
+    ae: [[f32; 3]; 3],
+    an: [f32; 3],
+    start_bad: bool,
+    max_frac: f32,
+    test_axis: Vec3,
+    test_side: f32,
+    side: f32,
+}
+
+impl AabTriSweep {
+    fn new(aabox: &AABoxClass, movement: Vec3, triangle: &Triangle) -> Self {
+        let d = triangle.vertices[0] - aabox.center;
+        let edges = [
+            triangle.vertices[1] - triangle.vertices[0],
+            triangle.vertices[2] - triangle.vertices[0],
+            (triangle.vertices[2] - triangle.vertices[0])
+                - (triangle.vertices[1] - triangle.vertices[0]),
+        ];
+        let normal = edges[0].cross(edges[1]);
+        Self {
+            extent: aabox.extent,
+            d,
+            movement,
+            edges,
+            normal,
+            ae: [
+                [edges[0].x, edges[1].x, edges[2].x],
+                [edges[0].y, edges[1].y, edges[2].y],
+                [edges[0].z, edges[1].z, edges[2].z],
+            ],
+            an: [normal.x, normal.y, normal.z],
+            start_bad: true,
+            max_frac: -0.01,
+            test_axis: Vec3::ZERO,
+            test_side: 1.0,
+            side: 1.0,
+        }
+    }
+
+    fn separation_test(&mut self, lp: f32, leb0: f32, leb1: f32) -> bool {
+        let mut eps = 0.0;
+        if lp - leb0 <= 0.0 {
+            eps = EPSILON * self.test_axis.length();
+        }
+        if lp - leb0 > -eps {
+            self.start_bad = false;
+            if leb1 - leb0 > 0.0 {
+                let frac = (lp - leb0) / (leb1 - leb0);
+                if frac >= 1.0 {
+                    self.max_frac = 1.0;
+                    return true;
+                } else if frac > self.max_frac {
+                    self.max_frac = frac;
+                    self.side = self.test_side;
+                }
+            } else {
+                self.max_frac = 1.0;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn check_normal_axis(&mut self) -> bool {
+        self.test_axis = self.normal;
+        let mut dist = self.d.dot(self.test_axis);
+        let mut axismove = self.movement.dot(self.test_axis);
+        if dist < 0.0 {
+            dist = -dist;
+            axismove = -axismove;
+            self.test_axis = -self.test_axis;
+            self.test_side = -1.0;
+        } else {
+            self.test_side = 1.0;
+        }
+        let leb0 = self.extent.x * self.an[0].abs()
+            + self.extent.y * self.an[1].abs()
+            + self.extent.z * self.an[2].abs();
+        self.separation_test(dist, leb0, leb0 + axismove)
+    }
+
+    fn check_basis_axis(&mut self, axis: usize) -> bool {
+        self.test_axis = match axis {
+            0 => Vec3::X,
+            1 => Vec3::Y,
+            _ => Vec3::Z,
+        };
+        let mut dist = self.d.dot(self.test_axis);
+        let mut axismove = self.movement.dot(self.test_axis);
+        let mut dp1 = self.ae[axis][0];
+        let mut dp2 = self.ae[axis][1];
+        if dist < 0.0 {
+            dist = -dist;
+            axismove = -axismove;
+            dp1 = -dp1;
+            dp2 = -dp2;
+            self.test_axis = -self.test_axis;
+            self.test_side = -1.0;
+        } else {
+            self.test_side = 1.0;
+        }
+        let leb0 = self.extent[axis];
+        let lp = dist + dp1.min(0.0).min(dp2.min(0.0));
+        self.separation_test(lp, leb0, leb0 + axismove)
+    }
+
+    fn check_cross_axis(&mut self, box_axis: usize, edge_idx: usize) -> bool {
+        let e = self.edges[edge_idx];
+        let axis = match box_axis {
+            0 => Vec3::new(0.0, -e.z, e.y),
+            1 => Vec3::new(e.z, 0.0, -e.x),
+            _ => Vec3::new(-e.y, e.x, 0.0),
+        };
+        if axis.length_squared() <= COINCIDENCE_EPSILON {
+            return false;
+        }
+        self.test_axis = axis;
+        let mut dp = if edge_idx == 0 {
+            self.an[box_axis]
+        } else {
+            -self.an[box_axis]
+        };
+        let leb0 = match box_axis {
+            0 => {
+                self.extent.y * self.ae[2][edge_idx].abs()
+                    + self.extent.z * self.ae[1][edge_idx].abs()
+            }
+            1 => {
+                self.extent.x * self.ae[2][edge_idx].abs()
+                    + self.extent.z * self.ae[0][edge_idx].abs()
+            }
+            _ => {
+                self.extent.x * self.ae[1][edge_idx].abs()
+                    + self.extent.y * self.ae[0][edge_idx].abs()
+            }
+        };
+        let mut p0 = self.d.dot(self.test_axis);
+        let mut axismove = self.movement.dot(self.test_axis);
+        if p0 < 0.0 {
+            p0 = -p0;
+            axismove = -axismove;
+            dp = -dp;
+            self.test_axis = -self.test_axis;
+            self.test_side = -1.0;
+        } else {
+            self.test_side = 1.0;
+        }
+        let lp = p0 + if dp < 0.0 { dp } else { 0.0 };
+        self.separation_test(lp, leb0, leb0 + axismove)
+    }
+
+    fn check_move_axis(&mut self, axis: usize) -> bool {
+        self.test_axis = match axis {
+            0 => Vec3::new(0.0, -self.movement.z, self.movement.y),
+            1 => Vec3::new(self.movement.z, 0.0, -self.movement.x),
+            _ => Vec3::new(-self.movement.y, self.movement.x, 0.0),
+        };
+        if self.test_axis.length_squared() <= COINCIDENCE_EPSILON {
+            return false;
+        }
+        let mut dist = self.d.dot(self.test_axis);
+        let mut axismove = self.movement.dot(self.test_axis);
+        if dist < 0.0 {
+            dist = -dist;
+            axismove = -axismove;
+            self.test_axis = -self.test_axis;
+            self.test_side = -1.0;
+        } else {
+            self.test_side = 1.0;
+        }
+        let leb0 = self.extent.x * self.test_axis.x.abs()
+            + self.extent.y * self.test_axis.y.abs()
+            + self.extent.z * self.test_axis.z.abs();
+        let mut lp = 0.0;
+        let t0 = self.edges[0].dot(self.test_axis);
+        if t0 < lp {
+            lp = t0;
+        }
+        let t1 = self.edges[1].dot(self.test_axis);
+        if t1 < lp {
+            lp = t1;
+        }
+        self.separation_test(dist + lp, leb0, leb0 + axismove)
+    }
+
+    fn finalize(&self, result: &mut CastResult) -> bool {
+        let mut max_frac = self.max_frac;
+        if max_frac < 0.0 {
+            max_frac = 0.0;
+        }
+        if self.start_bad {
+            result.start_bad = true;
+            result.fraction = 0.0;
+            result.normal = self.normal.normalize_or_zero();
+            return true;
+        }
+        if max_frac <= result.fraction && max_frac < 1.0 {
+            let n = (-self.side * self.test_axis).normalize_or_zero();
+            result.normal = if n.length_squared() > 0.0 {
+                n
+            } else {
+                self.normal.normalize_or_zero()
+            };
+            result.fraction = max_frac;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,7 +544,6 @@ mod tests {
     #[test]
     fn test_aabox_triangle_intersect() {
         let aabox = AABoxClass::from_center_extent(Vec3::ZERO, Vec3::splat(1.0));
-
         let triangle = Triangle {
             vertices: [
                 Vec3::new(-0.5, -0.5, 0.0),
@@ -359,14 +552,12 @@ mod tests {
             ],
             normal: Vec3::Z,
         };
-
         assert!(CollisionMath::aabox_triangle_intersect(&aabox, &triangle));
     }
 
     #[test]
     fn test_obbox_triangle_intersection() {
         let obbox = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::splat(1.0));
-
         let triangle = Triangle {
             vertices: [
                 Vec3::new(-0.5, -0.5, 0.0),
@@ -375,7 +566,6 @@ mod tests {
             ],
             normal: Vec3::Z,
         };
-
         assert!(CollisionMath::obbox_triangle_intersection(
             &obbox, &triangle
         ));
@@ -385,7 +575,76 @@ mod tests {
     fn test_obbox_obbox_intersect() {
         let a = OBBoxClass::from_center_extent(Vec3::ZERO, Vec3::splat(1.0));
         let b = OBBoxClass::from_center_extent(Vec3::new(1.5, 0.0, 0.0), Vec3::splat(1.0));
-
         assert!(CollisionMath::obbox_obbox_intersect(&a, &b));
     }
+
+    // C++ colmathaabtri.cpp — StartBad when already intersecting
+    #[test]
+    fn aabox_triangle_swept_start_bad() {
+        let aabox = AABoxClass::from_center_extent(Vec3::ZERO, Vec3::splat(1.0));
+        let triangle = Triangle {
+            vertices: [
+                Vec3::new(-0.5, -0.5, 0.0),
+                Vec3::new(0.5, -0.5, 0.0),
+                Vec3::new(0.0, 0.5, 0.0),
+            ],
+            normal: Vec3::Z,
+        };
+        let mut result = CastResult::default();
+        assert!(CollisionMath::aabox_triangle_swept(
+            &aabox,
+            Vec3::Z,
+            &triangle,
+            &mut result
+        ));
+        assert!(result.start_bad);
+        assert_eq!(result.fraction, 0.0);
+    }
+
+    // C++ colmathaabtri.cpp — face hit with fraction
+    #[test]
+    fn aabox_triangle_swept_face_hit() {
+        let aabox = AABoxClass::from_center_extent(Vec3::new(0.0, 0.0, -2.0), Vec3::splat(0.5));
+        let triangle = Triangle {
+            vertices: [
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normal: Vec3::Z,
+        };
+        let mut result = CastResult::default();
+        assert!(CollisionMath::aabox_triangle_swept(
+            &aabox,
+            Vec3::new(0.0, 0.0, 3.0),
+            &triangle,
+            &mut result
+        ));
+        assert!(!result.start_bad);
+        assert!(result.fraction > 0.0 && result.fraction < 1.0);
+    }
+
+    // C++ colmathobbtri.cpp — swept OBB hits a thin triangle start/end both miss
+    #[test]
+    fn obbox_triangle_swept_thin_hit() {
+        let obbox = OBBoxClass::from_center_extent(Vec3::new(0.0, 0.0, -2.0), Vec3::splat(0.25));
+        let triangle = Triangle {
+            vertices: [
+                Vec3::new(-1.0, -1.0, 0.0),
+                Vec3::new(1.0, -1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ],
+            normal: Vec3::Z,
+        };
+        let mut result = CastResult::default();
+        assert!(CollisionMath::obbox_triangle_swept(
+            &obbox,
+            Vec3::new(0.0, 0.0, 4.0),
+            &triangle,
+            &mut result
+        ));
+        assert!(!result.start_bad);
+        assert!(result.fraction > 0.0 && result.fraction < 1.0);
+    }
 }
+

@@ -694,24 +694,15 @@ impl OptionsMenu {
     }
 
     fn load_resolution_modes(&mut self) {
-        self.resolution_modes = vec![
-            (800, 600),
-            (1024, 768),
-            (1152, 864),
-            (1280, 720),
-            (1280, 768),
-            (1280, 800),
-            (1280, 960),
-            (1280, 1024),
-            (1360, 768),
-            (1366, 768),
-            (1440, 900),
-            (1600, 900),
-            (1600, 1200),
-            (1680, 1050),
-            (1920, 1080),
-            (1920, 1200),
-        ];
+        // C++ OptionsMenu enumerates TheDisplay->getDisplayModeCount/Description
+        // (4:3, >=800x600, >=24-bit).
+        self.resolution_modes.clear();
+        let count = crate::display::display_fx::display_mode_count();
+        for i in 0..count {
+            if let Some((w, h, _)) = crate::display::display_fx::display_mode_description(i) {
+                self.resolution_modes.push((w as i32, h as i32));
+            }
+        }
         if let Ok(global) = runtime_global_data::read_safe() {
             let current = (global.writable.x_resolution, global.writable.y_resolution);
             if current.0 > 0 && current.1 > 0 && !self.resolution_modes.contains(&current) {
@@ -1092,6 +1083,15 @@ impl OptionsMenu {
                 bit_depth: 32,
                 windowed,
             };
+            // C++ OptionsMenu.cpp:1062 `if (TheDisplay->setDisplayMode(...))`.
+            if !crate::core::script_action_handler::apply_script_display_mode(
+                resolution.0.max(0) as u32,
+                resolution.1.max(0) as u32,
+                32,
+                windowed,
+            ) {
+                return false;
+            }
             get_main_menu().set_pending_resolution_change(old_settings, new_settings);
         }
 

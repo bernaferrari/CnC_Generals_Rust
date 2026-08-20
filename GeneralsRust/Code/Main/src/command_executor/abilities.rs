@@ -935,19 +935,14 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    pub(super) fn execute_switch_weapons(&mut self, units: &[ObjectId]) -> CommandResult {
-        // Wave 233: switch weapons via GameLogic unit_command_switch_weapons.
-        let mut any = false;
-        for &unit_id in units {
-            if self.game_logic.unit_command_switch_weapons(unit_id) {
-                any = true;
-            }
-        }
-        if any {
-            CommandResult::Success
-        } else {
-            CommandResult::InvalidCommand
-        }
+    pub(super) fn execute_switch_weapons(
+        &mut self,
+        units: &[ObjectId],
+        slot: u8,
+    ) -> CommandResult {
+        // C++ GameLogicDispatch.cpp:583-590 MSG_SWITCH_WEAPONS:
+        // currentlySelectedGroup->setWeaponLockForGroup(weaponSlot, LOCKED_PERMANENTLY).
+        self.execute_set_weapon_lock(units, slot, 2)
     }
 
     pub(super) fn execute_toggle_overcharge(&mut self, units: &[ObjectId]) -> CommandResult {

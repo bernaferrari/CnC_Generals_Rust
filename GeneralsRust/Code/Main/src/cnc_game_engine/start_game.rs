@@ -274,6 +274,8 @@ impl CnCGameEngine {
         // / presentation seed.
         // The load boundary deliberately clears every old-world residual, so
         // the selected mode is stamped only after that boundary succeeds.
+        // C++ GameLogicDispatch.cpp:256 TheGameEngine->reset() before startNewGame.
+        self.host_game_engine_reset();
         // Wave 843/844/871: clear prior match residuals until load completes.
         self.host_clear_match_residuals();
         info!("host_start_game_from_ui: match residuals cleared");
@@ -1592,8 +1594,63 @@ impl CnCGameEngine {
         }
     }
 
+    /// C++ `GameEngine::reset` (`GameEngine.cpp:685-711`).
+    /// BlankWindow.wnd covers the previous map/UI while subsystems reset;
+    /// multiplayer tears down `TheNetwork`.
+    pub(super) fn host_game_engine_reset(&mut self) {
+        info!("GameEngine::reset — BlankWindow overlay + resetAll + MP network teardown");
+
+        #[cfg(feature = "game_client")]
+        let blank_layout = {
+            use game_client::gui::game_window::WindowStatus;
+            use game_client::gui::with_window_manager;
+            with_window_manager(|manager| {
+                manager
+                    .create_layout_with_windows("Menus/BlankWindow.wnd")
+                    .ok()
+                    .map(|(layout, _)| {
+                        layout.borrow_mut().hide(false);
+                        layout.borrow_mut().bring_forward();
+                        if let Some(window) = layout.borrow().get_first_window() {
+                            window.borrow_mut().clear_status(WindowStatus::IMAGE);
+                        }
+                        layout
+                    })
+            })
+        };
+
+        let delete_network = self.host_is_in_multiplayer_game();
+
+        if let Some(subsystem_manager) = get_subsystem_manager() {
+            let mut manager = subsystem_manager.lock();
+            if let Err(err) = manager.reset_all() {
+                warn!("GameEngine::reset TheSubsystemList->resetAll failed: {err}");
+            }
+        }
+
+        #[cfg(feature = "game_client")]
+        if let Err(err) = self.game_client.reset() {
+            warn!("GameEngine::reset GameClient::reset failed: {err}");
+        }
+
+        if delete_network {
+            // C++ GameEngine.cpp:699-704 `delete TheNetwork`.
+            crate::network::clear_active_network_interface();
+        }
+
+        #[cfg(feature = "game_client")]
+        if let Some(layout) = blank_layout {
+            game_client::gui::with_window_manager(|manager| {
+                manager.destroy_layout(&layout);
+            });
+        }
+    }
+
     pub(super) fn reset_match_state(&mut self) {
         info!("Resetting gameplay state after match completion");
+        // C++ GameLogicDispatch / GameState / PopupSaveLoad call
+        // TheGameEngine->reset() before tearing down match state.
+        self.host_game_engine_reset();
         self.pending_match_start = None;
         self.drain_renderer_attachments();
 
@@ -1608,6 +1665,7 @@ impl CnCGameEngine {
 
         self.mouse_world_position = Vec3::ZERO;
         self.selection_start = None;
+        self.clear_look_at_host_modes();
         self.rmb_scroll_anchor = None;
         self.is_rmb_scrolling = false;
         self.rmb_scroll_started_physically = false;
@@ -1824,4 +1882,34 @@ End
             Some([7.0, 9.0, 8.0])
         );
     }
+
+    #[test]
+    fn live_match_reset_runs_cpp_game_engine_reset() {
+        let src = include_str!("start_game.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("start_game live path");
+        assert!(
+            live.contains("fn host_game_engine_reset")
+                && live.contains("Menus/BlankWindow.wnd")
+                && live.contains("manager.reset_all()")
+                && live.contains("clear_active_network_interface()"),
+            "live GameEngine::reset must show BlankWindow, resetAll, and tear down TheNetwork"
+        );
+        let reset_fn = live
+            .find("pub(super) fn reset_match_state")
+            .expect("reset_match_state");
+        let body = &live[reset_fn..reset_fn + 400];
+        assert!(
+            body.contains("self.host_game_engine_reset()"),
+            "reset_match_state must invoke GameEngine::reset"
+        );
+        assert!(
+            live.contains("TheGameEngine->reset() before startNewGame")
+                && live.contains("self.host_game_engine_reset()"),
+            "new-game start must call GameEngine::reset like GameLogicDispatch.cpp:256"
+        );
+    }
+
 }

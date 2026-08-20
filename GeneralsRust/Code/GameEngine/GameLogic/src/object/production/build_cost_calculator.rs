@@ -10,11 +10,11 @@ use game_engine::common::global_data;
 /// Matches C++ GlobalData in TheGlobalData
 #[derive(Debug, Clone)]
 pub struct GlobalBuildModifiers {
-    /// Low energy penalty modifier (default 0.5 for 50% penalty)
+    /// Low energy penalty modifier (retail GameData.ini 1.0)
     pub low_energy_penalty_modifier: f32,
     /// Minimum production speed when low on energy (default 0.5)
     pub min_low_energy_production_speed: f32,
-    /// Maximum production speed penalty (default 0.9)
+    /// Maximum production speed penalty (default 0.8)
     pub max_low_energy_production_speed: f32,
     /// Multiple factory bonus (default 0.8 for 20% faster per factory)
     pub multiple_factory_bonus: f32,
@@ -24,11 +24,11 @@ pub struct GlobalBuildModifiers {
 
 impl Default for GlobalBuildModifiers {
     fn default() -> Self {
-        // Matches C++ TheGlobalData default values
+        // Retail GameData.ini: LowEnergyPenaltyModifier 1.0, Min 0.5, Max 0.8
         Self {
-            low_energy_penalty_modifier: 0.5,
+            low_energy_penalty_modifier: 1.0,
             min_low_energy_production_speed: 0.5,
-            max_low_energy_production_speed: 0.9,
+            max_low_energy_production_speed: 0.8,
             multiple_factory_bonus: 0.8,
             logic_frames_per_second: 30,
         }

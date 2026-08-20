@@ -1710,6 +1710,7 @@ impl CnCGameEngine {
                         );
 
                         // C++ parity: bootstrap startup replay through the legacy recorder.
+                        crate::save_load::apply_host_recorder_init_controls();
                         game_engine::common::recorder::init_recorder();
                         let startup_command_sink: Arc<
                             dyn Fn(game_engine::common::message_stream::GameMessage)

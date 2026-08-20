@@ -314,4 +314,206 @@ impl CollisionMath {
         // Use the sphere-box test but reverse the interpretation
         Self::overlap_test_sphere_aabox(sphere, box_ref)
     }
+
+    /// C++ CollisionMath::Overlap_Test(AAPlane, OBBox)
+    pub fn overlap_test_aaplane_obbox(plane: &AAPlane, box_ref: &OBBox) -> OverlapType {
+        let n = plane.get_normal();
+        let p = Plane::new(n, plane.dist);
+        Self::overlap_test_plane_obbox(&p, box_ref)
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Plane, OBBox)
+    pub fn overlap_test_plane_obbox(plane: &Plane, box_ref: &OBBox) -> OverlapType {
+        let a0 = Vector3::new(
+            box_ref.basis.row[0][0],
+            box_ref.basis.row[1][0],
+            box_ref.basis.row[2][0],
+        );
+        let a1 = Vector3::new(
+            box_ref.basis.row[0][1],
+            box_ref.basis.row[1][1],
+            box_ref.basis.row[2][1],
+        );
+        let a2 = Vector3::new(
+            box_ref.basis.row[0][2],
+            box_ref.basis.row[1][2],
+            box_ref.basis.row[2][2],
+        );
+        let extent = box_ref.extent.x * plane.normal.dot(a0).abs()
+            + box_ref.extent.y * plane.normal.dot(a1).abs()
+            + box_ref.extent.z * plane.normal.dot(a2).abs();
+        let dist = plane.normal.dot(box_ref.center) - plane.dist;
+        if dist > extent {
+            OverlapType::Positive
+        } else if dist < -extent {
+            OverlapType::Negative
+        } else {
+            OverlapType::Both
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Sphere, OBBox)
+    pub fn overlap_test_sphere_obbox(sphere: &Sphere, box_ref: &OBBox) -> OverlapType {
+        if Self::intersection_test_sphere_obbox(sphere, box_ref) {
+            OverlapType::Both
+        } else {
+            OverlapType::Positive
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(AABox, OBBox)
+    pub fn overlap_test_aabox_obbox(box1: &AABox, box2: &OBBox) -> OverlapType {
+        if Self::intersection_test_aabox_obbox(box1, box2) {
+            OverlapType::Both
+        } else {
+            OverlapType::Positive
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(OBBox, point)
+    pub fn overlap_test_obbox_point(box_ref: &OBBox, point: &Vector3) -> OverlapType {
+        let local = box_ref.basis.transpose_rotate_vector(*point - box_ref.center);
+        let dx = local.x.abs() - box_ref.extent.x;
+        let dy = local.y.abs() - box_ref.extent.y;
+        let dz = local.z.abs() - box_ref.extent.z;
+        if dx > COINCIDENCE_EPSILON || dy > COINCIDENCE_EPSILON || dz > COINCIDENCE_EPSILON {
+            OverlapType::Positive
+        } else if dx < -COINCIDENCE_EPSILON
+            && dy < -COINCIDENCE_EPSILON
+            && dz < -COINCIDENCE_EPSILON
+        {
+            OverlapType::Negative
+        } else {
+            OverlapType::On
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(OBBox, LineSeg)
+    pub fn overlap_test_obbox_line(box_ref: &OBBox, line: &LineSegment) -> OverlapType {
+        let mut result = CastResult::new();
+        Self::collide_line_obbox(line, box_ref, &mut result);
+        if result.fraction < 1.0 {
+            OverlapType::Both
+        } else if result.start_bad {
+            OverlapType::Negative
+        } else {
+            OverlapType::Positive
+        }
+    }
+    /// C++ CollisionMath::Overlap_Test(OBBox, Tri)
+    pub fn overlap_test_obbox_triangle(box_ref: &OBBox, tri: &Triangle) -> OverlapType {
+        if Self::intersection_test_obbox_triangle(box_ref, tri) {
+            OverlapType::Both
+        } else {
+            OverlapType::Positive
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(OBBox, AABox)
+    pub fn overlap_test_obbox_aabox(box1: &OBBox, box2: &AABox) -> OverlapType {
+        Self::overlap_test_aabox_obbox(box2, box1)
+    }
+
+    /// C++ CollisionMath::Overlap_Test(OBBox, OBBox)
+    pub fn overlap_test_obbox_obbox(box1: &OBBox, box2: &OBBox) -> OverlapType {
+        if Self::intersection_test_obbox_obbox(box1, box2) {
+            OverlapType::Both
+        } else {
+            OverlapType::Positive
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, point)
+    pub fn overlap_test_frustum_point(frustum: &Frustum, point: &Vector3) -> OverlapType {
+        let mut mask = 0;
+        for plane in &frustum.planes {
+            mask |= Self::overlap_test_plane_point(plane, point) as i32;
+        }
+        if (mask & OverlapType::Positive as i32) != 0 {
+            OverlapType::Positive
+        } else if (mask & OverlapType::Both as i32) != 0 {
+            OverlapType::Both
+        } else {
+            OverlapType::Negative
+        }
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, Tri)
+    pub fn overlap_test_frustum_triangle(frustum: &Frustum, tri: &Triangle) -> OverlapType {
+        let mut result = OverlapType::Negative;
+        for plane in &frustum.planes {
+            match Self::overlap_test_plane_triangle(plane, tri) {
+                OverlapType::Positive => return OverlapType::Positive,
+                OverlapType::Both | OverlapType::On => result = OverlapType::Both,
+                OverlapType::Negative => {}
+            }
+        }
+        result
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, Sphere)
+    pub fn overlap_test_frustum_sphere(frustum: &Frustum, sphere: &Sphere) -> OverlapType {
+        let mut result = OverlapType::Negative;
+        for plane in &frustum.planes {
+            match Self::overlap_test_plane_sphere(plane, sphere) {
+                OverlapType::Positive => return OverlapType::Positive,
+                OverlapType::Both | OverlapType::On => result = OverlapType::Both,
+                OverlapType::Negative => {}
+            }
+        }
+        result
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, AABox)
+    pub fn overlap_test_frustum_aabox(frustum: &Frustum, box_ref: &AABox) -> OverlapType {
+        let mut planes_passed = 0;
+        Self::overlap_test_frustum_aabox_planes(frustum, box_ref, &mut planes_passed)
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, OBBox)
+    pub fn overlap_test_frustum_obbox(frustum: &Frustum, box_ref: &OBBox) -> OverlapType {
+        let mut planes_passed = 0;
+        Self::overlap_test_frustum_obbox_planes(frustum, box_ref, &mut planes_passed)
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, AABox, planes_passed)
+    pub fn overlap_test_frustum_aabox_planes(
+        frustum: &Frustum,
+        box_ref: &AABox,
+        planes_passed: &mut i32,
+    ) -> OverlapType {
+        let mut result = OverlapType::Negative;
+        for (i, plane) in frustum.planes.iter().enumerate() {
+            if (*planes_passed & (1 << i)) != 0 {
+                continue;
+            }
+            match Self::overlap_test_plane_aabox(plane, box_ref) {
+                OverlapType::Positive => return OverlapType::Positive,
+                OverlapType::Negative => *planes_passed |= 1 << i,
+                OverlapType::Both | OverlapType::On => result = OverlapType::Both,
+            }
+        }
+        result
+    }
+
+    /// C++ CollisionMath::Overlap_Test(Frustum, OBBox, planes_passed)
+    pub fn overlap_test_frustum_obbox_planes(
+        frustum: &Frustum,
+        box_ref: &OBBox,
+        planes_passed: &mut i32,
+    ) -> OverlapType {
+        let mut result = OverlapType::Negative;
+        for (i, plane) in frustum.planes.iter().enumerate() {
+            if (*planes_passed & (1 << i)) != 0 {
+                continue;
+            }
+            match Self::overlap_test_plane_obbox(plane, box_ref) {
+                OverlapType::Positive => return OverlapType::Positive,
+                OverlapType::Negative => *planes_passed |= 1 << i,
+                OverlapType::Both | OverlapType::On => result = OverlapType::Both,
+            }
+        }
+        result
+    }
+
 }

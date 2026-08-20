@@ -114,3 +114,25 @@ pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
 }
+
+#[cfg(test)]
+mod host_eva_drain_tests {
+    #[test]
+    fn process_eva_events_must_not_steal_the_eva_queue() {
+        // C++ Eva::update (Eva.cpp:264-525) is the sole consumer of setShouldPlay.
+        let src = include_str!("world_scripts/scripts_camera.rs");
+        let process = src
+            .split("pub(in super::super) fn process_eva_events")
+            .nth(1)
+            .and_then(|s| s.split("pub(in super::super) fn mission_script_count").next())
+            .unwrap_or("");
+        assert!(
+            !process.contains("TheEva::drain_events"),
+            "host process_eva_events must not steal TheEva so Eva.ini SideSounds can play"
+        );
+        assert!(
+            !process.contains("dispatch_eva_announcement"),
+            "generic EVA_* names must not replace Eva.ini SideSounds"
+        );
+    }
+}

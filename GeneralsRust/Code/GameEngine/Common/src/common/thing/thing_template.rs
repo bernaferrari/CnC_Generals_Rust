@@ -2063,6 +2063,10 @@ impl ThingTemplate {
         self.audioarray.get(ThingTemplateAudioType::VoiceAttackAir)
     }
 
+    pub fn get_voice_created(&self) -> Option<&AudioEventRts> {
+        self.audioarray.get(ThingTemplateAudioType::VoiceCreated)
+    }
+
     pub fn get_voice_task_complete(&self) -> Option<&AudioEventRts> {
         self.audioarray
             .get(ThingTemplateAudioType::VoiceTaskComplete)

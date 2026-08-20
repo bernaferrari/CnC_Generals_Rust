@@ -100,6 +100,12 @@ pub fn honesty_replay_control_residual_pack_wave140() -> bool {
         && honesty_replay_control_nav_commands_residual_wave140()
 }
 
+/// Live C++ `initControls` hide bit (ReplayControl.wnd:ParentReplayControl).
+pub fn host_replay_control_window_hidden() -> bool {
+    crate::save_load::host_replay_controls_hidden()
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

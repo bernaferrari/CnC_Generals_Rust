@@ -53,7 +53,15 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
 
         let team_guard = team.read().ok()?;
         let factory = TheThingFactory::get().ok()?;
-        let new_object = factory.new_object(template.clone(), &*team_guard).ok()?;
+        // C++ BuildAssistant.cpp:361-368 — structures spawn UNDER_CONSTRUCTION
+        // so onCreate does not fire finished-building hooks (GrantUpgrade, power).
+        let mut starting_status = crate::common::ObjectStatusMaskType::NONE;
+        if template.is_kind_of(crate::common::KindOf::Structure) {
+            starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
+        }
+        let new_object = factory
+            .new_object_with_status(template.clone(), &*team_guard, starting_status)
+            .ok()?;
 
         let mut build_max_health = 0.0;
         if let Ok(guard) = new_object.read() {
@@ -78,6 +86,16 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             guard.set_construction_percent(0.0);
             if build_max_health > 0.0 {
                 let _ = guard.set_health(1.0);
+            }
+        }
+
+        // C++ DozerAIUpdate.cpp:1692-1696 / WorkerAIUpdate.cpp:404-408 —
+        // flattenTerrain then snap Z to getGroundHeight before pathfind add.
+        if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
+            terrain.flatten_terrain(&new_object);
+            let z = terrain.get_ground_height(pos.x, pos.y, None);
+            if let Ok(mut guard) = new_object.write() {
+                let _ = guard.set_position(&LogicCoord3D::new(pos.x, pos.y, z));
             }
         }
 

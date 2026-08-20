@@ -421,9 +421,17 @@ impl Display {
         bit_depth: u32,
         windowed: bool,
     ) -> bool {
-        let old_display_width = self.get_width().max(1) as f32;
-        let old_display_height = self.get_height().max(1) as f32;
-
+        // C++ W3DDisplay::setDisplayMode — Set_Device_Resolution then rescale view.
+        // Failure restores the previous device mode and returns FALSE.
+        if xres == 0 || yres == 0 {
+            return false;
+        }
+        let old_width = self.width;
+        let old_height = self.height;
+        let old_bit_depth = self.bit_depth;
+        let old_windowed = self.windowed;
+        let old_display_width = old_width.max(1) as f32;
+        let old_display_height = old_height.max(1) as f32;
         let (old_view_width, old_view_height, old_view_origin_x, old_view_origin_y) =
             with_tactical_view(|view| {
                 (
@@ -433,6 +441,19 @@ impl Display {
                     view.origin().1 as f32,
                 )
             });
+
+        self.graphics.resize(xres, yres);
+        self.rebuild_depth_resources();
+        let _ = crate::gui::ui_globals::with_ui_renderer_mut(|renderer| {
+            renderer.set_screen_size(xres, yres);
+        });
+        // Live device is Main/ww3d. Queue Set_Device_Resolution for host present.
+        display_fx::queue_device_mode(display_fx::PendingDeviceMode {
+            xres,
+            yres,
+            bit_depth,
+            windowed,
+        });
 
         self.set_width(xres);
         self.set_height(yres);
@@ -447,8 +468,25 @@ impl Display {
                 ((old_view_origin_y / old_display_height) * yres as f32) as i32,
             );
         });
-
+        let _ = (old_bit_depth, old_windowed);
         true
+    }
+
+    fn rebuild_depth_resources(&mut self) {
+        self.depth_texture = Self::create_depth_texture(&self.graphics);
+        self.depth_view = self
+            .depth_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+    }
+
+    /// C++ `W3DDisplay::getDisplayModeCount`.
+    pub fn get_display_mode_count(&self) -> i32 {
+        display_fx::display_mode_count()
+    }
+
+    /// C++ `W3DDisplay::getDisplayModeDescription`.
+    pub fn get_display_mode_description(&self, mode_index: i32) -> Option<(u32, u32, u32)> {
+        display_fx::display_mode_description(mode_index)
     }
 
     pub fn create_video_buffer(&self) -> Box<dyn VideoBuffer + Send> {
@@ -480,7 +518,6 @@ impl Display {
             self.stop_movie();
             return;
         }
-
         self.video_buffer = Some(buffer);
         self.video_stream = Some(stream);
     }
@@ -510,6 +547,8 @@ impl Display {
     pub fn stop_movie(&mut self) {
         self.currently_playing_movie.clear();
         self.video_buffer = None;
+        display_fx::clear_movie_frame();
+        display_fx::set_copyright_overlay(None);
 
         if let Some(stream) = self.video_stream.take() {
             stream.close();
@@ -534,21 +573,23 @@ impl Display {
 
     pub fn toggle_movie_capture(&mut self) {
         self.movie_capture_enabled = !self.movie_capture_enabled;
+        display_fx::set_movie_capture_enabled(self.movie_capture_enabled);
         if self.movie_capture_enabled {
             display_fx::reset_movie_capture_counter();
         }
     }
 
     pub fn is_movie_capture_enabled(&self) -> bool {
-        self.movie_capture_enabled
+        self.movie_capture_enabled || display_fx::is_movie_capture_enabled()
     }
 
-    /// C++ `W3DDisplay::setGamma` — stored ramp is applied as a shader-side transfer.
+    /// C++ `W3DDisplay::setGamma` stores the ramp; wgpu remaps our frame only
+    /// (unlike DX8 `Set_Gamma`, it cannot tint the desktop, so windowed is safe).
     pub fn set_gamma(&mut self, gamma: f32, bright: f32, contrast: f32, _calibrate: bool) {
         display_fx::set_gamma_state(gamma, bright, contrast);
     }
 
-    /// C++ `W3DDisplay::takeScreenShot`.
+    /// C++ `W3DDisplay::takeScreenShot` — queue a backbuffer dump, not the movie buffer.
     pub fn take_screenshot(&mut self) -> String {
         let path = display_fx::next_screenshot_path();
         let leaf = path
@@ -559,12 +600,56 @@ impl Display {
         if let Ok(mut pending) = self.pending_screenshot.lock() {
             *pending = Some(path.clone());
         }
+        display_fx::queue_screenshot(path);
         crate::helpers::TheInGameUI::message(&format!(
             "{} {}",
             crate::game_text::GameText::fetch("GUI:ScreenCapture"),
             leaf
         ));
         leaf
+    }
+
+    pub fn set_clip_region(&mut self, lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
+        display_fx::set_clip_region(lo_x, lo_y, hi_x, hi_y);
+    }
+
+    pub fn enable_clipping(&mut self, enabled: bool) {
+        display_fx::enable_clipping(enabled);
+    }
+
+    /// C++ `W3DDisplay::drawImage` — ALPHA / GRAYSCALE / ADDITIVE / SOLID + rotate-90.
+    pub fn draw_image(
+        &self,
+        image: &crate::display::image::Image,
+        start_x: i32,
+        start_y: i32,
+        end_x: i32,
+        end_y: i32,
+        color: u32,
+        mode: display_fx::DrawImageMode,
+    ) {
+        let uv = image.get_uv();
+        let rotated = image
+            .get_status()
+            .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+        let Some(gpu) = image.get_gpu_texture() else {
+            return;
+        };
+        let texture = std::sync::Arc::new(gpu.view().clone());
+        let _ = display_fx::queue_draw_image_mesh(
+            texture,
+            start_x as f32,
+            start_y as f32,
+            end_x as f32,
+            end_y as f32,
+            uv.min.x,
+            uv.min.y,
+            uv.max.x,
+            uv.max.y,
+            display_fx::color_u32_to_rgba(color),
+            mode,
+            rotated,
+        );
     }
 
 
@@ -574,6 +659,7 @@ impl Display {
         }
         self.letterbox_enabled = enabled;
         self.letterbox_fade_start_time = Some(Instant::now());
+        display_fx::set_letterbox_enabled(enabled);
         set_display_letter_boxed(enabled);
         with_tactical_view(|view| view.set_zoom_limited(!enabled));
     }
@@ -607,46 +693,29 @@ impl Display {
         }
     }
 
-    /// C++ `W3DDisplay::renderLetterBox` — 16:9 black bars via `drawFillRect`.
+    /// C++ `W3DDisplay::renderLetterBox` — constant 16:9 height, alpha fade.
     fn queue_letterbox_and_filters(&self, renderer: &mut crate::gui::ui_renderer::UIRenderer) {
         let fade = self.letterbox_fade_now();
-        if fade > 0.0 {
-            let width = self.width.max(1) as f32;
-            let height = self.height.max(1) as f32;
-            let bar_height = ((height - (9.0 / 16.0) * width) * 0.5 * fade).max(0.0);
-            if bar_height > 0.5 {
-                let color = [0.0, 0.0, 0.0, fade];
-                renderer.draw_rect(UIRect::new(0.0, 0.0, width, bar_height), color, 10_000.0);
-                renderer.draw_rect(
-                    UIRect::new(0.0, height - bar_height, width, bar_height),
-                    color,
-                    10_000.0,
-                );
-            }
+        let width = self.width.max(1) as f32;
+        let height = self.height.max(1) as f32;
+        let plan = display_fx::letterbox_plan(width, height, fade, self.letterbox_enabled);
+        if plan.draw_top {
+            renderer.draw_rect(
+                UIRect::new(0.0, 0.0, width, plan.bar_height),
+                plan.color,
+                10_000.0,
+            );
         }
-
+        if plan.draw_bottom {
+            renderer.draw_rect(
+                UIRect::new(0.0, height - plan.bar_height, width, plan.bar_height),
+                plan.color,
+                10_000.0,
+            );
+        }
         // Viewport filters composite via shader_filter RTT (W3DShaderManager
         // startRenderToTexture / filterPostRender), not a UI color quad.
-
-        let ((x, y), cursor) =
-            crate::input::with_mouse(|mouse| (mouse.state().position(), mouse.get_cursor()));
-        if !matches!(
-            cursor,
-            crate::input::mouse::MouseCursor::None | crate::input::mouse::MouseCursor::Invalid
-        ) {
-            let size = 24.0;
-            renderer.draw_rect(
-                UIRect::new(x - 2.0, y - 2.0, size, size),
-                [1.0, 1.0, 1.0, 0.85],
-                11_000.0,
-            );
-            renderer.draw_rect_outline(
-                UIRect::new(x - 2.0, y - 2.0, size, size),
-                1.5,
-                [0.1, 0.1, 0.1, 1.0],
-                11_001.0,
-            );
-        }
+        // Mouse is drawn by TheMouse / host cursor — never a leftover white quad.
     }
 
     pub fn set_debug_display_callback(
@@ -672,15 +741,40 @@ impl Display {
     fn ensure_copyright_display_string(&mut self) {
         let mut manager = get_display_string_manager();
         let display_string = manager.new_display_string();
-        {
+        let (font_name, font_size, font_bold) = {
+            let lang = crate::global_language::get_global_language_data()
+                .read()
+                .ok();
+            if let Some(lang) = lang.as_ref() {
+                if !lang.copyright_font.name.is_empty() {
+                    (
+                        lang.copyright_font.name.clone(),
+                        lang.adjust_font_size(lang.copyright_font.size),
+                        lang.copyright_font.bold,
+                    )
+                } else {
+                    ("Courier".to_string(), lang.adjust_font_size(12), true)
+                }
+            } else {
+                ("Courier".to_string(), 12, true)
+            }
+        };
+        let (text_w, text_h) = {
             let mut display_string_mut = display_string.borrow_mut();
             display_string_mut.set_text(GameText::fetch("GUI:EACopyright"));
-            let font_desc = FontDesc::new("Courier", 12, true);
+            let font_desc = FontDesc::new(&font_name, font_size, font_bold);
             let mut font_library = get_font_library();
             if let Ok(font) = font_library.get_font(&font_desc) {
                 display_string_mut.set_font(font);
             }
-        }
+            display_string_mut.get_size()
+        };
+        display_fx::set_copyright_overlay(Some(display_fx::CopyrightOverlay {
+            text: GameText::fetch("GUI:EACopyright"),
+            width: text_w as f32,
+            height: text_h.max(font_size) as f32,
+            font_size: font_size.max(1) as f32,
+        }));
         self.copyright_display_string = Some(display_string);
         self.copyright_start_time = Some(Instant::now());
     }
@@ -699,6 +793,7 @@ impl Display {
             stream.frame_decompress();
             stream.frame_render(buffer.as_mut());
             if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
+                display_fx::store_movie_frame(w, h, rgba.clone());
                 if let Ok(mut frame) = self.last_movie_frame.lock() {
                     *frame = Some((w, h, rgba));
                 }
@@ -1122,14 +1217,8 @@ impl DisplayInterface for Display {
                 // Drop the write guard before gadget draw so `with_ui_renderer_mut`
                 // can record real commands. Holding it discarded WND draws.
                 with_window_manager(|manager| manager.draw_all());
-                if let Ok(frame) = self.last_movie_frame.lock() {
-                    if let Some((w, h, rgba)) = frame.as_ref() {
-                        display_fx::blit_video_rgba(*w, *h, rgba, self.width, self.height);
-                        let copyright = display_fx::copyright_text(&self.copyright_display_string);
-                        if !copyright.is_empty() {
-                            display_fx::draw_copyright_hint(self.width, self.height, &copyright);
-                        }
-                    }
+                if display_fx::present_movie_overlay(self.width, self.height) {
+                    let _ = display_fx::present_copyright_overlay(self.width, self.height);
                 }
                 if self.debug_display_callback.is_some() {
                     let fps = display_fx::note_frame_for_fps();
@@ -1169,28 +1258,32 @@ impl DisplayInterface for Display {
             return Err(err);
         }
 
+        display_fx::apply_gamma_pass(
+            &mut encoder,
+            self.graphics.device(),
+            self.graphics.config().format,
+            &view,
+            self.width.max(1),
+            self.height.max(1),
+        );
         self.graphics
             .queue()
             .submit(std::iter::once(encoder.finish()));
 
-        if self.movie_capture_enabled {
-            if let Ok(frame) = self.last_movie_frame.lock() {
-                if let Some((w, h, rgba)) = frame.as_ref() {
-                    let path = display_fx::next_movie_frame_path();
-                    let bgr = display_fx::rgba_to_bgr(rgba, *w, *h);
-                    let _ = display_fx::write_bmp_bgr(&path, *w, *h, &bgr);
-                }
-            }
+        // C++ WW3D::Toggle_Movie_Capture / takeScreenShot dump the presented
+        // framebuffer, never the decompressed Bink movie buffer.
+        if self.movie_capture_enabled || display_fx::is_movie_capture_enabled() {
+            let _ = display_fx::write_backbuffer_movie_frame();
         }
         if let Ok(mut pending) = self.pending_screenshot.lock() {
             if let Some(path) = pending.take() {
-                if let Ok(frame) = self.last_movie_frame.lock() {
-                    if let Some((w, h, rgba)) = frame.as_ref() {
-                        let bgr = display_fx::rgba_to_bgr(rgba, *w, *h);
-                        let _ = display_fx::write_bmp_bgr(&path, *w, *h, &bgr);
-                    }
+                if !display_fx::write_backbuffer_screenshot(&path) {
+                    display_fx::queue_screenshot(path);
                 }
             }
+        }
+        if let Some(path) = display_fx::take_pending_screenshot() {
+            let _ = display_fx::write_backbuffer_screenshot(&path);
         }
 
         frame.present();
@@ -1253,5 +1346,21 @@ mod tests {
         assert_eq!(state.scene_ambient, [0.2, 0.3, 0.4]);
         assert_eq!(state.active_light_count, MAX_GLOBAL_LIGHTS);
         assert!(!state.tactical_view_redraw_forced);
+    }
+
+    #[test]
+    fn set_display_mode_rejects_zero_resolution() {
+        // C++ W3DDisplay::setDisplayMode returns FALSE and restores on device failure.
+        assert!(!display_fx::is_valid_device_mode(0, 0, 32));
+        assert!(display_fx::display_mode_count() > 0);
+        let (w, h, depth) = display_fx::display_mode_description(0).unwrap();
+        assert!(w >= 800 && h >= 600 && depth >= 24);
+    }
+
+    #[test]
+    fn leftover_letterbox_matches_cpp_fade_out() {
+        let fade_out = display_fx::letterbox_plan(1280.0, 1024.0, 0.4, false);
+        assert!(fade_out.draw_top);
+        assert!(!fade_out.draw_bottom);
     }
 }

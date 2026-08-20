@@ -18,10 +18,7 @@ use crate::common::random_value::{
 };
 use crate::common::version::get_version;
 use crate::game_network::{
-    game_info::{
-        serialization::{game_info_to_ascii_string, parse_ascii_string_to_game_info},
-        GameInfo, SlotState,
-    },
+    game_info::{GameInfo, SlotState},
     PLAYERTEMPLATE_OBSERVER,
 };
 
@@ -93,6 +90,17 @@ pub struct Recorder {
 
     /// Pending commands when no sink is configured
     pending_commands: Vec<GameMessage>,
+
+    /// Live lobby snapshot used by `startRecording` after `reset()` (C++ TheLAN / TheSkirmishGameInfo).
+    pending_lobby: Option<ReplayGameInfo>,
+    pending_local_index: i32,
+    /// Optional live lobby provider consulted after reset.
+    lobby_info_provider: Option<Arc<dyn Fn() -> Option<(ReplayGameInfo, i32)> + Send + Sync>>,
+    /// C++ `TheWindowManager->winHide` hook for ReplayControl.wnd.
+    replay_control_hook: Option<Arc<dyn Fn(bool) + Send + Sync>>,
+    replay_controls_hidden: bool,
+    /// C++ `ThePlayerList->getNthPlayer(i)->getPlayerNameKey()` for CRC same-player test.
+    player_name_key_provider: Option<Arc<dyn Fn(i32) -> Option<String> + Send + Sync>>,
 }
 
 const GAME_SINGLE_PLAYER: i32 = 0;
@@ -170,6 +178,25 @@ pub struct ReplayGameInfo {
     pub in_game: bool,
     #[serde(default)]
     pub in_progress: bool,
+    /// C++ GameInfo::getUseStats / m_useStats.
+    #[serde(default)]
+    pub use_stats: i32,
+    /// C++ GameInfo map CRC / size / contents mask.
+    #[serde(default)]
+    pub map_crc: u32,
+    #[serde(default)]
+    pub map_size: u32,
+    #[serde(default)]
+    pub map_contents_mask: u32,
+    /// C++ GameInfo::getSuperweaponRestriction.
+    #[serde(default)]
+    pub superweapon_restriction: u32,
+    /// C++ GameInfo::getStartingCash().countMoney().
+    #[serde(default)]
+    pub starting_cash: u32,
+    /// C++ GameInfo::oldFactionsOnly.
+    #[serde(default)]
+    pub old_factions_only: bool,
 }
 
 impl Default for ReplayGameInfo {
@@ -189,6 +216,13 @@ impl ReplayGameInfo {
             local_ip: 0,
             in_game: false,
             in_progress: false,
+            use_stats: 0,
+            map_crc: 0,
+            map_size: 0,
+            map_contents_mask: 0,
+            superweapon_restriction: 0,
+            starting_cash: 0,
+            old_factions_only: false,
         }
     }
 
@@ -201,6 +235,13 @@ impl ReplayGameInfo {
         self.local_ip = 0;
         self.in_game = false;
         self.in_progress = false;
+        self.use_stats = 0;
+        self.map_crc = 0;
+        self.map_size = 0;
+        self.map_contents_mask = 0;
+        self.superweapon_restriction = 0;
+        self.starting_cash = 0;
+        self.old_factions_only = false;
     }
 
     pub fn set_map(&mut self, map: String) {
@@ -275,7 +316,8 @@ impl ReplayGameInfo {
                 replay_slot.ip = net_slot.get_ip();
                 replay_slot.is_human = net_slot.is_human();
                 replay_slot.is_occupied = net_slot.is_occupied();
-                replay_slot.is_observer = net_slot.get_player_template() == PLAYERTEMPLATE_OBSERVER;
+                replay_slot.player_template = net_slot.get_player_template();
+                replay_slot.is_observer = replay_slot.player_template == PLAYERTEMPLATE_OBSERVER;
             } else if let Some(slot) = self.slots.get_mut(slot_index) {
                 *slot = ReplaySlot::default();
             }
@@ -303,9 +345,11 @@ impl ReplayGameInfo {
                         String::new()
                     };
                     game_slot.set_state(state, name, slot.ip);
-                    if slot.is_observer {
-                        game_slot.set_player_template(PLAYERTEMPLATE_OBSERVER);
-                    }
+                    game_slot.set_player_template(if slot.is_observer {
+                        PLAYERTEMPLATE_OBSERVER
+                    } else {
+                        slot.player_template
+                    });
                 } else {
                     game_slot.set_state(SlotState::Closed, String::new(), 0);
                 }
@@ -325,6 +369,38 @@ pub struct ReplaySlot {
     pub is_human: bool,
     pub is_observer: bool,
     pub is_occupied: bool,
+    /// C++ GameSlot::m_color, or -1 for random.
+    #[serde(default = "replay_slot_unset")]
+    pub color: i32,
+    /// C++ GameSlot::m_playerTemplate.
+    #[serde(default = "replay_slot_unset")]
+    pub player_template: i32,
+    /// C++ GameSlot::m_startPos, or -1 for random.
+    #[serde(default = "replay_slot_unset")]
+    pub start_pos: i32,
+    /// C++ GameSlot::m_teamNumber, or -1 for none.
+    #[serde(default = "replay_slot_unset")]
+    pub team: i32,
+    /// C++ GameSlot::m_NATBehavior.
+    #[serde(default)]
+    pub nat: i32,
+    /// C++ GameSlot port.
+    #[serde(default)]
+    pub port: u32,
+    #[serde(default)]
+    pub accepted: bool,
+    #[serde(default)]
+    pub has_map: bool,
+    /// 0 none, 1 easy, 2 medium, 3 hard — C++ SLOT_EASY_AI / MED / BRUTAL.
+    #[serde(default)]
+    pub ai_difficulty: i32,
+    /// Open (not closed) when unoccupied. C++ SLOT_OPEN vs SLOT_CLOSED.
+    #[serde(default)]
+    pub is_open: bool,
+}
+
+fn replay_slot_unset() -> i32 {
+    -1
 }
 
 impl Default for ReplaySlot {
@@ -335,6 +411,16 @@ impl Default for ReplaySlot {
             is_human: false,
             is_observer: false,
             is_occupied: false,
+            color: -1,
+            player_template: -1,
+            start_pos: -1,
+            team: -1,
+            nat: 0,
+            port: 0,
+            accepted: false,
+            has_map: false,
+            ai_difficulty: 0,
+            is_open: false,
         }
     }
 }
@@ -360,6 +446,347 @@ impl ReplaySlot {
         self.is_occupied
     }
 }
+
+/// C++ `MSG_CLEAR_GAME_DATA` (MessageStream.h after refined mouse messages).
+const CPP_MSG_CLEAR_GAME_DATA: u32 = 27;
+/// C++ `MSG_NEW_GAME`.
+const CPP_MSG_NEW_GAME: u32 = 28;
+/// C++ `MSG_BEGIN_NETWORK_MESSAGES`.
+#[allow(dead_code)]
+const CPP_MSG_BEGIN_NETWORK: u32 = 1000;
+/// C++ `MSG_CREATE_SELECTED_GROUP`.
+const CPP_MSG_CREATE_SELECTED_GROUP: u32 = 1001;
+const CPP_MSG_CREATE_TEAM0: u32 = 1006;
+const CPP_MSG_SELECT_TEAM0: u32 = 1016;
+const CPP_MSG_ADD_TEAM0: u32 = 1026;
+const CPP_MSG_DO_ATTACKSQUAD: u32 = 1036;
+const CPP_MSG_LOGIC_CRC: u32 = 1095;
+
+/// Serialize lobby options like C++ `GameInfoToAsciiString` (GameInfo.cpp:875-972).
+fn format_replay_game_info(info: &ReplayGameInfo) -> String {
+    let map = info.map.replace('\\', "/");
+    let mut options = format!(
+        "US={};M={:02x}{};MC={:X};MS={};SD={};C={};SR={};SC={};O={};S=",
+        info.use_stats,
+        info.map_contents_mask & 0xff,
+        map,
+        info.map_crc,
+        info.map_size,
+        info.seed,
+        info.crc_interval,
+        info.superweapon_restriction,
+        info.starting_cash,
+        if info.old_factions_only { 'Y' } else { 'N' },
+    );
+    for slot in info.slots.iter().take(8) {
+        if slot.is_occupied && slot.is_human {
+            options.push_str(&format!(
+                "H{},{:X},{},{}{},{},{},{},{},{}:",
+                slot.name,
+                slot.ip,
+                slot.port,
+                if slot.accepted { 'T' } else { 'F' },
+                if slot.has_map { 'T' } else { 'F' },
+                slot.color,
+                slot.player_template,
+                slot.start_pos,
+                slot.team,
+                slot.nat
+            ));
+        } else if slot.is_occupied {
+            let ai = match slot.ai_difficulty {
+                1 => 'E',
+                3 => 'H',
+                _ => 'M',
+            };
+            options.push_str(&format!(
+                "C{},{},{},{},{}:",
+                ai, slot.color, slot.player_template, slot.start_pos, slot.team
+            ));
+        } else if slot.is_open {
+            options.push_str("O:");
+        } else {
+            options.push_str("X:");
+        }
+    }
+    options.push(';');
+    options
+}
+
+/// Parse C++ `GameInfoToAsciiString` output into `ReplayGameInfo`.
+/// Matches `ParseAsciiStringToGameInfo` (GameInfo.cpp:982-1470) enough to restore
+/// map/seed/CRC/slot color/template/start/team/NAT.
+fn parse_replay_game_info(options: &str, info: &mut ReplayGameInfo) -> bool {
+    if options.is_empty() {
+        return false;
+    }
+    let mut saw_seed = false;
+    let mut saw_slots = false;
+    for pair in options.split(';') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (key, val) = match pair.split_once('=') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        match key {
+            "US" => {
+                info.use_stats = val.parse().unwrap_or(0);
+            }
+            "M" => {
+                if val.len() >= 2 {
+                    info.map_contents_mask =
+                        u32::from_str_radix(&val[..2], 16).unwrap_or(0);
+                    info.map = val[2..].to_string();
+                }
+            }
+            "MC" => {
+                info.map_crc = u32::from_str_radix(val, 16).unwrap_or(0);
+            }
+            "MS" => {
+                info.map_size = val.parse().unwrap_or(0);
+            }
+            "SD" => {
+                info.seed = val.parse().unwrap_or(0);
+                saw_seed = true;
+            }
+            "C" => {
+                info.crc_interval = val.parse().unwrap_or(100);
+            }
+            "SR" => {
+                info.superweapon_restriction = val.parse().unwrap_or(0);
+            }
+            "SC" => {
+                info.starting_cash = val.parse().unwrap_or(0);
+            }
+            "O" => {
+                info.old_factions_only = val.eq_ignore_ascii_case("Y");
+            }
+            "S" => {
+                saw_slots = parse_replay_slot_list(val, info);
+            }
+            _ => {}
+        }
+    }
+    saw_seed && saw_slots
+}
+
+fn parse_replay_slot_list(raw: &str, info: &mut ReplayGameInfo) -> bool {
+    let mut parts: Vec<&str> = raw.split(':').collect();
+    if parts.last() == Some(&"") {
+        parts.pop();
+    }
+    if parts.len() < 8 {
+        return false;
+    }
+    for (i, part) in parts.iter().take(8).enumerate() {
+        let slot = match info.slots.get_mut(i) {
+            Some(s) => s,
+            None => return false,
+        };
+        *slot = ReplaySlot::default();
+        if part.is_empty() {
+            return false;
+        }
+        match part.as_bytes()[0] {
+            b'X' => {}
+            b'O' => {
+                slot.is_open = true;
+            }
+            b'H' => {
+                let fields: Vec<&str> = part[1..].split(',').collect();
+                if fields.len() < 9 {
+                    return false;
+                }
+                slot.name = fields[0].to_string();
+                slot.ip = u32::from_str_radix(fields[1], 16).unwrap_or(0);
+                slot.port = fields[2].parse().unwrap_or(0);
+                let flags = fields[3].as_bytes();
+                slot.accepted = flags.first() == Some(&b'T');
+                slot.has_map = flags.get(1) == Some(&b'T');
+                slot.color = fields[4].parse().unwrap_or(-1);
+                slot.player_template = fields[5].parse().unwrap_or(-1);
+                slot.start_pos = fields[6].parse().unwrap_or(-1);
+                slot.team = fields[7].parse().unwrap_or(-1);
+                slot.nat = fields[8].parse().unwrap_or(0);
+                slot.is_human = true;
+                slot.is_occupied = true;
+                slot.is_observer = slot.player_template == PLAYERTEMPLATE_OBSERVER;
+            }
+            b'C' => {
+                let fields: Vec<&str> = part.split(',').collect();
+                if fields.len() < 5 {
+                    return false;
+                }
+                slot.ai_difficulty = match fields[0].as_bytes().get(1) {
+                    Some(&b'E') => 1,
+                    Some(&b'H') => 3,
+                    _ => 2,
+                };
+                slot.color = fields[1].parse().unwrap_or(-1);
+                slot.player_template = fields[2].parse().unwrap_or(-1);
+                slot.start_pos = fields[3].parse().unwrap_or(-1);
+                slot.team = fields[4].parse().unwrap_or(-1);
+                slot.is_human = false;
+                slot.is_occupied = true;
+                slot.is_observer = slot.player_template == PLAYERTEMPLATE_OBSERVER;
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// C++ `GameMessage::Type` stored in `.rep` files (MessageStream.h:447-570).
+fn replay_type_id(msg: &GameMessageType) -> Result<u32, std::io::Error> {
+    use GameMessageType::*;
+    let id = match msg {
+        ClearGameData => CPP_MSG_CLEAR_GAME_DATA,
+        NewGame => CPP_MSG_NEW_GAME,
+        CreateSelectedGroup(..) => CPP_MSG_CREATE_SELECTED_GROUP,
+        CreateSelectedGroupNoSound(..) => CPP_MSG_CREATE_SELECTED_GROUP + 1,
+        DestroySelectedGroup(..) => CPP_MSG_CREATE_SELECTED_GROUP + 2,
+        RemoveFromSelectedGroup(..) => CPP_MSG_CREATE_SELECTED_GROUP + 3,
+        SelectedGroupCommand(..) => CPP_MSG_CREATE_SELECTED_GROUP + 4,
+        CreateTeamSlot(slot) => CPP_MSG_CREATE_TEAM0 + u32::from(*slot),
+        SelectTeamSlot(slot) => CPP_MSG_SELECT_TEAM0 + u32::from(*slot),
+        AddTeamSlot(slot) => CPP_MSG_ADD_TEAM0 + u32::from(*slot),
+        other => {
+            let dense = MessageSerializer::get_message_type_id(other).map_err(|err| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err))
+            })?;
+            if (87..=148).contains(&dense) {
+                CPP_MSG_DO_ATTACKSQUAD + u32::from(dense - 87)
+            } else if dense == 25 {
+                CPP_MSG_CLEAR_GAME_DATA
+            } else if dense == 26 {
+                CPP_MSG_NEW_GAME
+            } else {
+                u32::from(dense)
+            }
+        }
+    };
+    Ok(id)
+}
+
+fn decode_replay_type_id(
+    id: u32,
+    args: &[GameMessageArgumentType],
+) -> Result<(GameMessageType, usize), std::io::Error> {
+    let (dense, team_slot) = match id {
+        CPP_MSG_CLEAR_GAME_DATA => (25u16, None),
+        CPP_MSG_NEW_GAME => (26u16, None),
+        1001..=1005 => ((79 + (id - CPP_MSG_CREATE_SELECTED_GROUP)) as u16, None),
+        1006..=1015 => (84, Some(((id - CPP_MSG_CREATE_TEAM0) as u8, 0u8))),
+        1016..=1025 => (85, Some(((id - CPP_MSG_SELECT_TEAM0) as u8, 1u8))),
+        1026..=1035 => (86, Some(((id - CPP_MSG_ADD_TEAM0) as u8, 2u8))),
+        1036..=1097 => ((87 + (id - CPP_MSG_DO_ATTACKSQUAD)) as u16, None),
+        0..=148 => (id as u16, None),
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Replay message type out of range: {}", id),
+            ));
+        }
+    };
+    if let Some((slot, kind)) = team_slot {
+        let ty = match kind {
+            0 => GameMessageType::CreateTeamSlot(slot),
+            1 => GameMessageType::SelectTeamSlot(slot),
+            _ => GameMessageType::AddTeamSlot(slot),
+        };
+        return Ok((ty, 0));
+    }
+    if (79..=83).contains(&dense) {
+        return decode_selected_group_type(dense, args);
+    }
+    MessageSerializer::decode_message_type(dense, args).map_err(|err| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err))
+    })
+}
+
+fn decode_selected_group_type(
+    dense: u16,
+    args: &[GameMessageArgumentType],
+) -> Result<(GameMessageType, usize), std::io::Error> {
+    let mut consumed = 0;
+    match dense {
+        79 | 80 => {
+            let create_new = match args.first() {
+                Some(GameMessageArgumentType::Boolean(v)) => {
+                    consumed = 1;
+                    *v
+                }
+                _ => true,
+            };
+            let mut ids = Vec::new();
+            for arg in args.iter().skip(consumed) {
+                match arg {
+                    GameMessageArgumentType::ObjectID(id) => {
+                        ids.push(*id);
+                        consumed += 1;
+                    }
+                    _ => break,
+                }
+            }
+            if dense == 79 {
+                Ok((GameMessageType::CreateSelectedGroup(create_new, ids), consumed))
+            } else {
+                Ok((
+                    GameMessageType::CreateSelectedGroupNoSound(create_new, ids),
+                    consumed,
+                ))
+            }
+        }
+        81 => {
+            let team = match args.first() {
+                Some(GameMessageArgumentType::TeamID(v)) => {
+                    consumed = 1;
+                    *v
+                }
+                Some(GameMessageArgumentType::Integer(v)) => {
+                    consumed = 1;
+                    *v as u32
+                }
+                _ => 0,
+            };
+            Ok((GameMessageType::DestroySelectedGroup(team), consumed))
+        }
+        82 => {
+            let mut ids = Vec::new();
+            for arg in args {
+                match arg {
+                    GameMessageArgumentType::ObjectID(id) => {
+                        ids.push(*id);
+                        consumed += 1;
+                    }
+                    _ => break,
+                }
+            }
+            Ok((GameMessageType::RemoveFromSelectedGroup(ids), consumed))
+        }
+        83 => {
+            let team = match args.first() {
+                Some(GameMessageArgumentType::TeamID(v)) => {
+                    consumed = 1;
+                    *v
+                }
+                Some(GameMessageArgumentType::Integer(v)) => {
+                    consumed = 1;
+                    *v as u32
+                }
+                _ => 0,
+            };
+            Ok((GameMessageType::SelectedGroupCommand(team), consumed))
+        }
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Unhandled selected-group replay type {}", dense),
+        )),
+    }
+}
+
 
 /// Replay header structure
 /// Matches C++ RecorderClass::ReplayHeader from Recorder.h:61-80
@@ -520,6 +947,12 @@ impl Recorder {
             command_sink: None,
             command_cull: None,
             pending_commands: Vec::new(),
+            pending_lobby: None,
+            pending_local_index: -1,
+            lobby_info_provider: None,
+            replay_control_hook: None,
+            replay_controls_hidden: true,
+            player_name_key_provider: None,
         };
 
         recorder.init();
@@ -589,6 +1022,50 @@ impl Recorder {
         self.command_cull = cull;
     }
 
+    /// Snapshot used by the next `start_recording` after `reset()` (C++ TheSkirmishGameInfo / TheLAN).
+    pub fn set_recording_lobby(&mut self, info: ReplayGameInfo, local_index: i32) {
+        self.pending_lobby = Some(info);
+        self.pending_local_index = local_index;
+    }
+
+    pub fn set_lobby_info_provider(
+        &mut self,
+        provider: Option<Arc<dyn Fn() -> Option<(ReplayGameInfo, i32)> + Send + Sync>>,
+    ) {
+        self.lobby_info_provider = provider;
+    }
+
+    pub fn set_replay_control_visibility_hook(
+        &mut self,
+        hook: Option<Arc<dyn Fn(bool) + Send + Sync>>,
+    ) {
+        self.replay_control_hook = hook;
+    }
+
+    pub fn set_player_name_key_provider(
+        &mut self,
+        provider: Option<Arc<dyn Fn(i32) -> Option<String> + Send + Sync>>,
+    ) {
+        self.player_name_key_provider = provider;
+    }
+
+    /// Live `MSG_LOGIC_CRC` from GameLogic (GameLogic.cpp:3642-3651 / GameLogicDispatch.cpp:1946).
+    /// File-sourced CRCs already enqueued in `append_next_command`; live values compare.
+    pub fn notify_logic_crc(&mut self, crc: u32, player_index: i32) {
+        self.handle_crc_message(crc, player_index, false);
+    }
+    pub fn replay_controls_are_hidden(&self) -> bool {
+        self.replay_controls_hidden
+    }
+
+    pub fn saw_crc_mismatch(&self) -> bool {
+        self.crc_info
+            .as_ref()
+            .map(|info| info.saw_crc_mismatch())
+            .unwrap_or(false)
+    }
+
+
     /// Drain any pending commands captured during playback
     pub fn drain_pending_commands(&mut self) -> Vec<GameMessage> {
         std::mem::take(&mut self.pending_commands)
@@ -623,12 +1100,11 @@ impl Recorder {
     }
 
     fn is_current_game_in_game(&self) -> bool {
+        // C++ GameLogic::isInGame() is `!(m_gameMode == GAME_NONE)` (GameLogic.h:375).
+        // GAME_SHELL is in-game, so playback from the shell map must clear first.
         self.game_mode_provider
             .as_ref()
-            .map(|provider| {
-                let mode = provider();
-                mode != GAME_SHELL && mode != GAME_NONE
-            })
+            .map(|provider| provider() != GAME_NONE)
             .unwrap_or(false)
     }
 
@@ -760,101 +1236,113 @@ impl Recorder {
     /// Append next command from file to command list
     /// Matches C++ RecorderClass::appendNextCommand() from Recorder.cpp:1212-1316
     fn append_next_command(&mut self) {
-        let Some(ref mut file) = self.file else {
-            return;
-        };
-
-        let mut buf4 = [0u8; 4];
-        let mut buf1 = [0u8; 1];
-
-        if file.read_exact(&mut buf4).is_err() {
-            self.next_frame = -1;
-            self.stop_playback();
-            return;
-        }
-        let message_type_id = u32::from_le_bytes(buf4);
-
-        if file.read_exact(&mut buf4).is_err() {
-            self.next_frame = -1;
-            self.stop_playback();
-            return;
-        }
-        let player_index = i32::from_le_bytes(buf4);
-
-        if file.read_exact(&mut buf1).is_err() {
-            self.next_frame = -1;
-            self.stop_playback();
-            return;
-        }
-        let num_types = buf1[0] as usize;
-
-        let mut type_headers: Vec<(GameMessageArgumentDataType, u8)> =
-            Vec::with_capacity(num_types);
-        for _ in 0..num_types {
-            if file.read_exact(&mut buf1).is_err() {
-                self.next_frame = -1;
-                self.stop_playback();
+        let parsed = {
+            let Some(file) = self.file.as_mut() else {
                 return;
-            }
-            let data_type = match arg_data_type_from_u8(buf1[0]) {
-                Ok(value) => value,
-                Err(err) => {
-                    log::error!("Invalid argument type in replay: {}", err);
-                    self.next_frame = -1;
-                    self.stop_playback();
-                    return;
-                }
             };
 
-            if file.read_exact(&mut buf1).is_err() {
-                self.next_frame = -1;
-                self.stop_playback();
-                return;
-            }
-            type_headers.push((data_type, buf1[0]));
-        }
+            let mut buf4 = [0u8; 4];
+            let mut buf1 = [0u8; 1];
 
-        let mut args: Vec<GameMessageArgumentType> = Vec::new();
-        for (data_type, count) in type_headers {
-            for _ in 0..count {
-                match Self::read_argument(file, data_type) {
-                    Ok(arg) => args.push(arg),
-                    Err(err) => {
-                        log::error!("Failed to read replay argument: {}", err);
-                        self.next_frame = -1;
-                        self.stop_playback();
-                        return;
+            if file.read_exact(&mut buf4).is_err() {
+                None
+            } else {
+                let message_type_id = u32::from_le_bytes(buf4);
+                let player_index = if file.read_exact(&mut buf4).is_err() {
+                    None
+                } else {
+                    Some(i32::from_le_bytes(buf4))
+                };
+                let num_types = if file.read_exact(&mut buf1).is_err() {
+                    None
+                } else {
+                    Some(buf1[0] as usize)
+                };
+
+                match (player_index, num_types) {
+                    (Some(player_index), Some(num_types)) => {
+                        let mut type_headers: Vec<(GameMessageArgumentDataType, u8)> =
+                            Vec::with_capacity(num_types);
+                        let mut headers_ok = true;
+                        for _ in 0..num_types {
+                            if file.read_exact(&mut buf1).is_err() {
+                                headers_ok = false;
+                                break;
+                            }
+                            let data_type = match arg_data_type_from_u8(buf1[0]) {
+                                Ok(value) => value,
+                                Err(err) => {
+                                    log::error!("Invalid argument type in replay: {}", err);
+                                    headers_ok = false;
+                                    break;
+                                }
+                            };
+                            if file.read_exact(&mut buf1).is_err() {
+                                headers_ok = false;
+                                break;
+                            }
+                            type_headers.push((data_type, buf1[0]));
+                        }
+                        if !headers_ok {
+                            None
+                        } else {
+                            let mut args: Vec<GameMessageArgumentType> = Vec::new();
+                            let mut args_ok = true;
+                            for (data_type, count) in type_headers {
+                                for _ in 0..count {
+                                    match Self::read_argument(file, data_type) {
+                                        Ok(arg) => args.push(arg),
+                                        Err(err) => {
+                                            log::error!("Failed to read replay argument: {}", err);
+                                            args_ok = false;
+                                        }
+                                    }
+                                    if !args_ok {
+                                        break;
+                                    }
+                                }
+                                if !args_ok {
+                                    break;
+                                }
+                            }
+                            if args_ok {
+                                Some((message_type_id, player_index, args))
+                            } else {
+                                None
+                            }
+                        }
                     }
+                    _ => None,
                 }
             }
-        }
+        };
 
-        let message_type_id = match u16::try_from(message_type_id) {
+        let Some((message_type_id, player_index, args)) = parsed else {
+            self.next_frame = -1;
+            self.stop_playback();
+            return;
+        };
+
+        let (message_type, consumed) = match decode_replay_type_id(message_type_id, &args) {
             Ok(value) => value,
-            Err(_) => {
-                log::error!("Replay message type out of range: {}", message_type_id);
+            Err(err) => {
+                log::error!("Failed to decode replay message type: {}", err);
                 self.next_frame = -1;
                 self.stop_playback();
                 return;
             }
         };
-
-        let (message_type, consumed) =
-            match MessageSerializer::decode_message_type(message_type_id, &args) {
-                Ok(value) => value,
-                Err(err) => {
-                    log::error!("Failed to decode replay message type: {:?}", err);
-                    self.next_frame = -1;
-                    self.stop_playback();
-                    return;
-                }
-            };
 
         let mut msg = GameMessage::with_player(message_type, player_index);
         for arg in args.into_iter().skip(consumed) {
             self.append_argument_to_message(&mut msg, arg);
         }
 
+        if let GameMessageType::LogicCRC(crc) = msg.get_type() {
+            let crc = *crc;
+            // File-sourced MSG_LOGIC_CRC is the recorded value (Recorder.cpp:957-964 fromPlayback).
+            self.handle_crc_message(crc, player_index, true);
+        }
         if matches!(msg.get_type(), &GameMessageType::ClearGameData) {
             return;
         }
@@ -904,9 +1392,32 @@ impl Recorder {
                 "Already recording",
             ));
         }
+        let captured_lobby = if let Some(provider) = &self.lobby_info_provider {
+            provider()
+        } else if let Some(info) = self.pending_lobby.take() {
+            Some((info, self.pending_local_index))
+        } else {
+            None
+        };
 
         self.reset();
         self.mode = RecorderMode::Record;
+        if let Some((mut lobby, local_idx)) = captured_lobby {
+            if lobby.map.is_empty() {
+                lobby.map = self.game_info.map.clone();
+            }
+            if lobby.seed == 0 {
+                lobby.seed = self.game_info.seed;
+            }
+            if lobby.crc_interval == 0 {
+                lobby.set_crc_interval(100);
+            }
+            self.game_info = lobby;
+            self.pending_local_index = local_idx;
+        } else {
+            self.game_info.set_crc_interval(100);
+            self.pending_local_index = -1;
+        }
 
         // Get replay directory
         let mut filepath = self.get_replay_dir();
@@ -973,12 +1484,16 @@ impl Recorder {
         file.write_all(&exe_crc.to_le_bytes())?;
         file.write_all(&ini_crc.to_le_bytes())?;
 
-        // Write slot list (Recorder.cpp:581-628)
-        let slot_list = game_info_to_ascii_string(&self.game_info.to_game_info());
+        // Write slot list (Recorder.cpp:581-628) using C++ GameInfoToAsciiString layout.
+        let slot_list = format_replay_game_info(&self.game_info);
         self.write_ascii_string(&mut file, &slot_list)?;
 
-        // Write local index.
-        let local_index = self.resolve_local_slot_index();
+        // Write local index (LAN IP match / GameSpy slot / skirmish 0 / SP -1).
+        let local_index = if self.pending_local_index >= 0 {
+            self.pending_local_index
+        } else {
+            self.resolve_local_slot_index()
+        };
         self.write_ascii_string(&mut file, &local_index.to_string())?;
 
         // Write game difficulty (Recorder.cpp:652-653)
@@ -999,6 +1514,7 @@ impl Recorder {
         self.original_game_mode = original_game_mode;
 
         log::info!("Started recording to {}", filepath.display());
+        self.init_controls();
         Ok(())
     }
 
@@ -1027,19 +1543,24 @@ impl Recorder {
             return Ok(());
         };
 
-        let message_type_id =
-            MessageSerializer::get_message_type_id(msg.get_type()).map_err(|err| {
-                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err))
-            })?;
+        let message_type_id = replay_type_id(msg.get_type())?;
 
         file.write_all(&frame.to_le_bytes())?;
 
-        file.write_all(&(message_type_id as u32).to_le_bytes())?;
+        file.write_all(&message_type_id.to_le_bytes())?;
         file.write_all(&msg.get_player_index().to_le_bytes())?;
 
         let mut args = MessageSerializer::encode_message_arguments(msg.get_type());
         for arg in msg.get_arguments() {
             args.push(arg.data.clone());
+        }
+        if matches!(msg.get_type(), GameMessageType::LogicCRC(_))
+            && !args
+                .iter()
+                .any(|arg| matches!(arg, GameMessageArgumentType::Boolean(_)))
+        {
+            // C++ GameLogic.cpp:3644 — second argument is fromPlayback.
+            args.push(GameMessageArgumentType::Boolean(false));
         }
 
         let mut type_groups: Vec<(GameMessageArgumentDataType, u8)> = Vec::new();
@@ -1116,10 +1637,13 @@ impl Recorder {
                 writer.write_all(&v.y.to_le_bytes())?;
             }
             GameMessageArgumentType::PixelRegion(v) => {
+                // C++ IRegion2D is { ICoord2D lo, hi } (BaseType.h).
+                let hi_x = v.x.saturating_add(v.width);
+                let hi_y = v.y.saturating_add(v.height);
                 writer.write_all(&v.x.to_le_bytes())?;
                 writer.write_all(&v.y.to_le_bytes())?;
-                writer.write_all(&v.width.to_le_bytes())?;
-                writer.write_all(&v.height.to_le_bytes())?;
+                writer.write_all(&hi_x.to_le_bytes())?;
+                writer.write_all(&hi_y.to_le_bytes())?;
             }
             GameMessageArgumentType::Timestamp(v) => writer.write_all(&v.to_le_bytes())?,
             GameMessageArgumentType::WideChar(v) => {
@@ -1212,8 +1736,8 @@ impl Recorder {
                     crate::common::message_stream::game_message::IRegion2D {
                         x: i32::from_le_bytes(b0),
                         y: i32::from_le_bytes(b1),
-                        width: i32::from_le_bytes(b2),
-                        height: i32::from_le_bytes(b3),
+                        width: i32::from_le_bytes(b2).saturating_sub(i32::from_le_bytes(b0)),
+                        height: i32::from_le_bytes(b3).saturating_sub(i32::from_le_bytes(b1)),
                     },
                 )
             }
@@ -1340,6 +1864,7 @@ impl Recorder {
         }
 
         self.current_replay_filename = filename;
+        self.init_controls();
         Ok(true)
     }
 
@@ -1429,14 +1954,14 @@ impl Recorder {
         self.game_info.reset();
         self.game_info.enter_game();
 
-        let mut parsed_game_info = GameInfo::new();
-        if !parse_ascii_string_to_game_info(&header.game_options, &mut parsed_game_info) {
+        if header.game_options.is_empty() {
+            // Legacy rust files wrote an empty stub string; keep SP empty slots.
+        } else if !parse_replay_game_info(&header.game_options, &mut self.game_info) {
             log::error!("Failed to parse replay game options");
             self.game_info.end_game();
             self.game_info.reset();
             return Ok(false);
         }
-        self.game_info.apply_network_info(&parsed_game_info);
         self.game_info.start_game(0);
 
         // Read player index (Recorder.cpp:854-869)
@@ -1627,8 +2152,14 @@ impl Recorder {
         }
 
         let local_player_index = crc_info.get_local_player() as i32;
-        let same_player = player_index == local_player_index;
-
+        // C++ Recorder.cpp:968-972 — same player if !p or name key == "player{localSlot}".
+        let expected_key = format!("player{}", local_player_index);
+        let same_player = self
+            .player_name_key_provider
+            .as_ref()
+            .and_then(|provider| provider(player_index))
+            .map(|key| key == expected_key)
+            .unwrap_or(true);
         if same_player || local_player_index < 0 {
             let playback_crc = crc_info.read_crc();
 
@@ -1725,10 +2256,13 @@ impl Recorder {
 
     /// Initialize replay controls UI
     /// Matches C++ RecorderClass::initControls() from Recorder.cpp:1552-1562
-    pub fn init_controls(&self) {
-        // Show/hide replay control window based on mode
-        // In C++: finds "ReplayControl.wnd:ParentReplayControl" window
-        // and calls winHide() based on mode != PLAYBACK
+    pub fn init_controls(&mut self) {
+        // C++: winHide(getMode() != PLAYBACK) on ReplayControl.wnd:ParentReplayControl
+        let hide = self.mode != RecorderMode::Playback;
+        self.replay_controls_hidden = hide;
+        if let Some(hook) = &self.replay_control_hook {
+            hook(hide);
+        }
     }
 
     /// Check if this is a multiplayer game
@@ -2124,6 +2658,47 @@ mod tests {
     }
 
     #[test]
+    fn test_playback_file_clears_shell_map_like_cpp_is_in_game() {
+        // C++ GameLogic.h:375 isInGame() is true for GAME_SHELL.
+        let temp = tempfile::tempdir().unwrap();
+
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/PlaybackShellClear.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 3, 60).unwrap();
+        writer.set_current_frame(2);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x0BAD_F00D)))
+            .unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+
+        let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut reader = Recorder::new();
+        reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
+        let sink_types = captured_types.clone();
+        reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
+            sink_types.lock().unwrap().push(msg.get_type().clone());
+        })));
+
+        assert!(reader.playback_file(replay_name).unwrap());
+        assert_eq!(
+            captured_types.lock().unwrap().as_slice(),
+            &[GameMessageType::ClearGameData, GameMessageType::NewGame,]
+        );
+    }
+
+    #[test]
     fn test_playback_file_skips_clear_game_data_when_not_in_game() {
         let temp = tempfile::tempdir().unwrap();
 
@@ -2150,7 +2725,7 @@ mod tests {
 
         let captured_types = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let mut reader = Recorder::new();
-        reader.set_game_mode_provider(Some(Arc::new(|| GAME_SHELL)));
+        reader.set_game_mode_provider(Some(Arc::new(|| GAME_NONE)));
         let sink_types = captured_types.clone();
         reader.set_command_sink(Some(std::sync::Arc::new(move |msg| {
             sink_types.lock().unwrap().push(msg.get_type().clone());
@@ -2468,4 +3043,219 @@ mod tests {
         });
         assert_eq!(result, Some(RecorderMode::Record));
     }
-}
+
+    #[test]
+    fn test_replay_type_ids_match_cpp_1000_base() {
+        // C++ MessageStream.h:462-570 — network IDs start at 1000.
+        assert_eq!(
+            replay_type_id(&GameMessageType::ClearGameData).unwrap(),
+            CPP_MSG_CLEAR_GAME_DATA
+        );
+        assert_eq!(
+            replay_type_id(&GameMessageType::NewGame).unwrap(),
+            CPP_MSG_NEW_GAME
+        );
+        assert_eq!(
+            replay_type_id(&GameMessageType::CreateSelectedGroup(true, vec![1])).unwrap(),
+            1001
+        );
+        assert_eq!(
+            replay_type_id(&GameMessageType::DoMoveTo(
+                crate::common::message_stream::game_message::Coord3D {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0
+                }
+            ))
+            .unwrap(),
+            1068
+        );
+        assert_eq!(
+            replay_type_id(&GameMessageType::LogicCRC(0x11)).unwrap(),
+            CPP_MSG_LOGIC_CRC
+        );
+        assert_eq!(
+            replay_type_id(&GameMessageType::CreateTeamSlot(3)).unwrap(),
+            CPP_MSG_CREATE_TEAM0 + 3
+        );
+        let (ty, _) = decode_replay_type_id(1068, &[GameMessageArgumentType::Location(
+            crate::common::message_stream::game_message::Coord3D {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+        )])
+        .unwrap();
+        assert!(matches!(ty, GameMessageType::DoMoveTo(_)));
+        let (ty, _) = decode_replay_type_id(1009, &[]).unwrap();
+        assert_eq!(ty, GameMessageType::CreateTeamSlot(3));
+    }
+
+    #[test]
+    fn test_pixel_region_writes_lo_hi_not_xywh() {
+        // C++ BaseType.h IRegion2D { lo, hi }; Recorder.cpp writeArgument PIXELREGION.
+        let region = crate::common::message_stream::game_message::IRegion2D {
+            x: 100,
+            y: 100,
+            width: 100,
+            height: 100,
+        };
+        let mut buf = Vec::new();
+        Recorder::write_argument(&mut buf, &GameMessageArgumentType::PixelRegion(region.clone()))
+            .unwrap();
+        assert_eq!(
+            buf,
+            [
+                100i32.to_le_bytes(),
+                100i32.to_le_bytes(),
+                200i32.to_le_bytes(),
+                200i32.to_le_bytes()
+            ]
+            .concat()
+        );
+        let decoded = Recorder::read_argument(
+            &mut buf.as_slice(),
+            GameMessageArgumentDataType::PixelRegion,
+        )
+        .unwrap();
+        match decoded {
+            GameMessageArgumentType::PixelRegion(got) => {
+                assert_eq!(got.x, 100);
+                assert_eq!(got.y, 100);
+                assert_eq!(got.width, 100);
+                assert_eq!(got.height, 100);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_start_recording_preserves_lobby_slots() {
+        let temp = tempfile::tempdir().unwrap();
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/LobbySlots.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut lobby = ReplayGameInfo::new();
+        lobby.set_map("Maps/LobbySlots.map".to_string());
+        lobby.set_seed(42);
+        lobby.set_crc_interval(100);
+        lobby.slots[0] = ReplaySlot {
+            name: "Host".to_string(),
+            ip: 0x0A00_0001,
+            is_human: true,
+            is_observer: false,
+            is_occupied: true,
+            color: 3,
+            player_template: 4,
+            start_pos: 1,
+            team: 0,
+            nat: 2,
+            port: 8086,
+            accepted: true,
+            has_map: true,
+            ai_difficulty: 0,
+            is_open: false,
+        };
+        lobby.slots[1] = ReplaySlot {
+            name: String::new(),
+            ip: 0,
+            is_human: false,
+            is_observer: false,
+            is_occupied: true,
+            color: 1,
+            player_template: 2,
+            start_pos: 2,
+            team: 1,
+            nat: 0,
+            port: 0,
+            accepted: false,
+            has_map: false,
+            ai_difficulty: 2,
+            is_open: false,
+        };
+
+        let mut writer = Recorder::new();
+        writer.set_recording_lobby(lobby, 0);
+        writer.start_recording(1, 2, 0, 30).unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+        let mut reader = Recorder::new();
+        assert!(reader.playback_file(replay_name).unwrap());
+        let slot0 = reader.get_game_info().get_slot(0).unwrap();
+        assert_eq!(slot0.name, "Host");
+        assert_eq!(slot0.color, 3);
+        assert_eq!(slot0.player_template, 4);
+        assert_eq!(slot0.start_pos, 1);
+        assert_eq!(slot0.team, 0);
+        assert_eq!(slot0.nat, 2);
+        let slot1 = reader.get_game_info().get_slot(1).unwrap();
+        assert!(slot1.is_occupied);
+        assert!(!slot1.is_human);
+        assert_eq!(slot1.color, 1);
+        assert_eq!(slot1.start_pos, 2);
+        assert_eq!(slot1.team, 1);
+    }
+
+    #[test]
+    fn test_init_controls_hides_except_during_playback() {
+        // C++ Recorder.cpp:1557-1560 winHide(mode != PLAYBACK)
+        let hidden = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = hidden.clone();
+        let mut recorder = Recorder::new();
+        recorder.set_replay_control_visibility_hook(Some(Arc::new(move |hide| {
+            flag.store(hide, std::sync::atomic::Ordering::SeqCst);
+        })));
+        recorder.init_controls();
+        assert!(recorder.replay_controls_are_hidden());
+        assert!(hidden.load(std::sync::atomic::Ordering::SeqCst));
+
+        recorder.mode = RecorderMode::Playback;
+        recorder.init_controls();
+        assert!(!recorder.replay_controls_are_hidden());
+        assert!(!hidden.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[test]
+    fn test_logic_crc_from_file_reaches_handle_crc_message() {
+        let temp = tempfile::tempdir().unwrap();
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.map_name = "Maps/CrcPath.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 0, 30).unwrap();
+        writer.set_current_frame(5);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0xCAFE_BABE)))
+            .unwrap();
+        writer.stop_recording();
+
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+        let mut reader = Recorder::new();
+        reader.set_current_frame(5);
+        assert!(reader.playback_file(replay_name).unwrap());
+        reader.update();
+        assert!(!reader.saw_crc_mismatch());
+        reader.notify_logic_crc(0xCAFE_BABE, 0);
+        assert!(!reader.saw_crc_mismatch());
+        reader.set_current_frame(6);
+        reader.notify_logic_crc(0xDEAD_BEEF, 0);
+        assert!(reader.saw_crc_mismatch());
+    }
+ }

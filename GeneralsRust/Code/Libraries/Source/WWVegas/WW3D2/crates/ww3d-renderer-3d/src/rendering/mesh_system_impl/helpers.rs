@@ -186,6 +186,26 @@ pub(super) fn mu_aabox_from_class(aabox: &AABoxClass) -> MuAABox {
     )
 }
 
+pub(super) fn mu_obbox_from_class(obbox: &OBBoxClass) -> MuOBBox {
+    let b0 = obbox.basis[0];
+    let b1 = obbox.basis[1];
+    let b2 = obbox.basis[2];
+    let basis = MuMatrix3::from_rows(
+        MuVec3::new(b0.x, b1.x, b2.x),
+        MuVec3::new(b0.y, b1.y, b2.y),
+        MuVec3::new(b0.z, b1.z, b2.z),
+    );
+    MuOBBox::from_center_extent_basis(
+        MuVec3::new(obbox.center.x, obbox.center.y, obbox.center.z),
+        MuVec3::new(
+            obbox.extent.x.abs(),
+            obbox.extent.y.abs(),
+            obbox.extent.z.abs(),
+        ),
+        basis,
+    )
+}
+
 pub(super) fn ray_triangle_intersection(
     origin: Vec3,
     direction: Vec3,
@@ -228,7 +248,7 @@ pub(super) fn ray_triangle_intersection(
 }
 pub(super) use math_utilities::{
     AABox as MuAABox, CastResult as MuCastResult, CollisionMath as MuCollisionMath,
-    Triangle as MuTriangle, Vector3 as MuVec3,
+    Matrix3 as MuMatrix3, OBBox as MuOBBox, Triangle as MuTriangle, Vector3 as MuVec3,
 };
 
 /// Compute index ranges for each material pass

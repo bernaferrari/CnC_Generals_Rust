@@ -16,8 +16,9 @@ use crate::common::*;
 use crate::economy::{EconomyManager, IncomeSource};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModule, BehaviorModuleInterface, ProductionUpdateInterface, UpdateModuleInterface,
-    UpdateSleepTime, UPDATE_SLEEP_NONE,
+    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ProductionUpdateInterface,
+    UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE,
+    UPDATE_SLEEP_NONE,
 };
 use crate::object::Object;
 use crate::player::{player_list, PlayerIndex};
@@ -691,15 +692,33 @@ impl BehaviorModuleInterface for ProductionUpdate {
     }
 
     fn get_interface_mask() -> u32 {
-        0x00000001 // UPDATE_MODULE interface
+        MODULEINTERFACE_UPDATE | MODULEINTERFACE_DIE
     }
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
 
+    fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
+        Some(self)
+    }
+
     fn get_production_update_interface(&mut self) -> Option<&mut dyn ProductionUpdateInterface> {
         Some(self)
+    }
+
+    fn on_die(
+        &mut self,
+        _damage_info: &crate::damage::DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        while !self.queue.is_empty() {
+            if self.cancel_production(0).is_err() {
+                self.queue.clear();
+                break;
+            }
+        }
+        self.state = ProductionState::Idle;
+        Ok(())
     }
 }
 
@@ -717,7 +736,23 @@ impl BehaviorModule for ProductionUpdate {
             "ProductionUpdate module destroyed for object {}",
             self.owner_id
         );
-        self.queue.clear();
+        // C++ ProductionUpdate.cpp:1109-1113 onDie refunds every queued item.
+        while !self.queue.is_empty() {
+            if self.cancel_production(0).is_err() {
+                self.queue.clear();
+                break;
+            }
+        }
+        self.state = ProductionState::Idle;
+    }
+}
+
+impl DieModuleInterface for ProductionUpdate {
+    fn on_die(
+        &mut self,
+        damage: &crate::damage::DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        BehaviorModuleInterface::on_die(self, damage)
     }
 }
 

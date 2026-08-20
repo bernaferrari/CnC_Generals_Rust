@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::common::ModelConditionFlags;
-use crate::helpers::TheGameLogic;
+
 use crate::object::create::CreateModule;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, Thing as ThingTrait};
@@ -37,22 +37,18 @@ impl CreateInterface for PreorderCreate {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let Ok(mut object_guard) = object_arc.write() else {
-            return;
-        };
-
-        if let Some(player) = object_guard.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard.did_player_preorder() {
-                    object_guard.set_model_condition_state(ModelConditionFlags::PREORDER);
-                } else {
-                    let _ = object_guard.clear_model_condition_flags(ModelConditionFlags::PREORDER);
+        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
+            if let Some(player) = object_guard.get_controlling_player() {
+                if let Ok(player_guard) = player.read() {
+                    if player_guard.did_player_preorder() {
+                        object_guard.set_model_condition_state(ModelConditionFlags::PREORDER);
+                    } else {
+                        let _ = object_guard
+                            .clear_model_condition_flags(ModelConditionFlags::PREORDER);
+                    }
                 }
             }
-        }
+        });
     }
 
     fn should_do_on_build_complete(&self) -> bool {

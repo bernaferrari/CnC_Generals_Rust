@@ -724,6 +724,9 @@ pub struct ActiveBody {
     /// StructureBody to request structure-style damage-state transitions without relying on
     /// registry lookups.
     treat_as_structure: bool,
+    /// C++ ImmortalBody::internalChangeHealth floor (ImmortalBody.cpp:34).
+    /// 0 = ActiveBody (can die). 1 = ImmortalBody (never below 1 HP).
+    min_health_floor: f32,
 }
 
 impl ActiveBody {
@@ -753,6 +756,7 @@ impl ActiveBody {
             engine_template: Arc::new(RwLock::new(None)),
             owner_id,
             treat_as_structure: false,
+            min_health_floor: 0.0,
         };
 
         // Set correct initial damage state
@@ -814,6 +818,16 @@ impl ActiveBody {
     pub fn set_treat_as_structure(&mut self, value: bool) {
         self.treat_as_structure = value;
         let _ = self.set_correct_damage_state();
+    }
+
+    /// Arm the C++ ImmortalBody 1-HP floor so `attempt_damage` / `set_max_health`
+    /// hit `internal_change_health` with the same clamp as the virtual override.
+    pub fn set_min_health_floor(&mut self, floor: f32) {
+        self.min_health_floor = floor.max(0.0);
+    }
+
+    pub fn min_health_floor(&self) -> f32 {
+        self.min_health_floor
     }
 
     /// Calculate damage state based on health ratio and global thresholds.
@@ -2269,47 +2283,48 @@ impl BodyModuleInterface for ActiveBody {
         max_health: f32,
         change_type: MaxHealthChangeType,
     ) -> BodyResult<()> {
+        // C++ ActiveBody::setMaxHealth (ActiveBody.cpp:873-922):
+        // update m_maxHealth / m_initialHealth, then route current-health
+        // changes through virtual internalChangeHealth so ImmortalBody's
+        // 1-HP floor and UndeadBody second-life visuals (evaluateVisualCondition)
+        // run. Direct current_health writes skip that path.
         let prev_max_health = self.get_max_health();
         let current_health = self.get_health();
 
-        // Update max and initial health
         if let Ok(mut state) = self.state.write() {
             state.max_health = max_health;
             state.initial_health = max_health;
+        } else {
+            return Err(BodyError::OperationNotSupported);
+        }
 
-            // Handle different change types
-            match change_type {
-                MaxHealthChangeType::PreserveRatio => {
-                    // Preserve health ratio
-                    let ratio = current_health / prev_max_health;
-                    let new_health = max_health * ratio;
-                    state.previous_health = state.current_health;
-                    state.current_health = new_health;
-                }
-                MaxHealthChangeType::AddCurrentHealthToo => {
-                    // Add the same amount to current health
-                    let delta = max_health - prev_max_health;
-                    state.previous_health = state.current_health;
-                    state.current_health += delta;
-                }
-                MaxHealthChangeType::SameCurrentHealth => {
-                    // Keep current health the same
-                }
-                MaxHealthChangeType::FullyHeal => {
-                    // Set current to new max
-                    state.previous_health = state.current_health;
-                    state.current_health = max_health;
-                }
+        match change_type {
+            MaxHealthChangeType::PreserveRatio => {
+                let ratio = if prev_max_health > 0.0 {
+                    current_health / prev_max_health
+                } else {
+                    1.0
+                };
+                let new_health = max_health * ratio;
+                self.internal_change_health(new_health - current_health)?;
             }
-
-            // Clamp current health to new max
-            if state.current_health > max_health {
-                state.current_health = max_health;
+            MaxHealthChangeType::AddCurrentHealthToo => {
+                self.internal_change_health(max_health - prev_max_health)?;
+            }
+            MaxHealthChangeType::SameCurrentHealth => {}
+            MaxHealthChangeType::FullyHeal => {
+                self.internal_change_health(max_health - current_health)?;
             }
         }
 
-        // Update damage state
-        self.set_correct_damage_state()
+        // C++: when max is clipped down, current above the new cap goes
+        // through internalChangeHealth (not a raw store).
+        let now = self.get_health();
+        if now > max_health {
+            self.internal_change_health(max_health - now)?;
+        }
+
+        Ok(())
     }
 
     fn set_front_crushed(&mut self, crushed: bool) -> BodyResult<()> {
@@ -2349,6 +2364,16 @@ impl BodyModuleInterface for ActiveBody {
     fn internal_change_health(&mut self, delta: f32) -> BodyResult<()> {
         let mut changed_state = false;
         let is_structure = self.is_structure_for_damage_state();
+        let floor = self.min_health_floor;
+        // C++ ImmortalBody.cpp:34 — clamp delta before ActiveBody so we
+        // never die and then un-die. attempt_damage calls this method
+        // directly (no Rust virtual), so the floor lives here.
+        let current_health = self.get_health();
+        let delta = if floor > 0.0 {
+            delta.max(-current_health + floor)
+        } else {
+            delta
+        };
         let (damaged_thresh, really_damaged_thresh) = match global_data::read_safe() {
             Ok(global) => (
                 global.unit_damaged_thresh,
@@ -2363,8 +2388,10 @@ impl BodyModuleInterface for ActiveBody {
             // Apply delta
             state.current_health += delta;
 
-            // Clamp to valid range
-            state.current_health = state.current_health.clamp(0.0, state.max_health);
+            // Clamp to valid range (ImmortalBody low cap is 1, not 0).
+            // high >= floor so clamp never panics if max < floor.
+            let high = state.max_health.max(floor);
+            state.current_health = state.current_health.clamp(floor.min(high), high);
 
             // Update damage state
             let old_state = state.current_damage_state;
@@ -3105,6 +3132,43 @@ mod death_flooded_tests {
         );
         drop(rider_g);
         OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn set_max_health_routes_through_internal_change_health() {
+        // C++ ActiveBody::setMaxHealth (ActiveBody.cpp:873-922) uses
+        // internalChangeHealth. Pre-fix wrote current_health directly,
+        // skipping evaluateVisualCondition (UndeadBody second-life art)
+        // and the 0-HP low cap.
+        let mut module_data = ActiveBodyModuleData::default();
+        module_data.max_health = 100.0;
+        module_data.initial_health = 100.0;
+        let mut body = ActiveBody::new(module_data);
+        assert!(body.internal_change_health(-50.0).is_ok());
+        assert_eq!(body.get_health(), 50.0);
+
+        assert!(body
+            .set_max_health(10.0, MaxHealthChangeType::AddCurrentHealthToo)
+            .is_ok());
+        assert_eq!(body.get_max_health(), 10.0);
+        assert_eq!(
+            body.get_health(),
+            0.0,
+            "ADD_CURRENT_HEALTH_TOO must go through internalChangeHealth low cap"
+        );
+
+        let mut module_data = ActiveBodyModuleData::default();
+        module_data.max_health = 100.0;
+        module_data.initial_health = 100.0;
+        let mut body = ActiveBody::new(module_data);
+        assert!(body.internal_change_health(-90.0).is_ok());
+        assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
+        assert!(body
+            .set_max_health(25.0, MaxHealthChangeType::FullyHeal)
+            .is_ok());
+        assert_eq!(body.get_health(), 25.0);
+        assert_eq!(body.get_previous_health(), 10.0);
+        assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
     }
 
 }

@@ -159,35 +159,13 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
         &self,
         boxtest: &mut crate::render_object_system::OBBoxCollisionTestClass,
     ) -> bool {
-        // C++ Reference: meshgeometry.cpp Cast_OBBox implementation
-        // Tests oriented bounding box sweep against mesh in object space.
+        // C++ meshgeometry.cpp Cast_OBBox — swept SAT, not start/end static probes.
         if let Some(model) = &self.model {
             let inv_transform = self.transform.inverse();
-            let local_test = boxtest.transformed_by_matrix(inv_transform);
-
-            let start_hit =
-                model.intersect_obbox(&crate::render_object_system::OBBoxIntersectionTestClass {
-                    box_obj: local_test.box_obj,
-                    collision_type: local_test.collision_type,
-                });
-            let end_center = local_test.box_obj.center + local_test.move_vector;
-            let end_box = ww3d_collision::bounding_volumes::OBBoxClass::new(
-                end_center,
-                local_test.box_obj.extent,
-                local_test.box_obj.basis,
-            );
-            let end_hit =
-                model.intersect_obbox(&crate::render_object_system::OBBoxIntersectionTestClass {
-                    box_obj: end_box,
-                    collision_type: local_test.collision_type,
-                });
-
-            if start_hit || end_hit {
+            let mut local_test = boxtest.transformed_by_matrix(inv_transform);
+            if model.cast_obbox(&mut local_test) {
+                boxtest.result = local_test.result;
                 boxtest.collided_render_obj = Some(self as *const MeshClass as usize);
-                boxtest.result = Some(crate::render_object_system::OBBoxCollisionResult {
-                    intersection: true,
-                    contact_points: Vec::new(),
-                });
                 return true;
             }
         }

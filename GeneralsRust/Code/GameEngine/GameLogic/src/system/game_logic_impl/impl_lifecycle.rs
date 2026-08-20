@@ -563,6 +563,10 @@ impl GameLogic {
         }
         crate::helpers::TheGameLogic::end_load_screen();
         self.set_loading_map(false);
+        // C++ GameLogic.cpp:2009-2010 — TheRecorder->initControls() after preload.
+        game_engine::common::recorder::with_recorder_mut(|recorder| {
+            recorder.init_controls();
+        });
         init_result
     }
 

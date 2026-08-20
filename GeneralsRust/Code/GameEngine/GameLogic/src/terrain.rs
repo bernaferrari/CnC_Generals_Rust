@@ -1215,6 +1215,10 @@ impl TerrainLogic {
         self.enable_water_grid(self.get_waypoint_by_name(&wave_guide).is_some());
     }
 
+
+    pub fn has_height_map(&self) -> bool {
+        !self.map_data.is_empty() && self.map_dx > 0 && self.map_dy > 0
+    }
     /// Get ground height at position
     pub fn get_ground_height(&self, x: f32, y: f32, normal: Option<&mut Coord3D>) -> f32 {
         if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
@@ -2080,6 +2084,17 @@ impl TerrainLogic {
 
         let frames_to_complete = (transition_time_seconds * LOGICFRAMES_PER_SECOND as f32) as i32;
         if frames_to_complete <= 0 {
+            // C++ TerrainLogic::changeWaterHeightOverTime (TerrainLogic.cpp:2439-2448)
+            // divides by (LOGICFRAMES_PER_SECOND * seconds). A 0/sub-frame time
+            // yields an infinite changePerFrame; the next update snaps via
+            // setWaterHeight with damage + pathfind recalc (TerrainLogic.cpp:1057).
+            self.set_water_height_internal(
+                trigger_id,
+                &resolved_name,
+                final_height,
+                damage_amount,
+                true,
+            );
             return;
         }
 
@@ -2968,6 +2983,57 @@ impl TerrainLogic {
                                     self.set_raw_map_height(i + di, j + dj, raw_data_height);
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Flatten a circular footprint at world XY (C++ ground plane).
+    /// Used by host dozer placement when the crate Object is not in the registry.
+    /// Matches TerrainLogic::flattenTerrain cylinder path (TerrainLogic.cpp:2620).
+    pub fn flatten_terrain_at(&mut self, x: f32, y: f32, radius: f32) {
+        if radius <= 0.0 {
+            return;
+        }
+        let radius_sqr = radius * radius;
+        let i_min_x = ((x - radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_x = ((x + radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_y = ((y + radius) / MAP_XY_FACTOR).floor() as i32;
+        let mut total_height: f32 = 0.0;
+        let mut num_samples: i32 = 0;
+        for i in i_min_x..=i_max_x {
+            for j in 0..=i_max_y {
+                let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                let dx = test_pt_x - x;
+                let dy = test_pt_y - y;
+                if dx * dx + dy * dy < radius_sqr {
+                    total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
+                    num_samples += 1;
+                }
+            }
+        }
+        if num_samples == 0 {
+            return;
+        }
+        let avg_height = total_height / num_samples as f32;
+        let mut raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
+        let center_height = (self.get_ground_height(x, y, None) / MAP_HEIGHT_SCALE).floor() as i32;
+        if raw_data_height > center_height {
+            raw_data_height = center_height;
+        }
+        for i in i_min_x..=i_max_x {
+            for j in 0..=i_max_y {
+                let test_pt_x = i as f32 * MAP_XY_FACTOR;
+                let test_pt_y = j as f32 * MAP_XY_FACTOR;
+                let dx = test_pt_x - x;
+                let dy = test_pt_y - y;
+                if dx * dx + dy * dy < radius_sqr {
+                    for di in -1..=1 {
+                        for dj in -1..=1 {
+                            self.set_raw_map_height(i + di, j + dj, raw_data_height);
                         }
                     }
                 }

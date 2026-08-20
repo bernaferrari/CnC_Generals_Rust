@@ -381,7 +381,7 @@ impl GameLogic {
     fn publish_production_power_factors(&self) {
         let player_power_factor = self.compute_player_power_factors();
         for (&id, obj) in self.objects.iter() {
-            if !obj.is_constructed() || !obj.is_alive() || obj.is_disabled() {
+            if !obj.is_constructed() || !obj.is_alive() || obj.status.sold {
                 continue;
             }
             if obj.building_data.is_none() {
@@ -407,7 +407,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&producer_id) else {
                 continue;
             };
-            if !obj.is_constructed() || !obj.is_alive() || obj.is_disabled() {
+            if !obj.is_constructed() || !obj.is_alive() || obj.status.sold {
                 continue;
             }
             let Some(building) = obj.building_data.as_ref() else {
@@ -562,9 +562,13 @@ impl GameLogic {
             if !obj.is_constructed() || !obj.is_alive() {
                 continue;
             }
-            // C++ isDisabled residual: EMP / hacked / underpowered / unmanned
-            // structures do not advance production while disabled.
-            if obj.is_disabled() {
+            // C++ GameLogic.cpp:3677 — ProductionUpdate disabledTypesToProcess is
+            // DISABLED_HELD (update still runs when HELD). Underpowered is a
+            // calcTimeToBuild speed penalty via player_power_factor, not a freeze.
+            if obj.is_disabled() && !obj.status.disabled_underpowered {
+                continue;
+            }
+            if obj.status.sold {
                 continue;
             }
             let mut start_door_cycle = false;
@@ -859,6 +863,18 @@ impl GameLogic {
                 }
                 if !already {
                     self.apply_host_upgrade_complete(team, pid, &upgrade_name);
+                    // C++ ProductionUpdate.cpp:881-885 TheScriptEngine->notifyOfCompletedUpgrade
+                    if let Ok(mut engine_guard) =
+                        gamelogic::scripting::engine::get_script_engine().write()
+                    {
+                        if let Some(engine) = engine_guard.as_mut() {
+                            engine.notify_of_completed_upgrade(
+                                pid as usize,
+                                upgrade_name.as_str(),
+                                producer_id.0,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -1127,6 +1143,8 @@ impl GameLogic {
         // Wave 679: drain production-spawn ready log and apply host presentation residual.
         let events = crate::game_logic::host_production_spawn_ready_log::drain();
         let mut n = 0usize;
+        let mut voice_create_played: std::collections::HashSet<ObjectId> =
+            std::collections::HashSet::new();
         for ev in events {
             let new_id = ev.unit;
             let producer_id = ev.producer;
@@ -1154,6 +1172,19 @@ impl GameLogic {
             };
             // C++ VoiceCreated + UnitReady residual.
             self.notify_unit_production_complete(new_id, producer_id, &template);
+            // C++ ProductionUpdate.cpp:827-832: first unit of a QuantityModifier
+            // batch also plays per-unit VoiceCreate (before oneProductionSuccessful).
+            if voice_create_played.insert(producer_id) {
+                if let Some(unit) = self.objects.get(&new_id) {
+                    let pos = unit.get_position();
+                    self.queue_audio_event(
+                        crate::game_logic::game_logic::AudioEventRequest::new("VoiceCreate")
+                            .with_object(new_id)
+                            .with_position(pos)
+                            .with_priority(141),
+                    );
+                }
+            }
             // C++ ProductionUpdate door + CONSTRUCTION_COMPLETE residual on producer.
             if let Some(prod) = self.objects.get_mut(&producer_id) {
                 let now = self.frame.max(1);

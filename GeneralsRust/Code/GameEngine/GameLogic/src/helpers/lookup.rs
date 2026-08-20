@@ -211,6 +211,34 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             .unwrap_or_default()
     }
 
+    fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
+        self.inner
+            .get_voice_created()
+            .map(|sound| {
+                let event_name = if !sound.event_name.is_empty() {
+                    sound.event_name.clone()
+                } else {
+                    sound.filename_to_load.clone()
+                };
+                crate::common::audio::AudioEventRts::new(event_name)
+            })
+            .unwrap_or_default()
+    }
+
+    fn is_equivalent_to(&self, other: &dyn crate::common::ThingTemplate) -> bool {
+        if self.get_name() == other.get_name() {
+            return true;
+        }
+        if let Some(other_adapter) = other.as_any().downcast_ref::<EngineThingTemplateAdapter>() {
+            return self.inner.is_equivalent_to(&other_adapter.inner);
+        }
+        let other_name = other.get_name();
+        self.inner
+            .get_build_variations()
+            .iter()
+            .any(|variation| variation.eq_ignore_ascii_case(other_name.as_str()))
+    }
+
     fn get_sound_move_start(&self) -> crate::common::audio::AudioEventRts {
         self.inner
             .get_sound_move_start()
@@ -563,11 +591,25 @@ impl TheThingFactory {
         Some(Arc::new(EngineThingTemplateAdapter::new(template)))
     }
 
-    /// Create new object from template
+    /// Create new object from template (C++ statusBits default empty).
     pub fn new_object(
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: &crate::team::Team,
+    ) -> Result<
+        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        self.new_object_with_status(template, team, crate::common::ObjectStatusMaskType::NONE)
+    }
+
+    /// C++ `ThingFactory::newObject(tmplate, team, statusBits)` — status is set
+    /// on `friend_createObject` **before** `CreateModuleInterface::onCreate`.
+    pub fn new_object_with_status(
+        &self,
+        template: std::sync::Arc<dyn crate::common::ThingTemplate>,
+        team: &crate::team::Team,
+        status_bits: crate::common::ObjectStatusMaskType,
     ) -> Result<
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
@@ -583,6 +625,9 @@ impl TheThingFactory {
             .ok()
             .and_then(|factory| factory.find_team_by_id(team.get_id()));
 
+        let mut flags = ObjectCreationFlags::from_template();
+        flags.status_mask = status_bits;
+
         let object_id = get_object_manager()
             .write()
             .map_err(|_| "ObjectManager lock poisoned")?
@@ -590,7 +635,7 @@ impl TheThingFactory {
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
                 team_arc,
-                ObjectCreationFlags::from_template(),
+                flags,
             )
             .map_err(|e| e.to_string())?;
 
@@ -615,10 +660,30 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        self.new_object_with_team_handle_and_status(
+            template,
+            team,
+            crate::common::ObjectStatusMaskType::NONE,
+        )
+    }
+
+    /// C++ `ThingFactory::newObject` with an explicit statusBits mask.
+    pub fn new_object_with_team_handle_and_status(
+        &self,
+        template: std::sync::Arc<dyn crate::common::ThingTemplate>,
+        team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
+        status_bits: crate::common::ObjectStatusMaskType,
+    ) -> Result<
+        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
 
         let template_name = Self::resolve_build_variation_name(&template);
+
+        let mut flags = ObjectCreationFlags::from_template();
+        flags.status_mask = status_bits;
 
         let object_id = get_object_manager()
             .write()
@@ -627,7 +692,7 @@ impl TheThingFactory {
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
                 Some(team),
-                ObjectCreationFlags::from_template(),
+                flags,
             )
             .map_err(|e| e.to_string())?;
 
@@ -649,6 +714,23 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        self.new_object_optional_team_with_status(
+            template,
+            team,
+            crate::common::ObjectStatusMaskType::NONE,
+        )
+    }
+
+    /// C++ `ThingFactory::newObject(tmplate, team, statusBits)` with optional team.
+    pub fn new_object_optional_team_with_status(
+        &self,
+        template: std::sync::Arc<dyn crate::common::ThingTemplate>,
+        team: Option<&crate::team::Team>,
+        status_bits: crate::common::ObjectStatusMaskType,
+    ) -> Result<
+        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
         use crate::team::get_team_factory;
@@ -662,6 +744,9 @@ impl TheThingFactory {
                 .and_then(|factory| factory.find_team_by_id(team.get_id()))
         });
 
+        let mut flags = ObjectCreationFlags::from_template();
+        flags.status_mask = status_bits;
+
         let object_id = get_object_manager()
             .write()
             .map_err(|_| "ObjectManager lock poisoned")?
@@ -669,7 +754,7 @@ impl TheThingFactory {
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
                 team_arc,
-                ObjectCreationFlags::from_template(),
+                flags,
             )
             .map_err(|e| e.to_string())?;
 

@@ -503,6 +503,76 @@ impl Player {
         }
     }
 
+    /// Get hotkey squad (const access).
+    pub fn get_hotkey_squad_const(&self, squad_number: Int) -> Option<&Squad> {
+        if squad_number >= 0 && (squad_number as usize) < NUM_HOTKEY_SQUADS {
+            self.squads[squad_number as usize].as_ref()
+        } else {
+            None
+        }
+    }
+
+    /// C++ `Player::removeObjectFromHotkeySquad` (`Player.cpp:3756-3767`).
+    pub fn remove_object_from_hotkey_squad(&mut self, object_id: ObjectID) {
+        for slot in &mut self.squads {
+            if let Some(squad) = slot.as_mut() {
+                squad.remove_object_id(object_id);
+            }
+        }
+    }
+
+    /// C++ `Player::processCreateTeamGameMessage` (`Player.cpp:3629-3648`).
+    pub fn process_create_team_game_message(&mut self, hotkey_num: Int, object_ids: &[ObjectID]) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        let slot = hotkey_num as usize;
+        if self.squads[slot].is_none() {
+            self.squads[slot] = Some(Squad::new());
+        }
+        if let Some(squad) = self.squads[slot].as_mut() {
+            squad.clear_squad();
+        }
+        for &object_id in object_ids {
+            self.remove_object_from_hotkey_squad(object_id);
+            if let Some(squad) = self.squads[slot].as_mut() {
+                squad.add_object_id(object_id);
+            }
+        }
+    }
+
+    /// C++ `Player::processSelectTeamGameMessage` (`Player.cpp:3654-3678`).
+    pub fn process_select_team_game_message(&mut self, hotkey_num: Int) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        let Some(squad) = self.squads[hotkey_num as usize].as_mut() else {
+            return;
+        };
+        let ids = squad.get_object_ids().clone();
+        let selection = self.current_selection.get_or_insert_with(Squad::new);
+        selection.clear_squad();
+        for object_id in ids {
+            selection.add_object_id(object_id);
+        }
+    }
+
+    /// C++ `Player::processAddTeamGameMessage` (`Player.cpp:3684-3703`).
+    pub fn process_add_team_game_message(&mut self, hotkey_num: Int) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        let Some(squad) = self.squads[hotkey_num as usize].as_ref() else {
+            return;
+        };
+        let ids = squad.get_object_ids().clone();
+        let selection = self.current_selection.get_or_insert_with(Squad::new);
+        for object_id in ids {
+            selection.add_object_id(object_id);
+        }
+    }
+
+
     /// Return the current selection as an AIGroup (matches C++ Player::getCurrentSelectionAsAIGroup).
     pub fn get_current_selection_as_ai_group(&mut self, group: &mut AIGroup) {
         if let Some(selection) = &mut self.current_selection {

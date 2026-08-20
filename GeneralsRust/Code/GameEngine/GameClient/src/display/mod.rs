@@ -52,6 +52,10 @@ pub mod video_texture;
 pub mod status_circle;
 pub mod view;
 
+pub use display::Display;
+pub use display_fx::DrawImageMode;
+pub use image::{Image, ImageCollection};
+
 /// Legacy Display interface for compatibility
 pub trait DisplayInterface: SubsystemInterface {
     fn draw(&self) -> Result<(), Box<dyn Error>>;

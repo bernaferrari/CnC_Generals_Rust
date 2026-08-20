@@ -19,33 +19,16 @@ impl GameLogic {
     ) -> Option<AICommand> {
         let should_scan =
             |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
-        let retreat_from = |threat_id: ObjectId| -> AICommand {
-            let direction = self
-                .objects
-                .get(&threat_id)
-                .map(|enemy| position - enemy.get_position())
-                .and_then(|delta| {
-                    if delta.length_squared() > f32::EPSILON {
-                        Some(delta.normalize())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| Vec3::new(1.0, 0.0, 0.0));
-            AICommand::MoveTo {
-                object_id,
-                position: position + direction * 90.0,
-            }
-        };
+        // C++ AIAttackState / AIIdleState never auto-retreat on low HP.
+        // Mood targeting (getNextMoodTarget) only issues aiAttackObject.
         let evaluate_enemy = |enemy_id: ObjectId, search_radius: f32| -> Option<AICommand> {
             use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
 
             match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
-                AttackDecision::Attack => Some(AICommand::AttackTarget {
+                AttackDecision::Attack | AttackDecision::Retreat => Some(AICommand::AttackTarget {
                     object_id,
                     target_id: enemy_id,
                 }),
-                AttackDecision::Retreat => Some(retreat_from(enemy_id)),
                 AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
                     self,
                     object_id,
@@ -86,21 +69,9 @@ impl GameLogic {
                         return evaluate_enemy(enemy_id, search_radius);
                     }
                 }
-                // Structures (especially base defenses) must not enter unit patrol
-                // wander — residual auto-fire keeps them Idle and scanning.
-                let is_structure = self
-                    .objects
-                    .get(&object_id)
-                    .map(|o| o.is_kind_of(KindOf::Structure))
-                    .unwrap_or(false);
-                if !ai_auto_engage_paused && !is_structure && frame % 300 == object_id.0 % 300 {
-                    Some(AICommand::SetAIState {
-                        object_id,
-                        state: AIState::Patrolling,
-                    })
-                } else {
-                    None
-                }
+                // C++ AIIdleState::update (AIStates.cpp) never transitions to AI_HUNT.
+                // Hunt/Patrolling is command-driven only (aiHunt / script / group).
+                None
             }
 
             AIState::GuardRetaliating | AIState::Attacking => {
@@ -116,8 +87,7 @@ impl GameLogic {
                 }
 
                 match AIDecisionSystem::should_attack(self, object_id, current_target_id) {
-                    AttackDecision::Attack | AttackDecision::Hold => None,
-                    AttackDecision::Retreat => Some(retreat_from(current_target_id)),
+                    AttackDecision::Attack | AttackDecision::Hold | AttackDecision::Retreat => None,
                     AttackDecision::FindNewTarget => {
                         if !can_attack {
                             return Some(AICommand::StopAttack { object_id });
@@ -735,5 +705,64 @@ impl GameLogic {
     #[cfg(test)]
     pub fn apply_ai_command_for_test(&mut self, command: AICommand) {
         self.apply_ai_command(command);
+    }
+}
+
+#[cfg(test)]
+mod hq_m6gcj_tests {
+    use super::*;
+
+    /// C++ `AIIdleState::update` (AIStates.cpp) never transitions to `AI_HUNT`.
+    /// Pre-fix: `frame % 300 == object_id % 300` flipped Idle → Patrolling.
+    #[test]
+    fn idle_units_hold_position_without_hunt_flip() {
+        let logic = GameLogic::new();
+        let object_id = ObjectId(300);
+        let command = logic.process_ai_behavior(
+            object_id,
+            AIState::Idle,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            300,
+            1.0 / 30.0,
+        );
+        assert!(
+            !matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Patrolling,
+                    ..
+                })
+            ),
+            "AIIdleState must not flip Idle to Patrolling/hunt; got {command:?}"
+        );
+        assert!(
+            command.is_none(),
+            "idle with no mood target holds position; got {command:?}"
+        );
+    }
+
+    /// C++ `AIAttackState` never auto-retreats at 30% HP.
+    #[test]
+    fn attacking_does_not_auto_retreat_without_target_change() {
+        let logic = GameLogic::new();
+        let object_id = ObjectId(1);
+        let target_id = ObjectId(2);
+        let command = logic.process_ai_behavior(
+            object_id,
+            AIState::Attacking,
+            Some(target_id),
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            0,
+            1.0 / 30.0,
+        );
+        assert!(
+            !matches!(command, Some(AICommand::MoveTo { .. })),
+            "AIAttackState must not emit retreat MoveTo; got {command:?}"
+        );
     }
 }

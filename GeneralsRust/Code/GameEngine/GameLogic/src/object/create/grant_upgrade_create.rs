@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
-use crate::helpers::TheGameLogic;
+
 use crate::object::create::{CreateModule, CreateModuleData};
 use crate::player::PlayerArcExt;
 use crate::upgrade::{center::with_upgrade_center, UpgradeStatus, UpgradeType};
@@ -104,35 +104,31 @@ impl GrantUpgradeCreate {
             return;
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let Ok(mut obj_guard) = object_arc.write() else {
-            return;
-        };
-        if upgrade.get_upgrade_type() == UpgradeType::Player {
-            if let Some(player) = obj_guard.get_controlling_player() {
-                player.add_upgrade(&upgrade, UpgradeStatus::Complete);
-                if record_granted {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard
-                            .get_academy_stats_mut()
-                            .record_upgrade(&upgrade, true);
-                    }
-                }
-            }
-        } else {
-            obj_guard.give_upgrade(&upgrade);
-            if record_granted {
+        crate::object::create::with_create_owner_mut(object_id, |obj_guard| {
+            if upgrade.get_upgrade_type() == UpgradeType::Player {
                 if let Some(player) = obj_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard
-                            .get_academy_stats_mut()
-                            .record_upgrade(&upgrade, true);
+                    player.add_upgrade(&upgrade, UpgradeStatus::Complete);
+                    if record_granted {
+                        if let Ok(mut player_guard) = player.write() {
+                            player_guard
+                                .get_academy_stats_mut()
+                                .record_upgrade(&upgrade, true);
+                        }
+                    }
+                }
+            } else {
+                obj_guard.give_upgrade(&upgrade);
+                if record_granted {
+                    if let Some(player) = obj_guard.get_controlling_player() {
+                        if let Ok(mut player_guard) = player.write() {
+                            player_guard
+                                .get_academy_stats_mut()
+                                .record_upgrade(&upgrade, true);
+                        }
                     }
                 }
             }
-        }
+        });
     }
 }
 
@@ -153,18 +149,14 @@ impl CreateInterface for GrantUpgradeCreate {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-
-        if object_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+        let mut under_construction = false;
+        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
+            under_construction = object_guard.test_status(ObjectStatusTypes::UnderConstruction);
+        });
+        if under_construction {
             return;
         }
 
-        drop(object_guard);
         self.apply_upgrade(true);
     }
 

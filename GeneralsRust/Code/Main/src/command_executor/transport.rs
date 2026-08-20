@@ -423,14 +423,12 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_evacuate(&mut self, units: &[ObjectId]) -> CommandResult {
-        // C++ AIGroup::groupEvacuate:
-        //  - airborne aircraft containers: move to ground then evacuate
-        //  - structures without AI: order passengers out
-        //  - other AI containers: aiEvacuate(false) → unload residual
-        // Host residual: unload selected containers via execute_exit; airborne
-        // aircraft path to ground (Y=0) first so chinook-style drop has a dest.
+        // C++ AIGroup::groupEvacuate (AIGroup.cpp:2408-2440):
+        //  - airborne aircraft: dest Z = terrain height, then aiMoveToAndEvacuate
+        //  - structures without AI: orderAllPassengersToExit
+        //  - other AI containers: aiEvacuate
         let mut ground_containers: Vec<ObjectId> = Vec::new();
-        let mut airborne_containers: Vec<ObjectId> = Vec::new();
+        let mut airborne_jobs: Vec<(ObjectId, Vec3)> = Vec::new();
         for &unit_id in units {
             let Some(obj) = self.game_logic.host_object(unit_id) else {
                 continue;
@@ -446,28 +444,24 @@ impl<'a> CommandExecutor<'a> {
             let airborne =
                 obj.is_kind_of(crate::game_logic::KindOf::Aircraft) && obj.status.airborne_target;
             if airborne {
-                airborne_containers.push(unit_id);
+                let pos = obj.get_position();
+                let dest_y = self
+                    .game_logic
+                    .terrain_height_at(pos)
+                    .unwrap_or(obj.ground_height);
+                airborne_jobs.push((unit_id, Vec3::new(pos.x, dest_y, pos.z)));
             } else {
                 ground_containers.push(unit_id);
             }
         }
 
         let mut any = false;
-        for unit_id in airborne_containers {
-            let Some(pos) = self
-                .game_logic
-                .host_object(unit_id)
-                .map(|o| o.get_position())
-            else {
-                continue;
-            };
-            // C++: highest ground layer at dest — host residual uses Y=0 ground plane.
-            let dest = Vec3::new(pos.x, 0.0, pos.z);
-            if self.path_to_goal_with_state(unit_id, dest, AIState::Moving) {
-                any = true;
-            }
-            // Also attempt unload residual if already near ground / has passengers.
-            if matches!(self.execute_exit(&[unit_id]), CommandResult::Success) {
+        for (unit_id, dest) in airborne_jobs {
+            // Path to ground, then unload. Do not execute_exit while airborne.
+            if matches!(
+                self.execute_move_to_and_evacuate(&[unit_id], dest, false),
+                CommandResult::Success
+            ) {
                 any = true;
             }
         }
@@ -616,29 +610,38 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target: &DropTarget,
     ) -> CommandResult {
+        // C++ AIGroup::groupCombatDrop (AIGroup.cpp:2867-2889): each member
+        // aiCombatDrop(target, pos) — fly to the drop and rappel/unload.
         debug!("Executing combat drop at {:?}", target);
-        match target {
-            DropTarget::Location(pos) => {
-                for &unit_id in units {
-                    let _ = self.path_to_goal_with_state(unit_id, *pos, AIState::Entering);
-                }
-            }
+        let (dest, object_target) = match target {
+            DropTarget::Location(pos) => (*pos, None),
             DropTarget::Object(target_id) => {
-                if let Some(target_obj) = self.game_logic.host_object(*target_id) {
-                    let target_pos = target_obj.position;
-                    for &unit_id in units {
-                        // Wave 233: combat-drop order-target via GameLogic authority API.
-                        let _ = self
-                            .game_logic
-                            .unit_command_set_order_target(unit_id, Some(*target_id));
-                        let _ =
-                            self.path_to_goal_with_state(unit_id, target_pos, AIState::Entering);
-                    }
-                } else {
+                let Some(target_obj) = self.game_logic.host_object(*target_id) else {
                     return CommandResult::InvalidTarget;
-                }
+                };
+                (target_obj.position, Some(*target_id))
+            }
+        };
+        let mut any = false;
+        for &unit_id in units {
+            if let Some(tid) = object_target {
+                let _ = self
+                    .game_logic
+                    .unit_command_set_order_target(unit_id, Some(tid));
+            }
+            if matches!(
+                self.execute_move_to_and_evacuate(&[unit_id], dest, false),
+                CommandResult::Success
+            ) {
+                any = true;
+            } else if self.path_to_goal_with_state(unit_id, dest, AIState::Entering) {
+                any = true;
             }
         }
-        CommandResult::Success
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
     }
 }

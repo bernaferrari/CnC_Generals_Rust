@@ -104,6 +104,34 @@ pub fn is_script_display_movie_capture_enabled() -> bool {
     with_script_display(|display| display.is_movie_capture_enabled()).unwrap_or(false)
 }
 
+/// C++ `TheDisplay->setDisplayMode`. Queues a host device change when Display
+/// is not installed (Main-owned swap chain).
+pub fn apply_script_display_mode(
+    xres: u32,
+    yres: u32,
+    bit_depth: u32,
+    windowed: bool,
+) -> bool {
+    if let Some(ok) = with_script_display(|display| {
+        display.set_display_mode(xres, yres, bit_depth, windowed)
+    }) {
+        return ok;
+    }
+    if crate::display::display_fx::is_valid_device_mode(xres, yres, bit_depth) {
+        crate::display::display_fx::queue_device_mode(
+            crate::display::display_fx::PendingDeviceMode {
+                xres,
+                yres,
+                bit_depth,
+                windowed,
+            },
+        );
+        true
+    } else {
+        false
+    }
+}
+
 pub fn toggle_script_display_letter_box() -> bool {
     with_script_display(|display| {
         let enabled = !display.is_letter_box_enabled();

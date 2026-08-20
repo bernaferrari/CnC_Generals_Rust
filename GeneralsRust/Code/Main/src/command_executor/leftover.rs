@@ -748,7 +748,7 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    // === Beacon Commands ===
+    // === Beacon / retaliation / self-destruct (GameLogicDispatch.cpp) ===
 
     pub(super) fn execute_place_beacon(
         &mut self,
@@ -756,47 +756,144 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         text: &str,
     ) -> CommandResult {
-        let mut manager = match get_beacon_manager().lock() {
-            Ok(lock) => lock,
-            Err(_) => {
-                warn!("Failed to acquire beacon manager lock");
-                return CommandResult::InvalidCommand;
-            }
+        // C++ GameLogicDispatch.cpp:1582-1671 MSG_PLACE_BEACON.
+        let Some(player) = self.game_logic.get_player(player_id) else {
+            return CommandResult::InvalidCommand;
         };
-
-        let coord = LogicCoord3D::new(location.x, location.y, location.z);
-        manager.place_beacon(player_id as i32, coord, current_frame());
-        if !text.is_empty() {
-            manager.set_beacon_text(player_id as i32, &coord, AsciiString::from(text));
+        if !player.is_alive {
+            self.notify_beacon_placement_failed(location);
+            return CommandResult::InvalidCommand;
+        }
+        let team = player.team;
+        let local_id = self
+            .game_logic
+            .get_players()
+            .values()
+            .find(|p| p.is_local)
+            .map(|p| p.id);
+        let template_name = host_beacon_template_name(self.game_logic, player_id, team);
+        let max_beacons = host_max_beacons_per_player();
+        let existing = host_count_player_beacons(self.game_logic, player_id, &template_name);
+        if existing >= max_beacons {
+            if local_id == Some(player_id) {
+                let alert = localization::localize("GUI:TooManyBeacons", "Too many beacons");
+                self.game_logic
+                    .queue_radar_message_at(alert, location, RadarKind::Generic);
+                self.game_logic
+                    .queue_audio_event(AudioEventRequest::new(translate_audio_event(
+                        "BeaconPlacementFailed",
+                    )));
+            }
+            return CommandResult::InvalidCommand;
         }
 
-        // Notify radar/UI immediately so the player sees feedback for the beacon.
-        let alert = localization::localize("hud.beacon.placed", "Beacon placed");
-        self.game_logic
-            .queue_radar_message_at(alert, location, RadarKind::Generic);
-        self.game_logic
-            .queue_audio_event(AudioEventRequest::new(translate_audio_event(
-                "Beacon_Placed",
-            )));
-        // C++ EVA_BeaconDetected when local is ALLIES with placer.
-        self.game_logic.try_eva_beacon_detected(player_id);
-        // Wave 210: host recent_beacons last-write for presentation freeze
-        // (new_beacons / HUD bloom) without mid-frame manager dual-read.
-        self.game_logic.note_beacon_placed(location);
+        let pos = clamp_beacon_to_world(self.game_logic, location);
+        if self
+            .game_logic
+            .templates
+            .get(&template_name)
+            .is_none()
+        {
+            let mut tpl = crate::game_logic::ThingTemplate::new(&template_name);
+            tpl.set_health(1.0);
+            self.game_logic.templates.insert(template_name.clone(), tpl);
+        }
+        let Some(beacon_id) =
+            self.game_logic
+                .create_object_for_player(&template_name, player_id, pos)
+        else {
+            self.notify_beacon_placement_failed(pos);
+            return CommandResult::InvalidCommand;
+        };
 
+        if !text.is_empty() {
+            live_beacon_set_caption(beacon_id, text);
+        }
+
+        let allied_or_observer = match local_id {
+            Some(local) => {
+                self.game_logic.player_relationship(player_id, local)
+                    == gamelogic::common::Relationship::Allies
+                    || self
+                        .game_logic
+                        .get_player(local)
+                        .map(|p| {
+                            p.name.eq_ignore_ascii_case("observer")
+                                || p.team == crate::game_logic::Team::Neutral
+                        })
+                        .unwrap_or(false)
+            }
+            None => true,
+        };
+
+        if allied_or_observer {
+            let alert = localization::localize("GUI:BeaconPlaced", "Beacon placed");
+            self.game_logic
+                .queue_radar_message_at(alert, pos, RadarKind::Generic);
+            self.game_logic
+                .queue_audio_event(AudioEventRequest::new(translate_audio_event(
+                    "BeaconPlaced",
+                )));
+            self.game_logic.try_eva_beacon_detected(player_id);
+        } else {
+            live_beacon_hide(beacon_id);
+        }
+
+        // Keep the leftover manager + presentation note (Wave 210 residual).
+        if let Ok(mut manager) = get_beacon_manager().lock() {
+            let coord = LogicCoord3D::new(pos.x, pos.y, pos.z);
+            manager.place_beacon(player_id as i32, coord, current_frame());
+            if !text.is_empty() {
+                manager.set_beacon_text(player_id as i32, &coord, AsciiString::from(text));
+            }
+        }
+        self.game_logic.note_beacon_placed(pos);
         CommandResult::Success
     }
 
-    pub(super) fn execute_remove_beacon(&mut self, player_id: u32) -> CommandResult {
-        let mut manager = match get_beacon_manager().lock() {
-            Ok(lock) => lock,
-            Err(_) => {
-                warn!("Failed to acquire beacon manager lock");
-                return CommandResult::InvalidCommand;
-            }
+    pub(super) fn execute_remove_beacon(
+        &mut self,
+        player_id: u32,
+        selected: &[ObjectId],
+    ) -> CommandResult {
+        // C++ GameLogicDispatch.cpp:1675-1727 MSG_REMOVE_BEACON:
+        // owner destroys selected beacon objects; local non-owner hides them.
+        let local_id = self
+            .game_logic
+            .get_players()
+            .values()
+            .find(|p| p.is_local)
+            .map(|p| p.id);
+        let mut any = false;
+        let ids: Vec<ObjectId> = if selected.is_empty() {
+            host_player_beacon_ids(self.game_logic, player_id)
+        } else {
+            selected.to_vec()
         };
+        for id in ids {
+            if !host_object_is_beacon(self.game_logic, id) {
+                continue;
+            }
+            let owner = self
+                .game_logic
+                .host_object(id)
+                .and_then(|o| o.owner_player_id);
+            if owner == Some(player_id) {
+                self.game_logic.destroy_object(id);
+                live_beacon_clear(id);
+                any = true;
+            } else if local_id == Some(player_id) {
+                live_beacon_hide(id);
+                any = true;
+            }
+        }
 
-        if manager.remove_latest_beacon(player_id as i32) {
+        if let Ok(mut manager) = get_beacon_manager().lock() {
+            if manager.remove_latest_beacon(player_id as i32) {
+                any = true;
+            }
+        }
+        if any {
             let alert = localization::localize("hud.beacon.removed", "Beacon removed");
             self.game_logic.queue_radar_message(alert);
             self.game_logic
@@ -809,5 +906,611 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+
+    pub(super) fn execute_set_beacon_text(
+        &mut self,
+        player_id: u32,
+        selected: &[ObjectId],
+        text: &str,
+    ) -> CommandResult {
+        // C++ GameLogicDispatch.cpp:1731-1758 MSG_SET_BEACON_TEXT.
+        let mut any = false;
+        for &id in selected {
+            if !host_object_is_beacon(self.game_logic, id) {
+                continue;
+            }
+            let owner = self
+                .game_logic
+                .host_object(id)
+                .and_then(|o| o.owner_player_id);
+            if owner.is_some() && owner != Some(player_id) && !text.is_empty() {
+                // Owner sets captions; empty still clears locally-selected beacons.
+            }
+            if text.is_empty() {
+                live_beacon_clear_caption(id);
+            } else {
+                live_beacon_set_caption(id, text);
+            }
+            any = true;
+        }
+        if any {
+            CommandResult::Success
+        } else {
+            CommandResult::InvalidCommand
+        }
+    }
+
+    pub(super) fn execute_enable_retaliation(
+        &mut self,
+        player_index: u32,
+        enabled: bool,
+    ) -> CommandResult {
+        // C++ GameLogicDispatch.cpp:603-614 MSG_ENABLE_RETALIATION_MODE.
+        if self.game_logic.get_player(player_index).is_none() {
+            return CommandResult::InvalidCommand;
+        }
+        self.game_logic
+            .set_logical_retaliation_mode(player_index, enabled);
+        CommandResult::Success
+    }
+
+    pub(super) fn execute_self_destruct(
+        &mut self,
+        player_id: u32,
+        transfer_to_ally: bool,
+    ) -> CommandResult {
+        // C++ GameLogicDispatch.cpp:1762-1797 MSG_SELF_DESTRUCT.
+        if self.game_logic.get_player(player_id).is_none() {
+            return CommandResult::InvalidCommand;
+        }
+        if transfer_to_ally {
+            if let Some(ally_id) = host_living_mutual_ally(self.game_logic, player_id) {
+                host_transfer_assets_from(self.game_logic, ally_id, player_id);
+            }
+        }
+        host_kill_player(self.game_logic, player_id);
+        CommandResult::Success
+    }
+
+    fn notify_beacon_placement_failed(&mut self, location: Vec3) {
+        let alert = localization::localize("GUI:BeaconPlacementFailed", "Beacon placement failed");
+        self.game_logic
+            .queue_radar_message_at(alert, location, RadarKind::Generic);
+        self.game_logic
+            .queue_audio_event(AudioEventRequest::new(translate_audio_event(
+                "BeaconPlacementFailed",
+            )));
+    }
+}
+
+fn clamp_beacon_to_world(logic: &GameLogic, location: Vec3) -> Vec3 {
+    let (min, max) = logic.world_bounds();
+    Vec3::new(
+        location.x.clamp(min.x, max.x),
+        location.y,
+        location.z.clamp(min.z, max.z),
+    )
+}
+
+fn host_beacon_template_name(logic: &GameLogic, player_id: u32, team: Team) -> String {
+    if let Some(name) = logic
+        .resolved_player_template(player_id)
+        .map(|template| template.get_beacon_template().to_string())
+        .filter(|name| !name.is_empty())
+    {
+        return name;
+    }
+    match team {
+        Team::USA => "AmericaBeacon".to_string(),
+        Team::China => "ChinaBeacon".to_string(),
+        Team::GLA => "GLABeacon".to_string(),
+        _ => "PlyrCivilianBeacon".to_string(),
+    }
+}
+
+fn host_max_beacons_per_player() -> i32 {
+    game_engine::common::ini::ini_multiplayer::with_multiplayer_settings(|settings| {
+        settings.max_beacons_per_player
+    })
+    .max(0)
+}
+
+fn host_object_is_beacon(logic: &GameLogic, id: ObjectId) -> bool {
+    logic
+        .host_object(id)
+        .map(|obj| {
+            let n = obj.template_name.to_ascii_lowercase();
+            n.contains("beacon")
+        })
+        .unwrap_or(false)
+}
+
+fn host_count_player_beacons(logic: &GameLogic, player_id: u32, template_name: &str) -> i32 {
+    logic
+        .host_objects()
+        .values()
+        .filter(|obj| {
+            obj.owner_player_id == Some(player_id)
+                && obj.is_alive()
+                && (obj.template_name.eq_ignore_ascii_case(template_name)
+                    || obj.template_name.to_ascii_lowercase().contains("beacon"))
+        })
+        .count() as i32
+}
+
+fn host_player_beacon_ids(logic: &GameLogic, player_id: u32) -> Vec<ObjectId> {
+    logic
+        .host_objects()
+        .iter()
+        .filter_map(|(id, obj)| {
+            (obj.owner_player_id == Some(player_id)
+                && obj.is_alive()
+                && obj.template_name.to_ascii_lowercase().contains("beacon"))
+            .then_some(*id)
+        })
+        .collect()
+}
+
+fn host_living_mutual_ally(logic: &GameLogic, player_id: u32) -> Option<u32> {
+    use gamelogic::common::Relationship;
+    let ids: Vec<u32> = logic.get_players().keys().copied().collect();
+    for other in ids {
+        if other == player_id {
+            continue;
+        }
+        let Some(other_player) = logic.get_player(other) else {
+            continue;
+        };
+        if !other_player.is_alive {
+            continue;
+        }
+        if logic.player_relationship(player_id, other) == Relationship::Allies
+            && logic.player_relationship(other, player_id) == Relationship::Allies
+        {
+            return Some(other);
+        }
+    }
+    None
+}
+
+fn host_transfer_assets_from(logic: &mut GameLogic, dest_player: u32, source_player: u32) {
+    // C++ Player::transferAssetsFromThat — skip beacon templates.
+    let ids: Vec<ObjectId> = logic
+        .host_objects()
+        .iter()
+        .filter_map(|(id, obj)| {
+            (obj.owner_player_id == Some(source_player)
+                && obj.is_alive()
+                && !obj.template_name.to_ascii_lowercase().contains("beacon"))
+            .then_some(*id)
+        })
+        .collect();
+    for id in ids {
+        let _ = logic.transfer_object_to_player(id, dest_player);
+    }
+}
+
+fn host_kill_player(logic: &mut GameLogic, player_id: u32) {
+    // C++ Player::killPlayer — destroy remaining owned objects (incl. beacons).
+    let ids: Vec<ObjectId> = logic
+        .host_objects()
+        .iter()
+        .filter_map(|(id, obj)| (obj.owner_player_id == Some(player_id)).then_some(*id))
+        .collect();
+    for id in ids {
+        logic.destroy_object(id);
+        live_beacon_clear(id);
+    }
+    if let Some(player) = logic.get_player_mut(player_id) {
+        player.is_alive = false;
+        player.selected_objects.clear();
+    }
+}
+
+#[derive(Default)]
+struct LiveBeaconClientState {
+    hidden: HashSet<u32>,
+    captions: HashMap<u32, String>,
+}
+
+fn live_beacon_client_state() -> &'static std::sync::Mutex<LiveBeaconClientState> {
+    static STATE: std::sync::LazyLock<std::sync::Mutex<LiveBeaconClientState>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(LiveBeaconClientState::default()));
+    &STATE
+}
+
+fn live_beacon_hide(id: ObjectId) {
+    if let Ok(mut state) = live_beacon_client_state().lock() {
+        state.hidden.insert(id.0);
+    }
+}
+
+fn live_beacon_set_caption(id: ObjectId, text: &str) {
+    if let Ok(mut state) = live_beacon_client_state().lock() {
+        state.captions.insert(id.0, text.to_string());
+    }
+}
+
+fn live_beacon_clear_caption(id: ObjectId) {
+    if let Ok(mut state) = live_beacon_client_state().lock() {
+        state.captions.remove(&id.0);
+    }
+}
+
+fn live_beacon_clear(id: ObjectId) {
+    if let Ok(mut state) = live_beacon_client_state().lock() {
+        state.hidden.remove(&id.0);
+        state.captions.remove(&id.0);
+    }
+}
+
+/// C++ `BeaconClientUpdate::hideBeacon` residual — enemy beacons stay hidden.
+pub fn host_beacon_is_hidden(id: ObjectId) -> bool {
+    live_beacon_client_state()
+        .lock()
+        .map(|s| s.hidden.contains(&id.0))
+        .unwrap_or(false)
+}
+
+/// C++ Drawable::getCaptionText residual for live beacons.
+pub fn host_beacon_caption(id: ObjectId) -> Option<String> {
+    live_beacon_client_state()
+        .lock()
+        .ok()
+        .and_then(|s| s.captions.get(&id.0).cloned())
+}
+
+impl GameLogic {
+    /// C++ `Player::update` (`Player.cpp:708-724`): once per second, if the
+    /// local client Auto-Retaliate flag differs from the logical flag, post
+    /// `MSG_ENABLE_RETALIATION_MODE` so `CommandExecutor` applies it.
+    pub fn leftover_dispatch_tick(&mut self) {
+        if self.frame == 0 || self.frame % 30 != 0 {
+            return;
+        }
+        let client_enabled =
+            game_engine::common::global_data::read().client_retaliation_mode_enabled;
+        let pending: Vec<(u32, bool)> = self
+            .get_players()
+            .values()
+            .filter(|player| {
+                player.is_local && player.logical_retaliation_mode_enabled != client_enabled
+            })
+            .map(|player| (player.id, client_enabled))
+            .collect();
+        for (player_id, enabled) in pending {
+            self.queue_command(crate::command_system::GameCommand {
+                command_type: CommandType::EnableRetaliationMode {
+                    player_index: player_id,
+                    enabled,
+                },
+                player_id,
+                command_id: 0,
+                timestamp: std::time::SystemTime::now(),
+                selected_units: Vec::new(),
+                modifier_keys: crate::command_system::ModifierKeys::default(),
+            });
+        }
+    }
+}
+
+/// Convert crate `GameMessageType` leftovers into live host commands.
+/// C++ `GameLogicDispatch` is the only consumer of these MSG_* types.
+pub fn leftover_command_from_common_message(
+    message: &game_engine::common::message_stream::GameMessage,
+    selected: &[ObjectId],
+) -> Option<crate::command_system::GameCommand> {
+    use game_engine::common::message_stream::{GameMessageArgumentType, GameMessageType};
+
+    let command_type = match message.get_type() {
+        GameMessageType::SwitchWeapons(slot) => CommandType::SwitchWeapons { slot: *slot as u8 },
+        GameMessageType::PlaceBeacon(coord) => CommandType::PlaceBeacon {
+            location: Vec3::new(coord.x, coord.y, coord.z),
+            text: String::new(),
+        },
+        GameMessageType::RemoveBeacon(_) => CommandType::RemoveBeacon,
+        GameMessageType::SetBeaconText(_, text) => CommandType::SetBeaconText { text: text.clone() },
+        GameMessageType::SelfDestruct(player_id) => {
+            let _ = player_id;
+            let transfer_to_ally = match message.get_argument(0) {
+                Some(GameMessageArgumentType::Boolean(flag)) => *flag,
+                _ => true,
+            };
+            CommandType::SelfDestruct { transfer_to_ally }
+        }
+        GameMessageType::EnableRetaliationMode(player_index, enabled) => {
+            CommandType::EnableRetaliationMode {
+                player_index: *player_index,
+                enabled: *enabled,
+            }
+        }
+        _ => return None,
+    };
+    let player_id = match message.get_type() {
+        GameMessageType::SelfDestruct(player_id) => *player_id,
+        GameMessageType::EnableRetaliationMode(player_index, _) => *player_index,
+        _ => message.get_player_index().max(0) as u32,
+    };
+    Some(crate::command_system::GameCommand {
+        command_type,
+        player_id,
+        command_id: 0,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: selected.to_vec(),
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    })
+}
+
+/// Drain leftover dispatch messages from TheMessageStream into host commands.
+pub fn take_leftover_dispatch_commands_from_common_stream(
+    selected: &[ObjectId],
+) -> Vec<crate::command_system::GameCommand> {
+    let stream = game_engine::common::message_stream::get_message_stream();
+    let mut stream = stream.write().unwrap_or_else(|e| e.into_inner());
+    let messages: Vec<_> = stream.get_messages().iter().cloned().collect();
+    let mut kept = Vec::new();
+    let mut commands = Vec::new();
+    for message in messages {
+        if let Some(command) = leftover_command_from_common_message(&message, selected) {
+            commands.push(command);
+        } else {
+            kept.push(message);
+        }
+    }
+    stream.clear_messages();
+    for message in &kept {
+        let forwarded = stream.append_message(message.get_type().clone());
+        for arg in message.get_arguments() {
+            match &arg.data {
+                game_engine::common::message_stream::GameMessageArgumentType::Integer(v) => {
+                    forwarded.append_integer_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::Real(v) => {
+                    forwarded.append_real_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::Boolean(v) => {
+                    forwarded.append_boolean_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::ObjectID(v) => {
+                    forwarded.append_object_id_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::DrawableID(v) => {
+                    forwarded.append_drawable_id_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::TeamID(v) => {
+                    forwarded.append_team_id_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::SquadID(v) => {
+                    forwarded.append_team_id_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::Location(v) => {
+                    forwarded.append_location_argument(v.clone())
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::Pixel(v) => {
+                    forwarded.append_pixel_argument(v.clone())
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::PixelRegion(v) => {
+                    forwarded.append_pixel_region_argument(v.clone())
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::Timestamp(v) => {
+                    forwarded.append_timestamp_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::WideChar(v) => {
+                    forwarded.append_wide_char_argument(*v)
+                }
+                game_engine::common::message_stream::GameMessageArgumentType::String(v) => {
+                    forwarded.append_string_argument(v.clone())
+                }
+            }
+        }
+    }
+    commands
+}
+
+#[cfg(test)]
+mod leftover_dispatch_tests {
+    use super::*;
+    use crate::command_system::{CommandResult, GameCommand, ModifierKeys};
+    use crate::game_logic::Player;
+    use std::time::SystemTime;
+
+    fn command(player_id: u32, command_type: CommandType, selected: Vec<ObjectId>) -> GameCommand {
+        GameCommand {
+            command_type,
+            player_id,
+            command_id: 1,
+            timestamp: SystemTime::now(),
+            selected_units: selected,
+            modifier_keys: ModifierKeys::default(),
+        }
+    }
+
+    #[test]
+    fn switch_weapons_locks_button_slot() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut tpl = crate::game_logic::ThingTemplate::new("HumveeSW");
+        tpl.set_health(200.0);
+        logic.templates.insert("HumveeSW".into(), tpl);
+        let id = logic
+            .create_object_for_player("HumveeSW", 0, Vec3::ZERO)
+            .expect("unit");
+        {
+            let unit = logic.host_object_mut(id).expect("obj");
+            unit.weapon = Some(crate::game_logic::Weapon {
+                damage: 1.0,
+                range: 10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            unit.secondary_weapon = Some(crate::game_logic::Weapon {
+                damage: 5.0,
+                range: 20.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            unit.active_weapon_slot = 0;
+        }
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(0, CommandType::SwitchWeapons { slot: 1 }, vec![id]))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        let unit = logic.host_object(id).expect("obj");
+        assert_eq!(unit.weapon_lock_slot, 1);
+        assert_eq!(unit.active_weapon_slot, 1);
+    }
+
+    #[test]
+    fn enable_retaliation_reaches_host_player() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        assert!(!logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::EnableRetaliationMode {
+                    player_index: 0,
+                    enabled: true,
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+    }
+
+    #[test]
+    fn leftover_dispatch_tick_posts_enable_retaliation() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        logic.frame = 30;
+        game_engine::common::global_data::write().client_retaliation_mode_enabled = true;
+        logic.leftover_dispatch_tick();
+        assert!(logic.has_pending_commands());
+        logic.process_commands();
+        assert!(logic.get_player(0).unwrap().logical_retaliation_mode_enabled);
+    }
+
+    #[test]
+    fn self_destruct_transfers_to_living_ally() {
+        let mut logic = GameLogic::new();
+        let mut p0 = Player::new(0, Team::USA, "P0", true);
+        let mut p1 = Player::new(1, Team::USA, "P1", false);
+        p0.alliance_team = 1;
+        p1.alliance_team = 1;
+        logic.get_players_mut().insert(0, p0);
+        logic.get_players_mut().insert(1, p1);
+        let mut tpl = crate::game_logic::ThingTemplate::new("RangerSD");
+        tpl.set_health(100.0);
+        logic.templates.insert("RangerSD".into(), tpl);
+        let id = logic
+            .create_object_for_player("RangerSD", 0, Vec3::ZERO)
+            .expect("unit");
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::SelfDestruct {
+                    transfer_to_ally: true,
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        assert!(!logic.get_player(0).unwrap().is_alive);
+        assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(1));
+    }
+
+    #[test]
+    fn place_beacon_spawns_world_object_and_respects_cap() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let loc = Vec3::new(10.0, 0.0, 12.0);
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: loc,
+                    text: "here".into(),
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        let beacons: Vec<_> = logic
+            .host_objects()
+            .iter()
+            .filter(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(beacons.len(), 1);
+        assert_eq!(host_beacon_caption(beacons[0]).as_deref(), Some("here"));
+
+        let max = host_max_beacons_per_player().max(1);
+        for i in 1..max {
+            let r = CommandExecutor::new(&mut logic, 0)
+                .execute_command(command(
+                    0,
+                    CommandType::PlaceBeacon {
+                        location: Vec3::new(20.0 + i as f32, 0.0, 0.0),
+                        text: String::new(),
+                    },
+                    vec![],
+                ))
+                .expect("exec");
+            assert_eq!(r, CommandResult::Success);
+        }
+        let overflow = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(99.0, 0.0, 99.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .expect("exec");
+        assert_eq!(overflow, CommandResult::InvalidCommand);
+    }
+
+    #[test]
+    fn set_beacon_text_updates_selected_caption() {
+        let mut logic = GameLogic::new();
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::PlaceBeacon {
+                    location: Vec3::new(4.0, 0.0, 5.0),
+                    text: String::new(),
+                },
+                vec![],
+            ))
+            .unwrap();
+        let id = logic
+            .host_objects()
+            .iter()
+            .find(|(_, o)| o.template_name.to_ascii_lowercase().contains("beacon"))
+            .map(|(id, _)| *id)
+            .expect("beacon");
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::SetBeaconText {
+                    text: "go".into(),
+                },
+                vec![id],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        assert_eq!(host_beacon_caption(id).as_deref(), Some("go"));
     }
 }

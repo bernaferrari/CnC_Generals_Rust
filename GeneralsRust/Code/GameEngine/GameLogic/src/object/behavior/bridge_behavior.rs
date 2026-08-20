@@ -770,7 +770,11 @@ impl BridgeBehavior {
         let Some(audio) = TheAudio::get() else {
             return;
         };
-        let mut rts_event = crate::common::audio::AudioEventRts::new(event.sound_file.as_str());
+        let name = event.playable_event_name();
+        if name.is_empty() {
+            return;
+        }
+        let mut rts_event = crate::common::audio::AudioEventRts::new(name);
         if let Ok(object_id) = self.with_object(|guard| guard.get_id()) {
             if object_id != OBJECT_INVALID_ID {
                 rts_event.set_object_id(object_id);
@@ -916,20 +920,20 @@ impl BridgeBehavior {
                 }
             }
 
-            // Damage sounds
+            // Damage sounds — C++ parseAudioEventRTS stores the token as the event name.
             if let Some(name) = bridge_template.get_damage_to_sound_string(state_index) {
                 let trimmed = name.as_str().trim();
-                self.damage_to_sound[state_index].sound_file = trimmed.to_string();
+                self.damage_to_sound[state_index] = AudioEventRTS::from_event_name(trimmed.to_string());
             } else {
-                self.damage_to_sound[state_index].sound_file.clear();
+                self.damage_to_sound[state_index] = AudioEventRTS::new();
             }
 
             // Repair sounds
             if let Some(name) = bridge_template.get_repaired_to_sound_string(state_index) {
                 let trimmed = name.as_str().trim();
-                self.repair_to_sound[state_index].sound_file = trimmed.to_string();
+                self.repair_to_sound[state_index] = AudioEventRTS::from_event_name(trimmed.to_string());
             } else {
-                self.repair_to_sound[state_index].sound_file.clear();
+                self.repair_to_sound[state_index] = AudioEventRTS::new();
             }
         }
 

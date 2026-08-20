@@ -814,6 +814,9 @@ impl GameClient {
             recorder.set_command_sink(Some(command_sink));
             recorder.set_command_cull(Some(command_cull));
             recorder.set_game_mode_provider(Some(Arc::new(TheGameLogic::get_game_mode)));
+            recorder.set_replay_control_visibility_hook(Some(Arc::new(|hide| {
+                crate::gui::callbacks::replay_controls::apply_replay_control_visibility(hide);
+            })));
         });
     }
 }

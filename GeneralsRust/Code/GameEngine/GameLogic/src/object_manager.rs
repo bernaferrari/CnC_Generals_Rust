@@ -1081,7 +1081,13 @@ impl ObjectManager {
                 GameLogicError::SystemNotInitialized("ObjectFactory lock poisoned".to_string())
             })?;
             factory
-                .create_object(template_name, position, team.clone(), factory_flags)
+                .create_object_with_status(
+                    template_name,
+                    position,
+                    team.clone(),
+                    factory_flags,
+                    flags.status_mask,
+                )
                 .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?
         };
 
@@ -1099,12 +1105,6 @@ impl ObjectManager {
                     )
                 })?
         };
-
-        if flags.status_mask != ObjectStatusMaskType::NONE {
-            if let Ok(mut base_guard) = base_object.write() {
-                base_guard.set_status(flags.status_mask, true);
-            }
-        }
 
         let template = base_object
             .read()

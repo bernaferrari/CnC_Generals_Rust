@@ -327,3 +327,20 @@ fn player_template_from_common_copies_sciences_production_and_shortcut_fields() 
     assert_eq!(gl.get_starting_unit(MAX_MP_STARTING_UNITS as i32), "");
     assert!(!gl.is_playable_side());
 }
+
+#[test]
+fn process_create_team_evicts_from_other_squads() {
+    // C++ Player::processCreateTeamGameMessage (Player.cpp:3637-3647)
+    let mut player = Player::new(0);
+    player.init_from_dict_defaults();
+    player.process_create_team_game_message(0, &[1, 2]);
+    player.process_create_team_game_message(1, &[2, 3]);
+    let squad0 = player.get_hotkey_squad_const(0).expect("squad 0");
+    let squad1 = player.get_hotkey_squad_const(1).expect("squad 1");
+    assert!(squad0.is_on_squad_by_id(1));
+    assert!(!squad0.is_on_squad_by_id(2));
+    assert!(squad1.is_on_squad_by_id(2));
+    assert!(squad1.is_on_squad_by_id(3));
+    player.process_select_team_game_message(1);
+    assert_eq!(player.get_current_selection_ids(), vec![2, 3]);
+}

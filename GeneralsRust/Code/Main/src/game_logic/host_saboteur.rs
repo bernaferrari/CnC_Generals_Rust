@@ -117,6 +117,8 @@ pub enum SaboteurEffectKind {
     PowerPlant,
     /// Steal cash residual.
     SupplyCenter,
+    /// C++ SabotageSupplyDropzoneCrateCollide — OCL reset + cash steal.
+    SupplyDropzone,
     /// Structure DISABLED_HACKED residual (production pause).
     MilitaryFactory,
     /// Superweapon / strategy / command special-power recharge reset.
@@ -132,6 +134,7 @@ impl SaboteurEffectKind {
         match self {
             Self::PowerPlant => "PowerPlant",
             Self::SupplyCenter => "SupplyCenter",
+            Self::SupplyDropzone => "SupplyDropzone",
             Self::MilitaryFactory => "MilitaryFactory",
             Self::SuperweaponOrCommand => "SuperweaponOrCommand",
             Self::InternetCenter => "InternetCenter",
@@ -160,7 +163,7 @@ impl SaboteurEffectKind {
     }
 
     pub fn steals_cash(self) -> bool {
-        matches!(self, Self::SupplyCenter)
+        matches!(self, Self::SupplyCenter | Self::SupplyDropzone)
     }
 
     /// C++ CrateCollide::doSabotageFeedbackFX sound selection residual.
@@ -169,7 +172,7 @@ impl SaboteurEffectKind {
         match self {
             Self::FakeBuilding => None,
             Self::SuperweaponOrCommand => Some(SABOTEUR_RESET_TIMER_AUDIO),
-            Self::SupplyCenter => Some(SABOTEUR_CASH_STEAL_AUDIO),
+            Self::SupplyCenter | Self::SupplyDropzone => Some(SABOTEUR_CASH_STEAL_AUDIO),
             Self::PowerPlant | Self::MilitaryFactory | Self::InternetCenter => {
                 Some(SABOTEUR_SHUTDOWN_AUDIO)
             }
@@ -181,6 +184,7 @@ impl SaboteurEffectKind {
         match self {
             Self::PowerPlant => "SAB_VICTIM_POWER_PLANT",
             Self::SupplyCenter => "SAB_VICTIM_SUPPLY_CENTER",
+            Self::SupplyDropzone => "SAB_VICTIM_DROP_ZONE",
             Self::MilitaryFactory => "SAB_VICTIM_MILITARY_FACTORY",
             Self::SuperweaponOrCommand => "SAB_VICTIM_SUPERWEAPON",
             Self::InternetCenter => "SAB_VICTIM_INTERNET_CENTER",
@@ -194,6 +198,10 @@ impl SaboteurEffectKind {
 
     pub fn resets_special_power(self) -> bool {
         matches!(self, Self::SuperweaponOrCommand)
+    }
+
+    pub fn resets_ocl_timer(self) -> bool {
+        matches!(self, Self::SupplyDropzone)
     }
 }
 
@@ -259,7 +267,7 @@ impl HostSaboteurRegistry {
             SaboteurEffectKind::PowerPlant => {
                 self.power_plants = self.power_plants.saturating_add(1);
             }
-            SaboteurEffectKind::SupplyCenter => {
+            SaboteurEffectKind::SupplyCenter | SaboteurEffectKind::SupplyDropzone => {
                 self.supply_steals = self.supply_steals.saturating_add(1);
                 self.cash_stolen_total = self.cash_stolen_total.saturating_add(cash_stolen);
             }
@@ -448,6 +456,8 @@ pub fn classify_sabotage_target(
     is_command_center: bool,
     is_fs_internet_center: bool,
     is_fs_fake: bool,
+    is_fs_supply_dropzone: bool,
+    is_aircraft_carrier: bool,
 ) -> Option<SaboteurEffectKind> {
     let n = template_name.to_ascii_lowercase();
 
@@ -464,7 +474,12 @@ pub fn classify_sabotage_target(
     {
         return Some(SaboteurEffectKind::PowerPlant);
     }
-    // Supply centers (not drop zones residual — drop zone module commented in retail).
+    // C++ SabotageSupplyDropzoneCrateCollide::isValidToExecute requires
+    // KINDOF_FS_SUPPLY_DROPZONE (before supply-center cash steal).
+    if is_fs_supply_dropzone || is_supply_dropzone_template(&n) {
+        return Some(SaboteurEffectKind::SupplyDropzone);
+    }
+    // Supply centers.
     if is_fs_supply_center
         || is_supply_center
         || n.contains("supplycenter")
@@ -493,6 +508,12 @@ pub fn classify_sabotage_target(
     {
         return Some(SaboteurEffectKind::SuperweaponOrCommand);
     }
+    // C++ SabotageMilitaryFactoryCrateCollide::isValidToExecute
+    // (`SabotageMilitaryFactoryCrateCollide.cpp:74-78`): aircraft carriers
+    // cannot be factory-sabotaged, even if they also carry FS_AIRFIELD.
+    if is_aircraft_carrier || is_aircraft_carrier_template(&n) {
+        return None;
+    }
     // Military factories.
     if is_fs_barracks
         || is_fs_war_factory
@@ -511,6 +532,17 @@ pub fn classify_sabotage_target(
     }
 
     None
+}
+
+/// C++ KINDOF_FS_SUPPLY_DROPZONE name residual (structure, not crate payload).
+pub fn is_supply_dropzone_template(template_name: &str) -> bool {
+    crate::game_logic::host_supply_drop_zone::is_supply_drop_zone_template(template_name)
+}
+
+/// C++ KINDOF_AIRCRAFT_CARRIER residual (host KindOf has no AircraftCarrier).
+pub fn is_aircraft_carrier_template(template_name: &str) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    n.contains("aircraftcarrier") || n.contains("aircraft_carrier")
 }
 
 /// Absolute power-sabotage expiry frame residual.
@@ -620,131 +652,78 @@ mod tests {
 
     #[test]
     fn classify_sabotage_target_matrix() {
-        assert_eq!(
+        fn cls(
+            name: &str,
+            flags: [bool; 14],
+        ) -> Option<SaboteurEffectKind> {
             classify_sabotage_target(
-                "AmericaPowerPlant",
-                true,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false
-            ),
+                name, flags[0], flags[1], flags[2], flags[3], flags[4], flags[5],
+                flags[6], flags[7], flags[8], flags[9], flags[10], flags[11],
+                flags[12], flags[13],
+            )
+        }
+        let none = [false; 14];
+        let mut power = none;
+        power[0] = true;
+        power[1] = true;
+        assert_eq!(
+            cls("AmericaPowerPlant", power),
             Some(SaboteurEffectKind::PowerPlant)
         );
+        let mut supply = none;
+        supply[2] = true;
+        supply[3] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "AmericaSupplyCenter",
-                false,
-                false,
-                true,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false
-            ),
+            cls("AmericaSupplyCenter", supply),
             Some(SaboteurEffectKind::SupplyCenter)
         );
+        let mut factory = none;
+        factory[5] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "AmericaWarFactory",
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false
-            ),
+            cls("AmericaWarFactory", factory),
             Some(SaboteurEffectKind::MilitaryFactory)
         );
+        let mut cmd = none;
+        cmd[9] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "AmericaCommandCenter",
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false,
-                false
-            ),
+            cls("AmericaCommandCenter", cmd),
             Some(SaboteurEffectKind::SuperweaponOrCommand)
         );
+        let mut net = none;
+        net[10] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "ChinaInternetCenter",
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                true,
-                false
-            ),
+            cls("ChinaInternetCenter", net),
             Some(SaboteurEffectKind::InternetCenter)
         );
+        let mut fake = none;
+        fake[11] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "GLAFakeBarracks",
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                true
-            ),
+            cls("GLAFakeBarracks", fake),
             Some(SaboteurEffectKind::FakeBuilding)
         );
+        assert_eq!(cls("AmericaBunker", none), None);
+        // C++ SabotageSupplyDropzoneCrateCollide.cpp:74 — KINDOF_FS_SUPPLY_DROPZONE.
+        let mut drop = none;
+        drop[12] = true;
         assert_eq!(
-            classify_sabotage_target(
-                "AmericaBunker",
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false
-            ),
-            None
+            cls("AmericaSupplyDropZone", drop),
+            Some(SaboteurEffectKind::SupplyDropzone)
+        );
+        assert_eq!(
+            cls("AmericaSupplyDropZone", none),
+            Some(SaboteurEffectKind::SupplyDropzone)
+        );
+        // C++ SabotageMilitaryFactoryCrateCollide.cpp:74-78 — reject carrier.
+        let mut carrier = none;
+        carrier[6] = true; // is_fs_airfield
+        carrier[13] = true; // is_aircraft_carrier
+        assert_eq!(cls("AmericaAircraftCarrier", carrier), None);
+        assert_eq!(cls("AmericaAircraftCarrier", none), None);
+        assert!(SaboteurEffectKind::SupplyDropzone.steals_cash());
+        assert!(SaboteurEffectKind::SupplyDropzone.resets_ocl_timer());
+        assert_eq!(
+            SaboteurEffectKind::SupplyDropzone.victim_type_label(),
+            "SAB_VICTIM_DROP_ZONE"
         );
     }
 

@@ -77,15 +77,70 @@ mod tests {
     }
 
     #[test]
-    fn test_fast_forward_replay_meta_record_is_destroyed() {
+    fn test_fast_forward_replay_meta_record_is_kept() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let mut record = alias_record("TOGGLE_FAST_FORWARD_REPLAY");
         record.meta = Some(GameMessageType::MetaToggleFastForwardReplay);
         assert_eq!(
             dispatch_map_entry(&record),
-            Some(GameMessageDisposition::DestroyMessage)
+            Some(GameMessageDisposition::KeepMessage)
         );
+    }
+
+    #[test]
+    fn test_command_map_display_name_is_translated() {
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        game_engine::common::language::Language::register_localized_string(
+            "GUI:Wave5MetaDisplay",
+            "Wave5 Localized Command",
+        );
+        assert_eq!(
+            translate_command_map_label("GUI:Wave5MetaDisplay"),
+            "Wave5 Localized Command"
+        );
+        assert_eq!(
+            translate_command_map_label("GUI:Wave5MetaMissing"),
+            "GUI:Wave5MetaMissing"
+        );
+    }
+
+    #[test]
+    fn test_keyboard_options_remap_reaches_lookup() {
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let mut map = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
+            map.add_record(MetaMapRec {
+                name: "SELECT_ALL".to_string(),
+                meta: Some(GameMessageType::MetaSelectAll),
+                key: 0x51,
+                transition: Transition::Down,
+                mod_state: 0,
+                usable_in: COMMANDUSABLE_GAME,
+                category: "SELECTION".to_string(),
+                description: "GUI:SelectAllDesc".to_string(),
+                display_name: "GUI:SelectAll".to_string(),
+            });
+        }
+        assert_eq!(
+            lookup_command_map_name(0x51, 0).as_deref(),
+            Some("SELECT_ALL")
+        );
+        assert!(command_map_binds("SELECT_ALL"));
+        assert!(update_command_map_entry("SELECTION", "GUI:SelectAll", 0x4B, 0));
+        assert_eq!(
+            lookup_command_map_name(0x4B, 0).as_deref(),
+            Some("SELECT_ALL")
+        );
+        assert_eq!(lookup_command_map_name(0x51, 0), None);
+        reset_command_map_entries();
+    }
+
+    #[test]
+    fn test_apply_toggle_lower_details_is_live_callable() {
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        // Without GlobalData the live helper fail-closes; with it, it toggles.
+        let _ = apply_toggle_lower_details();
     }
 
     #[test]

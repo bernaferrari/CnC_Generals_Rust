@@ -81,6 +81,12 @@ pub struct Player {
     /// C++ Player::m_specialPowerReadyTimerList residual (seconds remaining).
     /// SharedSyncedTimer superweapons sync across a player's command centers.
     pub shared_special_power_cooldowns: HashMap<crate::command_system::SpecialPowerType, f32>,
+    /// C++ GrantUpgradeCreate / Player::addUpgrade completed names.
+    pub completed_upgrades: HashSet<String>,
+    /// C++ ResourceGatheringManager supply-center object IDs.
+    pub resource_supply_centers: Vec<ObjectId>,
+    /// C++ ResourceGatheringManager supply-warehouse object IDs.
+    pub resource_supply_warehouses: Vec<ObjectId>,
 }
 
 /// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
@@ -278,8 +284,34 @@ impl Player {
             can_build_base: true,
 
             shared_special_power_cooldowns: HashMap::new(),
+            completed_upgrades: HashSet::new(),
+            resource_supply_centers: Vec::new(),
+            resource_supply_warehouses: Vec::new(),
         }
     }
+
+    /// C++ `Player::addUpgrade(..., UPGRADE_STATUS_COMPLETE)`.
+    pub fn add_completed_upgrade(&mut self, name: &str) {
+        if !name.is_empty() {
+            self.completed_upgrades.insert(name.to_string());
+            self.unlocked_sciences.insert(name.to_string());
+        }
+    }
+
+    /// C++ `ResourceGatheringManager::addSupplyCenter`.
+    pub fn add_supply_center(&mut self, center_id: ObjectId) {
+        if !self.resource_supply_centers.contains(&center_id) {
+            self.resource_supply_centers.push(center_id);
+        }
+    }
+
+    /// C++ `ResourceGatheringManager::addSupplyWarehouse`.
+    pub fn add_supply_warehouse(&mut self, warehouse_id: ObjectId) {
+        if !self.resource_supply_warehouses.contains(&warehouse_id) {
+            self.resource_supply_warehouses.push(warehouse_id);
+        }
+    }
+
 
     /// C++ Player::getOrStartSpecialPowerReadyFrame residual (seconds remaining).
     /// Missing entry means ready (C++ starts timer at "now" on first query).

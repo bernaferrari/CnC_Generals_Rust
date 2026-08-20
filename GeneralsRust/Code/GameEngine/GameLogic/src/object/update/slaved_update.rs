@@ -998,9 +998,9 @@ impl SlavedUpdate {
         if let Some(audio) = TheAudio::get() {
             if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() {
                 let misc_audio = misc_audio.read();
-                if !misc_audio.repair_sparks.sound_file.is_empty() {
+                if !misc_audio.repair_sparks.playable_event_name().is_empty() {
                     let mut sound = crate::common::audio::AudioEventRts::new(
-                        misc_audio.repair_sparks.sound_file.as_str(),
+                        misc_audio.repair_sparks.playable_event_name(),
                     );
                     sound.set_position(&(pos.x, pos.y, pos.z));
                     audio.add_audio_event(&sound);

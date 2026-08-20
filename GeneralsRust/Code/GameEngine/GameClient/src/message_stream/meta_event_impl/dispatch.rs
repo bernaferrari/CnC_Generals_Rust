@@ -3,6 +3,8 @@
 fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     if let Some(meta) = &record.meta {
         if matches!(meta, GameMessageType::MetaToggleFastForwardReplay) {
+            // C++ MetaEvent.cpp:473-489: replay-gated (unless debug cheats),
+            // localized GUI:FF_ON / GUI:FF_OFF, KEEP_MESSAGE.
             if TheGameLogic::is_in_replay_game() {
                 if let Some(global_data) = get_global_data() {
                     let enabled = {
@@ -11,13 +13,13 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                         guard.tivo_fast_mode
                     };
                     TheInGameUI::message(if enabled {
-                        "m_TiVOFastMode: ON"
+                        "GUI:FF_ON"
                     } else {
-                        "m_TiVOFastMode: OFF"
+                        "GUI:FF_OFF"
                     });
                 }
             }
-            return Some(GameMessageDisposition::DestroyMessage);
+            return Some(GameMessageDisposition::KeepMessage);
         }
         emit_message(GameMessage::new(meta.clone()));
         return Some(GameMessageDisposition::DestroyMessage);
@@ -47,41 +49,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("TOGGLE_LOWER_DETAILS") {
-        if let Some(global_data) = get_global_data() {
-            let mut global = global_data.write();
-            if let Ok(mut state) = get_lower_detail_toggle_state().write() {
-                if state.is_low_details {
-                    global.use_shadow_volumes = state.old_use_shadow_volumes;
-                    global.use_light_map = state.old_use_light_map;
-                    global.use_cloud_map = state.old_use_cloud_map;
-                    global.max_particle_count = state.old_max_particle_count;
-                    TheGameLogic::set_show_behind_building_markers(
-                        state.old_show_behind_building_markers,
-                    );
-                    TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
-                } else {
-                    state.old_use_shadow_volumes = global.use_shadow_volumes;
-                    global.use_shadow_volumes = false;
-
-                    state.old_use_light_map = global.use_light_map;
-                    global.use_light_map = false;
-
-                    state.old_use_cloud_map = global.use_cloud_map;
-                    global.use_cloud_map = false;
-
-                    state.old_show_behind_building_markers =
-                        TheGameLogic::get_show_behind_building_markers();
-                    TheGameLogic::set_show_behind_building_markers(false);
-
-                    state.old_max_particle_count = global.max_particle_count;
-                    global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-
-                    TheInGameUI::message("GUI:DetailsSetToLowest");
-                }
-
-                state.is_low_details = !state.is_low_details;
-            }
-        }
+        let _ = apply_toggle_lower_details();
         return Some(GameMessageDisposition::DestroyMessage);
     }
 

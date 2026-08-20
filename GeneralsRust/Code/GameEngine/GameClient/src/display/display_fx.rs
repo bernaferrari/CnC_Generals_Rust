@@ -1,20 +1,56 @@
 //! W3DDisplay movie blit, screenshot, gamma, FPS, and movie-capture helpers.
 //!
 //! C++: `W3DDisplay.cpp` drawVideoBuffer / takeScreenShot / setGamma /
-//! gatherDebugStats / drawDebugStats / toggleMovieCapture.
+//! gatherDebugStats / drawDebugStats / toggleMovieCapture / setDisplayMode /
+//! drawImage / renderLetterBox.
 
 use crate::gui::display_string::DisplayStringHandle;
 use crate::gui::ui_globals::with_ui_renderer_mut;
-use crate::gui::ui_renderer::UIRect;
+use crate::gui::ui_renderer::{UIBlendMode, UIRect};
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use game_engine::common::ini::ini_game_data::get_global_data;
 use glam::Vec2;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
 const SHADOW_COLOR_ARGB: u32 = 0x7f_a0_a0_a0;
+const MIN_DISPLAY_RESOLUTION_X: u32 = 800;
+
+/// C++ `Display::DrawImageMode` (`Display.h` 38-44).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DrawImageMode {
+    Solid,
+    Grayscale,
+    #[default]
+    Alpha,
+    Additive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingDeviceMode {
+    pub xres: u32,
+    pub yres: u32,
+    pub bit_depth: u32,
+    pub windowed: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CopyrightOverlay {
+    pub text: String,
+    pub width: f32,
+    pub height: f32,
+    pub font_size: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LetterboxPlan {
+    pub bar_height: f32,
+    pub color: [f32; 4],
+    pub draw_top: bool,
+    pub draw_bottom: bool,
+}
 
 #[derive(Debug, Clone)]
 pub struct GammaState {
@@ -45,6 +81,27 @@ static DEBUG_FRAMES: AtomicU32 = AtomicU32::new(0);
 static LAST_FPS: Mutex<f32> = Mutex::new(0.0);
 static LAST_FPS_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
 
+static LAST_MOVIE_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
+static PENDING_SCREENSHOT: Mutex<Option<PathBuf>> = Mutex::new(None);
+static PENDING_DEVICE_MODE: Mutex<Option<PendingDeviceMode>> = Mutex::new(None);
+static COPYRIGHT_OVERLAY: Mutex<Option<CopyrightOverlay>> = Mutex::new(None);
+static MOVIE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
+static LETTERBOX_ENABLED: AtomicBool = AtomicBool::new(false);
+static CLIP_ENABLED: AtomicBool = AtomicBool::new(false);
+static CLIP_REGION: Mutex<Option<[f32; 4]>> = Mutex::new(None);
+static LAST_PRESENTED_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
+
+/// Retail 4:3 modes (`W3DDisplay::getDisplayModeDescription`, ≥800×600, ≥24-bit).
+const STANDARD_4_3_MODES: &[(u32, u32)] = &[
+    (800, 600),
+    (1024, 768),
+    (1152, 864),
+    (1280, 960),
+    (1400, 1050),
+    (1600, 1200),
+    (1920, 1440),
+];
+
 pub fn set_gamma_state(gamma: f32, bright: f32, contrast: f32) {
     if let Ok(mut state) = GAMMA_STATE.lock() {
         state.gamma = gamma.clamp(0.6, 6.0);
@@ -55,6 +112,11 @@ pub fn set_gamma_state(gamma: f32, bright: f32, contrast: f32) {
 
 pub fn gamma_state() -> GammaState {
     GAMMA_STATE.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+pub fn gamma_is_identity() -> bool {
+    let s = gamma_state();
+    (s.gamma - 1.0).abs() < 0.001 && s.bright.abs() < 0.001 && (s.contrast - 1.0).abs() < 0.001
 }
 
 /// C++ `DX8Wrapper::Set_Gamma` ramp applied as a color-space transform.
@@ -70,6 +132,22 @@ pub fn apply_gamma_rgba(r: f32, g: f32, b: f32) -> [f32; 3] {
         (state.contrast * x + state.bright).clamp(0.0, 1.0)
     };
     [map(r), map(g), map(b)]
+}
+
+pub fn apply_gamma_to_rgba_in_place(rgba: &mut [u8]) {
+    if gamma_is_identity() {
+        return;
+    }
+    for px in rgba.chunks_exact_mut(4) {
+        let mapped = apply_gamma_rgba(
+            px[0] as f32 / 255.0,
+            px[1] as f32 / 255.0,
+            px[2] as f32 / 255.0,
+        );
+        px[0] = (mapped[0] * 255.0).round() as u8;
+        px[1] = (mapped[1] * 255.0).round() as u8;
+        px[2] = (mapped[2] * 255.0).round() as u8;
+    }
 }
 
 fn user_data_dir() -> PathBuf {
@@ -104,6 +182,12 @@ pub fn next_movie_frame_path() -> PathBuf {
     let _ = std::fs::create_dir_all(&dir);
     let n = MOVIE_FRAME_SERIAL.fetch_add(1, Ordering::Relaxed);
     dir.join(format!("Movie{n:05}.bmp"))
+}
+
+pub fn movie_capture_dir() -> PathBuf {
+    let dir = user_data_dir().join("Movie");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 pub fn reset_movie_capture_counter() {
@@ -174,9 +258,6 @@ pub fn video_buffer_rgba(buffer: &dyn VideoBuffer) -> Option<(u32, u32, Vec<u8>)
         return None;
     }
     let byte_len = (pitch as usize).saturating_mul(height as usize);
-    // VideoBuffer::lock requires &mut; SoftwareVideoBuffer stores a Vec we can
-    // only reach through lock. Callers that hold &mut buffer should use
-    // `video_buffer_rgba_mut`.
     let _ = (width, height, byte_len);
     None
 }
@@ -259,28 +340,27 @@ fn convert_r8g8b8(src: &[u8], width: u32, height: u32, pitch: u32) -> Option<Vec
 
 /// C++ `drawVideoBuffer` fullscreen textured quad.
 pub fn blit_video_rgba(width: u32, height: u32, rgba: &[u8], screen_w: u32, screen_h: u32) {
+    let mut pixels = rgba.to_vec();
+    apply_gamma_to_rgba_in_place(&mut pixels);
     let _ = with_ui_renderer_mut(|renderer| {
-        let view = renderer.create_texture_from_rgba(width, height, rgba);
+        let view = renderer.create_texture_from_rgba(width, height, &pixels);
         renderer.draw_textured_rect(
             UIRect::new(0.0, 0.0, screen_w as f32, screen_h as f32),
             view,
             [1.0, 1.0, 1.0, 1.0],
             None,
-            10_000.0,
+            9_500.0,
         );
     });
 }
 
-pub fn draw_copyright_hint(screen_w: u32, screen_h: u32, text: &str) {
+/// C++ `W3DDisplay::draw` copyright: black, `((width-dX)/2, height-dY-20)`.
+pub fn draw_copyright_hint(screen_w: u32, screen_h: u32, text: &str, text_w: f32, text_h: f32) {
+    let x = (screen_w as f32 - text_w) * 0.5;
+    let y = screen_h as f32 - text_h - 20.0;
     let _ = with_ui_renderer_mut(|renderer| {
-        let _ = renderer.draw_text_simple(
-            text,
-            Vec2::new(screen_w as f32 * 0.5 - 120.0, screen_h as f32 - 36.0),
-            14.0,
-            [1.0, 1.0, 1.0, 1.0],
-        );
+        let _ = renderer.draw_text_simple(text, Vec2::new(x, y), text_h.max(12.0), [0.0, 0.0, 0.0, 1.0]);
     });
-    let _ = text;
 }
 
 pub fn copyright_text(handle: &Option<DisplayStringHandle>) -> String {
@@ -343,6 +423,10 @@ pub fn draw_framerate_bar(screen_w: u32, fps: f32, fps_limit: f32) {
     });
 }
 
+/// C++ `W3DDisplay::setGamma` / `DX8Wrapper::Set_Gamma` analog.
+///
+/// Hardware LUT is a wgpu color remap of the last movie/backbuffer sample.
+/// Called from leftover `Display::draw` and host present.
 pub fn apply_gamma_pass(
     encoder: &mut wgpu::CommandEncoder,
     device: &wgpu::Device,
@@ -351,20 +435,425 @@ pub fn apply_gamma_pass(
     width: u32,
     height: u32,
 ) {
-    let state = gamma_state();
-    if (state.gamma - 1.0).abs() < 0.001 && state.bright.abs() < 0.001 && (state.contrast - 1.0).abs() < 0.001
-    {
+    let _ = (encoder, device, format, target, width, height);
+    if gamma_is_identity() {
         return;
     }
-    let _ = (encoder, device, format, target, width, height);
-    // Fullscreen color remap is applied to the UI overlay via `apply_gamma_rgba`
-    // when sampling movie/debug colors. The 3D scene uses the same stored ramp
-    // through `gamma_uniform()` for a dedicated pass when a pipeline exists.
+    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
+        if let Some((_, _, rgba)) = frame.as_mut() {
+            apply_gamma_to_rgba_in_place(rgba);
+        }
+    }
+    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+        if let Some((_, _, rgba)) = frame.as_mut() {
+            apply_gamma_to_rgba_in_place(rgba);
+        }
+    }
 }
 
 pub fn gamma_uniform() -> [f32; 4] {
     let s = gamma_state();
     [s.gamma, s.bright, s.contrast, SHADOW_COLOR_ARGB as f32]
+}
+
+// ---------------------------------------------------------------------------
+// Live-path host present hooks (C++ W3DDisplay::draw / setDisplayMode)
+// ---------------------------------------------------------------------------
+
+pub fn store_movie_frame(width: u32, height: u32, rgba: Vec<u8>) {
+    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
+        *frame = Some((width, height, rgba));
+    }
+}
+
+pub fn current_movie_frame() -> Option<(u32, u32, Vec<u8>)> {
+    LAST_MOVIE_FRAME
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+}
+
+pub fn clear_movie_frame() {
+    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
+        *frame = None;
+    }
+}
+
+/// Host present: C++ `drawVideoBuffer(m_videoBuffer, 0, 0, getWidth(), getHeight())`.
+pub fn present_movie_overlay(screen_w: u32, screen_h: u32) -> bool {
+    let Some((w, h, rgba)) = current_movie_frame() else {
+        return false;
+    };
+    // While a Display movie covers the frame, that buffer *is* the backbuffer.
+    note_presented_frame(w, h, rgba.clone());
+    blit_video_rgba(w, h, &rgba, screen_w, screen_h);
+    true
+}
+
+/// C++ W3DDisplay::draw movie + copyright + letterbox + capture flush.
+pub fn present_host_overlays(
+    screen_w: u32,
+    screen_h: u32,
+    letterbox_fade: f32,
+    letterbox_enabled: bool,
+) {
+    if present_movie_overlay(screen_w, screen_h) {
+        let _ = present_copyright_overlay(screen_w, screen_h);
+    }
+    queue_letterbox_bars(
+        screen_w as f32,
+        screen_h as f32,
+        letterbox_fade,
+        letterbox_enabled,
+    );
+    flush_pending_captures();
+}
+
+pub fn flush_pending_captures() {
+    if is_movie_capture_enabled() {
+        let _ = write_backbuffer_movie_frame();
+    }
+    if let Some(path) = take_pending_screenshot() {
+        if !write_backbuffer_screenshot(&path) {
+            queue_screenshot(path);
+        }
+    }
+}
+
+pub fn queue_screenshot(path: PathBuf) {
+    if let Ok(mut pending) = PENDING_SCREENSHOT.lock() {
+        *pending = Some(path);
+    }
+}
+
+pub fn take_pending_screenshot() -> Option<PathBuf> {
+    PENDING_SCREENSHOT.lock().ok().and_then(|mut g| g.take())
+}
+
+pub fn note_presented_frame(width: u32, height: u32, rgba: Vec<u8>) {
+    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+        *frame = Some((width, height, rgba));
+    }
+}
+
+pub fn current_presented_frame() -> Option<(u32, u32, Vec<u8>)> {
+    LAST_PRESENTED_FRAME
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+}
+
+/// Write a screenshot from the presented backbuffer (never the stale movie buffer
+/// unless that movie is the current fullscreen blit and no backbuffer exists).
+pub fn write_backbuffer_screenshot(path: &std::path::Path) -> bool {
+    if let Some((w, h, mut rgba)) = current_presented_frame() {
+        apply_gamma_to_rgba_in_place(&mut rgba);
+        let bgr = rgba_to_bgr(&rgba, w, h);
+        return write_bmp_bgr(path, w, h, &bgr);
+    }
+    false
+}
+
+pub fn write_backbuffer_movie_frame() -> bool {
+    let path = next_movie_frame_path();
+    write_backbuffer_screenshot(&path)
+}
+
+pub fn set_movie_capture_enabled(enabled: bool) {
+    MOVIE_CAPTURE_ENABLED.store(enabled, Ordering::Relaxed);
+    if enabled {
+        reset_movie_capture_counter();
+    }
+}
+
+pub fn is_movie_capture_enabled() -> bool {
+    MOVIE_CAPTURE_ENABLED.load(Ordering::Relaxed)
+}
+
+pub fn queue_device_mode(mode: PendingDeviceMode) {
+    if let Ok(mut pending) = PENDING_DEVICE_MODE.lock() {
+        *pending = Some(mode);
+    }
+}
+
+pub fn take_pending_device_mode() -> Option<PendingDeviceMode> {
+    PENDING_DEVICE_MODE.lock().ok().and_then(|mut g| g.take())
+}
+
+pub fn peek_pending_device_mode() -> Option<PendingDeviceMode> {
+    PENDING_DEVICE_MODE.lock().ok().and_then(|g| *g)
+}
+
+/// C++ `W3DDisplay::getDisplayModeCount` — 4:3, ≥800×600, ≥24-bit.
+pub fn display_mode_count() -> i32 {
+    STANDARD_4_3_MODES.len() as i32
+}
+
+/// C++ `W3DDisplay::getDisplayModeDescription`.
+pub fn display_mode_description(mode_index: i32) -> Option<(u32, u32, u32)> {
+    let idx = usize::try_from(mode_index).ok()?;
+    let &(w, h) = STANDARD_4_3_MODES.get(idx)?;
+    if w < MIN_DISPLAY_RESOLUTION_X || !is_four_by_three(w, h) {
+        return None;
+    }
+    Some((w, h, 32))
+}
+
+pub fn is_four_by_three(width: u32, height: u32) -> bool {
+    if height == 0 {
+        return false;
+    }
+    let aspect = width as f32 / height as f32;
+    (aspect - 4.0 / 3.0).abs() < 0.03
+}
+
+pub fn is_valid_device_mode(xres: u32, yres: u32, bit_depth: u32) -> bool {
+    xres >= MIN_DISPLAY_RESOLUTION_X && yres >= 600 && bit_depth >= 24 && xres > 0 && yres > 0
+}
+
+pub fn set_letterbox_enabled(enabled: bool) {
+    LETTERBOX_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn letterbox_enabled() -> bool {
+    LETTERBOX_ENABLED.load(Ordering::Relaxed)
+}
+
+/// C++ `W3DDisplay::renderLetterBox` (non-SLIDE): constant 16:9 height, alpha fade.
+/// Fade-out (`!enabled`) draws only the top bar — bottom `drawFillRect` is commented out.
+pub fn letterbox_plan(width: f32, height: f32, fade: f32, enabled: bool) -> LetterboxPlan {
+    let fade = fade.clamp(0.0, 1.0);
+    let bar_height = ((height - (9.0 / 16.0) * width) * 0.5).max(0.0);
+    let visible = fade > 0.0 && bar_height > 0.5;
+    LetterboxPlan {
+        bar_height,
+        color: [0.0, 0.0, 0.0, fade],
+        draw_top: visible,
+        draw_bottom: visible && enabled,
+    }
+}
+
+pub fn queue_letterbox_bars(width: f32, height: f32, fade: f32, enabled: bool) {
+    let plan = letterbox_plan(width, height, fade, enabled);
+    if !plan.draw_top {
+        return;
+    }
+    let _ = with_ui_renderer_mut(|renderer| {
+        renderer.draw_rect(
+            UIRect::new(0.0, 0.0, width, plan.bar_height),
+            plan.color,
+            10_000.0,
+        );
+        if plan.draw_bottom {
+            renderer.draw_rect(
+                UIRect::new(0.0, height - plan.bar_height, width, plan.bar_height),
+                plan.color,
+                10_000.0,
+            );
+        }
+    });
+}
+
+/// Queue a W3D `drawImage` textured mesh (clip + rotate + mode).
+pub fn queue_draw_image_mesh(
+    texture: std::sync::Arc<wgpu::TextureView>,
+    start_x: f32,
+    start_y: f32,
+    end_x: f32,
+    end_y: f32,
+    uv_left: f32,
+    uv_top: f32,
+    uv_right: f32,
+    uv_bottom: f32,
+    color: [f32; 4],
+    mode: DrawImageMode,
+    rotated_90: bool,
+) -> bool {
+    with_ui_renderer_mut(|renderer| {
+        queue_draw_image_mesh_on(
+            renderer,
+            texture,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            uv_left,
+            uv_top,
+            uv_right,
+            uv_bottom,
+            color,
+            mode,
+            rotated_90,
+        )
+    })
+    .unwrap_or(false)
+}
+
+pub fn queue_draw_image_mesh_on(
+    renderer: &mut crate::gui::ui_renderer::UIRenderer,
+    texture: std::sync::Arc<wgpu::TextureView>,
+    start_x: f32,
+    start_y: f32,
+    end_x: f32,
+    end_y: f32,
+    uv_left: f32,
+    uv_top: f32,
+    uv_right: f32,
+    uv_bottom: f32,
+    color: [f32; 4],
+    mode: DrawImageMode,
+    rotated_90: bool,
+) -> bool {
+    let Some((sx0, sy0, sx1, sy1, u0, v0, u1, v1)) = clip_image_quad(
+        start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom, rotated_90,
+    ) else {
+        return false;
+    };
+    let (color, blend) = apply_draw_image_color(color, mode);
+    if rotated_90 {
+        let verts = rotated_90_vertices(sx0, sy0, sx1, sy1, u0, v0, u1, v1);
+        let positions: Vec<[f32; 2]> = verts.iter().map(|(p, _)| *p).collect();
+        let uvs: Vec<[f32; 2]> = verts.iter().map(|(_, uv)| *uv).collect();
+        renderer.draw_textured_mesh(
+            &positions,
+            &uvs,
+            &[0, 1, 2, 3, 4, 5],
+            texture,
+            color,
+            blend,
+            0.0,
+        );
+    } else {
+        renderer.draw_textured_rect_ex(
+            UIRect::new(sx0, sy0, sx1 - sx0, sy1 - sy0),
+            texture,
+            color,
+            Some(UIRect::new(u0, v0, u1 - u0, v1 - v0)),
+            blend,
+            0.0,
+        );
+    }
+    true
+}
+
+/// C++ `W3DDisplay::drawImage` clip remap (normal or `IMAGE_STATUS_ROTATED_90_CLOCKWISE`).
+pub fn clip_image_quad(
+    start_x: f32,
+    start_y: f32,
+    end_x: f32,
+    end_y: f32,
+    uv_left: f32,
+    uv_top: f32,
+    uv_right: f32,
+    uv_bottom: f32,
+    rotated_90: bool,
+) -> Option<(f32, f32, f32, f32, f32, f32, f32, f32)> {
+    let Some([clip_lo_x, clip_lo_y, clip_hi_x, clip_hi_y]) = clip_region() else {
+        return Some((start_x, start_y, end_x, end_y, uv_left, uv_top, uv_right, uv_bottom));
+    };
+    if end_x <= clip_lo_x || end_y <= clip_lo_y {
+        return None;
+    }
+    let screen_w = end_x - start_x;
+    let screen_h = end_y - start_y;
+    if screen_w.abs() < 0.001 || screen_h.abs() < 0.001 {
+        return None;
+    }
+    let clipped_left = start_x.max(clip_lo_x);
+    let clipped_right = end_x.min(clip_hi_x);
+    let clipped_top = start_y.max(clip_lo_y);
+    let clipped_bottom = end_y.min(clip_hi_y);
+    if clipped_right <= clipped_left || clipped_bottom <= clipped_top {
+        return None;
+    }
+    let uv_w = uv_right - uv_left;
+    let uv_h = uv_bottom - uv_top;
+    let (cu_l, cu_t, cu_r, cu_b) = if rotated_90 {
+        let p_left = (clipped_left - start_x) / screen_w;
+        let p_right = (clipped_right - start_x) / screen_w;
+        let p_top = (clipped_top - start_y) / screen_h;
+        let p_bottom = (clipped_bottom - start_y) / screen_h;
+        let uv_top_c = uv_top + uv_h * p_left;
+        let uv_bottom_c = uv_top + uv_h * p_right;
+        let uv_right_c = uv_right - uv_w * p_top;
+        let uv_left_c = uv_right - uv_w * p_bottom;
+        (uv_left_c, uv_top_c, uv_right_c, uv_bottom_c)
+    } else {
+        let p_left = (clipped_left - start_x) / screen_w;
+        let p_right = (clipped_right - start_x) / screen_w;
+        let p_top = (clipped_top - start_y) / screen_h;
+        let p_bottom = (clipped_bottom - start_y) / screen_h;
+        (
+            uv_left + uv_w * p_left,
+            uv_top + uv_h * p_top,
+            uv_left + uv_w * p_right,
+            uv_top + uv_h * p_bottom,
+        )
+    };
+    Some((
+        clipped_left,
+        clipped_top,
+        clipped_right,
+        clipped_bottom,
+        cu_l,
+        cu_t,
+        cu_r,
+        cu_b,
+    ))
+}
+
+/// C++ `W3DDisplay::drawImage` two-tri UV swap for `IMAGE_STATUS_ROTATED_90_CLOCKWISE`.
+pub fn rotated_90_vertices(
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    uv_left: f32,
+    uv_top: f32,
+    uv_right: f32,
+    uv_bottom: f32,
+) -> [([f32; 2], [f32; 2]); 6] {
+    [
+        ([left, top], [uv_right, uv_top]),
+        ([left, bottom], [uv_left, uv_top]),
+        ([right, top], [uv_right, uv_bottom]),
+        ([right, bottom], [uv_left, uv_bottom]),
+        ([right, top], [uv_right, uv_bottom]),
+        ([left, bottom], [uv_left, uv_top]),
+    ]
+}
+
+pub fn color_u32_to_rgba(color: u32) -> [f32; 4] {
+    let a = ((color >> 24) & 0xff) as f32 / 255.0;
+    let r = ((color >> 16) & 0xff) as f32 / 255.0;
+    let g = ((color >> 8) & 0xff) as f32 / 255.0;
+    let b = (color & 0xff) as f32 / 255.0;
+    [r, g, b, a]
+}
+
+pub fn apply_draw_image_color(color: [f32; 4], mode: DrawImageMode) -> ([f32; 4], UIBlendMode) {
+    match mode {
+        DrawImageMode::Alpha => (color, UIBlendMode::Alpha),
+        DrawImageMode::Additive => (color, UIBlendMode::Additive),
+        DrawImageMode::Solid => ([color[0], color[1], color[2], 1.0], UIBlendMode::None),
+        DrawImageMode::Grayscale => {
+            let gray = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2];
+            ([gray, gray, gray, color[3]], UIBlendMode::Grayscale)
+        }
+    }
+}
+
+
+/// C++ `W3DDisplay::setGamma` windowed early-out analog for host present.
+pub fn present_gamma_if_fullscreen(windowed: bool, screen_w: u32, screen_h: u32) {
+    if windowed || gamma_is_identity() {
+        return;
+    }
+    let _ = (screen_w, screen_h);
+    if let Some((w, h, mut rgba)) = current_movie_frame() {
+        apply_gamma_to_rgba_in_place(&mut rgba);
+        store_movie_frame(w, h, rgba);
+    }
 }
 
 #[cfg(test)]
@@ -389,5 +878,75 @@ mod tests {
         let bytes = std::fs::read(&path).unwrap();
         assert_eq!(&bytes[0..2], b"BM");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn letterbox_fade_out_drops_bottom_bar() {
+        // C++ W3DDisplay.cpp:2021-2022 — bottom drawFillRect commented out while fading out.
+        let fade_in = letterbox_plan(1920.0, 1080.0, 0.5, true);
+        assert!(fade_in.draw_top && fade_in.draw_bottom);
+        assert!((fade_in.bar_height - ((1080.0 - 9.0 / 16.0 * 1920.0) * 0.5)).abs() < 0.01);
+        let fade_out = letterbox_plan(1920.0, 1080.0, 0.5, false);
+        assert!(fade_out.draw_top && !fade_out.draw_bottom);
+        assert!((fade_out.bar_height - fade_in.bar_height).abs() < 0.01);
+    }
+
+    #[test]
+    fn display_modes_are_four_by_three() {
+        assert!(display_mode_count() > 0);
+        for i in 0..display_mode_count() {
+            let (w, h, depth) = display_mode_description(i).expect("mode");
+            assert!(is_four_by_three(w, h));
+            assert!(w >= 800 && depth >= 24);
+        }
+        assert!(!is_valid_device_mode(0, 0, 32));
+        assert!(is_valid_device_mode(800, 600, 32));
+    }
+
+    #[test]
+    fn clip_image_quad_remaps_uv() {
+        enable_clipping(true);
+        set_clip_region(10.0, 10.0, 50.0, 50.0);
+        let clipped = clip_image_quad(0.0, 0.0, 100.0, 100.0, 0.0, 0.0, 1.0, 1.0, false)
+            .expect("visible");
+        assert!((clipped.0 - 10.0).abs() < 0.01);
+        assert!((clipped.4 - 0.1).abs() < 0.01);
+        enable_clipping(false);
+    }
+
+    #[test]
+    fn grayscale_mode_desaturates_tint() {
+        let (c, blend) = apply_draw_image_color([1.0, 0.0, 0.0, 1.0], DrawImageMode::Grayscale);
+        assert!((c[0] - c[1]).abs() < 0.001 && (c[1] - c[2]).abs() < 0.001);
+        assert_eq!(blend, UIBlendMode::Grayscale);
+        let (_, add) = apply_draw_image_color([1.0, 1.0, 1.0, 0.5], DrawImageMode::Additive);
+        assert_eq!(add, UIBlendMode::Additive);
+    }
+
+    #[test]
+    fn screenshot_does_not_use_stale_movie_without_backbuffer() {
+        clear_movie_frame();
+        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+            *frame = None;
+        }
+        let path = std::env::temp_dir().join("sshot_no_backbuffer.bmp");
+        assert!(!write_backbuffer_screenshot(&path));
+        note_presented_frame(1, 1, vec![10, 20, 30, 255]);
+        assert!(write_backbuffer_screenshot(&path));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn present_movie_notes_backbuffer_for_screenshot() {
+        clear_movie_frame();
+        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
+            *frame = None;
+        }
+        store_movie_frame(1, 1, vec![255, 0, 0, 255]);
+        assert!(present_movie_overlay(8, 8));
+        let path = std::env::temp_dir().join("sshot_movie_as_backbuffer.bmp");
+        assert!(write_backbuffer_screenshot(&path));
+        let _ = std::fs::remove_file(path);
+        clear_movie_frame();
     }
 }
