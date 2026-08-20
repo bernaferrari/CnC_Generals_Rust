@@ -1053,8 +1053,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                        plan.death_type,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -1958,6 +1962,13 @@ impl GameLogic {
         use crate::game_logic::host_bunker_buster::{
             kill_garrisoned_count, BUNKER_BUSTER_OCCUPANT_DAMAGE,
         };
+
+        let immune = self.objects.get(&target_id).is_some_and(|t| {
+            !t.is_garrison_contain() || t.is_immune_to_clear_building_attacks()
+        });
+        if immune {
+            return 0;
+        }
 
         let occupants = self
             .objects

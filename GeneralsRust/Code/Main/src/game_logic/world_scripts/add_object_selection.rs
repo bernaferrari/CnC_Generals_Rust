@@ -221,6 +221,15 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
+                if self.flight_deck_ai_do_command(
+                    object_id,
+                    crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
+                    None,
+                    None,
+                ) {
+                    continue;
+                }
+
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
@@ -249,6 +258,15 @@ impl GameLogic {
                 })
                 .collect();
             for &object_id in &selected {
+                if self.flight_deck_ai_do_command(
+                    object_id,
+                    crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,
+                    None,
+                    Some(target_position),
+                ) {
+                    continue;
+                }
+
                 let (is_mobile, can_attack) = self
                     .objects
                     .get(&object_id)

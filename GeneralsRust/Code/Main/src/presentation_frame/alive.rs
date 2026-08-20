@@ -942,22 +942,21 @@ impl PresentationFrame {
         min_z: f32,
         max_z: f32,
     ) -> Vec<ObjectId> {
-        use crate::unit_control::UnitControlSystem;
-        let mut units = Vec::new();
+        let _ = player_team;
+        let mut candidates = Vec::new();
         for o in &self.objects {
-            if o.team != player_team || !UnitControlSystem::presentation_is_drag_selectable(o) {
-                continue;
-            }
             let pos = o.position;
             if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
                 continue;
             }
-            units.push(o.id);
+            if let Some(picked) = self.resolve_box_pick_object(o) {
+                candidates.push(picked);
+            }
         }
-        units
+        self.finalize_box_selection(candidates)
     }
 
-    /// Select friendly units inside the actual screen-space drag rectangle.
+    /// Select units inside the actual screen-space drag rectangle.
     ///
     /// C++ `SelectionTranslator` sends an `IRegion2D` pixel region to
     /// `TacticalView::iterateDrawablesInRegion`; it does not turn the two
@@ -968,6 +967,10 @@ impl PresentationFrame {
     /// radius. The presentation object list remains frozen, while the current
     /// camera matrices only project those frozen positions into the input/UI
     /// coordinate system.
+    ///
+    /// Selection membership follows `SelectionXlat.cpp:628-693` / `761-795`:
+    /// friendlies win; a lone locally-owned building or FireBase container
+    /// can be selected; otherwise exactly one enemy, civilian, or ally.
     pub fn box_select_unit_ids_in_screen_rect(
         &self,
         player_team: crate::game_logic::Team,
@@ -977,8 +980,7 @@ impl PresentationFrame {
         end: Vec2,
         viewport_size: Vec2,
     ) -> Vec<ObjectId> {
-        use crate::unit_control::UnitControlSystem;
-
+        let _ = player_team;
         let viewport_width = viewport_size.x.max(1.0);
         let viewport_height = viewport_size.y.max(1.0);
         let view_projection = projection_matrix * view_matrix;
@@ -990,13 +992,8 @@ impl PresentationFrame {
         let min_y = start.y.min(end.y);
         let max_y = start.y.max(end.y);
 
-        let mut units = Vec::new();
+        let mut candidates = Vec::new();
         for object in &self.objects {
-            if object.team != player_team
-                || !UnitControlSystem::presentation_is_drag_selectable(object)
-            {
-                continue;
-            }
             let Some(screen_position) = project_position_to_screen(
                 view_projection,
                 object.position,
@@ -1012,9 +1009,161 @@ impl PresentationFrame {
             {
                 continue;
             }
-            units.push(object.id);
+            if let Some(picked) = self.resolve_box_pick_object(object) {
+                candidates.push(picked);
+            }
         }
-        units
+        self.finalize_box_selection(candidates)
+    }
+
+    /// C++ `addDrawableToList` + FireBase non-enclosing container prop
+    /// (`SelectionInfo.cpp:336-346`). Occupants that are not independently
+    /// selectable promote their visible container.
+    fn resolve_box_pick_object<'a>(
+        &'a self,
+        object: &'a RenderableObject,
+    ) -> Option<&'a RenderableObject> {
+        use crate::unit_control::UnitControlSystem;
+        if UnitControlSystem::presentation_is_selectable(object) && object.contained_by.is_none() {
+            if self.box_pick_hides_non_local(object) {
+                return None;
+            }
+            return Some(object);
+        }
+        let container_id = object.contained_by?;
+        let container = self.objects.iter().find(|candidate| candidate.id == container_id)?;
+        if !crate::game_logic::host_fire_base::is_fire_base_template(&container.template_name) {
+            return None;
+        }
+        self.resolve_box_pick_object(container)
+    }
+
+    /// C++ `addDrawableToList` fog / undetected-stealth peel for neutrals and enemies.
+    fn box_pick_hides_non_local(&self, object: &RenderableObject) -> bool {
+        if self.is_owned_by_local(object) {
+            return false;
+        }
+        let fogged = matches!(
+            object.drawable_shroud.raw_status,
+            PresentationObjectShroudStatus::Fogged
+                | PresentationObjectShroudStatus::Shrouded
+                | PresentationObjectShroudStatus::InvalidButPreviousValid
+        ) || object.fow_visibility.visibility_alpha < 0.95;
+        let stealthed = object.stealthed && !object.detected;
+        fogged || stealthed
+    }
+
+    fn presentation_is_structure(object: &RenderableObject) -> bool {
+        use crate::game_logic::KindOf;
+        object.is_structure
+            || Self::object_has_kind(object, KindOf::Structure)
+            || object.object_type == PresentationObjectType::Building
+    }
+
+    /// C++ `SelectionXlat.cpp:628-693` then the `761-795` emit filter.
+    fn finalize_box_selection(&self, candidates: Vec<&RenderableObject>) -> Vec<ObjectId> {
+        use crate::game_logic::Team;
+        use crate::unit_control::UnitControlSystem;
+
+        let mut unique: Vec<&RenderableObject> = Vec::new();
+        for candidate in candidates {
+            if unique.iter().any(|existing| existing.id == candidate.id) {
+                continue;
+            }
+            unique.push(candidate);
+        }
+
+        let mut mine = 0u32;
+        let mut mine_buildings = 0u32;
+        let mut enemies = 0u32;
+        let mut civilians = 0u32;
+        let mut friends = 0u32;
+        for object in &unique {
+            if self.is_owned_by_local(object) {
+                mine += 1;
+                if Self::presentation_is_structure(object) {
+                    mine_buildings += 1;
+                }
+            } else if self.is_enemy_of_local(object) {
+                enemies += 1;
+            } else if object.team == Team::Neutral {
+                civilians += 1;
+            } else if self.is_allied_with_local(object) {
+                friends += 1;
+            }
+        }
+
+        let mut select_mine = false;
+        let mut select_mine_buildings = false;
+        let mut select_enemies = false;
+        let mut select_civilians = false;
+        let mut select_friends = false;
+        if mine > 0 {
+            select_mine = true;
+            if mine_buildings == 1 && mine == 1 {
+                select_mine_buildings = true;
+            } else if mine_buildings > 0 {
+                let mut only_one_building_selectable = true;
+                let mut building_id = None;
+                for object in &unique {
+                    if Self::presentation_is_structure(object) {
+                        match building_id {
+                            None => building_id = Some(object.id),
+                            Some(id) if id != object.id => only_one_building_selectable = false,
+                            _ => {}
+                        }
+                    } else if UnitControlSystem::presentation_is_selectable(object) {
+                        only_one_building_selectable = false;
+                    }
+                    if !only_one_building_selectable {
+                        break;
+                    }
+                }
+                if only_one_building_selectable {
+                    select_mine_buildings = true;
+                }
+            }
+        } else if enemies > 0 && civilians > 0 && friends > 0 {
+            return Vec::new();
+        } else if enemies == 1 {
+            select_enemies = true;
+        } else if civilians == 1 {
+            select_civilians = true;
+        } else if friends == 1 {
+            select_friends = true;
+        }
+
+        if !(select_mine || select_enemies || select_civilians || select_friends) {
+            return Vec::new();
+        }
+
+        unique
+            .into_iter()
+            .filter_map(|object| {
+                if object.contained_by.is_some() {
+                    return None;
+                }
+                if select_mine && self.is_owned_by_local(object) {
+                    if !Self::presentation_is_structure(object) || select_mine_buildings {
+                        return Some(object.id);
+                    }
+                    return None;
+                }
+                if select_enemies && self.is_enemy_of_local(object) {
+                    return Some(object.id);
+                }
+                if select_civilians && object.team == Team::Neutral {
+                    return Some(object.id);
+                }
+                if select_friends
+                    && self.is_allied_with_local(object)
+                    && !self.is_owned_by_local(object)
+                {
+                    return Some(object.id);
+                }
+                None
+            })
+            .collect()
     }
 
     /// Structures residual (KindOf::Structure or object_type Building).

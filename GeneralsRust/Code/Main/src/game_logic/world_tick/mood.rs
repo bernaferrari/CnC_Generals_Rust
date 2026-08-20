@@ -366,10 +366,27 @@ impl GameLogic {
         let eligible = self.objects.get(&unit_id).map(|o| {
             let idle = matches!(o.ai_state, AIState::Idle) && !o.status.attacking;
             let attack_moving = matches!(o.ai_state, AIState::AttackMoving) || o.is_attack_path;
-            (idle || attack_moving) && o.target.is_none() && o.is_alive()
+            let disabled_skip = o.status.disabled_paralyzed
+                || o.status.disabled_unmanned
+                || o.status.disabled_emp
+                || o.status.disabled_subdued
+                || o.status.disabled_hacked;
+            (idle || attack_moving) && o.target.is_none() && o.is_alive() && !disabled_skip
         })?;
         if !eligible {
             return None;
+        }
+        // C++ AIIdleState::update: MAA_Affect_Range_IgnoreAll (Sleep) does not acquire.
+        {
+            use mood_action_adjust::*;
+            let adj = self.get_mood_matrix_action_adjustment(
+                unit_id,
+                MoodMatrixAction::Idle,
+                is_player_controlled,
+            );
+            if (adj & AFFECT_RANGE_IGNORE_ALL) != 0 {
+                return None;
+            }
         }
         if !self.mood_allows_attack(unit_id, is_player_controlled) {
             return None;

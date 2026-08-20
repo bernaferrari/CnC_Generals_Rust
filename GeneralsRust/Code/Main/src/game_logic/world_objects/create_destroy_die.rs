@@ -3,6 +3,16 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+/// Compact live-host peel of C++ `SpawnBehaviorModuleData` for Tunnel / Stinger.
+#[derive(Clone, Debug)]
+struct HostSpawnBehaviorSpec {
+    spawn_template: String,
+    spawn_number: u32,
+    one_shot: bool,
+    spawned_require_spawner: bool,
+}
+
+
 impl GameLogic {
     /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
     /// ordinary authored exit path before asking `SupplyTruckAIUpdate` to
@@ -223,6 +233,488 @@ impl GameLogic {
         Some(spawned_id)
     }
 
+    /// C++ `SpawnBehavior::shouldTryToSpawn` (SpawnBehavior.cpp:802-823).
+    fn spawn_behavior_should_try(obj: &Object, one_shot: bool) -> bool {
+        if !obj.is_alive() {
+            return false;
+        }
+        if obj.status.reconstructing && one_shot {
+            return false;
+        }
+        if obj.status.under_construction || obj.status.sold {
+            return false;
+        }
+        if obj.team == Team::Neutral {
+            return false;
+        }
+        true
+    }
+
+    fn is_stinger_soldier_template(name: &str) -> bool {
+        let n = name.to_ascii_lowercase();
+        (n.contains("stingersoldier") || n.contains("stinger_soldier"))
+            && !crate::game_logic::host_base_defense::is_stinger_site_structure(name)
+    }
+
+    fn resolve_host_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
+        if let Some(spec) = Self::authored_spawn_behavior_spec(template_name) {
+            return Some(spec);
+        }
+        Self::fallback_spawn_behavior_spec(template_name)
+    }
+
+    fn authored_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
+        let manager_arc = get_asset_manager()?;
+        let manager = manager_arc.lock().ok()?;
+        let definition = manager.resolve_object_definition(template_name, None)?;
+        definition.behavior_modules.iter().find_map(|module| {
+            if !module.class_name.eq_ignore_ascii_case("SpawnBehavior") {
+                return None;
+            }
+            let spawn_template = module
+                .attribute("SpawnTemplateName")?
+                .trim()
+                .to_string();
+            if spawn_template.is_empty() {
+                return None;
+            }
+            let spawn_number = module
+                .attribute("SpawnNumber")
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                .filter(|n| *n > 0)?;
+            let one_shot = module.attribute("OneShot").is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "yes" | "true" | "1"
+                )
+            });
+            let spawned_require_spawner =
+                module
+                    .attribute("SpawnedRequireSpawner")
+                    .is_some_and(|value| {
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "yes" | "true" | "1"
+                        )
+                    });
+            Some(HostSpawnBehaviorSpec {
+                spawn_template,
+                spawn_number,
+                one_shot,
+                spawned_require_spawner,
+            })
+        })
+    }
+
+    fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
+        use crate::game_logic::host_tunnel_network::{
+            general_prefixed_spawn_template, tunnel_network_has_oneshot_spawn,
+            tunnel_network_spawn_template_for, TUNNEL_NETWORK_SPAWN_NUMBER,
+        };
+        if tunnel_network_has_oneshot_spawn(template_name) {
+            return Some(HostSpawnBehaviorSpec {
+                spawn_template: tunnel_network_spawn_template_for(template_name),
+                spawn_number: TUNNEL_NETWORK_SPAWN_NUMBER,
+                one_shot: true,
+                spawned_require_spawner: false,
+            });
+        }
+        if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
+            return Some(HostSpawnBehaviorSpec {
+                spawn_template: general_prefixed_spawn_template(
+                    template_name,
+                    crate::game_logic::host_base_defense::STINGER_SPAWN_TEMPLATE,
+                ),
+                spawn_number: crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER,
+                one_shot: false,
+                spawned_require_spawner: true,
+            });
+        }
+        None
+    }
+
+    fn ensure_spawn_behavior_unit_template(&mut self, spawn_template: &str) -> bool {
+        if self
+            .templates
+            .get(spawn_template)
+            .is_some_and(|template| template.is_kind_of(KindOf::Infantry))
+        {
+            return true;
+        }
+        if self.ensure_host_spawn_template(spawn_template)
+            && self
+                .templates
+                .get(spawn_template)
+                .is_some_and(|template| template.is_kind_of(KindOf::Infantry))
+        {
+            return true;
+        }
+        const FALLBACKS: &[&str] = &[
+            "GLAInfantryTunnelDefender",
+            "GLA_RPGTrooper",
+            "GLAInfantryStingerSoldier",
+        ];
+        for name in FALLBACKS {
+            if let Some(mut template) = self.templates.get(*name).cloned() {
+                if !template.is_kind_of(KindOf::Infantry) {
+                    continue;
+                }
+                template.name = spawn_template.to_string();
+                template.display_name = spawn_template.to_string();
+                self.templates.insert(spawn_template.to_string(), template);
+                return true;
+            }
+        }
+        let mut seeded = ThingTemplate::new(spawn_template);
+        seeded
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(100.0)
+            .set_cost(100, 0);
+        let lower = spawn_template.to_ascii_lowercase();
+        if lower.contains("stinger") {
+            seeded.set_primary_weapon_name(
+                crate::game_logic::weapon_bootstrap::STINGER_PRIMARY_WEAPON,
+            );
+        } else {
+            seeded.set_primary_weapon_name(
+                crate::game_logic::weapon_bootstrap::TUNNEL_DEFENDER_ROCKET_WEAPON,
+            );
+        }
+        self.templates.insert(spawn_template.to_string(), seeded);
+        true
+    }
+
+    fn create_spawn_behavior_child(
+        &mut self,
+        parent_id: ObjectId,
+        spawn_template: &str,
+        position: Vec3,
+        orientation: f32,
+    ) -> Option<ObjectId> {
+        if !self.ensure_spawn_behavior_unit_template(spawn_template) {
+            return None;
+        }
+        let (team, owner) = {
+            let parent = self.host_object(parent_id)?;
+            (parent.team, parent.owner_player_id)
+        };
+        let spawned_id = match owner {
+            Some(player_id) => {
+                self.create_object_for_player(spawn_template, player_id, position)
+            }
+            None => self.create_object(spawn_template, team, position),
+        }?;
+        if let Some(spawned) = self.host_object_mut(spawned_id) {
+            spawned.producer_id = Some(parent_id);
+            spawned.set_orientation(orientation);
+        }
+        Some(spawned_id)
+    }
+
+    fn count_spawn_behavior_children(
+        &self,
+        parent_id: ObjectId,
+        spawn_template: &str,
+        live_only: bool,
+    ) -> u32 {
+        self.objects
+            .values()
+            .filter(|object| {
+                object.producer_id == Some(parent_id)
+                    && (object.template_name.eq_ignore_ascii_case(spawn_template)
+                        || (Self::is_stinger_soldier_template(&object.template_name)
+                            && Self::is_stinger_soldier_template(spawn_template)))
+                    && (!live_only
+                        || (object.is_alive()
+                            && !object.status.destroyed
+                            && !object.status.effectively_dead))
+            })
+            .count() as u32
+    }
+
+    /// C++ `SpawnBehavior::update` first-init + `createSpawn` for Tunnel Network
+    /// OneShot RPG troopers and Stinger Site world soldiers.
+    pub(crate) fn apply_spawn_behavior_on_build_complete(&mut self, object_id: ObjectId) {
+        let Some(template_name) = self
+            .host_object(object_id)
+            .map(|object| object.template_name.clone())
+        else {
+            return;
+        };
+        if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&template_name) {
+            return;
+        }
+        let is_supply = self.host_object(object_id).is_some_and(|object| {
+            object.is_kind_of(KindOf::SupplyCenter) || object.is_kind_of(KindOf::FSSupplyCenter)
+        });
+        if is_supply {
+            return;
+        }
+        let Some(spec) = Self::resolve_host_spawn_behavior_spec(&template_name) else {
+            return;
+        };
+        let Some(object) = self.host_object(object_id) else {
+            return;
+        };
+        if !Self::spawn_behavior_should_try(object, spec.one_shot) {
+            if spec.one_shot && object.status.reconstructing {
+                self.tunnel_network.mark_oneshot_spawn_fired(object_id);
+            }
+            return;
+        }
+        if spec.one_shot {
+            self.spawn_oneshot_spawn_behavior(object_id, &spec);
+        } else {
+            self.spawn_missing_hive_world_soldiers(object_id, &spec);
+        }
+    }
+
+    fn spawn_oneshot_spawn_behavior(&mut self, parent_id: ObjectId, spec: &HostSpawnBehaviorSpec) {
+        if self.tunnel_network.oneshot_spawn_fired(parent_id) {
+            return;
+        }
+        let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
+        if have >= spec.spawn_number {
+            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
+            return;
+        }
+        let (position, orientation, forward) = {
+            let Some(parent) = self.host_object(parent_id) else {
+                return;
+            };
+            (
+                parent.get_position(),
+                parent.get_orientation(),
+                parent.thing.get_direction_vector(),
+            )
+        };
+        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        let mut created = 0u32;
+        for slot in have..spec.spawn_number {
+            let lateral = (slot as f32) - (spec.spawn_number as f32 - 1.0) * 0.5;
+            let spawn_pos = position + forward * 8.0 + right * lateral * 6.0;
+            if self
+                .create_spawn_behavior_child(
+                    parent_id,
+                    &spec.spawn_template,
+                    spawn_pos,
+                    orientation,
+                )
+                .is_some()
+            {
+                created = created.saturating_add(1);
+            }
+        }
+        let now = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
+        if now >= spec.spawn_number || created > 0 {
+            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
+        }
+    }
+
+    fn spawn_missing_hive_world_soldiers(
+        &mut self,
+        parent_id: ObjectId,
+        spec: &HostSpawnBehaviorSpec,
+    ) {
+        use crate::game_logic::host_base_defense::{
+            stinger_spawn_point_facings, stinger_spawn_point_offsets,
+        };
+        let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
+        if have >= spec.spawn_number {
+            return;
+        }
+        let (position, residual_alive) = {
+            let Some(parent) = self.host_object(parent_id) else {
+                return;
+            };
+            (
+                parent.get_position(),
+                parent.hive_slaves.map(|slot| slot.alive),
+            )
+        };
+        let offs = stinger_spawn_point_offsets();
+        let facings = stinger_spawn_point_facings();
+        let slots = spec.spawn_number.min(3) as usize;
+        let existing: Vec<Vec3> = self
+            .objects
+            .values()
+            .filter(|object| {
+                object.producer_id == Some(parent_id)
+                    && Self::is_stinger_soldier_template(&object.template_name)
+                    && object.is_alive()
+                    && !object.status.destroyed
+                    && !object.status.effectively_dead
+            })
+            .map(|object| object.get_position())
+            .collect();
+        for slot in 0..slots {
+            if !residual_alive.get(slot).copied().unwrap_or(true) {
+                continue;
+            }
+            let spawn_pos = Vec3::new(
+                position.x + offs[slot].0,
+                position.y,
+                position.z + offs[slot].1,
+            );
+            let occupied = existing.iter().any(|pos| {
+                let dx = pos.x - spawn_pos.x;
+                let dz = pos.z - spawn_pos.z;
+                dx * dx + dz * dz < 4.0
+            });
+            if occupied {
+                continue;
+            }
+            let _ = self.create_spawn_behavior_child(
+                parent_id,
+                &spec.spawn_template,
+                spawn_pos,
+                facings[slot].to_radians(),
+            );
+        }
+    }
+
+    /// Sync Stinger residual roster with world soldiers and fill due replacements.
+    pub(crate) fn update_stinger_hive_world_soldiers(&mut self) {
+        use crate::game_logic::host_base_defense::{
+            count_alive_hive_slaves, is_stinger_site_structure, next_stinger_slave_respawn_frame,
+            sync_hive_slave_mirrors, STINGER_SPAWN_NUMBER,
+        };
+        let frame = self.frame;
+        let sites: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                if is_stinger_site_structure(&object.template_name) && object.is_alive() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for site_id in sites {
+            let Some(spec) = self
+                .host_object(site_id)
+                .and_then(|object| Self::resolve_host_spawn_behavior_spec(&object.template_name))
+            else {
+                continue;
+            };
+            if spec.one_shot {
+                continue;
+            }
+            let soldiers: Vec<(ObjectId, Vec3, bool)> = self
+                .objects
+                .iter()
+                .filter_map(|(id, object)| {
+                    if object.producer_id == Some(site_id)
+                        && Self::is_stinger_soldier_template(&object.template_name)
+                    {
+                        Some((
+                            *id,
+                            object.get_position(),
+                            object.is_alive()
+                                && !object.status.destroyed
+                                && !object.status.effectively_dead,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let (site_pos, mut slaves) = {
+                let Some(site) = self.host_object(site_id) else {
+                    continue;
+                };
+                (site.get_position(), site.hive_slaves)
+            };
+            let mut residual_changed = false;
+            for (slot, slave) in slaves.iter_mut().enumerate() {
+                let (sx, sz) = slave.world_xz(site_pos.x, site_pos.z);
+                let matching = soldiers.iter().find(|(_, pos, _)| {
+                    let dx = pos.x - sx;
+                    let dz = pos.z - sz;
+                    dx * dx + dz * dz < 36.0
+                });
+                match matching {
+                    Some((sid, _, false)) if slave.alive => {
+                        slave.alive = false;
+                        slave.hp = 0.0;
+                        residual_changed = true;
+                        let _ = sid;
+                    }
+                    None if slave.alive && soldiers.iter().all(|(_, _, live)| !live) => {}
+                    Some((_, _, true)) if !slave.alive => {}
+                    None if slave.alive => {
+                        // Residual slot is alive but no world soldier occupies it —
+                        // spawn below. Keep residual.
+                    }
+                    _ => {}
+                }
+            }
+            if residual_changed {
+                if let Some(site) = self.host_object_mut(site_id) {
+                    site.hive_slaves = slaves;
+                    let (count, hp) = sync_hive_slave_mirrors(&site.hive_slaves);
+                    site.hive_slave_count = count;
+                    site.hive_slave_hp = hp;
+                    if count < STINGER_SPAWN_NUMBER as u8 && site.hive_slave_respawn_frame == 0 {
+                        site.hive_slave_respawn_frame =
+                            next_stinger_slave_respawn_frame(frame, 0);
+                    }
+                    site.record_host_hive();
+                }
+            }
+            let _ = count_alive_hive_slaves;
+            if self
+                .host_object(site_id)
+                .is_some_and(|site| Self::spawn_behavior_should_try(site, false))
+            {
+                self.spawn_missing_hive_world_soldiers(site_id, &spec);
+            }
+        }
+    }
+
+    /// C++ `SpawnBehavior::onDie` / `onDelete` SpawnedRequireSpawner kill.
+    pub(crate) fn apply_spawned_require_spawner_on_die(&mut self, parent_id: ObjectId) {
+        let Some(template_name) = self
+            .host_object(parent_id)
+            .map(|object| object.template_name.clone())
+        else {
+            return;
+        };
+        let Some(spec) = Self::resolve_host_spawn_behavior_spec(&template_name) else {
+            return;
+        };
+        if !spec.spawned_require_spawner {
+            return;
+        }
+        let victims: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, object)| {
+                if object.producer_id == Some(parent_id)
+                    && (object.template_name.eq_ignore_ascii_case(&spec.spawn_template)
+                        || Self::is_stinger_soldier_template(&object.template_name))
+                    && object.is_alive()
+                    && !object.status.effectively_dead
+                {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for victim in victims {
+            if let Some(object) = self.host_object_mut(victim) {
+                object.health.current = 0.0;
+                object.status.effectively_dead = true;
+            }
+            self.mark_object_for_destruction(victim, None);
+        }
+    }
+
+
     /// Create a new object for an unambiguous faction owner.  Callers that
     /// know the controlling player (map records, commands, and producers)
     /// must use `create_object_for_player` instead.
@@ -255,7 +747,7 @@ impl GameLogic {
     /// otherwise retain the legacy faction-only creation behavior.  This is a
     /// small boundary helper for systems whose old payloads carried `Team`
     /// while newer producer/map paths also carry the controlling player.
-    pub(in super::super) fn create_object_for_owner_or_team(
+    pub(crate) fn create_object_for_owner_or_team(
         &mut self,
         template_name: &str,
         team: Team,
@@ -816,13 +1308,14 @@ impl GameLogic {
                 object.record_host_stealth_flags();
             }
 
-            // C++ StealthUpdate InnateStealth=Yes on Burton / Kell / Lotus /
-            // Saboteur / Hijacker. Pathfinder already cloaks above; heroes
-            // were spawning permanently visible.
+            // C++ StealthUpdate.cpp:111 ctor: m_stealthAllowedFrame = now + StealthDelay.
+            // InnateStealth only sets OBJECT_STATUS_CAN_STEALTH (line 135), not STEALTHED.
+            // Heroes wait StealthDelay (Burton/Kell 60f, Lotus/Saboteur/Hijacker 75f).
             {
                 use crate::game_logic::host_colonel_burton::is_colonel_burton_template;
                 use crate::game_logic::host_hero_abilities::is_black_lotus_template;
                 use crate::game_logic::host_jarmen_kell::is_jarmen_kell_template;
+                use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
                 let n = template_name.to_ascii_lowercase();
                 let is_hero_stealth = is_colonel_burton_template(template_name)
                     || is_jarmen_kell_template(template_name)
@@ -830,11 +1323,16 @@ impl GameLogic {
                     || n.contains("saboteur")
                     || n.contains("hijacker");
                 if is_hero_stealth {
-                    object.set_status_stealthed(true);
                     object.innate_stealth = true;
                     object.stealth_breaks_on_attack = true;
                     object.stealth_breaks_on_move = false;
+                    object.stealth_delay_frames =
+                        hero_stealth_delay_frames_residual(template_name);
+                    object.stealth_allowed_frame =
+                        self.frame.saturating_add(object.stealth_delay_frames);
+                    object.stealth_delay_pending = false;
                     object.record_host_stealth_flags();
+                    object.record_host_stealth_delay();
                 }
             }
 
@@ -2003,10 +2501,24 @@ impl GameLogic {
         self.maybe_apply_dam_die(id);
         // Wave 754: C++ EjectPilotDie::onDie at death start (before SlowDeath defer).
         self.maybe_apply_eject_pilot_die(id);
+        // C++ SpawnBehavior::onDie SpawnedRequireSpawner — kill remaining slaves.
+        self.apply_spawned_require_spawner_on_die(id);
         // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
         let _ = self.apply_ocl_random_force(id);
-        // C++ UpgradeDie::onDie residual — free producer's upgrade slot.
         self.maybe_apply_upgrade_die(id);
+        // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
+        if self.try_apply_instant_death(id) {
+            self.objects_to_destroy
+                .push_back(DestructionEvent { id, killer });
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.status.destroyed = true;
+            }
+            let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.fire_crush_die();
+        }
         // Wave 482: BuildAssistant sell finish removes the object immediately.
         // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —
         // those combat-death peels left sold structures alive forever in host-only tests.
@@ -2031,12 +2543,51 @@ impl GameLogic {
                 return;
             }
         }
+        self.apply_pending_create_object_die(id);
         self.objects_to_destroy
             .push_back(DestructionEvent { id, killer });
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.destroyed = true;
         }
         let _ = crate::gameworld_shadow::eager_mark_host_destroy_if_coupled(id);
+    }
+
+    /// C++ InstantDeathBehavior::onDie residual.
+    pub(in super::super) fn try_apply_instant_death(&mut self, id: ObjectId) -> bool {
+        let extra_owned = {
+            let Some(obj) = self.objects.get(&id) else {
+                return false;
+            };
+            obj.owner_player_id
+                .and_then(|pid| self.players.get(&pid))
+                .map(|p| p.completed_upgrades.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        let fired = {
+            let Some(obj) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            if !obj.fire_instant_death() {
+                false
+            } else {
+                if !extra_owned.is_empty() {
+                    let _ = extra_owned;
+                }
+                true
+            }
+        };
+        if !fired {
+            return false;
+        }
+        self.apply_pending_create_object_die(id);
+        if let Some(wpn) = self
+            .objects
+            .get_mut(&id)
+            .and_then(|o| o.pending_instant_death_weapon.take())
+        {
+            let _ = self.apply_fire_weapon_when_damaged_named(id, &wpn);
+        }
+        true
     }
 
     /// C++ KeepObjectDie residual: convert to lasting rubble, skip remove.
@@ -2170,22 +2721,26 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
-        // Jet crash residual.
-        if obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false) {
-            return false;
-        }
-        if obj
-            .jet_slow_death
-            .as_ref()
-            .map(|j| j.is_active())
-            .unwrap_or(false)
-        {
+        // Jet crash residual. Ground/deck explode must not fall through to heli/slow.
+        let is_jet = crate::game_logic::host_jet_slow_death::is_jet_slow_death_template(
+            &obj.template_name,
+        ) || obj.jet_slow_death.is_some();
+        if is_jet {
+            if obj.jet_slow_death.as_ref().map(|j| j.done).unwrap_or(false) {
+                return false;
+            }
+            if obj
+                .jet_slow_death
+                .as_ref()
+                .map(|j| j.is_active())
+                .unwrap_or(false)
+            {
+                let _ = killer;
+                return true;
+            }
+            let deferred = obj.begin_jet_slow_death();
             let _ = killer;
-            return true;
-        }
-        if obj.begin_jet_slow_death() {
-            let _ = killer;
-            return true;
+            return deferred;
         }
         // Helicopter spiral crash residual.
         if obj
@@ -2228,9 +2783,6 @@ impl GameLogic {
             let _ = killer;
             return true;
         }
-        // C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-501) runs only
-        // when the object has that Die module. Timing is INI SinkDelay/SinkRate/
-        // DestructionDelay (beginSlowDeath :238-239), not KindOf infantry/vehicle.
         if obj.begin_slow_death(frame) {
             let _ = killer;
             return true;
@@ -2284,33 +2836,7 @@ impl GameLogic {
                     crate::game_logic::combat::DamageType::Unresistable,
                     crate::game_logic::host_usa_pilot::HostDeathType::Crushed,
                 );
-                // Fail-closed lethal finish: crush sweep leaves no standing unit residual.
-                // Wave 746: under damage authority, do not zero host HP (dual with GW
-                // HP writeback). Project lethal via damage log + destroyed flags;
-                // non-authority path keeps host HP clear.
-                if !obj.status.destroyed {
-                    if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                        let hp = obj.health.current.max(1.0);
-                        crate::game_logic::host_damage_log::record(id, hp, Some(building_id), true);
-                        obj.status.destroyed = true;
-                        obj.status.effectively_dead = true;
-                        obj.status.death_type =
-                            crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
-                    } else {
-                        // Wave 753: under damage authority, do not zero host HP mid-frame
-                        // (dual with GW HP writeback). Project lethal via damage log + flags.
-                        if crate::gameworld_shadow::gameworld_damage_authority_live() {
-                            let hp = obj.health.current.max(1.0);
-                            let oid = obj.id;
-                            crate::game_logic::host_damage_log::record(oid, hp, None, true);
-                        } else {
-                            obj.health.current = 0.0;
-                        }
-                        obj.status.destroyed = true;
-                        obj.status.effectively_dead = true;
-                        obj.status.death_type =
-                            crate::game_logic::host_usa_pilot::HostDeathType::Crushed;
-                    }
+                if !dead && (obj.status.destroyed || obj.health.current <= 0.0) {
                     dead = true;
                 }
                 dead
@@ -2332,19 +2858,19 @@ impl GameLogic {
         }
     }
 
-    /// C++ FireWeaponWhenDamagedBehavior forceFireWeapon residual at object position.
-
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
     pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
-        let (spawns, transfer_dmg, transfer, team, owner_player_id, pos) = {
+        let (spawns, transfer_dmg, transfer, subdual, source, team, owner_player_id, pos) = {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;
             };
-            let (spawns, dmg, transfer) = o.take_pending_create_object_die_spawns();
+            let (spawns, dmg, transfer, subdual, source) = o.take_pending_create_object_die_spawns();
             (
                 spawns,
                 dmg,
                 transfer,
+                subdual,
+                source,
                 o.team,
                 o.owner_player_id,
                 o.get_position(),
@@ -2353,8 +2879,8 @@ impl GameLogic {
         if spawns.is_empty() {
             return;
         }
+        let mut spawned_ids: Vec<ObjectId> = Vec::new();
         for tmpl in spawns {
-            // CreateDebris disposition residual for GenericDebris peels.
             let tl = tmpl.to_ascii_lowercase();
             if tl.contains("debris") || tl.contains("barrel") {
                 use crate::game_logic::host_ocl_create_debris::HostOclCreateDebrisPlan;
@@ -2378,16 +2904,29 @@ impl GameLogic {
                     inherit,
                     owner_player_id,
                 );
-                if transfer && transfer_dmg > 0.0 {
-                    for id in ids {
-                        if let Some(n) = self.objects.get_mut(&id) {
-                            let _ = n.take_damage(transfer_dmg);
+                if transfer {
+                    for id in &ids {
+                        if let Some(n) = self.objects.get_mut(id) {
+                            if subdual > 0.0 {
+                                let _ = n.take_damage_from_typed(
+                                    subdual,
+                                    None,
+                                    crate::game_logic::combat::DamageType::SubdualUnresistable,
+                                );
+                            }
+                            if transfer_dmg > 0.0 {
+                                let _ = n.take_damage_from_typed(
+                                    transfer_dmg,
+                                    source,
+                                    crate::game_logic::combat::DamageType::Unresistable,
+                                );
+                            }
                         }
                     }
                 }
+                spawned_ids.extend(ids);
                 continue;
             }
-            // Ensure template name exists for residual peels.
             if !self.templates.contains_key(&tmpl) {
                 let mut t = ThingTemplate::new(&tmpl);
                 t.set_health(100.0);
@@ -2403,7 +2942,6 @@ impl GameLogic {
             else {
                 continue;
             };
-            // C++ CreateObject Disposition=LIKE_EXISTING residual: copy pose.
             if let Some(dying) = self.objects.get(&dying_id) {
                 let yaw = dying.get_orientation();
                 if let Some(n) = self.objects.get_mut(&new_id) {
@@ -2411,21 +2949,35 @@ impl GameLogic {
                     n.producer_id = Some(dying_id);
                 }
             }
-            // FuelAir gas SlowDeath + HeightDie residual.
             if let Some(n) = self.objects.get_mut(&new_id) {
                 n.ensure_fuel_air_gas_slow_death(self.frame);
                 if n.fuel_air_gas_slow_death.is_some() {
                     self.fuel_air_gas_reg.record_install();
                 }
             }
-            if transfer && transfer_dmg > 0.0 {
+            if transfer {
                 if let Some(n) = self.objects.get_mut(&new_id) {
-                    let _ = n.take_damage_from_typed(
-                        transfer_dmg,
-                        None,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                    );
+                    if subdual > 0.0 {
+                        let _ = n.take_damage_from_typed(
+                            subdual,
+                            None,
+                            crate::game_logic::combat::DamageType::SubdualUnresistable,
+                        );
+                    }
+                    if transfer_dmg > 0.0 {
+                        let _ = n.take_damage_from_typed(
+                            transfer_dmg,
+                            source,
+                            crate::game_logic::combat::DamageType::Unresistable,
+                        );
+                    }
                 }
+            }
+            spawned_ids.push(new_id);
+        }
+        if transfer {
+            for new_id in spawned_ids {
+                let _ = self.transfer_attack(dying_id, new_id);
             }
         }
     }
@@ -2577,6 +3129,8 @@ impl GameLogic {
                 self.tunnel_network.on_tunnel_created(team, object_id);
             }
         }
+        // C++ SpawnBehavior::update first-init after UNDER_CONSTRUCTION clears.
+        self.apply_spawn_behavior_on_build_complete(object_id);
     }
 
     /// C++ PreorderCreate::onBuildComplete — controlling player only.

@@ -685,6 +685,44 @@ impl CnCGameEngine {
         code
     }
 
+    /// Preview ghost: IGNORE_STEALTHED so unseen stealthed units do not redden.
+    #[inline]
+    pub(super) fn host_legal_build_code_at_for_preview(
+        &mut self,
+        team: crate::game_logic::Team,
+        loc: glam::Vec3,
+        template: &str,
+        builder: Option<crate::game_logic::ObjectId>,
+    ) -> u32 {
+        let frame = self
+            .host_match_logic_frame
+            .or_else(|| self.last_presentation_frame.as_ref().map(|p| p.frame.0))
+            .unwrap_or(0);
+        if self.host_legal_build_cache_frame != Some(frame) {
+            self.host_legal_build_cache_frame = Some(frame);
+            self.host_legal_build_cache.clear();
+        }
+        let qx = (loc.x * 4.0).round() as i32;
+        let qz = (loc.z * 4.0).round() as i32;
+        let th = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            template.hash(&mut h);
+            1u64.hash(&mut h); // preview vs confirm
+            h.finish()
+        };
+        let bid = builder.map(|b| b.0).unwrap_or(0);
+        let key = (team, qx, qz, th, bid);
+        if let Some(code) = self.host_legal_build_cache.get(&key).copied() {
+            return code;
+        }
+        let code = self
+            .game_logic
+            .legal_build_code_at_for_preview(team, loc, template, builder);
+        self.host_legal_build_cache.insert(key, code);
+        code
+    }
+
     /// Wave 583: host legal-build location residual (construct honesty path).
     #[inline]
     pub(super) fn host_is_location_legal_to_build_for_builder(

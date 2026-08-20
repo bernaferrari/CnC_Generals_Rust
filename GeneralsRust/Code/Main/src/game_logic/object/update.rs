@@ -338,10 +338,38 @@ impl Object {
             return;
         }
         self.weapon_crate_upgrade = self.weapon_crate_upgrade.saturating_add(1);
-        self.record_host_ai_request();
-        if let Some(w) = self.weapon.as_mut() {
-            w.damage *= 1.15;
+        self.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_ONE");
+        self.applied_upgrades.remove("WEAPONSET_CRATEUPGRADE_TWO");
+        let tag = if self.weapon_crate_upgrade >= 2 {
+            "WEAPONSET_CRATEUPGRADE_TWO"
+        } else {
+            "WEAPONSET_CRATEUPGRADE_ONE"
+        };
+        self.applied_upgrades.insert(tag.to_string());
+        use crate::game_logic::host_enum_table_residual::{
+            weaponset_crateupgrade_one_model_bit, weaponset_crateupgrade_two_model_bit,
+        };
+        let one = weaponset_crateupgrade_one_model_bit();
+        let two = weaponset_crateupgrade_two_model_bit();
+        self.model_condition_bits &= !(1u128 << one);
+        self.model_condition_bits &= !(1u128 << two);
+        if self.weapon_crate_upgrade >= 2 {
+            self.model_condition_bits |= 1u128 << two;
+        } else {
+            self.model_condition_bits |= 1u128 << one;
         }
+        self.record_host_model_condition();
+        if let Some(wname) = crate::game_logic::host_car_bomb::crateupgrade_primary_weapon(
+            &self.template_name,
+            self.weapon_crate_upgrade,
+        ) {
+            if let Some(weapon) =
+                crate::game_logic::thing::ThingTemplate::weapon_from_store(&wname)
+            {
+                let _ = self.replace_weapon_set_slot(0, Some(weapon));
+            }
+        }
+        self.record_host_ai_request();
     }
 
     /// C++ SalvageCrateCollide::doArmorSet residual.
@@ -350,8 +378,14 @@ impl Object {
             return;
         }
         self.armor_crate_upgrade = self.armor_crate_upgrade.saturating_add(1);
-        // Unread scalar residual (live damage uses ArmorSet, not this).
-        self.thing.template.armor += 10.0;
+        self.applied_upgrades.remove("ARMORSET_CRATEUPGRADE_ONE");
+        self.applied_upgrades.remove("ARMORSET_CRATEUPGRADE_TWO");
+        let tag = if self.armor_crate_upgrade >= 2 {
+            "ARMORSET_CRATEUPGRADE_TWO"
+        } else {
+            "ARMORSET_CRATEUPGRADE_ONE"
+        };
+        self.applied_upgrades.insert(tag.to_string());
         self.validate_armor_and_damage_fx();
         self.record_host_ai_request();
     }

@@ -49,14 +49,19 @@ impl Object {
             ObjectType::Neutral
         };
 
-        // Calculate selection radius based on object type
-        let selection_radius = match object_type {
-            ObjectType::Infantry => 8.0,
-            ObjectType::Vehicle => 15.0,
-            ObjectType::Aircraft => 20.0,
-            ObjectType::Building => 25.0,
-            ObjectType::Neutral => 10.0,
-            _ => 10.0,
+        // C++ Object copies ThingTemplate::m_geometryInfo; pick radius is the
+        // bounding circle (`Geometry.cpp:468-495`), not a KindOf table.
+        let selection_radius = if template.geometry_info.authored {
+            template.geometry_info.bounding_circle_radius()
+        } else {
+            match object_type {
+                ObjectType::Infantry => 8.0,
+                ObjectType::Vehicle => 15.0,
+                ObjectType::Aircraft => 20.0,
+                ObjectType::Building => 25.0,
+                ObjectType::Neutral => 10.0,
+                _ => 10.0,
+            }
         };
 
         let mut building_data = if object_type == ObjectType::Building {
@@ -99,6 +104,26 @@ impl Object {
         };
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
+        let forward_friction = template.forward_friction;
+        let lateral_friction = template.lateral_friction;
+        let z_friction = template.z_friction;
+        let aerodynamic_friction = template.aerodynamic_friction;
+        let center_of_mass_offset = template.center_of_mass_offset;
+        let kill_when_resting_on_ground = template.kill_when_resting_on_ground;
+        let min_fall_speed_for_damage = if template.min_fall_speed_for_damage.is_finite()
+            && template.min_fall_speed_for_damage > 0.0
+        {
+            template.min_fall_speed_for_damage
+        } else {
+            Self::height_to_fall_speed(40.0)
+        };
+        let fall_height_damage_factor = if template.fall_height_damage_factor.is_finite() {
+            template.fall_height_damage_factor
+        } else {
+            1.0
+        };
+        let allow_collide_force = template.allow_collide_force;
+        let allow_bouncing = template.allow_bouncing;
 
         let (mut power_provided, mut power_consumed) = building_data
             .as_ref()
@@ -122,6 +147,8 @@ impl Object {
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let vision_range = template.sight_range.max(0.0);
         let shroud_clearing_range = template.resolved_shroud_clearing_range().max(0.0);
+        let turret = turret_spawn_for_template(&template_name);
+
 
 
         Self {
@@ -132,6 +159,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
+            script_unsellable: false,
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
@@ -140,6 +168,9 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            production_door_phases: [0; 4],
+            production_door_phase_end_frames: [0; 4],
+            production_door_active_index: 0,
             is_rebuild_hole: false,
             rebuild_template_name: None,
             rebuild_ready_frame: 0,
@@ -176,14 +207,17 @@ impl Object {
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
-            shock_allow_bounce: false,
+            shock_allow_bounce: allow_bouncing,
             shock_was_airborne: false,
             shock_grounded_once: false,
             shock_up_z: 1.0,
             locomotor_surfaces: 0,
             cell_is_cliff: false,
             cell_is_underwater: false,
-            kill_when_resting_on_ground: false,
+            kill_when_resting_on_ground,
+            min_fall_speed_for_damage,
+            fall_height_damage_factor,
+            pending_ground_collide: false,
             immune_to_falling_damage: false,
             bounce_land_events: 0,
             last_bounce_fall_dy: 0.0,
@@ -213,6 +247,11 @@ impl Object {
             create_object_die: None,
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
+            create_object_die_transfer_subdual: 0.0,
+            create_object_die_transfer_source: None,
+            pending_instant_death_weapon: None,
+            crush_die: None,
+            previous_health: max_health,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -475,7 +514,7 @@ impl Object {
             physics_previous_overlap: None,
             ignore_collisions_with: None,
             last_collidee: None,
-            allow_collide_force: true,
+            allow_collide_force,
             can_path_through_units: false,
             ignore_collisions_until_frame: 0,
             is_blocked: false,
@@ -492,18 +531,18 @@ impl Object {
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
-            forward_friction: DEFAULT_FORWARD_FRICTION_RESIDUAL,
-            lateral_friction: DEFAULT_LATERAL_FRICTION_RESIDUAL,
-            z_friction: DEFAULT_Z_FRICTION_RESIDUAL,
-            aerodynamic_friction: DEFAULT_AERO_FRICTION_RESIDUAL,
+            forward_friction,
+            lateral_friction,
+            z_friction,
+            aerodynamic_friction,
             extra_friction: 0.0,
             apply_friction_2d_when_airborne: false,
             velocity_magnitude_cache: -1.0,
-            original_allow_bounce: false,
+            original_allow_bounce: allow_bouncing,
             stick_to_ground: false,
             allow_to_fall: false,
             was_airborne_last_frame: false,
-            center_of_mass_offset: 0.0,
+            center_of_mass_offset,
             pitch_roll_yaw_factor,
             is_braking: false,
             braking_factor: 1.0,
@@ -584,6 +623,7 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            hunting: false,
             hijack_vehicle_id: None,
             hijacker_in_vehicle: false,
             hijacker_update_active: false,
@@ -746,8 +786,8 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: default_strategy_center_turret_angle(),
-            turret_pitch_deg: default_strategy_center_turret_pitch(),
+            turret_angle_deg: turret.angle_deg,
+            turret_pitch_deg: turret.pitch_deg,
             turret_idle_scan_next_frame: 0,
             turret_idle_scanning: false,
             turret_idle_scan_desired_angle_deg: 0.0,
@@ -758,17 +798,24 @@ impl Object {
             turret_mood_target: false,
             turret_target_id: None,
             turret_force_attacking: false,
-            turret_enabled: true,
-            turret_turn_rate_rad: default_turret_turn_rate(),
+            turret_enabled: turret.enabled,
+            turret_turn_rate_rad: turret.turn_rate_rad,
             turret_substate: TurretSubState::Idle,
             turret_rotating: false,
-            turret_natural_angle_deg: 0.0,
-            turret_natural_pitch_deg: 0.0,
-            turret_recenter_frames: default_turret_recenter_frames(),
+            turret_natural_angle_deg: turret.natural_angle_deg,
+            turret_natural_pitch_deg: turret.natural_pitch_deg,
+            turret_recenter_frames: turret.recenter_frames,
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
             last_damage_timestamp: None,
+            last_healing_timestamp: None,
+            last_damage_fx_done: None,
+            next_damage_fx_time: 0,
+            last_damage_source_preferred: false,
+            health_box_offset: [0.0, 0.0, 0.0],
+            uses_inactive_body: false,
+            inactive_body_die_called: false,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range,
@@ -802,14 +849,20 @@ impl Object {
         let team = Team::Neutral;
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
-        let selection_radius = match object_type {
-            ObjectType::Infantry => 8.0,
-            ObjectType::Vehicle => 15.0,
-            ObjectType::Aircraft => 20.0,
-            ObjectType::Building => 25.0,
-            ObjectType::Neutral => 10.0,
-            _ => 10.0,
+        let selection_radius = if template.geometry_info.authored {
+            template.geometry_info.bounding_circle_radius()
+        } else {
+            match object_type {
+                ObjectType::Infantry => 8.0,
+                ObjectType::Vehicle => 15.0,
+                ObjectType::Aircraft => 20.0,
+                ObjectType::Building => 25.0,
+                ObjectType::Neutral => 10.0,
+                _ => 10.0,
+            }
         };
+        let turret = turret_spawn_for_template(&template_name);
+
         let pitch_roll_yaw_factor = if template.pitch_roll_yaw_factor.is_finite()
             && template.pitch_roll_yaw_factor > 0.0
         {
@@ -819,6 +872,26 @@ impl Object {
         };
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
+        let forward_friction = template.forward_friction;
+        let lateral_friction = template.lateral_friction;
+        let z_friction = template.z_friction;
+        let aerodynamic_friction = template.aerodynamic_friction;
+        let center_of_mass_offset = template.center_of_mass_offset;
+        let kill_when_resting_on_ground = template.kill_when_resting_on_ground;
+        let min_fall_speed_for_damage = if template.min_fall_speed_for_damage.is_finite()
+            && template.min_fall_speed_for_damage > 0.0
+        {
+            template.min_fall_speed_for_damage
+        } else {
+            Self::height_to_fall_speed(40.0)
+        };
+        let fall_height_damage_factor = if template.fall_height_damage_factor.is_finite() {
+            template.fall_height_damage_factor
+        } else {
+            1.0
+        };
+        let allow_collide_force = template.allow_collide_force;
+        let allow_bouncing = template.allow_bouncing;
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let crusher_level = template.crusher_level;
         let crushable_level = template.crushable_level;
@@ -831,6 +904,7 @@ impl Object {
             name: String::new(),
             status: ObjectStatus::default(),
             object_status_bits: 0,
+            script_unsellable: false,
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
             radar_extend_done_frame: 0,
@@ -839,6 +913,9 @@ impl Object {
             production_door_phase: 0,
             production_door_phase_end_frame: 0,
             production_door_hold_open: false,
+            production_door_phases: [0; 4],
+            production_door_phase_end_frames: [0; 4],
+            production_door_active_index: 0,
             is_rebuild_hole: false,
             rebuild_template_name: None,
             rebuild_ready_frame: 0,
@@ -875,14 +952,17 @@ impl Object {
             shock_yaw_rate: 0.0,
             shock_pitch_rate: 0.0,
             shock_roll_rate: 0.0,
-            shock_allow_bounce: false,
+            shock_allow_bounce: allow_bouncing,
             shock_was_airborne: false,
             shock_grounded_once: false,
             shock_up_z: 1.0,
             locomotor_surfaces: 0,
             cell_is_cliff: false,
             cell_is_underwater: false,
-            kill_when_resting_on_ground: false,
+            kill_when_resting_on_ground,
+            min_fall_speed_for_damage,
+            fall_height_damage_factor,
+            pending_ground_collide: false,
             immune_to_falling_damage: false,
             bounce_land_events: 0,
             last_bounce_fall_dy: 0.0,
@@ -912,6 +992,11 @@ impl Object {
             create_object_die: None,
             pending_create_object_die_spawns: Vec::new(),
             create_object_die_transfer_damage: 0.0,
+            create_object_die_transfer_subdual: 0.0,
+            create_object_die_transfer_source: None,
+            pending_instant_death_weapon: None,
+            crush_die: None,
+            previous_health: 100.0,
             lifetime_update: None,
             slow_death: None,
             height_die: None,
@@ -1174,7 +1259,7 @@ impl Object {
             physics_previous_overlap: None,
             ignore_collisions_with: None,
             last_collidee: None,
-            allow_collide_force: true,
+            allow_collide_force,
             can_path_through_units: false,
             ignore_collisions_until_frame: 0,
             is_blocked: false,
@@ -1191,18 +1276,18 @@ impl Object {
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
-            forward_friction: DEFAULT_FORWARD_FRICTION_RESIDUAL,
-            lateral_friction: DEFAULT_LATERAL_FRICTION_RESIDUAL,
-            z_friction: DEFAULT_Z_FRICTION_RESIDUAL,
-            aerodynamic_friction: DEFAULT_AERO_FRICTION_RESIDUAL,
+            forward_friction,
+            lateral_friction,
+            z_friction,
+            aerodynamic_friction,
             extra_friction: 0.0,
             apply_friction_2d_when_airborne: false,
             velocity_magnitude_cache: -1.0,
-            original_allow_bounce: false,
+            original_allow_bounce: allow_bouncing,
             stick_to_ground: false,
             allow_to_fall: false,
             was_airborne_last_frame: false,
-            center_of_mass_offset: 0.0,
+            center_of_mass_offset,
             pitch_roll_yaw_factor,
             is_braking: false,
             braking_factor: 1.0,
@@ -1283,6 +1368,7 @@ impl Object {
             guard_retaliate_victim: None,
             guard_retaliate_anchor: None,
             crate_created: None,
+            hunting: false,
             hijack_vehicle_id: None,
             hijacker_in_vehicle: false,
             hijacker_update_active: false,
@@ -1445,8 +1531,8 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: default_strategy_center_turret_angle(),
-            turret_pitch_deg: default_strategy_center_turret_pitch(),
+            turret_angle_deg: turret.angle_deg,
+            turret_pitch_deg: turret.pitch_deg,
             turret_idle_scan_next_frame: 0,
             turret_idle_scanning: false,
             turret_idle_scan_desired_angle_deg: 0.0,
@@ -1457,17 +1543,24 @@ impl Object {
             turret_mood_target: false,
             turret_target_id: None,
             turret_force_attacking: false,
-            turret_enabled: true,
-            turret_turn_rate_rad: default_turret_turn_rate(),
+            turret_enabled: turret.enabled,
+            turret_turn_rate_rad: turret.turn_rate_rad,
             turret_substate: TurretSubState::Idle,
             turret_rotating: false,
-            turret_natural_angle_deg: 0.0,
-            turret_natural_pitch_deg: 0.0,
-            turret_recenter_frames: default_turret_recenter_frames(),
+            turret_natural_angle_deg: turret.natural_angle_deg,
+            turret_natural_pitch_deg: turret.natural_pitch_deg,
+            turret_recenter_frames: turret.recenter_frames,
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
             last_damage_timestamp: None,
+            last_healing_timestamp: None,
+            last_damage_fx_done: None,
+            next_damage_fx_time: 0,
+            last_damage_source_preferred: false,
+            health_box_offset: [0.0, 0.0, 0.0],
+            uses_inactive_body: false,
+            inactive_body_die_called: false,
             next_mood_check_time: 0,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
@@ -1892,5 +1985,65 @@ mod tests {
         let mut obj = Object::new(template, ObjectId(2), Team::USA);
         obj.status.destroyed = true;
         assert!(!obj.is_selectable());
+    }
+
+    #[test]
+    fn turret_only_spawns_on_units_that_author_one() {
+        use crate::game_logic::host_strategy_center::{
+            STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG, STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG,
+            STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC,
+        };
+        use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
+
+        let ranger = Object::new(ThingTemplate::new("AmericaInfantryRanger"), ObjectId(1), Team::USA);
+        assert!(!ranger.turret_enabled);
+        assert!((ranger.turret_angle_deg).abs() < 0.01);
+        assert!((ranger.turret_pitch_deg).abs() < 0.01);
+
+        let dozer = Object::new(ThingTemplate::new("AmericaVehicleDozer"), ObjectId(2), Team::USA);
+        assert!(!dozer.turret_enabled);
+
+        let crusader = Object::new(ThingTemplate::new("AmericaTankCrusader"), ObjectId(3), Team::USA);
+        assert!(crusader.turret_enabled);
+        assert!((crusader.turret_angle_deg).abs() < 0.01);
+        assert!((crusader.turret_pitch_deg).abs() < 0.01);
+        assert!(
+            (crusader.turret_turn_rate_rad
+                - turret_deg_per_sec_to_rad_per_frame(USA_TANK_TURRET_TURN_RATE))
+                .abs()
+                < 1e-5
+        );
+
+        let sc = Object::new(
+            ThingTemplate::new("AmericaStrategyCenter"),
+            ObjectId(4),
+            Team::USA,
+        );
+        assert!(!sc.turret_enabled, "InitiallyDisabled until Bombardment");
+        assert!((sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
+        assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
+        assert!(
+            (sc.turret_turn_rate_rad
+                - turret_deg_per_sec_to_rad_per_frame(STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC))
+                .abs()
+                < 1e-5
+        );
+    }
+
+    #[test]
+    fn humvee_authors_recenter_time_not_idle_scan() {
+        use crate::game_logic::host_humvee::{
+            HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE,
+        };
+        let spec = turret_spawn_for_template("AmericaVehicleHumvee");
+        assert!(spec.has_turret);
+        assert!(spec.enabled);
+        assert_eq!(spec.recenter_frames, HUMVEE_TURRET_RECENTER_FRAMES);
+        assert!((spec.max_idle_scan_angle_rad).abs() < 1e-6);
+        assert!(
+            (spec.turn_rate_rad - turret_deg_per_sec_to_rad_per_frame(HUMVEE_TURRET_TURN_RATE))
+                .abs()
+                < 1e-5
+        );
     }
 }

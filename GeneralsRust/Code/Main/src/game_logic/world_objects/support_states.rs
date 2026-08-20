@@ -1555,6 +1555,84 @@ impl GameLogic {
         }
     }
 
+    /// C++ hasAttackedMeAndICanReturnFire — consume last attacker and engage.
+    fn try_guard_last_attacker(&mut self, object_id: ObjectId, team: Team) -> bool {
+        let last = self
+            .objects
+            .get_mut(&object_id)
+            .and_then(|o| o.last_damage_source.take());
+        let Some(aid) = last else {
+            return false;
+        };
+        if aid == object_id {
+            return false;
+        }
+        let Some(atk) = self.objects.get(&aid) else {
+            return false;
+        };
+        if !atk.is_alive() || atk.status.destroyed || !atk.is_targetable_by_enemy_of(team) {
+            return false;
+        }
+        if !matches!(
+            self.get_able_to_attack_specific_object(
+                object_id,
+                aid,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        ) {
+            return false;
+        }
+        self.engage_target_decision_aware(object_id, aid)
+    }
+
+    /// C++ EnterGuard / HijackGuard: board instead of shooting.
+    fn try_guard_enter_or_hijack(
+        &mut self,
+        object_id: ObjectId,
+        target_id: ObjectId,
+        hijack: bool,
+        team: Team,
+    ) -> bool {
+        if hijack {
+            let legal = self.objects.get(&target_id).is_some_and(|t| {
+                t.is_alive()
+                    && t.is_targetable_by_enemy_of(team)
+                    && t.is_kind_of(KindOf::Vehicle)
+                    && !t.is_hijacked()
+            });
+            if !legal {
+                return false;
+            }
+            let pos = self.objects.get(&target_id).map(|t| t.get_position());
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.target = Some(target_id);
+                o.set_ai_state(AIState::SpecialAbility);
+            }
+            self.queue_pending_special_ability(
+                object_id,
+                crate::game_logic::PendingSpecialAbility::Hijack { target_id },
+            );
+            if let Some(pos) = pos {
+                self.path_approach_with_state(object_id, pos, AIState::SpecialAbility);
+            }
+            true
+        } else if self.can_unit_enter_normal_target(object_id, target_id) {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.target = Some(target_id);
+                o.set_order_target(Some(target_id));
+                o.set_ai_state(AIState::Entering);
+            }
+            if let Some(pos) = self.objects.get(&target_id).map(|t| t.get_position()) {
+                self.path_approach_with_state(object_id, pos, AIState::Entering);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     pub(in super::super) fn update_support_states(&mut self, object_ids: &[ObjectId], dt: f32) {
         self.update_leftover_laser_guided_channels(dt);
 
@@ -1649,40 +1727,52 @@ impl GameLogic {
             match ai_state {
                 AIState::GuardingArea => {
                     let anchor = guard_position.unwrap_or(position);
-                    let radius = guard_radius.max(GUARD_MIN_RADIUS);
-                    // C++ GuardMode residual (AIGuard.cpp):
-                    // Normal — pursue outside (wider acquire).
-                    // WithoutPursuit — no outer chase; engage only inside radius.
-                    // FlyingUnitsOnly — PartitionFilterIsFlying on acquire.
-                    let acquire_radius = match guard_mode {
-                        crate::game_logic::GuardMode::Normal => radius * 1.5,
-                        _ => radius,
+                    let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
+                    let inner = if std_inner > 0.0 {
+                        std_inner
+                    } else if guard_radius > 0.0 {
+                        guard_radius
+                    } else {
+                        GUARD_MIN_RADIUS
                     };
+                    let outer = if std_outer > 0.0 {
+                        std_outer
+                    } else {
+                        inner * 1.5
+                    };
+                    let without_pursuit =
+                        matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
+                    let flying_only =
+                        matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
+                    let acquire_radius = if without_pursuit { inner } else { outer };
+                    let enter_guard = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.thing.template.enter_guard)
+                        .unwrap_or(false);
+                    let hijack_guard = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.thing.template.hijack_guard)
+                        .unwrap_or(false);
+                    let picking_crate = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.requested_victim_id)
+                        .is_some();
+
+                    if can_attack && self.try_guard_last_attacker(object_id, team) {
+                        continue;
+                    }
 
                     if can_attack {
-                        let flying_only =
-                            matches!(guard_mode, crate::game_logic::GuardMode::FlyingUnitsOnly);
-                        let without_pursuit =
-                            matches!(guard_mode, crate::game_logic::GuardMode::WithoutPursuit);
-                        // Prefer nearest legal enemy around the guard anchor.
                         let mut best: Option<(ObjectId, f32)> = None;
                         for (cand_id, cand) in self.objects.iter() {
-                            if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
+                            if *cand_id == object_id || !cand.is_alive() {
                                 continue;
                             }
-                            // AIGuard.cpp performs this before it assigns a
-                            // goal object.  Visibility alone is not enough:
-                            // a ground-only guard must keep scanning past an
-                            // aircraft and an anti-air guard past a tank.
-                            if !matches!(
-                                self.get_able_to_attack_specific_object(
-                                    object_id,
-                                    *cand_id,
-                                    AbleToAttackType::NewTarget,
-                                    false,
-                                ),
-                                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                            ) {
+                            let d = anchor.distance(cand.get_position());
+                            if d > acquire_radius {
                                 continue;
                             }
                             if flying_only
@@ -1691,20 +1781,40 @@ impl GameLogic {
                             {
                                 continue;
                             }
-                            let d = anchor.distance(cand.get_position());
-                            if d > acquire_radius {
-                                continue;
-                            }
-                            if without_pursuit && d > radius {
-                                continue;
+                            if enter_guard {
+                                if hijack_guard {
+                                    if !cand.is_targetable_by_enemy_of(team)
+                                        || !cand.is_kind_of(KindOf::Vehicle)
+                                        || cand.is_hijacked()
+                                    {
+                                        continue;
+                                    }
+                                } else if cand.team != Team::Neutral {
+                                    continue;
+                                }
+                            } else {
+                                if !cand.is_targetable_by_enemy_of(team) {
+                                    continue;
+                                }
+                                if !matches!(
+                                    self.get_able_to_attack_specific_object(
+                                        object_id,
+                                        *cand_id,
+                                        AbleToAttackType::NewTarget,
+                                        false,
+                                    ),
+                                    CanAttackResult::Possible
+                                        | CanAttackResult::PossibleAfterMoving
+                                ) {
+                                    continue;
+                                }
                             }
                             if best.map(|(_, bd)| d < bd).unwrap_or(true) {
                                 best = Some((*cand_id, d));
                             }
                         }
                         if let Some((enemy_id, _)) = best {
-                            // WithoutPursuit: if we already left the bubble, return home first.
-                            if without_pursuit && position.distance(anchor) > radius {
+                            if without_pursuit && position.distance(anchor) > inner {
                                 if can_move {
                                     self.path_approach_with_state(
                                         object_id,
@@ -1712,13 +1822,25 @@ impl GameLogic {
                                         AIState::GuardingArea,
                                     );
                                 }
+                            } else if enter_guard {
+                                if self.try_guard_enter_or_hijack(
+                                    object_id,
+                                    enemy_id,
+                                    hijack_guard,
+                                    team,
+                                ) {
+                                    continue;
+                                }
                             } else if self.engage_target_decision_aware(object_id, enemy_id) {
                                 continue;
                             }
                         }
                     }
 
-                    if can_move && position.distance(anchor) > radius * 0.6 {
+                    if can_move
+                        && !picking_crate
+                        && position.distance(anchor) > inner
+                    {
                         self.path_approach_with_state(object_id, anchor, AIState::GuardingArea);
                     }
                 }
@@ -1746,7 +1868,32 @@ impl GameLogic {
                         continue;
                     };
 
-                    let radius = guard_radius.max(GUARD_MIN_RADIUS);
+                    let (std_inner, std_outer) = self.host_std_guard_ranges(object_id);
+                    let inner = if std_inner > 0.0 {
+                        std_inner
+                    } else if guard_radius > 0.0 {
+                        guard_radius
+                    } else {
+                        GUARD_MIN_RADIUS
+                    };
+                    let outer = if std_outer > 0.0 {
+                        std_outer
+                    } else {
+                        inner * 1.5
+                    };
+                    let acquire_radius = match guard_mode {
+                        crate::game_logic::GuardMode::WithoutPursuit => inner,
+                        _ => outer,
+                    };
+                    let picking_crate = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.requested_victim_id)
+                        .is_some();
+
+                    if can_attack && self.try_guard_last_attacker(object_id, team) {
+                        continue;
+                    }
                     if can_attack {
                         let tunnel_nemesis = {
                             let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
@@ -1774,7 +1921,7 @@ impl GameLogic {
                                 object_id,
                                 guard_anchor,
                                 team,
-                                radius,
+                                acquire_radius,
                             )
                         {
                             if self.engage_target_decision_aware(object_id, enemy_id) {
@@ -1783,7 +1930,10 @@ impl GameLogic {
                         }
                     }
 
-                    if can_move && position.distance(guard_anchor) > radius * 0.6 {
+                    if can_move
+                        && !picking_crate
+                        && position.distance(guard_anchor) > inner
+                    {
                         self.path_approach_with_state(
                             object_id,
                             guard_anchor,
@@ -2529,6 +2679,15 @@ impl GameLogic {
                     self.tunnel_network
                         .stamp_contained_by_frame(object_id, self.frame);
 
+                    let enclosing_garrison = self
+                        .objects
+                        .get(&container_id)
+                        .map(|c| c.is_enclosing_garrison_container())
+                        .unwrap_or(true);
+                    let occupant_owner = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|o| o.owner_player_id);
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.stop_moving();
                         obj.set_status_attacking(false);
@@ -2543,18 +2702,22 @@ impl GameLogic {
                             // kills must level the tank, not the occupant.
                             obj.set_experience_sink(Some(container_id));
                         }
-                        obj.set_position(container_pos);
-                        crate::game_logic::host_ground_height_log::record(
-                            obj.id,
-                            container_pos.y,
-                            false,
-                        );
-                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                            crate::game_logic::host_move_log::record(
+                        // C++ onContaining snaps enclosing occupants to the building
+                        // origin. Fire Base (IsEnclosingContainer=No) stays at stations.
+                        if enclosing_garrison || !container_is_structure {
+                            obj.set_position(container_pos);
+                            crate::game_logic::host_ground_height_log::record(
                                 obj.id,
-                                Some([container_pos.x, container_pos.y, container_pos.z]),
+                                container_pos.y,
+                                false,
                             );
-                            obj.record_host_movement();
+                            if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                                crate::game_logic::host_move_log::record(
+                                    obj.id,
+                                    Some([container_pos.x, container_pos.y, container_pos.z]),
+                                );
+                                obj.record_host_movement();
+                            }
                         }
                         let __ai_st = if container_is_heal_contain {
                             // C++ HealContain is not garrisonable; Docked avoids garrison fire.
@@ -2576,6 +2739,10 @@ impl GameLogic {
                         }
                         obj.set_ai_state(__ai_st);
                         obj.set_status_moving(false);
+                        // C++ GarrisonContain::onContaining TheInGameUI->deselectDrawable.
+                        if container_is_structure {
+                            obj.deselect();
+                        }
                     }
                     if container_is_tunnel_network {
                         // Enter counter already incremented in record_enter.
@@ -2584,6 +2751,12 @@ impl GameLogic {
                     } else if container_is_structure {
                         self.record_garrison_residual_enter();
                         self.apply_garrison_contain_on_enter(container_id, object_id);
+                        if let Some(pid) = occupant_owner {
+                            if let Some(player) = self.players.get_mut(&pid) {
+                                player.selected_objects.retain(|id| *id != object_id);
+                            }
+                        }
+                        self.selected_objects.retain(|id| *id != object_id);
                     } else if container_is_overlord_bunker {
                         // China Overlord BattleBunker residual load (redirected bunker slots).
                         self.record_overlord_bunker_residual_enter();
@@ -3187,24 +3360,38 @@ impl GameLogic {
                         }
                     }
 
-                    // ConvertToCarBomb: cannot re-convert an existing car bomb.
-                    if matches!(ability, PendingSpecialAbility::CarBomb { .. }) && target_is_carbomb
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                    // ConvertToCarBomb: C++ isValidToExecute — boat, IS_CARBOMB,
+                    // WEAPONSET_CARBOMB template set, already-flagged weaponset.
+                    if matches!(ability, PendingSpecialAbility::CarBomb { .. }) {
+                        let reject = self
+                            .objects
+                            .get(&special_target_id)
+                            .map(crate::game_logic::host_car_bomb::carbomb_target_rejected)
+                            .unwrap_or(true);
+                        if reject {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
                         }
-                        continue;
                     }
 
-                    // Hijack: cannot re-hijack an already hijacked vehicle.
-                    if matches!(ability, PendingSpecialAbility::Hijack { .. }) && target_is_hijacked
-                    {
-                        self.pending_special_abilities.remove(&object_id);
-                        if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_target(None);
+                    // Hijack: C++ isValidToExecute — ImmuneToCapture, boat, drone,
+                    // already hijacked, occupied KINDOF_TRANSPORT.
+                    if matches!(ability, PendingSpecialAbility::Hijack { .. }) {
+                        let reject = self
+                            .objects
+                            .get(&special_target_id)
+                            .map(crate::game_logic::host_car_bomb::hijack_target_rejected)
+                            .unwrap_or(true);
+                        if reject {
+                            self.pending_special_abilities.remove(&object_id);
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.set_target(None);
+                            }
+                            continue;
                         }
-                        continue;
                     }
 
                     // Disable vehicle hack: unmanned still matches ActionManager.
@@ -5137,26 +5324,50 @@ impl GameLogic {
     }
 
     fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
-        let current = self
-            .objects
-            .get(&dock_id)
-            .and_then(|dock| dock.dock_active_docker);
+        let (current, template_name, is_repair, dock_kind, delete_when_empty) =
+            match self.objects.get(&dock_id) {
+                Some(dock) => (
+                    dock.dock_active_docker,
+                    dock.template_name.clone(),
+                    dock.is_kind_of(crate::game_logic::KindOf::RepairPad),
+                    dock.thing.template.dock_kind,
+                    dock.thing.template.dock_delete_when_empty,
+                ),
+                None => return false,
+            };
         let current_alive = current
             .and_then(|id| self.objects.get(&id))
             .is_some_and(|object| object.is_alive());
-        let next = crate::game_logic::host_supply_gather::dock_claim_active(
+        let docker_alive = self
+            .objects
+            .get(&docker_id)
+            .is_some_and(|object| object.is_alive());
+        let n = crate::game_logic::host_supply_gather::number_approach_positions_for_dock(
+            &template_name,
+            dock_kind,
+            is_repair,
+            delete_when_empty,
+        );
+        let tick = crate::game_logic::host_supply_gather::tick_live_dock_approach(
+            dock_id,
+            docker_id,
+            n,
+            docker_alive,
             current,
             current_alive,
-            docker_id,
         );
-        if let Some(dock) = self.objects.get_mut(&dock_id) {
-            dock.dock_active_docker = next;
+        match tick {
+            crate::game_logic::host_supply_gather::DockApproachTick::ClearToAct => {
+                if let Some(dock) = self.objects.get_mut(&dock_id) {
+                    dock.dock_active_docker = Some(docker_id);
+                }
+                if current != Some(docker_id) {
+                    self.apply_docking_model_conditions(dock_id, docker_id, true);
+                }
+                true
+            }
+            _ => false,
         }
-        let clear = crate::game_logic::host_supply_gather::dock_is_clear_to_act(next, docker_id);
-        if clear && next == Some(docker_id) && current != Some(docker_id) {
-            self.apply_docking_model_conditions(dock_id, docker_id, true);
-        }
-        clear
     }
 
     fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
@@ -5173,6 +5384,7 @@ impl GameLogic {
                 dock.repair_dock_health_per_sec = 0.0;
             }
         }
+        crate::game_logic::host_supply_gather::cancel_live_dock_approach(dock_id, docker_id);
         if was_holder {
             self.apply_docking_model_conditions(dock_id, docker_id, false);
         }

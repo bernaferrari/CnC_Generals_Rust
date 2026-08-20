@@ -2902,6 +2902,11 @@ impl GameLogic {
                             };
                             if let Some(id) = created {
                                 spawned_object_ids.push((id, index));
+                                if obj.unsellable == Some(true) {
+                                    if let Some(created) = self.objects.get_mut(&id) {
+                                        created.set_script_unsellable(true);
+                                    }
+                                }
                                 if let Some(name) =
                                     obj.name.as_deref().map(str::trim).filter(|n| !n.is_empty())
                                 {

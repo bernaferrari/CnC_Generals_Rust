@@ -14,7 +14,7 @@ pub(super) struct StatusTimerSnapshots {
     pub underpowered_team_ords: std::collections::HashSet<u8>,
     pub sticky_booby_targets: std::collections::HashMap<u32, (glam::Vec3, bool, bool)>,
     pub scorpion_retarget: std::collections::HashMap<u32, glam::Vec3>,
-    pub fire_spread_candidates: Vec<(u32, f32, f32, bool)>,
+    pub fire_spread_candidates: Vec<(u32, f32, f32, f32, bool)>,
 }
 
 /// Per-entity control for helpers that may skip the rest of this frame's timers.
@@ -201,7 +201,7 @@ impl GameWorldShadow {
         }
 
         // Wave 820: snapshot fire-spread candidates for ignition (borrow-safe).
-        let mut fire_spread_candidates: Vec<(u32, f32, f32, bool)> = Vec::new();
+        let mut fire_spread_candidates: Vec<(u32, f32, f32, f32, bool)> = Vec::new();
         for eid in &eids {
             let Some(e) = self.world.entity(*eid) else {
                 continue;
@@ -213,12 +213,8 @@ impl GameWorldShadow {
                 continue;
             };
             let would = e.fire_spread_state == 0; // Normal can ignite
-            fire_spread_candidates.push((
-                hid,
-                e.transform.position.x,
-                e.transform.position.z,
-                would,
-            ));
+            let pos = e.transform.position;
+            fire_spread_candidates.push((hid, pos.x, pos.y, pos.z, would));
         }
         StatusTimerSnapshots {
             eids,

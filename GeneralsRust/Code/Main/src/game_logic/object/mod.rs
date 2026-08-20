@@ -133,6 +133,13 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
     0.01
 }
 
+mod turret_spawn;
+pub(crate) use turret_spawn::{
+    turret_deg_per_sec_to_rad_per_frame, turret_ms_to_frames, turret_spawn_for_template,
+    TurretSpawnSpec,
+};
+
+
 /// C++ default recenter wait residual (2 * LOGICFRAMES_PER_SECOND).
 pub(crate) fn default_turret_recenter_frames() -> u32 {
     60
@@ -195,13 +202,6 @@ pub fn calc_slow_down_dist(cur_speed: f32, desired_speed: f32, max_braking: f32)
     dist * FUDGE
 }
 
-pub(crate) fn default_strategy_center_turret_angle() -> f32 {
-    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
-}
-
-pub(crate) fn default_strategy_center_turret_pitch() -> f32 {
-    crate::game_logic::host_strategy_center::STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
-}
 
 /// Object type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -345,6 +345,9 @@ pub struct Object {
     /// C++ ObjectStatusMaskType residual bits (StatusBitsUpgrade set/clear).
     #[serde(default)]
     pub object_status_bits: u64,
+    /// C++ `OBJECT_STATUS_SCRIPT_UNSELLABLE` / `Object::isScriptUnsellable`.
+    #[serde(default)]
+    pub script_unsellable: bool,
     /// Wave 754: EjectPilotDie onDie already fired (death-start residual).
     #[serde(default)]
     pub eject_pilot_die_applied: bool,
@@ -357,12 +360,21 @@ pub struct Object {
     pub radar_extend_complete: bool,
     /// C++ RadarUpdate m_radarActive residual.
     pub radar_active: bool,
-    /// C++ ProductionUpdate door residual phase: 0=idle 1=opening 2=wait 3=closing.
+    /// C++ ProductionUpdate door residual phase for DOOR_1: 0=idle 1=opening 2=wait 4=closing.
     pub production_door_phase: u8,
     /// Frame when current door residual phase ends.
     pub production_door_phase_end_frame: u32,
     /// C++ ProductionUpdate DoorInfo::m_holdOpen residual (ParkingPlace).
     pub production_door_hold_open: bool,
+    /// C++ DoorInfo m_doors[DOOR_COUNT_MAX] phases (0 idle, 1 opening, 2 wait, 4 closing).
+    #[serde(default)]
+    pub production_door_phases: [u8; 4],
+    /// Per-door phase end frames matching `production_door_phases`.
+    #[serde(default)]
+    pub production_door_phase_end_frames: [u32; 4],
+    /// Reserved ExitDoorType index (0=DOOR_1 .. 3=DOOR_4) for the current cycle.
+    #[serde(default)]
+    pub production_door_active_index: u8,
     /// C++ RebuildHoleBehavior residual: this object is a rebuild hole.
     pub is_rebuild_hole: bool,
     /// Template name to reconstruct (C++ m_rebuildTemplate).
@@ -489,6 +501,15 @@ pub struct Object {
     /// C++ PhysicsBehaviorModuleData::m_killWhenRestingOnGround residual.
     #[serde(default)]
     pub kill_when_resting_on_ground: bool,
+    /// C++ PhysicsBehaviorModuleData::m_minFallSpeedForDamage residual.
+    #[serde(default = "default_min_fall_speed_for_damage")]
+    pub min_fall_speed_for_damage: f32,
+    /// C++ PhysicsBehaviorModuleData::m_fallHeightDamageFactor residual.
+    #[serde(default = "default_fall_height_damage_factor")]
+    pub fall_height_damage_factor: f32,
+    /// C++ PhysicsBehavior::update ground onCollide(NULL) pending residual.
+    #[serde(default)]
+    pub pending_ground_collide: bool,
     /// C++ IMMUNE_TO_FALLING_DAMAGE residual (projectiles / special).
     #[serde(default)]
     pub immune_to_falling_damage: bool,
@@ -858,6 +879,9 @@ pub struct Object {
     /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
     #[serde(default)]
     pub crate_created: Option<ObjectId>,
+    /// C++ AI_HUNT parent-machine residual. Host Patrolling is AI_HUNT.
+    #[serde(default)]
+    pub hunting: bool,
     /// C++ HijackerUpdate::m_targetID residual (vehicle being driven).
     #[serde(default)]
     pub hijack_vehicle_id: Option<ObjectId>,
@@ -1285,6 +1309,21 @@ pub struct Object {
     /// C++ TransferPreviousHealth residual snapshot (max - previous health).
     #[serde(default)]
     pub create_object_die_transfer_damage: f32,
+    /// C++ TransferPreviousHealth subdual residual.
+    #[serde(default)]
+    pub create_object_die_transfer_subdual: f32,
+    /// C++ TransferPreviousHealth last damage source residual.
+    #[serde(default)]
+    pub create_object_die_transfer_source: Option<ObjectId>,
+    /// C++ InstantDeathBehavior residual burst weapon name.
+    #[serde(default)]
+    pub pending_instant_death_weapon: Option<String>,
+    /// C++ CrushDie residual.
+    #[serde(default)]
+    pub crush_die: Option<crate::game_logic::host_crush_die::HostCrushDieData>,
+    /// C++ ActiveBody getPreviousHealth residual.
+    #[serde(default)]
+    pub previous_health: f32,
     /// C++ LifetimeUpdate residual.
     #[serde(default)]
     pub lifetime_update: Option<crate::game_logic::host_lifetime_update::HostLifetimeUpdateData>,
@@ -2199,13 +2238,13 @@ pub struct Object {
     #[serde(default)]
     pub hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
 
-    /// Host residual: Strategy Center / TurretAI yaw (deg).
-    /// Natural for Strategy Center = **-90** (NaturalTurretAngle).
-    #[serde(default = "default_strategy_center_turret_angle")]
+    /// Host residual: TurretAI yaw (deg). Defaults **0**; Strategy Center
+    /// authors NaturalTurretAngle **-90**.
+    #[serde(default)]
     pub turret_angle_deg: f32,
-    /// Host residual: Strategy Center / TurretAI pitch (deg).
-    /// Natural for Strategy Center = **45** (NaturalTurretPitch).
-    #[serde(default = "default_strategy_center_turret_pitch")]
+    /// Host residual: TurretAI pitch (deg). Defaults **0**; Strategy Center
+    /// authors NaturalTurretPitch **45**.
+    #[serde(default)]
     pub turret_pitch_deg: f32,
     /// TurretAI idle-scan residual: absolute frame when next idle scan may start.
     /// 0 = not scheduled (or just completed without reschedule).
@@ -2277,6 +2316,27 @@ pub struct Object {
     /// C++ BodyModule `getLastDamageTimestamp` residual (TunnelContain nemesis window).
     #[serde(default)]
     pub last_damage_timestamp: Option<u32>,
+    /// C++ ActiveBody `m_lastHealingTimestamp` (attemptHealing stamps lastDamageInfo).
+    #[serde(default)]
+    pub last_healing_timestamp: Option<u32>,
+    /// C++ ActiveBody `m_lastDamageFXDone` (doDamageFX per-type throttle).
+    #[serde(default)]
+    pub last_damage_fx_done: Option<crate::game_logic::combat::DamageType>,
+    /// C++ ActiveBody `m_nextDamageFXTime` (logic frame; throttle gate).
+    #[serde(default)]
+    pub next_damage_fx_time: u32,
+    /// Last-damage source was VEHICLE/INFANTRY/faction structure (same-frame preference).
+    #[serde(default)]
+    pub last_damage_source_preferred: bool,
+    /// C++ Object `m_healthBoxOffset` (SpawnBehavior averages spawn positions).
+    #[serde(default)]
+    pub health_box_offset: [f32; 3],
+    /// C++ InactiveBody templates (FireField / PoisonField / RadiationField).
+    #[serde(default)]
+    pub uses_inactive_body: bool,
+    /// C++ InactiveBody `m_dieCalled` (UNRESISTABLE onDie once).
+    #[serde(default)]
+    pub inactive_body_die_called: bool,
     /// C++ AIUpdateInterface::m_nextMoodCheckTime residual.
     #[serde(default)]
     pub next_mood_check_time: u32,
@@ -2510,6 +2570,8 @@ pub const DEFAULT_LATERAL_FRICTION_RESIDUAL: f32 = 0.15;
 pub const DEFAULT_Z_FRICTION_RESIDUAL: f32 = 0.8;
 pub const DEFAULT_AERO_FRICTION_RESIDUAL: f32 = 0.0;
 pub const MIN_AERO_FRICTION_RESIDUAL: f32 = 0.0;
+/// C++ MIN_NON_AERO_FRICTION residual.
+pub const MIN_NON_AERO_FRICTION_RESIDUAL: f32 = 0.01;
 pub const MAX_FRICTION_RESIDUAL: f32 = 0.99;
 /// C++ PATHFIND_CELL_SIZE_F residual (world units).
 pub const PATHFIND_CELL_SIZE_F_RESIDUAL: f32 = 10.0;
@@ -2553,6 +2615,13 @@ fn default_z_friction() -> f32 {
 }
 fn default_invalid_vel_mag() -> f32 {
     -1.0
+}
+
+fn default_min_fall_speed_for_damage() -> f32 {
+    (2.0 * 40.0_f32).sqrt()
+}
+fn default_fall_height_damage_factor() -> f32 {
+    1.0
 }
 
 /// C++ MuLaw residual used by doBounceSound volume adjust.
@@ -2644,6 +2713,7 @@ mod tests;
 /// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
 pub const OBJECT_SRC: &str = concat!(
     include_str!("mod.rs"),
+    include_str!("turret_spawn.rs"),
     include_str!("attack.rs"),
     include_str!("bonuses.rs"),
     include_str!("construct.rs"),

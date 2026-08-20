@@ -164,6 +164,7 @@ impl GameLogic {
             // C++ Object::setCaptured(true) residual (sticky private status).
             obj.set_private_captured(true);
             // C++ clearScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE) residual.
+            obj.set_script_unsellable(false);
         }
         self.clear_target_decision_aware(object_id);
         // Capture must clear host AI/orders immediately (observable residual).
@@ -466,6 +467,9 @@ impl GameLogic {
             return false;
         }
         if obj.status.sold || obj.status.under_construction || obj.status.reconstructing {
+            return false;
+        }
+        if obj.is_script_unsellable() {
             return false;
         }
         if self.sell_list.iter().any(|s| s.id == object_id) {

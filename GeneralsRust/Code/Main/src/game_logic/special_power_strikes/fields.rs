@@ -178,6 +178,8 @@ pub struct HostToxinTickPlan {
     pub source_team: crate::game_logic::Team,
     pub position: Vec3,
     pub hits: Vec<HostToxinDamageHit>,
+    /// Weapon.ini DeathType residual (POISONED / BETA / GAMMA).
+    pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
 }
 
 /// Residual Spectre orbit field spawned when gunship reaches target

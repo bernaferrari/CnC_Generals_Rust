@@ -137,13 +137,30 @@ impl GameLogic {
             return;
         };
 
+        // C++ TurretAIAimTurretState: FIRE only after yaw+pitch align.
+        // InitiallyDisabled Strategy Center cannot fire until Bombardment
+        // enableTurret(true).
+        if self
+            .objects
+            .get(&center_id)
+            .map(|o| !o.turret_enabled)
+            .unwrap_or(true)
+        {
+            return;
+        }
+        self.set_turret_target_object(center_id, Some(target_id), false);
+        if !matches!(
+            self.tick_turret_aim(center_id, 1.0),
+            AttackAimResult::Success
+        ) {
+            return;
+        }
+
         let impact = self
             .objects
             .get(&target_id)
             .map(|t| t.get_position())
             .unwrap_or(fire_pos);
-
-        // C++ StrategyCenterGun ScatterRadius (**15**) + ScatterRadiusVsInfantry (**15**).
         use crate::game_logic::host_strategy_center::{
             strategy_center_gun_scatter_aim, strategy_center_gun_scatter_misses,
         };
@@ -314,17 +331,7 @@ impl GameLogic {
                 crate::game_logic::host_ai_decision_log::record_attack(center_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
             }
-            // Turret natural-position residual: aim pitch/yaw at target (FirePitch 45).
-            let (aim_a, aim_p) =
-                crate::game_logic::host_strategy_center::strategy_center_turret_aim_at(
-                    fire_pos.x, fire_pos.z, impact.x, impact.z,
-                );
-            attacker.turret_angle_deg = aim_a;
-            attacker.record_host_turret();
-            attacker.turret_pitch_deg = aim_p;
-            attacker.record_host_turret();
-            // Fire cancels idle-scan / Hold / idle-recenter residual;
-            // next idle interval starts after coast.
+            // Turret already aligned by tick_turret_aim (no snap).
             attacker.turret_idle_scanning = false;
             attacker.record_host_turret();
             attacker.turret_holding = false;
@@ -335,6 +342,7 @@ impl GameLogic {
                 crate::game_logic::host_strategy_center::BATTLE_PLAN_TURRET_RECENTER_FRAMES,
             );
         }
+        self.notify_turret_fired(center_id);
         // One turret discharge may splash several victims. Normalize its
         // concrete PRIMARY cursor once here, never inside the per-victim
         // residual damage helper.
@@ -510,6 +518,24 @@ impl GameLogic {
         if !ready {
             return;
         }
+
+        // C++ TurretAIAimTurretState: do not discharge while the barrel is
+        // still traversing. Structures without a Turret block fire immediately.
+        let turret_enabled = self
+            .objects
+            .get(&defense_id)
+            .map(|o| o.turret_enabled)
+            .unwrap_or(false);
+        if turret_enabled {
+            self.set_turret_target_object(defense_id, Some(target_id), false);
+            if !matches!(
+                self.tick_turret_aim(defense_id, 1.0),
+                AttackAimResult::Success
+            ) {
+                return;
+            }
+        }
+
 
         let damage = {
             let Some(attacker) = self.objects.get(&defense_id) else {
@@ -688,6 +714,9 @@ impl GameLogic {
             if destroyed {
                 self.stop_attack_decision_aware(defense_id);
             }
+        }
+        if turret_enabled {
+            self.notify_turret_fired(defense_id);
         }
         // This accepted base-defense shot can miss or splash; it is still one
         // physical slot discharge and must advance/freeze exactly once.

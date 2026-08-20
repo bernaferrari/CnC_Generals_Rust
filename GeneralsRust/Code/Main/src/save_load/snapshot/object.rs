@@ -128,6 +128,18 @@ pub struct ObjectSnapshot {
     #[serde(default)]
     pub temporary_weapon_runtime:
         Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle>,
+
+    /// C++ `TempWeaponBonusHelper::xfer` (`TempWeaponBonusHelper.cpp:112-113`)
+    /// persists `m_currentBonus` + `m_frameToRemove`. Host Frenzy is the
+    /// live residual of that helper: active flag, 1..=3 tier, expiry frame.
+    /// Trailing + `serde(default)` so current v12 bincode records still
+    /// decode when the tail is absent.
+    #[serde(default)]
+    pub weapon_bonus_frenzy: bool,
+    #[serde(default)]
+    pub weapon_bonus_frenzy_level: u8,
+    #[serde(default)]
+    pub weapon_bonus_frenzy_until_frame: u32,
 }
 
 
@@ -581,6 +593,22 @@ impl ObjectSnapshot {
             )?;
         } else if xfer.get_mode() == XferMode::Load {
             self.temporary_weapon_runtime = None;
+        }
+
+        // Current writer (v12) appends the Frenzy helper residual. Older
+        // object records fail-closed to inactive. Same-code v12 round-trips
+        // write and read these three scalars after TemporaryWeaponRuntime.
+        if world_version >= WORLD_SNAPSHOT_DIRECT_XFER_VERSION {
+            xfer.xfer_marker_label("WeaponBonusFrenzy")?;
+            xfer.xfer_bool(&mut self.weapon_bonus_frenzy)?;
+            xfer.xfer_marker_label("WeaponBonusFrenzyLevel")?;
+            xfer.xfer_u8(&mut self.weapon_bonus_frenzy_level)?;
+            xfer.xfer_marker_label("WeaponBonusFrenzyUntilFrame")?;
+            xfer.xfer_u32(&mut self.weapon_bonus_frenzy_until_frame)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.weapon_bonus_frenzy = false;
+            self.weapon_bonus_frenzy_level = 0;
+            self.weapon_bonus_frenzy_until_frame = 0;
         }
 
         Ok(())

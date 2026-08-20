@@ -935,8 +935,10 @@ impl GameLogic {
                 return ("weapon", 0);
             }
         }
-        // Level path.
-        let can_level = !matches!(picker.experience.level, VeterancyLevel::Heroic);
+        // C++ SalvageCrateCollide::eligibleForLevel: not HEROIC and isTrainable.
+        // Untrainable pickers fall through to doMoney instead of burning the crate.
+        let can_level = picker.is_trainable()
+            && !matches!(picker.experience.level, VeterancyLevel::Heroic);
         if can_level {
             let roll = pure_logic_random_real(seed, 2, 0.0, 1.0);
             if SALVAGE_LEVEL_CHANCE_RESIDUAL >= 1.0 - f32::EPSILON
@@ -1075,6 +1077,8 @@ impl GameLogic {
                     if req.building_pickup { 25 } else { 0 },
                 );
             }
+            self.host_money_crates
+                .apply_crate_collide_gates(crate_id, &req.object_name);
             // C++ DeletionUpdate residual on crate object.
             self.host_money_crates.arm_default_deletion(
                 crate_id,

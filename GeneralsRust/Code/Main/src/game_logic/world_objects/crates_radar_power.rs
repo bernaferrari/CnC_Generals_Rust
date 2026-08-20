@@ -316,6 +316,17 @@ impl GameLogic {
         let mut above_rejects = 0_u32;
         let mut forbidden_rejects = 0_u32;
         for (crate_id, crate_pos, building_pickup, _paid, above_terrain, is_salvage) in &crates {
+            let (crate_owner, crate_human_only, crate_forbid_owner) = {
+                let entry = self.host_money_crates.get(*crate_id);
+                let crate_obj = self.objects.get(crate_id);
+                let template = crate_obj.map(|o| o.template_name.as_str()).unwrap_or("");
+                let owner = crate_obj.and_then(|o| o.owner_player_id);
+                let human = entry.is_some_and(|e| e.human_only)
+                    || crate::game_logic::host_money_crate::crate_object_human_only(template);
+                let forbid = entry.is_some_and(|e| e.forbid_owner_player)
+                    || crate::game_logic::host_money_crate::crate_object_forbid_owner(template);
+                (owner, human, forbid)
+            };
             // Pure residual acquire: nearest legal picker in unit/building pickup radius (XZ).
             // Reject counters still run in the candidate filter phase.
             let mut structure_by_id: std::collections::HashMap<ObjectId, bool> =
@@ -364,10 +375,33 @@ impl GameLogic {
                     continue;
                 }
                 let dist = HostMoneyCrateRegistry::horizontal_distance(*crate_pos, *picker_pos);
+                // C++ CrateCollide::isValidToExecute: isNeutralControlled rejects.
+                let picker_is_neutral = *team == Team::Neutral
+                    || picker_owner
+                        .and_then(|pid| self.players.get(&pid))
+                        .is_some_and(|player| player.team == Team::Neutral);
+                if picker_is_neutral {
+                    continue;
+                }
+                // C++ CrateCollide::isValidToExecute ForbidOwnerPlayer / HumanOnly.
+                if crate_forbid_owner
+                    && crate_owner.is_some()
+                    && crate_owner == *picker_owner
+                {
+                    continue;
+                }
+                if crate_human_only {
+                    let picker_human = picker_owner
+                        .and_then(|pid| self.players.get(&pid))
+                        .is_some_and(|player| player.is_local);
+                    if !picker_human {
+                        continue;
+                    }
+                }
                 if *is_structure {
                     if !HostMoneyCrateRegistry::is_legal_building_picker(
                         true,
-                        false,
+                        picker_is_neutral,
                         true,
                         *constructed,
                         *building_pickup,
@@ -392,7 +426,7 @@ impl GameLogic {
                     }
                     if !HostMoneyCrateRegistry::is_legal_unit_picker(
                         true,
-                        false,
+                        picker_is_neutral,
                         false,
                         *is_projectile,
                         *is_parachute_picker,
@@ -413,7 +447,7 @@ impl GameLogic {
                         team: *team,
                         position: *picker_pos,
                         is_alive: true,
-                        is_neutral: *team == Team::Neutral,
+                        is_neutral: picker_is_neutral,
                         under_construction: false,
                         combat_kind: true,
                         effectively_stealthed: false,
@@ -429,7 +463,7 @@ impl GameLogic {
                     (crate_pos.x, crate_pos.z),
                     cands,
                     max_r,
-                    |_| true,
+                    |c| !c.is_neutral,
                 )
             {
                 let is_structure = structure_by_id.get(&picker_id).copied().unwrap_or(false);
@@ -568,16 +602,17 @@ impl GameLogic {
                 continue;
             }
             // C++ SalvageCrateCollide residual path.
-            let (amount, boost) = if entry.is_salvage {
+            let (amount, boost, salvage_kind) = if entry.is_salvage {
                 let seed = crate_id
                     .0
                     .wrapping_add(picker_id.0)
                     .wrapping_add(self.frame);
-                let (_kind, money) =
+                let (kind, money) =
                     self.execute_salvage_crate_behavior(picker_id, entry.money_provided, seed);
-                (money, 0u32)
+                (money, 0u32, Some(kind))
             } else {
-                HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines)
+                let (cash, extra) = HostMoneyCrateRegistry::cash_for_pickup(&entry, has_supply_lines);
+                (cash, extra, None)
             };
             // Salvage may grant upgrade with 0 money — still consume crate.
             if amount == 0 && !entry.is_salvage {
@@ -593,6 +628,8 @@ impl GameLogic {
                 if let Some(player_id) = owner_player_id {
                     if let Some(player) = self.get_player_mut(player_id) {
                         player.credit_supplies(amount);
+                        // C++ ScoreKeeper::addMoneyEarned — crate cash is earned.
+                        player.add_money_earned(amount);
                     }
                 }
             }
@@ -605,21 +642,40 @@ impl GameLogic {
                 .map(|o| o.get_position())
                 .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
-            // ExecuteAnimation MoneyPickUp residual presentation descriptor.
-            let anim =
-                HostMoneyCrateRegistry::money_pickup_anim(crate_id, picker_id, pos, self.frame);
-            self.host_money_crates.record_money_pickup_anim(anim);
-            // Floating cash text residual presentation (`+$N` / GUI:AddCash).
-            let floating = HostMoneyCrateRegistry::money_floating_text(
-                crate_id, picker_id, pos, amount, self.frame,
-            );
-            self.host_money_crates.record_money_floating_text(floating);
-            self.queue_audio_event(
-                AudioEventRequest::new(MONEY_CRATE_PICKUP_AUDIO)
-                    .with_object(picker_id)
-                    .with_position(pos)
-                    .with_priority(110),
-            );
+            // C++ SalvageCrateCollide::executeCrateBehavior: armor/weapon play
+            // m_crateSalvage and never emit GUI:AddCash; money plays m_crateMoney.
+            let salvage_upgrade = matches!(salvage_kind, Some("armor" | "weapon"));
+            let money_feedback = salvage_kind.is_none() || matches!(salvage_kind, Some("money"));
+            if money_feedback {
+                // ExecuteAnimation MoneyPickUp residual presentation descriptor.
+                let anim = HostMoneyCrateRegistry::money_pickup_anim(
+                    crate_id, picker_id, pos, self.frame,
+                );
+                self.host_money_crates.record_money_pickup_anim(anim);
+            }
+            if money_feedback && amount > 0 {
+                // Floating cash text residual presentation (`+$N` / GUI:AddCash).
+                let floating = HostMoneyCrateRegistry::money_floating_text(
+                    crate_id, picker_id, pos, amount, self.frame,
+                );
+                self.host_money_crates.record_money_floating_text(floating);
+            }
+            let audio_name = if salvage_upgrade {
+                "CrateSalvage"
+            } else if money_feedback {
+                MONEY_CRATE_PICKUP_AUDIO
+            } else {
+                // Level: C++ promotion audio is owned by gainExpForLevel.
+                ""
+            };
+            if !audio_name.is_empty() {
+                self.queue_audio_event(
+                    AudioEventRequest::new(audio_name)
+                        .with_object(picker_id)
+                        .with_position(pos)
+                        .with_priority(110),
+                );
+            }
             self.destroy_object(crate_id);
             log::info!(
                 "Host MoneyCrateCollide residual: crate {:?} → picker {:?} team={:?} amount={} building={}",

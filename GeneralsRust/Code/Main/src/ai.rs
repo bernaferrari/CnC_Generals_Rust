@@ -2289,6 +2289,11 @@ impl AIPlayer {
         if building.production_queue.len() >= crate::game_logic::DEFAULT_PRODUCTION_QUEUE_LIMIT {
             return false;
         }
+        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+            && object.has_object_upgrade_complete(upgrade_name)
+        {
+            return false;
+        }
         !building
             .production_queue
             .iter()

@@ -330,7 +330,9 @@ impl UnitControlSystem {
             && o.contained_by.is_none()
     }
 
-    /// C++ `CanSelectDrawable(draw, dragSelecting=TRUE)` rejects `KINDOF_STRUCTURE`.
+    /// C++ `CanSelectDrawable(draw, dragSelecting=TRUE)` rejects `KINDOF_STRUCTURE`
+    /// for mass-drag. Lone-building / FireBase selection is applied later by
+    /// `PresentationFrame::finalize_box_selection` (`SelectionXlat.cpp:634`).
     pub fn presentation_is_drag_selectable(o: &RenderableObject) -> bool {
         Self::presentation_is_selectable(o)
             && !o.is_structure
@@ -644,18 +646,11 @@ impl UnitControlSystem {
             let mut selected_in_box = Vec::new();
 
             // Wave 949: box selection is presentation-only (no live GameLogic dual-read).
-            // C++ `CanSelectDrawable(draw, TRUE)` never drag-selects structures.
+            // C++ SelectionXlat.cpp:628-693 — lone building / enemy / FireBase container.
             if let Some(frame) = self.presentation_frame.as_ref() {
-                for o in &frame.objects {
-                    if frame.is_owned_by_local(o) && Self::presentation_is_drag_selectable(o) {
-                        let pos = o.position;
-                        if pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z {
-                            selected_in_box.push(o.id);
-                        }
-                    }
-                }
+                selected_in_box =
+                    frame.box_select_unit_ids(self.local_player_team, min_x, max_x, min_z, max_z);
             }
-            // Fail-closed without presentation freeze: empty box selection.
 
             if !selected_in_box.is_empty() {
                 if shift_pressed {
@@ -1317,6 +1312,51 @@ mod tests {
         assert!(!UnitControlSystem::presentation_is_drag_selectable(b));
         assert!(UnitControlSystem::presentation_is_drag_selectable(r));
     }
+
+    #[test]
+    fn box_select_selects_lone_building_and_firebase_container() {
+        let mut logic = GameLogic::new();
+        let mut factory = ThingTemplate::new("WarFactory");
+        factory.set_health(1000.0);
+        factory.add_kind_of(KindOf::Structure);
+        factory.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("WarFactory".into(), factory);
+        let mut firebase = ThingTemplate::new("AmericaFireBase");
+        firebase.set_health(1000.0);
+        firebase.add_kind_of(KindOf::Structure);
+        firebase.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("AmericaFireBase".into(), firebase);
+        let mut ranger = ThingTemplate::new("Ranger");
+        ranger.set_health(100.0);
+        ranger.add_kind_of(KindOf::Infantry);
+        ranger.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Ranger".into(), ranger);
+        let factory_id = logic
+            .create_object("WarFactory", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("factory");
+        let firebase_id = logic
+            .create_object(
+                "AmericaFireBase",
+                Team::USA,
+                glam::Vec3::new(20.0, 0.0, 20.0),
+            )
+            .expect("firebase");
+        let occupant = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(20.5, 0.0, 20.5))
+            .expect("occupant");
+        if let Some(obj) = logic.host_object_mut(occupant) {
+            obj.set_contained_by(Some(firebase_id));
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        assert_eq!(
+            frame.box_select_unit_ids(Team::USA, -1.0, 1.0, -1.0, 1.0),
+            vec![factory_id]
+        );
+        let mut firebase_box = frame.box_select_unit_ids(Team::USA, 19.0, 21.0, 19.0, 21.0);
+        firebase_box.sort_by_key(|id| id.0);
+        assert_eq!(firebase_box, vec![firebase_id]);
+    }
+
 
     #[test]
     fn presentation_attackable_residual() {

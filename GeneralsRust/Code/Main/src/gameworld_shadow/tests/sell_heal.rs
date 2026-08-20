@@ -16,11 +16,11 @@ fn angry_mob_pdl_damage_source_authority_source() {
         ),
         (
             "fn update_scud_poison_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "take_damage_from_immediate_typed_death(",
         ),
         (
             "fn update_bomb_truck_poison_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "take_damage_from_immediate_typed_death(",
         ),
         (
             "fn update_inferno_fire_zones",
@@ -44,7 +44,7 @@ fn angry_mob_pdl_damage_source_authority_source() {
         ),
         (
             "fn update_toxin_tractor_poison_zones",
-            "take_damage_from_immediate(hit.damage, Some(plan.source_object))",
+            "take_damage_from_immediate_typed_death(",
         ),
     ] {
         let i = src

@@ -159,29 +159,25 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
-        let delta = end - start;
-        let len = (delta.x * delta.x + delta.z * delta.z).sqrt();
-        // Wall segment spacing residual (~structure footprint).
-        let spacing = 20.0_f32;
-        let count = if len < 1.0 {
-            1usize
-        } else {
-            ((len / spacing).floor() as usize).saturating_add(1).min(32)
-        };
+        // C++ BuildAssistant::buildObjectLineNow — majorRadius*2, max 50,
+        // march along the normalized start→end vector, stop at first illegal.
+        let positions = self.line_build_tiled_positions(units[0], template_name, start, end);
+        if positions.is_empty() {
+            return CommandResult::InvalidCommand;
+        }
         let builder = units[0];
-        let mut placed = false;
+        let delta = end - start;
         let orient = delta.z.atan2(delta.x);
-        for i in 0..count {
-            let t = if count <= 1 {
-                0.0
-            } else {
-                i as f32 / (count - 1) as f32
-            };
-            let pos = start + delta * t;
-            if self.execute_dozer_construct(&[builder], template_name, pos, orient)
+        let mut placed = false;
+        for pos in positions {
+            if self.place_line_build_segment(builder, template_name, pos, orient)
                 == CommandResult::Success
             {
                 placed = true;
+            } else if placed {
+                // C++ buildTiledLocations already stopped; a later create
+                // failure should not keep stretching through the line.
+                break;
             }
         }
         if placed {
@@ -189,6 +185,146 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+
+    /// C++ `BuildAssistant::buildTiledLocations` (BuildAssistant.cpp:1090-1191).
+    fn line_build_tiled_positions(
+        &self,
+        builder_id: ObjectId,
+        template_name: &str,
+        start: Vec3,
+        end: Vec3,
+    ) -> Vec<Vec3> {
+        use crate::game_logic::host_structure_economy_residual::MAX_LINE_BUILD_OBJECTS;
+        let spacing = self.line_build_tile_spacing(template_name);
+        let dx = end.x - start.x;
+        let dz = end.z - start.z;
+        let len = (dx * dx + dz * dz).sqrt();
+        let mut tiles_needed = if len < 1.0 {
+            1usize
+        } else {
+            ((len / spacing).floor() as usize).saturating_add(1)
+        };
+        tiles_needed = tiles_needed.clamp(1, MAX_LINE_BUILD_OBJECTS as usize);
+        let team = self
+            .game_logic
+            .host_object(builder_id)
+            .map(|o| o.team)
+            .unwrap_or(Team::USA);
+        let mut positions = Vec::with_capacity(tiles_needed);
+        positions.push(start);
+        if tiles_needed == 1 || len < 1.0 {
+            return positions;
+        }
+        let inv = 1.0 / len;
+        let dir_x = dx * inv;
+        let dir_z = dz * inv;
+        for i in 1..tiles_needed {
+            let pos = Vec3::new(
+                start.x + dir_x * spacing * i as f32,
+                start.y,
+                start.z + dir_z * spacing * i as f32,
+            );
+            if !self.game_logic.is_location_legal_to_build_for_builder(
+                team,
+                pos,
+                template_name,
+                Some(builder_id),
+            ) {
+                break;
+            }
+            positions.push(pos);
+        }
+        positions
+    }
+
+    /// C++ `what->getTemplateGeometryInfo().getMajorRadius() * 2.0f`.
+    fn line_build_tile_spacing(&self, template_name: &str) -> f32 {
+        if let Some(tmpl) = self.game_logic.get_templates().get(template_name) {
+            if tmpl.geometry_info.authored && tmpl.geometry_info.major_radius > 0.5 {
+                return tmpl.geometry_info.major_radius * 2.0;
+            }
+        }
+        20.0
+    }
+
+    /// C++ `buildObjectNow` else-arm: UNDER_CONSTRUCTION then same-frame complete.
+    /// Line-build templates never assign a dozer (`isLineBuildTemplate` skip).
+    fn place_line_build_segment(
+        &mut self,
+        builder_id: ObjectId,
+        template_name: &str,
+        location: Vec3,
+        orientation: f32,
+    ) -> CommandResult {
+        if !self.validate_build_location(location) {
+            return CommandResult::InvalidLocation;
+        }
+        let (build_cost, is_structure) = match self.game_logic.get_templates().get(template_name) {
+            Some(t) => (t.build_cost, t.is_kind_of(KindOf::Structure)),
+            None => return CommandResult::InvalidCommand,
+        };
+        if !is_structure {
+            return CommandResult::InvalidCommand;
+        }
+        let team = match self.game_logic.host_object(builder_id) {
+            Some(unit)
+                if unit.can_construct()
+                    && unit.owner_player_id == Some(self.current_player_id) =>
+            {
+                unit.team
+            }
+            _ => return CommandResult::InvalidCommand,
+        };
+        if !self.game_logic.is_location_legal_to_build_for_builder(
+            team,
+            location,
+            template_name,
+            Some(builder_id),
+        ) {
+            return CommandResult::InvalidLocation;
+        }
+        {
+            let Some(player) = self.game_logic.get_player_mut(self.current_player_id) else {
+                return CommandResult::InvalidCommand;
+            };
+            if !player.spend_resources(&build_cost) {
+                return CommandResult::InvalidCommand;
+            }
+        }
+        self.clear_removable_for_construction(location, orientation, template_name);
+        let Some(building_id) = self
+            .game_logic
+            .create_object_under_construction_for_player(
+                template_name,
+                self.current_player_id,
+                location,
+            )
+        else {
+            if let Some(player) = self.game_logic.get_player_mut(self.current_player_id) {
+                player.resources.supplies = player
+                    .resources
+                    .supplies
+                    .saturating_add(build_cost.supplies);
+            }
+            return CommandResult::InvalidCommand;
+        };
+        self.game_logic.move_objects_for_construction(
+            location,
+            crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
+                * 0.5,
+            Some(builder_id),
+        );
+        if orientation.abs() > f32::EPSILON {
+            let _ = self
+                .game_logic
+                .unit_command_set_orientation(building_id, orientation);
+        }
+        // C++ onStructureCreated + onStructureConstructionComplete same frame.
+        let _ = self.game_logic.force_complete_construction(building_id);
+        self.game_logic
+            .notify_structure_construction_complete(building_id);
+        CommandResult::Success
     }
 
     pub(super) fn execute_cancel_construction(

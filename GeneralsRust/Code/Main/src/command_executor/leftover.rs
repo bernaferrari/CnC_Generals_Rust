@@ -508,50 +508,83 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> CommandResult {
-        // Host residual: dozer/worker repairs damaged structure over time
-        // (C++ DozerAIUpdate::privateRepair → DOZER_TASK_REPAIR).
-        // Fail-closed: not sole-benefactor reject / scaffolding / percent INI matrix.
+        // C++ ActionManager::canRepairObject + DozerAIUpdate::privateRepair.
         let (
             target_pos,
             target_alive,
             target_is_structure,
             target_is_damaged,
             target_under_construction,
+            target_is_rebuild_hole,
+            target_is_bridge,
+            sole_benefactor,
+            sole_expires,
         ) = match self.game_logic.host_object(target_id) {
             Some(target) => (
                 target.get_position(),
-                target.is_alive(),
+                target.is_alive() && !target.status.effectively_dead,
                 target.is_kind_of(KindOf::Structure),
                 target.health.current + 0.01 < target.health.maximum,
                 target.status.under_construction,
+                target.is_rebuild_hole,
+                host_object_is_bridge_or_tower(target),
+                target.sole_healing_benefactor,
+                target.sole_healing_benefactor_expiration_frame,
             ),
             None => return CommandResult::InvalidTarget,
         };
 
-        if !target_alive || !target_is_structure || !target_is_damaged || target_under_construction
+        if !target_alive
+            || !target_is_structure
+            || !target_is_damaged
+            || target_under_construction
+            || target_is_rebuild_hole
+            || target_is_bridge
         {
             return CommandResult::InvalidTarget;
         }
 
+        let now = self.game_logic.frame;
         let mut any = false;
         for &unit_id in units {
             let can = self
                 .game_logic
                 .host_object(unit_id)
                 .map(|unit| {
-                    unit.can_repair()
-                        && unit.contained_by.is_none()
-                        && self
-                            .game_logic
-                            .repair_relationship_is_not_enemy(unit_id, target_id)
+                    if !unit.can_repair()
+                        || unit.contained_by.is_some()
+                        || unit.status.under_construction
+                    {
+                        return false;
+                    }
+                    if !self
+                        .game_logic
+                        .repair_relationship_is_not_enemy(unit_id, target_id)
+                    {
+                        return false;
+                    }
+                    // C++ isObjectShroudedForAction — fogged/black targets reject.
+                    // Fail-open when the shroud grid is uninitialized.
+                    let player_id = unit.owner_player_id.unwrap_or(0);
+                    if !self
+                        .game_logic
+                        .is_build_location_shroud_clear(player_id, target_pos)
+                    {
+                        return false;
+                    }
+                    true
                 })
                 .unwrap_or(false);
             if !can {
                 continue;
             }
-            // C++ DozerAIUpdate::newTask — REPAIR does not cancel pending BUILD.
+            // C++ privateRepair / InGameUI sole-benefactor gate.
+            if let Some(ben) = sole_benefactor {
+                if ben != unit_id && sole_expires > now {
+                    continue;
+                }
+            }
             self.game_logic.dozer_new_task_repair(unit_id, target_id);
-            // C++ WorkerAIUpdate::newTask — build/repair exits AS_SUPPLY_TRUCK.
             self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
             if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
                 any = true;
@@ -1057,6 +1090,14 @@ fn host_player_beacon_ids(logic: &GameLogic, player_id: u32) -> Vec<ObjectId> {
             .then_some(*id)
         })
         .collect()
+}
+
+/// C++ KINDOF_BRIDGE / KINDOF_BRIDGE_TOWER residual for repair reject.
+fn host_object_is_bridge_or_tower(obj: &crate::game_logic::Object) -> bool {
+    let name = obj.template_name.to_ascii_lowercase();
+    name.contains("bridgetower")
+        || name.contains("bridge_tower")
+        || (name.contains("bridge") && !name.contains("bridger"))
 }
 
 fn host_living_mutual_ally(logic: &GameLogic, player_id: u32) -> Option<u32> {

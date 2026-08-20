@@ -32,8 +32,47 @@ pub(super) fn seed_capable_of_following_waypoint_for(name: &str) -> bool {
 }
 
 /// C++ Weapon.ini ProjectileStreamName residual.
+///
+/// Prefer the live WeaponStore field (this template's stream). Seed is only
+/// a fallback when the store has no authored name.
 pub fn host_projectile_stream_name_for_weapon_name(name: &str) -> String {
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).and_then(|wt| {
+            let authored = wt.projectile_stream_name.trim();
+            if authored.is_empty() {
+                None
+            } else {
+                Some(authored.to_string())
+            }
+        })
+    })
+    .ok()
+    .flatten();
+    if let Some(authored) = from_store {
+        return authored;
+    }
     seed_projectile_stream_name_for(name)
+}
+
+/// Resolve ProjectileStreamName from the firing slot, then any other slot.
+pub fn host_projectile_stream_name_for_slots(
+    preferred: Option<&str>,
+    primary: Option<&str>,
+    secondary: Option<&str>,
+    tertiary: Option<&str>,
+) -> String {
+    for name in [preferred, primary, secondary, tertiary]
+        .into_iter()
+        .flatten()
+    {
+        let authored = host_projectile_stream_name_for_weapon_name(name);
+        if !authored.is_empty() {
+            return authored;
+        }
+    }
+    String::new()
 }
 
 pub(super) fn seed_projectile_stream_name_for(name: &str) -> String {

@@ -458,7 +458,12 @@ impl Object {
         let Some(fs) = self.fire_spread.as_mut() else {
             return false;
         };
-        fs.try_to_ignite(current_frame)
+        if fs.try_to_ignite(current_frame) {
+            self.apply_flammable_ignite_visuals();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn has_tensile_formation(&self) -> bool {

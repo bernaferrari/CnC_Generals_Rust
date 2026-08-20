@@ -1514,6 +1514,7 @@ impl PresentationFrame {
             // Wave 1031: GW path has no host supply-drop OCL timer residual yet.
             ocl_timer_seconds: 0,
             sold: ent.sold,
+            script_unsellable: false,
             unselectable: ent.unselectable,
             is_rebuild_hole: ent.is_rebuild_hole,
             rebuild_template_name: ent.rebuild_template_name.clone(),
@@ -1752,6 +1753,23 @@ impl PresentationFrame {
                 ent.selection_radius
             } else {
                 10.0
+            },
+            health_box_width: {
+                let r = if ent.selection_radius > 0.0 {
+                    ent.selection_radius
+                } else {
+                    10.0
+                };
+                let size = (r + r).min(150.0).max(20.0);
+                (size * 2.0).max(20.0)
+            },
+            health_box_z_offset: {
+                let r = if ent.selection_radius > 0.0 {
+                    ent.selection_radius
+                } else {
+                    10.0
+                };
+                r + 10.0
             },
             // Wave 493: engine-bridge + ground height from GW entity residual.
             engine_bridged: ent.engine_bridged,

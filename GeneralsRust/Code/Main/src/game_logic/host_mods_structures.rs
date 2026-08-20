@@ -41,6 +41,9 @@ pub mod host_money_crate;
 #[path = "host_oil_derrick.rs"]
 pub mod host_oil_derrick;
 
+#[path = "host_flight_deck.rs"]
+pub mod host_flight_deck;
+
 #[path = "host_overlord_addons.rs"]
 pub mod host_overlord_addons;
 

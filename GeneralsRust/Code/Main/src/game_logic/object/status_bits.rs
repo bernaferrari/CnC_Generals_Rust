@@ -134,6 +134,54 @@ impl Object {
         crate::game_logic::host_status_bits_upgrade::status_bits_has(self.object_status_bits, name)
     }
 
+    /// C++ FlammableUpdate tryToIgnite / update status + model + body setAflame.
+    pub fn apply_flammable_visuals(&mut self, aflame: bool, smoldering: bool, burned: bool) {
+        if aflame {
+            let _ = self.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
+        } else if burned {
+            let _ = self.apply_status_bits_upgrade_masks(&["BURNED"], &["AFLAME"]);
+        } else {
+            let _ = self.apply_status_bits_upgrade_masks(&[], &["AFLAME", "BURNED"]);
+        }
+        if smoldering {
+            let _ = self.apply_status_bits_upgrade_masks(&["BURNED"], &[]);
+        }
+        if let Some(fs) = self.fire_spread.as_mut() {
+            fs.body_aflame = aflame;
+            if !aflame {
+                fs.smoldering = burned;
+            } else if smoldering {
+                fs.smoldering = true;
+            }
+        }
+        self.refresh_model_condition_bits();
+    }
+
+    /// C++ tryToIgnite: AFLAME status, body setAflame, MODELCONDITION_AFLAME.
+    pub fn apply_flammable_ignite_visuals(&mut self) {
+        self.apply_flammable_visuals(true, false, false);
+    }
+
+    /// C++ burned timer: BURNED + SMOLDERING while still AFLAME.
+    pub fn apply_flammable_smoldering_visuals(&mut self) {
+        self.apply_flammable_visuals(true, true, false);
+    }
+
+    /// C++ aflame_end: clear AFLAME / setAflame(FALSE); keep BURNED if already burned.
+    pub fn apply_flammable_extinguish_visuals(&mut self, burned: bool) {
+        self.apply_flammable_visuals(false, burned, burned);
+    }
+
+    /// C++ `Object::isScriptUnsellable`.
+    pub fn is_script_unsellable(&self) -> bool {
+        self.script_unsellable
+    }
+
+    /// C++ `setScriptStatus(OBJECT_STATUS_SCRIPT_UNSELLABLE)`.
+    pub fn set_script_unsellable(&mut self, v: bool) {
+        self.script_unsellable = v;
+    }
+
     pub fn set_status_masked(&mut self, v: bool) {
         self.status.masked = v;
         crate::game_logic::host_status_log::record_masked(self.id, v);

@@ -923,10 +923,18 @@ impl GameLogic {
     /// Tick residual toxin fields spawned by AnthraxBomb impacts.
     /// Fail-closed vs full HazardousMaterialArmor / cleanup-hazard / gamma objects.
     pub(in super::super) fn update_anthrax_toxin_fields(&mut self) {
-        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
-            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                )
+            })
             .collect();
 
         let plans = self
@@ -945,8 +953,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                        plan.death_type,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

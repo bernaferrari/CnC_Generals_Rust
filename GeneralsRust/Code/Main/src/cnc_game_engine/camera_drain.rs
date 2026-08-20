@@ -1888,7 +1888,8 @@ impl CnCGameEngine {
                             direct.visual_template_name.as_str()
                         },
                     ),
-
+                    health_box_width: o.health_box_width,
+                    health_box_z_offset: o.health_box_z_offset,
                 }
             })
             .collect::<Vec<_>>();
@@ -2481,6 +2482,7 @@ impl CnCGameEngine {
                             ocl_timer_seconds: o.ocl_timer_seconds,
                             // Wave 1033: sold residual for dual-world ControlBar clear.
                             sold: o.sold,
+                            script_unsellable: o.script_unsellable,
                             // Wave 1034: unselectable residual for dual-world selection.
                             unselectable: o.unselectable,
                             // Wave 1035: destroyed/masked residual for dual-world selection.

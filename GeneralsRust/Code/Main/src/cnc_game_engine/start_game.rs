@@ -918,16 +918,11 @@ impl CnCGameEngine {
     }
 
     pub(super) fn script_pitch_to_radians(pitch: f32) -> f32 {
-        // Script pitch semantics: 1.0 is default, 0.0 trends toward horizon, >1.0 toward ground.
-        let clamped = pitch.clamp(-0.25, 2.0);
-        let degrees = if clamped <= 1.0 {
-            5.0 + clamped * 40.0
-        } else {
-            45.0 + (clamped - 1.0) * 40.0
-        };
-        degrees
-            .to_radians()
-            .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians())
+        // C++ W3DView.cpp:2520 pitchCamera animates m_FXPitch (look-target
+        // multiplier). Orbit pitch stays the default (~45°). Script 0.0 must
+        // not slam the camera to a 5° ground orbit.
+        let _ = pitch;
+        45.0_f32.to_radians()
     }
 
     pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {

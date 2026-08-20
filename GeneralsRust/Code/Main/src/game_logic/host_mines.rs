@@ -33,13 +33,12 @@
 //!   DeliveryDecalRadius / RadiusCursorRadius **100**, DistanceAroundObject **80**,
 //!   NumVirtualMines **8**, payload ClusterMinesBomb → ChinaClusterMine
 //!
-//! Fail-closed honesty:
-//! - Not full C++ MinefieldBehavior virtual-mine regen / scoot / immunity slots
-//! - Not full DemoTrapUpdate PreAttack scoop animation / weapon-lock UI matrix
-//! - Not full WEAPONSET_MINE_CLEARING_DETAIL / Weapon AntiMine targeting matrix
+//! - C++ MinefieldBehavior virtual-mine persist / immunity slots / worker skip
+//! - C++ StickyBombUpdate plant-XY freeze + UnitBombPing
+//! - C++ GenerateMinefieldBehavior SmartBorder / EMP swap
 //! - RemoteC4Charge / TimedC4Charge SpecialObject names + MaxSpecialObjects residual closed
 //! - Not full StickyBombUpdate attach bones / geometry-based splash / live max-charge list UI
-//! - Not full OCL ClusterMinesBomb aircraft path / GenerateMinefieldBehavior SmartBorder
+//! - Not full OCL ClusterMinesBomb aircraft path
 
 use super::ObjectId;
 use crate::game_logic::host_toxin_tractor::{is_chem_general_template, AnthraxResidualTier};
@@ -48,6 +47,31 @@ use serde::{Deserialize, Serialize};
 
 /// Logic frames per second (host fixed step).
 pub const MINE_LOGIC_FPS: f32 = 30.0;
+
+/// C++ MinefieldBehavior RepeatDetonateMoveThresh default.
+pub const REPEAT_DETONATE_MOVE_THRESH: f32 = 1.0;
+/// C++ MinefieldBehavior MAX_IMMUNITY.
+pub const MINE_MAX_IMMUNITY: usize = 3;
+/// C++ immunity expires when now > collideTime + 2.
+pub const MINE_IMMUNITY_HOLD_FRAMES: u32 = 2;
+/// C++ detonateOnce never drains health below this.
+pub const MINE_MIN_HEALTH: f32 = 0.1;
+/// Retail ChinaStandardMine / ChinaEMPMine NumVirtualMines residual.
+pub const STANDARD_MINE_NUM_VIRTUAL: u32 = 8;
+/// ChinaStandardMine / ChinaClusterMine geometry major radius residual.
+pub const LAND_MINE_GEOMETRY_RADIUS: f32 = 8.0;
+/// C++ GenerateMinefieldBehavior SkipIfThisMuchUnderStructure default.
+pub const SKIP_IF_THIS_MUCH_UNDER_STRUCTURE: f32 = 0.33;
+/// C++ GlobalData m_standardMinefieldDistance.
+pub const STANDARD_MINEFIELD_DISTANCE: f32 = 40.0;
+/// C++ StickyBombUpdate per-unit create sound.
+pub const STICKY_BOMB_CREATED_AUDIO: &str = "StickyBombCreated";
+/// C++ StickyBombUpdate per-unit UnitBombPing.
+pub const UNIT_BOMB_PING_AUDIO: &str = "UnitBombPing";
+/// C++ LOGICFRAMES_PER_SECOND ping interval.
+pub const UNIT_BOMB_PING_FRAMES: u32 = 30;
+/// Retail StickyBombUpdate OffsetZ residual (ride on vehicle roof).
+pub const STICKY_OFFSET_Z: f32 = 8.0;
 
 /// DemoTrapUpdate weapon-slot mode residual.
 ///
@@ -289,6 +313,21 @@ pub fn demo_trap_damage_at(profile: DemoTrapProfile, distance: f32) -> f32 {
     }
 }
 
+/// C++ MinefieldBehavior DetonatorInfo.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct HostMineDetonator {
+    pub id: ObjectId,
+    pub x: f32,
+    pub z: f32,
+}
+
+/// C++ MinefieldBehavior ImmuneInfo (MAX_IMMUNITY 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostMineImmune {
+    pub id: ObjectId,
+    pub collide_frame: u32,
+}
+
 /// Per-object host residual mine/trap state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostMineData {
@@ -318,10 +357,48 @@ pub struct HostMineData {
     pub attached_to: Option<ObjectId>,
     /// Source that placed this residual (producer).
     pub producer_id: Option<ObjectId>,
+    /// C++ MinefieldBehavior m_numVirtualMines.
+    #[serde(default = "default_virtual_mines_one")]
+    pub num_virtual_mines: u32,
+    /// C++ MinefieldBehavior m_virtualMinesRemaining.
+    #[serde(default = "default_virtual_mines_one")]
+    pub virtual_mines_remaining: u32,
+    /// C++ MinefieldBehaviorModuleData m_regenerates.
+    #[serde(default)]
+    pub regenerates: bool,
+    /// C++ WorkersDetonate (module default false).
+    #[serde(default)]
+    pub workers_detonate: bool,
+    /// C++ RepeatDetonateMoveThresh (default 1).
+    #[serde(default = "default_repeat_detonate_thresh")]
+    pub repeat_detonate_move_thresh: f32,
+    /// C++ m_detonators — last trip XZ per victim.
+    #[serde(default)]
+    pub detonators: Vec<HostMineDetonator>,
+    /// C++ MAX_IMMUNITY 3 collide slots.
+    #[serde(default)]
+    pub immunes: Vec<HostMineImmune>,
+    /// C++ StickyBombUpdate m_nextPingFrame.
+    #[serde(default)]
+    pub next_ping_frame: Option<u32>,
 }
 
 fn default_demo_trap_mode() -> DemoTrapMode {
     DemoTrapMode::Proximity
+}
+
+fn default_virtual_mines_one() -> u32 {
+    1
+}
+
+fn default_repeat_detonate_thresh() -> f32 {
+    REPEAT_DETONATE_MOVE_THRESH
+}
+
+impl Default for HostMineData {
+    fn default() -> Self {
+        Self::new(HostMineKind::LandMine)
+    }
 }
 
 impl HostMineData {
@@ -345,6 +422,14 @@ impl HostMineData {
             detonate_at_frame: None,
             attached_to: None,
             producer_id: None,
+            num_virtual_mines: 1,
+            virtual_mines_remaining: 1,
+            regenerates: false,
+            workers_detonate: false,
+            repeat_detonate_move_thresh: REPEAT_DETONATE_MOVE_THRESH,
+            detonators: Vec::new(),
+            immunes: Vec::new(),
+            next_ping_frame: None,
         }
     }
 
@@ -370,6 +455,22 @@ impl HostMineData {
 
     pub fn land_mine() -> Self {
         Self::new(HostMineKind::LandMine)
+    }
+
+    /// Bind virtual-mine / regen residual from the mine template name.
+    pub fn land_mine_for_template(template_name: &str) -> Self {
+        let mut data = Self::land_mine();
+        let n = template_name.to_ascii_lowercase();
+        if n.contains("cluster") {
+            data.num_virtual_mines = CLUSTER_MINE_NUM_VIRTUAL;
+            data.virtual_mines_remaining = CLUSTER_MINE_NUM_VIRTUAL;
+            data.regenerates = false;
+        } else if n.contains("standardmine") || n.contains("empmine") {
+            data.num_virtual_mines = STANDARD_MINE_NUM_VIRTUAL;
+            data.virtual_mines_remaining = STANDARD_MINE_NUM_VIRTUAL;
+            data.regenerates = true;
+        }
+        data
     }
 
     pub fn demo_trap() -> Self {
@@ -399,12 +500,15 @@ impl HostMineData {
             .default_lifetime_frames()
             .unwrap_or(300);
         data.detonate_at_frame = Some(current_frame.saturating_add(delay));
+        data.next_ping_frame = Some(sticky_next_ping_frame(current_frame, data.detonate_at_frame));
         data
     }
 
     /// Remote demo charge: sticky until DetonateRemoteDemoCharges (no auto-timer).
     pub fn remote_demo_charge() -> Self {
-        Self::new(HostMineKind::RemoteDemoCharge)
+        let mut data = Self::new(HostMineKind::RemoteDemoCharge);
+        data.next_ping_frame = Some(UNIT_BOMB_PING_FRAMES);
+        data
     }
 
     pub fn with_producer(mut self, producer: ObjectId) -> Self {
@@ -419,11 +523,89 @@ impl HostMineData {
 
     pub fn with_lifetime_frames(mut self, current_frame: u32, delay_frames: u32) -> Self {
         self.detonate_at_frame = Some(current_frame.saturating_add(delay_frames));
+        self.next_ping_frame = Some(sticky_next_ping_frame(current_frame, self.detonate_at_frame));
         self
     }
 
     pub fn is_active(&self) -> bool {
-        !self.detonated
+        !self.detonated && self.has_virtual_charge()
+    }
+
+    /// C++ onCollide early-out when m_virtualMinesRemaining == 0.
+    pub fn has_virtual_charge(&self) -> bool {
+        if !matches!(self.kind, HostMineKind::LandMine) {
+            return true;
+        }
+        self.virtual_mines_remaining > 0
+    }
+
+    /// C++ MinefieldBehavior::detonateOnce decrement + destroy gate.
+    /// Returns true when the object itself should be destroyed.
+    pub fn consume_virtual_mine(&mut self) -> bool {
+        if matches!(self.kind, HostMineKind::LandMine) && self.virtual_mines_remaining > 0 {
+            self.virtual_mines_remaining -= 1;
+        }
+        if matches!(self.kind, HostMineKind::LandMine) {
+            self.virtual_mines_remaining == 0 && !self.regenerates
+        } else {
+            true
+        }
+    }
+
+    /// Health fraction matching remaining / numVirtualMines (C++ detonateOnce).
+    pub fn virtual_health_fraction(&self) -> f32 {
+        let num = self.num_virtual_mines.max(1) as f32;
+        (self.virtual_mines_remaining as f32 / num).clamp(0.0, 1.0)
+    }
+
+    pub fn expire_immunes(&mut self, now: u32) {
+        self.immunes
+            .retain(|im| now <= im.collide_frame.saturating_add(MINE_IMMUNITY_HOLD_FRAMES));
+    }
+
+    /// C++ immunity list first: refresh collideTime and skip detonate.
+    pub fn refresh_immune(&mut self, id: ObjectId, now: u32) -> bool {
+        if let Some(slot) = self.immunes.iter_mut().find(|im| im.id == id) {
+            slot.collide_frame = now;
+            return true;
+        }
+        false
+    }
+
+    /// C++ grant immunity while isClearingMines && goal object.
+    pub fn grant_immunity(&mut self, id: ObjectId, now: u32) {
+        if let Some(slot) = self.immunes.iter_mut().find(|im| im.id == id) {
+            slot.collide_frame = now;
+            return;
+        }
+        if self.immunes.len() < MINE_MAX_IMMUNITY {
+            self.immunes.push(HostMineImmune {
+                id,
+                collide_frame: now,
+            });
+        }
+    }
+
+    /// C++ RepeatDetonateMoveThresh: same unit must move before another trip.
+    pub fn allow_repeat_detonate(&mut self, id: ObjectId, pos: Vec3) -> bool {
+        let thresh = self.repeat_detonate_move_thresh.max(0.0);
+        let thresh_sqr = thresh * thresh;
+        if let Some(det) = self.detonators.iter_mut().find(|d| d.id == id) {
+            let dx = pos.x - det.x;
+            let dz = pos.z - det.z;
+            if dx * dx + dz * dz <= thresh_sqr {
+                return false;
+            }
+            det.x = pos.x;
+            det.z = pos.z;
+            return true;
+        }
+        self.detonators.push(HostMineDetonator {
+            id,
+            x: pos.x,
+            z: pos.z,
+        });
+        true
     }
 
     /// C++ DemoTrapUpdate.cpp:124-130: dead + DetonateWhenKilled → detonate().
@@ -661,6 +843,50 @@ pub fn mine_clear_allowed_for_order(mine_clearing_detail: bool) -> bool {
     mine_clearing_detail
 }
 
+/// C++ MinefieldBehavior.cpp:345-350: infantry+dozer workers skip unless WorkersDetonate.
+pub fn minefield_skips_worker(workers_detonate: bool, is_infantry: bool, is_dozer: bool) -> bool {
+    !workers_detonate && is_infantry && is_dozer
+}
+
+/// C++ isClearingMines() && getGoalObject() != NULL.
+/// Host: mine-clearing detail armed and a goal mine is assigned (approach or attack).
+pub fn is_clearing_mines_with_goal(mine_clearing_detail: bool, has_goal_mine: bool) -> bool {
+    mine_clearing_detail && has_goal_mine
+}
+
+/// C++ StickyBombUpdate initStickyBomb / update ping schedule.
+pub fn sticky_next_ping_frame(now: u32, detonate_at: Option<u32>) -> u32 {
+    if let Some(die) = detonate_at {
+        if die > now {
+            let pings = (die - now) / UNIT_BOMB_PING_FRAMES;
+            return die.saturating_sub(pings * UNIT_BOMB_PING_FRAMES);
+        }
+    }
+    now.saturating_add(UNIT_BOMB_PING_FRAMES)
+}
+
+/// C++ StickyBombUpdate immobile follow: keep plant XY, snap Z/Y to ground.
+pub fn sticky_immobile_follow_pos(charge_pos: Vec3, ground_y: f32) -> Vec3 {
+    Vec3::new(charge_pos.x, ground_y, charge_pos.z)
+}
+
+/// C++ StickyBombUpdate vehicle follow: target XY + OffsetZ.
+pub fn sticky_vehicle_follow_pos(target_pos: Vec3, offset_z: f32) -> Vec3 {
+    Vec3::new(target_pos.x, target_pos.y + offset_z, target_pos.z)
+}
+
+/// C++ GeometryInfo::clipPointToFootprint (circle residual).
+pub fn clip_point_to_mine_footprint(mine_pos: Vec3, victim_pos: Vec3, radius: f32) -> Vec3 {
+    let dx = victim_pos.x - mine_pos.x;
+    let dz = victim_pos.z - mine_pos.z;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if radius <= 0.0 || dist <= radius || dist <= f32::EPSILON {
+        return Vec3::new(victim_pos.x, mine_pos.y, victim_pos.z);
+    }
+    let s = radius / dist;
+    Vec3::new(mine_pos.x + dx * s, mine_pos.y, mine_pos.z + dz * s)
+}
+
 
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
 pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
@@ -746,7 +972,7 @@ pub fn should_detonate_when_killed(
 /// Build residual mine data for a newly created host object (if template matches).
 pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Option<HostMineData> {
     match infer_mine_kind(template_name)? {
-        HostMineKind::LandMine => Some(HostMineData::land_mine()),
+        HostMineKind::LandMine => Some(HostMineData::land_mine_for_template(template_name)),
         HostMineKind::DemoTrap => {
             // Fail-closed: no live anthrax flags at template residual bind;
             // Chem_/Demo_ prefixes select profile; gamma applied later if tags present.
@@ -754,7 +980,11 @@ pub fn residual_data_for_template(template_name: &str, current_frame: u32) -> Op
             Some(HostMineData::demo_trap_with_profile(profile))
         }
         HostMineKind::TimedDemoCharge => Some(HostMineData::timed_demo_charge(current_frame)),
-        HostMineKind::RemoteDemoCharge => Some(HostMineData::remote_demo_charge()),
+        HostMineKind::RemoteDemoCharge => {
+            let mut data = HostMineData::remote_demo_charge();
+            data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
+            Some(data)
+        }
     }
 }
 
@@ -807,6 +1037,177 @@ pub fn cluster_mine_positions(center: Vec3, count: usize, ring_radius: f32) -> V
     }
     out
 }
+
+/// Producer / bomb / building footprint used by GenerateMinefieldBehavior residual.
+#[derive(Debug, Clone, Copy)]
+pub struct MinePlacementGeom {
+    pub center: Vec3,
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    pub is_box: bool,
+}
+
+impl MinePlacementGeom {
+    pub fn circle(center: Vec3, radius: f32) -> Self {
+        Self {
+            center,
+            major_radius: radius.max(0.0),
+            minor_radius: radius.max(0.0),
+            is_box: false,
+        }
+    }
+
+    pub fn bounding_circle_radius(self) -> f32 {
+        if self.is_box {
+            (self.major_radius * self.major_radius + self.minor_radius * self.minor_radius).sqrt()
+        } else {
+            self.major_radius.max(self.minor_radius)
+        }
+    }
+
+    pub fn expand(mut self, amount: f32) -> Self {
+        self.major_radius = (self.major_radius + amount).max(0.0);
+        self.minor_radius = (self.minor_radius + amount).max(0.0);
+        self
+    }
+}
+
+fn circle_mine_count(radius: f32, mine_radius: f32) -> usize {
+    let diameter = (mine_radius * 2.0).max(0.001);
+    let circum = std::f32::consts::TAU * radius.max(0.0);
+    (circum / diameter).ceil().max(1.0) as usize
+}
+
+fn line_mine_count(len: f32, mine_radius: f32) -> usize {
+    let diameter = (mine_radius * 2.0).max(0.001);
+    (len / diameter).ceil().max(1.0) as usize
+}
+
+/// C++ placeMinesAroundCircle (no jitter residual).
+pub fn mines_around_circle(center: Vec3, radius: f32, mine_radius: f32) -> Vec<Vec3> {
+    let count = circle_mine_count(radius, mine_radius);
+    cluster_mine_positions(center, count, radius)
+}
+
+/// C++ placeMinesAroundRect + placeMinesAlongLine (skip first on each edge).
+pub fn mines_around_rect(center: Vec3, major: f32, minor: f32, mine_radius: f32) -> Vec<Vec3> {
+    let corners = [
+        Vec3::new(center.x + major, center.y, center.z + minor),
+        Vec3::new(center.x - major, center.y, center.z + minor),
+        Vec3::new(center.x - major, center.y, center.z - minor),
+        Vec3::new(center.x + major, center.y, center.z - minor),
+    ];
+    let mut out = Vec::new();
+    for i in 0..4 {
+        let start = corners[i];
+        let end = corners[(i + 1) % 4];
+        let dx = end.x - start.x;
+        let dz = end.z - start.z;
+        let len = (dx * dx + dz * dz).sqrt();
+        if len <= f32::EPSILON {
+            continue;
+        }
+        let n = line_mine_count(len, mine_radius);
+        let inc = len / n as f32;
+        let mut place = inc; // skipOneAtStart
+        while place <= len + 0.001 {
+            let t = place / len;
+            out.push(Vec3::new(start.x + dx * t, center.y, start.z + dz * t));
+            place += inc;
+        }
+    }
+    out
+}
+
+/// C++ GenerateMinefieldBehavior::placeMines SmartBorder path.
+pub fn smart_border_mine_positions(
+    geom: MinePlacementGeom,
+    distance_around: f32,
+    mine_radius: f32,
+    always_circular: bool,
+    skip_interior: bool,
+) -> Vec<Vec3> {
+    let mut out = Vec::new();
+    let mut ring = if skip_interior {
+        geom
+    } else {
+        out.push(geom.center);
+        MinePlacementGeom::circle(geom.center, mine_radius)
+    };
+    if always_circular {
+        let r = ring.bounding_circle_radius();
+        ring = MinePlacementGeom::circle(ring.center, r);
+    }
+    ring = ring.expand(mine_radius);
+    let mine_diameter = mine_radius * 2.0;
+    loop {
+        if ring.is_box && !always_circular {
+            out.extend(mines_around_rect(
+                ring.center,
+                ring.major_radius,
+                ring.minor_radius,
+                mine_radius,
+            ));
+        } else {
+            out.extend(mines_around_circle(
+                ring.center,
+                ring.major_radius,
+                mine_radius,
+            ));
+        }
+        if ring.bounding_circle_radius() >= distance_around {
+            break;
+        }
+        ring = ring.expand(mine_diameter);
+    }
+    out
+}
+
+/// C++ GenerateMinefieldBehavior BorderOnly path (structure China mines).
+pub fn structure_border_mine_positions(
+    geom: MinePlacementGeom,
+    distance_around: f32,
+    mine_radius: f32,
+    always_circular: bool,
+) -> Vec<Vec3> {
+    let expanded = geom.expand(distance_around);
+    if expanded.is_box && !always_circular {
+        mines_around_rect(
+            expanded.center,
+            expanded.major_radius,
+            expanded.minor_radius,
+            mine_radius,
+        )
+    } else {
+        mines_around_circle(expanded.center, expanded.major_radius, mine_radius)
+    }
+}
+
+/// ClusterMinesBomb SmartBorder residual around a drop center.
+pub fn cluster_smart_border_positions(center: Vec3) -> Vec<Vec3> {
+    smart_border_mine_positions(
+        MinePlacementGeom::circle(center, 1.0),
+        CLUSTER_MINES_DISTANCE_AROUND_OBJECT,
+        LAND_MINE_GEOMETRY_RADIUS,
+        false,
+        true,
+    )
+}
+
+/// C++ placeMineAt skip: mine mostly under a structure.
+pub fn mine_spot_under_structure(
+    spot: Vec3,
+    structure_pos: Vec3,
+    structure_radius: f32,
+    mine_radius: f32,
+) -> bool {
+    let shrink = mine_radius * (1.0 - SKIP_IF_THIS_MUCH_UNDER_STRUCTURE);
+    let dx = spot.x - structure_pos.x;
+    let dz = spot.z - structure_pos.z;
+    let reach = (structure_radius + shrink.max(0.0)).max(0.0);
+    dx * dx + dz * dz <= reach * reach
+}
+
 
 /// Wave 51 residual honesty: DemoTrap DefaultProximity / trigger / death fuse constants.
 pub fn honesty_demo_trap_mode_residual_ok() -> bool {
@@ -951,17 +1352,39 @@ pub fn damage_at_distance(base_damage: f32, radius: f32, distance: f32) -> f32 {
 }
 
 /// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
-/// China mines upgrade places a ring of ChinaStandardMine around the structure.
+/// China mines upgrade places mines around the structure footprint.
 pub const CHINA_STRUCTURE_MINE_RING_COUNT: u32 = 8;
 pub const CHINA_STRUCTURE_MINE_RING_RADIUS: f32 = 40.0;
 pub const CHINA_STANDARD_MINE_TEMPLATE: &str = "ChinaStandardMine";
+pub const CHINA_EMP_MINE_TEMPLATE: &str = "ChinaEMPMine";
 pub const UPGRADE_CHINA_MINES: &str = "Upgrade_ChinaMines";
 pub const UPGRADE_CHINA_EMP_MINES: &str = "Upgrade_ChinaEMPMines";
 
-pub fn is_china_mines_upgrade(upgrade: &str) -> bool {
+pub fn is_china_emp_mines_upgrade(upgrade: &str) -> bool {
     let n = upgrade.to_ascii_lowercase();
-    (n.contains("chinamines") || n.contains("china_mines") || n.contains("chinaempmines"))
+    (n.contains("chinaempmines") || n.contains("china_emp_mines") || n.contains("empmines"))
+        && n.contains("emp")
         && !n.contains("cluster")
+}
+
+pub fn is_china_standard_mines_upgrade(upgrade: &str) -> bool {
+    let n = upgrade.to_ascii_lowercase();
+    (n.contains("chinamines") || n.contains("china_mines"))
+        && !n.contains("emp")
+        && !n.contains("cluster")
+}
+
+pub fn is_china_mines_upgrade(upgrade: &str) -> bool {
+    is_china_standard_mines_upgrade(upgrade) || is_china_emp_mines_upgrade(upgrade)
+}
+
+/// C++ MineName vs MineNameUpgraded residual.
+pub fn china_mine_template_for_upgrade(upgrade: &str) -> &'static str {
+    if is_china_emp_mines_upgrade(upgrade) {
+        CHINA_EMP_MINE_TEMPLATE
+    } else {
+        CHINA_STANDARD_MINE_TEMPLATE
+    }
 }
 
 /// World positions for structure mine ring residual (evenly spaced on circle).
@@ -983,6 +1406,26 @@ pub fn structure_minefield_positions(
         ));
     }
     out
+}
+
+/// Structure BorderOnly residual from building footprint (not a fixed 8@40 ring).
+pub fn structure_minefield_positions_for_geom(
+    center: glam::Vec3,
+    major_radius: f32,
+    minor_radius: f32,
+    is_box: bool,
+) -> Vec<glam::Vec3> {
+    structure_border_mine_positions(
+        MinePlacementGeom {
+            center,
+            major_radius: major_radius.max(1.0),
+            minor_radius: minor_radius.max(1.0),
+            is_box,
+        },
+        STANDARD_MINEFIELD_DISTANCE,
+        LAND_MINE_GEOMETRY_RADIUS,
+        false,
+    )
 }
 
 #[cfg(test)]
@@ -1286,4 +1729,105 @@ mod tests {
         let d = HostMineData::demo_trap();
         assert!(d.detonate_when_killed());
     }
+
+    #[test]
+    fn virtual_mines_persist_until_empty() {
+        let mut d = HostMineData::land_mine_for_template("ChinaClusterMine");
+        assert_eq!(d.virtual_mines_remaining, CLUSTER_MINE_NUM_VIRTUAL);
+        assert!(!d.consume_virtual_mine());
+        assert_eq!(d.virtual_mines_remaining, CLUSTER_MINE_NUM_VIRTUAL - 1);
+        assert!(d.is_active());
+        for _ in 1..CLUSTER_MINE_NUM_VIRTUAL {
+            let last = d.consume_virtual_mine();
+            if d.virtual_mines_remaining == 0 {
+                assert!(last);
+            } else {
+                assert!(!last);
+            }
+        }
+        assert_eq!(d.virtual_mines_remaining, 0);
+        assert!(!d.is_active());
+    }
+
+    #[test]
+    fn workers_do_not_detonate_china_mines() {
+        assert!(minefield_skips_worker(false, true, true));
+        assert!(!minefield_skips_worker(true, true, true));
+        assert!(!minefield_skips_worker(false, true, false));
+        assert!(!minefield_skips_worker(false, false, true));
+    }
+
+    #[test]
+    fn clearing_dozer_with_goal_is_immune() {
+        assert!(is_clearing_mines_with_goal(true, true));
+        assert!(!is_clearing_mines_with_goal(true, false));
+        assert!(!is_clearing_mines_with_goal(false, true));
+    }
+
+    #[test]
+    fn repeat_detonate_requires_move() {
+        let mut d = HostMineData::land_mine();
+        let id = ObjectId(7);
+        assert!(d.allow_repeat_detonate(id, Vec3::ZERO));
+        assert!(!d.allow_repeat_detonate(id, Vec3::new(0.5, 0.0, 0.0)));
+        assert!(d.allow_repeat_detonate(id, Vec3::new(2.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn sticky_immobile_keeps_plant_xy() {
+        let planted = Vec3::new(12.0, 3.0, 44.0);
+        let follow = sticky_immobile_follow_pos(planted, 0.0);
+        assert!((follow.x - 12.0).abs() < 0.01);
+        assert!((follow.z - 44.0).abs() < 0.01);
+        assert!(follow.y.abs() < 0.01);
+        let veh = sticky_vehicle_follow_pos(Vec3::new(1.0, 2.0, 3.0), STICKY_OFFSET_Z);
+        assert!((veh.y - 10.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn unit_bomb_ping_interval_is_one_second() {
+        assert_eq!(UNIT_BOMB_PING_FRAMES, 30);
+        assert_eq!(sticky_next_ping_frame(10, None), 40);
+        assert_eq!(sticky_next_ping_frame(10, Some(310)), 10);
+        assert_eq!(UNIT_BOMB_PING_AUDIO, "UnitBombPing");
+        assert_eq!(STICKY_BOMB_CREATED_AUDIO, "StickyBombCreated");
+    }
+
+    #[test]
+    fn smart_border_is_denser_than_fixed_ring() {
+        let pts = cluster_smart_border_positions(Vec3::ZERO);
+        assert!(pts.len() > CLUSTER_MINE_COUNT);
+        let max_r = pts
+            .iter()
+            .map(|p| (p.x * p.x + p.z * p.z).sqrt())
+            .fold(0.0_f32, f32::max);
+        assert!(max_r + 0.01 >= CLUSTER_MINES_DISTANCE_AROUND_OBJECT - LAND_MINE_GEOMETRY_RADIUS * 2.0);
+    }
+
+    #[test]
+    fn structure_border_uses_footprint_not_fixed_count() {
+        let small = structure_minefield_positions_for_geom(Vec3::ZERO, 8.0, 8.0, false);
+        let large = structure_minefield_positions_for_geom(Vec3::ZERO, 40.0, 25.0, true);
+        assert!(small.len() >= CHINA_STRUCTURE_MINE_RING_COUNT as usize);
+        assert!(large.len() > small.len());
+    }
+
+    #[test]
+    fn emp_upgrade_selects_emp_template() {
+        assert!(is_china_mines_upgrade("Upgrade_ChinaMines"));
+        assert!(is_china_mines_upgrade("Upgrade_ChinaEMPMines"));
+        assert!(is_china_standard_mines_upgrade("Upgrade_ChinaMines"));
+        assert!(!is_china_standard_mines_upgrade("Upgrade_ChinaEMPMines"));
+        assert!(is_china_emp_mines_upgrade("Upgrade_ChinaEMPMines"));
+        assert!(!is_china_emp_mines_upgrade("Upgrade_ChinaMines"));
+        assert_eq!(
+            china_mine_template_for_upgrade("Upgrade_ChinaMines"),
+            CHINA_STANDARD_MINE_TEMPLATE
+        );
+        assert_eq!(
+            china_mine_template_for_upgrade("Upgrade_ChinaEMPMines"),
+            CHINA_EMP_MINE_TEMPLATE
+        );
+    }
+
 }

@@ -110,6 +110,59 @@ impl Object {
         self.thing.get_transform_matrix()
     }
 
+    /// C++ `Object::getHealthBoxPosition` (`Object.cpp:3346-3356`).
+    /// Host pose is Y-up: C++ world Z maps to `position.y`.
+    pub fn get_health_box_position(&self) -> Vec3 {
+        let pos = self.get_position();
+        let geom = &self.thing.template.geometry_info;
+        let max_h = if geom.authored {
+            geom.max_height_above_position()
+        } else {
+            self.selection_radius.max(1.0)
+        };
+        let mut y = pos.y + max_h + 10.0 + self.health_box_offset[1];
+        if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&self.template_name) {
+            y += 20.0;
+        }
+        Vec3::new(
+            pos.x + self.health_box_offset[0],
+            y,
+            pos.z + self.health_box_offset[2],
+        )
+    }
+
+    /// C++ `Object::getHealthBoxDimensions` (`Object.cpp:3402-3413`).
+    /// Returns `(height, width)`. IGNORED_IN_GUI → `(0, 0)`.
+    pub fn get_health_box_dimensions(&self) -> (f32, f32) {
+        if self.is_kind_of(KindOf::IgnoredInGui) {
+            return (0.0, 0.0);
+        }
+        let geom = &self.thing.template.geometry_info;
+        let (major, minor) = if geom.authored {
+            (geom.major_radius, geom.minor_radius)
+        } else {
+            let r = self.selection_radius.max(1.0);
+            (r, r)
+        };
+        let size = (major + minor).min(150.0).max(20.0);
+        (3.0, (size * 2.0).max(20.0))
+    }
+
+    /// Presentation overlay: C++ Z-up height of the health bar above ground pose.
+    pub fn health_box_world_z_offset(&self) -> f32 {
+        let geom = &self.thing.template.geometry_info;
+        let max_h = if geom.authored {
+            geom.max_height_above_position()
+        } else {
+            self.selection_radius.max(1.0)
+        };
+        let mut z = max_h + 10.0 + self.health_box_offset[1];
+        if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&self.template_name) {
+            z += 20.0;
+        }
+        z
+    }
+
     /// C++ ActiveBody visual condition + Drawable::reactToBodyDamageStateChange residual.
 
     /// C++ ProductionUpdate MODELCONDITION_CONSTRUCTION_COMPLETE residual.
@@ -117,29 +170,30 @@ impl Object {
     /// C++ RadarUpdate::extendRadar residual.
 
     /// C++ ProductionUpdate door residual:
-    /// OPENING → WAITING_OPEN → WAITING_TO_CLOSE → CLOSING → idle.
+    /// OPENING → WAITING_OPEN → CLOSING → idle.
+    /// `theWaitingToCloseFlags` is never set (ProductionUpdate.cpp:513-582).
     ///
     /// Phase durations come from INI DoorOpeningTime / DoorWaitOpenTime /
     /// DoorCloseTime (ProductionUpdate.cpp:113-115, updateDoors:528/548/568).
+    /// Completing a unit opens only the reserved ExitDoorType (DOOR_1..4).
     pub fn start_production_door_cycle(&mut self, now: u32) {
-        use crate::game_logic::host_enum_table_residual::{
-            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
-            door_1_waiting_to_close_model_bit,
-        };
+        let door = self
+            .pick_idle_production_door()
+            .unwrap_or(self.production_door_active_index as usize);
+        self.start_production_door_cycle_at(now, door);
+    }
+
+    /// Start OPENING on a specific hangar / factory door (0=DOOR_1).
+    pub fn start_production_door_cycle_at(&mut self, now: u32, door: usize) {
         use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
-        // Clear door 1 bits then set OPENING.
-        let open_b = door_1_opening_model_bit();
-        let wait_b = door_1_waiting_open_model_bit();
-        let wait_close_b = door_1_waiting_to_close_model_bit();
-        let close_b = door_1_closing_model_bit();
-        self.model_condition_bits &= !(1u128 << open_b);
-        self.model_condition_bits &= !(1u128 << wait_b);
-        self.model_condition_bits &= !(1u128 << wait_close_b);
-        self.model_condition_bits &= !(1u128 << close_b);
-        self.model_condition_bits |= 1u128 << open_b;
-        self.production_door_phase = 1;
-        self.production_door_phase_end_frame =
+        let door = door.min(3);
+        self.clear_production_door_bits(door);
+        self.set_production_door_phase_bits(door, 1);
+        self.production_door_active_index = door as u8;
+        self.production_door_phases[door] = 1;
+        self.production_door_phase_end_frames[door] =
             now.saturating_add(producer_door_phase_duration(&self.template_name, 1));
+        self.sync_primary_production_door();
         self.refresh_model_condition_bits();
         self.record_host_model_condition();
         self.record_host_production_door();
@@ -147,54 +201,43 @@ impl Object {
 
     /// C++ ProductionUpdate::setHoldDoorOpen residual.
     ///
-    /// When hold becomes true and the door is idle, starts OPENING residual.
-    /// While hold is true, tick will not leave WAITING_OPEN / WAITING_TO_CLOSE.
+    /// When hold becomes true and every door is idle, starts OPENING residual.
+    /// While hold is true, tick will not leave WAITING_OPEN / CLOSING.
     pub fn set_production_door_hold_open(&mut self, hold: bool, now: u32) {
         self.production_door_hold_open = hold;
-        if hold && self.production_door_phase == 0 {
-            // C++: if all door frames 0, start opening.
+        if hold && self.production_door_phases.iter().all(|&p| p == 0) && self.production_door_phase == 0
+        {
             self.start_production_door_cycle(now);
         }
         if !hold {
-            // Allow close path to proceed from current phase on next tick.
-            // If stuck in wait phases, schedule immediate advance eligibility.
-            if matches!(self.production_door_phase, 2 | 3) {
+            for i in 0..4 {
+                if matches!(self.production_door_phases[i], 2 | 4) {
+                    self.production_door_phase_end_frames[i] = now;
+                }
+            }
+            if matches!(self.production_door_phase, 2 | 4) {
                 self.production_door_phase_end_frame = now;
             }
         }
+        self.sync_primary_production_door();
         self.record_host_production_door();
     }
 
-    /// Advance production door residual; returns true when cycle fully closed.
+    /// Advance production door residual; returns true when every door fully closed.
     /// Wave 627: apply production-door model bits after GW phase writeback.
     ///
     /// Does not advance phase schedules (GameWorld is last-writer for phase/end).
-    /// Sets door-1 model condition bits for the authoritative phase.
+    /// Phase 3 (legacy WAITING_TO_CLOSE writeback) maps to CLOSING — C++ never plays it.
     pub(crate) fn apply_production_door_phase_residual(&mut self, phase: u8) -> bool {
-        use crate::game_logic::host_enum_table_residual::{
-            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
-            door_1_waiting_to_close_model_bit,
-        };
-        let open_b = door_1_opening_model_bit();
-        let wait_b = door_1_waiting_open_model_bit();
-        let wait_close_b = door_1_waiting_to_close_model_bit();
-        let close_b = door_1_closing_model_bit();
-        // Clear all door-1 bits then set the phase residual.
-        self.model_condition_bits &= !(1u128 << open_b);
-        self.model_condition_bits &= !(1u128 << wait_b);
-        self.model_condition_bits &= !(1u128 << wait_close_b);
-        self.model_condition_bits &= !(1u128 << close_b);
-        match phase {
-            1 => self.model_condition_bits |= 1u128 << open_b,
-            2 => self.model_condition_bits |= 1u128 << wait_b,
-            3 => self.model_condition_bits |= 1u128 << wait_close_b,
-            4 => self.model_condition_bits |= 1u128 << close_b,
-            _ => {}
-        }
-        self.production_door_phase = phase;
+        let door = (self.production_door_active_index as usize).min(3);
+        let phase = if phase == 3 { 4 } else { phase };
+        self.clear_production_door_bits(door);
+        self.set_production_door_phase_bits(door, phase);
+        self.production_door_phases[door] = phase;
         if phase == 0 {
-            self.production_door_phase_end_frame = 0;
+            self.production_door_phase_end_frames[door] = 0;
         }
+        self.sync_primary_production_door();
         self.record_host_production_door();
         self.refresh_model_condition_bits();
         self.record_host_model_condition();
@@ -202,108 +245,186 @@ impl Object {
     }
 
     pub fn tick_production_door(&mut self, now: u32) -> bool {
-        if self.production_door_phase == 0 {
-            return false;
+        self.ensure_primary_door_array_sync();
+        let count = self.production_door_count();
+        let mut closed_any = false;
+        let mut advanced = false;
+        for i in 0..count {
+            if self.production_door_phases[i] == 0 {
+                continue;
+            }
+            if now < self.production_door_phase_end_frames[i] {
+                continue;
+            }
+            advanced = true;
+            if self.tick_one_production_door(i, now) {
+                closed_any = true;
+            }
         }
-        if now < self.production_door_phase_end_frame {
-            return false;
+        self.sync_primary_production_door();
+        if advanced {
+            self.record_host_model_condition();
         }
-        use crate::game_logic::host_enum_table_residual::{
-            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
-            door_1_waiting_to_close_model_bit,
-        };
+        closed_any && self.production_door_phases.iter().all(|&p| p == 0)
+    }
+
+    /// Door count from INI `NumDoorAnimations`, at least 1 so existing
+    /// single-door producers keep the DOOR_1 cycle.
+    pub fn production_door_count(&self) -> usize {
+        use crate::game_logic::host_production_buildable_command_residual::producer_num_door_animations;
+        let n = producer_num_door_animations(&self.template_name);
+        if n <= 0 {
+            1
+        } else {
+            (n as usize).min(4)
+        }
+    }
+
+    /// First idle hangar among authored doors.
+    pub fn pick_idle_production_door(&self) -> Option<usize> {
+        let count = self.production_door_count();
+        (0..count).find(|&i| self.production_door_phases[i] == 0)
+    }
+
+    /// Phase used for spawn gating: the reserved/active door, not a shared bank.
+    pub fn production_door_spawn_phase(&self) -> u8 {
+        let i = (self.production_door_active_index as usize).min(3);
+        let p = self.production_door_phases[i];
+        if p != 0 {
+            p
+        } else {
+            self.production_door_phase
+        }
+    }
+
+    fn ensure_primary_door_array_sync(&mut self) {
+        if self.production_door_phases[0] == 0 && self.production_door_phase != 0 {
+            self.production_door_phases[0] = self.production_door_phase;
+            self.production_door_phase_end_frames[0] = self.production_door_phase_end_frame;
+        }
+    }
+
+    fn sync_primary_production_door(&mut self) {
+        self.production_door_phase = self.production_door_phases[0];
+        self.production_door_phase_end_frame = self.production_door_phase_end_frames[0];
+    }
+
+    fn tick_one_production_door(&mut self, door: usize, now: u32) -> bool {
         use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
-        let open_b = door_1_opening_model_bit();
-        let wait_b = door_1_waiting_open_model_bit();
-        let wait_close_b = door_1_waiting_to_close_model_bit();
-        let close_b = door_1_closing_model_bit();
-        let name = self.template_name.as_str();
-        let result = match self.production_door_phase {
+        let name = self.template_name.clone();
+        match self.production_door_phases[door] {
             1 => {
-                // OPENING → WAITING_OPEN
-                self.model_condition_bits &= !(1u128 << open_b);
-                self.model_condition_bits |= 1u128 << wait_b;
-                self.production_door_phase = 2;
+                self.clear_production_door_bits(door);
+                self.set_production_door_phase_bits(door, 2);
+                self.production_door_phases[door] = 2;
+                self.production_door_phase_end_frames[door] =
+                    now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                 self.record_host_production_door();
-                self.production_door_phase_end_frame =
-                    now.saturating_add(producer_door_phase_duration(name, 2));
                 self.refresh_model_condition_bits();
-                // Wave 486: door model bits must reach GW before model-condition writeback.
                 self.record_host_model_condition();
                 false
             }
             2 => {
-                // C++: !m_holdOpen required to leave WAITING_OPEN.
                 if self.production_door_hold_open {
-                    // Keep waiting-open while held (refresh wait stamp residual).
-                    self.production_door_phase_end_frame =
-                        now.saturating_add(producer_door_phase_duration(name, 2));
+                    self.production_door_phase_end_frames[door] =
+                        now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                     return false;
                 }
-                // WAITING_OPEN → WAITING_TO_CLOSE residual (C++ theWaitingToCloseFlags).
-                self.model_condition_bits &= !(1u128 << wait_b);
-                self.model_condition_bits |= 1u128 << wait_close_b;
-                self.production_door_phase = 3;
+                // C++ updateDoors: WAITING_OPEN → CLOSING. Never WAITING_TO_CLOSE.
+                self.clear_production_door_bits(door);
+                self.set_production_door_phase_bits(door, 4);
+                self.production_door_phases[door] = 4;
+                self.production_door_phase_end_frames[door] =
+                    now.saturating_add(producer_door_phase_duration(name.as_str(), 4));
                 self.record_host_production_door();
-                // Minimal hold before CLOSING residual (INI DoorCloseTime path).
-                self.production_door_phase_end_frame = now.saturating_add(1);
                 self.refresh_model_condition_bits();
-                // Wave 486: door model bits must reach GW before model-condition writeback.
                 self.record_host_model_condition();
                 false
             }
-            3 => {
-                // C++: !m_holdOpen required to leave WAITING_TO_CLOSE / CLOSING path.
+            3 | 4 => {
                 if self.production_door_hold_open {
-                    self.production_door_phase_end_frame = now.saturating_add(1);
-                    return false;
-                }
-                // WAITING_TO_CLOSE → CLOSING
-                self.model_condition_bits &= !(1u128 << wait_close_b);
-                self.model_condition_bits |= 1u128 << close_b;
-                self.production_door_phase = 4;
-                self.record_host_production_door();
-                self.production_door_phase_end_frame =
-                    now.saturating_add(producer_door_phase_duration(name, 4));
-                self.refresh_model_condition_bits();
-                // Wave 486: door model bits must reach GW before model-condition writeback.
-                self.record_host_model_condition();
-                false
-            }
-            4 => {
-                // C++: !m_holdOpen required to finish closing.
-                if self.production_door_hold_open {
-                    // Snap back to waiting-open while held.
-                    self.model_condition_bits &= !(1u128 << close_b);
-                    self.model_condition_bits |= 1u128 << wait_b;
-                    self.production_door_phase = 2;
+                    self.clear_production_door_bits(door);
+                    self.set_production_door_phase_bits(door, 2);
+                    self.production_door_phases[door] = 2;
+                    self.production_door_phase_end_frames[door] =
+                        now.saturating_add(producer_door_phase_duration(name.as_str(), 2));
                     self.record_host_production_door();
-                    self.production_door_phase_end_frame =
-                        now.saturating_add(producer_door_phase_duration(name, 2));
                     self.refresh_model_condition_bits();
-                    // Wave 486: door model bits must reach GW before model-condition writeback.
                     self.record_host_model_condition();
                     return false;
                 }
-                // CLOSING → idle
-                self.model_condition_bits &= !(1u128 << close_b);
-                self.production_door_phase = 0;
+                self.clear_production_door_bits(door);
+                self.production_door_phases[door] = 0;
+                self.production_door_phase_end_frames[door] = 0;
                 self.record_host_production_door();
-                self.production_door_phase_end_frame = 0;
                 self.refresh_model_condition_bits();
-                // Wave 486: door model bits must reach GW before model-condition writeback.
                 self.record_host_model_condition();
                 true
             }
             _ => {
-                self.production_door_phase = 0;
+                self.production_door_phases[door] = 0;
+                self.production_door_phase_end_frames[door] = 0;
                 self.record_host_production_door();
                 false
             }
-        };
-        self.record_host_model_condition();
-        result
+        }
     }
+
+    fn production_door_bank_bits(door: usize) -> (u32, u32, u32, u32) {
+        use crate::game_logic::host_enum_table_residual::{
+            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
+            door_1_waiting_to_close_model_bit, door_2_closing_model_bit, door_2_opening_model_bit,
+            door_2_waiting_open_model_bit, door_2_waiting_to_close_model_bit,
+            door_3_closing_model_bit, door_3_opening_model_bit, door_3_waiting_open_model_bit,
+            door_3_waiting_to_close_model_bit, door_4_closing_model_bit, door_4_opening_model_bit,
+            door_4_waiting_open_model_bit, door_4_waiting_to_close_model_bit,
+        };
+        match door {
+            1 => (
+                door_2_opening_model_bit(),
+                door_2_waiting_open_model_bit(),
+                door_2_waiting_to_close_model_bit(),
+                door_2_closing_model_bit(),
+            ),
+            2 => (
+                door_3_opening_model_bit(),
+                door_3_waiting_open_model_bit(),
+                door_3_waiting_to_close_model_bit(),
+                door_3_closing_model_bit(),
+            ),
+            3 => (
+                door_4_opening_model_bit(),
+                door_4_waiting_open_model_bit(),
+                door_4_waiting_to_close_model_bit(),
+                door_4_closing_model_bit(),
+            ),
+            _ => (
+                door_1_opening_model_bit(),
+                door_1_waiting_open_model_bit(),
+                door_1_waiting_to_close_model_bit(),
+                door_1_closing_model_bit(),
+            ),
+        }
+    }
+
+    fn clear_production_door_bits(&mut self, door: usize) {
+        let (open_b, wait_b, wait_close_b, close_b) = Self::production_door_bank_bits(door);
+        self.model_condition_bits &= !(1u128 << open_b);
+        self.model_condition_bits &= !(1u128 << wait_b);
+        self.model_condition_bits &= !(1u128 << wait_close_b);
+        self.model_condition_bits &= !(1u128 << close_b);
+    }
+
+    fn set_production_door_phase_bits(&mut self, door: usize, phase: u8) {
+        let (open_b, wait_b, _wait_close_b, close_b) = Self::production_door_bank_bits(door);
+        match phase {
+            1 => self.model_condition_bits |= 1u128 << open_b,
+            2 => self.model_condition_bits |= 1u128 << wait_b,
+            3 | 4 => self.model_condition_bits |= 1u128 << close_b,
+            _ => {}
+        }
+    }
+
 
 
     pub fn extend_radar(&mut self, done_frame: u32) {
@@ -507,14 +628,22 @@ impl Object {
         self.record_host_model_condition();
     }
 
-    /// C++ ProductionUpdate ConstructionCompleteDuration residual (default 45f / 1500ms).
+    /// Legacy 45f residual name. Live deadline uses INI ConstructionCompleteDuration
+    /// (C++ module default 0 → one-frame flash).
     pub const CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL: u32 = 45;
+
+    fn construction_complete_duration_frames(&self) -> u32 {
+        use crate::game_logic::host_production_buildable_command_residual::producer_construction_complete_duration_frames;
+        let authored = producer_construction_complete_duration_frames(&self.template_name);
+        // Duration 0 still flashes one frame (C++ now - start > 0 on the next update).
+        authored.max(1)
+    }
 
     pub fn set_construction_complete_condition(&mut self) {
         self.set_construction_complete_condition_at(0);
     }
 
-    /// Set CONSTRUCTION_COMPLETE and schedule clear after residual duration.
+    /// Set CONSTRUCTION_COMPLETE and schedule clear after INI duration.
     /// `now==0` keeps bit sticky (legacy structure-complete path until tick).
     pub fn set_construction_complete_condition_at(&mut self, now: u32) {
         use crate::game_logic::host_enum_table_residual::construction_complete_model_bit;
@@ -522,7 +651,7 @@ impl Object {
         self.model_condition_bits |= 1u128 << bit;
         if now > 0 {
             self.construction_complete_clear_frame =
-                now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+                now.saturating_add(self.construction_complete_duration_frames());
             self.record_host_rebuild_producer();
         } else {
             // Structure build-complete path: clear after residual duration from next tick
@@ -539,7 +668,7 @@ impl Object {
             return;
         }
         self.construction_complete_clear_frame =
-            now.saturating_add(Self::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL);
+            now.saturating_add(self.construction_complete_duration_frames());
         self.record_host_rebuild_producer();
     }
 
@@ -622,6 +751,7 @@ impl Object {
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
+            self.fire_crush_die();
         }
         let visual_state = if show_health_visuals {
             state
@@ -644,6 +774,7 @@ impl Object {
         let state = if self.status.destroyed || health <= 0.0 {
             HostBodyDamageType::Rubble
         } else {
+            // GameData UnitDamagedThresh 0.7 / ReallyDamaged 0.35 (ActiveBody.cpp:88).
             host_calc_body_damage_state(health, max_h)
         };
         self.body_damage_state = state;
@@ -681,6 +812,7 @@ impl Object {
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
+            self.fire_crush_die();
         }
         let visual_state = if show_health_visuals {
             state
@@ -743,50 +875,22 @@ impl Object {
             (self.model_condition_bits & (1u128 << radar_extending_model_bit())) != 0;
         let had_radar_upg =
             (self.model_condition_bits & (1u128 << radar_upgraded_model_bit())) != 0;
-        use crate::game_logic::host_enum_table_residual::{
-            door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
-            door_1_waiting_to_close_model_bit,
-        };
-        let had_door_open =
-            (self.model_condition_bits & (1u128 << door_1_opening_model_bit())) != 0;
-        let had_door_wait =
-            (self.model_condition_bits & (1u128 << door_1_waiting_open_model_bit())) != 0;
-        let had_door_wait_close =
-            (self.model_condition_bits & (1u128 << door_1_waiting_to_close_model_bit())) != 0;
-        let had_door_close =
-            (self.model_condition_bits & (1u128 << door_1_closing_model_bit())) != 0;
-
-        // SPLATTED residual sticks after fatal falling damage.
-        use crate::game_logic::host_enum_table_residual::MC_BIT_SPLATTED;
-        let had_splat = (self.model_condition_bits & (1u128 << MC_BIT_SPLATTED)) != 0;
-        if had_splat
-            || (self.status.destroyed
-                && self.status.death_type
-                    == crate::game_logic::host_usa_pilot::HostDeathType::Splatted)
-        {
-            bits |= 1u128 << MC_BIT_SPLATTED;
-            crate::game_logic::host_death_type_log::record(
-                self.id,
-                self.status.death_type.ordinal(),
-            );
-        }
-        if had_radar_ext {
-            bits |= 1u128 << radar_extending_model_bit();
-        }
-        if had_radar_upg {
-            bits |= 1u128 << radar_upgraded_model_bit();
-        }
-        if had_door_open {
-            bits |= 1u128 << door_1_opening_model_bit();
-        }
-        if had_door_wait {
-            bits |= 1u128 << door_1_waiting_open_model_bit();
-        }
-        if had_door_wait_close {
-            bits |= 1u128 << door_1_waiting_to_close_model_bit();
-        }
-        if had_door_close {
-            bits |= 1u128 << door_1_closing_model_bit();
+        for door in 0..4 {
+            let (open_b, wait_b, wait_close_b, close_b) = Self::production_door_bank_bits(door);
+            let had_open = (self.model_condition_bits & (1u128 << open_b)) != 0;
+            let had_wait = (self.model_condition_bits & (1u128 << wait_b)) != 0;
+            let had_close = (self.model_condition_bits & (1u128 << close_b)) != 0;
+            // C++ ProductionUpdate never sets WAITING_TO_CLOSE; do not restore it.
+            let _ = wait_close_b;
+            if had_open {
+                bits |= 1u128 << open_b;
+            }
+            if had_wait {
+                bits |= 1u128 << wait_b;
+            }
+            if had_close {
+                bits |= 1u128 << close_b;
+            }
         }
         // Construction residual bits stick across body/motion refresh.
         use crate::game_logic::host_enum_table_residual::{
@@ -880,6 +984,35 @@ impl Object {
                 1 => bits |= 1u128 << one,
                 n if n >= 2 => bits |= 1u128 << two,
                 _ => {}
+            }
+        }
+        // C++ FlammableUpdate tryToIgnite / update: MODELCONDITION_AFLAME / SMOLDERING.
+        {
+            use crate::game_logic::host_enum_table_residual::{
+                aflame_model_bit, smoldering_model_bit,
+            };
+            let aflame_b = aflame_model_bit();
+            let smolder_b = smoldering_model_bit();
+            bits &= !(1u128 << aflame_b);
+            bits &= !(1u128 << smolder_b);
+            let live_aflame = self.has_object_status_bit("AFLAME")
+                || self
+                    .fire_spread
+                    .as_ref()
+                    .map(|f| f.is_aflame())
+                    .unwrap_or(false);
+            let live_smolder = self
+                .fire_spread
+                .as_ref()
+                .map(|f| f.smoldering)
+                .unwrap_or(false)
+                || (self.has_object_status_bit("BURNED") && live_aflame)
+                || (self.has_object_status_bit("BURNED") && !live_aflame);
+            if live_aflame {
+                bits |= 1u128 << aflame_b;
+            }
+            if live_smolder {
+                bits |= 1u128 << smolder_b;
             }
         }
         if self.model_condition_bits != bits {

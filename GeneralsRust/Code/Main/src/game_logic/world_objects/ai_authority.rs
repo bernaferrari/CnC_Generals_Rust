@@ -55,22 +55,9 @@ impl GameLogic {
 
         match ai_state {
             AIState::Idle => {
-                if can_attack && !ai_auto_engage_paused && should_scan(30) {
-                    let search_radius = 200.0;
-                    if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
-                            self,
-                            object_id,
-                            position,
-                            team,
-                            search_radius,
-                        )
-                    {
-                        return evaluate_enemy(enemy_id, search_radius);
-                    }
-                }
-                // C++ AIIdleState::update (AIStates.cpp) never transitions to AI_HUNT.
-                // Hunt/Patrolling is command-driven only (aiHunt / script / group).
+                // C++ AIIdleState::update: mood acquire only (`try_mood_auto_acquire`).
+                // Do not invent a 200-radius scan that bypasses Sleep/Passive/AutoAcquire.
+                let _ = (can_attack, ai_auto_engage_paused, should_scan);
                 None
             }
 
@@ -93,7 +80,14 @@ impl GameLogic {
                             return Some(AICommand::StopAttack { object_id });
                         }
                         AIDecisionSystem::find_best_target(
-                            self, object_id, position, team, 220.0, true, true, false,
+                            self,
+                            object_id,
+                            position,
+                            team,
+                            200.0,
+                            true,
+                            true,
+                            false,
                         )
                         .map(|target_id| AICommand::AttackTarget {
                             object_id,
@@ -106,7 +100,7 @@ impl GameLogic {
 
             AIState::AttackMoving => {
                 if can_attack && !ai_auto_engage_paused && should_scan(20) {
-                    let search_radius = 220.0;
+                    let search_radius = 200.0;
                     if let Some((enemy_id, _)) =
                         crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                             self,
@@ -123,44 +117,26 @@ impl GameLogic {
             }
 
             AIState::Moving => {
-                // While moving, check if we're under attack
-                // Could transition to defensive behavior if needed
                 None
             }
 
             AIState::Patrolling => {
-                if can_attack && !ai_auto_engage_paused && should_scan(25) {
-                    let search_radius = 200.0;
-                    if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
-                            self,
-                            object_id,
-                            position,
-                            team,
-                            search_radius,
-                        )
-                    {
-                        return evaluate_enemy(enemy_id, search_radius);
-                    }
-                }
-
-                if frame % 180 == object_id.0 % 180 {
-                    let patrol_radius = 100.0;
-                    let random_angle = (((object_id.0 as u64 * 1103515245 + frame as u64) % 360)
-                        as f32)
-                        .to_radians();
-                    let patrol_pos = Vec3::new(
-                        position.x + patrol_radius * random_angle.cos(),
-                        position.y,
-                        position.z + patrol_radius * random_angle.sin(),
-                    );
-                    Some(AICommand::MoveTo {
+                // C++ AIHuntState::update — map-wide seek-and-destroy.
+                // ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND (~30).
+                if can_attack && !ai_auto_engage_paused && should_scan(30) {
+                    if let Some(enemy_id) = self.find_closest_enemy(
                         object_id,
-                        position: patrol_pos,
-                    })
-                } else {
-                    None
+                        9999.9,
+                        crate::game_logic::find_enemy_flags::CAN_ATTACK,
+                    ) {
+                        return evaluate_enemy(enemy_id, 9999.9);
+                    }
+                    return Some(AICommand::SetAIState {
+                        object_id,
+                        state: AIState::Idle,
+                    });
                 }
+                None
             }
 
             AIState::GuardingArea | AIState::GuardingObject => {
@@ -594,15 +570,17 @@ impl GameLogic {
         // Host engagement is same-frame so residual auto-fire / continue-after-kill
         // can shoot without waiting for shadow writeback.
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            // set_target records host_attack_log for shadow attack channel.
             u.set_target(Some(target_id));
-            u.set_ai_state(AIState::Attacking);
+            // C++ Hunt stays in AI_HUNT while attacking. Combat already fires
+            // from Patrolling. Do not peel Hunt into Attacking.
+            if !matches!(u.ai_state, AIState::Patrolling) {
+                u.set_ai_state(AIState::Attacking);
+            }
             u.set_status_attacking(true);
         }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(unit_id, target_id);
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-            // Attacking
         }
         true
     }
@@ -621,8 +599,8 @@ impl GameLogic {
         &mut self,
         unit_id: ObjectId,
         target_id: ObjectId,
-    ) {
-        let _ = self.apply_engagement_decision_aware(unit_id, target_id);
+    ) -> bool {
+        self.apply_engagement_decision_aware(unit_id, target_id)
     }
 
     /// AI / skirmish manager entry: host-immediate AI state + decision log.
@@ -695,7 +673,13 @@ impl GameLogic {
                 self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
-                // set_ai_state_decision_aware mutates host + logs when auth live.
+                if matches!(state, AIState::Idle) {
+                    if let Some(o) = self.objects.get_mut(&object_id) {
+                        if o.hunting && matches!(o.ai_state, AIState::Patrolling) {
+                            o.hunting = false;
+                        }
+                    }
+                }
                 self.set_ai_state_decision_aware(object_id, state);
             }
         }

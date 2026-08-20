@@ -658,6 +658,7 @@ impl PresentationFrame {
                         0
                     },
                 sold: obj.status.sold,
+                script_unsellable: obj.script_unsellable,
                 unselectable: obj.status.unselectable,
                 is_rebuild_hole: obj.is_rebuild_hole,
                 rebuild_template_name: obj.rebuild_template_name.clone().unwrap_or_default(),
@@ -960,6 +961,8 @@ impl PresentationFrame {
                 draw_models,
                 mesh_scale,
                 selection_radius: obj.selection_radius.max(5.0),
+                health_box_width: obj.get_health_box_dimensions().1,
+                health_box_z_offset: obj.health_box_world_z_offset(),
                 engine_bridged: false,
                 fow_visibility,
                 drawable_shroud,

@@ -484,11 +484,14 @@ impl GameLogic {
                 death_type,
             } => {
                 if let Some(obj) = self.host_objects_mut().get_mut(&object) {
-                    let _ = obj.take_damage_from_typed_death(
+                    let _ = obj.take_damage_from_typed_death_fx(
                         amount,
                         None,
                         crate::game_logic::combat::DamageType::Unresistable,
                         death_type,
+                        Some(
+                            crate::game_logic::host_poisoned_behavior::poison_dot_fx_override(),
+                        ),
                     );
                 }
             }
@@ -1695,6 +1698,16 @@ impl GameLogic {
                 .collect();
             let mut accepted_attackers = Vec::new();
             for &object_id in &selected {
+                if self.flight_deck_ai_do_command(
+                    object_id,
+                    crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackObject,
+                    Some(target_id),
+                    None,
+                ) {
+                    accepted_attackers.push(object_id);
+                    continue;
+                }
+
                 // This is the default host-authority route used by actual
                 // WND/right-click orders.  It must not bypass the same C++
                 // WeaponSet legality used by the typed command executor:

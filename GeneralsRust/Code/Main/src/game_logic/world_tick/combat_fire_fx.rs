@@ -42,4 +42,116 @@ impl GameLogic {
             det_fx,
         );
     }
+
+    /// C++ FireSpreadUpdate.cpp:101 `ObjectCreationList::create(OCL_BurningEmbers)`.
+    pub(crate) fn spawn_fire_spread_embers(
+        &mut self,
+        source_id: ObjectId,
+        pos: Vec3,
+        ocl_name: &str,
+    ) -> Vec<ObjectId> {
+        use crate::game_logic::host_fire_spread::TREE_OCL_EMBERS;
+        let ocl = if ocl_name.is_empty() {
+            TREE_OCL_EMBERS
+        } else {
+            ocl_name
+        };
+        let (team, yaw, vel) = self
+            .objects
+            .get(&source_id)
+            .map(|o| (o.team, o.get_orientation(), o.movement.velocity))
+            .unwrap_or((crate::game_logic::Team::Neutral, 0.0, Vec3::ZERO));
+        let created = self.execute_parsed_weapon_ocl_at(
+            ocl,
+            Some(source_id),
+            team,
+            crate::game_logic::VeterancyLevel::Rookie,
+            yaw,
+            vel,
+            pos,
+        );
+        let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
+            pos,
+            None,
+            self.frame,
+            source_id,
+            None,
+            "",
+            "",
+            ocl,
+            "",
+        );
+        if created.is_empty() {
+            const EMBER_TEMPLATE: &str = "BurningEmbers";
+            if !self.templates.contains_key(EMBER_TEMPLATE) {
+                let mut tpl = crate::game_logic::ThingTemplate::new(EMBER_TEMPLATE);
+                tpl.set_health(1.0);
+                self.templates
+                    .insert(EMBER_TEMPLATE.to_string(), tpl);
+            }
+            if let Some(id) = self.create_object(EMBER_TEMPLATE, team, pos) {
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.producer_id = Some(source_id);
+                    obj.lifetime_update = Some(
+                        crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
+                            self.frame, 30,
+                        ),
+                    );
+                }
+                return vec![id];
+            }
+        }
+        created
+    }
+
+    /// C++ FlammableUpdate::startBurningSound GenericFireMediumLoop.
+    pub(crate) fn start_fire_spread_burning_sound(
+        &mut self,
+        object_id: ObjectId,
+        pos: Vec3,
+        sound_name: &str,
+    ) {
+        if sound_name.is_empty() {
+            return;
+        }
+        self.queue_audio_event(
+            AudioEventRequest::new(sound_name)
+                .with_object(object_id)
+                .with_position(pos)
+                .with_priority(140)
+                .looping(),
+        );
+    }
+
+    /// C++ FlammableUpdate::stopBurningSound removeAudioEvent.
+    pub(crate) fn stop_fire_spread_burning_sound(
+        &mut self,
+        object_id: ObjectId,
+        pos: Vec3,
+        sound_name: &str,
+    ) {
+        if sound_name.is_empty() {
+            return;
+        }
+        self.queue_audio_event(
+            AudioEventRequest::new(sound_name)
+                .with_object(object_id)
+                .with_position(pos)
+                .with_priority(200),
+        );
+    }
+
+    /// C++ ActiveBody::setAflame → AutoAflameParticleSystem attach.
+    pub(crate) fn spawn_auto_aflame_particles(&mut self, object_id: ObjectId, pos: Vec3) {
+        use crate::game_logic::host_fire_spread::AUTO_AFLAME_PARTICLE;
+        let _ = self.combat_particles.spawn_weapon_fire_fx_named(
+            pos,
+            None,
+            self.frame,
+            object_id,
+            None,
+            AUTO_AFLAME_PARTICLE,
+            "",
+        );
+    }
 }

@@ -1542,8 +1542,8 @@ impl CnCGameEngine {
             return Vec3::ZERO;
         }
 
-        // Match C++ key-scroll semantics: "up/down/left/right" are screen-space intents.
-        // Convert that intent to world-plane motion relative to current camera facing.
+        // C++ W3DView.cpp:1779 scrollBy unprojects screen corners
+        // (SCROLL_RESOLUTION=250). World step grows with camera height.
         let mut forward = self.camera_target - self.camera_position;
         forward.y = 0.0;
         if forward.length_squared() <= f32::EPSILON {
@@ -1551,9 +1551,11 @@ impl CnCGameEngine {
         }
         let forward = forward.normalize();
         let right = Vec3::new(forward.z, 0.0, -forward.x);
-
-        // C++ uses y- for UP and y+ for DOWN, so negate Y when mapping to forward motion.
-        (right * screen_scroll.x) + (forward * -screen_scroll.y)
+        let height = (self.camera_position - self.camera_target)
+            .length()
+            .max(1.0);
+        let scale = height / 250.0;
+        ((right * screen_scroll.x) + (forward * -screen_scroll.y)) * scale
     }
 
     /// C++ View::zoomIn/Out: change height-above-ground by 10wu per detent

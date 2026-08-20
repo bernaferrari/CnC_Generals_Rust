@@ -330,22 +330,23 @@ impl game_engine::common::ini::ini_damage_fx::Object for HostDamageFxVictim {
     }
 }
 
-/// C++ `ActiveBody::doDamageFX` after `attemptDamage`.
-/// Calls Common `DamageFX::do_damage_fx` (`FXList::doFXObj`) and
-/// `TheFXList::do_fx_at_position` with the resolved FXList name.
+/// C++ `ActiveBody::doDamageFX` after `attemptDamage` / `attemptHealing`.
+/// Always runs even when `actual_damage == 0` (throttle bookkeeping).
+/// `getDamageFXList` still returns no FXList for 0-amount (DamageFX.cpp:84-85).
 pub fn dispatch_armor_damage_fx(
-    obj: &crate::game_logic::Object,
+    obj: &mut crate::game_logic::Object,
     damage_type: crate::game_logic::combat::DamageType,
     actual_damage: f32,
 ) -> Option<String> {
-    if actual_damage == 0.0 {
-        return None;
-    }
     let flags = crate::game_logic::host_armor_residual::live_armor_set_flags(obj);
     let Some(dfx_name) = find_best_armor_set_damage_fx(&obj.thing.template.armor_sets, flags) else {
         return None;
     };
-    DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
+    let now = crate::game_logic::host_historic_bonus::logic_frame();
+    // C++ ActiveBody.cpp:309-315 — same type + now < next time → skip.
+    if obj.last_damage_fx_done == Some(damage_type) && now < obj.next_damage_fx_time {
+        return None;
+    }
     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
     let ini_dt = host_to_ini_damage_type(damage_type);
     let vet = match obj.experience.level {
@@ -359,13 +360,17 @@ pub fn dispatch_armor_damage_fx(
         id: obj.id.0,
         vet,
     };
-    let list_name = {
+    let (list_name, throttle) = {
         let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()?;
         let dfx = store.find_damage_fx(&dfx_name)?;
+        let throttle = dfx.get_damage_fx_throttle_time(ini_dt, Some(&victim));
         let list = dfx.get_damage_fx_list(ini_dt, actual_damage, Some(&victim));
         dfx.do_damage_fx(ini_dt, actual_damage, None, Some(&victim));
-        list
+        (list, throttle)
     };
+    obj.last_damage_fx_done = Some(damage_type);
+    obj.next_damage_fx_time = now.saturating_add(throttle);
+    DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
     if let Some(list) = &list_name {
         DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
         let pos = obj.get_position();

@@ -1650,20 +1650,30 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
 
     for id in [tunnel_id, stinger_id] {
         let o = game_logic.host_object(id).unwrap();
-        assert!(o.status.stealthed && o.innate_stealth);
+        assert!(o.innate_stealth);
+        assert!(!o.status.stealthed, "CamoNetting re-arms StealthDelay");
         assert!(o.stealth_breaks_on_attack);
         assert!(o.stealth_breaks_on_damage);
         assert_eq!(o.stealth_delay_frames, CAMO_NETTING_STEALTH_DELAY_FRAMES);
-        // FriendlyOpacity residual: cloaked → min (50%).
+        assert!(o.stealth_allowed_frame > game_logic.frame);
+        assert!(
+            o.camo_net_sub_object_shown,
+            "CamoNetting residual must show net mesh sub-object"
+        );
+    }
+    let cloak_at = game_logic
+        .host_object(tunnel_id)
+        .map(|o| o.stealth_allowed_frame)
+        .unwrap_or(0);
+    game_logic.frame = cloak_at;
+    game_logic.update_stealth_and_detection();
+    for id in [tunnel_id, stinger_id] {
+        let o = game_logic.host_object(id).unwrap();
+        assert!(o.status.stealthed && o.innate_stealth);
         assert!(
             (o.camo_friendly_opacity - CAMO_NETTING_FRIENDLY_OPACITY_MIN).abs() < 0.01,
             "CamoNetting cloak residual must set FriendlyOpacityMin, got {}",
             o.camo_friendly_opacity
-        );
-        // Sub-object net mesh residual: upgrade shows CamoNet presentation.
-        assert!(
-            o.camo_net_sub_object_shown,
-            "CamoNetting residual must show net mesh sub-object"
         );
     }
     assert!(

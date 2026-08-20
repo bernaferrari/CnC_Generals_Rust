@@ -235,19 +235,40 @@ impl InGameUI {
             return;
         };
 
+        // C++ BuildAssistant::buildTiledLocations — majorRadius * 2.0, max 50.
         let object_size = TheThingFactory::find_template(template_name)
-            .map(|t| {
-                let info = t.get_template_geometry_info();
-                let dx = (info.bounds.max.x - info.bounds.min.x).abs();
-                let dy = (info.bounds.max.y - info.bounds.min.y).abs();
-                dx.max(dy).max(1.0)
-            })
+            .map(|t| t.get_template_geometry_info().get_major_radius() * 2.0)
+            .filter(|s| *s > 1.0)
             .unwrap_or(20.0);
         let dx = world_end.x - world_start.x;
         let dy = world_end.y - world_start.y;
         let length = (dx * dx + dy * dy).sqrt();
-        let tiles =
-            ((length / object_size).floor() as usize + 1).clamp(1, MAX_LINE_BUILD_PLACE_ICONS);
+        let tiles_needed = if length < 1.0 {
+            1usize
+        } else {
+            ((length / object_size).floor() as usize + 1).clamp(1, MAX_LINE_BUILD_PLACE_ICONS)
+        };
+        let (dir_x, dir_y) = if length < 1.0 {
+            (0.0, 0.0)
+        } else {
+            (dx / length, dy / length)
+        };
+
+        // First tile is always the start; later tiles stop at the first illegal.
+        let mut tiles = 1usize;
+        let mut positions = vec![world_start.clone()];
+        for i in 1..tiles_needed {
+            let pos = Coord3D::new(
+                world_start.x + dir_x * object_size * i as f32,
+                world_start.y + dir_y * object_size * i as f32,
+                world_start.z,
+            );
+            if !self.can_place_at(&pos) {
+                break;
+            }
+            positions.push(pos);
+            tiles += 1;
+        }
 
         while self.place_icons.len() < tiles {
             if let Some(icon) = self.spawn_place_icon(template_name, world_start.clone(), angle) {
@@ -264,24 +285,19 @@ impl InGameUI {
             }
         }
 
-        let step_x = if tiles > 1 {
-            dx / (tiles - 1) as f32
-        } else {
-            0.0
-        };
-        let step_y = if tiles > 1 {
-            dy / (tiles - 1) as f32
-        } else {
-            0.0
-        };
         for (i, icon) in self.place_icons.iter_mut().enumerate() {
-            icon.position = Coord3D::new(
-                world_start.x + step_x * i as f32,
-                world_start.y + step_y * i as f32,
-                world_start.z,
-            );
+            let pos = positions.get(i).cloned().unwrap_or_else(|| world_start.clone());
+            icon.position = pos;
             icon.angle = angle;
-            icon.illegal = false;
+            // Extra tiles past the first inherit legality from can_place_at.
+            icon.illegal = if i == 0 {
+                self.placement_preview
+                    .as_ref()
+                    .map(|p| !p.is_legal)
+                    .unwrap_or(false)
+            } else {
+                false
+            };
         }
         for icon in &self.place_icons {
             Self::update_place_icon_drawable(icon);

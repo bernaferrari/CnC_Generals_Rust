@@ -161,6 +161,10 @@ pub struct BasicDrawable {
     presentation_healing_icon_type: u8,
     /// Wave 984: garrisoned unit object ids for host contained-flash residual.
     presentation_garrisoned_ids: Vec<u32>,
+    /// C++ getHealthBoxDimensions width (0 = default 20 fallback).
+    presentation_health_box_width: f32,
+    /// C++ getHealthBoxPosition height lift (0 = default +10).
+    presentation_health_box_z: f32,
 
     /// Animation loop duration in frames setAnimationLoopDuration)
     animation_loop_duration: u32,
@@ -285,6 +289,8 @@ impl BasicDrawable {
             presentation_show_healing: false,
             presentation_healing_icon_type: 0,
             presentation_garrisoned_ids: Vec::new(),
+            presentation_health_box_width: 0.0,
+            presentation_health_box_z: 0.0,
 
             animation_loop_duration: 0,
             animation_completion_time: 0,

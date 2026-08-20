@@ -151,6 +151,51 @@ fn colonel_burton_residual_sniper_and_knife() {
     );
 }
 
+/// C++ StealthUpdate.cpp:111 ctor waits StealthDelay before STEALTHED.
+#[test]
+fn hero_spawn_waits_stealth_delay() {
+    use crate::game_logic::host_colonel_burton::BURTON_STEALTH_DELAY_FRAMES;
+
+    let mut game_logic = GameLogic::new();
+    let mut burton_tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    game_logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".to_string(), burton_tpl);
+
+    let burton_id = game_logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    {
+        let b = game_logic.host_object(burton_id).expect("burton");
+        assert!(b.innate_stealth);
+        assert!(
+            !b.status.stealthed,
+            "C++ ctor sets CAN_STEALTH only; STEALTHED waits StealthDelay"
+        );
+        assert_eq!(b.stealth_delay_frames, BURTON_STEALTH_DELAY_FRAMES);
+        assert_eq!(b.stealth_allowed_frame, BURTON_STEALTH_DELAY_FRAMES);
+    }
+    game_logic.update_stealth_and_detection();
+    assert!(
+        !game_logic.host_object(burton_id).unwrap().status.stealthed,
+        "must stay visible during StealthDelay"
+    );
+    game_logic.frame = BURTON_STEALTH_DELAY_FRAMES;
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic.host_object(burton_id).unwrap().status.stealthed,
+        "hero cloaks after StealthDelay"
+    );
+}
+
 // -----------------------------------------------------------------------
 // China Nuclear Tanks residual
 // -----------------------------------------------------------------------
@@ -517,7 +562,15 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     }
     crate::game_logic::host_damage_log::clear();
     game_logic.frame = 30;
-    game_logic.try_base_defense_residual_fire(pat_id);
+    for _ in 0..30 {
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_now = game_logic.host_object(enemy_id).unwrap().health.current;
+        if hp_now < hp_before || game_logic.base_defense_residual_fires() > 0 {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
     let hp_after = game_logic.host_object(enemy_id).unwrap().health.current;
     let dealt = test_observed_damage_to(enemy_id, hp_before, hp_after);
     assert!(
@@ -555,7 +608,15 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
         }
     }
     game_logic.frame = 90;
-    game_logic.try_base_defense_residual_fire(pat_id);
+    for _ in 0..30 {
+        game_logic.try_base_defense_residual_fire(pat_id);
+        let hp_now = game_logic.host_object(air_id).unwrap().health.current;
+        if hp_now < air_hp_before {
+            break;
+        }
+        game_logic.frame = game_logic.frame.saturating_add(1);
+    }
+
     let air_hp_after = game_logic.host_object(air_id).unwrap().health.current;
     let dealt_aa = test_observed_damage_to(air_id, air_hp_before, air_hp_after);
     assert!(
@@ -981,18 +1042,34 @@ fn camo_netting_upgrade_stealths_gla_structures() {
 
     let cc = game_logic.host_object(cc_id).expect("cc");
     assert!(
-        cc.status.stealthed && cc.innate_stealth,
-        "Slth Command Center must be stealthed after CamoNetting"
+        cc.innate_stealth && !cc.status.stealthed,
+        "Slth Command Center CAN_STEALTH after CamoNetting; StealthDelay not elapsed"
     );
     assert!(
         cc.has_upgrade_tag(UPGRADE_GLA_CAMO_NETTING),
         "structure must receive CamoNetting tag"
     );
-
+    let cloak_at = cc.stealth_allowed_frame;
+    drop(cc);
     let tunnel = game_logic.host_object(tunnel_id).expect("tunnel");
     assert!(
-        tunnel.status.stealthed && tunnel.innate_stealth,
-        "Tunnel Network must be stealthed after CamoNetting"
+        tunnel.innate_stealth && !tunnel.status.stealthed,
+        "Tunnel Network CAN_STEALTH after CamoNetting; StealthDelay not elapsed"
+    );
+    drop(tunnel);
+    game_logic.frame = cloak_at.max(game_logic.frame);
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic.host_object(cc_id).expect("cc").status.stealthed,
+        "Slth Command Center cloaks after StealthDelay"
+    );
+    assert!(
+        game_logic
+            .host_object(tunnel_id)
+            .expect("tunnel")
+            .status
+            .stealthed,
+        "Tunnel Network cloaks after StealthDelay"
     );
 
     let rebel = game_logic.host_object(rebel_id).expect("rebel");
@@ -3911,8 +3988,9 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
 #[test]
 fn production_door_hold_open_blocks_close_until_released() {
     use crate::game_logic::host_enum_table_residual::{
-        door_1_waiting_open_model_bit, host_model_condition_has,
+        door_1_closing_model_bit, door_1_waiting_open_model_bit, host_model_condition_has,
     };
+    use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut st = ThingTemplate::new("AmericaAirfield");
@@ -3923,34 +4001,36 @@ fn production_door_hold_open_blocks_close_until_released() {
     let id = logic
         .create_object("AmericaAirfield", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("af");
-    // Hold open starts door cycle.
+    let open = producer_door_phase_duration("AmericaAirfield", 1);
+    let close = producer_door_phase_duration("AmericaAirfield", 4);
     if let Some(o) = logic.host_object_mut(id) {
         o.set_production_door_hold_open(true, 0);
         assert!(o.production_door_hold_open);
         assert_eq!(o.production_door_phase, 1);
-        // Advance to WAITING_OPEN
-        assert!(!o.tick_production_door(15));
+        assert!(!o.tick_production_door(open));
         assert_eq!(o.production_door_phase, 2);
-        // Held: cannot leave WAITING_OPEN
-        assert!(!o.tick_production_door(100));
+        assert!(!o.tick_production_door(open.saturating_add(10_000)));
         assert_eq!(o.production_door_phase, 2);
         assert!(host_model_condition_has(
             o.model_condition_bits,
             door_1_waiting_open_model_bit()
         ));
-        // Release hold → can progress
-        o.set_production_door_hold_open(false, 100);
-        assert!(!o.tick_production_door(100));
-        assert_eq!(o.production_door_phase, 3); // WAITING_TO_CLOSE
-        assert!(!o.tick_production_door(101));
-        assert_eq!(o.production_door_phase, 4); // CLOSING
-        assert!(o.tick_production_door(116));
+        let release = open.saturating_add(10_000);
+        o.set_production_door_hold_open(false, release);
+        assert!(!o.tick_production_door(release));
+        // C++ updateDoors: WAITING_OPEN → CLOSING. No WAITING_TO_CLOSE.
+        assert_eq!(o.production_door_phase, 4);
+        assert!(host_model_condition_has(
+            o.model_condition_bits,
+            door_1_closing_model_bit()
+        ));
+        assert!(o.tick_production_door(release.saturating_add(close)));
         assert_eq!(o.production_door_phase, 0);
     }
 }
 
 #[test]
-fn production_door_cycle_includes_waiting_to_close() {
+fn production_door_cycle_skips_waiting_to_close() {
     use crate::game_logic::host_enum_table_residual::{
         door_1_closing_model_bit, door_1_opening_model_bit, door_1_waiting_open_model_bit,
         door_1_waiting_to_close_model_bit, host_model_condition_has,
@@ -3972,29 +4052,24 @@ fn production_door_cycle_includes_waiting_to_close() {
             o.model_condition_bits,
             door_1_opening_model_bit()
         ));
-        // open done
         assert!(!o.tick_production_door(15));
         assert_eq!(o.production_door_phase, 2);
         assert!(host_model_condition_has(
             o.model_condition_bits,
             door_1_waiting_open_model_bit()
         ));
-        // wait open done → WAITING_TO_CLOSE
+        // WAITING_OPEN → CLOSING (C++ never sets theWaitingToCloseFlags).
         assert!(!o.tick_production_door(45));
-        assert_eq!(o.production_door_phase, 3);
-        assert!(host_model_condition_has(
-            o.model_condition_bits,
-            door_1_waiting_to_close_model_bit()
-        ));
-        // wait_to_close done → CLOSING
-        assert!(!o.tick_production_door(46));
         assert_eq!(o.production_door_phase, 4);
         assert!(host_model_condition_has(
             o.model_condition_bits,
             door_1_closing_model_bit()
         ));
-        // close done
-        assert!(o.tick_production_door(61));
+        assert!(!host_model_condition_has(
+            o.model_condition_bits,
+            door_1_waiting_to_close_model_bit()
+        ));
+        assert!(o.tick_production_door(46));
         assert_eq!(o.production_door_phase, 0);
     }
 }

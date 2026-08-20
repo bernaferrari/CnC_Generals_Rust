@@ -28,7 +28,7 @@
 //! - ExecuteAnimation MoneyPickUp residual constants (time/ZRise/fades)
 //!
 //! Fail-closed honesty:
-//! - Not full CrateCollide kindof multi / science gate / ForbidOwnerPlayer matrix
+//! - Not full CrateCollide kindof multi / PickupScience matrix
 //! - Not full Anim2DCollection GPU / InGameUI world-anim draw path
 //! - Not full Unicode GameText "GUI:AddCash" localization / EVA voice events
 //! - Not network crate replication (network deferred)
@@ -180,6 +180,45 @@ pub fn building_pickup_for_crate_object(name: &str) -> bool {
     matches!(name, "SupplyDropZoneCrate" | "TestSupplyDropZoneCrate")
 }
 
+/// C++ CrateCollide `HumanOnly` on the crate object's collide module.
+pub fn crate_object_human_only(template_name: &str) -> bool {
+    crate_collide_module_bool(template_name, "HumanOnly")
+}
+
+/// C++ CrateCollide `ForbidOwnerPlayer` on the crate object's collide module.
+pub fn crate_object_forbid_owner(template_name: &str) -> bool {
+    crate_collide_module_bool(template_name, "ForbidOwnerPlayer")
+}
+
+fn crate_collide_module_bool(template_name: &str, key: &str) -> bool {
+    let Some(manager) = crate::assets::get_asset_manager() else {
+        return false;
+    };
+    let Ok(guard) = manager.lock() else {
+        return false;
+    };
+    let Some(definition) = guard.get_object_definition(template_name) else {
+        return false;
+    };
+    definition.behavior_modules.iter().any(|module| {
+        module
+            .class_name
+            .to_ascii_lowercase()
+            .contains("cratecollide")
+            && module
+                .attributes
+                .iter()
+                .find(|(attr, _)| attr.eq_ignore_ascii_case(key))
+                .is_some_and(|(_, value)| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "yes" | "true" | "1" | "on"
+                    )
+                })
+    })
+}
+
+
 /// One residual money crate registered after DeliverPayload spawn / test seed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostMoneyCrateEntry {
@@ -222,6 +261,12 @@ pub struct HostMoneyCrateEntry {
     /// C++ ShroudCrateCollide residual (revealMapForPlayer).
     #[serde(default)]
     pub is_shroud_crate: bool,
+    /// C++ CrateCollide `HumanOnly` — PLAYER_HUMAN pickers only.
+    #[serde(default)]
+    pub human_only: bool,
+    /// C++ CrateCollide `ForbidOwnerPlayer` — dead guy's team cannot scoop.
+    #[serde(default)]
+    pub forbid_owner_player: bool,
 }
 
 fn default_vet_levels() -> u8 {
@@ -380,6 +425,8 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: 0,
                 is_heal_crate: false,
                 is_shroud_crate: true,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
@@ -403,6 +450,8 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: unit_count.max(1),
                 is_heal_crate: false,
                 is_shroud_crate: false,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
@@ -427,6 +476,8 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: 0,
                 is_heal_crate: true,
                 is_shroud_crate: false,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
@@ -452,6 +503,8 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: 0,
                 is_heal_crate: false,
                 is_shroud_crate: false,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
@@ -476,6 +529,8 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: 0,
                 is_heal_crate: false,
                 is_shroud_crate: false,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
@@ -505,9 +560,20 @@ impl HostMoneyCrateRegistry {
                 unit_crate_count: 0,
                 is_heal_crate: false,
                 is_shroud_crate: false,
+                human_only: false,
+                forbid_owner_player: false,
             },
         );
     }
+
+    /// Stamp CrateCollide HumanOnly / ForbidOwnerPlayer from the crate object INI.
+    pub fn apply_crate_collide_gates(&mut self, object_id: ObjectId, template_name: &str) {
+        if let Some(entry) = self.crates.get_mut(&object_id) {
+            entry.human_only |= crate_object_human_only(template_name);
+            entry.forbid_owner_player |= crate_object_forbid_owner(template_name);
+        }
+    }
+
 
     /// C++ DeletionUpdate arm residual after crate spawn.
     pub fn arm_deletion_update(

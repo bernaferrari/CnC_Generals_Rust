@@ -83,6 +83,9 @@ pub mod host_countermeasures;
 #[path = "host_create_object_die.rs"]
 pub(super) mod host_create_object_die;
 
+#[path = "host_crush_die.rs"]
+pub(super) mod host_crush_die;
+
 #[path = "host_dam_die.rs"]
 pub(super) mod host_dam_die;
 
@@ -143,6 +146,9 @@ pub(super) mod host_highlander_body;
 
 #[path = "host_inferno_cannon.rs"]
 pub mod host_inferno_cannon;
+
+#[path = "host_instant_death.rs"]
+pub(super) mod host_instant_death;
 
 #[path = "host_jet_slow_death.rs"]
 pub mod host_jet_slow_death;

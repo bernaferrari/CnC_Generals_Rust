@@ -51,6 +51,21 @@ pub struct BuildingData {
     /// C++ GarrisonPointData effect drawables (`GarrisonGun` + FIRING_A).
     #[serde(default)]
     pub garrison_guns: Vec<GarrisonGunEffect>,
+    /// C++ GarrisonContain::m_evacDisposition (1 left / 2 right / 3 burst).
+    #[serde(default)]
+    pub evac_disposition: u8,
+    /// Cached world FIREPOINT bones (C++ m_garrisonPoint[condition]).
+    #[serde(default)]
+    pub garrison_fire_points: Vec<glam::Vec3>,
+    /// Cached world STATION bones for non-enclosing Fire Base.
+    #[serde(default)]
+    pub garrison_station_points: Vec<glam::Vec3>,
+    /// Occupant assigned to each FIREPOINT / STATION index.
+    #[serde(default)]
+    pub garrison_point_occupant: Vec<Option<ObjectId>>,
+    /// C++ GarrisonContain::m_garrisonPointsInitialized.
+    #[serde(default)]
+    pub garrison_points_initialized: bool,
 }
 
 /// Live residual of C++ `GarrisonGun` fire-point drawables.
@@ -270,6 +285,11 @@ impl BuildingData {
             original_team: None,
             hide_garrisoned_state: false,
             garrison_guns: Vec::new(),
+            evac_disposition: 3,
+            garrison_fire_points: Vec::new(),
+            garrison_station_points: Vec::new(),
+            garrison_point_occupant: Vec::new(),
+            garrison_points_initialized: false,
         }
     }
 

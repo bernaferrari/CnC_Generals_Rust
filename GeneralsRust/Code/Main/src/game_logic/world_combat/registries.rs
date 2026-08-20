@@ -3,6 +3,52 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+fn garrison_evac_rand(seed: u32, lo: f32, hi: f32) -> f32 {
+    let t = (seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) >> 8) as f32
+        / ((1u32 << 24) as f32);
+    lo + (hi - lo) * t
+}
+
+/// C++ GarrisonContain::exitObjectViaDoor EVAC_TO_LEFT / EVAC_TO_RIGHT.
+fn garrison_evac_side_points(
+    origin: glam::Vec3,
+    yaw: f32,
+    major: f32,
+    minor: f32,
+    evac: u8,
+    seed: u32,
+) -> (glam::Vec3, glam::Vec3) {
+    let scalar = if evac == 1 { 1.0 } else { -1.0 };
+    let door_x = garrison_evac_rand(seed, -major / 4.0, major / 4.0);
+    let door_y = garrison_evac_rand(seed.wrapping_add(1), minor / 2.0, minor * 2.0) * scalar;
+    let walk_x = garrison_evac_rand(seed.wrapping_add(2), -major, major);
+    let walk_y = minor * 10.0 * scalar;
+    let (sin, cos) = yaw.sin_cos();
+    let start = glam::Vec3::new(
+        origin.x + door_x * cos - door_y * sin,
+        origin.y,
+        origin.z + door_x * sin + door_y * cos,
+    );
+    let end = glam::Vec3::new(
+        origin.x + walk_x * cos - walk_y * sin,
+        origin.y,
+        origin.z + walk_x * sin + walk_y * cos,
+    );
+    (start, end)
+}
+
+#[cfg(test)]
+pub(in super::super) fn garrison_evac_side_points_for_test(
+    origin: glam::Vec3,
+    yaw: f32,
+    major: f32,
+    minor: f32,
+    evac: u8,
+    seed: u32,
+) -> (glam::Vec3, glam::Vec3) {
+    garrison_evac_side_points(origin, yaw, major, minor, evac, seed)
+}
+
 impl GameLogic {
     pub fn is_paused(&self) -> bool {
         self.is_paused
@@ -476,11 +522,43 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return false;
         };
+        let is_garrison = container.is_garrison_contain();
+        let container_name = container.name.clone();
+        if is_garrison {
+            if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name)
+            {
+                if let Some(c) = self.objects.get_mut(&container_id) {
+                    c.set_garrison_evac_disposition(disp as u8);
+                }
+            }
+        }
+        let Some(container) = self.objects.get(&container_id) else {
+            return false;
+        };
+        let evac = if is_garrison {
+            container.garrison_evac_disposition()
+        } else {
+            0
+        };
+        let enclosing = container.is_enclosing_garrison_container();
+        let geom = container.thing.template.geometry_info;
+        let major = if geom.authored {
+            geom.major_radius.max(1.0)
+        } else {
+            20.0
+        };
+        let minor = if geom.authored {
+            geom.minor_radius.max(1.0)
+        } else {
+            20.0
+        };
+        let yaw = container.get_orientation();
+        let building_pos = container.get_position();
         let origin = container
             .building_data
             .as_ref()
             .and_then(|b| b.rally_point)
-            .unwrap_or_else(|| container.get_position());
+            .unwrap_or(building_pos);
         let passengers: Vec<ObjectId> = container.contained_units();
         if passengers.is_empty() && !and_exit {
             // Still clear pending flags.
@@ -502,13 +580,31 @@ impl GameLogic {
                 // Wave 201: host_contain_log last-writer (do not bypass set_contained_by).
                 p.set_contained_by(None);
                 p.target = None;
-                // Spread slightly so units don't stack.
-                let angle = (i as f32) * 0.9;
-                let drop = origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
-                p.set_position(drop);
-                p.stop_moving();
-                p.set_ai_state(AIState::Idle);
-                p.status.moving = false;
+                if is_garrison && (evac == 1 || evac == 2) {
+                    let seed = pid.0.wrapping_add(i as u32).wrapping_add(self.frame);
+                    let (start, end) =
+                        garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
+                    p.set_position(start);
+                    p.set_destination(end);
+                    p.set_ai_state(AIState::Moving);
+                    p.status.moving = true;
+                } else if is_garrison {
+                    // C++ EVAC_BURST_FROM_CENTER: enclosing occupants snap to origin.
+                    if enclosing {
+                        p.set_position(building_pos);
+                    }
+                    p.stop_moving();
+                    p.set_ai_state(AIState::Idle);
+                    p.status.moving = false;
+                } else {
+                    // Spread slightly so units don't stack.
+                    let angle = (i as f32) * 0.9;
+                    let drop = origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
+                    p.set_position(drop);
+                    p.stop_moving();
+                    p.set_ai_state(AIState::Idle);
+                    p.status.moving = false;
+                }
                 // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
                 // PACKING on evacuate/exit. Riders are dropped Idle, so cash must
                 // stop immediately — idle outside must not keep depositing.

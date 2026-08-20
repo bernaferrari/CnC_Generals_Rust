@@ -4437,6 +4437,125 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
 }
 
 #[test]
+fn hunt_and_guard_pick_up_created_crates() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut ut = ThingTemplate::new("Hunter");
+    ut.add_kind_of(KindOf::Infantry);
+    let uid = ObjectId(4630);
+    let mut unit = Object::new(ut, uid, Team::China);
+    unit.set_ai_state(AIState::Patrolling);
+    unit.hunting = true;
+    unit.movement.max_speed = 8.0;
+    unit.set_position(glam::Vec3::ZERO);
+    logic.objects.insert(uid, unit);
+
+    let mut ct = ThingTemplate::new("SupplyDropZoneCrate");
+    let cid = ObjectId(4631);
+    let mut crate_obj = Object::new(ct, cid, Team::Neutral);
+    crate_obj.set_position(glam::Vec3::new(80.0, 0.0, 0.0));
+    logic.objects.insert(cid, crate_obj);
+    logic.host_money_crates.register_supply_drop_crate(cid);
+
+    assert!(logic.notify_unit_crate(uid, cid));
+    assert!(logic.try_idle_crate_pickup(uid));
+    let u = &logic.objects[&uid];
+    assert_eq!(
+        u.ai_state,
+        AIState::Patrolling,
+        "Hunt crate pickup must stay in Hunt, not flip to Moving"
+    );
+    assert_eq!(u.requested_victim_id, Some(cid));
+}
+
+#[test]
+fn guard_retaliate_returns_to_guard_not_idle() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("GR3");
+    t.add_kind_of(KindOf::Infantry);
+    let id = ObjectId(4520);
+    let mut o = Object::new(t, id, Team::USA);
+    o.set_position(glam::Vec3::new(200.0, 0.0, 0.0));
+    o.weapon = Some(Weapon {
+        range: 40.0,
+        ..Default::default()
+    });
+    o.guard_position = Some(glam::Vec3::ZERO);
+    o.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(id, o);
+    let vid = ObjectId(4521);
+    let mut et = ThingTemplate::new("EV2");
+    et.add_kind_of(KindOf::Infantry);
+    logic.objects.insert(vid, {
+        let mut e = Object::new(et, vid, Team::GLA);
+        e.set_position(glam::Vec3::new(200.0, 0.0, 0.0));
+        e
+    });
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        vid,
+        Some(glam::Vec3::ZERO),
+        None,
+    );
+    if let Some(e) = logic.objects.get_mut(&vid) {
+        e.status.destroyed = true;
+        e.health.current = 0.0;
+    }
+    logic.tick_guard_retaliate_states();
+    let o = &logic.objects[&id];
+    assert_eq!(
+        o.ai_state,
+        AIState::GuardRetaliating,
+        "far from post after kill must RETURN inside retaliate, got {:?}",
+        o.ai_state
+    );
+    assert!(o.movement.target_position.is_some());
+    // Arrive at post.
+    logic.objects.get_mut(&id).unwrap().set_position(glam::Vec3::ZERO);
+    logic.tick_guard_retaliate_states();
+    let o = &logic.objects[&id];
+    assert_eq!(o.ai_state, AIState::GuardingArea);
+}
+
+#[test]
+fn guarding_interrupts_to_last_attacker() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut gt = ThingTemplate::new("Guard");
+    gt.add_kind_of(KindOf::Infantry);
+    gt.add_kind_of(KindOf::Attackable);
+    let gid = ObjectId(4701);
+    let mut g = Object::new(gt, gid, Team::USA);
+    g.set_position(glam::Vec3::ZERO);
+    g.guard_position = Some(glam::Vec3::ZERO);
+    g.guard_radius = 80.0;
+    g.vision_range = 100.0;
+    g.weapon = Some(Weapon {
+        range: 150.0,
+        ..Default::default()
+    });
+    g.set_ai_state(AIState::GuardingArea);
+    logic.objects.insert(gid, g);
+
+    let mut et = ThingTemplate::new("Sniper");
+    et.add_kind_of(KindOf::Infantry);
+    et.add_kind_of(KindOf::Attackable);
+    let eid = ObjectId(4702);
+    let mut e = Object::new(et, eid, Team::GLA);
+    e.set_position(glam::Vec3::new(250.0, 0.0, 0.0));
+    e.weapon = Some(Weapon {
+        range: 300.0,
+        ..Default::default()
+    });
+    logic.objects.insert(eid, e);
+
+    logic.objects.get_mut(&gid).unwrap().last_damage_source = Some(eid);
+    logic.update_support_states(&[gid, eid], 1.0 / 30.0);
+    let g = &logic.objects[&gid];
+    assert_eq!(g.target, Some(eid), "guard must return fire at last attacker");
+}
+
+#[test]
 fn notify_computer_killer_only() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();

@@ -10,43 +10,57 @@ impl GameLogic {
         let ground_heights: Vec<(ObjectId, f32)> = {
             let mut out = Vec::new();
             for (id, o) in self.objects.iter() {
-                if o.status.destroyed || !o.is_alive() {
-                    continue;
-                }
-                // Structures/immobile skip full physics motion residual.
-                if !(o.can_move()
+                let wreck = o.status.destroyed || !o.is_alive();
+                let wreck_airborne = wreck && o.get_position().y > o.ground_height + 0.05;
+                let physics_active = o.can_move()
                     || o.shock_stun_frames > 0
                     || o.bounce_audio_pending > 0
-                    || o.movement.velocity.length_squared() > 1e-6)
-                {
+                    || o.pending_ground_collide
+                    || o.movement.velocity.length_squared() > 1e-6
+                    || o.allow_to_fall
+                    || o.is_physics_held()
+                    || wreck_airborne;
+                if !physics_active {
+                    continue;
+                }
+                if o.is_kind_of(KindOf::Structure) && !o.allow_to_fall && !wreck_airborne {
                     continue;
                 }
                 let p = o.get_position();
-                let g = self
+                let terrain_y = self
                     .terrain_height_at(glam::Vec3::new(p.x, 0.0, p.z))
                     .unwrap_or(0.0);
-                out.push((*id, g));
+                out.push((*id, self.physics_ground_y_with_deck(o, terrain_y)));
             }
             out
         };
         for o in self.objects.values_mut() {
-            if o.status.destroyed || !o.is_alive() {
-                continue;
-            }
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
             o.tick_path_queue();
+            // C++ DISABLED_HELD skips gravity/friction/Euler; accel still zeros.
+            if o.is_physics_held() {
+                o.physics_accel = glam::Vec3::ZERO;
+                continue;
+            }
             // C++ PhysicsBehavior update residual order: friction → integrate accel → motion.
-            if o.can_move() {
+            // Dead wrecks keep friction (C++ does not bail on isEffectivelyDead).
+            if o.can_move() || o.status.destroyed || !o.is_alive() {
                 o.apply_frictional_forces();
             }
-            // Immobile structures still clear accel residual cheaply.
             o.integrate_physics_accel();
         }
+        let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
             if let Some(o) = self.objects.get_mut(&id) {
                 let _ = o.tick_physics_motion_step(ground_y);
+                if o.pending_ground_collide {
+                    landed.push(id);
+                }
             }
+        }
+        for id in landed {
+            self.dispatch_physics_ground_collide(id);
         }
         // Rebuild partition cells (C++ registerObject residual each update).
         // Keep FOW reveal residual; only re-register live objects.
@@ -154,9 +168,14 @@ impl GameLogic {
                 .map(|o| o.get_position())
                 .unwrap_or(glam::Vec3::ZERO);
             let (cliff, water) = self.sample_stun_surface_at(pos);
-            let ground_y = self
+            let terrain_y = self
                 .terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z))
                 .unwrap_or(0.0);
+            let ground_y = self
+                .objects
+                .get(&id)
+                .map(|o| self.physics_ground_y_with_deck(o, terrain_y))
+                .unwrap_or(terrain_y);
             if let Some(o) = self.objects.get_mut(&id) {
                 o.cell_is_cliff = cliff;
                 o.cell_is_underwater = water;

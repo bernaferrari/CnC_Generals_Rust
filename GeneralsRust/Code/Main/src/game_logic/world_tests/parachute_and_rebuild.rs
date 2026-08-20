@@ -535,12 +535,12 @@ fn construction_complete_clears_after_duration() {
         o.model_condition_bits,
         construction_complete_model_bit()
     ));
-    assert_eq!(
-        o.construction_complete_clear_frame,
-        10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL
-    );
+    // AmericaPowerPlant authors no ConstructionCompleteDuration → C++ default 0
+    // flashes one frame (pose uses authored.max(1)).
+    let duration = 1u32;
+    assert_eq!(o.construction_complete_clear_frame, 10 + duration);
     // Before duration elapses: bit remains.
-    let before = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL - 1;
+    let before = 10 + duration - 1;
     logic.frame = before;
     if let Some(o) = logic.host_object_mut(id) {
         assert!(!o.tick_construction_complete_clear(before));
@@ -550,7 +550,7 @@ fn construction_complete_clears_after_duration() {
         construction_complete_model_bit()
     ));
     // At deadline: clear.
-    let at = 10 + Object::CONSTRUCTION_COMPLETE_DURATION_FRAMES_RESIDUAL;
+    let at = 10 + duration;
     logic.frame = at;
     if let Some(o) = logic.host_object_mut(id) {
         assert!(o.tick_construction_complete_clear(at));

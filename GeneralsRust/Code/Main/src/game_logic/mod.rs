@@ -46,6 +46,8 @@ pub use host_mods_logs_c::*;
 use host_mods_combat::host_bone_fx_damage;
 use host_mods_combat::host_command_button_hunt;
 use host_mods_combat::host_create_object_die;
+use host_mods_combat::host_crush_die;
+use host_mods_combat::host_instant_death;
 use host_mods_combat::host_dam_die;
 use host_mods_combat::host_deploy_style;
 use host_mods_combat::host_fire_weapon_power;
@@ -76,7 +78,8 @@ pub use object::{
     LocomotorBehaviorZ, PhysicsTurningType, DEFAULT_AERO_FRICTION_RESIDUAL,
     DEFAULT_FORWARD_FRICTION_RESIDUAL, DEFAULT_LATERAL_FRICTION_RESIDUAL,
     DEFAULT_Z_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL, MIN_AERO_FRICTION_RESIDUAL,
-    MIN_RECOMPUTE_TIME_RESIDUAL, MOTIVE_FRAMES_RESIDUAL, PATHFIND_CELL_SIZE_F_RESIDUAL,
+    MIN_NON_AERO_FRICTION_RESIDUAL, MIN_RECOMPUTE_TIME_RESIDUAL, MOTIVE_FRAMES_RESIDUAL,
+    PATHFIND_CELL_SIZE_F_RESIDUAL,
 };
 pub mod partition_manager;
 pub mod partition_coi;

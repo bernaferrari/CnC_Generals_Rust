@@ -76,13 +76,9 @@ impl Object {
         let resisted =
             force * (1.0 - self.shock_resistance.clamp(0.0, 1.0));
         if resisted.length_squared() > 0.0 {
+            // C++ applyShock: resist then applyForce (a = F/m). No post-impulse speed cap.
             self.movement.velocity += resisted / self.physics_get_mass();
-            // Cap residual velocity so MOAB doesn't fling units off-map instantly.
-            let speed = self.movement.velocity.length();
-            const MAX_SHOCK_SPEED: f32 = 80.0;
-            if speed > MAX_SHOCK_SPEED {
-                self.movement.velocity *= MAX_SHOCK_SPEED / speed;
-            }
+            self.invalidate_velocity_magnitude();
         }
         // C++ applyRandomRotation residual (deterministic seed from id + force).
         let seed = self
@@ -1225,20 +1221,37 @@ impl Object {
     /// C++ getForwardFriction residual.
     pub fn get_forward_friction(&self) -> f32 {
         let f = self.forward_friction + self.extra_friction;
-        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+        f.clamp(MIN_NON_AERO_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL)
     }
 
     /// C++ getLateralFriction residual.
     pub fn get_lateral_friction(&self) -> f32 {
         let f = self.lateral_friction + self.extra_friction;
-        f.clamp(0.0, MAX_FRICTION_RESIDUAL)
+        f.clamp(MIN_NON_AERO_FRICTION_RESIDUAL, MAX_FRICTION_RESIDUAL)
+    }
+
+    /// C++ Thing::isSignificantlyAboveTerrain — height > -(3*3)*gravity.
+    pub fn is_significantly_above_terrain(&self) -> bool {
+        let height = self.get_position().y - self.ground_height;
+        height > -(3.0 * 3.0) * Self::SHOCK_GRAVITY
+    }
+
+    /// C++ DISABLED_HELD: garrisoned / parachute-cargo / prison / docked riders.
+    pub fn is_physics_held(&self) -> bool {
+        self.contained_by.is_some()
+    }
+
+    /// C++ deckTaxiing residual: OBJECT_STATUS_DECK_HEIGHT_OFFSET.
+    pub fn is_deck_taxiing(&self) -> bool {
+        self.has_object_status_bit("DECK_HEIGHT_OFFSET")
     }
 
     /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
     pub fn apply_frictional_forces(&mut self) {
         // C++: APPLY_FRICTION2D_WHEN_AIRBORNE || !isSignificantlyAboveTerrain || deckTaxiing
-        // Host residual: non-airborne OR flag → 2D friction; else aero.
-        let use_2d = self.apply_friction_2d_when_airborne || !self.status.airborne_target;
+        let use_2d = self.apply_friction_2d_when_airborne
+            || !self.is_significantly_above_terrain()
+            || self.is_deck_taxiing();
 
         if use_2d {
             // YPR damping residual: DEFAULT_LATERAL_FRICTION on shock rates.

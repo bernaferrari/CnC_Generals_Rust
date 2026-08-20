@@ -380,6 +380,8 @@ pub struct ProductionDoorIni {
     pub opening_frames: u32,
     pub wait_open_frames: u32,
     pub close_frames: u32,
+    /// C++ `m_constructionCompleteDuration` (frames). Module default is 0.
+    pub construction_complete_duration_frames: u32,
 }
 
 impl Default for ProductionDoorIni {
@@ -389,6 +391,7 @@ impl Default for ProductionDoorIni {
             opening_frames: PRODUCTION_DOOR_OPENING_TIME_DEFAULT,
             wait_open_frames: PRODUCTION_DOOR_WAIT_OPEN_TIME_DEFAULT,
             close_frames: PRODUCTION_DOOR_CLOSING_TIME_DEFAULT,
+            construction_complete_duration_frames: PRODUCTION_CONSTRUCTION_COMPLETE_DURATION_DEFAULT,
         }
     }
 }
@@ -420,6 +423,11 @@ pub fn parse_production_door_ini_fields<'a>(
             get("DoorCloseTime")
                 .and_then(parse_ini_u32_token)
                 .unwrap_or(0),
+        ),
+        construction_complete_duration_frames: structure_economy_ms_to_frames(
+            get("ConstructionCompleteDuration")
+                .and_then(parse_ini_u32_token)
+                .unwrap_or(PRODUCTION_CONSTRUCTION_COMPLETE_DURATION_DEFAULT),
         ),
     }
 }
@@ -499,6 +507,13 @@ fn retail_production_door_ini(template_name: &str) -> ProductionDoorIni {
                 "DoorOpeningTime" => Some(*open),
                 "DoorWaitOpenTime" => Some(*wait),
                 "DoorCloseTime" => Some(*close),
+                "ConstructionCompleteDuration" => {
+                    if name.contains("CommandCenter") {
+                        Some("1500")
+                    } else {
+                        Some("0")
+                    }
+                }
                 _ => None,
             });
         }
@@ -557,6 +572,13 @@ pub fn producer_door_phase_duration(template_name: &str, phase: u8) -> u32 {
         4 => close,
         _ => 1,
     }
+}
+
+/// C++ ProductionUpdate `ConstructionCompleteDuration` in logic frames.
+/// Module default is 0 (pose drops the next frame unless the producer authors it).
+#[inline]
+pub fn producer_construction_complete_duration_frames(template_name: &str) -> u32 {
+    producer_door_ini(template_name).construction_complete_duration_frames
 }
 
 

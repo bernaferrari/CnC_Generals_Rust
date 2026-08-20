@@ -926,14 +926,14 @@ fn guard_state_engages_nearby_enemy() {
 }
 
 #[test]
-fn process_ai_behavior_idle_fallback_engages_nearby_enemy() {
+fn process_ai_behavior_idle_defers_to_mood_auto_acquire() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
 
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("attacker should be created");
-    let enemy_id = game_logic
+    let _enemy_id = game_logic
         .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
         .expect("enemy should be created");
     {
@@ -960,16 +960,10 @@ fn process_ai_behavior_idle_fallback_engages_nearby_enemy() {
         1.0 / 60.0,
     );
 
-    match command {
-        Some(AICommand::AttackTarget {
-            object_id,
-            target_id,
-        }) => {
-            assert_eq!(object_id, attacker_id);
-            assert_eq!(target_id, enemy_id);
-        }
-        other => panic!("expected idle fallback to attack enemy, got {other:?}"),
-    }
+    assert!(
+        command.is_none(),
+        "Idle acquire is mood-gated; process_ai_behavior must not 200-scan, got {command:?}"
+    );
 }
 
 #[test]
@@ -1002,16 +996,25 @@ fn process_ai_behavior_attacking_fallback_stops_without_target() {
 }
 
 #[test]
-fn process_ai_behavior_patrolling_fallback_moves_deterministically() {
+fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
 
     let unit_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(10.0, 0.0, -20.0))
         .expect("unit should be created");
+    let far_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(2000.0, 0.0, 0.0))
+        .expect("far enemy should be created");
+    {
+        let unit = game_logic.host_object_mut(unit_id).expect("unit");
+        unit.weapon = Some(Weapon {
+            range: 150.0,
+            ..Weapon::default()
+        });
+    }
     let unit = game_logic.host_object(unit_id).expect("unit should exist");
     let start = unit.get_position();
-    let frame = unit_id.0;
 
     let command = game_logic.process_ai_behavior(
         unit_id,
@@ -1020,23 +1023,25 @@ fn process_ai_behavior_patrolling_fallback_moves_deterministically() {
         start,
         unit.team,
         unit.can_attack(),
-        frame,
+        30,
         1.0 / 60.0,
     );
 
     match command {
-        Some(AICommand::MoveTo {
+        Some(AICommand::AttackTarget {
             object_id,
-            position,
+            target_id,
         }) => {
             assert_eq!(object_id, unit_id);
-            let distance = start.distance(position);
-            assert!(
-                (distance - 100.0).abs() < 0.001,
-                "patrol destination should keep 100 world-units radius"
+            assert_eq!(target_id, far_id, "Hunt must seek map-wide, not a 200 bubble");
+        }
+        Some(AICommand::MoveTo { position, .. }) => {
+            panic!(
+                "Hunt must not wander a 100-circle, dest dist={}",
+                start.distance(position)
             );
         }
-        other => panic!("expected patrol fallback to emit movement, got {other:?}"),
+        other => panic!("expected hunt to attack far enemy, got {other:?}"),
     }
 }
 

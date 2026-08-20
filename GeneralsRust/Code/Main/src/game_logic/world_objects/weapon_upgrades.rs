@@ -1537,21 +1537,21 @@ impl GameLogic {
 
     /// Grant GLA Camouflage residual stealth to Rebel infantry.
     ///
-    /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamouflage enables
-    /// StealthUpdate (InnateStealth was No until upgrade). Host residual sets
-    /// STEALTHED + innate_stealth; breaks on attack (StealthForbiddenConditions
-    /// = ATTACKING USING_ABILITY). StealthDelay 2500ms (75f) gates re-cloak.
-    /// Workers skip (no StealthUpgrade).
+    /// C++ StealthUpgrade.cpp:31 sets OBJECT_STATUS_CAN_STEALTH only.
+    /// StealthUpdate.cpp:739 re-arms `m_stealthAllowedFrame = now + StealthDelay`
+    /// rather than cloaking on the upgrade frame.
     pub(in super::super) fn apply_camouflage_unlock_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_camouflage_unit_template, CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
+            camouflage_stealth_allowed_frame, is_camouflage_unit_template,
+            CAMOUFLAGE_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMOUFLAGE,
         };
 
         let mut affected = 0u32;
+        let now = self.frame;
         for obj in self.objects.values_mut() {
             if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
@@ -1564,18 +1564,17 @@ impl GameLogic {
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_CAMOUFLAGE);
-            obj.set_status_stealthed(true);
+            obj.set_status_stealthed(false);
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
             obj.record_host_stealth_flags();
-            // Rebel residual: uncloak while attacking; stay cloaked while moving.
             obj.stealth_breaks_on_attack = true;
             obj.record_host_stealth_flags();
             obj.stealth_breaks_on_move = false;
             obj.record_host_stealth_flags();
             obj.stealth_delay_frames = CAMOUFLAGE_STEALTH_DELAY_FRAMES;
-            obj.stealth_allowed_frame = 0;
+            obj.stealth_allowed_frame = camouflage_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;
             obj.record_host_stealth_delay();
             affected = affected.saturating_add(1);
@@ -1585,52 +1584,46 @@ impl GameLogic {
 
     /// Grant GLA CamoNetting residual stealth to eligible GLA structures.
     ///
-    /// C++ StealthUpgrade TriggeredBy = Upgrade_GLACamoNetting on Stealth General
-    /// buildings + Tunnel Network / Stinger Site. Host residual sets STEALTHED +
-    /// innate_stealth with StealthForbiddenConditions ATTACKING / TAKING_DAMAGE
-    /// and StealthDelay **2500**ms re-cloak residual.
+    /// C++ StealthUpgrade.cpp:31 CAN_STEALTH only; StealthUpdate.cpp:739 re-arms
+    /// StealthDelay (2500ms / 75f) before STEALTHED.
     pub(in super::super) fn apply_camo_netting_unlock_to_team(
         &mut self,
         team: Team,
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_upgrades::{
-            is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+            camo_netting_stealth_allowed_frame, is_camo_netting_structure_template,
             CAMO_NETTING_STEALTH_DELAY_FRAMES, UPGRADE_GLA_CAMO_NETTING,
         };
 
         let mut affected = 0u32;
+        let now = self.frame;
         for obj in self.objects.values_mut() {
             if !upgrade_targets_object(obj, team) || !obj.is_alive() {
                 continue;
             }
-            // Residual name matrix filters eligible GLA structures (not infantry).
             if !is_camo_netting_structure_template(&obj.template_name) {
                 continue;
             }
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_GLA_CAMO_NETTING);
-            obj.set_status_stealthed(true);
+            obj.set_status_stealthed(false);
             obj.set_status_detected(false);
             obj.detection_expires_frame = 0;
             obj.innate_stealth = true;
             obj.record_host_stealth_flags();
-            // Structure residual: ATTACKING + TAKING_DAMAGE uncloak; StealthDelay re-cloak.
             obj.stealth_breaks_on_attack = true;
             obj.record_host_stealth_flags();
             obj.stealth_breaks_on_damage = true;
             obj.stealth_breaks_on_move = false;
             obj.record_host_stealth_flags();
             obj.stealth_delay_frames = CAMO_NETTING_STEALTH_DELAY_FRAMES;
-            obj.stealth_allowed_frame = 0;
+            obj.stealth_allowed_frame = camo_netting_stealth_allowed_frame(now);
             obj.stealth_delay_pending = false;
-            // FriendlyOpacity residual: cloaked → min.
-            obj.camo_friendly_opacity = CAMO_NETTING_FRIENDLY_OPACITY_MIN;
-            obj.record_host_vision_camo();
-            obj.camo_opacity_pulse_phase = 0.0;
+            obj.record_host_stealth_delay();
             // Sub-object net mesh residual: upgrade shows CamoNet presentation.
             obj.camo_net_sub_object_shown = true;
-            obj.camo_net_sub_object_observer_visible = true; // friendly default residual
+            obj.camo_net_sub_object_observer_visible = true;
             affected = affected.saturating_add(1);
         }
         if affected > 0 {

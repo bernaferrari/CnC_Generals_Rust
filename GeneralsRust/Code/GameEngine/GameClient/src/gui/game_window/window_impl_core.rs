@@ -1800,19 +1800,19 @@ impl GameWindow {
         }
     }
 
-    /// Send input message to window
+    /// Send input message to window.
+    ///
+    /// C++ `GameWindowManager::winSendInputMsg` (GameWindowManager.cpp) rejects
+    /// only `WIN_STATUS_DESTROYED` (except `GWM_DESTROY`). Hidden, disabled, and
+    /// `NO_INPUT` are hit-test filters, not send-time drops — grab/captor/focus
+    /// can still deliver input to those windows.
     pub fn send_input_message(
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        if msg != WindowMessage::Destroy
-            && (self.status.contains(WindowStatus::DESTROYED)
-                || self.is_hidden()
-                || !self.is_enabled()
-                || self.status.contains(WindowStatus::NO_INPUT))
-        {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return WindowMsgHandled::Ignored;
         }
         self.update_press_state_from_message(msg);
@@ -1895,3 +1895,45 @@ impl GameWindow {
         }
     }
 }
+
+#[cfg(test)]
+mod send_input_gate_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn send_input_message_rejects_only_destroyed_like_cpp() {
+        let mut window = GameWindow::new();
+        let seen = Rc::new(RefCell::new(0u32));
+        {
+            let seen = Rc::clone(&seen);
+            window.set_input_callback(move |_, _, _, _| {
+                *seen.borrow_mut() += 1;
+                WindowMsgHandled::Handled
+            });
+        }
+
+        window.hide(true).unwrap();
+        window.enable(false).unwrap();
+        let _ = window.set_status(WindowStatus::NO_INPUT);
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(*seen.borrow(), 1);
+
+        window.set_status_exact(WindowStatus::DESTROYED);
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(*seen.borrow(), 1);
+        assert_eq!(
+            window.send_input_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(*seen.borrow(), 2);
+    }
+}
+

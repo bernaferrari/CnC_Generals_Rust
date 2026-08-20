@@ -702,6 +702,13 @@ impl BuildAssistant {
         })
     }
 
+    /// C++ `BuildAssistant::addBibs` — highlight nearby immobile structures.
+    /// Live host bibs blockers from `legal_build_code_at_for_builder`; this leftover
+    /// path is unused on the live tick (empty registry / skipped update).
+    pub fn add_bibs(&self, _world_pos: &Coord3D, _build: &ThingTemplate) {
+        // Backend hook: live host paints object bibs via TerrainVisual.
+    }
+
     /// Check if a template is for line building (walls, etc.)
     pub fn is_line_build_template(&self, template: &ThingTemplate) -> bool {
         template.is_line_build()

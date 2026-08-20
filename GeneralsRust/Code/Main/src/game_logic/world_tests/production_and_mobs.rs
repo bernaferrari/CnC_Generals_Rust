@@ -3671,6 +3671,137 @@ fn fire_spread_tree_ignites_neighbor() {
 }
 
 #[test]
+fn flammable_buildings_ignite_and_play_burning_loop() {
+    use crate::game_logic::combat::DamageType;
+    use crate::game_logic::host_enum_table_residual::aflame_model_bit;
+    use crate::game_logic::host_fire_spread::TREE_BURNING_SOUND;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("TechOilDerrick");
+    tpl.add_kind_of(KindOf::Structure).set_health(2000.0);
+    logic.templates.insert("TechOilDerrick".to_string(), tpl);
+    let id = logic
+        .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
+        .expect("oil");
+    assert!(logic.host_object(id).unwrap().has_fire_spread());
+    assert!(!logic
+        .host_object(id)
+        .unwrap()
+        .fire_spread
+        .as_ref()
+        .unwrap()
+        .spread_enabled);
+
+    crate::game_logic::host_historic_bonus::set_logic_frame(10);
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        let _ = o.take_damage_from_typed(50.0, None, DamageType::Flame);
+    }
+    {
+        let o = logic.host_object(id).unwrap();
+        assert!(o.fire_spread.as_ref().unwrap().is_aflame());
+        assert!(o.has_object_status_bit("AFLAME"));
+        assert!(o.model_condition_bits & (1u128 << aflame_model_bit()) != 0);
+    }
+    logic.set_current_frame(10);
+    logic.update_fire_spread();
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == TREE_BURNING_SOUND && e.is_looping),
+        "GenericFireMediumLoop must start on ignite"
+    );
+}
+
+#[test]
+fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
+    use crate::game_logic::host_fire_spread::{
+        TREE_OCL_EMBERS, TREE_SPREAD_TRY_RANGE,
+    };
+
+    let mut logic = GameLogic::new();
+    for name in ["DogwoodTreeA", "DogwoodTreeCliff"] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.set_health(50.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+        .expect("a");
+    let cliff = logic
+        .create_object(
+            "DogwoodTreeCliff",
+            Team::Neutral,
+            Vec3::new(30.0, 80.0, 0.0),
+        )
+        .expect("cliff");
+    assert!(logic.ignite_object_fire_spread(a));
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        if let Some(fs) = o.fire_spread.as_mut() {
+            fs.next_spread_frame = 0;
+        }
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+    assert!(logic.fire_spread_reg.embers > 0);
+    assert!(
+        logic
+            .objects
+            .values()
+            .any(|o| o.template_name.eq_ignore_ascii_case("BurningEmbers")
+                || o.template_name.contains("Ember"))
+            || logic
+                .combat_particles
+                .active_systems()
+                .any(|p| p.ocl_list_name == TREE_OCL_EMBERS
+                    || p.template_name == TREE_OCL_EMBERS),
+        "OCL_BurningEmbers must create ember objects or particle entries"
+    );
+    assert!(
+        !logic
+            .host_object(cliff)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false),
+        "FROM_CENTER_3D must exclude a tree 80 units above planar range {TREE_SPREAD_TRY_RANGE}"
+    );
+}
+
+#[test]
+fn tree_smolders_while_still_aflame() {
+    use crate::game_logic::host_enum_table_residual::{
+        aflame_model_bit, smoldering_model_bit,
+    };
+    use crate::game_logic::host_fire_spread::TREE_BURNED_DELAY_FRAMES;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("DogwoodTreeA");
+    tpl.set_health(50.0);
+    logic.templates.insert("DogwoodTreeA".to_string(), tpl);
+    let id = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(logic.ignite_object_fire_spread(id));
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        if let Some(fs) = o.fire_spread.as_mut() {
+            fs.burned_end_frame = TREE_BURNED_DELAY_FRAMES;
+        }
+    }
+    logic.set_current_frame(TREE_BURNED_DELAY_FRAMES as u64);
+    logic.update_fire_spread();
+    let o = logic.host_object(id).unwrap();
+    assert!(o.fire_spread.as_ref().unwrap().is_aflame());
+    assert!(o.fire_spread.as_ref().unwrap().smoldering);
+    assert!(o.has_object_status_bit("AFLAME"));
+    assert!(o.has_object_status_bit("BURNED"));
+    assert!(o.model_condition_bits & (1u128 << aflame_model_bit()) != 0);
+    assert!(o.model_condition_bits & (1u128 << smoldering_model_bit()) != 0);
+}
+
+
+#[test]
 fn status_bits_upgrade_booby_trap_sets_bit() {
     use crate::game_logic::host_status_bits_upgrade::honesty_status_bits_upgrade_residual_ok;
     assert!(honesty_status_bits_upgrade_residual_ok());
@@ -4612,3 +4743,194 @@ fn listening_outpost_residual_detect_stealth_in_range() {
         );
     }
 }
+
+#[test]
+fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    tunnel
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("GLATunnelNetwork".into(), tunnel);
+    let mut rpg = ThingTemplate::new("GLAInfantryTunnelDefender");
+    rpg.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryTunnelDefender".into(), rpg);
+
+    let tunnel_id = logic
+        .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
+        .expect("tunnel");
+    let troopers: Vec<_> = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(tunnel_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryTunnelDefender")
+        })
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(
+        troopers.len(),
+        2,
+        "C++ SpawnBehavior OneShot must create two GLAInfantryTunnelDefender world objects"
+    );
+
+    // OneShot must not fire again after children die.
+    for id in troopers {
+        logic.mark_object_for_destruction(id, None);
+    }
+    logic.apply_spawn_behavior_on_build_complete(tunnel_id);
+    let again = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(tunnel_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryTunnelDefender")
+                && o.is_alive()
+        })
+        .count();
+    assert_eq!(again, 0, "OneShot must not replace dead free RPG troopers");
+}
+
+#[test]
+fn stinger_site_spawns_three_soldier_world_objects() {
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    let mut site = ThingTemplate::new("GLAStingerSite");
+    site.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0);
+    logic.templates.insert("GLAStingerSite".into(), site);
+    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
+    soldier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryStingerSoldier".into(), soldier);
+
+    let site_id = logic
+        .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
+        .expect("stinger");
+    let soldiers: Vec<_> = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(site_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+        })
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(
+        soldiers.len(),
+        3,
+        "C++ SpawnBehavior must create three GLAInfantryStingerSoldier world objects"
+    );
+
+    logic.mark_object_for_destruction(site_id, None);
+    let living = logic
+        .objects
+        .values()
+        .filter(|o| {
+            o.producer_id == Some(site_id)
+                && o.template_name.eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+                && o.is_alive()
+                && !o.status.effectively_dead
+        })
+        .count();
+    assert_eq!(
+        living, 0,
+        "SpawnedRequireSpawner must kill remaining stinger soldiers with the site"
+    );
+}
+
+#[test]
+fn special_power_create_expresses_shared_n_sync_ready_now() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.reset_shared_special_power_timer(&SpecialPowerType::SpyDrone, 60.0);
+    assert!(
+        player
+            .shared_special_power_cooldowns
+            .get(&SpecialPowerType::SpyDrone)
+            .copied()
+            .unwrap_or(0.0)
+            > 0.0
+    );
+    logic.players.insert(0, player);
+
+    let mut tpl = ThingTemplate::new("AmericaCommandCenter");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(2000.0);
+    tpl.has_special_power_create = true;
+    tpl.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_SpyDrone".into()),
+        module_kind: SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialPowerSpyDrone".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::SpyDrone),
+        reload_time_frames: 300,
+        required_science: Some("SCIENCE_SpyDrone".into()),
+        public_timer: false,
+        shared_n_sync: true,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    tpl.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 1,
+        module_tag: Some("ModuleTag_Scripted".into()),
+        module_kind: SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialPowerScriptedOnly".into(),
+        special_power_template_id: 2,
+        command_power: Some(SpecialPowerType::Paradrop),
+        reload_time_frames: 150,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: true,
+    });
+    logic.templates.insert("AmericaCommandCenter".into(), tpl);
+
+    let id = logic
+        .create_object_for_player("AmericaCommandCenter", 0, Vec3::ZERO)
+        .expect("cc");
+    let player = logic.players.get(&0).expect("player");
+    assert!(
+        !player
+            .shared_special_power_cooldowns
+            .contains_key(&SpecialPowerType::SpyDrone),
+        "SharedNSync must express ready-now on Command Center build complete"
+    );
+    let obj = logic.host_object(id).expect("cc obj");
+    let remaining = obj
+        .special_power_cooldowns
+        .get(&SpecialPowerType::Paradrop)
+        .copied()
+        .unwrap_or(0.0);
+    assert!(
+        remaining > 0.0,
+        "scripted SpecialPowerCreate modules must start ReloadTime recharge"
+    );
+}
+

@@ -214,6 +214,15 @@ pub enum KindOf {
     /// through BODY_REALLYDAMAGED until death.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     GarrisonableUntilDestroyed,
+    /// C++ `KINDOF_BOAT`. Hijack / ConvertToCarBomb reject boats.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    Boat,
+    /// C++ `KINDOF_TRANSPORT`. Occupied transports cannot be hijacked.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    Transport,
+    /// C++ `KINDOF_IMMUNE_TO_CAPTURE` (Patch 1.03 battle bus).
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    ImmuneToCapture,
 }
 
 impl KindOf {
@@ -228,6 +237,10 @@ impl KindOf {
             "CAN_SEE_THROUGH" | "CAN_SEE_THROUGH_STRUCTURE" => Some(Self::CanSeeThrough),
             "NO_GARRISON" | "NOGARRISON" => Some(Self::NoGarrison),
             "GARRISONABLE_UNTIL_DESTROYED" => Some(Self::GarrisonableUntilDestroyed),
+            "BOAT" => Some(Self::Boat),
+            "TRANSPORT" => Some(Self::Transport),
+            "IMMUNE_TO_CAPTURE" | "IMMUNETOCAPTURE" => Some(Self::ImmuneToCapture),
+            "DRONE" => Some(Self::Drone),
             _ => None,
         }
     }
@@ -427,6 +440,9 @@ pub struct ObjectStatus {
     /// Default Normal (combat residual). Set to Crushed/Splatted for crush deaths.
     #[serde(default)]
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    /// C++ OBJECT_STATUS_DECK_HEIGHT_OFFSET residual (parked on airfield/carrier).
+    #[serde(default)]
+    pub deck_height_offset: bool,
 }
 
 /// Basic geometry information for objects

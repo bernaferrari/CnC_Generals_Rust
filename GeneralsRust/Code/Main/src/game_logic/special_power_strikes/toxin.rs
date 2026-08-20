@@ -42,3 +42,24 @@ pub const ANTHRAX_TOXIN_RADIUS_DAMAGE_AFFECTS: &str = "ALLIES ENEMIES NEUTRALS N
 pub const ANTHRAX_TOXIN_ATTACK_RANGE: f32 = 15.0;
 /// Retail AnthraxBombPoisonFieldWeapon MinimumAttackRange residual.
 pub const ANTHRAX_TOXIN_MINIMUM_ATTACK_RANGE: f32 = 10.0;
+
+/// C++ `AnthraxBombPoisonFieldWeapon` / LargePoisonField DeathType from template.
+pub fn toxin_field_death_type_for_template(
+    object_template: &str,
+) -> crate::game_logic::host_usa_pilot::HostDeathType {
+    use crate::game_logic::host_usa_pilot::HostDeathType;
+    let t = object_template.to_ascii_lowercase();
+    if t.contains("gamma") {
+        HostDeathType::PoisonedGamma
+    } else if t.contains("anthrax") || t.contains("upgraded") || t.contains("beta") {
+        HostDeathType::PoisonedBeta
+    } else {
+        HostDeathType::Poisoned
+    }
+}
+
+/// C++ WEAPON_DOESNT_AFFECT_AIRBORNE residual (radius splash, not primary).
+pub fn toxin_field_target_is_airborne(is_aircraft: bool, airborne_target: bool) -> bool {
+    is_aircraft || airborne_target
+}
+

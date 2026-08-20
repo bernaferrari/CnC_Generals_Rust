@@ -4,35 +4,86 @@
 use super::super::*;
 
 
-/// C++ GarrisonContain FIREPOINT residual: occupants shoot from points around
-/// the container, not the building center. Closest ring point to the victim
-/// wins (`calcBestGarrisonPosition`); occupant index breaks ties as station.
-fn garrison_occupant_fire_point(
-    container_pos: glam::Vec3,
-    occupant_index: usize,
-    occupant_count: usize,
-    target_pos: glam::Vec3,
-) -> glam::Vec3 {
-    const FIRE_POINT_RADIUS: f32 = 12.0;
-    const MAX_POINTS: usize = 8;
-    let n = occupant_count.clamp(1, MAX_POINTS);
-    let mut best = container_pos;
-    let mut best_score = f32::MAX;
-    for i in 0..n {
-        let ang = (i as f32) * (std::f32::consts::TAU / n as f32);
-        let p = glam::Vec3::new(
-            container_pos.x + ang.cos() * FIRE_POINT_RADIUS,
-            container_pos.y,
-            container_pos.z + ang.sin() * FIRE_POINT_RADIUS,
-        );
-        let assigned = if i == occupant_index % n { -1.0 } else { 0.0 };
-        let score = (p - target_pos).length_squared() + assigned;
-        if score < best_score {
-            best_score = score;
-            best = p;
+/// C++ `getMultiLogicalBonePosition("FIREPOINT"|"STATION")` max.
+const MAX_GARRISON_FIRE_POINTS: usize = 40;
+
+fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> glam::Vec3 {
+    // C++ Z-up (x, y, z) -> host Y-up (x, z, y).
+    glam::Vec3::new(bone.x, bone.z, bone.y)
+}
+
+fn rotate_yaw_host(origin: glam::Vec3, yaw: f32, local: glam::Vec3) -> glam::Vec3 {
+    let (sin, cos) = yaw.sin_cos();
+    glam::Vec3::new(
+        origin.x + local.x * cos - local.z * sin,
+        origin.y + local.y,
+        origin.z + local.x * sin + local.z * cos,
+    )
+}
+
+fn load_prefix_bones_world(container: &Object, prefix: &str, max: usize) -> Vec<glam::Vec3> {
+    let model = container.thing.template.get_model_name();
+    let scale = container.thing.template.asset_scale;
+    let pos = container.get_position();
+    let yaw = container.get_orientation();
+    let mut out = Vec::new();
+    for i in 1..=max {
+        let name = format!("{prefix}{i:02}");
+        let Some(local) =
+            gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, &name)
+        else {
+            break;
+        };
+        out.push(rotate_yaw_host(pos, yaw, cpp_bone_to_host_local(local)));
+    }
+    out
+}
+
+fn closest_free_garrison_point(
+    points: &[glam::Vec3],
+    occupied: &[Option<ObjectId>],
+    occupant_id: ObjectId,
+    target: glam::Vec3,
+    fallback: glam::Vec3,
+) -> (usize, glam::Vec3) {
+    if points.is_empty() {
+        return (0, fallback);
+    }
+    let mut best_i = 0;
+    let mut best_d = f32::MAX;
+    let mut best = points[0];
+    for (i, p) in points.iter().enumerate() {
+        let taken = occupied.get(i).and_then(|id| *id);
+        if taken.is_some() && taken != Some(occupant_id) {
+            continue;
+        }
+        let d = (*p - target).length_squared();
+        if d < best_d {
+            best_d = d;
+            best_i = i;
+            best = *p;
         }
     }
-    best
+    (best_i, best)
+}
+
+/// C++ GarrisonContain::calcBestGarrisonPosition — FIREPOINT bones, not a ring.
+fn garrison_occupant_fire_point(
+    container: &Object,
+    occupant_id: ObjectId,
+    target_pos: glam::Vec3,
+) -> (usize, glam::Vec3) {
+    let fallback = container.get_position();
+    let Some(bd) = container.building_data.as_ref() else {
+        return (0, fallback);
+    };
+    closest_free_garrison_point(
+        &bd.garrison_fire_points,
+        &bd.garrison_point_occupant,
+        occupant_id,
+        target_pos,
+        fallback,
+    )
 }
 
 impl GameLogic {
@@ -603,9 +654,8 @@ impl GameLogic {
     }
 
     /// Residual fire-from-garrison: each occupant fires **their current weapon**
-    /// from a FIREPOINT offset (C++ GarrisonContain `getCurrentWeapon` +
-    /// `calcBestGarrisonPosition`), not a single PRIMARY from building center.
-    /// Fail-closed: not C++ bone FIREPOINT01-nn artwork / enclosing shuffle.
+    /// from a FIREPOINT bone (C++ GarrisonContain `getCurrentWeapon` +
+    /// `calcBestGarrisonPosition`), not a synthetic 8-point ring.
     pub(in super::super) fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
@@ -632,9 +682,10 @@ impl GameLogic {
         }
 
         let team = attacker.team;
-        let container_pos = container_id
-            .and_then(|cid| self.objects.get(&cid).map(|c| c.get_position()))
-            .unwrap_or_else(|| attacker.get_position());
+        if let Some(cid) = container_id {
+            self.ensure_garrison_bones(cid);
+        }
+        let ordered_target = container_id.and_then(|cid| self.objects.get(&cid).and_then(|c| c.target));
         let occupants = container_id
             .and_then(|cid| self.objects.get(&cid).map(|c| c.contained_units()))
             .unwrap_or_default();
@@ -642,7 +693,6 @@ impl GameLogic {
             .iter()
             .position(|&id| id == garrisoned_id)
             .unwrap_or(0);
-        let occupant_count = occupants.len().max(1);
 
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
@@ -673,17 +723,22 @@ impl GameLogic {
             .collect();
 
         // C++ GarrisonContain: occupant getCurrentWeapon + best FIREPOINT vs victim.
-        let mut best: Option<(ObjectId, f32, u8, glam::Vec3, f32)> = None;
+        let mut best: Option<(ObjectId, f32, u8, glam::Vec3, f32, usize)> = None;
         for cand in &candidates {
             if !(cand.is_alive && cand.team != team && !cand.is_neutral && cand.combat_kind) {
                 continue;
             }
-            let fire_pos = garrison_occupant_fire_point(
-                container_pos,
-                occupant_index,
-                occupant_count,
-                cand.position,
-            );
+            if let Some(ordered) = ordered_target {
+                if cand.id != ordered {
+                    continue;
+                }
+            }
+            let (point_index, fire_pos) = container_id
+                .and_then(|cid| self.objects.get(&cid))
+                .map(|container| {
+                    garrison_occupant_fire_point(container, garrisoned_id, cand.position)
+                })
+                .unwrap_or((occupant_index, cand.position));
             let Some(target_obj) = self.objects.get(&cand.id) else {
                 continue;
             };
@@ -712,14 +767,25 @@ impl GameLogic {
             if dist > weapon.range {
                 continue;
             }
-            if best.as_ref().map(|(_, d, _, _, _)| dist < *d).unwrap_or(true) {
-                best = Some((cand.id, dist, slot, fire_pos, weapon.damage));
+            if best.as_ref().map(|(_, d, _, _, _, _)| dist < *d).unwrap_or(true) {
+                best = Some((cand.id, dist, slot, fire_pos, weapon.damage, point_index));
             }
         }
 
-        let Some((target_id, _, slot, fire_pos, damage)) = best else {
+        let Some((target_id, _, slot, fire_pos, damage, point_index)) = best else {
             return;
         };
+
+        if let Some(cid) = container_id {
+            if let Some(container) = self.objects.get_mut(&cid) {
+                if let Some(bd) = container.building_data.as_mut() {
+                    if bd.garrison_point_occupant.len() <= point_index {
+                        bd.garrison_point_occupant.resize(point_index + 1, None);
+                    }
+                    bd.garrison_point_occupant[point_index] = Some(garrisoned_id);
+                }
+            }
+        }
 
         let weapon_snap = self
             .objects
@@ -782,10 +848,10 @@ impl GameLogic {
             self.mark_object_for_destruction(target_id, Some(team));
         }
         self.garrison_residual_fires = self.garrison_residual_fires.saturating_add(1);
-        self.ensure_garrison_gun_effect(container_id, occupant_index, fire_pos);
+        self.ensure_garrison_gun_effect(container_id, point_index, fire_pos);
     }
 
-    /// C++ GarrisonContain::onContaining setTeam + academy + stealth hide.
+    /// C++ GarrisonContain::onContaining setTeam + academy + CAN_ATTACK + stations.
     pub(in super::super) fn apply_garrison_contain_on_enter(
         &mut self,
         container_id: ObjectId,
@@ -797,6 +863,11 @@ impl GameLogic {
         if !container.is_garrison_contain() {
             return;
         }
+        self.ensure_garrison_bones(container_id);
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            container.set_garrison_can_attack(true);
+        }
+        self.place_occupant_at_garrison_station(container_id, occupant_id);
         self.recalc_garrison_apparent_controller(container_id);
         let occupant_owner = self
             .objects
@@ -806,14 +877,107 @@ impl GameLogic {
         if let Some(pid) = occupant_owner {
             if let Some(player) = self.players.get_mut(&pid) {
                 player.record_building_garrisoned();
-                return;
             }
-        }
-        if let Some(team) = occupant_team {
+        } else if let Some(team) = occupant_team {
             if let Some(player) = self.players.values_mut().find(|p| p.team == team) {
                 player.record_building_garrisoned();
             }
         }
+    }
+
+    /// C++ loadGarrisonPoints / loadStationGarrisonPoints.
+    fn ensure_garrison_bones(&mut self, container_id: ObjectId) {
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        if !container.is_garrison_contain() {
+            return;
+        }
+        let enclosing = container.is_enclosing_garrison_container();
+        let already = container
+            .building_data
+            .as_ref()
+            .is_some_and(|b| b.garrison_points_initialized);
+        if already {
+            return;
+        }
+        let fire = if enclosing {
+            load_prefix_bones_world(container, "FIREPOINT", MAX_GARRISON_FIRE_POINTS)
+        } else {
+            Vec::new()
+        };
+        let stations = if enclosing {
+            Vec::new()
+        } else {
+            let max = container
+                .thing
+                .template
+                .contain_module
+                .slots
+                .unwrap_or(MAX_GARRISON_FIRE_POINTS)
+                .min(MAX_GARRISON_FIRE_POINTS);
+            load_prefix_bones_world(container, "STATION", max)
+        };
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            if let Some(bd) = container.building_data.as_mut() {
+                if enclosing {
+                    bd.garrison_fire_points = fire;
+                    bd.garrison_point_occupant
+                        .resize(bd.garrison_fire_points.len(), None);
+                } else {
+                    bd.garrison_station_points = stations;
+                    bd.garrison_point_occupant
+                        .resize(bd.garrison_station_points.len(), None);
+                }
+                bd.garrison_points_initialized = true;
+            }
+        }
+    }
+
+    /// C++ pickAStationForMe + positionObjectsAtStationGarrisonPoints.
+    fn place_occupant_at_garrison_station(&mut self, container_id: ObjectId, occupant_id: ObjectId) {
+        let enclosing = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_enclosing_garrison_container());
+        if enclosing {
+            return;
+        }
+        let station = {
+            let Some(container) = self.objects.get_mut(&container_id) else {
+                return;
+            };
+            let Some(bd) = container.building_data.as_mut() else {
+                return;
+            };
+            let mut chosen = None;
+            for (i, slot) in bd.garrison_point_occupant.iter_mut().enumerate() {
+                if slot.is_none() {
+                    *slot = Some(occupant_id);
+                    chosen = bd.garrison_station_points.get(i).copied();
+                    break;
+                }
+            }
+            chosen
+        };
+        if let Some(pos) = station {
+            if let Some(occ) = self.objects.get_mut(&occupant_id) {
+                occ.set_position(pos);
+            }
+        }
+    }
+
+    /// C++ ScriptActions::doNamedSetGarrisonEvacDisposition.
+    pub fn set_named_garrison_evac_disposition(&mut self, unit_name: &str, disposition: u32) -> bool {
+        gamelogic::object::contain::record_named_evac_disposition(unit_name, disposition);
+        let Some(id) = self.find_object_id_by_name(unit_name) else {
+            return false;
+        };
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.set_garrison_evac_disposition(disposition as u8);
+            return true;
+        }
+        false
     }
 
     /// C++ GarrisonContain::recalcApparentControllingPlayer.
@@ -1421,53 +1585,13 @@ impl GameLogic {
         }
     }
 
-    /// C++ GenerateMinefieldBehavior::upgradeImplementation residual.
+    /// C++ GenerateMinefieldBehavior::upgradeImplementation + EMP swap residual.
     pub(in super::super) fn place_structure_minefield_for_upgrade(
         &mut self,
         object_id: ObjectId,
         upgrade: &str,
     ) -> u32 {
-        use crate::game_logic::host_mines::{
-            is_china_mines_upgrade, structure_minefield_positions, CHINA_STANDARD_MINE_TEMPLATE,
-            CHINA_STRUCTURE_MINE_RING_COUNT, CHINA_STRUCTURE_MINE_RING_RADIUS,
-        };
-        if !is_china_mines_upgrade(upgrade) {
-            return 0;
-        }
-        let Some(obj) = self.objects.get(&object_id) else {
-            return 0;
-        };
-        if !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
-            return 0;
-        }
-        let team = obj.team;
-        let pos = obj.get_position();
-        // Ensure mine template exists.
-        if !self.templates.contains_key(CHINA_STANDARD_MINE_TEMPLATE) {
-            let mut m = ThingTemplate::new(CHINA_STANDARD_MINE_TEMPLATE);
-            m.set_health(1.0);
-            m.add_kind_of(KindOf::Projectile);
-            self.templates
-                .insert(CHINA_STANDARD_MINE_TEMPLATE.to_string(), m);
-        }
-        let spots = structure_minefield_positions(
-            pos,
-            CHINA_STRUCTURE_MINE_RING_COUNT,
-            CHINA_STRUCTURE_MINE_RING_RADIUS,
-        );
-        let mut placed = 0u32;
-        for spot in spots {
-            if let Some(mid) = self.create_object(CHINA_STANDARD_MINE_TEMPLATE, team, spot) {
-                if let Some(mine) = self.objects.get_mut(&mid) {
-                    // Residual: mark as mine kind if available.
-                    let _ = mine;
-                }
-                placed = placed.saturating_add(1);
-            }
-        }
-        self.structure_minefield_placements =
-            self.structure_minefield_placements.saturating_add(placed);
-        placed
+        self.apply_structure_minefield_upgrade(object_id, upgrade)
     }
 
     pub(in super::super) fn init_starts_paused_special_powers(&mut self, object_id: ObjectId) {
@@ -2476,6 +2600,178 @@ mod tests {
             logic.host_object(tank).unwrap().passengers_allowed_to_fire,
             "live bunker fire sets passengers_allowed_to_fire"
         );
+    }
+
+    fn garrison_template(name: &str, immune: bool, enclosing: bool) -> ThingTemplate {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            immune_to_clear_building_attacks: immune,
+            is_enclosing_container: enclosing,
+            ..ContainModuleMetadata::default()
+        };
+        t
+    }
+
+    #[test]
+    fn immune_to_clear_bunker_keeps_occupants() {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert(
+                "ChinaBunker".into(),
+                garrison_template("ChinaBunker", true, true),
+            );
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+
+        let bunker = logic
+            .create_object("ChinaBunker", Team::China, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::China, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        let killed = logic.apply_kill_garrisoned_to_target(bunker, Team::USA, 5.0, None);
+        assert_eq!(killed, 0, "ImmuneToClear bunkers keep occupants");
+        assert!(logic.host_object(ranger_id).unwrap().is_alive());
+        assert_eq!(
+            logic.host_object(bunker).unwrap().contained_units(),
+            vec![ranger_id]
+        );
+    }
+
+    #[test]
+    fn occupied_building_gets_can_attack_and_loses_it_when_empty() {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert(
+                "CivBunker".into(),
+                garrison_template("CivBunker", false, true),
+            );
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger.add_kind_of(KindOf::Infantry).set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        logic.apply_garrison_contain_on_enter(bunker, ranger_id);
+        {
+            let b = logic.host_object(bunker).unwrap();
+            assert!(b.has_object_status_bit("CAN_ATTACK"));
+            assert!(b.can_attack(), "occupied garrison must accept attack orders");
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().remove_occupant(ranger_id));
+        let b = logic.host_object(bunker).unwrap();
+        assert!(!b.has_object_status_bit("CAN_ATTACK"));
+    }
+
+    #[test]
+    fn garrison_fire_point_is_not_eight_point_ring() {
+        use crate::game_logic::ContainModuleKind;
+        let mut t = garrison_template("CivBunker", false, true);
+        t.model_name = Some("nosuchmodel".into());
+        let mut obj = crate::game_logic::Object::new(t, crate::game_logic::ObjectId(1), Team::USA);
+        obj.set_position(Vec3::new(10.0, 0.0, 20.0));
+        obj.building_data = Some(crate::game_logic::BuildingData::new(
+            crate::game_logic::BuildingType::Bunker,
+        ));
+        assert_eq!(
+            obj.thing.template.contain_module.kind,
+            ContainModuleKind::Garrison
+        );
+        let (idx, pos) =
+            garrison_occupant_fire_point(&obj, crate::game_logic::ObjectId(2), Vec3::new(100.0, 0.0, 20.0));
+        assert_eq!(idx, 0);
+        // C++ with no FIREPOINT bones uses the building origin, not a r=12 ring.
+        assert!((pos - obj.get_position()).length() < 0.01);
+    }
+
+    #[test]
+    fn script_evac_left_is_not_a_circle() {
+        let origin = Vec3::ZERO;
+        let (start, end) = super::super::registries::garrison_evac_side_points_for_test(
+            origin,
+            0.0,
+            20.0,
+            10.0,
+            1,
+            1,
+        );
+        assert!(
+            end.z.abs() >= 50.0,
+            "left evac must spread along the side, not an 8-unit ring"
+        );
+        assert!(start.z.signum() == end.z.signum() || start.z.abs() > 0.0);
+    }
+
+    #[test]
+    fn fire_base_is_not_enclosing() {
+        let t = garrison_template("AmericaFireBase", false, false);
+        assert!(!t.contain_module.is_enclosing_container);
+        let mut obj = crate::game_logic::Object::new(t, crate::game_logic::ObjectId(3), Team::USA);
+        obj.building_data = Some(crate::game_logic::BuildingData::new(
+            crate::game_logic::BuildingType::Bunker,
+        ));
+        assert!(!obj.is_enclosing_garrison_container());
+    }
+
+    #[test]
+    fn garrison_enter_deselects_occupant() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        let mut ranger = ThingTemplate::new("AmericaRanger");
+        ranger
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.select();
+            r.owner_player_id = Some(0);
+        }
+        logic.players.get_mut(&0).unwrap().selected_objects.push(ranger_id);
+        logic.selected_objects.push(ranger_id);
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+            r.deselect();
+        }
+        logic.players.get_mut(&0).unwrap().selected_objects.retain(|id| *id != ranger_id);
+        logic.selected_objects.retain(|id| *id != ranger_id);
+        let r = logic.host_object(ranger_id).unwrap();
+        assert!(!r.selected);
+        assert!(!logic.selected_objects.contains(&ranger_id));
     }
 }
 

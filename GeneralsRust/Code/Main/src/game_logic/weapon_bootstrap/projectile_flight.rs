@@ -428,6 +428,9 @@ pub fn apply_garrison_hit_kill(
         if !container.is_alive() || !is_garrisonable_container(container) {
             return None;
         }
+        if container.is_immune_to_clear_building_attacks() {
+            return None;
+        }
         let units = container.contained_units();
         if units.is_empty() {
             return None;

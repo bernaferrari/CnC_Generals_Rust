@@ -216,9 +216,9 @@ impl HostBodyDamageType {
     }
 }
 
-/// C++ GlobalData unitDamagedThresh / unitReallyDamagedThresh defaults.
-pub const HOST_UNIT_DAMAGED_THRESH: f32 = 0.5;
-pub const HOST_UNIT_REALLY_DAMAGED_THRESH: f32 = 0.25;
+/// Retail GameData.ini UnitDamagedThreshold / UnitReallyDamagedThreshold (ActiveBody.cpp:88).
+pub const HOST_UNIT_DAMAGED_THRESH: f32 = 0.7;
+pub const HOST_UNIT_REALLY_DAMAGED_THRESH: f32 = 0.35;
 
 /// ModelCondition bit indices residual (ALLOW_SURRENDER off list).
 pub const MC_BIT_DAMAGED: u32 = 3;
@@ -1300,6 +1300,37 @@ mod tests {
     #[test]
     fn enum_table_residual_pack_wave84_honesty() {
         assert!(honesty_enum_table_residual_pack_wave84());
+    }
+
+    /// C++ ActiveBody.cpp:81-103 + GameData.ini UnitDamagedThreshold 0.7 / 0.35.
+    #[test]
+    fn host_unit_damage_thresh_matches_gamedata() {
+        assert!((HOST_UNIT_DAMAGED_THRESH - 0.7).abs() < 1e-6);
+        assert!((HOST_UNIT_REALLY_DAMAGED_THRESH - 0.35).abs() < 1e-6);
+        assert_eq!(
+            host_calc_body_damage_state(71.0, 100.0),
+            HostBodyDamageType::Pristine
+        );
+        assert_eq!(
+            host_calc_body_damage_state(70.0, 100.0),
+            HostBodyDamageType::Damaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(60.0, 100.0),
+            HostBodyDamageType::Damaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(35.0, 100.0),
+            HostBodyDamageType::ReallyDamaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(10.0, 100.0),
+            HostBodyDamageType::ReallyDamaged
+        );
+        assert_eq!(
+            host_calc_body_damage_state(0.0, 100.0),
+            HostBodyDamageType::Rubble
+        );
     }
 }
 

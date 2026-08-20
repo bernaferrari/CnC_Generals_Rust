@@ -58,6 +58,113 @@ impl GameLogic {
         base * mult
     }
 
+    /// C++ AIGuardMachine::getStdGuardRange / outer vision (no GUARDINNER).
+    /// Returns (inner, outer). Sleep mood yields (0, 0).
+    pub fn host_std_guard_ranges(&self, unit_id: ObjectId) -> (f32, f32) {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return (0.0, 0.0);
+        };
+        let player_is_human = self
+            .player_id_for_team(obj.team)
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| p.is_local)
+            .unwrap_or(false);
+        let mood = obj.ai_attitude.clamp(-2, 2);
+        let weapon_r = obj
+            .weapon
+            .as_ref()
+            .map(|w| w.range)
+            .or_else(|| obj.secondary_weapon.as_ref().map(|w| w.range))
+            .unwrap_or(0.0);
+        let contained = obj.contained_by.is_some();
+        let base = obj.vision_range.max(0.0);
+        let inner = crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
+            base,
+            player_is_human,
+            true,
+            contained,
+            weapon_r,
+            mood == 1,
+            mood >= 2,
+            mood <= -2,
+            true,
+        );
+        let outer = crate::game_logic::host_radar_stealth_vision_residual::vision_adjusted_range_residual(
+            base,
+            player_is_human,
+            false,
+            contained,
+            weapon_r,
+            mood == 1,
+            mood >= 2,
+            mood <= -2,
+            true,
+        );
+        (inner, outer)
+    }
+
+
+    /// C++ AIGuardRetaliate lookForInnerTarget — enemies, reject buildings.
+    fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {
+        let me = self.objects.get(&unit_id)?;
+        let team = me.team;
+        let anchor = me
+            .guard_retaliate_anchor
+            .or(me.guard_position)
+            .unwrap_or_else(|| me.get_position());
+        let (inner, _) = self.host_std_guard_ranges(unit_id);
+        if inner <= 0.0 {
+            return None;
+        }
+        let enter_guard = me.thing.template.enter_guard;
+        let hijack_guard = me.thing.template.hijack_guard;
+        let mut best: Option<(ObjectId, f32)> = None;
+        for (cid, cand) in self.objects.iter() {
+            if *cid == unit_id || !cand.is_alive() || cand.status.destroyed {
+                continue;
+            }
+            let d = anchor.distance(cand.get_position());
+            if d > inner {
+                continue;
+            }
+            if enter_guard {
+                if hijack_guard {
+                    if !cand.is_targetable_by_enemy_of(team)
+                        || !cand.is_kind_of(KindOf::Vehicle)
+                        || cand.status.hijacked
+                    {
+                        continue;
+                    }
+                } else if cand.team != Team::Neutral || !self.can_unit_enter_normal_target(unit_id, *cid)
+                {
+                    continue;
+                }
+            } else {
+                if cand.is_kind_of(KindOf::Structure) {
+                    continue;
+                }
+                if !cand.is_targetable_by_enemy_of(team) {
+                    continue;
+                }
+                if !matches!(
+                    self.get_able_to_attack_specific_object(
+                        unit_id,
+                        *cid,
+                        AbleToAttackType::NewTarget,
+                        false,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                ) {
+                    continue;
+                }
+            }
+            if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                best = Some((*cid, d));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     /// C++ AIUpdateInterface::getNextMoodTarget residual.
     ///
     /// Returns a candidate enemy to auto-acquire, or None.
@@ -413,7 +520,7 @@ impl GameLogic {
         }
         n
     }
-    /// Tick all GuardRetaliating units (victim death / return residual).
+    /// Tick all GuardRetaliating units (victim death / return / inner scan).
     pub fn tick_guard_retaliate_states(&mut self) {
         let ids: Vec<ObjectId> = self
             .objects
@@ -432,6 +539,48 @@ impl GameLogic {
                 },
                 None => (false, None),
             };
+            if !alive {
+                if let Some(next) = self.scan_guard_retaliate_inner(id) {
+                    if let Some(o) = self.objects.get_mut(&id) {
+                        o.guard_retaliate_victim = Some(next);
+                        o.target = Some(next);
+                        o.status.attacking = true;
+                    }
+                    continue;
+                }
+            }
+            // C++ hasAttackedMeAndICanReturnFire on RETURN/IDLE.
+            let last = self
+                .objects
+                .get_mut(&id)
+                .and_then(|o| o.last_damage_source.take());
+            if let Some(aid) = last {
+                if aid != id {
+                    let legal = self.objects.get(&aid).is_some_and(|a| {
+                        a.is_alive() && !a.status.destroyed
+                    }) && matches!(
+                        self.get_able_to_attack_specific_object(
+                            id,
+                            aid,
+                            AbleToAttackType::NewTarget,
+                            false,
+                        ),
+                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                    ) && self.objects.get(&aid).is_some_and(|a| {
+                        self.objects.get(&id).is_some_and(|me| {
+                            a.is_targetable_by_enemy_of(me.team)
+                        })
+                    });
+                    if legal {
+                        if let Some(o) = self.objects.get_mut(&id) {
+                            o.guard_retaliate_victim = Some(aid);
+                            o.target = Some(aid);
+                            o.status.attacking = true;
+                        }
+                        continue;
+                    }
+                }
+            }
             if let Some(o) = self.objects.get_mut(&id) {
                 o.tick_guard_retaliate(alive, vpos);
             }
@@ -567,29 +716,34 @@ impl GameLogic {
         true
     }
 
-    /// C++ AIIdleState crate branch residual.
-    ///
-    /// If unit has a pending crate notification and the crate still exists in
-    /// the money-crate registry (or as a live object), move to pick it up.
+    /// C++ crate pickup is wired into Idle, Hunt, Guard, Attack-Move, and
+    /// GuardRetaliate — not Idle alone.
     pub fn try_idle_crate_pickup(&mut self, unit_id: ObjectId) -> bool {
-        let crate_id = {
+        let (crate_id, keep_parent_state) = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
             if !u.is_alive() || u.status.destroyed {
                 return false;
             }
-            // C++ only while idle
-            if !matches!(u.ai_state, AIState::Idle) || u.target.is_some() {
+            let parent_ok = matches!(
+                u.ai_state,
+                AIState::Idle
+                    | AIState::Patrolling
+                    | AIState::GuardingArea
+                    | AIState::GuardingObject
+                    | AIState::AttackMoving
+                    | AIState::GuardRetaliating
+            );
+            if !parent_ok || u.target.is_some() {
                 return false;
             }
-            // Computer AI residual: humans don't auto-notify; path still works if notified.
+            let keep = !matches!(u.ai_state, AIState::Idle);
             match u.check_for_crate_to_pickup() {
-                Some(id) => id,
+                Some(id) => (id, keep),
                 None => return false,
             }
         };
-        // Crate must still exist and be a registered money crate (or live object).
         let crate_alive = self
             .objects
             .get(&crate_id)
@@ -598,10 +752,8 @@ impl GameLogic {
         if !crate_alive {
             return false;
         }
-        // Prefer registered money crates (wouldLikeToCollide residual).
         let is_money = self.host_money_crates.get(crate_id).is_some();
         if !is_money {
-            // Fail-closed: only money crate residual for now.
             return false;
         }
         let crate_pos = self.objects.get(&crate_id).map(|c| c.get_position());
@@ -612,18 +764,20 @@ impl GameLogic {
             if !u.can_move() {
                 return false;
             }
-            // C++ aiMoveToObject residual.
-            u.move_to(pos);
+            u.movement.target_position = Some(pos);
+            u.set_status_moving(true);
             u.requested_victim_id = Some(crate_id);
+            crate::game_logic::host_move_log::record(unit_id, Some([pos.x, pos.y, pos.z]));
+            if !keep_parent_state {
+                u.set_ai_state(AIState::Moving);
+            }
         } else {
             return false;
         }
-        if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_ai_state(AIState::Moving);
-        }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if !keep_parent_state
+            && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
+        {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-            // Moving
         }
         true
     }

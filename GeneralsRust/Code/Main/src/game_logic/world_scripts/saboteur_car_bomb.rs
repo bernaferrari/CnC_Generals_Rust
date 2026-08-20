@@ -849,9 +849,9 @@ impl GameLogic {
 
     /// HiveStructureBody residual with optional shooter for getClosestSlave.
     ///
-    /// **Host API residual only** (not live skirmish `Object::take_damage` path):
-    /// combat/AOE still hits structure HP via armor residual. Call this API for
-    /// SMALL_ARMS/SNIPER-style propagate tests and host residual wiring.
+    /// Live skirmish `Object::take_damage_from_typed` now runs the same
+    /// propagate/swallow matrix (hq-c5cin / hq-j6a24). This API remains for
+    /// tests and residual honesty counters (closest-slave / swallow stats).
     ///
     /// `shooter_xz`: world (x, z) of damage source. When set, residual damages
     /// the closest physical slave slot (C++ `getClosestSlave(shooter->pos)`).
@@ -1102,6 +1102,7 @@ impl GameLogic {
         self.stinger_hive_residual_respawns = self
             .stinger_hive_residual_respawns
             .saturating_add(respawned);
+        self.update_stinger_hive_world_soldiers();
     }
 
     /// Host GLA Worker residual registry.
@@ -1481,10 +1482,18 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_bomb_truck_poison_zones(&mut self) {
-        let object_positions: Vec<(ObjectId, Vec3, Team, bool)> = self
+        let object_positions: Vec<(ObjectId, Vec3, Team, bool, bool)> = self
             .objects
             .iter()
-            .map(|(id, obj)| (*id, obj.get_position(), obj.team, obj.is_alive()))
+            .map(|(id, obj)| {
+                (
+                    *id,
+                    obj.get_position(),
+                    obj.team,
+                    obj.is_alive(),
+                    obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target,
+                )
+            })
             .collect();
 
         let plans = self
@@ -1503,8 +1512,12 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed_death(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::host_poisoned_behavior::poison_weapon_damage_type(),
+                        plan.death_type,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

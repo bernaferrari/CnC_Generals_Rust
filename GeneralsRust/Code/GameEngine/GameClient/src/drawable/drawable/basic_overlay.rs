@@ -79,12 +79,28 @@ impl BasicDrawable {
         Self::health_region_from_world_point(world_pt, health_box_width)
     }
 
-    /// Wave 977: host presentation pose → health bar screen region (default box size).
+    /// Wave 977: host presentation pose → health bar from C++ health box geometry.
     fn compute_health_region_from_presentation_pose(&self) -> Option<IRegion2D> {
-        // Default health box width matches common infantry/vehicle residual (~20 world units).
+        if self
+            .presentation_kind_names
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case("IgnoredInGui"))
+        {
+            return None;
+        }
         let pos = self.position;
-        let world_pt = Point3::new(pos.x, pos.y, pos.z + 10.0);
-        Self::health_region_from_world_point(world_pt, 20.0)
+        let z_off = if self.presentation_health_box_z > 0.0 {
+            self.presentation_health_box_z
+        } else {
+            10.0
+        };
+        let width = if self.presentation_health_box_width > 0.0 {
+            self.presentation_health_box_width
+        } else {
+            20.0
+        };
+        let world_pt = Point3::new(pos.x, pos.y, pos.z + z_off);
+        Self::health_region_from_world_point(world_pt, width)
     }
 
     fn health_region_from_world_point(

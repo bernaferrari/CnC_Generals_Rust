@@ -221,6 +221,15 @@ impl GameLogic {
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        if self.flight_deck_ai_do_command(
+            id,
+            crate::game_logic::host_flight_deck::HostFlightDeckCommand::Idle,
+            None,
+            None,
+        ) {
+            return true;
+        }
+
         self.note_hacker_ai_command(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
@@ -233,16 +242,27 @@ impl GameLogic {
         crate::game_logic::host_attack_log::record(id, None);
         crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
         unit.end_guard_retaliate();
+        unit.hunting = false;
         unit.set_ai_state(AIState::Idle);
         true
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
+        if self.flight_deck_ai_do_command(
+            id,
+            crate::game_logic::host_flight_deck::HostFlightDeckCommand::GuardPosition,
+            None,
+            Some(pos),
+        ) {
+            return true;
+        }
+
         self.note_hacker_ai_command(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
         unit.set_guard_position(Some(pos));
+        unit.hunting = false;
         unit.set_ai_state(AIState::GuardingArea);
         true
     }
@@ -253,6 +273,7 @@ impl GameLogic {
             return false;
         };
         unit.set_guard_target(Some(target_id));
+        unit.hunting = false;
         unit.set_ai_state(AIState::GuardingObject);
         true
     }
@@ -270,6 +291,15 @@ impl GameLogic {
         max_shots: i32,
     ) -> bool {
         self.note_hacker_ai_command(id);
+        if self.flight_deck_ai_do_command(
+            id,
+            crate::game_logic::host_flight_deck::HostFlightDeckCommand::AttackMoveToPosition,
+            None,
+            Some(destination),
+        ) {
+            return true;
+        }
+
         let (can_move, can_attack) = match self.objects.get(&id) {
             Some(unit) => (
                 unit.is_alive() && unit.can_move(),
@@ -542,6 +572,7 @@ impl GameLogic {
             unit.set_target(None);
             unit.set_force_attack(false);
             unit.end_guard_retaliate();
+            unit.hunting = false;
             if let Some(tid) = target {
                 unit.guard_position = None;
                 unit.set_guard_target(Some(tid));
@@ -622,6 +653,7 @@ impl GameLogic {
             crate::game_logic::host_guard_log::record(id, None, 0, 0.0);
             crate::game_logic::host_attack_log::record(id, None);
             unit.auto_acquire_when_idle = true;
+            unit.hunting = true;
             unit.set_ai_state(AIState::Patrolling);
             unit.set_status_moving(false);
             return true;
@@ -1287,6 +1319,12 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
+        // C++ ProductionUpdate::queueUpgrade OBJECT hasUpgrade gate.
+        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+            && obj.has_object_upgrade_complete(upgrade_name)
+        {
+            return false;
+        }
         let Some(building) = obj.building_data.as_mut() else {
             return false;
         };
