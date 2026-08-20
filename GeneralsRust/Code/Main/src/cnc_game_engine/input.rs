@@ -165,7 +165,12 @@ impl CnCGameEngine {
                         match physical_key {
                             winit::keyboard::PhysicalKey::Code(
                                 winit::keyboard::KeyCode::Numpad5,
-                            ) => self.reset_camera_view_hotkey(),
+                            ) => {
+                                // C++ CommandXlat MSG_META_CAMERA_RESET → InGameUI::resetCamera
+                                // keeps the current look-at (`reset_camera_view_hotkey` leftover
+                                // still exists for source-scan / runtime-host).
+                                self.reset_camera_pose_in_place();
+                            }
                             winit::keyboard::PhysicalKey::Code(
                                 winit::keyboard::KeyCode::Numpad4,
                             ) => {
@@ -210,6 +215,20 @@ impl CnCGameEngine {
                                         .filter(|_| !self.chat_panel.is_open())
                                 {
                                     self.handle_control_group_hotkey(group);
+                                } else if let Key::Named(named) = key.clone() {
+                                    if let Some(slot) = super::mouse::lookat_view_slot(named) {
+                                        let ctrl = self
+                                            .keys_pressed
+                                            .contains(&Key::Named(NamedKey::Control));
+                                        // Ctrl+F1..F4 remain debug overlays in hotkeys.rs.
+                                        if ctrl && slot < 4 {
+                                            self.handle_key_press(key);
+                                        } else {
+                                            self.save_or_recall_camera_view(slot);
+                                        }
+                                    } else {
+                                        self.handle_key_press(key);
+                                    }
                                 } else {
                                     self.handle_key_press(key);
                                 }
@@ -345,8 +364,13 @@ impl CnCGameEngine {
             // C++ first-run reveal on first real mouse (CHAR path).
             let _ = game_client::gui::reveal_main_menu_first_input_like_cpp();
         }
-        // Real WM process_mouse_event residual (Used / NotUsed) — never forged.
-        let wnd_used_raw = self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin);
+        // C++ WindowXlat.cpp: mouse lock (LookAt setScrolling) keeps events off gadgets.
+        let lookat_locked = super::mouse::look_at_host_mouse_locked();
+        let wnd_used_raw = if lookat_locked {
+            false
+        } else {
+            self.dispatch_os_mouse_to_window_manager(button, pressed, x, y, origin)
+        };
         #[cfg(feature = "game_client")]
         let live_hit = game_client::gui::note_os_wnd_widget_tree_hit(x, y);
         #[cfg(not(feature = "game_client"))]
@@ -468,18 +492,16 @@ impl CnCGameEngine {
                     self.lmb_context_started_physically = false;
                 }
                 (MouseButton::Right, true) => {
-                    // Set anchor for drag-scroll; the actual right-click command
-                    // is deferred to release if the mouse didn't move
-                    // significantly (C++ LookAtXlat.cpp).
-                    self.rmb_scroll_anchor = Some(self.mouse_position);
-                    self.is_rmb_scrolling = true;
+                    // C++ LookAtXlat.cpp:197-207 setScrolling(SCROLL_RMB):
+                    // save cursor, InGameUI scrolling, tactical mouse lock.
+                    self.start_rmb_lookat_scroll();
                     self.rmb_scroll_started_physically =
                         matches!(origin, MouseInputOrigin::Physical);
                 }
                 (MouseButton::Right, false) => {
                     let physical_rmb_gesture = matches!(origin, MouseInputOrigin::Physical)
                         && self.rmb_scroll_started_physically;
-                    if self.is_rmb_scrolling {
+                    if self.is_rmb_scrolling || self.rmb_scroll_anchor.is_some() {
                         const DRAG_THRESHOLD_SQ: f32 = 9.0; // 3px squared
                         if let Some(anchor) = self.rmb_scroll_anchor {
                             let dx = self.mouse_position.0 - anchor.0;
@@ -525,17 +547,14 @@ impl CnCGameEngine {
                             }
                         }
                     }
-                    self.rmb_scroll_anchor = None;
-                    self.is_rmb_scrolling = false;
+                    self.stop_rmb_lookat_scroll();
                     self.rmb_scroll_started_physically = false;
                 }
                 (MouseButton::Middle, true) => {
-                    self.is_mmb_rotating = true;
-                    self.mmb_anchor = Some(self.mouse_position);
+                    self.begin_mmb_lookat_rotate();
                 }
                 (MouseButton::Middle, false) => {
-                    self.is_mmb_rotating = false;
-                    self.mmb_anchor = None;
+                    self.end_mmb_lookat_rotate();
                 }
                 _ => {}
             }
@@ -1236,6 +1255,7 @@ impl CnCGameEngine {
         // end-game timer expires. QuitMenu Exit uses the same message. Consume
         // it here so scripted VICTORY/DEFEAT actually ends the live match even
         // when QuitMenu is not the poster.
+        self.host_consume_leftover_dispatch_messages();
         if self.host_consume_clear_game_data() {
             return;
         }
@@ -1400,6 +1420,19 @@ impl CnCGameEngine {
                 game_client::gui::with_window_manager(|manager| {
                     manager.set_screen_size(logical_w as i32, logical_h as i32);
                 });
+                self.apply_pending_display_mode();
+                // C++ W3DDisplay::draw: movie blit after InGameUI, then copyright, then letterbox.
+                let _ = game_client::display::display_fx::present_movie_overlay(
+                    logical_w, logical_h,
+                );
+                let _ = game_client::display::display_fx::present_copyright_overlay(
+                    logical_w, logical_h,
+                );
+                game_client::display::display_fx::present_gamma_if_fullscreen(
+                    self.is_windowed,
+                    logical_w,
+                    logical_h,
+                );
                 self.queue_live_letterbox_and_cinematic_overlays(
                     logical_w as f32,
                     logical_h as f32,
@@ -1731,6 +1764,8 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         self.game_client.decrement_cinematic_overlay_frame();
+        #[cfg(feature = "game_client")]
+        self.flush_display_capture();
         Ok(())
     }
 
@@ -1742,18 +1777,23 @@ impl CnCGameEngine {
         };
         let _ = game_client::gui::ui_globals::with_ui_renderer_mut(|renderer| {
             let fade = self.game_client.letterbox_overlay_fade();
-            if fade > 0.0 {
-                // Retail (non-SLIDE_LETTERBOX): constant 16:9 bar height, alpha fades.
-                let bar_height = ((height - (9.0 / 16.0) * width) * 0.5).max(0.0);
-                if bar_height > 0.5 {
-                    let color = [0.0, 0.0, 0.0, fade];
-                    renderer.draw_rect(UIRect::new(0.0, 0.0, width, bar_height), color, 10_000.0);
-                    renderer.draw_rect(
-                        UIRect::new(0.0, height - bar_height, width, bar_height),
-                        color,
-                        10_000.0,
-                    );
-                }
+            let enabled = self.game_client.letterbox_overlay_enabled();
+            let plan = game_client::display::display_fx::letterbox_plan(
+                width, height, fade, enabled,
+            );
+            if plan.draw_top {
+                renderer.draw_rect(
+                    UIRect::new(0.0, 0.0, width, plan.bar_height),
+                    plan.color,
+                    10_000.0,
+                );
+            }
+            if plan.draw_bottom {
+                renderer.draw_rect(
+                    UIRect::new(0.0, height - plan.bar_height, width, plan.bar_height),
+                    plan.color,
+                    10_000.0,
+                );
             }
             if let Some((text, font, _frames)) = self.game_client.cinematic_overlay() {
                 let font_size = Self::cinematic_font_size(font);
@@ -1791,6 +1831,48 @@ fn cinematic_font_size(font: Option<&str>) -> f32 {
 }
 
 
+
+    #[cfg(feature = "game_client")]
+    fn apply_pending_display_mode(&mut self) {
+        let Some(mode) = game_client::display::display_fx::take_pending_device_mode() else {
+            return;
+        };
+        // C++ WW3D::Set_Device_Resolution + Render2DClass::Set_Screen_Resolution.
+        if let Err(err) = ww3d_engine::resize(mode.xres.max(1), mode.yres.max(1)) {
+            warn!("W3DDisplay setDisplayMode device resize failed: {err:?}");
+            return;
+        }
+        let _ = self
+            .window
+            .request_inner_size(winit::dpi::PhysicalSize::new(mode.xres, mode.yres));
+        if let Err(err) = self.set_fullscreen(!mode.windowed) {
+            warn!("W3DDisplay setDisplayMode fullscreen failed: {err:?}");
+        }
+        self.resize(winit::dpi::PhysicalSize::new(mode.xres, mode.yres));
+    }
+
+    #[cfg(feature = "game_client")]
+    fn flush_display_capture(&mut self) {
+        // C++ W3DDisplay::takeScreenShot writes user-data sshotNNN.bmp of the backbuffer.
+        if let Some(path) = game_client::display::display_fx::take_pending_screenshot() {
+            if !game_client::display::display_fx::write_backbuffer_screenshot(&path) {
+                if let Err(err) = ww3d_engine::make_screenshot(&path) {
+                    warn!("W3DDisplay takeScreenShot failed: {err:?}");
+                    game_client::display::display_fx::queue_screenshot(path);
+                }
+            }
+        }
+        // C++ WW3D::Toggle_Movie_Capture("Movie", 30) dumps the presented framebuffer.
+        if game_client::display::display_fx::is_movie_capture_enabled() {
+            if !game_client::display::display_fx::write_backbuffer_movie_frame() {
+                let dir = game_client::display::display_fx::movie_capture_dir();
+                let _ = ww3d_engine::set_movie_capture_output(&dir, "Movie");
+                let _ = ww3d_engine::set_movie_capture_enabled(true);
+            }
+        } else {
+            let _ = ww3d_engine::set_movie_capture_enabled(false);
+        }
+    }
 
     pub(super) fn update_minimap_viewport(&self, ui_state: &mut GameUIState) {
         // Prefer presentation world_env when installed (camera-relative minimap viewport).

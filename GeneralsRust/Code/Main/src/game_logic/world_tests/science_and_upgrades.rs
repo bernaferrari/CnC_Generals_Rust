@@ -3181,6 +3181,104 @@ fn superweapon_sabotage_recharges_special_power() {
 }
 
 #[test]
+fn superweapon_sabotage_recharges_all_special_power_modules() {
+    // C++ SabotageSuperweaponCrateCollide.cpp:117-126 walks every
+    // getSpecialPower() module — Command Center Spy + Repair + CIA all reset.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut st = ThingTemplate::new("AmericaCommandCenter");
+    st.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(1000.0);
+    st.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_Spy".into()),
+        module_kind: SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: "SuperweaponSpySatellite".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::SpySatellite),
+        reload_time_frames: 1800,
+        required_science: None,
+        public_timer: true,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    st.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 1,
+        module_tag: Some("ModuleTag_Repair".into()),
+        module_kind: SpecialPowerModuleKind::OclSpecialPower,
+        special_power_template: "SuperweaponEmergencyRepair".into(),
+        special_power_template_id: 2,
+        command_power: Some(SpecialPowerType::EmergencyRepair),
+        reload_time_frames: 900,
+        required_science: None,
+        public_timer: true,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    st.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 2,
+        module_tag: Some("ModuleTag_CIA".into()),
+        module_kind: SpecialPowerModuleKind::SpyVisionSpecialPower,
+        special_power_template: "SuperweaponCIAIntelligence".into(),
+        special_power_template_id: 3,
+        command_power: Some(SpecialPowerType::CiaIntelligence),
+        reload_time_frames: 1200,
+        required_science: None,
+        public_timer: true,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    logic
+        .templates
+        .insert("AmericaCommandCenter".into(), st);
+    let id = logic
+        .create_object(
+            "AmericaCommandCenter",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 10.0),
+        )
+        .expect("cc");
+    {
+        let o = logic.objects.get_mut(&id).unwrap();
+        o.set_special_power_ready(true);
+        o.special_power_cooldown_remaining = 0.0;
+        o.special_power_cooldowns.clear();
+    }
+    assert!(logic.apply_superweapon_sabotage_recharge(id));
+    let o = &logic.objects[&id];
+    assert!(!o.special_power_ready);
+    let spy = o
+        .special_power_cooldowns
+        .get(&SpecialPowerType::SpySatellite)
+        .copied()
+        .unwrap_or(0.0);
+    let repair = o
+        .special_power_cooldowns
+        .get(&SpecialPowerType::EmergencyRepair)
+        .copied()
+        .unwrap_or(0.0);
+    let cia = o
+        .special_power_cooldowns
+        .get(&SpecialPowerType::CiaIntelligence)
+        .copied()
+        .unwrap_or(0.0);
+    assert!((spy - 60.0).abs() < 0.01, "spy={spy}");
+    assert!((repair - 30.0).abs() < 0.01, "repair={repair}");
+    assert!((cia - 40.0).abs() < 0.01, "cia={cia}");
+}
+
+#[test]
 fn internet_center_sabotage_disables_spy_vision_and_hackers() {
     use crate::game_logic::host_saboteur::SABOTEUR_INTERNET_DURATION_FRAMES;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};

@@ -23,7 +23,8 @@ use crate::object::update::{
     DozerAIUpdateData, DozerAIUpdateModuleData, HackInternetAIUpdate, HackInternetAIUpdateData,
     HackInternetAIUpdateModuleData, JetAIUpdate, JetAIUpdateModuleData, RailedTransportAIUpdate,
     RailedTransportAIUpdateData, RailedTransportAIUpdateModuleData, SupplyTruckAIUpdateModuleData,
-    TransportAIUpdate, WanderAIUpdate, WorkerAIUpdateModuleData,
+    TransportAIUpdate, TransportAIUpdateModuleData, WanderAIUpdate, WanderAIUpdateModuleData,
+    WorkerAIUpdateModuleData,
 };
 use crate::object::{self, Object, ObjectID};
 use crate::player::PlayerIndex;
@@ -215,6 +216,25 @@ impl ObjectFactory {
         team: Option<Arc<RwLock<Team>>>,
         flags: ObjectCreationFlags,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        self.create_object_with_status(
+            template_name,
+            position,
+            team,
+            flags,
+            ObjectStatusMaskType::NONE,
+        )
+    }
+
+    /// C++ `friend_createObject(tmplate, statusBits, team)` — caller bits are
+    /// on the object before `CreateModuleInterface::onCreate`.
+    pub fn create_object_with_status(
+        &mut self,
+        template_name: &str,
+        position: Coord3D,
+        team: Option<Arc<RwLock<Team>>>,
+        flags: ObjectCreationFlags,
+        extra_status: ObjectStatusMaskType,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Get template
         let template = self.get_or_load_template(template_name)?;
 
@@ -225,7 +245,8 @@ impl ObjectFactory {
         let object_id = self.allocate_object_id();
 
         // Create base object first
-        let status_mask = template.get_initial_object_status();
+        let mut status_mask = template.get_initial_object_status();
+        status_mask |= extra_status;
         let base_object =
             Object::new_with_id(template.clone(), object_id, status_mask, team.clone())?;
 
@@ -332,15 +353,31 @@ impl ObjectFactory {
                         })
                         .cloned();
 
-                    let has_transport_ai = template
+                    let transport_ai_module_data = template
                         .get_behavior_module_info()
                         .iter()
-                        .any(|entry| entry.name.as_str() == "TransportAIUpdate");
+                        .find(|entry| entry.name.as_str() == "TransportAIUpdate")
+                        .and_then(|entry| {
+                            entry
+                                .data
+                                .as_ref()
+                                .downcast_ref::<TransportAIUpdateModuleData>()
+                        })
+                        .cloned();
+                    let has_transport_ai = transport_ai_module_data.is_some();
 
-                    let has_wander_ai = template
+                    let wander_ai_module_data = template
                         .get_behavior_module_info()
                         .iter()
-                        .any(|entry| entry.name.as_str() == "WanderAIUpdate");
+                        .find(|entry| entry.name.as_str() == "WanderAIUpdate")
+                        .and_then(|entry| {
+                            entry
+                                .data
+                                .as_ref()
+                                .downcast_ref::<WanderAIUpdateModuleData>()
+                        })
+                        .cloned();
+                    let has_wander_ai = wander_ai_module_data.is_some();
 
                     let dozer_ai_module_data = template
                         .get_behavior_module_info()
@@ -645,6 +682,16 @@ impl ObjectFactory {
                         supply_truck_ai_module_data
                             .as_ref()
                             .map(|data| data.base.clone())
+                    });
+
+                    let ai_update_module_data = ai_update_module_data.or_else(|| {
+                        transport_ai_module_data
+                            .as_ref()
+                            .map(|data| data.base.clone())
+                    });
+
+                    let ai_update_module_data = ai_update_module_data.or_else(|| {
+                        wander_ai_module_data.as_ref().map(|data| data.base.clone())
                     });
 
                     let ai_update = Arc::new(Mutex::new(UnitAIUpdate::new(

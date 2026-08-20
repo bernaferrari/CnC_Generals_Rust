@@ -88,6 +88,16 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
             text: String::new(),
         }),
         "removebeacon" | "deletebeacon" => Some(CommandType::RemoveBeacon),
+        "setbeacontext" | "beacontext" | "clearbeacontext" => Some(CommandType::SetBeaconText {
+            text: String::new(),
+        }),
+        "selfdestruct" | "surrenderobserver" => Some(CommandType::SelfDestruct {
+            transfer_to_ally: true,
+        }),
+        "enableretaliation" | "retaliationmode" => Some(CommandType::EnableRetaliationMode {
+            player_index: 0,
+            enabled: true,
+        }),
         "attackmove" | "attackmoveto" => Some(CommandType::AttackMoveTo {
             destination: glam::Vec3::ZERO, // filled by dispatch from cursor/world,
             max_shots: -1,
@@ -144,7 +154,9 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "purchasescience" | "buyscience" => Some(CommandType::PurchaseScience {
             science_name: String::new(),
         }),
-        "switchweapons" | "switchweapon" | "toggleweapon" => Some(CommandType::SwitchWeapons),
+        "switchweapons" | "switchweapon" | "toggleweapon" => {
+            Some(CommandType::SwitchWeapons { slot: 0 })
+        },
         "combatdrop" | "rappell" | "rappel" => Some(CommandType::CombatDrop {
             target: crate::command_system::DropTarget::Location(glam::Vec3::ZERO),
         }),

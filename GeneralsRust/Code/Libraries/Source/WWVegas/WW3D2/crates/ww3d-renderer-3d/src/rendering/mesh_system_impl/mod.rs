@@ -28,8 +28,9 @@ use crate::material_system::{
 };
 use crate::render_object_system::{
     AABoxCollisionResult, AABoxCollisionTestClass, AABoxIntersectionTestClass, DecalGeneratorClass,
-    OBBoxIntersectionTestClass, RayCollisionResult, RayCollisionTestClass, RenderInfoClass,
-    RenderInfoOverrideFlags, RenderObjClass, StaticSortRenderObject,
+    OBBoxCollisionResult, OBBoxCollisionTestClass, OBBoxIntersectionTestClass, RayCollisionResult,
+    RayCollisionTestClass, RenderInfoClass, RenderInfoOverrideFlags, RenderObjClass,
+    StaticSortRenderObject,
 };
 use crate::rendering::frame_uniform_arena::FrameUniformArena;
 use crate::rendering::lighting_system::LightEnvironmentClass;

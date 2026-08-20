@@ -342,6 +342,21 @@ impl CnCGameEngine {
         true
     }
 
+    /// C++ GameLogicDispatch leftover MSG_* from TheMessageStream:
+    /// SelfDestruct, EnableRetaliationMode, SwitchWeapons, beacon place/remove/text.
+    pub(super) fn host_consume_leftover_dispatch_messages(&mut self) {
+        if !matches!(self.current_state, GameState::InGame) {
+            return;
+        }
+        let player_id = self.local_player_id_for_ui();
+        let selected = self.ui_selected_ids(player_id);
+        let commands =
+            crate::command_executor::take_leftover_dispatch_commands_from_common_stream(&selected);
+        for command in commands {
+            self.host_queue_and_process_command_silent(command);
+        }
+    }
+
     /// End the live offline match when ScriptEngine or QuitMenu posts
     /// MSG_CLEAR_GAME_DATA. C++ GameLogic.cpp processes that message and
     /// leaves the map; here Main owns the only world, so return to shell.

@@ -203,11 +203,11 @@ pub async fn run_cnc_game(
             };
 
             let update_started = Instant::now();
-            // C++ GameEngine::update (GameEngine.cpp:735-752):
-            // VERIFY_CRC → Radar → TheAudio->UPDATE() → TheGameClient->UPDATE()
-            // → propagateMessages → … → TheGameLogic->UPDATE().
-            // Audio drains last frame's queued events before this frame's
-            // client/logic work.
+            // C++ GameEngine::update (GameEngine.cpp:732-752):
+            // VERIFY_CRC → TheRadar->UPDATE() → TheAudio->UPDATE() →
+            // TheGameClient->UPDATE() → propagateMessages → … →
+            // TheGameLogic->UPDATE().
+            engine.host_update_the_radar();
             engine.host_update_the_audio();
             if let Some(timing) = frame_timing {
                 #[cfg(feature = "integration-diagnostics")]
@@ -693,16 +693,17 @@ pub async fn run_cnc_game(
                             } else {
                                 let now = Instant::now();
                                 if now >= next_redraw_at {
+                                    let prev_time = Instant::now();
                                     drive_frame(
                                         engine,
                                         current_window,
                                         &mut runtime_host_bridge,
                                         true,
                                     );
-                                    next_redraw_at = Instant::now()
-                                        + engine
-                                            .live_present_interval()
-                                            .unwrap_or(Duration::ZERO);
+                                    next_redraw_at = execute_wait_deadline(
+                                        prev_time,
+                                        engine.live_present_interval(),
+                                    );
                                 }
                             }
                         }
@@ -811,10 +812,13 @@ pub async fn run_cnc_game(
                         // C++ WinMain pumps GameEngine::update every wait, not
                         // only when macOS delivers RedrawRequested. Waiting on
                         // request_redraw alone froze status.txt after first Menu.
+                        // C++ GameEngine::execute (GameEngine.cpp:856-866):
+                        // (now - prevTime) includes the just-finished update()+draw.
+                        let prev_time = Instant::now();
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
                         current_window.request_redraw();
-                        next_redraw_at = Instant::now()
-                            + engine.live_present_interval().unwrap_or(Duration::ZERO);
+                        next_redraw_at =
+                            execute_wait_deadline(prev_time, engine.live_present_interval());
                     }
                 }
                 if engine.live_present_interval().is_none()
@@ -873,7 +877,26 @@ pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
     }
 }
 
+/// C++ `GameEngine::execute` wait (`GameEngine.cpp:856-866`):
+/// `(now - prevTime)` includes the just-finished `update()`+draw.
+/// Effective period is `max(work, limit)`, not `work+limit`.
+fn execute_wait_deadline(prev_time: Instant, interval: Option<Duration>) -> Instant {
+    match interval {
+        Some(limit) => prev_time + limit,
+        None => Instant::now(),
+    }
+}
+
+
 impl CnCGameEngine {
+    /// C++ `GameEngine::update` (`GameEngine.cpp:732`) `TheRadar->UPDATE()`.
+    pub(super) fn host_update_the_radar(&self) {
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            let frame = self.host_match_logic_frame.unwrap_or(0);
+            radar.update(frame);
+        }
+    }
+
     /// C++ W3DDisplay.cpp:1730-1781 freeze-aware virtual clock.
     pub(super) fn advance_ww3d_visual_sync(&self) -> u32 {
         let frame = self.host_match_logic_frame.unwrap_or(0);
@@ -956,8 +979,9 @@ impl CnCGameEngine {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL};
-    use std::time::Duration;
+    use super::{execute_wait_deadline, DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL};
+    use std::time::{Duration, Instant};
+
 
     #[test]
     fn windowed_present_cap_is_cpp_default_max_fps_45() {
@@ -1007,6 +1031,49 @@ mod tests {
             "visibility helper must receive the headless flag"
         );
     }
+
+    #[test]
+    fn execute_wait_deadline_includes_work_like_cpp_prev_time() {
+        // C++ GameEngine.cpp:856-866: deadline is prevTime+limit, not now+limit.
+        let prev = Instant::now();
+        let limit = Duration::from_millis(29);
+        let deadline = execute_wait_deadline(prev, Some(limit));
+        assert_eq!(deadline, prev + limit);
+        let unlocked = execute_wait_deadline(prev, None);
+        assert!(unlocked >= prev);
+    }
+
+    #[test]
+    fn live_drive_frame_calls_the_radar_update_before_audio() {
+        let src = include_str!("run_loop.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("run_loop live path");
+        let radar = live
+            .find("engine.host_update_the_radar()")
+            .expect("TheRadar->UPDATE on live drive_frame");
+        let audio = live
+            .find("engine.host_update_the_audio()")
+            .expect("TheAudio->UPDATE on live drive_frame");
+        assert!(
+            radar < audio,
+            "C++ GameEngine.cpp:732 TheRadar->UPDATE before TheAudio->UPDATE"
+        );
+        assert!(
+            live.contains("radar.update(frame)"),
+            "host_update_the_radar must call RadarSystem::update"
+        );
+        assert!(
+            live.contains("execute_wait_deadline("),
+            "windowed WaitUntil must include work via execute_wait_deadline"
+        );
+        assert!(
+            !live.contains("Instant::now()\n                            + engine.live_present_interval()"),
+            "must not add present interval after drive_frame returns"
+        );
+    }
+
 
 }
 

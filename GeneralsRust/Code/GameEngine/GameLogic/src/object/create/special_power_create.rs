@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::helpers::TheGameLogic;
+
 use crate::object::create::CreateModule;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{CreateInterface, Thing as ThingTrait};
@@ -42,20 +42,15 @@ impl CreateInterface for SpecialPowerCreate {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return;
-        };
-
-        for behavior_arc in &object_guard.behaviors {
-            if let Ok(mut behavior_guard) = behavior_arc.lock() {
-                if let Some(sp) = behavior_guard.get_special_power() {
-                    sp.on_special_power_creation();
+        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
+            for behavior_arc in &object_guard.behaviors {
+                if let Ok(mut behavior_guard) = behavior_arc.lock() {
+                    if let Some(sp) = behavior_guard.get_special_power() {
+                        sp.on_special_power_creation();
+                    }
                 }
             }
-        }
+        });
     }
 
     fn should_do_on_build_complete(&self) -> bool {

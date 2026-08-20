@@ -942,35 +942,19 @@ impl PresentationFrame {
         min_z: f32,
         max_z: f32,
     ) -> Vec<ObjectId> {
-        use crate::game_logic::KindOf;
         use crate::unit_control::UnitControlSystem;
         let mut units = Vec::new();
-        let mut structures = Vec::new();
         for o in &self.objects {
-            if o.team != player_team || !UnitControlSystem::presentation_is_selectable(o) {
+            if o.team != player_team || !UnitControlSystem::presentation_is_drag_selectable(o) {
                 continue;
             }
             let pos = o.position;
             if pos.x < min_x || pos.x > max_x || pos.z < min_z || pos.z > max_z {
                 continue;
             }
-            let is_structure = o.is_structure
-                || Self::object_has_kind(o, KindOf::Structure)
-                || o.object_type == PresentationObjectType::Building;
-            if is_structure {
-                structures.push(o.id);
-            } else {
-                units.push(o.id);
-            }
+            units.push(o.id);
         }
-        if !units.is_empty() {
-            units
-        } else if structures.len() == 1 {
-            structures
-        } else {
-            // Multi-structure-only box: fail-closed empty (parity with unit_control residual).
-            Vec::new()
-        }
+        units
     }
 
     /// Select friendly units inside the actual screen-space drag rectangle.
@@ -993,7 +977,6 @@ impl PresentationFrame {
         end: Vec2,
         viewport_size: Vec2,
     ) -> Vec<ObjectId> {
-        use crate::game_logic::KindOf;
         use crate::unit_control::UnitControlSystem;
 
         let viewport_width = viewport_size.x.max(1.0);
@@ -1008,9 +991,9 @@ impl PresentationFrame {
         let max_y = start.y.max(end.y);
 
         let mut units = Vec::new();
-        let mut structures = Vec::new();
         for object in &self.objects {
-            if object.team != player_team || !UnitControlSystem::presentation_is_selectable(object)
+            if object.team != player_team
+                || !UnitControlSystem::presentation_is_drag_selectable(object)
             {
                 continue;
             }
@@ -1029,26 +1012,9 @@ impl PresentationFrame {
             {
                 continue;
             }
-
-            let is_structure = object.is_structure
-                || Self::object_has_kind(object, KindOf::Structure)
-                || object.object_type == PresentationObjectType::Building;
-            if is_structure {
-                structures.push(object.id);
-            } else {
-                units.push(object.id);
-            }
+            units.push(object.id);
         }
-
-        if !units.is_empty() {
-            units
-        } else if structures.len() == 1 {
-            structures
-        } else {
-            // Preserve the existing C++ selection policy: a structure-only
-            // drag selects exactly one structure, never an arbitrary group.
-            Vec::new()
-        }
+        units
     }
 
     /// Structures residual (KindOf::Structure or object_type Building).

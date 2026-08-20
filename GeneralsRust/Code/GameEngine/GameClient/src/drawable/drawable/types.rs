@@ -241,6 +241,21 @@ pub struct DrawableOverlayData {
     pub caption: Option<String>,
     /// Whether this drawable should have 2D overlay drawn this frame.
     pub visible: bool,
+    /// C++ `drawHealthBar` actually drew this frame (selected/hover + ShowObjectHealth).
+    pub health_bar_visible: bool,
+    /// Fill RGBA from `Drawable.cpp:3871-3916` (cyan construction/disabled or red↔green).
+    pub health_fill: [f32; 4],
+    /// Outline RGBA companion to `health_fill`.
+    pub health_outline: [f32; 4],
+    /// `CONTROLBAR:UnderConstructionDesc` formatted with construction percent.
+    pub construct_text: Option<String>,
+    /// Hotkey-squad numeral for `drawUIText` / live HUD submit.
+    pub group_numeral: Option<String>,
+    /// Formation `F` letter for `drawUIText`.
+    pub formation_letter: Option<String>,
+    /// C++ `drawsAnyUIText()` — GameClient should `addTextBearingDrawable`.
+    pub queue_ui_text: bool,
+
 
     // --- Ammo pip overlay (drawAmmo, Drawable.cpp lines 2861-2912) ---
     /// Number of full ammo pips (matches C++ numFull from getAmmoPipShowingInfo).
@@ -297,6 +312,74 @@ pub struct DrawableOverlayData {
     /// set to non-zero by stealth detection logic, read by the render pipeline.
     pub second_material_pass_opacity: f32,
 }
+
+/// C++ `TheGameText->fetch("CONTROLBAR:UnderConstructionDesc")` + `format(%d)`.
+/// `Drawable.cpp:3707`.
+pub fn format_under_construction_desc(construction_percent_0_1: f32) -> String {
+    let pct = (construction_percent_0_1 * 100.0).round() as i32;
+    let tmpl = crate::game_text::GameText::fetch("CONTROLBAR:UnderConstructionDesc");
+    if tmpl.starts_with("MISSING:") {
+        return format!("Under Construction: {pct}%");
+    }
+    format_cpp_int_percent(&tmpl, pct)
+}
+
+fn format_cpp_int_percent(tmpl: &str, value: i32) -> String {
+    let bytes = tmpl.as_bytes();
+    let mut out = String::with_capacity(tmpl.len() + 4);
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'%' => {
+                    out.push('%');
+                    i += 2;
+                    continue;
+                }
+                b'd' | b'i' => {
+                    out.push_str(&value.to_string());
+                    i += 2;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// C++ `Drawable::drawHealthBar` color (`Drawable.cpp:3871-3916`).
+pub fn health_bar_colors(
+    health_ratio: f32,
+    under_construction_or_disabled: bool,
+    really_damaged: bool,
+    damaged: bool,
+) -> ([f32; 4], [f32; 4]) {
+    let ratio = health_ratio.clamp(0.0, 1.0);
+    if under_construction_or_disabled {
+        return (
+            [0.0, ratio, 1.0, 1.0],
+            [0.0, ratio * 0.5, 0.5, 1.0],
+        );
+    }
+    let (mut red, mut green) = if ratio >= 0.5 {
+        (1.0 - ((ratio - 0.5) / 0.5), 1.0)
+    } else {
+        (1.0, 1.0 - ((0.5 - ratio) / 0.5))
+    };
+    let outline = [red * 0.5, green * 0.5, 0.0, 1.0];
+    if really_damaged {
+        red = (1.0 + red) * 0.5;
+        green *= 0.5;
+    } else if !damaged {
+        green = (1.0 + green) * 0.5;
+        red *= 0.5;
+    }
+    ([red, green, 0.0, 1.0], outline)
+}
+
 
 impl Color {
     pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {

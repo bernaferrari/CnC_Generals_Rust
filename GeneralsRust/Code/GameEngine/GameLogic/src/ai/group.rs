@@ -1,4 +1,10 @@
 use crate::ai::{AiCommandParams, AiCommandType, GUICommandType};
+use crate::ai::ai_group::{
+    clamp_waypoint_position, get_helicopter_offset, STD_AIRCRAFT_EXTRA_MARGIN,
+    STD_WAYPOINT_CLAMP_MARGIN,
+};
+use crate::attack::{AbleToAttackType, CanAttackResult};
+
 use crate::common::command::*;
 use crate::common::coord::*;
 use crate::common::*;
@@ -582,8 +588,6 @@ impl AIGroup {
         }
 
         let mut extra_margin = 0.0_f32;
-        const STD_AIRCRAFT_EXTRA_MARGIN: f32 = 20.0;
-        const STD_WAYPOINT_CLAMP_MARGIN: f32 = 10.0;
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
                 if obj.is_kind_of(KindOf::ProducedAtHelipad) {
@@ -602,8 +606,9 @@ impl AIGroup {
                 }
             });
         }
-        let _margin = STD_WAYPOINT_CLAMP_MARGIN + extra_margin;
-        let _ = _margin;
+        // C++ AIGroup.cpp:1592-1593 — clamp click onto playable map.
+        clamp_waypoint_position(&mut goal, STD_WAYPOINT_CLAMP_MARGIN + extra_margin);
+
 
         if tighten_group {
             is_formation = false;
@@ -707,8 +712,7 @@ impl AIGroup {
         }
     }
 
-    /// C++ AIGroup::groupTightenToPosition residual — gather members toward click.
-    /// Not full column-path packing; uses individual destinations about the click.
+    /// C++ `AIGroup::groupTightenToPosition` — near-to-far, helipad ring offsets.
     pub fn group_tighten_to_position(
         &self,
         pos: &Coord3D,
@@ -720,7 +724,6 @@ impl AIGroup {
             return;
         }
 
-        let center = self.get_center().unwrap_or_else(|| *pos);
         let mut movers: Vec<(ObjectID, f32)> = Vec::new();
         for &member_id in &self.member_list {
             let Some(key) = OBJECT_REGISTRY
@@ -744,26 +747,28 @@ impl AIGroup {
         }
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
+        let mut heli_idx = 0i32;
         for (member_id, _) in movers {
-            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
-                obj.set_formation_id(FormationID::NONE);
-            });
-            let Some(dest) = self.compute_individual_destination(member_id, pos, &center, false)
-            else {
-                continue;
-            };
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
                 let Some(ai) = obj.get_ai_update_interface() else {
                     return;
                 };
-                if !add_waypoint {
-                    ai.ai_move_to_position(&dest, false, cmd_source);
+                if add_waypoint {
+                    ai.ai_follow_path_append(pos, cmd_source);
+                    return;
+                }
+                if obj.is_kind_of(KindOf::ProducedAtHelipad) {
+                    let mut heli_offs = *pos;
+                    get_helicopter_offset(&mut heli_offs, heli_idx);
+                    heli_idx += 1;
+                    ai.ai_tighten_to_position(&heli_offs, CommandSourceType::FromAi);
                 } else {
-                    ai.ai_follow_path_append(&dest, cmd_source);
+                    ai.ai_tighten_to_position(pos, cmd_source);
                 }
             });
         }
     }
+
 
     pub fn group_move_to_and_evacuate(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
         // Wave 253: empty dual-world / empty group short-circuit.
@@ -1222,6 +1227,7 @@ impl AIGroup {
         }
     }
 
+    /// C++ `AIGroup::groupIdle` — AI idle + stealth mood delay, garrison stop, slaves.
     pub fn group_idle(&self, cmd_source: CommandSourceType) {
         // Wave 253: empty dual-world / empty group short-circuit.
         if self.is_empty() || Self::dual_world_registry_unavailable() {
@@ -1232,10 +1238,44 @@ impl AIGroup {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
                     ai.ai_idle(cmd_source);
+                    if matches!(cmd_source, CommandSourceType::FromPlayer)
+                        && obj_ref.test_status(ObjectStatusTypes::CanStealth)
+                        && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
+                        && !obj_ref.test_status(ObjectStatusTypes::Detected)
+                    {
+                        if let Some(stealth) = obj_ref.get_stealth() {
+                            if let (Ok(stealth_guard), Ok(mut ai_guard)) =
+                                (stealth.lock(), ai.lock())
+                            {
+                                let stealth_frames = stealth_guard.get_stealth_delay();
+                                let random_frames =
+                                    GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
+                                ai_guard.set_next_mood_check_time(
+                                    TheGameLogic::get_frame() + stealth_frames + random_frames,
+                                );
+                            }
+                        }
+                    }
+                } else if let Some(contain) = obj_ref.get_contain() {
+                    for passenger_id in contain.get_contained_objects() {
+                        let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
+                            if let Some(pai) = passenger.get_ai_update_interface() {
+                                pai.ai_idle(cmd_source);
+                            }
+                        });
+                    }
+                }
+                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.lock() {
+                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
+                            let _ = spawn.order_slaves_to_go_idle(cmd_source);
+                        }
+                    }
                 }
             });
         }
     }
+
 
     /// Tell all things in the group to toggle overcharge (matches C++ AIGroup::groupToggleOvercharge).
     pub fn group_toggle_overcharge(&self, _cmd_source: CommandSourceType) {
@@ -1475,8 +1515,102 @@ impl AIGroup {
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
+        // C++ returns immediately when the victim is already gone.
+        if OBJECT_REGISTRY.with_object(victim_id, |_| ()).is_none() {
+            return;
+        }
+        let Some(victim_pos) = OBJECT_REGISTRY.with_object(victim_id, |v| *v.get_position()) else {
+            return;
+        };
+        let attack_type = if forced {
+            AbleToAttackType::NewTargetForced
+        } else {
+            AbleToAttackType::NewTarget
+        };
+        let mut movers: Vec<(ObjectID, f32)> = Vec::new();
         for &member_id in &self.member_list {
+            let Some(key) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    if obj.is_disabled_by_type(DisabledType::Held) {
+                        return None;
+                    }
+                    let p = obj.get_position();
+                    let dx = p.x - victim_pos.x;
+                    let dy = p.y - victim_pos.y;
+                    Some(dx * dx + dy * dy)
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            movers.push((member_id, key));
+        }
+        movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        for (member_id, _) in movers {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(contain) = obj_ref.get_contain() {
+                    if contain.is_passenger_allowed_to_fire(None) {
+                        for passenger_id in contain.get_contained_objects() {
+                            if passenger_id == victim_id {
+                                continue;
+                            }
+                            let can = OBJECT_REGISTRY
+                                .with_object(passenger_id, |passenger| {
+                                    OBJECT_REGISTRY
+                                        .with_object(victim_id, |victim| {
+                                            passenger.get_able_to_attack_specific_object(
+                                                attack_type,
+                                                victim,
+                                                cmd_source,
+                                            )
+                                        })
+                                        .unwrap_or(CanAttackResult::NotPossible)
+                                })
+                                .unwrap_or(CanAttackResult::NotPossible);
+                            if matches!(
+                                can,
+                                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                            ) {
+                                let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
+                                    if let Some(pai) = passenger.get_ai_update_interface() {
+                                        if forced {
+                                            pai.ai_force_attack_object(
+                                                victim_id,
+                                                max_shots_to_fire,
+                                                cmd_source,
+                                            );
+                                        } else {
+                                            pai.ai_attack_object(
+                                                victim_id,
+                                                max_shots_to_fire,
+                                                cmd_source,
+                                            );
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.lock() {
+                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
+                            if !spawn.do_slaves_have_freedom() {
+                                let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
+                                    let _ = spawn.order_slaves_to_attack_target(
+                                        victim,
+                                        max_shots_to_fire,
+                                        cmd_source,
+                                    );
+                                });
+                            }
+                        }
+                    }
+                }
+                if member_id == victim_id {
+                    return;
+                }
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
                     if forced {
                         ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
@@ -1488,6 +1622,26 @@ impl AIGroup {
         }
     }
 
+    /// C++ `AIGroup::groupAttackTeam` — persistent attack-team state per member.
+    pub fn group_attack_team(
+        &self,
+        team: &Arc<RwLock<Team>>,
+        max_shots_to_fire: i32,
+        cmd_source: CommandSourceType,
+    ) {
+        if self.is_empty() || Self::dual_world_registry_unavailable() {
+            return;
+        }
+        for &member_id in &self.member_list {
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_attack_team(team, max_shots_to_fire, cmd_source);
+                }
+            });
+        }
+    }
+
+    /// C++ `AIGroup::groupAttackPosition` — passengers and slaves fire the same point.
     pub fn group_attack_position(
         &self,
         pos: &Coord3D,
@@ -1501,12 +1655,56 @@ impl AIGroup {
 
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                let attack_pos = *pos;
+                if let Some(contain) = obj_ref.get_contain() {
+                    if contain.is_passenger_allowed_to_fire(None) {
+                        for passenger_id in contain.get_contained_objects() {
+                            let can = OBJECT_REGISTRY
+                                .with_object(passenger_id, |passenger| {
+                                    passenger.get_able_to_use_weapon_against_position(
+                                        AbleToAttackType::NewTarget,
+                                        &attack_pos,
+                                        cmd_source,
+                                    )
+                                })
+                                .unwrap_or(CanAttackResult::NotPossible);
+                            if matches!(
+                                can,
+                                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                            ) {
+                                let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
+                                    if let Some(pai) = passenger.get_ai_update_interface() {
+                                        pai.ai_attack_position(
+                                            &attack_pos,
+                                            max_shots_to_fire,
+                                            cmd_source,
+                                        );
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.lock() {
+                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
+                            if !spawn.do_slaves_have_freedom() {
+                                let _ = spawn.order_slaves_to_attack_position(
+                                    &attack_pos,
+                                    max_shots_to_fire,
+                                    cmd_source,
+                                );
+                            }
+                        }
+                    }
+                }
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+                    ai.ai_attack_position(&attack_pos, max_shots_to_fire, cmd_source);
                 }
             });
         }
     }
+
 
     pub fn group_guard_position(
         &self,
@@ -1893,7 +2091,7 @@ impl AIGroup {
         }
     }
 
-    /// Group attack-move: Move to position and engage enemies along the way
+    /// C++ `AIGroup::groupAttackMoveToPosition` — every member uses the same `pos`.
     pub fn group_attack_move_to_position(&self, pos: &Coord3D, cmd_source: CommandSourceType) {
         // Wave 253: empty dual-world / empty group short-circuit.
         if self.is_empty() || Self::dual_world_registry_unavailable() {
@@ -1902,18 +2100,22 @@ impl AIGroup {
 
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    // Attack-move is a special AI state that moves to position
-                    // while automatically engaging enemies
+                let Some(ai) = obj_ref.get_ai_update_interface() else {
+                    return;
+                };
+                if obj_ref.is_able_to_attack() {
                     ai.ai_attack_move_to_position(
                         pos,
                         crate::weapon::NO_MAX_SHOTS_LIMIT,
                         cmd_source,
                     );
+                } else {
+                    ai.ai_move_to_position(pos, false, cmd_source);
                 }
             });
         }
     }
+
 
     /// Break formation (units move independently)
     pub fn break_formation(&mut self) {

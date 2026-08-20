@@ -1073,28 +1073,68 @@ impl GameLogic {
         } else {
             starting_supplies_for_template(&obj.template_name)
         };
-        let Some(supplies) = supplies else {
-            return;
-        };
-        // Only seed if empty (map may already set amount).
-        if obj.stored_resources.supplies == 0 {
-            obj.set_stored_supplies(supplies);
+        let has_warehouse_create = obj.thing.template.has_supply_warehouse_create
+            || obj.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse;
+        let had_supplies = supplies.is_some();
+        if let Some(supplies) = supplies {
+            // Only seed if empty (map may already set amount).
+            if obj.stored_resources.supplies == 0 {
+                obj.set_stored_supplies(supplies);
+            }
         }
-        self.supply_create_warehouse_registers =
-            self.supply_create_warehouse_registers.saturating_add(1);
+        if !has_warehouse_create && !had_supplies {
+            return;
+        }
+        drop(obj);
+        if has_warehouse_create || had_supplies {
+            self.supply_create_warehouse_registers =
+                self.supply_create_warehouse_registers.saturating_add(1);
+        }
+        if has_warehouse_create {
+            for player in self.players.values_mut() {
+                player.add_supply_warehouse(object_id);
+            }
+            if let Ok(list) = gamelogic::player::ThePlayerList().read() {
+                for player_arc in list.iter() {
+                    let Ok(mut player_guard) = player_arc.write() else {
+                        continue;
+                    };
+                    let Some(manager) = player_guard.get_resource_manager_mut() else {
+                        continue;
+                    };
+                    manager.add_supply_warehouse(object_id.0);
+                }
+            }
+        }
     }
 
-    /// C++ SupplyCenterCreate::onBuildComplete residual honesty counter.
+    /// C++ SupplyCenterCreate::onBuildComplete residual.
     pub(in super::super) fn on_supply_center_build_complete(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_upgrades::is_supply_center_template;
         let is_supply_center = self.objects.get(&object_id).is_some_and(|obj| {
-            obj.is_kind_of(KindOf::SupplyCenter)
+            obj.thing.template.has_supply_center_create
+                || obj.is_kind_of(KindOf::SupplyCenter)
                 || obj.is_kind_of(KindOf::FSSupplyCenter)
                 || is_supply_center_template(&obj.template_name)
         });
         if is_supply_center {
             self.supply_create_center_registers =
                 self.supply_create_center_registers.saturating_add(1);
+            // C++ walks every player ResourceGatheringManager::addSupplyCenter.
+            for player in self.players.values_mut() {
+                player.add_supply_center(object_id);
+            }
+            if let Ok(list) = gamelogic::player::ThePlayerList().read() {
+                for player_arc in list.iter() {
+                    let Ok(mut player_guard) = player_arc.write() else {
+                        continue;
+                    };
+                    let Some(manager) = player_guard.get_resource_manager_mut() else {
+                        continue;
+                    };
+                    manager.add_supply_center(object_id.0);
+                }
+            }
             // C++ SupplyCenter/Stash SpawnBehavior ModuleTag_12 only becomes
             // eligible after UNDER_CONSTRUCTION clears.  It creates the free
             // starter collector outside the paid ProductionUpdate queue.

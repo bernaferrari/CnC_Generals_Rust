@@ -163,23 +163,62 @@ impl Object {
         if !self_crushing_other {
             return false;
         }
-        // C++ SquishCollide residual: infantry/crushable under tank with velocity
-        // toward victim takes immediate HUGE crush damage (tight radius).
+        // C++ SquishCollide::onCollide: infantry/crushable under tank with
+        // velocity toward victim + 1.0 victim geom overlap takes HUGE crush.
         // Physics front/back crush points still run below for vehicles/props.
         if other.is_kind_of(crate::game_logic::KindOf::Infantry)
             || other.crushable_level < self.crusher_level
         {
             use crate::game_logic::host_squish_collide::{
-                should_skip_squish_for_goal_ability, velocity_toward_victim, within_squish_radius,
-                SQUISH_HUGE_DAMAGE,
+                should_skip_squish_for_goal_ability, squish_geom_collides,
+                template_has_hijacker_update, velocity_toward_victim, SQUISH_HUGE_DAMAGE,
             };
-            if !is_ally && !should_skip_squish_for_goal_ability(&other.template_name) {
+            let has_hijacker = template_has_hijacker_update(&other.template_name);
+            let tnt_active = crate::game_logic::host_tank_hunter::is_tank_hunter_template(
+                &other.template_name,
+            ) && other.ai_state == crate::game_logic::AIState::SpecialAbility
+                && other.target == Some(self.id);
+            if !is_ally
+                && !should_skip_squish_for_goal_ability(
+                    other.target,
+                    self.id,
+                    has_hijacker,
+                    tnt_active,
+                )
+            {
                 let us = self.get_position();
                 let them = other.get_position();
                 let vel = self.movement.velocity;
-                let toward = velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
-                let crusher_r = self.selection_radius.max(5.0);
-                if toward && within_squish_radius((us.x, us.z), (them.x, them.z), crusher_r) {
+                let toward =
+                    velocity_toward_victim((us.x, us.z), (them.x, them.z), (vel.x, vel.z));
+                let crusher_g = &self.thing.geometry;
+                let crusher_half_x =
+                    ((crusher_g.bounds_max.x - crusher_g.bounds_min.x).abs() * 0.5).max(0.0);
+                let crusher_major = crusher_g
+                    .radius
+                    .max(self.selection_radius)
+                    .max(crusher_half_x)
+                    .max(1.0);
+                let crusher_h = (crusher_g.bounds_max.y - crusher_g.bounds_min.y)
+                    .abs()
+                    .max(crusher_g.radius)
+                    .max(1.0);
+                let victim_g = &other.thing.geometry;
+                let victim_h = (victim_g.bounds_max.y - victim_g.bounds_min.y)
+                    .abs()
+                    .max(victim_g.radius)
+                    .max(1.0);
+                if toward
+                    && squish_geom_collides(
+                        (us.x, us.y, us.z),
+                        self.get_orientation(),
+                        crusher_major,
+                        crusher_h,
+                        (them.x, them.y, them.z),
+                        other.get_orientation(),
+                        victim_h,
+                    )
+                {
                     other.front_crushed = true;
                     other.back_crushed = true;
                     other.apply_crush_die_model_conditions();

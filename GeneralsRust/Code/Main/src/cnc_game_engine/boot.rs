@@ -23,6 +23,13 @@ impl CnCGameEngine {
             let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
         }
         Self::apply_command_line_overrides(&command_line);
+        // C++ GameEngine::init (GameEngine.cpp:360-361): TheGameLODManager
+        // after parseCommandLine, before Water/Weather INI. init() loads
+        // GameLOD.ini + GameLODPresets.ini, applies Options.ini, then
+        // setStaticLODLevel. Live execute cap reads the resulting
+        // GlobalData.writable.frames_per_second_limit / use_fps_limit
+        // (GameEngine.cpp:535 setFramesPerSecondLimit).
+        game_engine::common::game_lod::load_game_lod_ini_presets_and_options();
         // C++ GameEngine::init createAudioManager / TheAudio (GameEngine.cpp:410).
         let _ = game_engine::common::audio::game_audio::initialize_global_audio_manager();
         Self::apply_startup_audio_channel_flags();
@@ -1624,3 +1631,29 @@ impl CnCGameEngine {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn live_boot_inits_game_lod_manager_after_command_line() {
+        let src = include_str!("boot.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("boot live path");
+        let cmdline = live
+            .find("Self::apply_command_line_overrides(&command_line);")
+            .expect("parseCommandLine analog");
+        let lod = live
+            .find("load_game_lod_ini_presets_and_options()")
+            .expect("GameLODManager::init analog");
+        let water = live
+            .find("fn preload_startup_water_weather_inis")
+            .expect("Water/Weather INI preload");
+        assert!(
+            cmdline < lod && lod < water,
+            "C++ GameEngine.cpp:357-373: parseCommandLine, GameLODManager::init, then Water/Weather"
+        );
+    }
+}
+

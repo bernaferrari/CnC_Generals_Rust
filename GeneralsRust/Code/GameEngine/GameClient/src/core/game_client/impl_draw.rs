@@ -48,12 +48,23 @@ impl GameClient {
     }
 
     fn draw_drawable_icon_ui(&mut self) {
-        for drawable in self.drawable_map.values_mut() {
+        let mut text_ids = Vec::new();
+        for (id, drawable) in self.drawable_map.iter_mut() {
             if drawable.is_visible() {
                 drawable.draw_icon_ui();
+                if let Some(basic) = drawable.downcast_ref::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    if basic.overlay_data.queue_ui_text {
+                        text_ids.push(*id);
+                    }
+                }
             }
         }
+        for id in text_ids {
+            self.add_text_bearing_drawable(id);
+        }
     }
+
 
     pub fn last_live_ingame_hud_draw(&self) -> LiveInGameHudDrawCounts {
         self.last_live_ingame_hud_draw
@@ -67,9 +78,11 @@ impl GameClient {
         let mut counts = LiveInGameHudDrawCounts::default();
         self.draw_ingame_post_draw_hud(&mut counts);
         self.draw_drawable_icon_overlays(&mut counts);
+        let _ = self.flush_text_bearing_drawables();
         self.last_live_ingame_hud_draw = counts;
         counts
     }
+
 
     fn packed_ingame_hud_snapshot(
         &self,
@@ -256,8 +269,10 @@ impl GameClient {
     }
 
     fn draw_drawable_icon_overlays(&self, counts: &mut LiveInGameHudDrawCounts) {
+        use crate::drawable::drawable::{format_under_construction_desc, health_bar_colors};
         use crate::gui::ui_globals::with_ui_renderer_mut;
         use crate::gui::ui_renderer::UIRect;
+        use crate::gui::window_manager::with_window_manager_ref;
         use glam::Vec2;
 
         let overlays: Vec<crate::drawable::drawable::DrawableOverlayData> = self
@@ -283,31 +298,40 @@ impl GameClient {
                 let bar_w = region.width().max(1) as f32;
                 let bar_h = region.height().max(3) as f32;
 
-                if overlay.health_ratio > 0.0 {
-                    let _ = renderer.draw_rect_with_scissor(
+                if overlay.health_bar_visible && overlay.health_ratio > 0.0 {
+                    let (fill, outline) = if overlay.health_fill[3] > 0.0 {
+                        (overlay.health_fill, overlay.health_outline)
+                    } else {
+                        health_bar_colors(overlay.health_ratio, false, false, false)
+                    };
+                    let _ = renderer.draw_rect_outline_with_scissor(
                         UIRect::new(bar_x, bar_y, bar_w, bar_h),
-                        [0.2, 0.2, 0.2, 0.7],
+                        1.0,
+                        outline,
                         None,
                     );
-                    let fill = if overlay.health_ratio > 0.66 {
-                        [0.0, 1.0, 0.0, 0.9]
-                    } else if overlay.health_ratio > 0.33 {
-                        [1.0, 1.0, 0.0, 0.9]
-                    } else {
-                        [1.0, 0.0, 0.0, 0.9]
-                    };
                     let _ = renderer.draw_rect_with_scissor(
-                        UIRect::new(bar_x, bar_y, bar_w * overlay.health_ratio, bar_h),
+                        UIRect::new(bar_x + 1.0, bar_y + 1.0, (bar_w - 2.0) * overlay.health_ratio, bar_h - 2.0),
                         fill,
                         None,
                     );
                 }
 
                 if overlay.is_under_construction {
-                    let pct = (overlay.construction_percent * 100.0).round() as i32;
+                    let text = overlay.construct_text.clone().unwrap_or_else(|| {
+                        format_under_construction_desc(overlay.construction_percent)
+                    });
+                    let char_w = 6.0;
+                    let text_x = bar_x + bar_w * 0.5 - text.len() as f32 * char_w * 0.5;
                     let _ = renderer.draw_text_simple(
-                        &format!("{pct}%"),
-                        Vec2::new(bar_x, bar_y - 12.0),
+                        &text,
+                        Vec2::new(text_x + 1.0, bar_y - 11.0),
+                        10.0,
+                        [0.0, 0.0, 0.0, 1.0],
+                    );
+                    let _ = renderer.draw_text_simple(
+                        &text,
+                        Vec2::new(text_x, bar_y - 12.0),
                         10.0,
                         [1.0, 1.0, 1.0, 1.0],
                     );
@@ -326,42 +350,115 @@ impl GameClient {
                 }
 
                 if overlay.show_ammo && overlay.ammo_total > 0 {
-                    let pip = 3.0;
+                    let pip = 8.0;
                     let pip_y = bar_y + bar_h + 2.0;
                     for i in 0..overlay.ammo_total.min(12) {
                         let filled = i < overlay.ammo_full;
-                        let color = if filled {
-                            [0.95, 0.85, 0.2, 1.0]
-                        } else {
-                            [0.25, 0.25, 0.25, 0.8]
-                        };
-                        let _ = renderer.draw_rect_with_scissor(
-                            UIRect::new(bar_x + (i as f32) * (pip + 1.0), pip_y, pip, pip),
-                            color,
-                            None,
-                        );
+                        let name = if filled { "SCPAmmoFull" } else { "SCPAmmoEmpty" };
+                        let x = bar_x + (i as f32) * (pip + 1.0);
+                        let drew = with_window_manager_ref(|manager| {
+                            if let Some(image) = manager.win_find_image(name) {
+                                manager.win_draw_image(
+                                    &image,
+                                    x as i32,
+                                    pip_y as i32,
+                                    (x + pip) as i32,
+                                    (pip_y + pip) as i32,
+                                    crate::gui::WIN_COLOR_UNDEFINED,
+                                );
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        if !drew {
+                            let color = if filled {
+                                [0.95, 0.85, 0.2, 1.0]
+                            } else {
+                                [0.25, 0.25, 0.25, 0.8]
+                            };
+                            let _ = renderer.draw_rect_with_scissor(
+                                UIRect::new(x, pip_y, 3.0, 3.0),
+                                color,
+                                None,
+                            );
+                        }
                     }
                 }
 
                 if overlay.show_contained && overlay.contained_total > 0 {
-                    let pip = 3.0;
-                    let pip_y = bar_y + bar_h + 6.0;
+                    let pip = 8.0;
+                    let pip_y = bar_y + bar_h + 12.0;
                     for i in 0..overlay.contained_total.min(12) {
                         let filled = i < overlay.contained_full;
                         let infantry = i < overlay.contained_infantry_count;
-                        let color = if !filled {
-                            [0.25, 0.25, 0.25, 0.8]
+                        let name = if filled { "SCPPipFull" } else { "SCPPipEmpty" };
+                        let x = bar_x + (i as f32) * (pip + 1.0);
+                        let tint = if !filled {
+                            crate::gui::WIN_COLOR_UNDEFINED
                         } else if infantry {
-                            [0.2, 0.85, 0.2, 1.0]
+                            0xFF00_FF00 // C++ INFANTRY_COLOR GameMakeColor(0,255,0,255)
                         } else {
-                            [0.2, 0.45, 0.95, 1.0]
+                            0xFF00_00FF // C++ NON_INFANTRY_COLOR GameMakeColor(0,0,255,255)
                         };
-                        let _ = renderer.draw_rect_with_scissor(
-                            UIRect::new(bar_x + (i as f32) * (pip + 1.0), pip_y, pip, pip),
-                            color,
-                            None,
-                        );
+                        let drew = with_window_manager_ref(|manager| {
+                            if let Some(image) = manager.win_find_image(name) {
+                                manager.win_draw_image(
+                                    &image,
+                                    x as i32,
+                                    pip_y as i32,
+                                    (x + pip) as i32,
+                                    (pip_y + pip) as i32,
+                                    tint,
+                                );
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        if !drew {
+                            let color = if !filled {
+                                [0.25, 0.25, 0.25, 0.8]
+                            } else if infantry {
+                                [0.2, 0.85, 0.2, 1.0]
+                            } else {
+                                [0.2, 0.45, 0.95, 1.0]
+                            };
+                            let _ = renderer.draw_rect_with_scissor(
+                                UIRect::new(x, pip_y, 3.0, 3.0),
+                                color,
+                                None,
+                            );
+                        }
                     }
+                }
+
+                // Anim2D overlays are submitted after this lock (Anim2D::draw
+                // acquires the UI renderer itself). Colored rects stay as a
+                // fallback when the Anim2D template is missing.
+
+
+                if let Some(numeral) = overlay.group_numeral.as_deref() {
+                    let _ = renderer.draw_text_simple(
+                        numeral,
+                        Vec2::new(bar_x + 1.0, bar_y + bar_h + 2.0),
+                        12.0,
+                        [0.0, 0.0, 0.0, 1.0],
+                    );
+                    let _ = renderer.draw_text_simple(
+                        numeral,
+                        Vec2::new(bar_x, bar_y + bar_h + 1.0),
+                        12.0,
+                        [1.0, 1.0, 1.0, 1.0],
+                    );
+                }
+                if let Some(letter) = overlay.formation_letter.as_deref() {
+                    let _ = renderer.draw_text_simple(
+                        letter,
+                        Vec2::new(bar_x + 12.0, bar_y + bar_h + 1.0),
+                        12.0,
+                        [1.0, 1.0, 1.0, 1.0],
+                    );
                 }
 
                 if let Some(caption) = overlay.caption.as_deref() {
@@ -376,7 +473,12 @@ impl GameClient {
                 }
             }
         });
+
+        for overlay in &overlays {
+            draw_overlay_anim2d_icons(overlay);
+        }
     }
+
 
     fn icon_overlay_object_ids(&self) -> std::collections::HashSet<u32> {
         self.drawable_map
@@ -455,3 +557,85 @@ impl GameClient {
         });
     }
 }
+
+/// C++ `Anim2D::draw` for drawable HUD icons (`Drawable.cpp` heal/bomb/disabled/enthusiastic/emoticon).
+fn draw_overlay_anim2d_icons(overlay: &crate::drawable::drawable::DrawableOverlayData) {
+    use crate::drawable::drawable::{Anim2DIcon, ICoord2D, Vector3};
+    use crate::gui::ui_globals::with_ui_renderer_mut;
+    use crate::gui::ui_renderer::UIRect;
+
+    let Some(region) = overlay.health_region else {
+        return;
+    };
+    let bar_w = region.width().max(1) as f32;
+    let bar_h = region.height().max(1) as f32;
+    let lo = region.lo;
+    let hi = ICoord2D::new(region.lo.x + region.width(), region.lo.y + region.height());
+
+    let mut try_icon = |template: &str, x: f32, y: f32, w: f32, h: f32, fallback: [f32; 4]| {
+        if let Ok(icon) = Anim2DIcon::from_template_name(template) {
+            icon.render(Vector3::new(x, y, 0.0), Vector3::new(w.max(1.0), h.max(1.0), 0.0));
+            return;
+        }
+        let _ = with_ui_renderer_mut(|renderer| {
+            let _ = renderer.draw_rect_with_scissor(UIRect::new(x, y, w.max(4.0), h.max(4.0)), fallback, None);
+        });
+    };
+
+    if overlay.show_healing {
+        let (name, scale) = match overlay.healing_icon_type {
+            1 => ("StructureHeal", 0.33),
+            2 => ("VehicleHeal", 0.7),
+            _ => ("DefaultHeal", 0.7),
+        };
+        let size = bar_w * scale;
+        let x = lo.x as f32 + bar_w * 0.75 - size * 0.5;
+        let y = lo.y as f32 - size;
+        try_icon(name, x, y, size, size, [0.35, 1.0, 0.45, 0.95]);
+    }
+    if overlay.show_bombed {
+        let (name, scale) = match overlay.bomb_type {
+            2 => ("BombRemote", 0.65),
+            3 => ("CarBomb", 0.5),
+            _ => ("BombTimed", 0.65),
+        };
+        let size = bar_w * scale;
+        let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
+        let y = lo.y as f32 + bar_h * 0.5 + 5.0;
+        try_icon(name, x, y, size, size, [1.0, 0.75, 0.1, 0.95]);
+        if overlay.bomb_type == 1 {
+            try_icon(
+                "BombRemote",
+                x,
+                y,
+                size,
+                size,
+                [1.0, 0.45, 0.1, 0.95],
+            );
+        }
+    }
+    if overlay.show_disabled {
+        let size = bar_w * 0.3;
+        let x = lo.x as f32;
+        let y = hi.y as f32 - (size + bar_h);
+        try_icon("Disabled", x, y, size, size, [0.55, 0.85, 1.0, 0.95]);
+    }
+    if overlay.show_enthusiastic {
+        let name = if overlay.show_subliminal {
+            "Subliminal"
+        } else {
+            "Enthusiastic"
+        };
+        let size = bar_w * 0.5;
+        let x = lo.x as f32 + bar_w * 0.25 - size * 0.5;
+        let y = hi.y as f32 + size * 0.25;
+        try_icon(name, x, y, size, size, [1.0, 0.9, 0.2, 0.95]);
+    }
+    if overlay.show_emoticon {
+        let size = bar_w * 0.3;
+        let x = lo.x as f32 + bar_w * 0.5 - size * 0.5;
+        let y = hi.y as f32 - size;
+        try_icon("Emoticon", x, y, size, size, [1.0, 0.75, 0.85, 0.95]);
+    }
+}
+

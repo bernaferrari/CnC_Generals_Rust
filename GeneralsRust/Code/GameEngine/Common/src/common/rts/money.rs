@@ -28,7 +28,8 @@ fn play_money_sound(player_index: i32, withdraw: bool) {
     } else {
         &misc.money_deposit_sound
     };
-    if src.sound_file.is_empty() {
+    let name = src.playable_event_name();
+    if name.is_empty() {
         return;
     }
     let Some(manager) = get_global_audio_manager() else {
@@ -37,7 +38,7 @@ fn play_money_sound(player_index: i32, withdraw: bool) {
     let Ok(mut manager) = manager.try_lock() else {
         return;
     };
-    let mut event = AudioEventRts::with_event_name(&src.sound_file);
+    let mut event = AudioEventRts::with_event_name(name);
     event.set_player_index(player_index);
     if let Some(info) = manager.find_audio_event_info(event.get_event_name()) {
         event.set_audio_event_info(info.clone());

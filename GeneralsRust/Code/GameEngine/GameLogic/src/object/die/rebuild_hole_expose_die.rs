@@ -283,7 +283,9 @@ impl RebuildHoleExposeDie {
                 if let Ok(mut body_guard) = body.lock() {
                     if let Err(_err) = body_guard.set_max_health(
                         self.base.module_data.hole_max_health,
-                        MaxHealthChangeType::FullyHeal,
+                        // C++ RebuildHoleExposeDie.cpp:141 one-arg setMaxHealth
+                        // defaults to SAME_CURRENTHEALTH (BodyModule.h:152).
+                        MaxHealthChangeType::SameCurrentHealth,
                     ) {
                         // Keep C++ behavior: failure to apply health here is non-fatal.
                     }
@@ -425,5 +427,15 @@ mod tests {
         assert_eq!(data.hole_name.as_str(), "RebuildHole_TechBuilding");
         assert_eq!(data.hole_max_health, 100.0);
         assert_eq!(data.transfer_attackers, true);
+    }
+
+    #[test]
+    fn hole_max_health_uses_same_current_health() {
+        // C++ RebuildHoleExposeDie.cpp:141 body->setMaxHealth(m_holeMaxHealth)
+        // default MaxHealthChangeType is SAME_CURRENTHEALTH (BodyModule.h:152).
+        assert_eq!(
+            MaxHealthChangeType::default(),
+            MaxHealthChangeType::SameCurrentHealth
+        );
     }
 }

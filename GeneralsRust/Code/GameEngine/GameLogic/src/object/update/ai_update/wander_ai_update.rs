@@ -8,12 +8,31 @@ use std::sync::Arc;
 use crate::common::{Coord3D, ObjectID};
 use crate::helpers::{get_game_logic_random_value, TheGameLogic};
 use crate::modules::AIUpdateInterface;
+use crate::object::update::ai_update_interface::AIUpdateModuleData;
+use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WanderAIUpdateModuleData {
     module_tag_name_key: NameKeyType,
+    pub base: AIUpdateModuleData,
+}
+
+impl Default for WanderAIUpdateModuleData {
+    fn default() -> Self {
+        Self {
+            module_tag_name_key: 0,
+            base: AIUpdateModuleData::default(),
+        }
+    }
+}
+
+impl WanderAIUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        // C++ WanderAIUpdate uses inherited AIUpdateModuleData::buildFieldParse.
+        self.base.parse_from_ini(ini)
+    }
 }
 
 impl ModuleData for WanderAIUpdateModuleData {
@@ -47,6 +66,7 @@ impl Snapshotable for WanderAIUpdateModuleData {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+        self.base.xfer(xfer)?;
         Ok(())
     }
 

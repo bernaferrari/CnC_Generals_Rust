@@ -1086,36 +1086,14 @@ impl GameLogic {
     /// (ParticleCannon / NuclearMissile / ScudStorm). SharedNSync science powers
     /// are handled separately via `on_special_power_science_creation`.
     pub fn on_structure_superweapon_creation(&mut self, structure_id: ObjectId) {
-        use crate::command_system::SpecialPowerType as P;
         let Some(obj) = self.objects.get(&structure_id) else {
             return;
         };
         if !obj.is_alive() || !obj.is_constructed() {
             return;
         }
-        // C++ finds actual SpecialPowerModule interfaces, in Behavior order.
-        // A superweapon-looking template without one has no timer to arm.
-        let modules: Vec<_> = obj
-            .thing
-            .template
-            .special_power_modules
-            .iter()
-            .filter(|module| {
-                module.command_power.as_ref().is_some_and(|power| {
-                    matches!(
-                        power,
-                        &P::ParticleCannon
-                            | &P::SuperweaponParticleCannon
-                            | &P::LaserCannon
-                            | &P::ScudStorm
-                            | &P::NuclearMissile
-                            | &P::NukeNeutronMissile
-                            | &P::SuperweaponNeutronMissile
-                    )
-                })
-            })
-            .cloned()
-            .collect();
+        // C++ SpecialPowerCreate walks every getSpecialPower() behavior — not a type whitelist.
+        let modules: Vec<_> = obj.thing.template.special_power_modules.clone();
         if modules.is_empty() {
             return;
         }
@@ -1153,16 +1131,19 @@ impl GameLogic {
         obj.stamp_partition_value_threat();
         let team = obj.team;
         let pos = obj.get_position();
-        let name = obj.template_name.clone();
+        let has_preorder_create = obj.thing.template.has_preorder_create;
+        let grant_upgrades = obj.thing.template.grant_upgrade_creates.clone();
+        let lock_weapon_slot = obj.thing.template.lock_weapon_slot;
         // NLL ends `obj` borrow after last field copy above.
-        // C++ PreorderCreate::onBuildComplete residual.
+        // C++ PreorderCreate::onBuildComplete residual — INI module, not name heuristic.
         let did_preorder = self
             .players
             .values()
             .find(|p| p.team == team && p.is_alive)
             .map(|p| p.did_preorder)
             .unwrap_or(false);
-        if crate::game_logic::host_preorder_create::is_preorder_create_template(&name) {
+        if crate::game_logic::host_preorder_create::is_preorder_create_module(has_preorder_create)
+        {
             if let Some(o) = self.objects.get_mut(&structure_id) {
                 o.model_condition_bits =
                     crate::game_logic::host_preorder_create::apply_preorder_model_bit(
@@ -1175,6 +1156,26 @@ impl GameLogic {
                 self.preorder_create_reg.record_set();
             } else {
                 self.preorder_create_reg.record_clear();
+            }
+        }
+        // C++ GrantUpgradeCreate::onBuildComplete — grant UpgradeToGrant.
+        if let Some(o) = self.objects.get_mut(&structure_id) {
+            for grant in &grant_upgrades {
+                o.apply_upgrade_tag(&grant.upgrade_name);
+            }
+        }
+        if !grant_upgrades.is_empty() {
+            if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive)
+            {
+                for grant in &grant_upgrades {
+                    player.add_completed_upgrade(&grant.upgrade_name);
+                }
+            }
+        }
+        // C++ LockWeaponCreate::onBuildComplete — permanent slot lock.
+        if let Some(slot) = lock_weapon_slot {
+            if let Some(o) = self.objects.get_mut(&structure_id) {
+                let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
             }
         }
         // C++ SpecialPowerCreate → onSpecialPowerCreation (all owners, not local-only).
@@ -1241,6 +1242,8 @@ impl GameLogic {
         };
         let team = unit.team;
         let pos = unit.get_position();
+        let grants = unit.thing.template.grant_upgrade_creates.clone();
+        let lock_weapon_slot = unit.thing.template.lock_weapon_slot;
         let local = self
             .players
             .values()
@@ -1256,6 +1259,23 @@ impl GameLogic {
             let msg =
                 localization::localize("GUI:UnitReady", &format!("Unit ready: {template_name}"));
             self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Generic);
+        }
+        // C++ ProductionUpdate calls create onBuildComplete after spawn.
+        if let Some(o) = self.objects.get_mut(&unit_id) {
+            for grant in &grants {
+                o.apply_upgrade_tag(&grant.upgrade_name);
+            }
+            if let Some(slot) = lock_weapon_slot {
+                let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
+            }
+        }
+        if !grants.is_empty() {
+            if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive)
+            {
+                for grant in &grants {
+                    player.add_completed_upgrade(&grant.upgrade_name);
+                }
+            }
         }
         let _ = producer_id;
         self.unit_ready_events = self.unit_ready_events.saturating_add(1);

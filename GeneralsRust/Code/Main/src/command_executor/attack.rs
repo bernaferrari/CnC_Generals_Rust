@@ -66,14 +66,13 @@ impl<'a> CommandExecutor<'a> {
         CommandResult::Success
     }
 
-    /// C++ AIGroup::groupAttackTeam residual.
+    /// C++ AIGroup::groupAttackTeam — persistent `aiAttackTeam` (`AIGroup.cpp:2179-2193`).
     pub(crate) fn execute_attack_team(
         &mut self,
         units: &[ObjectId],
         team_code: u8,
-        _max_shots: i32,
+        max_shots: i32,
     ) -> CommandResult {
-        // Wave 232: attack-team last-writes via unit_command_attack_soft.
         use crate::game_logic::Team;
         let enemy_team = match team_code {
             0 => Team::GLA,
@@ -81,24 +80,22 @@ impl<'a> CommandExecutor<'a> {
             2 => Team::China,
             _ => return CommandResult::InvalidTarget,
         };
+        let tag = attack_team_persist_tag(enemy_team);
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
+            let (alive, skip_struct, my_team, origin) = match self.game_logic.host_object(unit_id)
+            {
+                Some(unit) => (
+                    unit.is_alive(),
+                    unit.is_kind_of(crate::game_logic::KindOf::Structure) && !unit.can_attack(),
+                    unit.team,
+                    unit.get_position(),
+                ),
+                None => continue,
             };
-            // Host residual: allow attack order even before weapon bind (can_attack may be false).
-            if !unit.is_alive() {
+            if !alive || skip_struct || my_team == enemy_team {
                 continue;
             }
-            if unit.is_kind_of(crate::game_logic::KindOf::Structure) && !unit.can_attack() {
-                continue;
-            }
-            let my_team = unit.team;
-            if my_team == enemy_team {
-                continue;
-            }
-            let origin = unit.get_position();
-            // Nearest living enemy of that team.
             let mut best: Option<(ObjectId, f32)> = None;
             for (cid, cand) in self.game_logic.host_objects().iter() {
                 if cand.team != enemy_team || !cand.is_alive() {
@@ -109,9 +106,18 @@ impl<'a> CommandExecutor<'a> {
                     best = Some((*cid, d));
                 }
             }
+            if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
+                unit.set_max_shots_to_fire(max_shots);
+                unit.auto_acquire_when_idle = true;
+                unit.attack_priority_set = Some(tag.clone());
+            }
+            any = true;
             if let Some((tid, _)) = best {
-                if self.game_logic.unit_command_attack_soft(unit_id, tid) {
-                    any = true;
+                let _ = self.game_logic.unit_command_attack_soft(unit_id, tid);
+                if let Some(unit) = self.game_logic.host_object_mut(unit_id) {
+                    unit.set_max_shots_to_fire(max_shots);
+                    unit.auto_acquire_when_idle = true;
+                    unit.attack_priority_set = Some(tag.clone());
                 }
                 let tpos = self.game_logic.host_object(tid).map(|o| o.get_position());
                 if let Some(pos) = tpos {
@@ -134,50 +140,7 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
-        if self.game_logic.host_object(target_id).is_none() {
-            return CommandResult::InvalidTarget;
-        }
-
-        if self
-            .game_logic
-            .host_object(target_id)
-            .is_some_and(|target| !target.is_alive())
-        {
-            return CommandResult::TargetDestroyed;
-        }
-
-        // C++ groupAttackObjectPrivate: sort attackers near-to-far to victim first.
-        let target_pos = self
-            .game_logic
-            .host_object(target_id)
-            .map(|tg| tg.get_position())
-            .unwrap_or(Vec3::ZERO);
-        let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
-        for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
-            };
-            if !unit.can_attack() {
-                continue;
-            }
-            let p = unit.get_position();
-            let d = (p.x - target_pos.x).hypot(p.z - target_pos.z);
-            ordered.push((unit_id, d));
-        }
-        ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        let mut any_attacker = false;
-        for (unit_id, _) in ordered {
-            if self.game_logic.unit_command_attack(unit_id, target_id) {
-                any_attacker = true;
-            }
-        }
-
-        if any_attacker {
-            CommandResult::Success
-        } else {
-            CommandResult::CannotAttackTarget
-        }
+        self.execute_group_attack_object(units, target_id, false)
     }
 
     pub(super) fn execute_attack_object(
@@ -194,10 +157,19 @@ impl<'a> CommandExecutor<'a> {
         target_id: ObjectId,
     ) -> CommandResult {
         // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
-        if !self.validate_target_exists(target_id) {
+        self.execute_group_attack_object(units, target_id, true)
+    }
+
+    /// C++ AIGroup::groupAttackObjectPrivate (AIGroup.cpp:2100-2173).
+    fn execute_group_attack_object(
+        &mut self,
+        units: &[ObjectId],
+        target_id: ObjectId,
+        forced: bool,
+    ) -> CommandResult {
+        if self.game_logic.host_object(target_id).is_none() {
             return CommandResult::InvalidTarget;
         }
-
         if self
             .game_logic
             .host_object(target_id)
@@ -206,18 +178,19 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::TargetDestroyed;
         }
 
-        // C++ groupAttackObjectPrivate(forced=true): near-to-far order.
         let target_pos = self
             .game_logic
             .host_object(target_id)
             .map(|tg| tg.get_position())
             .unwrap_or(Vec3::ZERO);
+
+        // Skip DISABLED_HELD riders; sort remaining near-to-far to the victim.
         let mut ordered: Vec<(ObjectId, f32)> = Vec::new();
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.can_attack() {
+            if !unit.is_alive() || unit.contained_by.is_some() {
                 continue;
             }
             let p = unit.get_position();
@@ -226,12 +199,67 @@ impl<'a> CommandExecutor<'a> {
         }
         ordered.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
+        let mut extra_passengers: Vec<ObjectId> = Vec::new();
+        let mut hive_containers: Vec<ObjectId> = Vec::new();
+        for &(unit_id, _) in &ordered {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
+                continue;
+            };
+            if unit.passengers_allowed_to_fire {
+                for p in unit.contained_units() {
+                    if p != target_id
+                        && !extra_passengers.contains(&p)
+                        && self
+                            .game_logic
+                            .host_object(p)
+                            .is_some_and(|o| o.is_alive() && o.can_attack())
+                    {
+                        extra_passengers.push(p);
+                    }
+                }
+            }
+            if unit.hive_slave_count > 0 {
+                hive_containers.push(unit_id);
+            }
+        }
+
+        for hive_id in hive_containers {
+            if let Some(site) = self.game_logic.host_object_mut(hive_id) {
+                let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_attack_target(
+                    &mut site.hive_slaves,
+                    target_id.0,
+                );
+            }
+        }
+
         let mut any_attacker = false;
+        for p in extra_passengers {
+            let ok = if forced {
+                self.game_logic.unit_command_force_attack(p, target_id)
+            } else {
+                self.game_logic.unit_command_attack(p, target_id)
+            };
+            if ok {
+                any_attacker = true;
+            }
+        }
         for (unit_id, _) in ordered {
-            if self
+            if unit_id == target_id {
+                continue;
+            }
+            let can = self
                 .game_logic
-                .unit_command_force_attack(unit_id, target_id)
-            {
+                .host_object(unit_id)
+                .is_some_and(|u| u.can_attack());
+            if !can {
+                continue;
+            }
+            let ok = if forced {
+                self.game_logic.unit_command_force_attack(unit_id, target_id)
+            } else {
+                self.game_logic.unit_command_attack(unit_id, target_id)
+            };
+            if ok {
                 any_attacker = true;
             }
         }
@@ -363,10 +391,40 @@ impl<'a> CommandExecutor<'a> {
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
         // Wave 232: stop last-writes via GameLogic unit_command_stop.
-        // C++ AIGroup::groupIdle (player stop):
-        // aiIdle + stealth combat unit mood delay until stealthed again.
+        // C++ AIGroup::groupIdle (AIGroup.cpp:2030-2084):
+        // members with AI: aiIdle + stealth mood delay;
+        // members without AI: contain->iterateContained(makeMemberStop);
+        // then SpawnBehavior::orderSlavesToGoIdle.
+        let mut extra_stop: Vec<ObjectId> = Vec::new();
+        let mut hive_ids: Vec<ObjectId> = Vec::new();
+        for &unit_id in units {
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
+                continue;
+            };
+            let has_ai = unit.can_move()
+                && !unit.is_kind_of(crate::game_logic::KindOf::Immobile)
+                && !unit.is_kind_of(crate::game_logic::KindOf::Structure);
+            if !has_ai {
+                for p in unit.contained_units() {
+                    extra_stop.push(p);
+                }
+            }
+            if unit.hive_slave_count > 0 {
+                hive_ids.push(unit_id);
+            }
+        }
         for &unit_id in units {
             let _ = self.game_logic.unit_command_stop(unit_id);
+        }
+        for p in extra_stop {
+            let _ = self.game_logic.unit_command_stop(p);
+        }
+        for hive_id in hive_ids {
+            if let Some(site) = self.game_logic.host_object_mut(hive_id) {
+                let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
+                    &mut site.hive_slaves,
+                );
+            }
         }
         self.apply_player_stealth_mood_delay(units);
         CommandResult::Success
@@ -583,6 +641,76 @@ impl<'a> CommandExecutor<'a> {
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
+        }
+    }
+}
+
+const ATTACK_TEAM_PERSIST_PREFIX: &str = "AIGroup.AttackTeam.";
+
+fn attack_team_persist_tag(team: crate::game_logic::Team) -> String {
+    format!("{ATTACK_TEAM_PERSIST_PREFIX}{}", team.get_name())
+}
+
+fn parse_attack_team_persist(tag: Option<&str>) -> Option<crate::game_logic::Team> {
+    let tag = tag?;
+    let name = tag.strip_prefix(ATTACK_TEAM_PERSIST_PREFIX)?;
+    match name {
+        "GLA" => Some(crate::game_logic::Team::GLA),
+        "USA" => Some(crate::game_logic::Team::USA),
+        "China" => Some(crate::game_logic::Team::China),
+        _ => None,
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    /// C++ `aiAttackTeam` / AttackSquad re-acquire (`AIGroup.cpp:2179-2193`).
+    pub fn tick_attack_team_persist(&mut self, object_ids: &[ObjectId]) {
+        let mut jobs: Vec<(ObjectId, ObjectId, i32, String)> = Vec::new();
+        for &id in object_ids {
+            let Some(o) = self.host_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            let Some(team) = parse_attack_team_persist(o.attack_priority_set.as_deref()) else {
+                continue;
+            };
+            if !matches!(o.ai_state, AIState::Attacking | AIState::Idle) {
+                continue;
+            }
+            let current_ok = o
+                .target
+                .and_then(|t| self.host_object(t))
+                .map(|t| t.is_alive() && t.team == team)
+                .unwrap_or(false);
+            if current_ok {
+                continue;
+            }
+            let origin = o.get_position();
+            let shots = o.max_shots_to_fire;
+            let tag = o.attack_priority_set.clone().unwrap_or_default();
+            let mut best: Option<(ObjectId, f32)> = None;
+            for (cid, cand) in self.host_objects().iter() {
+                if cand.team != team || !cand.is_alive() {
+                    continue;
+                }
+                let d = origin.distance(cand.get_position());
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((*cid, d));
+                }
+            }
+            if let Some((tid, _)) = best {
+                jobs.push((id, tid, shots, tag));
+            }
+        }
+        for (id, tid, shots, tag) in jobs {
+            let _ = self.unit_command_attack_soft(id, tid);
+            if let Some(unit) = self.host_object_mut(id) {
+                unit.set_max_shots_to_fire(shots);
+                unit.auto_acquire_when_idle = true;
+                unit.attack_priority_set = Some(tag);
+            }
         }
     }
 }

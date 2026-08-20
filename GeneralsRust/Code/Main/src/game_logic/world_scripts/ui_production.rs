@@ -407,6 +407,8 @@ impl GameLogic {
     /// Returns whether any commands were processed.
     #[inline]
     pub fn process_commands_if_needed(&mut self) -> bool {
+        // C++ Player::update posts MSG_ENABLE_RETALIATION_MODE once per second.
+        self.leftover_dispatch_tick();
         if self.command_queue.is_empty() {
             return false;
         }
@@ -531,23 +533,62 @@ impl GameLogic {
             && MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD > 0.0
             && !is_legal_build_distance_from_map_edge(edge_dist);
         let place_r = STRUCTURE_PLACE_CLEARANCE_RESIDUAL * 0.5;
+        let builder = builder_id.and_then(|id| self.objects.get(&id));
         let mut blockers: Vec<(f32, f32, f32)> = Vec::new();
         let mut supply_sources: Vec<(f32, f32, f32)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() {
                 continue;
             }
+            if obj.is_kind_of(KindOf::Mine) {
+                continue;
+            }
             let p = obj.get_position();
             let r = Self::structure_place_radius(obj);
-            if obj.is_kind_of(KindOf::Structure) {
-                blockers.push((p.x, p.z, r));
-            }
-            // C++ CANNOT_BUILD_NEAR_SUPPLIES asks only for
-            // KINDOF_SUPPLY_SOURCE.  Resource/Harvestable are host bridge
-            // kinds (and can describe crates), so a source-looking basename
-            // or either bridge kind may not create this exclusion zone.
             if obj.is_kind_of(KindOf::SupplySource) {
                 supply_sources.push((p.x, p.z, r.max(10.0)));
+            }
+            // C++ BuildAssistant.cpp:642-742 isLocationClearOfObjects:
+            // reject immobile, disabled, and ENEMY. Mines are ignored.
+            let rel = builder
+                .map(|b| self.object_relationship(b, obj))
+                .unwrap_or(gamelogic::common::Relationship::Neutral);
+            let blocks = obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Immobile)
+                || obj.is_disabled()
+                || rel == gamelogic::common::Relationship::Enemies;
+            if blocks {
+                blockers.push((p.x, p.z, r));
+            }
+            // C++ BuildAssistant.cpp:759-870 factory exit-width bibs.
+            if let Some(exit) = obj.thing.template.production_exit_metadata {
+                let forward = obj.thing.get_direction_vector();
+                let exit_pos = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+                    p,
+                    forward,
+                    (
+                        exit.unit_create_point[0],
+                        exit.unit_create_point[1],
+                        exit.unit_create_point[2],
+                    ),
+                );
+                blockers.push((exit_pos.x, exit_pos.z, r.max(place_r)));
+            }
+        }
+        if let Some(tmpl) = self.templates.get(template_name) {
+            if let Some(exit) = tmpl.production_exit_metadata {
+                let exit_pos = glam::Vec3::new(
+                    position.x + exit.unit_create_point[0],
+                    position.y,
+                    position.z + exit.unit_create_point[1],
+                );
+                if legal_build_objects_in_the_way_residual(
+                    (exit_pos.x, exit_pos.z),
+                    place_r,
+                    &blockers,
+                ) {
+                    return crate::game_logic::host_production_buildable_command_residual::LBC_OBJECTS_IN_THE_WAY;
+                }
             }
         }
         let in_way =
@@ -590,6 +631,11 @@ impl GameLogic {
             Some(bid) => !self.builder_has_clear_path_to(bid, position),
             None => false,
         };
+        // C++ BuildAssistant.cpp:491-499 CELL_WATER/CLIFF/IMPASSABLE and
+        // :1006-1009 non-GROUND layer (bridge) → LBC_RESTRICTED_TERRAIN.
+        if self.placement_terrain_restricted(position, place_r) {
+            return crate::game_logic::host_production_buildable_command_residual::LBC_RESTRICTED_TERRAIN;
+        }
         crate::game_logic::host_production_buildable_command_residual::legal_build_code_from_checks_with_path_residual(
             in_bounds,
             shrouded,
@@ -599,6 +645,138 @@ impl GameLogic {
             too_close_edge,
             no_clear,
         )
+    }
+
+    /// C++ BuildAssistant.cpp:491-499 / :1006-1009 terrain + bridge gate.
+    pub(in super::super) fn placement_terrain_restricted(
+        &self,
+        position: glam::Vec3,
+        place_radius: f32,
+    ) -> bool {
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        let r = place_radius.max(1.0);
+        let offsets = [
+            (0.0, 0.0),
+            (-r, -r),
+            (r, -r),
+            (-r, r),
+            (r, r),
+            (0.0, -r),
+            (0.0, r),
+            (-r, 0.0),
+            (r, 0.0),
+        ];
+        for (dx, dz) in offsets {
+            let sample = glam::Vec3::new(position.x + dx, position.y, position.z + dz);
+            let cell = self.pathfinding_system.grid.world_to_grid(sample);
+            match self.pathfinding_system.grid.cell_type(cell) {
+                PathfindCellType::Water
+                | PathfindCellType::Cliff
+                | PathfindCellType::Impassable => return true,
+                _ => {}
+            }
+        }
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            let dest = gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+            if terrain.get_layer_for_destination(&dest) != gamelogic::path::PathfindLayerEnum::Ground
+            {
+                return true;
+            }
+            if terrain.is_underwater(position.x, position.z, None, None)
+                || terrain.is_cliff_cell(position.x, position.z)
+            {
+                return true;
+            }
+        }
+        // C++ getLayerForDestination != LAYER_GROUND (bridge deck).
+        for obj in self.objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
+            let name = obj.template_name.to_ascii_lowercase();
+            if !name.contains("bridge") {
+                continue;
+            }
+            let p = obj.get_position();
+            let r = Self::structure_place_radius(obj).max(place_radius);
+            let dx = p.x - position.x;
+            let dz = p.z - position.z;
+            if dx * dx + dz * dz <= (r + place_radius) * (r + place_radius) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// C++ BuildAssistant::moveObjectsForConstruction — scatter allied mobiles.
+    pub(in super::super) fn move_objects_for_construction(
+        &mut self,
+        location: glam::Vec3,
+        place_r: f32,
+        builder_id: Option<ObjectId>,
+    ) {
+        let builder = builder_id.and_then(|id| self.objects.get(&id)).cloned();
+        let mut to_move: Vec<(ObjectId, glam::Vec3)> = Vec::new();
+        for (id, obj) in self.objects.iter() {
+            if builder_id == Some(*id) || !obj.is_alive() {
+                continue;
+            }
+            if obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Immobile)
+                || obj.is_kind_of(KindOf::Mine)
+            {
+                continue;
+            }
+            if obj.is_disabled() || !obj.can_move() || obj.status.using_ability {
+                continue;
+            }
+            if let Some(b) = &builder {
+                if self.object_relationship(b, obj) == gamelogic::common::Relationship::Enemies {
+                    continue;
+                }
+            }
+            let p = obj.get_position();
+            let r = Self::structure_place_radius(obj);
+            let dx = p.x - location.x;
+            let dz = p.z - location.z;
+            if dx * dx + dz * dz < (place_r + r) * (place_r + r) {
+                let dir = if dx * dx + dz * dz < 0.01 {
+                    glam::Vec3::new(1.0, 0.0, 0.0)
+                } else {
+                    glam::Vec3::new(dx, 0.0, dz).normalize_or_zero()
+                };
+                to_move.push((*id, location + dir * (place_r + r + 8.0)));
+            }
+        }
+        for (id, dest) in to_move {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_destination(dest);
+            }
+        }
+    }
+
+    /// C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain + getGroundHeight Z snap.
+    pub(in super::super) fn flatten_and_snap_construction(&mut self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let pos = obj.get_position();
+        let radius = Self::structure_place_radius(obj).max(1.0);
+        if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
+            if terrain.has_height_map() {
+                terrain.flatten_terrain_at(pos.x, pos.z, radius);
+                let z = terrain.get_ground_height(pos.x, pos.z, None);
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_position(glam::Vec3::new(pos.x, z, pos.z));
+                }
+                return;
+            }
+        }
+        if let Some(h) = self.terrain_height_at(pos) {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.set_position(glam::Vec3::new(pos.x, h, pos.z));
+            }
+        }
     }
 
     /// C++ AIUpdateInterface::isQuickPathAvailable residual (simplified host pathfind).

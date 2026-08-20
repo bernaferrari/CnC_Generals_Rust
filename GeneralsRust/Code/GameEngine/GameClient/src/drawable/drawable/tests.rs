@@ -2075,3 +2075,198 @@ fn frenzy_infantry_color_matches_cpp_authored_values() {
     assert_near(FRENZY_COLOR_INFANTRY.y, -0.7);
     assert_near(FRENZY_COLOR_INFANTRY.z, -0.7);
 }
+
+#[test]
+fn start_ambient_sound_uses_template_when_custom_info_absent() {
+    // C++ Drawable::startAmbientSound (`Drawable.cpp:4459-4468`) reads
+    // getAmbientSoundByDamage / template SoundAmbient when custom info is null.
+    let mut drawable = BasicDrawable::new(DrawableId(7));
+    drawable.custom_sound_ambient_dynamic_info = None;
+    drawable.start_ambient_sound(false);
+    // No template registered → no event, but must not require custom_info.
+    assert!(!drawable.ambient_sound_is_active());
+
+    let mut custom = DynamicAudioEventInfo::new();
+    custom.override_audio_name("FactoryHum");
+    custom.override_loop_flag(true);
+    custom.override_loop_count(0);
+    drawable.custom_sound_ambient_dynamic_info = Some(custom);
+    drawable.start_ambient_sound(false);
+    assert!(drawable.ambient_sound_is_active());
+}
+
+#[test]
+fn set_time_of_day_queues_ambient_restart() {
+    // C++ Drawable::setTimeOfDay (`Drawable.cpp:4344-4350`) restarts ambient.
+    let mut drawable = BasicDrawable::new(DrawableId(8));
+    let mut custom = DynamicAudioEventInfo::new();
+    custom.override_audio_name("NightHum");
+    custom.override_loop_flag(true);
+    custom.override_loop_count(0);
+    drawable.custom_sound_ambient_dynamic_info = Some(custom);
+    drawable
+        .set_time_of_day(crate::system::TimeOfDay::Night)
+        .unwrap();
+    drawable.update(0.0);
+    assert!(drawable.ambient_sound_is_active());
+    assert!(drawable
+        .get_model_condition_flags()
+        .test(ModelConditionFlags::NIGHT));
+}
+
+#[test]
+fn health_bar_requires_selected_and_show_object_health() {
+    game_engine::common::ini::init_global_data();
+
+    // C++ Drawable::drawHealthBar (`Drawable.cpp:3834-3849`).
+    let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+    let mut drawable = BasicDrawable::new(DrawableId(9));
+    drawable.overlay_data.health_region = Some(region);
+    drawable.presentation_health_pct = 0.8;
+    drawable.presentation_selected = false;
+    drawable.selected = false;
+    drawable.draw_icon_ui();
+    assert!(
+        !drawable.overlay_data.health_bar_visible,
+        "unselected drawable must not draw a health bar"
+    );
+
+    drawable.selected = true;
+    drawable.presentation_selected = true;
+    drawable.draw_icon_ui();
+    // ShowObjectHealth defaults false (C++ GlobalData.cpp:795).
+    assert!(!drawable.overlay_data.health_bar_visible);
+
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = true;
+    }
+    drawable.draw_icon_ui();
+    assert!(drawable.overlay_data.health_bar_visible);
+    assert!((drawable.overlay_data.health_ratio - 0.8).abs() < 0.0001);
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = false;
+    }
+}
+
+#[test]
+fn health_bar_force_attackable_is_hidden() {
+    game_engine::common::ini::init_global_data();
+
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = true;
+    }
+    let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+    let mut drawable = BasicDrawable::new(DrawableId(10));
+    drawable.overlay_data.health_region = Some(region);
+    drawable.presentation_health_pct = 1.0;
+    drawable.selected = true;
+    drawable.presentation_selected = true;
+    drawable.presentation_kind_names = vec!["ForceAttackable".to_string()];
+    drawable.draw_icon_ui();
+    assert!(!drawable.overlay_data.health_bar_visible);
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = false;
+    }
+}
+
+#[test]
+fn health_bar_construction_uses_cyan_channel() {
+    // C++ GameMakeColor(0, healthRatio*255, 255, 255) (`Drawable.cpp:3872-3875`).
+    let (fill, _) = health_bar_colors(0.5, true, false, false);
+    assert_eq!(fill[0], 0.0);
+    assert!((fill[1] - 0.5).abs() < 0.0001);
+    assert_eq!(fill[2], 1.0);
+    let (pristine, _) = health_bar_colors(1.0, false, false, false);
+    assert!(pristine[1] > pristine[0], "pristine averages toward green");
+    let (really, _) = health_bar_colors(0.6, false, true, true);
+    assert!(really[0] > really[1], "really-damaged averages toward red");
+}
+
+#[test]
+fn construct_percent_uses_under_construction_desc() {
+    // C++ Drawable::drawConstructPercent (`Drawable.cpp:3707`).
+    let text = format_under_construction_desc(0.42);
+    assert!(
+        text.contains("42"),
+        "formatted construct text must include percent: {text}"
+    );
+    assert!(
+        !text.eq("42%"),
+        "must not be the raw percent-only live HUD string"
+    );
+}
+
+#[test]
+fn ammo_pips_require_show_object_health_and_local() {
+    game_engine::common::ini::init_global_data();
+
+    let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+    let mut drawable = BasicDrawable::new(DrawableId(11));
+    drawable.overlay_data.health_region = Some(region);
+    drawable.presentation_health_pct = 1.0;
+    drawable.presentation_ammo_pip_total = 5;
+    drawable.presentation_ammo_pip_full = 2;
+    drawable.selected = true;
+    drawable.presentation_selected = true;
+    drawable.draw_icon_ui();
+    assert!(!drawable.overlay_data.show_ammo);
+
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = true;
+    }
+    drawable.draw_icon_ui();
+    assert!(drawable.overlay_data.show_ammo);
+    assert_eq!(drawable.overlay_data.ammo_total, 5);
+    if let Some(data) = game_engine::common::ini::get_global_data() {
+        data.write().show_object_health = false;
+    }
+}
+
+#[test]
+fn draw_icon_ui_honors_draw_icon_ui_gate() {
+    // C++ Drawable::drawIconUI (`Drawable.cpp:2740`).
+    let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+    let mut drawable = BasicDrawable::new(DrawableId(12));
+    drawable.overlay_data.health_region = Some(region);
+    drawable.set_caption_text("Keep");
+    drawable.overlay_data.visible = true;
+    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
+    drawable.draw_icon_ui();
+    assert!(
+        !drawable.overlay_data.visible,
+        "icon UI must no-op when getDrawIconUI is false"
+    );
+    gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
+}
+
+#[test]
+fn draws_any_ui_text_for_selected_hotkey_group() {
+    // C++ Drawable::drawsAnyUIText (`Drawable.cpp:2709-2729`).
+    let mut drawable = BasicDrawable::new(DrawableId(13));
+    drawable.selected = true;
+    drawable.presentation_selected = true;
+    drawable.set_presentation_hotkey_group(2);
+    assert!(drawable.draws_any_ui_text());
+    drawable.draw_icon_ui();
+    assert!(drawable.overlay_data.queue_ui_text);
+    assert_eq!(drawable.overlay_data.group_numeral.as_deref(), Some("2"));
+}
+
+#[test]
+fn status_icons_are_submitted_on_overlay_data() {
+    // C++ drawHealing/drawDisabled/drawEnthusiastic/drawBombed/drawEmoticon.
+    let region = IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32));
+    let mut drawable = BasicDrawable::new(DrawableId(14));
+    drawable.overlay_data.health_region = Some(region);
+    drawable.presentation_health_pct = 0.5;
+    drawable.presentation_show_healing = true;
+    drawable.presentation_disabled = true;
+    drawable.presentation_weapon_bonus_enthusiastic = true;
+    drawable.presentation_is_carbomb = true;
+    drawable.draw_icon_ui();
+    assert!(drawable.overlay_data.show_healing);
+    assert!(drawable.overlay_data.show_disabled);
+    assert!(drawable.overlay_data.show_enthusiastic);
+    assert!(drawable.overlay_data.show_bombed);
+}
+

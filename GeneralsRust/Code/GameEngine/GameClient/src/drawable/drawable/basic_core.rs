@@ -95,25 +95,187 @@ impl BasicDrawable {
         }
     }
 
-    /// C++ `Drawable::startAmbientSound(onlyIfPermanent)`.
+    /// C++ `Drawable::startAmbientSound(onlyIfPermanent)` (`Drawable.cpp:4528-4542`).
     pub fn start_ambient_sound(&mut self, only_if_permanent: bool) {
         if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
             return;
         }
         self.stop_ambient_sound();
-        if self.custom_sound_ambient_off {
-            return;
+        let dt = self.current_body_damage_type();
+        let tod = self.current_time_of_day();
+        self.start_ambient_sound_for_state(dt, tod, only_if_permanent);
+    }
+
+    /// C++ `Drawable::onLevelStart` (`Drawable.cpp:1320-1331`).
+    pub fn on_level_start(&mut self) {
+        if self.ambient_sound_enabled
+            && self.ambient_sound_enabled_from_script
+            && (self.ambient_sound_event.is_none()
+                || self.ambient_sound_event.as_ref().is_some_and(|event| {
+                    !event.get_event_name().is_empty() && !event.is_currently_playing()
+                }))
+        {
+            self.start_ambient_sound(false);
         }
-        let Some(info) = self.custom_sound_ambient_dynamic_info.as_ref() else {
-            return;
-        };
-        if only_if_permanent && !info.get_audio_event_info().is_permanent_sound() {
-            return;
+    }
+
+    /// C++ `Drawable::getAmbientSoundByDamage` (`Drawable.cpp:2488-2501`).
+    pub fn get_ambient_sound_by_damage(
+        &self,
+        dt: gamelogic::common::types::BodyDamageType,
+    ) -> Option<AudioEventRts> {
+        if let Some(event) = self.ambient_from_object_template(dt) {
+            return Some(event);
+        }
+        self.ambient_from_common_template(dt)
+    }
+
+    fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
+        use gamelogic::common::types::BodyDamageType;
+        if dual_world_registry_unavailable() {
+            if self
+                .model_condition_flags
+                .test(ModelConditionFlags::RUBBLE)
+            {
+                return BodyDamageType::Rubble;
+            }
+            if self
+                .model_condition_flags
+                .test(ModelConditionFlags::REALLYDAMAGED)
+            {
+                return BodyDamageType::ReallyDamaged;
+            }
+            if self.model_condition_flags.test(ModelConditionFlags::DAMAGED) {
+                return BodyDamageType::Damaged;
+            }
+            return BodyDamageType::Pristine;
+        }
+        self.object_id
+            .and_then(|obj_id| OBJECT_REGISTRY.get_object(obj_id))
+            .and_then(|arc| arc.read().ok())
+            .and_then(|obj| obj.get_body_module())
+            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            .unwrap_or(BodyDamageType::Pristine)
+    }
+
+    fn current_time_of_day(&self) -> TimeOfDay {
+        get_global_data()
+            .map(|data| data.read().time_of_day)
+            .map(|tod| match tod {
+                IniTimeOfDay::Night => TimeOfDay::Night,
+                IniTimeOfDay::Morning => TimeOfDay::Morning,
+                IniTimeOfDay::Evening => TimeOfDay::Evening,
+                _ => TimeOfDay::Afternoon,
+            })
+            .unwrap_or(TimeOfDay::Afternoon)
+    }
+
+    fn ambient_from_object_template(
+        &self,
+        dt: gamelogic::common::types::BodyDamageType,
+    ) -> Option<AudioEventRts> {
+        use gamelogic::common::types::BodyDamageType;
+        let obj_id = self.object_id?;
+        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
+        let obj = obj_arc.read().ok()?;
+        let tmpl = obj.get_template();
+        let logic = match dt {
+            BodyDamageType::Damaged => tmpl.get_sound_ambient_damaged(),
+            BodyDamageType::ReallyDamaged => tmpl.get_sound_ambient_really_damaged(),
+            BodyDamageType::Rubble => tmpl.get_sound_ambient_rubble(),
+            _ => tmpl.get_sound_ambient(),
+        }?;
+        if logic.get_event_name().is_empty() {
+            return None;
         }
         let mut event = AudioEventRts::new();
-        event.set_event_name(info.get_audio_event_info().audio_name.clone());
-        event.set_audio_event_info(std::sync::Arc::new(info.get_audio_event_info().clone()));
+        event.set_event_name(logic.get_event_name().to_string());
+        Some(event)
+    }
+
+    fn ambient_from_common_template(
+        &self,
+        dt: gamelogic::common::types::BodyDamageType,
+    ) -> Option<AudioEventRts> {
+        use gamelogic::common::types::BodyDamageType;
+        let name = self.template_name.as_deref()?;
+        let factory_guard = game_engine::common::thing::get_thing_factory().ok()?;
+        let factory = factory_guard.as_ref()?;
+        let tmpl = factory.find_template(name, false)?;
+        let audio = match dt {
+            BodyDamageType::Damaged => tmpl.get_sound_ambient_damaged(),
+            BodyDamageType::ReallyDamaged => tmpl.get_sound_ambient_really_damaged(),
+            BodyDamageType::Rubble => tmpl.get_sound_ambient_rubble(),
+            _ => tmpl.get_sound_ambient(),
+        }?;
+        if audio.get_event_name().is_empty() {
+            return None;
+        }
+        Some(audio.clone())
+    }
+
+    /// C++ `Drawable::startAmbientSound(BodyDamageType, TimeOfDay, Bool)` (`:4437-4522`).
+    pub fn start_ambient_sound_for_state(
+        &mut self,
+        dt: gamelogic::common::types::BodyDamageType,
+        tod: TimeOfDay,
+        only_if_permanent: bool,
+    ) {
+        use gamelogic::common::types::BodyDamageType;
+        self.stop_ambient_sound();
+
+        let mut event = None;
+        if dt != BodyDamageType::Rubble {
+            if self.custom_sound_ambient_off {
+                // C++ no-sound marker: skip custom, do not fall through to template
+                // unless rubble (handled above).
+            } else if let Some(info) = self.custom_sound_ambient_dynamic_info.as_ref() {
+                let mut custom = AudioEventRts::new();
+                custom.set_event_name(info.get_audio_event_info().audio_name.clone());
+                custom.set_audio_event_info(std::sync::Arc::new(
+                    info.get_audio_event_info().clone(),
+                ));
+                event = Some(custom);
+            }
+        }
+
+        if event.is_none() && (dt == BodyDamageType::Rubble || !self.custom_sound_ambient_off) {
+            event = self.get_ambient_sound_by_damage(dt);
+            if event.is_none() && dt != BodyDamageType::Pristine && dt != BodyDamageType::Rubble {
+                event = self.get_ambient_sound_by_damage(BodyDamageType::Pristine);
+            }
+        }
+
+        let Some(mut event) = event else {
+            return;
+        };
+        if event.get_event_name().is_empty() {
+            return;
+        }
+
+        let info = event.get_audio_event_info();
+        if only_if_permanent && info.as_ref().is_some_and(|info| !info.is_permanent_sound()) {
+            return;
+        }
+        if only_if_permanent && info.is_none() {
+            // Template name with no AudioEventInfo: treat as non-permanent skip, matching
+            // C++ `if (info)` guard (missing info never plays when onlyIfPermanent).
+            // When onlyIfPermanent is false we still play by name.
+        }
+
         event.set_drawable_id_override(self.id.0);
+        event.set_time_of_day(match tod {
+            TimeOfDay::Morning => {
+                game_engine::common::audio::audio_event_rts::TimeOfDay::Morning
+            }
+            TimeOfDay::Afternoon => {
+                game_engine::common::audio::audio_event_rts::TimeOfDay::Afternoon
+            }
+            TimeOfDay::Evening => {
+                game_engine::common::audio::audio_event_rts::TimeOfDay::Evening
+            }
+            TimeOfDay::Night => game_engine::common::audio::audio_event_rts::TimeOfDay::Night,
+        });
         if let Some(audio) = get_global_audio_manager() {
             if let Ok(mut manager) = audio.lock() {
                 let handle = manager.add_audio_event(&event);
@@ -122,6 +284,40 @@ impl BasicDrawable {
         }
         self.ambient_sound_event = Some(event);
     }
+
+    pub(super) fn restart_ambient_if_dropped(&mut self) {
+        // C++ `updateDrawable` (`Drawable.cpp:1299-1314`).
+        if !self.ambient_sound_enabled || !self.ambient_sound_enabled_from_script {
+            return;
+        }
+        let Some(event) = self.ambient_sound_event.as_ref() else {
+            return;
+        };
+        if event.get_event_name().is_empty() || event.is_currently_playing() {
+            return;
+        }
+        let restart = event
+            .get_audio_event_info()
+            .map(|info| info.is_permanent_sound())
+            .unwrap_or(true);
+        if restart {
+            self.start_ambient_sound(false);
+        }
+    }
+
+    pub(super) fn apply_pending_time_of_day(&mut self) {
+        let Some(tod) = self.pending_time_of_day.take() else {
+            return;
+        };
+        let mut flags = self.model_condition_flags.clone();
+        flags.set(ModelConditionFlags::NIGHT, matches!(tod, TimeOfDay::Night));
+        self.replace_model_condition_flags(flags, false);
+        if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
+            let dt = self.current_body_damage_type();
+            self.start_ambient_sound_for_state(dt, tod, false);
+        }
+    }
+
 
     /// Whether an ambient event is currently attached (started).
     #[must_use]
@@ -202,6 +398,7 @@ impl BasicDrawable {
         // translucent visible look and must still reach the scene path.
         self.hidden_by_stealth = scene_hidden_by_stealth;
         self.update_hidden_status();
+
         if let Some(color) = indicator_color {
             self.set_indicator_color(Some(color));
         }
@@ -394,10 +591,15 @@ impl BasicDrawable {
         self.template_name.as_deref()
     }
 
-    /// Set template name.
+    /// Set template name. C++ ctor then `startAmbientSound()` once the template is known.
     pub fn set_template_name(&mut self, name: Option<String>) {
+        let changed = self.template_name != name;
         self.template_name = name;
+        if changed && self.template_name.is_some() {
+            self.start_ambient_sound(false);
+        }
     }
+
 
     /// Get owning object ID if bound.
     pub fn object_id(&self) -> Option<u32> {
@@ -572,6 +774,9 @@ impl BasicDrawable {
             return;
         }
         let texture = Self::client_terrain_decal_texture(self.terrain_decal_type);
+
+
+
         if texture.is_empty() {
             return;
         }
@@ -758,7 +963,8 @@ impl BasicDrawable {
     pub(super) fn is_object_kind_of(&self, kind: gamelogic::common::types::KindOf) -> bool {
         // Wave 270/965: host empty dual-world → presentation kind residual.
         // Fail-closed when presentation kinds were never stamped.
-        if dual_world_registry_unavailable() {
+        if dual_world_registry_unavailable() || self.object_id.is_none() {
+
             if self.presentation_kind_names.is_empty() {
                 return false;
             }
@@ -884,11 +1090,10 @@ impl BasicDrawable {
         for dm in &mut self.draw_modules {
             dm.on_drawable_bound_to_object();
         }
+        // C++ Drawable ctor / onLevelStart: startAmbientSound after object exists.
+        self.start_ambient_sound(false);
     }
 
-    /// Called when the owning object changes teams.
-    /// C++ Drawable::changedTeam (Drawable.cpp:4168-4187):
-    /// Re-applies indicator color from the object's new team and updates terrain decal.
     pub fn changed_team(&mut self) {
         if let Some(color) = self.bound_object_indicator_color() {
             self.set_indicator_color(Some(color));

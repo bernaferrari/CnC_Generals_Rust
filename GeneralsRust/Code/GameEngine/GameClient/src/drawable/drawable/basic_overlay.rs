@@ -20,7 +20,9 @@ use game_engine::common::ini::{get_anim2d_collection, get_global_data, TimeOfDay
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
-use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
+use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient, TheGameLogic};
+use gamelogic::scripting::{get_script_engine, TFade};
+
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::Mutex;
@@ -112,21 +114,32 @@ impl BasicDrawable {
     }
 
     fn draw_health_bar(&mut self, health_region: &IRegion2D) {
-        // Wave 970: host empty dual-world → presentation health residual.
+        // C++ Drawable::drawHealthBar (`Drawable.cpp:3825-3937`).
         self.overlay_data.health_region = Some(*health_region);
-        self.overlay_data.visible = true;
-        if dual_world_registry_unavailable() {
-            // Wave 1114: dual health-bar residual fail-closed on dead presentation.
-            if self.presentation_health_pct <= 0.0 {
-                self.overlay_data.health_ratio = 0.0;
-                self.overlay_data.visible = false;
-                return;
-            }
-            self.overlay_data.health_ratio = self.presentation_health_pct;
+        self.overlay_data.health_bar_visible = false;
+
+        if !self.show_object_health_enabled() || !self.selected_or_moused_over_for_icon_pips() {
+            return;
+        }
+        if self.is_object_kind_of(gamelogic::common::types::KindOf::ForceAttackable) {
             return;
         }
 
-        if let Some(obj_id) = self.object_id {
+        let use_presentation = dual_world_registry_unavailable() || self.object_id.is_none();
+        let (health, max_health, under_construction, disabled_not_held) = if use_presentation {
+            if self.presentation_health_pct <= 0.0 {
+                return;
+            }
+            (
+                self.presentation_health_pct,
+                1.0,
+                self.presentation_under_construction,
+                self.presentation_disabled,
+            )
+        } else {
+            let Some(obj_id) = self.object_id else {
+                return;
+            };
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 return;
             };
@@ -135,11 +148,39 @@ impl BasicDrawable {
             };
             let health = obj_guard.get_health();
             let max_health = obj_guard.get_max_health();
-            if max_health > 0.0 {
-                self.overlay_data.health_ratio = (health / max_health).clamp(0.0, 1.0);
+            if max_health == 0.0 || health == 0.0 {
+                return;
             }
-        }
+            use gamelogic::common::types::DisabledType;
+            let disabled_not_held =
+                obj_guard.is_disabled() && !obj_guard.is_disabled_by_type(DisabledType::Held);
+            (
+                health,
+                max_health,
+                obj_guard.is_under_construction(),
+                disabled_not_held,
+            )
+        };
+
+
+        let ratio = (health / max_health).clamp(0.0, 1.0);
+        let really_damaged = self
+            .model_condition_flags
+            .test(ModelConditionFlags::REALLYDAMAGED);
+        let damaged = self.model_condition_flags.test(ModelConditionFlags::DAMAGED);
+        let (fill, outline) = health_bar_colors(
+            ratio,
+            under_construction || disabled_not_held,
+            really_damaged,
+            damaged,
+        );
+        self.overlay_data.health_ratio = ratio;
+        self.overlay_data.health_fill = fill;
+        self.overlay_data.health_outline = outline;
+        self.overlay_data.health_bar_visible = true;
+        self.overlay_data.visible = true;
     }
+
 
     fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
         // Wave 970: host empty dual-world → presentation veterancy residual.
@@ -177,10 +218,14 @@ impl BasicDrawable {
             if self.presentation_sold || !self.presentation_under_construction {
                 self.overlay_data.is_under_construction = false;
                 self.overlay_data.construction_percent = 0.0;
+                self.overlay_data.construct_text = None;
                 return;
             }
             self.overlay_data.is_under_construction = true;
             self.overlay_data.construction_percent = self.presentation_construction_percent;
+            self.overlay_data.construct_text =
+                Some(format_under_construction_desc(self.presentation_construction_percent));
+            self.overlay_data.visible = true;
             return;
         }
 
@@ -188,6 +233,7 @@ impl BasicDrawable {
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
                 self.overlay_data.is_under_construction = false;
                 self.overlay_data.construction_percent = 0.0;
+                self.overlay_data.construct_text = None;
                 return;
             };
             let Ok(obj_guard) = obj_arc.read() else {
@@ -198,12 +244,18 @@ impl BasicDrawable {
             {
                 self.overlay_data.is_under_construction = false;
                 self.overlay_data.construction_percent = 0.0;
+                self.overlay_data.construct_text = None;
             } else {
                 self.overlay_data.is_under_construction = true;
                 self.overlay_data.construction_percent =
                     (obj_guard.get_construction_percent() as f32) / 100.0;
+                self.overlay_data.construct_text = Some(format_under_construction_desc(
+                    self.overlay_data.construction_percent,
+                ));
+                self.overlay_data.visible = true;
             }
         }
+
     }
 
     pub fn draw_caption(&mut self, _health_region: &IRegion2D) {
@@ -240,14 +292,176 @@ impl BasicDrawable {
                 && TheInGameUI::get_moused_over_drawable_id() == self.id.0)
     }
 
-    pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
-        // Wave 972/1052: host empty dual-world → presentation ammo residual.
+    fn show_object_health_enabled(&self) -> bool {
+        get_global_data()
+            .map(|data| data.read().show_object_health)
+            .unwrap_or(false)
+    }
+
+    fn icon_ui_allowed(&self) -> bool {
+        // C++ Drawable::drawIconUI (`Drawable.cpp:2740`).
+        if !TheGameLogic::get_draw_icon_ui() {
+            return false;
+        }
+        let fade = get_script_engine()
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|engine| engine.get_fade()))
+            .unwrap_or(TFade::None);
+        fade == TFade::None
+    }
+
+    fn is_local_player_object(&self) -> bool {
         if dual_world_registry_unavailable() {
-            // Wave 1114: dual ammo residual fail-closed on dead presentation.
-            if self.presentation_health_pct <= 0.0
-                || !self.selected_or_moused_over_for_icon_pips()
-                || self.presentation_effectively_stealthed
-            {
+            // Host residual: selected/moused units are the local player's chrome.
+            return self.selected_or_moused_over_for_icon_pips();
+        }
+        let Some(obj_id) = self.object_id else {
+            return false;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return false;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return false;
+        };
+        obj_guard.is_locally_controlled()
+    }
+
+    fn pip_icon_gates_pass(&self) -> bool {
+        // C++ drawAmmo/drawContained (`Drawable.cpp:2865-2870`, `:2923-2928`).
+        self.show_object_health_enabled()
+            && self.selected_or_moused_over_for_icon_pips()
+            && self.is_local_player_object()
+    }
+
+    /// C++ `Drawable::drawsAnyUIText` (`Drawable.cpp:2709-2729`).
+    pub fn draws_any_ui_text(&self) -> bool {
+        if !self.selected && !self.presentation_selected {
+            return false;
+        }
+        if dual_world_registry_unavailable() || self.object_id.is_none() {
+            let group = self.presentation_hotkey_group as i32;
+            if group > NO_HOTKEY_SQUAD && group < NUM_HOTKEY_SQUADS as i32 {
+                return true;
+            }
+            return self.presentation_formation_id != 0;
+        }
+        let Some(obj_id) = self.object_id else {
+            return false;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return false;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return false;
+        };
+        if !obj_guard.is_locally_controlled() {
+            return false;
+        }
+        if let Some(player_arc) = obj_guard.get_controlling_player() {
+            if let Ok(mut player_guard) = player_arc.write() {
+                if let Some(group_number) =
+                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
+                {
+                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
+                        return true;
+                    }
+                }
+            }
+        }
+        obj_guard.get_formation_id() != FormationID::NONE
+    }
+
+    fn queue_ui_text_overlay(&mut self) {
+        self.overlay_data.queue_ui_text = false;
+        self.overlay_data.group_numeral = None;
+        self.overlay_data.formation_letter = None;
+        if !self.draws_any_ui_text() {
+            return;
+        }
+        self.overlay_data.queue_ui_text = true;
+        if dual_world_registry_unavailable() || self.object_id.is_none() {
+            let group = self.presentation_hotkey_group as i32;
+            if group > NO_HOTKEY_SQUAD && group < NUM_HOTKEY_SQUADS as i32 {
+                self.overlay_data.group_numeral = Some(format!("{group}"));
+            }
+            if self.presentation_formation_id != 0 {
+                self.overlay_data.formation_letter = Some("F".to_string());
+            }
+            return;
+        }
+        let Some(obj_id) = self.object_id else {
+            return;
+        };
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+        if let Some(player_arc) = obj_guard.get_controlling_player() {
+            if let Ok(mut player_guard) = player_arc.write() {
+                if let Some(group_number) =
+                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
+                {
+                    if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
+                        self.overlay_data.group_numeral = Some(format!("{group_number}"));
+                    }
+                }
+            }
+        }
+        if obj_guard.get_formation_id() != FormationID::NONE {
+            self.overlay_data.formation_letter = Some("F".to_string());
+        }
+    }
+
+
+    fn clear_icon_ui_overlay(&mut self) {
+        self.overlay_data.visible = false;
+        self.overlay_data.health_bar_visible = false;
+        self.overlay_data.show_ammo = false;
+        self.overlay_data.show_contained = false;
+        self.overlay_data.show_healing = false;
+        self.overlay_data.show_disabled = false;
+        self.overlay_data.show_enthusiastic = false;
+        self.overlay_data.show_bombed = false;
+        self.overlay_data.show_emoticon = false;
+        self.overlay_data.queue_ui_text = false;
+        self.overlay_data.group_numeral = None;
+        self.overlay_data.formation_letter = None;
+        self.overlay_data.construct_text = None;
+        self.overlay_data.is_under_construction = false;
+    }
+
+    fn mark_overlay_visible_if_any_chrome(&mut self) {
+        let o = &self.overlay_data;
+        if o.health_bar_visible
+            || o.is_under_construction
+            || o.show_ammo
+            || o.show_contained
+            || o.show_healing
+            || o.show_disabled
+            || o.show_enthusiastic
+            || o.show_bombed
+            || o.show_emoticon
+            || o.queue_ui_text
+            || o.veterancy_level > 0
+            || o.caption.as_ref().is_some_and(|c| !c.is_empty())
+        {
+            self.overlay_data.visible = true;
+        }
+    }
+
+
+    pub fn draw_ammo(&mut self, _health_region: &IRegion2D) {
+        // C++ Drawable::drawAmmo (`Drawable.cpp:2865-2870`).
+        if !self.pip_icon_gates_pass() {
+            self.overlay_data.show_ammo = false;
+            return;
+        }
+        if dual_world_registry_unavailable() {
+            if self.presentation_health_pct <= 0.0 || self.presentation_effectively_stealthed {
                 self.overlay_data.show_ammo = false;
                 return;
             }
@@ -261,8 +475,6 @@ impl BasicDrawable {
             return;
         }
 
-        // C++ parity: Drawable.cpp drawAmmo (lines 2861-2912)
-        // Ammo pips only show for selected/moused-over local player objects.
         // C++ gates on: TheGlobalData->m_showObjectHealth && (isSelected() || mousedOver)
         //              && obj->getControllingPlayer() == ThePlayerList->getLocalPlayer()
         if !self.selected_or_moused_over_for_icon_pips() {
@@ -294,13 +506,13 @@ impl BasicDrawable {
     }
 
     pub fn draw_contained(&mut self, _health_region: &IRegion2D) {
-        // Wave 972/1052: host empty dual-world → presentation contain residual.
+        // C++ Drawable::drawContained (`Drawable.cpp:2923-2928`).
+        if !self.pip_icon_gates_pass() {
+            self.overlay_data.show_contained = false;
+            return;
+        }
         if dual_world_registry_unavailable() {
-            // Wave 1114: dual contain residual fail-closed on dead presentation.
-            if self.presentation_health_pct <= 0.0
-                || !self.selected_or_moused_over_for_icon_pips()
-                || self.presentation_effectively_stealthed
-            {
+            if self.presentation_health_pct <= 0.0 || self.presentation_effectively_stealthed {
                 self.overlay_data.show_contained = false;
                 return;
             }
@@ -317,11 +529,6 @@ impl BasicDrawable {
             return;
         }
 
-        // C++ parity: Drawable.cpp drawContained (lines 2915-2986)
-        if !self.selected_or_moused_over_for_icon_pips() {
-            self.overlay_data.show_contained = false;
-            return;
-        }
 
         let Some(obj_id) = self.object_id else {
             return;
@@ -610,41 +817,30 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
-        // Wave 270: host empty dual-world fail-closed via dual_world_registry_unavailable.
-        // Wave 977: host empty dual-world runs presentation residual icon path.
+        // C++ Drawable::drawIconUI (`Drawable.cpp:2738-2788`).
+        if !self.icon_ui_allowed() {
+            self.clear_icon_ui_overlay();
+            return;
+        }
+
         let region = self.compute_health_region();
 
-        // C++ parity: Drawable.cpp drawIconUI() dispatch order (lines 2738-2788):
-        // healthBar → emoticon → caption → constructPercent →
-        // (dead check bail) → healing → bombed → enthusiastic → demoralized →
-        // disabled → ammo → contained → veterancy
-
-        // Wave 1054: dual-world effectively-stealthed residual hides icon UI unless
-        // selected/moused (C++ local player still sees selected stealthed friendlies).
         if dual_world_registry_unavailable()
             && self.presentation_effectively_stealthed
             && !self.selected_or_moused_over_for_icon_pips()
         {
-            self.overlay_data.show_ammo = false;
-            self.overlay_data.show_contained = false;
-            self.overlay_data.show_healing = false;
-            self.overlay_data.show_disabled = false;
-            self.overlay_data.show_enthusiastic = false;
-            self.overlay_data.show_bombed = false;
-            self.overlay_data.visible = false;
+            self.clear_icon_ui_overlay();
             return;
         }
 
-        if let Some(ref health_region) = region {
+        if let Some(health_region) = &region {
             self.draw_health_bar(health_region);
             self.draw_emoticon(health_region);
             self.draw_caption(health_region);
             self.draw_construct_percent(health_region);
         }
 
-        // C++: all icons below only draw on ALIVE things
         let is_dead = if dual_world_registry_unavailable() {
-            // Wave 977: presentation residual dead/ignore checks.
             self.presentation_health_pct <= 0.0
                 || self
                     .presentation_kind_names
@@ -652,9 +848,11 @@ impl BasicDrawable {
                     .any(|k| k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui"))
         } else {
             let Some(obj_id) = self.object_id else {
+                self.mark_overlay_visible_if_any_chrome();
                 return;
             };
             let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+                self.mark_overlay_visible_if_any_chrome();
                 return;
             };
             let Ok(obj_guard) = obj_arc.read() else {
@@ -665,10 +863,12 @@ impl BasicDrawable {
         };
 
         if is_dead {
+            self.mark_overlay_visible_if_any_chrome();
             return;
         }
 
-        if let Some(ref health_region) = region {
+        self.queue_ui_text_overlay();
+        if let Some(health_region) = &region {
             self.draw_healing(health_region);
             self.draw_bombed(health_region);
             self.draw_enthusiastic(health_region);
@@ -678,5 +878,8 @@ impl BasicDrawable {
             self.draw_contained(health_region);
             self.draw_veterancy(health_region);
         }
+        self.mark_overlay_visible_if_any_chrome();
+
     }
+
 }

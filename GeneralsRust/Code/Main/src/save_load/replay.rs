@@ -7,6 +7,54 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+static HOST_REPLAY_CONTROLS_HIDDEN: AtomicBool = AtomicBool::new(true);
+
+/// C++ `RecorderClass::initControls` hide flag for ReplayControl.wnd.
+pub fn host_replay_controls_hidden() -> bool {
+    HOST_REPLAY_CONTROLS_HIDDEN.load(Ordering::SeqCst)
+}
+
+/// Register the Common recorder window hook and apply current visibility.
+pub fn apply_host_recorder_init_controls() {
+    game_engine::common::recorder::init_recorder();
+    let _ = game_engine::common::recorder::with_recorder_mut(|rec| {
+        rec.set_replay_control_visibility_hook(Some(Arc::new(|hide| {
+            HOST_REPLAY_CONTROLS_HIDDEN.store(hide, Ordering::SeqCst);
+        })));
+        rec.init_controls();
+    });
+}
+
+/// Live `MSG_LOGIC_CRC` into Common `Recorder::handleCRCMessage`.
+pub fn notify_host_logic_crc(crc: u32, player_index: i32) {
+    let _ = game_engine::common::recorder::with_recorder_mut(|rec| {
+        rec.notify_logic_crc(crc, player_index);
+    });
+}
+
+fn push_host_recording_lobby(map_name: &str, players: &[ReplayPlayerInfo]) {
+    let mut info = game_engine::common::recorder::ReplayGameInfo::new();
+    info.set_map(map_name.to_string());
+    info.set_crc_interval(100);
+    for (index, player) in players.iter().take(8).enumerate() {
+        if let Some(slot) = info.slots.get_mut(index) {
+            slot.name = player.player_name.clone();
+            slot.is_human = player.is_human;
+            slot.is_observer = player.is_observer;
+            slot.is_occupied = true;
+            slot.color = player.player_id as i32;
+            slot.team = index as i32;
+            slot.has_map = true;
+            slot.accepted = true;
+        }
+    }
+    let _ = game_engine::common::recorder::with_recorder_mut(|rec| {
+        rec.set_recording_lobby(info, 0);
+    });
+}
 
 /// Replay file magic number
 const REPLAY_MAGIC: [u8; 4] = *b"GZRP";
@@ -252,7 +300,7 @@ impl ReplayManager {
 
         // Clean up incomplete replay files
         self.cleanup_incomplete_replays()?;
-
+        apply_host_recorder_init_controls();
         Ok(())
     }
 
@@ -268,6 +316,7 @@ impl ReplayManager {
         if self.mode != RecorderMode::None {
             return Err(SaveLoadError::InvalidFormat);
         }
+        push_host_recording_lobby(map_name, players);
 
         // Generate unique filename
         let timestamp = SystemTime::now()
@@ -411,6 +460,12 @@ impl ReplayManager {
                 self.update_recording()?;
             }
             RecorderMode::Playback => {
+                let checksum = self.calculate_frame_checksum();
+                notify_host_logic_crc(checksum, 0);
+                let _ = game_engine::common::recorder::with_recorder_mut(|rec| {
+                    rec.set_current_frame(self.current_frame as u32);
+                    rec.update();
+                });
                 self.update_playback(command_system, game_logic)?;
             }
             RecorderMode::None => {}
@@ -972,5 +1027,12 @@ mod tests {
             orientation: 0.0,
         });
         assert_eq!(event_type, ReplayEventType::BuildCommand);
+    }
+
+    #[test]
+    fn host_replay_controls_default_hidden_until_playback() {
+        // C++ Recorder.cpp:1557 winHide(mode != PLAYBACK)
+        apply_host_recorder_init_controls();
+        assert!(host_replay_controls_hidden());
     }
 }

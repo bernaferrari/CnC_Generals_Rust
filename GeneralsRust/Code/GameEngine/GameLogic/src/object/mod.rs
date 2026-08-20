@@ -1311,14 +1311,19 @@ enum DieModuleKindMut<'a> {
     Wrapper(&'a mut DieModuleWrapper),
     LegacyBox(&'a mut Box<dyn DieModuleInterface>),
     Minefield(&'a mut crate::object::behavior::minefield_behavior::MinefieldBehaviorModule),
+    ProductionUpdate(
+        &'a mut crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
+    ),
 }
 
 impl<'a> DieModuleKindMut<'a> {
+
     fn into_interface(self) -> &'a mut dyn DieModuleInterface {
         match self {
             Self::Wrapper(module) => module,
             Self::LegacyBox(module) => module.as_mut(),
             Self::Minefield(module) => module.behavior_mut(),
+            Self::ProductionUpdate(module) => module.behavior_mut(),
         }
     }
 }
@@ -1336,6 +1341,13 @@ fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
         return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::minefield_behavior::MinefieldBehaviorModule>()
             .map(DieModuleKindMut::Minefield);
+    }
+    if module.as_any().is::<
+        crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
+    >() {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
+            .map(DieModuleKindMut::ProductionUpdate);
     }
     if module.as_any().is::<Box<dyn DieModuleInterface>>() {
         return (module as &mut dyn Any)

@@ -146,6 +146,75 @@ impl MeshModelClass {
         false
     }
 
+    /// C++ meshgeometry.cpp Cast_OBBox / CollisionMath::Collide(OBBox, move, Tri)
+    pub fn cast_obbox(&self, boxtest: &mut OBBoxCollisionTestClass) -> bool {
+        let mu_box = mu_obbox_from_class(&boxtest.box_obj);
+        let movement = MuVec3::new(
+            boxtest.move_vector.x,
+            boxtest.move_vector.y,
+            boxtest.move_vector.z,
+        );
+
+        let mut best: Option<MuCastResult> = None;
+
+        for triangle in &self.triangles {
+            let Some(mu_triangle) = mu_triangle_from_w3d(triangle, &self.vertices) else {
+                continue;
+            };
+
+            let mut result = MuCastResult::new();
+            result.compute_contact_point = true;
+            if MuCollisionMath::collide_obbox_triangle(
+                &mu_box,
+                &movement,
+                &mu_triangle,
+                &MuVec3::ZERO,
+                &mut result,
+            ) {
+                let replace = match &best {
+                    None => true,
+                    Some(existing) => {
+                        if result.start_bad && !existing.start_bad {
+                            true
+                        } else if !result.start_bad && existing.start_bad {
+                            false
+                        } else {
+                            result.fraction < existing.fraction
+                        }
+                    }
+                };
+
+                if replace {
+                    best = Some(result.clone());
+                }
+            }
+        }
+
+        if let Some(best_hit) = best {
+            let mut contact_points = Vec::new();
+            if best_hit.compute_contact_point {
+                contact_points.push(Vec3::new(
+                    best_hit.contact_point.x,
+                    best_hit.contact_point.y,
+                    best_hit.contact_point.z,
+                ));
+            }
+
+            boxtest.result = Some(OBBoxCollisionResult {
+                intersection: true,
+                contact_points,
+            });
+            return true;
+        }
+
+        boxtest.result = Some(OBBoxCollisionResult {
+            intersection: false,
+            contact_points: Vec::new(),
+        });
+        false
+    }
+
+
     pub fn intersect_obbox(&self, boxtest: &OBBoxIntersectionTestClass) -> bool {
         let center = MuVec3::new(
             boxtest.box_obj.center.x,

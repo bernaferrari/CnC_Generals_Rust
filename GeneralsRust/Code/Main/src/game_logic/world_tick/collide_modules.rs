@@ -3,7 +3,8 @@
 use crate::game_logic::{AIState, ObjectId};
 
 impl super::super::GameLogic {
-    /// C++ `Object::onCollide` — walk contain-enter and crate pickup on contact.
+    /// C++ `Object::onCollide` — walk contain-enter, crate pickup, and
+    /// `FireWeaponCollide::onCollide` (`FireWeaponCollide.cpp:52-67`).
     pub(in super::super) fn dispatch_host_collide_modules(
         &mut self,
         self_id: ObjectId,
@@ -41,6 +42,52 @@ impl super::super::GameLogic {
         }
         if crate_other {
             self.update_money_crate_collides();
+        }
+        self.fire_host_weapon_collide(self_id, other_id);
+    }
+
+    /// C++ `FireWeaponCollide::onCollide` — skip ground (other is always an
+    /// object here), then `loadAmmoNow` + `fireWeapon` every frame.
+    fn fire_host_weapon_collide(&mut self, self_id: ObjectId, other_id: ObjectId) {
+        use super::collide_dispatch::{
+            host_fire_weapon_collide_damage, host_fire_weapon_collide_spec,
+            host_should_fire_weapon_collide,
+        };
+        let Some(us) = self.objects.get(&self_id) else {
+            return;
+        };
+        if !us.is_alive() {
+            return;
+        }
+        let Some(spec) = host_fire_weapon_collide_spec(us) else {
+            return;
+        };
+        // C++ never sets m_everFired — match, not a gap.
+        if !host_should_fire_weapon_collide(us.object_status_bits, &spec, false) {
+            return;
+        }
+        let damage = host_fire_weapon_collide_damage(&spec.weapon_name);
+        let damage = if damage > 0.0 {
+            damage
+        } else {
+            us.thing
+                .template
+                .primary_weapon
+                .as_ref()
+                .map(|w| w.damage)
+                .filter(|d| *d > 0.0)
+                .unwrap_or(10.0)
+        };
+        if let Some(other) = self.objects.get_mut(&other_id) {
+            if !other.is_alive() {
+                return;
+            }
+            let _ = other.take_damage_from_typed_death(
+                damage,
+                Some(self_id),
+                crate::game_logic::combat::DamageType::Flame,
+                crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+            );
         }
     }
 }

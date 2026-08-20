@@ -9,12 +9,31 @@ use crate::ai::CommandSourceType;
 use crate::common::{DisabledType, KindOf, ObjectID};
 use crate::helpers::TheGameLogic;
 use crate::modules::{AIUpdateInterface, AIUpdateInterfaceExt};
+use crate::object::update::ai_update_interface::AIUpdateModuleData;
+use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TransportAIUpdateModuleData {
     module_tag_name_key: NameKeyType,
+    pub base: AIUpdateModuleData,
+}
+
+impl Default for TransportAIUpdateModuleData {
+    fn default() -> Self {
+        Self {
+            module_tag_name_key: 0,
+            base: AIUpdateModuleData::default(),
+        }
+    }
+}
+
+impl TransportAIUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        // C++ TransportAIUpdate uses inherited AIUpdateModuleData::buildFieldParse.
+        self.base.parse_from_ini(ini)
+    }
 }
 
 impl ModuleData for TransportAIUpdateModuleData {
@@ -48,6 +67,7 @@ impl Snapshotable for TransportAIUpdateModuleData {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+        self.base.xfer(xfer)?;
         Ok(())
     }
 

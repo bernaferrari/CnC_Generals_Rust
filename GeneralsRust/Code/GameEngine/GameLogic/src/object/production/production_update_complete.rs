@@ -30,14 +30,18 @@ use crate::common::{
     MODELCONDITION_DOOR_4_CLOSING, MODELCONDITION_DOOR_4_OPENING,
     MODELCONDITION_DOOR_4_WAITING_OPEN,
 };
-use crate::helpers::{TheGameLogic, TheThingFactory};
+use crate::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModule, BehaviorModuleInterface, ExitDoorType, ProductionUpdateInterface,
-    UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
+    BehaviorModule, BehaviorModuleInterface, DieModuleInterface, ExitDoorType,
+    ProductionUpdateInterface, UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE,
+    MODULEINTERFACE_UPDATE, UPDATE_SLEEP_NONE,
 };
 use crate::object::behavior::behavior_module::{
     xfer_update_module_base_state, BehaviorModuleData,
 };
+use crate::upgrade::center::THE_UPGRADE_CENTER;
+use crate::upgrade::template::UpgradeType;
+use crate::upgrade::UpgradeStatus;
 use game_engine::bit_flags::create_model_condition_flags;
 use crate::system::game_logic;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -104,6 +108,7 @@ pub struct QuantityModifier {
     /// How many to produce (e.g., 4 for Red Guards)
     pub quantity: i32,
 }
+
 
 fn parse_int_field(
     _ini: &mut INI,
@@ -661,21 +666,15 @@ impl ProductionUpdateComplete {
         self.sync_actively_constructing_flag();
 
         // Check for quantity modifier
-        // Matches C++ lines 411-425
-        let quantity = self
-            .data
-            .quantity_modifiers
-            .iter()
-            .find(|qm| qm.template_name == template_name)
-            .map(|qm| qm.quantity)
-            .unwrap_or(1);
+        // Matches C++ ProductionUpdate.cpp:417-425 isEquivalentTo
+        let quantity = self.quantity_for_template(&template_name);
 
         // If we were idle, start producing
         if self.current_production.is_none() {
             self.start_next_production()?;
 
             // Apply quantity modifier to current production
-            if let Some(ref mut prod) = self.current_production {
+            if let Some(prod) = self.current_production.as_mut() {
                 prod.quantity_total = quantity;
             }
         }
@@ -727,6 +726,10 @@ impl ProductionUpdateComplete {
         // If canceling current production
         if index == 0 && self.current_production.is_some() {
             if let Some(prod) = self.current_production.take() {
+                // C++ ProductionUpdate.cpp:1011-1021 unreserveDoorForExit
+                if prod.entry.production_type == ProductionType::Unit {
+                    self.unreserve_exit_door(prod.exit_door);
+                }
                 // Calculate refund
                 // C++ always refunds full cost lines 456-458
                 let refund = prod.entry.cost;
@@ -747,6 +750,9 @@ impl ProductionUpdateComplete {
 
         // Cancel from queue
         if let Some(entry) = self.queue.cancel(index.saturating_sub(1)) {
+            if entry.production_type == ProductionType::Unit {
+                self.unreserve_exit_door(entry.exit_door);
+            }
             // Full refund for queued items
             if entry.cost > 0 {
                 refund_credits(entry.player_id, entry.cost);
@@ -843,6 +849,9 @@ impl ProductionUpdateComplete {
     ) {
         // Cancel current production
         if let Some(prod) = self.current_production.take() {
+            if prod.entry.production_type == ProductionType::Unit {
+                self.unreserve_exit_door(prod.exit_door);
+            }
             if prod.entry.cost > 0 {
                 refund_credits(prod.entry.player_id, prod.entry.cost);
             }
@@ -851,6 +860,9 @@ impl ProductionUpdateComplete {
         // Cancel all queued items
         let all_entries = self.queue.cancel_all();
         for entry in all_entries {
+            if entry.production_type == ProductionType::Unit {
+                self.unreserve_exit_door(entry.exit_door);
+            }
             if entry.cost > 0 {
                 refund_credits(entry.player_id, entry.cost);
             }
@@ -865,15 +877,9 @@ impl ProductionUpdateComplete {
             let mut prod_state = ProductionEntryState::from_entry(entry);
 
             // Apply quantity modifier
-            // Matches C++ lines 411-425
-            if let Some(qm) = self
-                .data
-                .quantity_modifiers
-                .iter()
-                .find(|qm| qm.template_name == prod_state.entry.template_name)
-            {
-                prod_state.quantity_total = qm.quantity;
-            }
+            // Matches C++ ProductionUpdate.cpp:417-425 isEquivalentTo
+            prod_state.quantity_total =
+                self.quantity_for_template(&prod_state.entry.template_name);
 
             self.current_production = Some(prod_state);
             self.sync_actively_constructing_flag();
@@ -1060,20 +1066,10 @@ impl ProductionUpdateComplete {
 
     /// Check if production should be disabled due to game state
     /// Matches C++ lines 641-648: sold status check
-    #[allow(dead_code)]
-    fn should_halt_production(&self, object_sold: bool, object_disabled: bool) -> bool {
-        // If object is sold or destroyed, halt production
-        // C++: "if( us->getStatusBits().test( OBJECT_STATUS_SOLD ) )"
-        if object_sold {
-            return true;
-        }
-
-        // If object is disabled and module configured to disable on disable
-        if object_disabled {
-            return true;
-        }
-
-        false
+    /// C++ ProductionUpdate::update only freezes on OBJECT_STATUS_SOLD.
+    /// Disabled types are gated by get_disabled_types_to_process (HELD).
+    fn should_halt_production(&self, object_sold: bool, _object_disabled: bool) -> bool {
+        object_sold
     }
     fn reserve_parking_door_when_queued(&self, template_name: &str) -> Result<i32, String> {
         if dual_world_registry_unavailable() {
@@ -1108,6 +1104,64 @@ impl ProductionUpdateComplete {
             return Err("No parking door available".to_string());
         }
         Ok(exit_door_to_i32(door))
+    }
+
+    /// C++ ProductionUpdate::removeFromProductionQueue unreserveDoorForExit
+    /// (ProductionUpdate.cpp:1011-1021).
+    fn unreserve_exit_door(&self, exit_door: i32) {
+        if exit_door < 0 || dual_world_registry_unavailable() {
+            return;
+        }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            return;
+        };
+        let Some(exit) = owner
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_object_exit_interface())
+        else {
+            return;
+        };
+        if let Ok(mut exit_guard) = exit.lock() {
+            exit_guard.unreserve_door_for_exit(i32_to_exit_door(exit_door));
+        }
+    }
+
+    /// C++ queueCreateUnit QuantityModifier via isEquivalentTo
+    /// (ProductionUpdate.cpp:417-425, ThingTemplate.cpp:1454).
+    fn quantity_for_template(&self, template_name: &str) -> i32 {
+        let Some(unit_type) = TheThingFactory::find_template(template_name) else {
+            return self
+                .data
+                .quantity_modifiers
+                .iter()
+                .find(|qm| qm.template_name.eq_ignore_ascii_case(template_name))
+                .map(|qm| qm.quantity)
+                .unwrap_or(1);
+        };
+        for qm in &self.data.quantity_modifiers {
+            if let Some(production_template) = TheThingFactory::find_template(&qm.template_name) {
+                if production_template.is_equivalent_to(unit_type.as_ref()) {
+                    return qm.quantity;
+                }
+            }
+        }
+        1
+    }
+
+    fn refund_player_credits() -> impl FnMut(ObjectID, i32) {
+        |player_id: ObjectID, credits: i32| {
+            if credits <= 0 {
+                return;
+            }
+            if let Ok(list) = crate::player::player_list().read() {
+                if let Some(player_arc) = list.get_player(player_id as i32) {
+                    if let Ok(mut player) = player_arc.write() {
+                        player.get_money_mut().add_money(credits);
+                    }
+                }
+            }
+        }
     }
 
     /// Spawn a completed unit through the building ExitInterface.
@@ -1236,6 +1290,10 @@ impl ProductionUpdateComplete {
                 .new_object_with_team_handle(template, team)
                 .map_err(|err| err.to_string())?;
             let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
+            let first_of_batch = self
+                .current_production
+                .as_ref()
+                .is_some_and(|p| p.quantity_total == p.quantity_remaining());
             if let Ok(mut new_guard) = new_obj.write() {
                 if let Ok(owner_guard) = owner.read() {
                     new_guard.set_producer(Some(&owner_guard));
@@ -1258,6 +1316,19 @@ impl ProductionUpdateComplete {
             {
                 if let Ok(mut player_guard) = player.write() {
                     player_guard.on_unit_created(&owner, &new_obj);
+                }
+            }
+
+            // C++ ProductionUpdate.cpp:809-832 VoiceCreated + first-of-batch VoiceCreate
+            if let Some(audio) = TheAudio::get() {
+                let mut voice = template.get_voice_created();
+                voice.set_object_id(new_id);
+                audio.add_audio_event(&voice);
+                if first_of_batch {
+                    if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
+                        sound.set_object_id(new_id);
+                        audio.add_audio_event(&sound);
+                    }
                 }
             }
 
@@ -1305,6 +1376,89 @@ impl ProductionUpdateComplete {
     pub fn set_ignore_prerequisites(&mut self, ignore: bool) {
         self.prerequisite_checker.set_ignore_prerequisites(ignore);
     }
+
+    /// C++ ProductionUpdate.cpp:874-956 PRODUCTION_UPGRADE complete path.
+    fn handle_upgrade_production_complete(&mut self) {
+        let Some(prod) = self.current_production.take() else {
+            return;
+        };
+        if prod.entry.production_type != ProductionType::Upgrade {
+            self.current_production = Some(prod);
+            return;
+        }
+        let upgrade_name = prod.entry.template_name.clone();
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+            self.sync_actively_constructing_flag();
+            if !self.queue.is_empty() {
+                let _ = self.start_next_production();
+            }
+            return;
+        };
+        let player = owner.read().ok().and_then(|guard| guard.get_controlling_player());
+        if let Some(player) = player {
+            let player_index = player
+                .read()
+                .ok()
+                .map(|p| p.get_player_index() as usize)
+                .unwrap_or(0);
+            let se_ref = crate::scripting::engine::get_script_engine();
+            if let Ok(mut se_guard) = se_ref.write() {
+                if let Some(se) = se_guard.as_mut() {
+                    se.notify_of_completed_upgrade(
+                        player_index,
+                        upgrade_name.as_str(),
+                        self.owner_id,
+                    );
+                }
+            }
+            if let Ok(center) = THE_UPGRADE_CENTER.read() {
+                if let Some(upgrade) = center.find_upgrade(&upgrade_name) {
+                    use crate::player::list::PlayerArcExt;
+                    let cost = player
+                        .read()
+                        .ok()
+                        .map(|p| upgrade.calc_cost_to_build(&p).max(0) as u32)
+                        .unwrap_or(0);
+                    match upgrade.get_upgrade_type() {
+                        UpgradeType::Player => {
+                            player.add_upgrade(upgrade.as_ref(), UpgradeStatus::Complete);
+                        }
+                        UpgradeType::Object => {
+                            if let Ok(mut obj) = owner.write() {
+                                obj.give_upgrade(upgrade.as_ref());
+                            }
+                        }
+                    }
+                    if let Ok(mut player_guard) = player.write() {
+                        player_guard
+                            .get_academy_stats_mut()
+                            .record_upgrade(upgrade.as_ref(), false);
+                        player_guard.get_score_keeper_mut().add_money_spent(cost);
+                    }
+                    if let Some(audio) = TheAudio::get() {
+                        let mut sound = crate::common::audio::AudioEventRts::new(
+                            upgrade.get_research_sound().event_name.clone(),
+                        );
+                        if !sound.get_event_name().is_empty() {
+                            sound.set_object_id(self.owner_id);
+                            audio.add_audio_event(&sound);
+                        }
+                        let mut unit_sound = crate::common::audio::AudioEventRts::new(
+                            upgrade.get_unit_specific_sound().event_name.clone(),
+                        );
+                        if !unit_sound.get_event_name().is_empty() {
+                            unit_sound.set_object_id(self.owner_id);
+                            audio.add_audio_event(&unit_sound);
+                        }
+                    }
+                }
+            }
+        }
+        self.sync_actively_constructing_flag();
+        if !self.queue.is_empty() {
+            let _ = self.start_next_production();
+        }
+    }
 }
 
 impl BehaviorModuleInterface for ProductionUpdateComplete {
@@ -1334,14 +1488,55 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
         // Matches C++ lines 600-619
         self.update_construction_complete(current_frame);
 
+        // C++ ProductionUpdate.cpp:647-648 OBJECT_STATUS_SOLD freezes the queue.
+        let mut cancel_disallowed = false;
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(guard) = owner.read() {
+                if self.should_halt_production(
+                    guard.test_status(crate::common::ObjectStatusTypes::Sold),
+                    false,
+                ) {
+                    return Ok(());
+                }
+                // C++ ProductionUpdate.cpp:671-682 allowedToBuild + dozer exception.
+                if let Some(prod) = self.current_production.as_ref() {
+                    if prod.entry.production_type == ProductionType::Unit {
+                        if let Some(tmpl) =
+                            TheThingFactory::find_template(&prod.entry.template_name)
+                        {
+                            if !tmpl.is_kind_of(crate::common::KindOf::Dozer) {
+                                if let Some(player) = guard.get_controlling_player() {
+                                    use crate::player::list::PlayerArcExt;
+                                    if !player.allowed_to_build(tmpl.as_ref()) {
+                                        cancel_disallowed = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if cancel_disallowed {
+            let mut refund = Self::refund_player_credits();
+            let _ = self.cancel_production(0, &mut refund);
+            return Ok(());
+        }
+
         // Update production progress
         let player_mods = self.build_player_modifiers(None);
         let is_complete = self.update_production_progress(delta_frames, &player_mods, None);
 
-        // Spawn if complete
         if is_complete {
-            // Ignore errors for now - in full integration, these would be logged
-            let _ = self.spawn_unit(current_frame);
+            let is_upgrade = self
+                .current_production
+                .as_ref()
+                .is_some_and(|p| p.entry.production_type == ProductionType::Upgrade);
+            if is_upgrade {
+                self.handle_upgrade_production_complete();
+            } else {
+                let _ = self.spawn_unit(current_frame);
+            }
         }
 
         Ok(())
@@ -1352,15 +1547,30 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
     }
 
     fn get_interface_mask() -> u32 {
-        0x00000001 // UPDATE_MODULE interface
+        // C++ ProductionUpdate.h:173 UpdateModule | MODULEINTERFACE_DIE
+        MODULEINTERFACE_UPDATE | MODULEINTERFACE_DIE
     }
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
 
+    fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
+        Some(self)
+    }
+
     fn get_production_update_interface(&mut self) -> Option<&mut dyn ProductionUpdateInterface> {
         Some(self)
+    }
+
+    fn on_die(
+        &mut self,
+        _damage_info: &crate::damage::DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // C++ ProductionUpdate.cpp:1109-1113 onDie → cancelAndRefundAllProduction
+        let mut refund = Self::refund_player_credits();
+        self.cancel_and_refund_all_production(&mut refund);
+        Ok(())
     }
 }
 
@@ -1378,10 +1588,18 @@ impl BehaviorModule for ProductionUpdateComplete {
             "ProductionUpdateComplete module destroyed for object {}",
             self.owner_id
         );
+        // C++ ProductionUpdate.cpp:1109-1113 dying factory refunds the queue.
+        let mut refund = Self::refund_player_credits();
+        self.cancel_and_refund_all_production(&mut refund);
+    }
+}
 
-        // Cancel all production with no refund (building destroyed)
-        self.current_production = None;
-        self.queue.clear();
+impl DieModuleInterface for ProductionUpdateComplete {
+    fn on_die(
+        &mut self,
+        damage: &crate::damage::DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        BehaviorModuleInterface::on_die(self, damage)
     }
 }
 
@@ -1928,5 +2146,68 @@ mod tests {
         );
         assert!(production.queue.is_empty());
         assert_eq!(refunds, vec![(7, 700)]);
+    }
+
+    #[test]
+    fn quantity_for_template_matches_modifier_name() {
+        // C++ ProductionUpdate.cpp:417-425 isEquivalentTo; without a factory
+        // template the live helper still applies the authored name fallback.
+        let mut data = ProductionUpdateModuleData::default();
+        data.quantity_modifiers.push(QuantityModifier {
+            template_name: "ChinaInfantryRedguard".to_string(),
+            quantity: 4,
+        });
+        let production = ProductionUpdateComplete::new(data, 42);
+        assert_eq!(production.quantity_for_template("ChinaInfantryRedguard"), 4);
+        assert_eq!(production.quantity_for_template("AmericaInfantryRanger"), 1);
+    }
+
+    #[test]
+    fn sold_freezes_queue_any_disable_does_not() {
+        let production =
+            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+        assert!(production.should_halt_production(true, false));
+        assert!(production.should_halt_production(true, true));
+        assert!(!production.should_halt_production(false, true));
+        assert!(!production.should_halt_production(false, false));
+    }
+
+    #[test]
+    fn quantity_modifier_matches_exact_name_without_factory() {
+        let mut data = ProductionUpdateModuleData::default();
+        data.quantity_modifiers.push(QuantityModifier {
+            template_name: "ChinaRedguard".to_string(),
+            quantity: 2,
+        });
+        let production = ProductionUpdateComplete::new(data, 42);
+        assert_eq!(production.quantity_for_template("ChinaRedguard"), 2);
+        assert_eq!(production.quantity_for_template("AmericaRanger"), 1);
+    }
+
+    #[test]
+    fn die_refunds_current_and_queued_production() {
+        let mut production =
+            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+        production
+            .queue_create_unit_with_id("TestInfantry".into(), ProductionType::Unit, 100, 30, 7, 1)
+            .unwrap();
+        production
+            .queue_create_unit_with_id("TestTank".into(), ProductionType::Unit, 700, 90, 7, 2)
+            .unwrap();
+        let mut refunds = Vec::new();
+        production.cancel_and_refund_all_production(&mut |player_id, credits| {
+            refunds.push((player_id, credits));
+        });
+        assert!(production.current_production.is_none());
+        assert!(production.queue.is_empty());
+        assert_eq!(refunds, vec![(7, 100), (7, 700)]);
+    }
+
+    #[test]
+    fn interface_mask_includes_die() {
+        assert_eq!(
+            ProductionUpdateComplete::get_interface_mask() & MODULEINTERFACE_DIE,
+            MODULEINTERFACE_DIE
+        );
     }
 }

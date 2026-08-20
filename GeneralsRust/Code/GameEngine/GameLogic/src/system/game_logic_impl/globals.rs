@@ -253,6 +253,15 @@ fn install_save_game_counter_integration() {
         }
     })));
 
+    // C++ GameState::gameStatePostProcessLoad (GameState.cpp:1528-1529):
+    // ThePartitionManager->update() after every snapshot loadPostProcess,
+    // not during CHUNK_GameStateMap (GameStateMap.cpp:422-426 only startNewGame).
+    register_partition_manager_update(|| {
+        if let Ok(mut logic) = game_logic_mutex().lock() {
+            let _ = logic.update_partition_manager();
+        }
+    });
+
     register_game_logic_snapshot_block();
 }
 

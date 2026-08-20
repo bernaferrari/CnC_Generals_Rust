@@ -78,6 +78,7 @@ static POST_LOAD_HOOKS: std::sync::Mutex<PostLoadHooks> = std::sync::Mutex::new(
 
 /// Register `ThePartitionManager->update()` (GameState.cpp:1529).
 /// Must run after snapshot post-process and before the script engine's first run.
+/// Production wires this from GameLogic `install_save_game_counter_integration`.
 pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 'static) {
     if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
         hooks.partition_update = Some(Box::new(update_fn));
@@ -886,7 +887,8 @@ impl GameState {
     /// Post process after loading.
     /// C++ `GameState::gameStatePostProcessLoad` (GameState.cpp:1505-1531):
     /// drain registered snapshots, then `ThePartitionManager->update()`.
-    fn game_state_post_process_load(&mut self) -> Result<(), XferStatus> {
+    /// Public like C++ `GameState.h:188`.
+    pub fn game_state_post_process_load(&mut self) -> Result<(), XferStatus> {
         // Drain the list first so we do not leave stale pointers behind if a fixup fails.
         let snapshots = std::mem::take(&mut self.snapshot_post_process_list);
         for (which, index) in snapshots {
@@ -897,6 +899,7 @@ impl GameState {
         }
 
         // C++ GameState.cpp:1528-1529 — partition must refresh before scripts run.
+        // Not during CHUNK_GameStateMap (3rd of 17); after every snapshot loadPostProcess.
         notify_partition_manager_update();
 
         Ok(())

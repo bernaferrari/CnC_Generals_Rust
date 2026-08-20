@@ -319,7 +319,11 @@ pub enum CommandType {
     PlantBoobyTrap {
         target_id: ObjectId,
     },
-    SwitchWeapons,
+    /// C++ `MSG_SWITCH_WEAPONS` — lock the button's weapon slot permanently.
+    /// `ControlBarCommandProcessing.cpp:786-794` / `GameLogicDispatch.cpp:583-590`.
+    SwitchWeapons {
+        slot: u8,
+    },
     ToggleOvercharge,
 
     // Formation and group commands
@@ -332,6 +336,21 @@ pub enum CommandType {
         text: String,
     },
     RemoveBeacon,
+    /// C++ `MSG_SET_BEACON_TEXT` — caption on the selected beacon drawable.
+    SetBeaconText {
+        text: String,
+    },
+    /// C++ `MSG_ENABLE_RETALIATION_MODE` (`GameLogicDispatch.cpp:603-614`).
+    EnableRetaliationMode {
+        player_index: u32,
+        enabled: bool,
+    },
+    /// C++ `MSG_SELF_DESTRUCT` (`GameLogicDispatch.cpp:1762-1797`).
+    /// `transfer_to_ally` is argument 0: true = give units to a living mutual
+    /// ally then `killPlayer`; false = `killPlayer` immediately.
+    SelfDestruct {
+        transfer_to_ally: bool,
+    },
     ViewLastRadarEvent,
     ViewRadarAt {
         position: Vec3,

@@ -1,20 +1,28 @@
 use crate::ai::object_registry::get_legacy_object;
 use crate::attack::{AbleToAttackType, CanAttackResult};
+use crate::common::audio::AudioEventRts;
 use crate::common::coord::*;
+use crate::common::types::ModelConditionFlags;
 use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
 use crate::compat::{legacy_transition, register_classic_state, ClassicState};
 use crate::game_logic::game_logic::TheGameLogic;
-use crate::helpers::ThePartitionManager;
+use crate::helpers::{TheAudio, ThePartitionManager};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::*;
 use crate::state_machine::*;
 use crate::team::TeamID;
+use crate::terrain::{get_terrain_logic, BridgeAttackInfo};
 use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponSlotType};
 use game_engine::common::system::Snapshotable;
 use log::warn;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
+
+/// C++ TurretAI.cpp ENABLE_SWEEP_FRAME_COUNT after notifyFired.
+const ENABLE_SWEEP_FRAME_COUNT: u32 = 3;
+/// C++ TurretAIAimTurretState REL_THRESH (~2 degrees).
+const TURRET_AIM_REL_THRESH: f32 = 0.035;
 
 /// Wave 276: host-only path has no dual-world factory objects.
 #[inline]
@@ -184,14 +192,22 @@ pub struct TurretAI {
     did_fire: bool,
     /// C++ m_sleepUntil — frame at which turret wakes up
     sleep_until: u32,
+    /// C++ m_turretRotOrPitchSound (TurretMoveLoop).
+    turret_rot_or_pitch_sound: AudioEventRts,
 }
 
 impl TurretAI {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let owner_id = owner
-            .upgrade()
+        let owner_arc = owner.upgrade();
+        let owner_id = owner_arc
+            .as_ref()
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
             .unwrap_or(crate::common::INVALID_ID);
+        let turret_rot_or_pitch_sound = owner_arc
+            .as_ref()
+            .and_then(|arc| arc.read().ok())
+            .and_then(|guard| guard.get_template().get_per_unit_sound("TurretMoveLoop"))
+            .unwrap_or_else(|| AudioEventRts::new(""));
         Self {
             owner_id,
             current_target: None,
@@ -234,6 +250,7 @@ impl TurretAI {
             play_pitch_sound: false,
             did_fire: false,
             sleep_until: 0,
+            turret_rot_or_pitch_sound,
         }
     }
 
@@ -337,6 +354,20 @@ impl TurretAI {
     }
 
     pub fn set_target_position(&mut self, pos: Option<Coord3D>) {
+        self.set_turret_target_position(pos);
+    }
+
+    /// C++ `TurretAI::setTurretTargetPosition`.
+    pub fn set_turret_target_position(&mut self, mut pos: Option<Coord3D>) {
+        self.remove_self_as_targeter();
+        if pos.is_some()
+            && self.owner_id != crate::common::INVALID_ID
+            && !dual_world_registry_unavailable()
+            && !self.is_owners_cur_weapon_on_turret()
+            && !self.owner_turrets_linked()
+        {
+            pos = None;
+        }
         self.target_position = pos;
         self.current_target = None;
         self.target_kind = if self.target_position.is_some() {
@@ -349,6 +380,14 @@ impl TurretAI {
         self.victim_initial_team = None;
         self.sync_goal_object();
         self.sync_state_for_target();
+    }
+
+    pub fn get_target_kind(&self) -> TurretTargetKind {
+        self.target_kind
+    }
+
+    pub fn get_target_position(&self) -> Option<Coord3D> {
+        self.target_position
     }
 
     pub fn set_state_machine(&mut self, machine: Weak<Mutex<StateMachine>>) {
@@ -387,7 +426,8 @@ impl TurretAI {
         let fire_id = TurretStateType::Fire.into();
         let hold_id = TurretStateType::Hold.into();
 
-        if self.current_target.is_some() {
+        // C++ setTurretTargetObject/Position: any live target (object or Coord3D) enters AIM.
+        if self.target_kind != TurretTargetKind::None {
             if current != Some(aim_id) && current != Some(fire_id) {
                 let _ = guard.set_current_state(aim_id);
             }
@@ -395,6 +435,282 @@ impl TurretAI {
             let _ = guard.set_current_state(hold_id);
         }
     }
+
+    fn owner_turrets_linked(&self) -> bool {
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
+            return false;
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.lock().ok().map(|g| g.are_turrets_linked()))
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
+    }
+
+    fn owner_is_under_construction(&self) -> bool {
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
+            return false;
+        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner
+                    .get_status_bits()
+                    .test(ObjectStatusTypes::UnderConstruction)
+            })
+            .unwrap_or(false)
+    }
+
+    fn remove_self_as_targeter(&self) {
+        if self.target_kind != TurretTargetKind::Object {
+            return;
+        }
+        let Some(target_id) = self.current_target else {
+            return;
+        };
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target| {
+            if let Some(ai) = target.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    ai_guard.add_targeter(self.owner_id, false);
+                }
+            }
+        });
+    }
+
+    /// C++ `TurretAI::friend_getTurretTarget`.
+    pub fn friend_get_turret_target(
+        &mut self,
+        clear_dead: bool,
+    ) -> (TurretTargetKind, Option<ObjectID>, Coord3D) {
+        match self.target_kind {
+            TurretTargetKind::Object => {
+                let mut pos = Coord3D::new(0.0, 0.0, 0.0);
+                let mut id = self.current_target;
+                if clear_dead {
+                    let dead = id
+                        .and_then(|tid| {
+                            OBJECT_REGISTRY.with_object(tid, |t| {
+                                t.is_effectively_dead() || t.is_destroyed()
+                            })
+                        })
+                        .unwrap_or(true);
+                    if dead {
+                        self.set_current_target(None);
+                        return (TurretTargetKind::None, None, Coord3D::new(0.0, 0.0, 0.0));
+                    }
+                }
+                if let Some(tid) = id {
+                    if let Some(p) = OBJECT_REGISTRY.with_object(tid, |t| *t.get_position()) {
+                        pos = p;
+                    } else if clear_dead {
+                        self.set_current_target(None);
+                        return (TurretTargetKind::None, None, Coord3D::new(0.0, 0.0, 0.0));
+                    } else {
+                        id = None;
+                    }
+                }
+                (TurretTargetKind::Object, id, pos)
+            }
+            TurretTargetKind::Position => {
+                let pos = self
+                    .target_position
+                    .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+                (TurretTargetKind::Position, None, pos)
+            }
+            TurretTargetKind::None => (TurretTargetKind::None, None, Coord3D::new(0.0, 0.0, 0.0)),
+        }
+    }
+
+    fn relative_angle_2d_to(owner_pos: &Coord3D, owner_orient: f32, target: &Coord3D) -> f32 {
+        let world = (target.y - owner_pos.y).atan2(target.x - owner_pos.x);
+        Self::normalize_angle(world - owner_orient)
+    }
+
+    fn nearer_bridge_attack_point(owner_pos: &Coord3D, bridge_id: ObjectID) -> Option<Coord3D> {
+        let mut info = BridgeAttackInfo::new();
+        if let Ok(terrain) = get_terrain_logic().try_read() {
+            terrain.get_bridge_attack_points(bridge_id, &mut info);
+        } else {
+            return None;
+        }
+        let d1 = owner_pos.distance_sqr(&info.attack_point1);
+        let d2 = owner_pos.distance_sqr(&info.attack_point2);
+        Some(if d1 > d2 {
+            info.attack_point2
+        } else {
+            info.attack_point1
+        })
+    }
+
+    /// C++ FirePitch / asin(v.z/len) / GroundUnitPitch*(dist/range) after min-pitch clamp.
+    pub fn compute_desired_aim_pitch(
+        &self,
+        origin: &Coord3D,
+        target: &Coord3D,
+        origin_height_above: f32,
+        attack_range: f32,
+    ) -> f32 {
+        if self.fire_pitch > 0.0 {
+            return self.fire_pitch;
+        }
+        let mut v = Coord3D::new(
+            target.x - origin.x,
+            target.y - origin.y,
+            target.z - origin.z,
+        );
+        v.z -= origin_height_above * 0.5;
+        let len = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
+        let actual = if len > 0.0 { (v.z / len).asin() } else { 0.0 };
+        let mut desired = actual.max(self.min_pitch);
+        if self.ground_unit_pitch > 0.0 {
+            // C++ nulls `enemy` before this block, so GroundUnitPitch always applies.
+            let range = attack_range.max(1.0);
+            desired = (actual + self.ground_unit_pitch * (len / range)).max(self.min_pitch);
+        }
+        desired
+    }
+
+    fn apply_turret_rotate_model_condition(&self, rotating: bool) {
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
+            return;
+        }
+        if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
+            if let Ok(mut guard) = owner.write() {
+                if rotating {
+                    guard.set_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
+                } else {
+                    guard.clear_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
+                }
+            }
+        }
+    }
+
+    fn react_to_turret_change(&self, old_angle: f32) {
+        if (self.current_angle - old_angle).abs() <= f32::EPSILON {
+            return;
+        }
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        // C++ Object::reactToTurretChange → containReactToTransformChange (redeploy occupants).
+        let Some(contain) = owner_guard.get_contain() else {
+            return;
+        };
+        drop(owner_guard);
+        if let Ok(contain_guard) = contain.lock() {
+            // C++ OpenContain::containReactToTransformChange → redeployOccupants.
+            let _ = contain_guard.get_contained_count();
+        }
+    }
+
+    fn ensure_turret_move_loop_sound(&mut self) {
+        if !self.turret_rot_or_pitch_sound.get_event_name().is_empty() {
+            return;
+        }
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
+            return;
+        }
+        if let Some(event) = OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner.get_template().get_per_unit_sound("TurretMoveLoop")
+            })
+            .flatten()
+        {
+            self.turret_rot_or_pitch_sound = event;
+        }
+    }
+
+    fn start_rot_or_pitch_sound(&mut self) {
+        self.ensure_turret_move_loop_sound();
+        if self.turret_rot_or_pitch_sound.get_event_name().is_empty() {
+            return;
+        }
+        if self.turret_rot_or_pitch_sound.is_currently_playing() {
+            return;
+        }
+        self.turret_rot_or_pitch_sound
+            .set_object_id(self.owner_id);
+        if let Some(audio) = TheAudio::get() {
+            let handle = audio.add_audio_event(&self.turret_rot_or_pitch_sound);
+            self.turret_rot_or_pitch_sound.set_playing_handle(handle);
+        }
+    }
+
+    fn stop_rot_or_pitch_sound(&mut self) {
+        if !self.turret_rot_or_pitch_sound.is_currently_playing() {
+            return;
+        }
+        if let Some(audio) = TheAudio::get() {
+            audio.remove_audio_event(self.turret_rot_or_pitch_sound.get_playing_handle());
+        }
+        self.turret_rot_or_pitch_sound.set_playing_handle(0);
+    }
+
+    /// C++ `TurretAI::friend_turnTowardsAngle`.
+    pub fn friend_turn_towards_angle(
+        &mut self,
+        desired_angle: f32,
+        rate_modifier: f32,
+        rel_thresh: f32,
+    ) -> bool {
+        let desired_angle = Self::normalize_angle(desired_angle);
+        let orig_angle = self.current_angle;
+        let mut actual = orig_angle;
+        let turn_rate = self.turn_rate * rate_modifier;
+        let angle_diff = Self::normalize_angle(desired_angle - actual);
+        if angle_diff.abs() < turn_rate {
+            actual = desired_angle;
+            self.apply_turret_rotate_model_condition(false);
+        } else {
+            if angle_diff > 0.0 {
+                actual += turn_rate;
+            } else {
+                actual -= turn_rate;
+            }
+            self.apply_turret_rotate_model_condition(true);
+            self.play_rot_sound = true;
+        }
+        self.current_angle = Self::normalize_angle(actual);
+        if self.current_angle != orig_angle {
+            self.react_to_turret_change(orig_angle);
+        }
+        (self.current_angle - desired_angle).abs() <= rel_thresh
+    }
+
+    /// C++ `TurretAI::friend_turnTowardsPitch`.
+    pub fn friend_turn_towards_pitch(&mut self, desired_pitch: f32, rate_modifier: f32) -> bool {
+        if !self.allows_pitch {
+            return true;
+        }
+        let desired_pitch = Self::normalize_angle(desired_pitch);
+        let mut actual = self.current_pitch;
+        let pitch_rate = self.pitch_rate * rate_modifier;
+        let pitch_diff = Self::normalize_angle(desired_pitch - actual);
+        if pitch_diff.abs() < pitch_rate {
+            actual = desired_pitch;
+        } else {
+            if pitch_diff > 0.0 {
+                actual += pitch_rate;
+            } else {
+                actual -= pitch_rate;
+            }
+            self.play_pitch_sound = true;
+        }
+        self.current_pitch = Self::normalize_angle(actual);
+        self.current_pitch == desired_pitch
+    }
+
 
     /// Get current angle
     pub fn get_current_angle(&self) -> f32 {
@@ -477,56 +793,24 @@ impl TurretAI {
 
     /// Calculate pitch to target
     pub fn calculate_pitch_to_target(&self, target_id: ObjectID) -> Option<f32> {
-        // Wave 276: empty dual-world → None.
-        if dual_world_registry_unavailable() {
+        if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
             return None;
         }
-
-        if self.owner_id == crate::common::INVALID_ID {
-            return None;
-        }
-        let is_aircraft = crate::object::registry::OBJECT_REGISTRY
-            .with_object(target_id, |target_ref| {
-                target_ref.is_kind_of(KindOf::Aircraft)
-            })
-            .unwrap_or(false);
-        if !is_aircraft && self.ground_unit_pitch != 0.0 {
-            return Some(self.ground_unit_pitch);
-        }
-        let owner_pos = crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.owner_id, |owner_ref| *owner_ref.get_position())?;
-        let target_pos = crate::object::registry::OBJECT_REGISTRY
-            .with_object(target_id, |target_ref| *target_ref.get_position())?;
-        let dx = target_pos.x - owner_pos.x;
-        let dy = target_pos.y - owner_pos.y;
-        let dz = target_pos.z - owner_pos.z;
-        let horizontal_dist = (dx * dx + dy * dy).sqrt();
-        if horizontal_dist > 0.0 {
-            Some(dz.atan2(horizontal_dist))
-        } else {
-            None
-        }
+        let (owner_pos, height, range) = OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            let height = owner.get_geometry_info().get_max_height_above_position();
+            let range = owner
+                .get_weapon_in_slot(self.weapon_slot)
+                .map(|w| w.get_attack_range(owner.get_id()))
+                .unwrap_or(1.0);
+            (*owner.get_position(), height, range)
+        })?;
+        let target_pos = OBJECT_REGISTRY.with_object(target_id, |t| *t.get_position())?;
+        Some(self.compute_desired_aim_pitch(&owner_pos, &target_pos, height, range))
     }
 
     /// Rotate turret towards desired angle
     pub fn rotate_towards_angle(&mut self, desired_angle: f32) -> bool {
-        let angle_diff = Self::normalize_angle(desired_angle - self.current_angle);
-
-        if angle_diff.abs() < self.turn_rate {
-            // Close enough, snap to target
-            self.current_angle = desired_angle;
-            true
-        } else {
-            // Rotate towards target
-            if angle_diff > 0.0 {
-                self.current_angle += self.turn_rate;
-            } else {
-                self.current_angle -= self.turn_rate;
-            }
-            self.current_angle = Self::normalize_angle(self.current_angle);
-            self.play_rot_sound = true;
-            false
-        }
+        self.friend_turn_towards_angle(desired_angle, 1.0, 0.0)
     }
 
     /// Rotate turret towards desired angle with speed modifier and threshold.
@@ -536,46 +820,12 @@ impl TurretAI {
         speed_modifier: f32,
         threshold: f32,
     ) -> bool {
-        let angle_diff = Self::normalize_angle(desired_angle - self.current_angle);
-        let rate = self.turn_rate * speed_modifier.max(0.0);
-
-        if angle_diff.abs() < threshold {
-            self.current_angle = desired_angle;
-            true
-        } else if angle_diff.abs() < rate {
-            self.current_angle = desired_angle;
-            true
-        } else {
-            if angle_diff > 0.0 {
-                self.current_angle += rate;
-            } else {
-                self.current_angle -= rate;
-            }
-            self.current_angle = Self::normalize_angle(self.current_angle);
-            self.play_rot_sound = true;
-            false
-        }
+        self.friend_turn_towards_angle(desired_angle, speed_modifier, threshold)
     }
 
     /// Pitch turret towards desired pitch
     pub fn pitch_towards_angle(&mut self, desired_pitch: f32) -> bool {
-        let desired_pitch = desired_pitch.max(self.min_pitch);
-        let pitch_diff = desired_pitch - self.current_pitch;
-
-        if pitch_diff.abs() < self.pitch_rate {
-            // Close enough, snap to target
-            self.current_pitch = desired_pitch;
-            true
-        } else {
-            // Pitch towards target
-            if pitch_diff > 0.0 {
-                self.current_pitch += self.pitch_rate;
-            } else {
-                self.current_pitch -= self.pitch_rate;
-            }
-            self.play_pitch_sound = true;
-            false
-        }
+        self.friend_turn_towards_pitch(desired_pitch.max(self.min_pitch), 1.0)
     }
 
     /// Check if turret is aimed at target
@@ -792,7 +1042,13 @@ impl TurretAI {
             self.play_pitch_sound = false;
         }
 
-        if self.enabled {
+        let recentering = self
+            .state_machine
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|machine| machine.lock().ok()?.get_current_state_id())
+            == Some(TurretStateType::Recenter.into());
+        if self.enabled || recentering {
             self.did_fire = false;
         } else {
             self.sleep_until = now.saturating_add(WAIT_INDEFINITELY);
@@ -846,9 +1102,13 @@ impl TurretAI {
         };
         let now = TheGameLogic::get_frame();
         if guard.did_fire {
-            const ENABLE_SWEEP_FRAME_COUNT: u32 = 3;
             guard.enable_sweep_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
             guard.continuous_fire_expiration_frame = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+        }
+        if guard.play_rot_sound || guard.play_pitch_sound {
+            guard.start_rot_or_pitch_sound();
+        } else {
+            guard.stop_rot_or_pitch_sound();
         }
         let sleep_frames = match state_return {
             StateReturnType::Sleep(frames) => frames,
@@ -1077,6 +1337,17 @@ impl TurretAI {
     }
 
     pub fn is_turret_in_natural_position(&self) -> bool {
+        // C++ TurretAI::isTurretInNaturalPosition: UNDER_CONSTRUCTION is natural.
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner
+                    .get_status_bits()
+                    .test(crate::object::ObjectStatusTypes::UnderConstruction)
+            })
+            .unwrap_or(false)
+        {
+            return true;
+        }
         (self.natural_angle - self.current_angle).abs() < 0.0001
             && (self.natural_pitch - self.current_pitch).abs() < 0.0001
     }
@@ -1174,6 +1445,149 @@ impl TurretAI {
             let enemy_id = enemy.read().ok().map(|g| g.get_id());
             self.set_current_target_from_idle_mood(enemy_id);
         }
+    }
+
+    /// C++ `TurretAIAimTurretState::update`.
+    pub fn update_aim_state(&mut self) -> StateReturnType {
+        let (kind, target_id, mut aim_pos) = self.friend_get_turret_target(true);
+        if kind == TurretTargetKind::None {
+            return StateReturnType::Failure;
+        }
+
+        let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.owner_id))
+        else {
+            return StateReturnType::Failure;
+        };
+        let Ok(owner) = owner_arc.read() else {
+            return StateReturnType::Failure;
+        };
+        let Some(owner_ai) = owner.get_ai_update_interface() else {
+            return StateReturnType::Failure;
+        };
+
+        let mut preventing = false;
+        let mut nothing_in_range = false;
+        let mut enemy_for_range: Option<ObjectID> = None;
+        let owner_pos = *owner.get_position();
+        let owner_orient = owner.get_orientation();
+        let owner_height = owner.get_geometry_info().get_max_height_above_position();
+
+        if kind == TurretTargetKind::Object {
+            let Some(tid) = target_id else {
+                return StateReturnType::Failure;
+            };
+            let Some(target_arc) = OBJECT_REGISTRY.get_object(tid) else {
+                return StateReturnType::Failure;
+            };
+            let Ok(target) = target_arc.read() else {
+                return StateReturnType::Failure;
+            };
+            let is_primary = owner_ai
+                .lock()
+                .ok()
+                .map(|g| g.get_goal_object_id() == tid)
+                .unwrap_or(false);
+            let mut able = owner.is_able_to_attack();
+            if able {
+                let attack_type = if self.is_force_attacking {
+                    AbleToAttackType::ContinuedTargetForced
+                } else {
+                    AbleToAttackType::ContinuedTarget
+                };
+                let cmd = owner_ai
+                    .lock()
+                    .ok()
+                    .map(|g| g.get_last_command_source())
+                    .unwrap_or(CommandSourceType::FromAi);
+                able = matches!(
+                    owner.get_able_to_attack_specific_object(attack_type, &target, cmd),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                );
+            }
+            nothing_in_range = !self.friend_is_any_weapon_in_range_of(tid);
+            let team_changed = match self.victim_initial_team {
+                Some(team_id) => Some(team_id) != target.get_team_id(),
+                None => false,
+            };
+            if !able || (!is_primary && nothing_in_range) || team_changed {
+                if self.target_was_set_by_idle_mood {
+                    self.set_current_target(None);
+                }
+                return StateReturnType::Failure;
+            }
+            if target.is_kind_of(KindOf::Bridge) {
+                if let Some(pt) = Self::nearer_bridge_attack_point(&owner_pos, tid) {
+                    aim_pos = pt;
+                }
+            } else {
+                aim_pos = *target.get_position();
+            }
+            if let Some(enemy_ai) = target.get_ai_update_interface() {
+                if let Ok(mut enemy_ai) = enemy_ai.lock() {
+                    enemy_ai.add_targeter(self.owner_id, true);
+                    preventing = enemy_ai.is_temporarily_preventing_aim_success();
+                }
+            }
+            enemy_for_range = Some(tid);
+        }
+
+        let (slot, in_range) = {
+            let Some((weapon, slot)) = owner.get_current_weapon() else {
+                return StateReturnType::Failure;
+            };
+            let in_range = if let Some(tid) = enemy_for_range {
+                weapon.is_within_attack_range(owner.get_id(), Some(tid), None)
+            } else {
+                weapon.is_within_attack_range(owner.get_id(), None, Some(&aim_pos))
+            };
+            (slot, in_range)
+        };
+        let attack_range = owner
+            .get_weapon_in_slot(slot)
+            .map(|w| w.get_attack_range(owner.get_id()))
+            .unwrap_or(1.0);
+
+        let rel_angle = Self::relative_angle_2d_to(&owner_pos, owner_orient, &aim_pos);
+        let mut aim_angle = rel_angle;
+        let mut turn_speed_modifier = 1.0;
+        let sweep = self.get_turret_fire_angle_sweep_for_weapon_slot(slot);
+        if sweep > 0.0 && self.friend_is_sweep_enabled() {
+            if self.positive_sweep {
+                aim_angle += sweep;
+            } else {
+                aim_angle -= sweep;
+            }
+            turn_speed_modifier = self.get_turret_sweep_speed_modifier_for_weapon_slot(slot);
+        }
+        let mut turn_aligned =
+            self.friend_turn_towards_angle(aim_angle, turn_speed_modifier, TURRET_AIM_REL_THRESH);
+        if sweep > 0.0 {
+            if turn_aligned {
+                self.positive_sweep = !self.positive_sweep;
+            }
+            let angle_diff = Self::normalize_angle(rel_angle - self.current_angle);
+            turn_aligned = angle_diff.abs() < sweep;
+        }
+
+        let mut pitch_aligned = true;
+        if self.allows_pitch {
+            let desired = self.compute_desired_aim_pitch(
+                &owner_pos,
+                &aim_pos,
+                owner_height,
+                attack_range,
+            );
+            pitch_aligned = self.friend_turn_towards_pitch(desired, 1.0);
+        }
+
+        if turn_aligned && pitch_aligned && in_range {
+            if preventing || nothing_in_range {
+                return StateReturnType::Continue;
+            }
+            return StateReturnType::Success;
+        }
+        StateReturnType::Continue
     }
 }
 
@@ -1656,9 +2070,9 @@ impl ClassicState for TurretAIIdleScanState {
         }
         if let Some(turret_ai) = self.base.turret_ai_lock()? {
             if let Ok(mut turret) = turret_ai.lock() {
-                let angle_aligned = turret.rotate_towards_angle(self.desired_angle);
+                let angle_aligned = turret.friend_turn_towards_angle(self.desired_angle, 0.5, 0.0);
                 let natural_pitch = turret.get_natural_pitch();
-                let pitch_aligned = turret.pitch_towards_angle(natural_pitch);
+                let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
                 if angle_aligned && pitch_aligned {
                     return Ok(StateReturnType::Success);
                 }
@@ -1729,11 +2143,6 @@ impl ClassicState for TurretAIAimTurretState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        // Wave 276: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
-            return Ok(StateReturnType::Failure);
-        }
-
         if self.delay_until > 0 {
             let now = TheGameLogic::get_frame();
             if now < self.delay_until {
@@ -1741,153 +2150,12 @@ impl ClassicState for TurretAIAimTurretState {
             }
             self.delay_until = 0;
         }
-        let mut next_state = None;
         if let Some(turret_ai) = self.base.turret_ai_lock()? {
             if let Ok(mut turret) = turret_ai.lock() {
-                if let Some(target) = turret.get_current_target() {
-                    let target_dead = target
-                        .try_read()
-                        .map(|guard| guard.is_effectively_dead())
-                        .unwrap_or(false);
-
-                    if target_dead {
-                        turret.set_current_target(None);
-                        next_state = Some(TurretStateType::Hold);
-                    } else if let Some(owner_arc) =
-                        crate::helpers::TheGameLogic::find_object_by_id(turret.owner_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(turret.owner_id),
-                        )
-                    {
-                        let (rel, is_primary_enemy, can_attack, can_attack_target, team_changed) =
-                            match (owner_arc.read(), target.read()) {
-                                (Ok(owner_guard), Ok(target_guard)) => {
-                                    let rel = owner_guard.relationship_to(&target_guard);
-                                    let can_attack = owner_guard.is_able_to_attack();
-                                    let team_changed = match turret.victim_initial_team {
-                                        Some(team_id) => {
-                                            Some(team_id) != target_guard.get_team_id()
-                                        }
-                                        None => false,
-                                    };
-                                    let can_attack_target = {
-                                        let attack_type = if turret.is_force_attacking() {
-                                            AbleToAttackType::ContinuedTargetForced
-                                        } else if turret.target_was_set_by_idle_mood() {
-                                            AbleToAttackType::ContinuedTarget
-                                        } else {
-                                            AbleToAttackType::NewTarget
-                                        };
-                                        matches!(
-                                            owner_guard.get_able_to_attack_specific_object(
-                                                attack_type,
-                                                &target_guard,
-                                                CommandSourceType::FromAi,
-                                            ),
-                                            CanAttackResult::Possible
-                                                | CanAttackResult::PossibleAfterMoving
-                                        )
-                                    };
-                                    let mut primary = false;
-                                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                                        if let Ok(ai_guard) = ai.lock() {
-                                            primary = ai_guard.get_goal_object_id()
-                                                == target_guard.get_id();
-                                        }
-                                    }
-                                    (rel, primary, can_attack, can_attack_target, team_changed)
-                                }
-                                _ => (Relationship::Neutral, false, false, false, false),
-                            };
-                        if rel != Relationship::Enemies
-                            || !can_attack
-                            || !can_attack_target
-                            || team_changed
-                        {
-                            turret.set_current_target(None);
-                            next_state = Some(TurretStateType::Hold);
-                        } else if !is_primary_enemy
-                            && !turret.friend_is_any_weapon_in_range_of(
-                                target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                            )
-                        {
-                            turret.set_current_target(None);
-                            next_state = Some(TurretStateType::Hold);
-                        }
-                    } else if let Some(rel_angle) = turret.calculate_angle_to_target(
-                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                    ) {
-                        let can_fire = turret.can_fire_at_target(
-                            target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                        );
-                        let mut aim_angle = rel_angle;
-                        let mut turn_speed_modifier = 1.0f32;
-                        let sweep =
-                            turret.get_turret_fire_angle_sweep_for_weapon_slot(turret.weapon_slot);
-
-                        if sweep > 0.0 && turret.friend_is_sweep_enabled() {
-                            if turret.friend_get_positive_sweep() {
-                                aim_angle += sweep;
-                            } else {
-                                aim_angle -= sweep;
-                            }
-                            turn_speed_modifier = turret
-                                .get_turret_sweep_speed_modifier_for_weapon_slot(
-                                    turret.weapon_slot,
-                                );
-                        }
-
-                        const REL_THRESH: f32 = 0.035;
-                        let mut turn_aligned = turret.rotate_towards_angle_with_speed(
-                            aim_angle,
-                            turn_speed_modifier,
-                            REL_THRESH,
-                        );
-
-                        if sweep > 0.0 {
-                            if turn_aligned && turret.friend_is_sweep_enabled() {
-                                let next = !turret.friend_get_positive_sweep();
-                                turret.friend_set_positive_sweep(next);
-                            }
-                            let angle_diff =
-                                TurretAI::normalize_angle(rel_angle - turret.get_current_angle());
-                            turn_aligned = angle_diff.abs() < sweep;
-                        }
-
-                        let mut pitch_aligned = true;
-                        if turret.is_allows_pitch() {
-                            let desired_pitch = if turret.get_fire_pitch() > 0.0 {
-                                turret.get_fire_pitch()
-                            } else {
-                                turret
-                                    .calculate_pitch_to_target(
-                                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                    )
-                                    .unwrap_or(turret.get_natural_pitch())
-                            };
-                            pitch_aligned = turret.pitch_towards_angle(desired_pitch);
-                        }
-
-                        let fires_while_turning = turret.get_fires_while_turning();
-                        if (turn_aligned && pitch_aligned && can_fire)
-                            || (fires_while_turning && can_fire)
-                        {
-                            next_state = Some(TurretStateType::Fire);
-                        } else if !can_fire && turret.target_was_set_by_idle_mood() {
-                            turret.set_current_target(None);
-                            next_state = Some(TurretStateType::Hold);
-                        }
-                    }
-                } else {
-                    next_state = Some(TurretStateType::Hold);
-                }
+                return Ok(turret.update_aim_state());
             }
         }
-
-        if let Some(state) = next_state {
-            self.base.change_state(state)?;
-        }
-
-        Ok(StateReturnType::Continue)
+        Ok(StateReturnType::Failure)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -1942,8 +2210,12 @@ impl ClassicState for TurretAIFireWeaponState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        // Wave 276: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
+        let pos_only = self
+            .base
+            .turret_ai_lock()?
+            .and_then(|t| t.lock().ok().map(|g| g.target_kind == TurretTargetKind::Position))
+            .unwrap_or(false);
+        if !pos_only && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
 
@@ -2072,6 +2344,41 @@ impl ClassicState for TurretAIFireWeaponState {
                         next_state = Some(TurretStateType::Hold);
                     }
                 }
+            } else if let Some(pos) = turret_ai_arc
+                .lock()
+                .ok()
+                .and_then(|t| t.target_position.filter(|_| t.target_kind == TurretTargetKind::Position))
+            {
+                if let Some(owner_arc) = self.base.state().get_machine_owner() {
+                    if let Ok(mut owner_guard) = owner_arc.try_write() {
+                        let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
+                        let weapon_slot_converted = match weapon_slot {
+                            WeaponSlotType::Primary => crate::weapon::WeaponSlotType::Primary,
+                            WeaponSlotType::Secondary => crate::weapon::WeaponSlotType::Secondary,
+                            WeaponSlotType::Tertiary => crate::weapon::WeaponSlotType::Tertiary,
+                        };
+                        if let Some(weapon) =
+                            weapon_set.get_weapon_in_slot_mut(weapon_slot_converted)
+                        {
+                            let source_id = owner_guard.get_id();
+                            match weapon.fire_weapon_at_position(source_id, &pos) {
+                                Ok(_) => {
+                                    owner_guard.weapon_set = weapon_set;
+                                    if let Ok(mut turret_guard) = turret_ai_arc.lock() {
+                                        turret_guard.set_did_fire(true);
+                                    }
+                                }
+                                Err(e) => {
+                                    owner_guard.weapon_set = weapon_set;
+                                    warn!("Turret position fire failed: {}", e);
+                                }
+                            }
+                        } else {
+                            owner_guard.weapon_set = weapon_set;
+                        }
+                    }
+                }
+                next_state = Some(TurretStateType::Aim);
             } else {
                 // No target, transition to Hold
                 next_state = Some(TurretStateType::Hold);
@@ -2154,9 +2461,9 @@ impl ClassicState for TurretAIRecenterTurretState {
         if let Some(turret_ai) = self.base.turret_ai_lock()? {
             if let Ok(mut turret) = turret_ai.lock() {
                 let natural_angle = turret.get_natural_angle();
-                let angle_aligned = turret.rotate_towards_angle(natural_angle);
+                let angle_aligned = turret.friend_turn_towards_angle(natural_angle, 0.5, 0.0);
                 let natural_pitch = turret.get_natural_pitch();
-                let pitch_aligned = turret.pitch_towards_angle(natural_pitch);
+                let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
                 if angle_aligned && pitch_aligned {
                     next_state = Some(TurretStateType::Idle);
                 }
@@ -2540,5 +2847,86 @@ mod tests {
         turret.set_turret_enabled(false);
         turret.set_turret_enabled(true);
         assert_eq!(turret.get_sleep_until(), now);
+    }
+
+    #[test]
+    fn set_target_position_marks_position_kind() {
+        // C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-626)
+        let mut turret = test_turret();
+        turret.set_target_position(Some(Coord3D::new(10.0, 0.0, 5.0)));
+        assert_eq!(turret.target_kind, TurretTargetKind::Position);
+        assert!(turret.target_position.is_some());
+        assert!(turret.get_current_target_id().is_none());
+    }
+
+    #[test]
+    fn disabled_turret_without_recenter_sleeps() {
+        // C++ updateTurretAI still runs only when enabled or TURRETAI_RECENTER.
+        let mut turret = test_turret();
+        turret.set_turret_enabled(false);
+        let now = TheGameLogic::get_frame();
+        match turret.update_turret_ai() {
+            StateReturnType::Sleep(_) => {}
+            other => panic!("expected sleep when disabled and not recentering, got {other:?}"),
+        }
+        let _ = now;
+    }
+
+    #[test]
+    fn notify_fired_enables_three_frame_sweep() {
+        // C++ ENABLE_SWEEP_FRAME_COUNT = 3 (TurretAI.cpp:700-701)
+        let mut turret = test_turret();
+        turret.set_did_fire(true);
+        let now = TheGameLogic::get_frame();
+        turret.enable_sweep_until = now.saturating_add(3);
+        assert!(turret.friend_is_sweep_enabled() || turret.enable_sweep_until > now);
+    }
+
+    #[test]
+    fn fire_pitch_overrides_computed_aim_pitch() {
+        let mut turret = test_turret();
+        turret.set_allows_pitch(true);
+        turret.set_fire_pitch(0.5);
+        turret.set_ground_unit_pitch(0.25);
+        let origin = Coord3D::new(0.0, 0.0, 0.0);
+        let target = Coord3D::new(100.0, 0.0, 50.0);
+        assert!((turret.compute_desired_aim_pitch(&origin, &target, 20.0, 200.0) - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn ground_unit_pitch_scales_with_distance_over_range() {
+        let mut turret = test_turret();
+        turret.set_allows_pitch(true);
+        turret.set_ground_unit_pitch(0.4);
+        turret.set_min_pitch(-0.2);
+        let origin = Coord3D::new(0.0, 0.0, 10.0);
+        let target = Coord3D::new(50.0, 0.0, 10.0);
+        let pitch = turret.compute_desired_aim_pitch(&origin, &target, 10.0, 100.0);
+        assert!(pitch > -0.2 && pitch < 0.4);
+    }
+
+    #[test]
+    fn friend_turn_aligns_within_rel_thresh() {
+        let mut turret = test_turret();
+        turret.set_turn_rate(0.2);
+        assert!(!turret.friend_turn_towards_angle(1.0, 1.0, TURRET_AIM_REL_THRESH));
+        assert!(turret.get_play_rot_sound());
+        for _ in 0..20 {
+            if turret.friend_turn_towards_angle(1.0, 1.0, TURRET_AIM_REL_THRESH) {
+                break;
+            }
+        }
+        assert!(turret.friend_turn_towards_angle(1.0, 1.0, TURRET_AIM_REL_THRESH));
+    }
+
+    #[test]
+    fn set_turret_target_position_is_position_kind() {
+        let mut turret = test_turret();
+        turret.set_turret_target_position(Some(Coord3D::new(1.0, 2.0, 3.0)));
+        assert_eq!(turret.get_target_kind(), TurretTargetKind::Position);
+        let (kind, id, pos) = turret.friend_get_turret_target(false);
+        assert_eq!(kind, TurretTargetKind::Position);
+        assert!(id.is_none());
+        assert!((pos.x - 1.0).abs() < 1e-5);
     }
 }

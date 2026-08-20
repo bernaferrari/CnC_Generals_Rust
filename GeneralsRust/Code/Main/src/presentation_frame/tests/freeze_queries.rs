@@ -237,9 +237,9 @@ fn box_select_unit_ids_from_presentation() {
     expect.sort_by_key(|id| id.0);
     assert_eq!(ids, expect);
     assert!(!ids.contains(&s));
-    // Structure-only box around factory.
+    // C++ `CanSelectDrawable(draw, TRUE)` never drag-selects a structure.
     let only_s = frame.box_select_unit_ids(Team::USA, 1.5, 2.5, 1.5, 2.5);
-    assert_eq!(only_s, vec![s]);
+    assert!(only_s.is_empty());
 }
 
 #[test]

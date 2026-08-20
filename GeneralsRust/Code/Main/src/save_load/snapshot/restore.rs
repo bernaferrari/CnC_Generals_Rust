@@ -558,6 +558,9 @@ impl SnapshotBuilder {
 
                 kind_of_production_cost_changes: Vec::new(),
                 shared_special_power_cooldowns: std::collections::HashMap::new(),
+                completed_upgrades: std::collections::HashSet::new(),
+                resource_supply_centers: Vec::new(),
+                resource_supply_warehouses: Vec::new(),
             });
         }
 

@@ -208,19 +208,21 @@ impl Object {
     /// Initialize object after creation
     pub fn init_object(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let object_id = self.id;
-        for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
-            module.with_module(|module| {
-                if let Some(create) = module.get_create_interface() {
-                    create.on_create();
-                } else {
-                    log::debug!(
-                        "Object {} module '{}' advertises CREATE but has no create interface",
-                        object_id,
-                        module.get_module_name_key()
-                    );
-                }
-            });
-        }
+        crate::object::create::with_create_owner_object(self as *mut Object, || {
+            for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
+                module.with_module(|module| {
+                    if let Some(create) = module.get_create_interface() {
+                        create.on_create();
+                    } else {
+                        log::debug!(
+                            "Object {} module '{}' advertises CREATE but has no create interface",
+                            object_id,
+                            module.get_module_name_key()
+                        );
+                    }
+                });
+            }
+        });
 
         if self.firing_tracker.is_none()
             && !self.has_firing_tracker_module()
@@ -237,21 +239,23 @@ impl Object {
     /// Notify create modules that construction has completed.
     pub fn on_build_complete(&mut self) {
         let object_id = self.id;
-        for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
-            module.with_module(|module| {
-                if let Some(create) = module.get_create_interface() {
-                    if create.should_do_on_build_complete() {
-                        create.on_build_complete();
+        crate::object::create::with_create_owner_object(self as *mut Object, || {
+            for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
+                module.with_module(|module| {
+                    if let Some(create) = module.get_create_interface() {
+                        if create.should_do_on_build_complete() {
+                            create.on_build_complete();
+                        }
+                    } else {
+                        log::debug!(
+                            "Object {} module '{}' advertises CREATE but has no create interface",
+                            object_id,
+                            module.get_module_name_key()
+                        );
                     }
-                } else {
-                    log::debug!(
-                        "Object {} module '{}' advertises CREATE but has no create interface",
-                        object_id,
-                        module.get_module_name_key()
-                    );
-                }
-            });
-        }
+                });
+            }
+        });
     }
 
     /// Called during object destruction

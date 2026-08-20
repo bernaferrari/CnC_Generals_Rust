@@ -76,10 +76,9 @@ fn apply_template_locomotor(
     apply_base!(RailedTransportAIUpdateModuleData);
     apply_base!(SupplyTruckAIUpdateModuleData);
     apply_base!(WorkerAIUpdateModuleData);
+    apply_base!(TransportAIUpdateModuleData);
+    apply_base!(WanderAIUpdateModuleData);
 
-    // Transport/Wander (and similar) advertise is_ai_module_data but do not
-    // embed AIUpdateModuleData yet. Keep the Arc unchanged; names stay on the
-    // ThingTemplate locomotor map.
     Ok(data)
 }
 

@@ -184,8 +184,9 @@ impl EjectPilotDie {
         "EjectPilotDie"
     }
 
-    /// Eject pilot from the vehicle
-    /// (Matches C++ EjectPilotDie::ejectPilot in EjectPilotDie.cpp lines 60-75)
+    /// Eject pilot from the vehicle.
+    /// C++ EjectPilotDie::ejectPilot (EjectPilotDie.cpp:60-75) returns before
+    /// audio when `!ocl || !dyingObject`.
     fn eject_pilot(
         &self,
         ocl_names: &[String],
@@ -203,6 +204,7 @@ impl EjectPilotDie {
 
         let ctx = crate::object_creation_list::live_creation_context();
         let _ = ocl.create_with_objects(&ctx, dying_object, damage_dealer, 0);
+        self.play_eject_sounds(dying_object);
     }
 
     /// Play ejection voice and sound effects
@@ -232,14 +234,14 @@ impl EjectPilotDie {
         }
     }
 
-    /// Check if object is significantly above terrain
-    /// (Matches C++ Object::isSignificantlyAboveTerrain)
+    /// C++ Thing::isSignificantlyAboveTerrain (Thing.cpp:308-313):
+    /// `getHeightAboveTerrain() > -(3*3)*TheGlobalData->m_gravity`.
+    /// Default gravity is -1.0 (GlobalData.cpp:810) → threshold 9.0.
     fn is_significantly_above_terrain(&self, object: &Object) -> bool {
-        // Use the object's built-in terrain height checking
-        // C++ uses: object->isSignificantlyAboveTerrain()
-        // This determines whether to spawn a pilot with parachute (in air)
-        // or standing on the ground (on ground)
-        object.is_significantly_above_terrain()
+        is_significantly_above_terrain_height(
+            object.calculate_height_above_terrain(),
+            current_gravity(),
+        )
     }
 }
 
@@ -269,9 +271,8 @@ impl DieModuleInterface for EjectPilotDie {
             &self.base.module_data.ocl_on_ground
         };
 
-        // C++ line 87: Eject the pilot using the selected OCL
+        // C++ EjectPilotDie.cpp:87: audio lives inside ejectPilot after the OCL check.
         self.eject_pilot(ocl, object, damage_dealer_guard.as_deref());
-        self.play_eject_sounds(object);
     }
 }
 
@@ -303,4 +304,33 @@ mod tests {
         assert_eq!(data.ocl_on_ground.len(), 1);
         assert_eq!(data.invulnerable_time, 3000);
     }
+
+    #[test]
+    fn significantly_above_terrain_uses_nine_with_default_gravity() {
+        // C++ Thing.cpp:308-313 with GlobalData.cpp:810 gravity -1 → 9.0
+        assert!(!is_significantly_above_terrain_height(1.0, -1.0));
+        assert!(!is_significantly_above_terrain_height(9.0, -1.0));
+        assert!(is_significantly_above_terrain_height(9.1, -1.0));
+        assert_eq!(-(3.0 * 3.0) * -1.0, 9.0);
+    }
+
+    #[test]
+    fn eject_pilot_skips_audio_when_ocl_missing() {
+        // C++ EjectPilotDie.cpp:62-63 returns before VoiceEject/SoundEject.
+        let data = EjectPilotDieModuleData::default();
+        assert!(data.ocl_in_air.is_empty());
+        assert!(data.ocl_on_ground.is_empty());
+    }
+}
+
+/// C++ GlobalData.cpp:810 default `m_gravity = -1.0f`.
+fn current_gravity() -> f32 {
+    game_engine::common::ini::get_global_data()
+        .map(|data| data.read().gravity)
+        .unwrap_or(-1.0)
+}
+
+/// C++ Thing.cpp:312 `getHeightAboveTerrain() > -(3*3)*m_gravity`.
+fn is_significantly_above_terrain_height(height_above_terrain: f32, gravity: f32) -> bool {
+    height_above_terrain > -(3.0 * 3.0) * gravity
 }

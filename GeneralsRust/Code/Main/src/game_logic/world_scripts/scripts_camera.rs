@@ -83,103 +83,11 @@ impl GameLogic {
         }
     }
 
-    /// Drain EVA events from TheEva and dispatch them as audio.
-    pub(in super::super) fn process_eva_events(&mut self) {
-        if let Ok(events) = gamelogic::helpers::TheEva::drain_events() {
-            for eva in events {
-                let sound_name = match eva {
-                    gamelogic::helpers::EvaEvent::LowPower => "EVA_LowPower",
-                    gamelogic::helpers::EvaEvent::InsufficientFunds => "EVA_InsufficientFunds",
-                    gamelogic::helpers::EvaEvent::BuildingLost => "EVA_BuildingLost",
-                    gamelogic::helpers::EvaEvent::BaseUnderAttack => "EVA_BaseUnderAttack",
-                    gamelogic::helpers::EvaEvent::AllyUnderAttack => "EVA_AllyUnderAttack",
-                    gamelogic::helpers::EvaEvent::UnitLost => "EVA_UnitLost",
-                    gamelogic::helpers::EvaEvent::BuildingSabotaged => "EVA_BuildingSabotaged",
-                    gamelogic::helpers::EvaEvent::CashStolen => "EVA_CashStolen",
-                    gamelogic::helpers::EvaEvent::VehicleStolen => "EVA_VehicleStolen",
-                    gamelogic::helpers::EvaEvent::BuildingStolen => "EVA_BuildingStolen",
-                    gamelogic::helpers::EvaEvent::UpgradeComplete => "EVA_UpgradeComplete",
-                    gamelogic::helpers::EvaEvent::BuildingBeingStolen => "EVA_BuildingBeingStolen",
-                    gamelogic::helpers::EvaEvent::BeaconDetected => "EVA_BeaconDetected",
-                    gamelogic::helpers::EvaEvent::GeneralLevelUp => "EVA_GeneralLevelUp",
-                    gamelogic::helpers::EvaEvent::EnemyBlackLotusDetected => {
-                        "EVA_EnemyBlackLotusDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::EnemyJarmenKellDetected => {
-                        "EVA_EnemyJarmenKellDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::EnemyColonelBurtonDetected => {
-                        "EVA_EnemyColonelBurtonDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::OwnBlackLotusDetected => {
-                        "EVA_OwnBlackLotusDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::OwnJarmenKellDetected => {
-                        "EVA_OwnJarmenKellDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::OwnColonelBurtonDetected => {
-                        "EVA_OwnColonelBurtonDetected"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedAllyParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedEnemyParticleCannon => {
-                        "EVA_SuperweaponDetectedParticleCannon"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponDetectedOwnNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedAllyNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedEnemyNuke => {
-                        "EVA_SuperweaponDetectedNuke"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponDetectedOwnScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedAllyScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponDetectedEnemyScudStorm => {
-                        "EVA_SuperweaponDetectedScudStorm"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemyParticleCannon => {
-                        "EVA_SuperweaponLaunchedParticleCannon"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemyNuke => {
-                        "EVA_SuperweaponLaunchedNuke"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemyScudStorm => {
-                        "EVA_SuperweaponLaunchedScudStorm"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyParticleCannon
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyParticleCannon => {
-                        "EVA_SuperweaponReadyParticleCannon"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyNuke
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyNuke => {
-                        "EVA_SuperweaponReadyNuke"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyScudStorm
-                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyScudStorm => {
-                        "EVA_SuperweaponReadyScudStorm"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnGpsScrambler
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyGpsScrambler
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemyGpsScrambler => {
-                        "EVA_SuperweaponLaunchedGpsScrambler"
-                    }
-                    gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnSneakAttack
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllySneakAttack
-                    | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemySneakAttack => {
-                        "EVA_SuperweaponLaunchedSneakAttack"
-                    }
-                };
-                game_engine::common::audio::dispatch_eva_announcement(sound_name);
-            }
-        }
-    }
+    /// C++ `Eva` is the sole consumer of `setShouldPlay` flags (`Eva.cpp:264-525`).
+    /// Leftover `TheEva` stays queued so live `Eva::update` / `ingest_logic_events`
+    /// can play Eva.ini `SideSounds` (`EvaUSA_BuildingLost`, …). Host HUD still
+    /// uses `host_eva_log` copies and must not drain this queue.
+    pub(in super::super) fn process_eva_events(&mut self) {}
 
     /// Evaluate and execute scripts each frame
     /// This is called from the main game loop (update_simulation)

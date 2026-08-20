@@ -8,6 +8,10 @@ use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::{AsciiString, ModuleData};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
+use crate::object::die::{
+    parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
+    parse_die_mux_veterancy_levels,
+};
 use crate::object::Object;
 use crate::object::INVALID_ID;
 use crate::upgrade::center::with_upgrade_center;
@@ -161,6 +165,38 @@ impl DieModuleInterface for UpgradeDie {
     }
 }
 
+fn parse_die_death_types(
+    _ini: &mut INI,
+    data: &mut UpgradeDieModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_die_mux_death_types(&mut data.base.die_mux_data, tokens)
+}
+
+fn parse_die_veterancy_levels(
+    _ini: &mut INI,
+    data: &mut UpgradeDieModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_die_mux_veterancy_levels(&mut data.base.die_mux_data, tokens)
+}
+
+fn parse_die_exempt_status(
+    _ini: &mut INI,
+    data: &mut UpgradeDieModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_die_mux_exempt_status(&mut data.base.die_mux_data, tokens)
+}
+
+fn parse_die_required_status(
+    _ini: &mut INI,
+    data: &mut UpgradeDieModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    parse_die_mux_required_status(&mut data.base.die_mux_data, tokens)
+}
+
 fn parse_upgrade_to_remove(
     _ini: &mut INI,
     data: &mut UpgradeDieModuleData,
@@ -175,10 +211,29 @@ fn parse_upgrade_to_remove(
     Ok(())
 }
 
-const UPGRADE_DIE_FIELDS: &[FieldParse<UpgradeDieModuleData>] = &[FieldParse {
-    token: "UpgradeToRemove",
-    parse: parse_upgrade_to_remove,
-}];
+// C++ UpgradeDie.h:30 DieModuleData::buildFieldParse then UpgradeToRemove.
+const UPGRADE_DIE_FIELDS: &[FieldParse<UpgradeDieModuleData>] = &[
+    FieldParse {
+        token: "DeathTypes",
+        parse: parse_die_death_types,
+    },
+    FieldParse {
+        token: "VeterancyLevels",
+        parse: parse_die_veterancy_levels,
+    },
+    FieldParse {
+        token: "ExemptStatus",
+        parse: parse_die_exempt_status,
+    },
+    FieldParse {
+        token: "RequiredStatus",
+        parse: parse_die_required_status,
+    },
+    FieldParse {
+        token: "UpgradeToRemove",
+        parse: parse_upgrade_to_remove,
+    },
+];
 
 #[cfg(test)]
 mod tests {
@@ -200,5 +255,21 @@ mod tests {
         let mut data = UpgradeDieModuleData::default();
         data.upgrade_name = AsciiString::from("Upgrade_HeroUnit");
         assert_eq!(data.upgrade_name.as_str(), "Upgrade_HeroUnit");
+    }
+
+    #[test]
+    fn upgrade_die_parses_die_mux_keys() {
+        // C++ UpgradeDie.h:30 DieModuleData::buildFieldParse(p)
+        assert!(UPGRADE_DIE_FIELDS.iter().any(|f| f.token == "DeathTypes"));
+        assert!(UPGRADE_DIE_FIELDS
+            .iter()
+            .any(|f| f.token == "VeterancyLevels"));
+        assert!(UPGRADE_DIE_FIELDS.iter().any(|f| f.token == "ExemptStatus"));
+        assert!(UPGRADE_DIE_FIELDS
+            .iter()
+            .any(|f| f.token == "RequiredStatus"));
+        assert!(UPGRADE_DIE_FIELDS
+            .iter()
+            .any(|f| f.token == "UpgradeToRemove"));
     }
 }

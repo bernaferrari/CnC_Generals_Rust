@@ -5,6 +5,8 @@
 //! names stay identical so `crate::drawable::drawable::*` keeps working.
 
 use std::any::Any;
+use std::cell::Cell;
+
 
 use crate::drawable::DrawableShroudClearState;
 use crate::drawable_info::DrawableInfo;
@@ -34,11 +36,12 @@ mod xfer;
 mod tests;
 
 pub(crate) use types::{xfer_vector3, DEFAULT_STEALTH_FRIENDLY_OPACITY};
+
 pub use types::{
-    Color, DrawableId, DrawableOverlayData, DrawableStatus, ICoord2D, IRegion2D, Matrix4,
-    StealthLook, TintStatus, Vector3, DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR,
-    FRENZY_COLOR_INFANTRY, INVALID_DRAWABLE_ID, RED_IRRADIATED_COLOR,
-    SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
+    format_under_construction_desc, health_bar_colors, Color, DrawableId, DrawableOverlayData,
+    DrawableStatus, ICoord2D, IRegion2D, Matrix4, StealthLook, TintStatus, Vector3,
+    DARK_GRAY_DISABLED_COLOR, FRENZY_COLOR, FRENZY_COLOR_INFANTRY, INVALID_DRAWABLE_ID,
+    RED_IRRADIATED_COLOR, SICKLY_GREEN_POISONED_COLOR, SUBDUAL_DAMAGE_COLOR,
 };
 
 pub use icons::{Anim2DIcon, Icon, IconInfo, IconType};
@@ -114,6 +117,9 @@ pub struct BasicDrawable {
     custom_sound_ambient_dynamic_info: Option<DynamicAudioEventInfo>,
     /// Live C++ `m_ambientSound` event after startAmbientSound.
     ambient_sound_event: Option<AudioEventRts>,
+    /// C++ `setTimeOfDay` is invoked via `&self` iterate; applied on next `update()`.
+    pending_time_of_day: Cell<Option<crate::system::TimeOfDay>>,
+
     current_frame: u32,
     /// C++ `m_isModelDirty` (`DIRTY_CONDITION_FLAGS`).
     is_model_dirty: bool,
@@ -252,6 +258,8 @@ impl BasicDrawable {
             custom_sound_ambient_base_name: None,
             custom_sound_ambient_dynamic_info: None,
             ambient_sound_event: None,
+            pending_time_of_day: Cell::new(None),
+
             current_frame: 0,
             is_model_dirty: true,
             model_condition_flags: create_model_condition_flags(),

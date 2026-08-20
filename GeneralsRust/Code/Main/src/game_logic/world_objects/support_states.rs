@@ -2745,6 +2745,10 @@ impl GameLogic {
                                     t.is_kind_of(KindOf::CommandCenter),
                                     t.is_kind_of(KindOf::FSInternetCenter),
                                     t.is_kind_of(KindOf::FSFake),
+                                    t.is_kind_of(KindOf::FSSupplyDropzone),
+                                    crate::game_logic::host_saboteur::is_aircraft_carrier_template(
+                                        &t.template_name,
+                                    ),
                                 )
                             });
                             if saboteur_ok {
@@ -2761,7 +2765,19 @@ impl GameLogic {
                                                 player.power_sabotaged_till_frame = until;
                                             }
                                         }
-                                        SaboteurEffectKind::SupplyCenter => {
+                                        SaboteurEffectKind::SupplyCenter
+                                        | SaboteurEffectKind::SupplyDropzone => {
+                                            if matches!(
+                                                kind,
+                                                SaboteurEffectKind::SupplyDropzone
+                                            ) {
+                                                // C++ OCLUpdate::resetTimer
+                                                // (SabotageSupplyDropzoneCrateCollide.cpp:112-117).
+                                                self.supply_drop_zones.reset_timer(
+                                                    special_target_id,
+                                                    self.frame,
+                                                );
+                                            }
                                             cash_stolen = self.steal_cash_from_team(
                                                 target_team,
                                                 team,

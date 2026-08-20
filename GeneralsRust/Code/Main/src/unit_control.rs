@@ -330,6 +330,14 @@ impl UnitControlSystem {
             && o.contained_by.is_none()
     }
 
+    /// C++ `CanSelectDrawable(draw, dragSelecting=TRUE)` rejects `KINDOF_STRUCTURE`.
+    pub fn presentation_is_drag_selectable(o: &RenderableObject) -> bool {
+        Self::presentation_is_selectable(o)
+            && !o.is_structure
+            && !PresentationFrame::object_has_kind(o, KindOf::Structure)
+            && o.object_type != crate::presentation_frame::PresentationObjectType::Building
+    }
+
     /// Snapshot residual: attackable when alive + Attackable kind.
     pub fn presentation_is_attackable(o: &RenderableObject) -> bool {
         // Keep the presentation pick path aligned with WeaponSet's first legality
@@ -634,34 +642,20 @@ impl UnitControlSystem {
             let max_z = start.z.max(end.z);
 
             let mut selected_in_box = Vec::new();
-            let mut structures_in_box = Vec::new();
 
             // Wave 949: box selection is presentation-only (no live GameLogic dual-read).
+            // C++ `CanSelectDrawable(draw, TRUE)` never drag-selects structures.
             if let Some(frame) = self.presentation_frame.as_ref() {
                 for o in &frame.objects {
-                    if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
+                    if frame.is_owned_by_local(o) && Self::presentation_is_drag_selectable(o) {
                         let pos = o.position;
                         if pos.x >= min_x && pos.x <= max_x && pos.z >= min_z && pos.z <= max_z {
-                            if PresentationFrame::object_has_kind(o, KindOf::Structure)
-                                || o.is_structure
-                            {
-                                structures_in_box.push(o.id);
-                            } else {
-                                selected_in_box.push(o.id);
-                            }
+                            selected_in_box.push(o.id);
                         }
                     }
                 }
             }
             // Fail-closed without presentation freeze: empty box selection.
-
-            if selected_in_box.is_empty() {
-                structures_in_box.sort();
-                structures_in_box.dedup();
-                if structures_in_box.len() == 1 {
-                    selected_in_box.push(structures_in_box[0]);
-                }
-            }
 
             if !selected_in_box.is_empty() {
                 if shift_pressed {
@@ -829,7 +823,8 @@ impl UnitControlSystem {
                 if let Some(o) = frame.objects.iter().find(|o| o.id == object_id) {
                     // Wave 1095: assign residual fail-closed on full selectable
                     // legality (sold/unselectable/masked/disabled), not only destroyed.
-                    if !Self::presentation_is_selectable(o) {
+                    // C++ CREATE_TEAM also requires isLocallyControlled().
+                    if !Self::presentation_is_selectable(o) || !frame.is_owned_by_local(o) {
                         continue;
                     }
                     control_group.add_object(object_id, o.position);
@@ -838,7 +833,15 @@ impl UnitControlSystem {
             }
             // Wave 951: control-group assign is presentation-only (fail-closed live).
         }
-
+        let assigned: Vec<ObjectId> = control_group.objects.clone();
+        for (&other_num, other) in self.control_groups.iter_mut() {
+            if other_num == group_num {
+                continue;
+            }
+            for id in &assigned {
+                other.remove_object(*id);
+            }
+        }
         self.control_groups.insert(group_num, control_group);
         println!(
             "🔗 Assigned {} units to control group {}",
@@ -1311,6 +1314,8 @@ mod tests {
         assert!(!PresentationFrame::object_has_kind(r, KindOf::Structure));
         assert!(UnitControlSystem::presentation_is_selectable(b));
         assert!(UnitControlSystem::presentation_is_selectable(r));
+        assert!(!UnitControlSystem::presentation_is_drag_selectable(b));
+        assert!(UnitControlSystem::presentation_is_drag_selectable(r));
     }
 
     #[test]

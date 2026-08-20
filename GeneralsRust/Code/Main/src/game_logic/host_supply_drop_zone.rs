@@ -256,6 +256,15 @@ impl HostSupplyDropZoneRegistry {
         self.next_drop_frame.remove(&zone_id);
     }
 
+    /// C++ `OCLUpdate::resetTimer` → `setNextCreationFrame`
+    /// (`OCLUpdate.cpp:199-225`). Retail min==max delay is 3600 frames.
+    pub fn reset_timer(&mut self, zone_id: ObjectId, current_frame: u32) {
+        self.next_drop_frame.insert(
+            zone_id,
+            current_frame.saturating_add(SUPPLY_DROP_ZONE_INTERVAL_FRAMES.max(1)),
+        );
+    }
+
     /// Snapshot of currently tracked zone object ids (for stale cleanup).
     pub fn next_drop_keys(&self) -> Vec<ObjectId> {
         self.next_drop_frame.keys().copied().collect()
@@ -428,6 +437,18 @@ mod tests {
         assert_eq!(reg.drops(), 1);
         assert_eq!(reg.cash_total(), 1500);
         assert!(reg.honesty_ok());
+    }
+
+    #[test]
+    fn reset_timer_matches_ocl_update() {
+        // C++ OCLUpdate::resetTimer → setNextCreationFrame (OCLUpdate.cpp:199-225).
+        let mut reg = HostSupplyDropZoneRegistry::new();
+        let id = ObjectId(4);
+        assert!(!reg.try_start_flight(id, 0));
+        // Due at 3600; sabotage at frame 100 restarts the full interval.
+        reg.reset_timer(id, 100);
+        assert!(!reg.try_start_flight(id, 3600));
+        assert!(reg.try_start_flight(id, 3700));
     }
 
     #[test]

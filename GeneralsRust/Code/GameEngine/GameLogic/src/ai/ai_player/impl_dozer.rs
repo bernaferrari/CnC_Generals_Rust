@@ -226,7 +226,13 @@ impl AIPlayer {
         let Ok(factory) = TheThingFactory::get() else {
             return Ok(None);
         };
-        let Ok(new_object) = factory.new_object(template.clone(), &*team_guard) else {
+        let mut starting_status = crate::common::ObjectStatusMaskType::NONE;
+        if template.is_kind_of(crate::common::KindOf::Structure) {
+            starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
+        }
+        let Ok(new_object) =
+            factory.new_object_with_status(template.clone(), &*team_guard, starting_status)
+        else {
             return Ok(None);
         };
         drop(team_guard);
@@ -414,7 +420,13 @@ impl AIPlayer {
         let Ok(factory) = TheThingFactory::get() else {
             return Ok(None);
         };
-        let Ok(new_object) = factory.new_object(template.clone(), &*team_guard) else {
+        let mut starting_status = crate::common::ObjectStatusMaskType::NONE;
+        if template.is_kind_of(crate::common::KindOf::Structure) {
+            starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
+        }
+        let Ok(new_object) =
+            factory.new_object_with_status(template.clone(), &*team_guard, starting_status)
+        else {
             return Ok(None);
         };
         drop(team_guard);

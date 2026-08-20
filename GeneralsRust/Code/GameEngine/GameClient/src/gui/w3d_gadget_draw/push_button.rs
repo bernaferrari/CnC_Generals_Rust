@@ -184,8 +184,27 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
     let start_y = rect.y as i32 + inst_data.image_offset.y;
     let end_x = start_x + rect.width as i32;
     let end_y = start_y + rect.height as i32;
+    let status = window.get_status();
+    // C++ W3DPushButton.cpp:345-368 — overlay + !ENABLED + !NOT_READY + !ALWAYS_COLOR.
+    let mode = if status.contains(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES)
+        && !window.is_enabled()
+        && !status.contains(crate::gui::game_window::WindowStatus::NOT_READY)
+        && !status.contains(crate::gui::game_window::WindowStatus::ALWAYS_COLOR)
+    {
+        crate::display::DrawImageMode::Grayscale
+    } else {
+        crate::display::DrawImageMode::Alpha
+    };
     with_window_manager_ref(|manager| {
-        manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+        manager.win_draw_image_ex(
+            image,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+            mode,
+        );
     });
     note_shipped_ui_draw_commands(1);
 }

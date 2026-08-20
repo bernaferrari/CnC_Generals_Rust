@@ -3327,6 +3327,39 @@ impl Player {
         }
     }
 
+    /// C++ `Player::processCreateTeamGameMessage` (`Player.cpp:3629-3648`).
+    pub fn process_create_team_game_message(&mut self, hotkey_num: i32, object_ids: &[ObjectID]) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        self.hotkey_squads[hotkey_num as usize].clear_squad();
+        for &object_id in object_ids {
+            self.remove_object_from_hotkey_squad(object_id);
+            self.hotkey_squads[hotkey_num as usize].add_object(object_id);
+        }
+    }
+
+    /// C++ `Player::processSelectTeamGameMessage` (`Player.cpp:3654-3678`).
+    pub fn process_select_team_game_message(&mut self, hotkey_num: i32) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        self.current_selection.clear_squad();
+        for &object_id in self.hotkey_squads[hotkey_num as usize].get_live_objects().iter() {
+            self.current_selection.add_object(object_id);
+        }
+    }
+
+    /// C++ `Player::processAddTeamGameMessage` (`Player.cpp:3684-3703`).
+    pub fn process_add_team_game_message(&mut self, hotkey_num: i32) {
+        if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
+            return;
+        }
+        for &object_id in self.hotkey_squads[hotkey_num as usize].get_live_objects().iter() {
+            self.current_selection.add_object(object_id);
+        }
+    }
+
     // =========================================================
     // Current Selection Tracking (C++ Player.h line 383)
     // =========================================================
@@ -5153,6 +5186,26 @@ mod tests {
         // Invalid squad number returns None
         assert!(player.get_hotkey_squad(-1).is_none());
         assert!(player.get_hotkey_squad(NUM_HOTKEY_SQUADS as i32).is_none());
+    }
+
+    #[test]
+    fn process_create_team_evicts_from_other_squads() {
+        // C++ Player::processCreateTeamGameMessage (Player.cpp:3637-3647)
+        let mut player = Player::new(0);
+        player.process_create_team_game_message(0, &[1, 2]);
+        player.process_create_team_game_message(1, &[2, 3]);
+        assert!(player.get_hotkey_squad_const(0).unwrap().contains(1));
+        assert!(!player.get_hotkey_squad_const(0).unwrap().contains(2));
+        assert!(player.get_hotkey_squad_const(1).unwrap().contains(2));
+        assert!(player.get_hotkey_squad_const(1).unwrap().contains(3));
+        assert_eq!(player.get_squad_number_for_object(2), 1);
+
+        player.process_select_team_game_message(1);
+        assert!(player.is_in_current_selection(2));
+        assert!(player.is_in_current_selection(3));
+        player.process_add_team_game_message(0);
+        assert!(player.is_in_current_selection(1));
+        assert_eq!(player.get_current_selection_size(), 3);
     }
 
     #[test]

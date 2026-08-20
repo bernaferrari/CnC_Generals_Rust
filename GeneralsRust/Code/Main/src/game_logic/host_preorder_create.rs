@@ -43,22 +43,9 @@ impl HostPreorderCreateRegistry {
     }
 }
 
-/// True when template carries PreorderCreate residual (retail CC / select structures).
-pub fn is_preorder_create_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("commandcenter")
-        || n.contains("command_center")
-        || n.contains("warfactory")
-        || n.contains("barracks")
-        || n.contains("supplycenter")
-        || n.contains("airfield")
-        || n.contains("strategycenter")
-        || n.contains("propagandacenter")
-        || n.contains("palace")
-        || n.contains("blackmarket")
-        || n.contains("scudstorm")
-        || n.contains("nuclearmissile")
-        || n.contains("particlecannon")
+/// C++ PreorderCreate is INI-authored; do not infer from template names.
+pub fn is_preorder_create_module(has_module: bool) -> bool {
+    has_module
 }
 
 /// Apply PREORDER model condition residual.
@@ -77,9 +64,8 @@ pub fn has_preorder_model_bit(bits: u128) -> bool {
 
 pub fn honesty_preorder_create_residual_ok() -> bool {
     MC_BIT_PREORDER == 95
-        && is_preorder_create_template("AmericaCommandCenter")
-        && is_preorder_create_template("ChinaWarFactory")
-        && !is_preorder_create_template("AmericaTankCrusader")
+        && is_preorder_create_module(true)
+        && !is_preorder_create_module(false)
         && has_preorder_model_bit(apply_preorder_model_bit(0, true))
         && !has_preorder_model_bit(apply_preorder_model_bit(1u128 << MC_BIT_PREORDER, false))
 }

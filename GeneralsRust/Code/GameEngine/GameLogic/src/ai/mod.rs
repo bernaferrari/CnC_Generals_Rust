@@ -3639,6 +3639,8 @@ pub mod ai_update; // AI update interfaces and coordination
 pub mod dock;
 pub mod formations; // Formation offset calculations for group movement
 pub mod group;
+pub mod ai_group;
+
 pub mod guard;
 pub mod guard_retaliate;
 

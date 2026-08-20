@@ -723,6 +723,27 @@ impl ProductionUpdate {
             }
         }
 
+        // C++ ProductionUpdate.cpp:809-832 VoiceCreated + first-of-batch VoiceCreate.
+        let first_of_batch = self.production_queue[idx].production_quantity_produced == 0
+            && self.production_queue[idx].production_quantity_total
+                == self.production_queue[idx].get_production_quantity_remaining();
+        if let Some(audio) = crate::helpers::TheAudio::get() {
+            let unit_id = new_obj
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            let mut voice = template.get_voice_created();
+            voice.set_object_id(unit_id);
+            audio.add_audio_event(&voice);
+            if first_of_batch {
+                if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
+                    sound.set_object_id(unit_id);
+                    audio.add_audio_event(&sound);
+                }
+            }
+        }
+
         // Set construction complete on first spawn in this batch
         if self.production_queue[idx].production_quantity_produced == 0 {
             let now = ctx.game_logic.get_frame();

@@ -212,10 +212,9 @@ impl GameLogic {
     ///
     /// Returns (internet_centers_spy_disabled, hackers_disabled).
 
-    /// C++ SabotageSuperweaponCrateCollide startPowerRecharge residual.
-    ///
-    /// Resets host special-power ready/cooldown on the structure and any
-    /// pending strike timers keyed to this object id.
+    /// C++ SabotageSuperweaponCrateCollide::executeCrateBehavior
+    /// (`SabotageSuperweaponCrateCollide.cpp:117-126`): walk every behavior
+    /// module, `getSpecialPower()`, `startPowerRecharge()` on each.
     pub(crate) fn apply_superweapon_sabotage_recharge(&mut self, target_id: ObjectId) -> bool {
         let Some(target) = self.objects.get_mut(&target_id) else {
             return false;
@@ -223,15 +222,41 @@ impl GameLogic {
         if !target.is_alive() {
             return false;
         }
-        // startPowerRecharge residual: force full recharge from now.
-        target.set_special_power_ready(false);
-        if target.special_power_cooldown <= 0.0 {
-            // Fail-closed default residual when template cooldown not bound.
-            target.special_power_cooldown = 10.0;
+        // C++ walks every behavior module and startPowerRecharge()s each
+        // SpecialPowerModuleInterface (Spy + Emergency Repair + CIA, etc.).
+        let modules = target.thing.template.special_power_modules.clone();
+        let mut recharged: Vec<crate::command_system::SpecialPowerType> = Vec::new();
+        for module in &modules {
+            let Some(power) = module.command_power.as_ref() else {
+                continue;
+            };
+            if module.reload_time_frames > 0 {
+                target.start_power_recharge_with_frames(power, module.reload_time_frames);
+            } else {
+                target.start_power_recharge(power);
+            }
+            if !recharged.contains(power) {
+                recharged.push(power.clone());
+            }
         }
-        target.special_power_cooldown_remaining = target.special_power_cooldown;
-        // Multi-module residual: secondary special-power fields if present.
-        // Host Object has a single special-power slot residual — one startPowerRecharge.
+        let leftover: Vec<crate::command_system::SpecialPowerType> = target
+            .special_power_cooldowns
+            .keys()
+            .filter(|p| !recharged.contains(p))
+            .cloned()
+            .collect();
+        for power in leftover {
+            target.start_power_recharge(&power);
+            recharged.push(power);
+        }
+        if recharged.is_empty() {
+            // Host residual single-slot when no modules / map entries exist.
+            target.set_special_power_ready(false);
+            if target.special_power_cooldown <= 0.0 {
+                target.special_power_cooldown = 10.0;
+            }
+            target.special_power_cooldown_remaining = target.special_power_cooldown;
+        }
         let _ = self
             .special_power_strikes
             .reset_timers_for_source_object(target_id);

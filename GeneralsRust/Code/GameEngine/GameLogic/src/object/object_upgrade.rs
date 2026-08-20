@@ -107,9 +107,9 @@ impl Object {
                     {
                         let misc_audio = misc_audio.read();
                         let sound_name = if self.is_kind_of(KindOf::Structure) {
-                            misc_audio.building_reenabled.sound_file.clone()
+                            misc_audio.building_reenabled.playable_event_name().to_string()
                         } else if self.is_kind_of(KindOf::Vehicle) {
-                            misc_audio.vehicle_reenabled.sound_file.clone()
+                            misc_audio.vehicle_reenabled.playable_event_name().to_string()
                         } else {
                             String::new()
                         };

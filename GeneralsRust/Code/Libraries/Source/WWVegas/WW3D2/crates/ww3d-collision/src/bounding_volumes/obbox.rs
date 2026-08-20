@@ -208,9 +208,9 @@ impl OBBoxClass {
         false
     }
 
-    /// Basic intersection test against another OBB using their bounding AABBs.
+    /// C++ CollisionMath::Intersection_Test(OBBox, OBBox) — 15-axis SAT.
     pub fn intersects_obbox(&self, other: &OBBoxClass) -> bool {
-        self.to_aabox().intersects_aabox(&other.to_aabox())
+        crate::collision_math::CollisionMath::obbox_obbox_intersect(self, other)
     }
 
     /// Intersection test against a sphere.
@@ -310,5 +310,22 @@ mod tests {
         let transformed = obb.transform(transform);
         assert!((transformed.center - Vec3::new(1.0, 0.0, 0.0)).length() < 1e-5);
         assert!((transformed.extent.x - 1.0).abs() < 1e-5);
+    }
+
+    // C++ colmathobbobb.cpp — rotated thin OBB is not its local AABB
+    #[test]
+    fn intersects_obbox_uses_orientation() {
+        let angle = std::f32::consts::FRAC_PI_4;
+        let (s, c) = angle.sin_cos();
+        let thin = OBBoxClass::new(
+            Vec3::ZERO,
+            Vec3::new(2.0, 0.05, 0.05),
+            [Vec3::new(c, s, 0.0), Vec3::new(-s, c, 0.0), Vec3::Z],
+        );
+        let beside = OBBoxClass::from_center_extent(Vec3::new(1.5, 0.0, 0.0), Vec3::splat(0.2));
+        assert!(!thin.intersects_obbox(&beside));
+        let along_diag =
+            OBBoxClass::from_center_extent(Vec3::new(1.0, 1.0, 0.0), Vec3::splat(0.2));
+        assert!(thin.intersects_obbox(&along_diag));
     }
 }

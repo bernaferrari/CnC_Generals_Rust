@@ -10,102 +10,239 @@ impl CnCGameEngine {
         let alt_down = self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
 
         if ctrl_down {
-            // CREATE_TEAM residual: assign control group.
-            if self.selected_objects.is_empty() {
-                self.control_groups.remove(&group_num);
-                info!("Cleared control group {}", group_num);
-            } else {
-                self.control_groups
-                    .insert(group_num, self.selected_objects.clone());
-                info!(
-                    "Assigned {} units to control group {}",
-                    self.selected_objects.len(),
-                    group_num
-                );
-            }
+            self.create_control_group(group_num);
         } else if shift_down {
-            // ADD_TEAM residual: merge current selection into group.
-            if self.selected_objects.is_empty() {
-                return;
-            }
-            let entry = self.control_groups.entry(group_num).or_default();
-            for id in &self.selected_objects {
-                if !entry.contains(id) {
-                    entry.push(*id);
-                }
-            }
-            info!(
-                "Added selection to control group {} (now {} units)",
-                group_num,
-                entry.len()
-            );
+            self.add_control_group_to_selection(group_num);
         } else if alt_down {
-            // VIEW_TEAM residual: center camera on group without changing selection.
-            let stored = self
-                .control_groups
-                .get(&group_num)
-                .cloned()
-                .unwrap_or_default();
-            if stored.is_empty() {
-                info!("Control group {} is empty (view)", group_num);
-                return;
-            }
-            // Presentation-only poses for InGame control-group camera jump.
-            let center = self
-                .last_presentation_frame
-                .as_ref()
-                .and_then(|frame| frame.centroid_of_ids(&stored));
-            if let Some(center) = center {
-                // Wave 577: host camera jump via helper.
-                let clamped = self.host_center_camera_and_request_focus(center);
-                info!("VIEW_TEAM{} camera jump to {:?}", group_num, clamped);
-            }
+            self.view_control_group(group_num);
         } else {
-            // SELECT_TEAM residual: select control group.
-            let stored = self
-                .control_groups
-                .get(&group_num)
-                .cloned()
-                .unwrap_or_default();
-            if stored.is_empty() {
-                info!("Control group {} is empty", group_num);
-                return;
+            self.select_control_group(group_num);
+        }
+    }
+
+    /// C++ `SelectionXlat.cpp:1051` CREATE_TEAM keeps only `isLocallyControlled()`.
+    fn locally_controlled_selected_ids(&self) -> Vec<ObjectId> {
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return Vec::new();
+        };
+        self.selected_objects
+            .iter()
+            .copied()
+            .filter(|id| {
+                frame
+                    .objects
+                    .iter()
+                    .any(|object| object.id == *id && frame.is_owned_by_local(object))
+            })
+            .collect()
+    }
+
+    /// C++ `Player::removeObjectFromHotkeySquad` then `m_squads[n]->addObject`.
+    fn evict_ids_from_other_control_groups(&mut self, ids: &[ObjectId], keep: u8) {
+        for (&group, members) in self.control_groups.iter_mut() {
+            if group == keep {
+                continue;
             }
+            members.retain(|id| !ids.contains(id));
+        }
+        self.control_groups
+            .retain(|&group, members| group == keep || !members.is_empty());
+    }
 
-            // Presentation-only: InGame always has last_presentation_frame.
-            let (selection, double_tap_center) = {
-                let Some(frame) = self.last_presentation_frame.as_ref() else {
-                    return;
-                };
-                let team = frame.local_team();
-                let selection = frame.filter_alive_selectable_ids(&stored, team);
-                let center = frame.centroid_of_ids(&selection);
-                (selection, center)
+    /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
+    fn write_leftover_player_create_team(&self, group_num: u8, ids: &[ObjectId]) {
+        let object_ids: Vec<u32> = ids.iter().map(|id| id.0).collect();
+        let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+            return;
+        };
+        let player_arc = list
+            .get_local_player()
+            .cloned()
+            .or_else(|| list.get_player(self.current_player_id as i32).cloned());
+        let Some(player_arc) = player_arc else {
+            return;
+        };
+        drop(list);
+        let Ok(mut player) = player_arc.write() else {
+            return;
+        };
+        player.process_create_team_game_message(group_num as i32, &object_ids);
+    }
+
+    /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
+    fn write_leftover_player_select_team(&self, group_num: u8, add: bool) {
+        let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+            return;
+        };
+        let player_arc = list
+            .get_local_player()
+            .cloned()
+            .or_else(|| list.get_player(self.current_player_id as i32).cloned());
+        let Some(player_arc) = player_arc else {
+            return;
+        };
+        drop(list);
+        let Ok(mut player) = player_arc.write() else {
+            return;
+        };
+        if add {
+            player.process_add_team_game_message(group_num as i32);
+        } else {
+            player.process_select_team_game_message(group_num as i32);
+        }
+    }
+
+    /// C++ `getLiveObjects()` last member: `objlist[numObjs-1]->getDrawable()->getPosition()`.
+    fn last_live_control_group_position(&self, stored: &[ObjectId]) -> Option<glam::Vec3> {
+        let frame = self.last_presentation_frame.as_ref()?;
+        let live = frame.filter_alive_selectable_ids(stored, frame.local_team());
+        let last = *live.last()?;
+        frame
+            .objects
+            .iter()
+            .find(|object| object.id == last)
+            .map(|object| object.position)
+    }
+
+    /// C++ `TheInGameUI->getFirstSelectedDrawable()` + `KINDOF_STRUCTURE`.
+    fn first_selected_is_structure(&self) -> bool {
+        let Some(first) = self.selected_objects.first() else {
+            return false;
+        };
+        let Some(frame) = self.last_presentation_frame.as_ref() else {
+            return false;
+        };
+        frame.objects.iter().any(|object| {
+            object.id == *first
+                && (object.is_structure
+                    || crate::presentation_frame::PresentationFrame::object_has_kind(
+                        object,
+                        crate::game_logic::KindOf::Structure,
+                    )
+                    || object.object_type
+                        == crate::presentation_frame::PresentationObjectType::Building)
+        })
+    }
+
+    /// C++ `SelectionXlat.cpp` `now - m_lastGroupSelTime < 20` (30 Hz → 667ms).
+    fn note_control_group_double_tap(&mut self, group_num: u8) -> bool {
+        const DOUBLE_TAP_MS: u128 = 667;
+        let now = Instant::now();
+        let tap = matches!(
+            self.last_control_group_select,
+            Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < DOUBLE_TAP_MS
+        );
+        self.last_control_group_select = Some((group_num, now));
+        tap
+    }
+
+    /// C++ `MSG_META_CREATE_TEAM` + `Player::processCreateTeamGameMessage`.
+    fn create_control_group(&mut self, group_num: u8) {
+        let ids = self.locally_controlled_selected_ids();
+        if ids.is_empty() {
+            self.control_groups.remove(&group_num);
+            self.write_leftover_player_create_team(group_num, &[]);
+            info!("Cleared control group {}", group_num);
+            return;
+        }
+        self.evict_ids_from_other_control_groups(&ids, group_num);
+        self.write_leftover_player_create_team(group_num, &ids);
+        let count = ids.len();
+        self.control_groups.insert(group_num, ids);
+        info!("Assigned {} units to control group {}", count, group_num);
+    }
+
+    /// C++ `MSG_META_ADD_TEAM` — add stored squad to selection; do not rewrite the squad.
+    fn add_control_group_to_selection(&mut self, group_num: u8) {
+        let stored = self
+            .control_groups
+            .get(&group_num)
+            .cloned()
+            .unwrap_or_default();
+        let double_tap = self.note_control_group_double_tap(group_num);
+        if double_tap {
+            if let Some(pos) = self.last_live_control_group_position(&stored) {
+                let _ = self.host_center_camera_and_request_focus(pos);
+            }
+            return;
+        }
+        if self.first_selected_is_structure() {
+            self.host_set_selection(self.current_player_id, Vec::new());
+        }
+        let live = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
             };
-
-            // Wave 583: selection residual via host_set_selection.
-            self.host_set_selection(self.current_player_id, selection.clone());
-            self.play_sound_effect(SoundType::Select);
-
-            // Double-tap residual: second press of same group within 500ms centers camera.
-            let now = Instant::now();
-            let double_tap = matches!(
-                self.last_control_group_select,
-                Some((g, t)) if g == group_num && now.duration_since(t).as_millis() < 500
-            );
-            self.last_control_group_select = Some((group_num, now));
-            if double_tap {
-                if let Some(center) = double_tap_center {
-                    let clamped = self.clamp_to_world_bounds(center);
-                    self.camera_target.x = clamped.x;
-                    self.camera_target.z = clamped.z;
-                    info!(
-                        "Control group {} double-tap camera jump to {:?}",
-                        group_num, clamped
-                    );
-                }
+            frame.filter_alive_selectable_ids(&stored, frame.local_team())
+        };
+        if live.is_empty() {
+            return;
+        }
+        let mut selection = self.selected_objects.clone();
+        for id in live {
+            if !selection.contains(&id) {
+                selection.push(id);
             }
         }
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+        self.write_leftover_player_select_team(group_num, true);
+    }
+
+    /// C++ `MSG_META_VIEW_TEAM`: `if (group >= 1 && group <= 10) getHotkeySquad(group)`.
+    /// VIEW_TEAM0 is a silent no-op; `getHotkeySquad(10)` is NULL.
+    fn view_control_group(&mut self, group_num: u8) {
+        if group_num < 1 || group_num > 9 {
+            return;
+        }
+        let stored = self
+            .control_groups
+            .get(&group_num)
+            .cloned()
+            .unwrap_or_default();
+        if stored.is_empty() {
+            info!("Control group {} is empty (view)", group_num);
+            return;
+        }
+        if let Some(pos) = self.last_live_control_group_position(&stored) {
+            let clamped = self.host_center_camera_and_request_focus(pos);
+            info!("VIEW_TEAM residual camera jump to {:?}", clamped);
+        }
+    }
+
+    /// C++ `MSG_META_SELECT_TEAM` + double-tap lookAt last live member.
+    fn select_control_group(&mut self, group_num: u8) {
+        let stored = self
+            .control_groups
+            .get(&group_num)
+            .cloned()
+            .unwrap_or_default();
+        if stored.is_empty() {
+            info!("Control group {} is empty", group_num);
+            return;
+        }
+        let selection = {
+            let Some(frame) = self.last_presentation_frame.as_ref() else {
+                return;
+            };
+            frame.filter_alive_selectable_ids(&stored, frame.local_team())
+        };
+        let double_tap = self.note_control_group_double_tap(group_num);
+        if double_tap {
+            if let Some(pos) = self.last_live_control_group_position(&stored) {
+                let clamped = self.clamp_to_world_bounds(pos);
+                self.camera_target.x = clamped.x;
+                self.camera_target.z = clamped.z;
+                info!(
+                    "Control group {} double-tap camera jump to {:?}",
+                    group_num, clamped
+                );
+            }
+            return;
+        }
+        self.host_set_selection(self.current_player_id, selection);
+        self.play_sound_effect(SoundType::Select);
+        self.write_leftover_player_select_team(group_num, false);
     }
 
     pub(super) fn handle_key_press(&mut self, key: &Key) {
@@ -142,6 +279,13 @@ impl CnCGameEngine {
             }
         }
 
+        // C++ MetaEventTranslator walks TheMetaMap so Keyboard Options remaps
+        // apply on the next key. Number-row CREATE/SELECT/ADD/VIEW_TEAM stays
+        // with FixSelectSquad.
+        if self.try_dispatch_command_map_remap(key) {
+            return;
+        }
+
         match key {
             Key::Named(NamedKey::Space)
                 if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
@@ -152,7 +296,9 @@ impl CnCGameEngine {
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
                 // Pause remains on P.
-                self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
+                if !command_map_binds_host("VIEW_LAST_RADAR_EVENT") {
+                    self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("a")
@@ -287,7 +433,9 @@ impl CnCGameEngine {
                     // Producer selection: Delete cancels queue head residual.
                 } else {
                     // Retail CommandMap DELETE_BEACON KEY_DEL residual.
-                    self.issue_named_command_from_ui("Command_RemoveBeacon");
+                    if !command_map_binds_host("DELETE_BEACON") {
+                        self.issue_named_command_from_ui("Command_RemoveBeacon");
+                    }
                 }
             }
             Key::Named(NamedKey::Tab)
@@ -303,7 +451,9 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::Tab) if !ctrl_down => {
                 // Retail CommandMap DIPLOMACY KEY_TAB residual.
-                self.toggle_diplomacy_panel_hotkey();
+                if !command_map_binds_host("DIPLOMACY") {
+                    self.toggle_diplomacy_panel_hotkey();
+                }
             }
             Key::Named(NamedKey::F1) if ctrl_down => {
                 // Debug overlay residual (Ctrl+F1); bare F1 remains camera bookmark.
@@ -391,7 +541,9 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // C++ MSG_META_STOP residual: stop selected units immediately.
-                self.issue_named_command_from_ui("Command_Stop");
+                if !command_map_binds_host("STOP") {
+                    self.issue_named_command_from_ui("Command_Stop");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("d")
@@ -529,7 +681,9 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Retail CommandMap SCATTER KEY_X residual.
-                self.issue_named_command_from_ui("Command_Scatter");
+                if !command_map_binds_host("SCATTER") {
+                    self.issue_named_command_from_ui("Command_Scatter");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("z")
@@ -564,7 +718,9 @@ impl CnCGameEngine {
             }
             Key::Character(c) if c.eq_ignore_ascii_case("q") && !ctrl_down => {
                 // Retail CommandMap SELECT_ALL KEY_Q residual.
-                self.select_all_friendly_units();
+                if !command_map_binds_host("SELECT_ALL") {
+                    self.select_all_friendly_units();
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("e")
@@ -588,7 +744,9 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Retail CommandMap SELECT_MATCHING_UNITS KEY_E residual.
-                self.select_matching_units_hotkey();
+                if !command_map_binds_host("SELECT_MATCHING_UNITS") {
+                    self.select_matching_units_hotkey();
+                }
             }
             Key::Character(c)
                 if (c == "[" || c == "{")
@@ -696,11 +854,15 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Retail CommandMap SELECT_ALL_AIRCRAFT KEY_W residual.
-                self.select_all_friendly_aircraft();
+                if !command_map_binds_host("SELECT_ALL_AIRCRAFT") {
+                    self.select_all_friendly_aircraft();
+                }
             }
             Key::Character(c) if c.eq_ignore_ascii_case("h") && !ctrl_down => {
                 // Retail CommandMap VIEW_COMMAND_CENTER KEY_H residual.
-                self.issue_named_command_from_ui("Command_ViewCommandCenter");
+                if !command_map_binds_host("VIEW_COMMAND_CENTER") {
+                    self.issue_named_command_from_ui("Command_ViewCommandCenter");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("h")
@@ -720,7 +882,9 @@ impl CnCGameEngine {
             }
             Key::Character(c) if c.eq_ignore_ascii_case("h") && ctrl_down => {
                 // Retail CommandMap SELECT_HERO Ctrl+H residual.
-                self.select_hero_units_hotkey();
+                if !command_map_binds_host("SELECT_HERO") {
+                    self.select_hero_units_hotkey();
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("i")
@@ -775,7 +939,9 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap CREATE_FORMATION Ctrl+F residual.
-                self.issue_named_command_from_ui("Command_CreateFormation");
+                if !command_map_binds_host("CREATE_FORMATION") {
+                    self.issue_named_command_from_ui("Command_CreateFormation");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("b")
@@ -798,14 +964,18 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap PLACE_BEACON Ctrl+B residual.
-                self.issue_named_command_from_ui("Command_PlaceBeacon");
+                if !command_map_binds_host("PLACE_BEACON") {
+                    self.issue_named_command_from_ui("Command_PlaceBeacon");
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("c")
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Control)) =>
             {
                 // Retail CommandMap ALL_CHEER Ctrl+C residual.
-                self.issue_named_command_from_ui("Command_Cheer");
+                if !command_map_binds_host("ALL_CHEER") {
+                    self.issue_named_command_from_ui("Command_Cheer");
+                }
             }
             Key::Named(NamedKey::ArrowRight)
                 if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
@@ -886,18 +1056,20 @@ impl CnCGameEngine {
             Key::Named(NamedKey::F9) => {
                 // Retail CommandMap TOGGLE_CONTROL_BAR KEY_F9 residual.
                 // C++ CommandXlat.cpp:3144 MSG_META_TOGGLE_CONTROL_BAR → ToggleControlBar.
-                #[cfg(feature = "game_client")]
-                {
-                    let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
-                        true,
+                if !command_map_binds_host("TOGGLE_CONTROL_BAR") {
+                    #[cfg(feature = "game_client")]
+                    {
+                        let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                            true,
+                        );
+                    }
+                    self.game_hud.toggle_visibility();
+                    self.ui_manager.game_hud_mut().toggle_visibility();
+                    info!(
+                        "Control bar visibility toggled (engine visible={})",
+                        self.game_hud.hud_visible()
                     );
                 }
-                self.game_hud.toggle_visibility();
-                self.ui_manager.game_hud_mut().toggle_visibility();
-                info!(
-                    "Control bar visibility toggled (engine visible={})",
-                    self.game_hud.hud_visible()
-                );
             }
 
             Key::Character(c)
@@ -924,7 +1096,9 @@ impl CnCGameEngine {
             }
             Key::Named(NamedKey::Enter) => {
                 // Retail CommandMap CHAT_EVERYONE KEY_ENTER residual.
-                self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                if !command_map_binds_host("CHAT_EVERYONE") {
+                    self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                }
             }
             Key::Named(NamedKey::Backspace) => {
                 if ctrl_down && self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) {
@@ -933,12 +1107,16 @@ impl CnCGameEngine {
                     self.request_state_change(GameState::Exiting);
                 } else {
                     // Retail CommandMap CHAT_ALLIES KEY_BACKSPACE residual.
-                    self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                    if !command_map_binds_host("CHAT_ALLIES") {
+                        self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                    }
                 }
             }
             Key::Named(NamedKey::F12) => {
                 // Retail CommandMap TAKE_SCREENSHOT KEY_F12 residual.
-                self.take_screenshot_hotkey();
+                if !command_map_binds_host("TAKE_SCREENSHOT") {
+                    self.take_screenshot_hotkey();
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("t")
@@ -947,7 +1125,9 @@ impl CnCGameEngine {
                     && self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Retail TOGGLE_CAMERA_TRACKING_DRAWABLE Shift+Alt+Ctrl+T residual.
-                self.toggle_camera_tracking_drawable_hotkey();
+                if !command_map_binds_host("TOGGLE_CAMERA_TRACKING_DRAWABLE") {
+                    self.toggle_camera_tracking_drawable_hotkey();
+                }
             }
             Key::Character(c)
                 if c.eq_ignore_ascii_case("f")
@@ -956,7 +1136,9 @@ impl CnCGameEngine {
                     && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) =>
             {
                 // Retail TOGGLE_FAST_FORWARD_REPLAY KEY_F residual.
-                self.toggle_replay_fast_forward_hotkey();
+                if !command_map_binds_host("TOGGLE_FAST_FORWARD_REPLAY") {
+                    self.toggle_replay_fast_forward_hotkey();
+                }
             }
             Key::Named(NamedKey::Escape) => {
                 // Outer event-loop Escape handler is unreachable for keyboard
@@ -1032,26 +1214,8 @@ impl CnCGameEngine {
 
     /// Retail SAVE_VIEW / VIEW_VIEW (Ctrl+Fn save, Fn recall) residual.
     pub(super) fn handle_camera_view_hotkey(&mut self, slot: usize) {
-        if slot >= self.camera_view_bookmarks.len() {
-            return;
-        }
-        let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
-        if ctrl {
-            let pos = self.camera_target;
-            self.camera_view_bookmarks[slot] = Some(pos);
-            let msg = format!("Saved camera view {}", slot + 1);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
-            info!("SAVE_VIEW{} -> {:?}", slot + 1, pos);
-        } else if let Some(pos) = self.camera_view_bookmarks[slot] {
-            // Wave 577: host camera jump via helper.
-            let clamped = self.host_center_camera_and_request_focus(pos);
-            info!("VIEW_VIEW{} -> {:?}", slot + 1, clamped);
-        } else {
-            let msg = format!("Camera view {} is empty", slot + 1);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
-        }
+        // C++ LookAtXlat.cpp:550-587 SAVE_VIEW / VIEW_VIEW stores full ViewLocation.
+        self.save_or_recall_camera_view(slot);
     }
 
     /// Retail CHAT_EVERYONE / CHAT_ALLIES residual.
@@ -1128,17 +1292,201 @@ impl CnCGameEngine {
     }
 
     /// Retail TOGGLE_FAST_FORWARD_REPLAY (m_TiVOFastMode) residual.
+    /// C++ MetaEvent.cpp:473-489 — replay-only unless debug cheats; GUI:FF_ON/OFF.
     pub(super) fn toggle_replay_fast_forward_hotkey(&mut self) {
-        // C++ only applies in replay games (or debug). Residual: always toggle flag + HUD.
+        if !self.presentation_or_boot_in_replay_game() {
+            return;
+        }
         self.replay_fast_forward = !self.replay_fast_forward;
-        let msg = if self.replay_fast_forward {
-            "m_TiVOFastMode: ON"
+        if let Ok(mut global) = game_engine::common::global_data::write_safe() {
+            global.tivo_fast_mode = self.replay_fast_forward;
+        }
+        let key = if self.replay_fast_forward {
+            "GUI:FF_ON"
         } else {
-            "m_TiVOFastMode: OFF"
+            "GUI:FF_OFF"
         };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
+        let msg = host_localized_gui_label(key);
+        self.game_hud.push_info_message(&msg);
+        self.ui_manager.game_hud_mut().push_info_message(&msg);
         info!("{msg}");
+    }
+
+    /// C++ CommandXlat.cpp:3098-3140 MSG_META_TOGGLE_LOWER_DETAILS.
+    pub(super) fn toggle_lower_details_hotkey(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            let Some(now_low) =
+                game_client::message_stream::meta_event::apply_toggle_lower_details()
+            else {
+                return;
+            };
+            let key = if now_low {
+                "GUI:DetailsSetToLowest"
+            } else {
+                "GUI:ReturnGraphicsToPreviousSettings"
+            };
+            let msg = host_localized_gui_label(key);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+    }
+
+    /// Consult Keyboard Options / CommandMap.ini remaps. Returns true when the
+    /// chord was consumed as a remapped meta command.
+    fn try_dispatch_command_map_remap(&mut self, key: &Key) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            let Some(code) = os_key_to_command_map_vk(key) else {
+                return false;
+            };
+            // Number row is CREATE/SELECT/ADD/VIEW_TEAM (FixSelectSquad).
+            if (0x30..=0x39).contains(&code) {
+                return false;
+            }
+            let mut mods = 0u32;
+            if self.keys_pressed.contains(&Key::Named(NamedKey::Control)) {
+                mods |= 1;
+            }
+            if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) {
+                mods |= 2;
+            }
+            if self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) {
+                mods |= 4;
+            }
+            let Some(name) =
+                game_client::message_stream::meta_event::lookup_command_map_name(code, mods)
+            else {
+                return false;
+            };
+            let upper = name.to_ascii_uppercase();
+            if upper.contains("CREATE_TEAM")
+                || upper.contains("SELECT_TEAM")
+                || upper.contains("ADD_TEAM")
+                || upper.contains("VIEW_TEAM")
+            {
+                return false;
+            }
+            match upper.as_str() {
+                "TOGGLE_FAST_FORWARD_REPLAY" => {
+                    self.toggle_replay_fast_forward_hotkey();
+                    true
+                }
+                "TOGGLE_LOWER_DETAILS" => {
+                    self.toggle_lower_details_hotkey();
+                    true
+                }
+                "SELECT_ALL" => {
+                    self.select_all_friendly_units();
+                    true
+                }
+                "SELECT_ALL_AIRCRAFT" => {
+                    self.select_all_friendly_aircraft();
+                    true
+                }
+                "SELECT_MATCHING_UNITS" => {
+                    self.select_matching_units_hotkey();
+                    true
+                }
+                "SELECT_HERO" => {
+                    self.select_hero_units_hotkey();
+                    true
+                }
+                "SELECT_NEXT_UNIT" => {
+                    self.cycle_friendly_selection(1);
+                    true
+                }
+                "SELECT_PREV_UNIT" => {
+                    self.cycle_friendly_selection(-1);
+                    true
+                }
+                "SELECT_NEXT_WORKER" => {
+                    self.cycle_friendly_worker_selection(1);
+                    true
+                }
+                "SELECT_PREV_WORKER" => {
+                    self.cycle_friendly_worker_selection(-1);
+                    true
+                }
+                "SCATTER" => {
+                    self.issue_named_command_from_ui("Command_Scatter");
+                    true
+                }
+                "STOP" => {
+                    self.issue_named_command_from_ui("Command_Stop");
+                    true
+                }
+                "DEPLOY" => {
+                    self.issue_named_command_from_ui("Command_Deploy");
+                    true
+                }
+                "PLACE_BEACON" => {
+                    self.issue_named_command_from_ui("Command_PlaceBeacon");
+                    true
+                }
+                "DELETE_BEACON" => {
+                    self.issue_named_command_from_ui("Command_RemoveBeacon");
+                    true
+                }
+                "VIEW_LAST_RADAR_EVENT" => {
+                    self.issue_named_command_from_ui("Command_ViewLastRadarEvent");
+                    true
+                }
+                "VIEW_COMMAND_CENTER" => {
+                    self.issue_named_command_from_ui("Command_ViewCommandCenter");
+                    true
+                }
+                "CHEER" | "ALL_CHEER" => {
+                    self.issue_named_command_from_ui("Command_Cheer");
+                    true
+                }
+                "CREATE_FORMATION" => {
+                    self.issue_named_command_from_ui("Command_CreateFormation");
+                    true
+                }
+                "DIPLOMACY" => {
+                    self.toggle_diplomacy_panel_hotkey();
+                    true
+                }
+                "TOGGLE_CONTROL_BAR" => {
+                    #[cfg(feature = "game_client")]
+                    {
+                        let _ = game_client::gui::callbacks::control_bar_callbacks::toggle_control_bar(
+                            true,
+                        );
+                    }
+                    self.game_hud.toggle_visibility();
+                    self.ui_manager.game_hud_mut().toggle_visibility();
+                    true
+                }
+                "TAKE_SCREENSHOT" => {
+                    self.take_screenshot_hotkey();
+                    true
+                }
+                "CHAT_EVERYONE" => {
+                    self.open_chat_hotkey(crate::ui::ChatTarget::All);
+                    true
+                }
+                "CHAT_ALLIES" => {
+                    self.open_chat_hotkey(crate::ui::ChatTarget::Allies);
+                    true
+                }
+                "TOGGLE_CAMERA_TRACKING_DRAWABLE" => {
+                    self.toggle_camera_tracking_drawable_hotkey();
+                    true
+                }
+                "CAMERA_RESET" => {
+                    self.reset_camera_view_hotkey();
+                    true
+                }
+                _ => false,
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = key;
+            false
+        }
     }
 
     /// Follow the first selected drawable (C++ GameClient.cpp:587-597).
@@ -1256,34 +1604,76 @@ impl CnCGameEngine {
 
     /// Retail CAMERA_RESET (KEY_KP5) residual.
     pub(super) fn reset_camera_view_hotkey(&mut self) {
-        // Wave 226: prefer presentation freeze for reset focus (team base / friendlies).
-        let focus = if let Some(frame) = self.last_presentation_frame.as_ref() {
-            frame
-                .local_team_base_position
-                .or_else(|| {
-                    frame.centroid_of_ids(&frame.alive_selectable_friendly_ids(frame.local_team()))
-                })
-                .unwrap_or(self.camera_target)
-        } else if let Some(pos) = self
-            .game_logic
-            .player_command_center_position(self.current_player_id)
-        {
-            // Wave 239: boot residual via player_command_center_position probe.
-            pos
-        } else {
-            self.camera_target
-        };
-        // Wave 577: host camera jump via helper, then default zoom.
-        let clamped = self.host_center_camera_and_request_focus(focus);
-        self.camera_zoom = self.compute_default_camera_zoom_for_target(
-            clamped,
-            self.ui_script_default_camera_max_height(),
-        );
-        self.apply_camera_orbit_transform();
-        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
-            self.update_mouse_world_position();
-            self.sync_context_mouse_cursor();
+        // C++ InGameUI.cpp:4139-4143 resetCamera at the *current* look-at.
+        // Do not retarget the command center / team base.
+        let stay = self.camera_target;
+        self.reset_camera_pose_in_place();
+        info!("CAMERA_RESET residual in-place -> {:?}", stay);
+    }
+}
+
+
+fn command_map_binds_host(name: &str) -> bool {
+    #[cfg(feature = "game_client")]
+    {
+        game_client::message_stream::meta_event::command_map_binds(name)
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        let _ = name;
+        false
+    }
+}
+
+fn host_localized_gui_label(key: &str) -> String {
+    #[cfg(feature = "game_client")]
+    {
+        let (text, exists) = game_client::game_text::GameText::fetch_with_exists(key);
+        if exists {
+            return text;
         }
-        info!("CAMERA_RESET residual -> {:?}", clamped);
+    }
+    crate::localization::localize(key, key)
+}
+
+fn os_key_to_command_map_vk(key: &winit::keyboard::Key) -> Option<u32> {
+    use winit::keyboard::{Key, NamedKey};
+    match key {
+        Key::Character(c) => {
+            let ch = c.chars().next()?.to_ascii_uppercase();
+            if ch.is_ascii_alphanumeric() {
+                Some(ch as u32)
+            } else {
+                None
+            }
+        }
+        Key::Named(NamedKey::Space) => Some(0x20),
+        Key::Named(NamedKey::Enter) => Some(0x0D),
+        Key::Named(NamedKey::Escape) => Some(0x1B),
+        Key::Named(NamedKey::Tab) => Some(0x09),
+        Key::Named(NamedKey::Backspace) => Some(0x08),
+        Key::Named(NamedKey::Delete) => Some(0x2E),
+        Key::Named(NamedKey::Home) => Some(0x24),
+        Key::Named(NamedKey::End) => Some(0x23),
+        Key::Named(NamedKey::PageUp) => Some(0x21),
+        Key::Named(NamedKey::PageDown) => Some(0x22),
+        Key::Named(NamedKey::ArrowLeft) => Some(0x25),
+        Key::Named(NamedKey::ArrowUp) => Some(0x26),
+        Key::Named(NamedKey::ArrowRight) => Some(0x27),
+        Key::Named(NamedKey::ArrowDown) => Some(0x28),
+        Key::Named(NamedKey::F1) => Some(0x70),
+        Key::Named(NamedKey::F2) => Some(0x71),
+        Key::Named(NamedKey::F3) => Some(0x72),
+        Key::Named(NamedKey::F4) => Some(0x73),
+        Key::Named(NamedKey::F5) => Some(0x74),
+        Key::Named(NamedKey::F6) => Some(0x75),
+        Key::Named(NamedKey::F7) => Some(0x76),
+        Key::Named(NamedKey::F8) => Some(0x77),
+        Key::Named(NamedKey::F9) => Some(0x78),
+        Key::Named(NamedKey::F10) => Some(0x79),
+        Key::Named(NamedKey::F11) => Some(0x7A),
+        Key::Named(NamedKey::F12) => Some(0x7B),
+        Key::Named(NamedKey::Numpad5) => Some(0x65),
+        _ => None,
     }
 }

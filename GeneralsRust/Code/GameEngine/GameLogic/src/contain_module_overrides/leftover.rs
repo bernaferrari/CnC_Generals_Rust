@@ -55,24 +55,8 @@ macro_rules! ai_update_factories {
     };
 }
 
-macro_rules! empty_ai_update_factories {
-    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
-        pub(super) fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-            Box::new(<$data_ty>::default())
-        }
 
-        pub(super) fn $module_factory(
-            _thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
-        ) -> Box<dyn Module> {
-            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
-            let module_name_key = NameKeyGenerator::name_to_key($module_name);
-            Box::new(<$module_ty>::new(module_name_key, data_arc))
-        }
-    };
-}
-
-empty_ai_update_factories!(
+ai_update_factories!(
     transport_ai_update_data_factory,
     transport_ai_update_module_factory,
     TransportAIUpdateModuleData,
@@ -86,7 +70,7 @@ ai_update_factories!(
     DeployStyleAIUpdateModule,
     "DeployStyleAIUpdate"
 );
-empty_ai_update_factories!(
+ai_update_factories!(
     wander_ai_update_data_factory,
     wander_ai_update_module_factory,
     WanderAIUpdateModuleData,

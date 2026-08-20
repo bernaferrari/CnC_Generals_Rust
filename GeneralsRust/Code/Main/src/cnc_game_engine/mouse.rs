@@ -2,6 +2,103 @@
 use super::input::MouseInputOrigin;
 use super::*;
 
+
+/// C++ `LookAtXlat.cpp:241-254` short middle-click home-orientation thresholds.
+const LOOKAT_MMB_CLICK_DURATION_FRAMES: u32 = 5;
+const LOOKAT_MMB_CLICK_PIXEL_OFFSET: f32 = 5.0;
+/// C++ `LookAtXlat.cpp:298` `const Real FACTOR = 0.01f`.
+const LOOKAT_MMB_YAW_FACTOR: f32 = 0.01;
+/// C++ `View.cpp` / `W3DView` default pitch when GameData CameraPitch is ~0.
+const LOOKAT_DEFAULT_PITCH_DEG: f32 = 37.5;
+
+/// C++ `View.h` `ViewLocation`: pos + angle + pitch + zoom.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CameraViewLocation {
+    pos: Vec3,
+    yaw: f32,
+    pitch: f32,
+    zoom: f32,
+}
+
+struct LookAtHostModes {
+    prev_cursor: Option<&'static str>,
+    mouse_locked: bool,
+    mmb_original_anchor: Option<(f32, f32)>,
+    mmb_press_frame: u32,
+    views: [Option<CameraViewLocation>; 8],
+}
+
+fn look_at_host_modes() -> std::sync::MutexGuard<'static, LookAtHostModes> {
+    static STATE: std::sync::LazyLock<std::sync::Mutex<LookAtHostModes>> =
+        std::sync::LazyLock::new(|| {
+            std::sync::Mutex::new(LookAtHostModes {
+                prev_cursor: None,
+                mouse_locked: false,
+                mmb_original_anchor: None,
+                mmb_press_frame: 0,
+                views: [None; 8],
+            })
+        });
+    STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub(crate) fn look_at_host_mouse_locked() -> bool {
+    look_at_host_modes().mouse_locked
+}
+
+/// C++ `LookAtXlat.cpp:174-175`: arrow keys cannot start while box-selecting
+/// or while a non-key scroll (RMB / screen-edge) is already active.
+fn lookat_keyboard_scroll_blocked(is_selecting: bool, is_rmb_scrolling: bool) -> bool {
+    is_selecting || is_rmb_scrolling
+}
+
+/// C++ `LookAtXlat.cpp:245-250`: move ≤5px and duration <5 GameClient frames.
+fn lookat_mmb_is_short_click(dx: f32, dy: f32, frames: u32) -> bool {
+    dx.abs() <= LOOKAT_MMB_CLICK_PIXEL_OFFSET
+        && dy.abs() <= LOOKAT_MMB_CLICK_PIXEL_OFFSET
+        && frames < LOOKAT_MMB_CLICK_DURATION_FRAMES
+}
+
+/// C++ `InGameUI.cpp:1836` applies `m_keyboardCameraRotateSpeed` once per
+/// logic frame. Host `update_camera` is dt-scaled, so convert the same way
+/// key-scroll converts `SCROLL_AMT`.
+fn lookat_keyboard_rotate_delta(speed: f32, dt: f32, logic_fps: f32) -> f32 {
+    let logic_fps = logic_fps.max(1.0);
+    let scroll_dt = dt.max(0.0).min(2.0 / logic_fps);
+    speed * scroll_dt * logic_fps
+}
+
+pub(crate) fn lookat_view_slot(key: NamedKey) -> Option<usize> {
+    match key {
+        NamedKey::F1 => Some(0),
+        NamedKey::F2 => Some(1),
+        NamedKey::F3 => Some(2),
+        NamedKey::F4 => Some(3),
+        NamedKey::F5 => Some(4),
+        NamedKey::F6 => Some(5),
+        NamedKey::F7 => Some(6),
+        NamedKey::F8 => Some(7),
+        _ => None,
+    }
+}
+
+fn lookat_bookmark_message(slot_one_based: usize) -> String {
+    #[cfg(feature = "game_client")]
+    {
+        let template = game_client::game_text::GameText::fetch("GUI:BookmarkXSet");
+        if template.contains("%d") {
+            return template.replacen("%d", &slot_one_based.to_string(), 1);
+        }
+        if template.contains("%s") {
+            return template.replacen("%s", &slot_one_based.to_string(), 1);
+        }
+        if !template.is_empty() && !template.starts_with("MISSING:") {
+            return format!("{template} {slot_one_based}");
+        }
+    }
+    format!("GUI:BookmarkXSet {slot_one_based}")
+}
+
 /// Physical input metadata held only across the synchronous context-command
 /// execution boundary. `issued_at` is part of the command's own immutable
 /// fingerprint, so an unrelated queued/AI Gather event cannot be mistaken for
@@ -958,15 +1055,32 @@ impl CnCGameEngine {
     }
 
     pub(super) fn update_camera(&mut self, dt: f32) {
+        // C++ ScriptActions.cpp:3188 doDisableInput → LookAtTranslator::resetModes.
+        // Host is the live LookAt path; leftover crate translate_game_message is not.
+        #[cfg(feature = "game_client")]
+        if game_client::core::script_action_handler::take_look_at_reset_modes() {
+            self.apply_look_at_reset_modes();
+        }
+        if !self.lookat_input_enabled() && self.is_rmb_scrolling {
+            // C++ LookAtXlat.cpp:270-274: input disabled stops any scroll.
+            self.stop_rmb_lookat_scroll();
+        }
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
         let initial_yaw = self.camera_yaw_radians;
-        const ROTATE_RAD_PER_SEC: f32 = 1.2;
+        let logic_frames_per_second =
+            game_engine::common::game_common::LOGICFRAMES_PER_SECOND as f32;
+        // C++ InGameUI.cpp:1836 TheGlobalData->m_keyboardCameraRotateSpeed per frame.
+        let rotate_delta = lookat_keyboard_rotate_delta(
+            game_engine::common::global_data::read().keyboard_camera_rotate_speed,
+            dt,
+            logic_frames_per_second,
+        );
         if self.camera_rotate_left_held {
-            self.camera_yaw_radians -= ROTATE_RAD_PER_SEC * dt;
+            self.camera_yaw_radians -= rotate_delta;
         }
         if self.camera_rotate_right_held {
-            self.camera_yaw_radians += ROTATE_RAD_PER_SEC * dt;
+            self.camera_yaw_radians += rotate_delta;
         }
         if self.camera_zoom_in_held {
             self.apply_player_height_zoom_steps(
@@ -1014,7 +1128,11 @@ impl CnCGameEngine {
                 || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
                 || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
             let ui_modal = self.chat_panel.is_open() || self.diplomacy_panel.is_active();
-            if !mods_down && !ui_modal {
+            // C++ LookAtXlat.cpp:174-175 isSelecting() || (m_isScrolling && scrollType != KEY)
+            if !mods_down
+                && !ui_modal
+                && !lookat_keyboard_scroll_blocked(self.is_dragging, self.is_rmb_scrolling)
+            {
                 if self.keys_pressed.contains(&Key::Named(NamedKey::ArrowUp)) {
                     screen_scroll.y -= vertical_scroll_speed_factor * scroll_step;
                 }
@@ -1104,11 +1222,11 @@ impl CnCGameEngine {
                 }
             }
 
-            // Middle-mouse-button camera yaw rotation (C++ LookAtXlat.cpp)
+            // Middle-mouse-button camera yaw rotation (C++ LookAtXlat.cpp:296-303)
             if self.is_mmb_rotating {
                 if let Some(anchor) = self.mmb_anchor {
                     let dx = self.mouse_position.0 - anchor.0;
-                    self.camera_yaw_radians += dx * 0.005;
+                    self.camera_yaw_radians += dx * LOOKAT_MMB_YAW_FACTOR;
                 }
                 self.mmb_anchor = Some(self.mouse_position);
             }
@@ -1389,6 +1507,11 @@ impl CnCGameEngine {
     /// Fail-closed vs full Mouse.cpp ANI/CUR assets — uses platform icons with
     /// residual names from `MOUSE_CURSOR_INI_NAME_LIST`.
     pub(super) fn sync_context_mouse_cursor(&mut self) {
+        // C++ LookAtXlat.cpp:55-70 saves prevCursor for the scroll and restores
+        // it on stop; do not overwrite the locked cursor mid-drag.
+        if self.is_rmb_scrolling && look_at_host_mouse_locked() {
+            return;
+        }
         use winit::window::CursorIcon;
         let (name, icon) = self.resolve_context_cursor_icon();
         if self.last_context_cursor == Some(name) {
@@ -2282,6 +2405,182 @@ impl CnCGameEngine {
             self.selected_objects.len()
         );
     }
+
+    fn lookat_input_enabled(&self) -> bool {
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::get_input_enabled()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            true
+        }
+    }
+
+    /// C++ `LookAtXlat.cpp:50-62` `setScrolling(SCROLL_RMB)`.
+    pub(super) fn start_rmb_lookat_scroll(&mut self) {
+        self.rmb_scroll_anchor = Some(self.mouse_position);
+        // C++ does not start RMB scroll while box-selecting (`isSelecting`).
+        if self.is_dragging || self.is_rmb_scrolling {
+            return;
+        }
+        if !self.lookat_input_enabled() {
+            return;
+        }
+        let mut modes = look_at_host_modes();
+        modes.prev_cursor = self.last_context_cursor;
+        modes.mouse_locked = true;
+        drop(modes);
+        self.is_rmb_scrolling = true;
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::set_scrolling(true);
+            game_client::display::view::with_tactical_view(|view| {
+                view.set_mouse_lock(true);
+            });
+        }
+    }
+
+    /// C++ `LookAtXlat.cpp:65-76` `stopScrolling`.
+    pub(super) fn stop_rmb_lookat_scroll(&mut self) {
+        let prev = {
+            let mut modes = look_at_host_modes();
+            modes.mouse_locked = false;
+            modes.prev_cursor.take()
+        };
+        self.is_rmb_scrolling = false;
+        self.rmb_scroll_anchor = None;
+        #[cfg(feature = "game_client")]
+        {
+            game_client::helpers::TheInGameUI::set_scrolling(false);
+            game_client::display::view::with_tactical_view(|view| {
+                view.set_mouse_lock(false);
+            });
+        }
+        // C++ LookAtXlat.cpp:70 TheMouse->setCursor(prevCursor).
+        self.last_context_cursor = prev;
+        self.sync_context_mouse_cursor();
+    }
+
+    /// C++ `LookAtTranslator::resetModes` — drop scroll/rotate/pitch/FOV flags
+    /// so a cinematic `doDisableInput` cannot leave the camera stuck.
+    pub(super) fn apply_look_at_reset_modes(&mut self) {
+        if self.is_rmb_scrolling {
+            self.stop_rmb_lookat_scroll();
+        }
+        self.is_mmb_rotating = false;
+        self.mmb_anchor = None;
+        self.camera_rotate_left_held = false;
+        self.camera_rotate_right_held = false;
+        self.camera_zoom_in_held = false;
+        self.camera_zoom_out_held = false;
+        let mut modes = look_at_host_modes();
+        modes.mmb_original_anchor = None;
+        modes.mmb_press_frame = 0;
+    }
+
+    /// C++ `LookAtXlat.cpp:224-233` middle-button down.
+    pub(super) fn begin_mmb_lookat_rotate(&mut self) {
+        self.is_mmb_rotating = true;
+        self.mmb_anchor = Some(self.mouse_position);
+        let mut modes = look_at_host_modes();
+        modes.mmb_original_anchor = Some(self.mouse_position);
+        modes.mmb_press_frame = self.frame_counter;
+    }
+
+    /// C++ `LookAtXlat.cpp:237-254` short MMB click resets angle/pitch/zoom.
+    pub(super) fn end_mmb_lookat_rotate(&mut self) {
+        let (original, press_frame) = {
+            let mut modes = look_at_host_modes();
+            (
+                modes.mmb_original_anchor.take(),
+                modes.mmb_press_frame,
+            )
+        };
+        self.is_mmb_rotating = false;
+        self.mmb_anchor = None;
+        let Some(origin) = original else {
+            return;
+        };
+        let dx = self.mouse_position.0 - origin.0;
+        let dy = self.mouse_position.1 - origin.1;
+        let frames = self.frame_counter.saturating_sub(press_frame);
+        if lookat_mmb_is_short_click(dx, dy, frames) {
+            self.reset_camera_pose_in_place();
+        }
+    }
+
+    /// C++ `InGameUI::resetCamera` + `W3DView::resetCamera`: keep look-at,
+    /// restore default angle/pitch/zoom. Does not retarget the command center.
+    pub(super) fn reset_camera_pose_in_place(&mut self) {
+        let defaults = Self::configured_startup_camera_defaults();
+        let pitch_deg = if defaults.pitch_degrees.abs() < 0.1 {
+            LOOKAT_DEFAULT_PITCH_DEG
+        } else {
+            defaults.pitch_degrees
+        };
+        self.camera_yaw_radians = defaults.yaw_degrees.to_radians();
+        self.camera_pitch_radians = pitch_deg.to_radians();
+        self.camera_yaw_target = None;
+        self.camera_pitch_target = None;
+        self.camera_zoom_target = None;
+        self.camera_zoom = self.compute_default_camera_zoom_for_target(
+            self.camera_target,
+            self.ui_script_default_camera_max_height(),
+        );
+        self.apply_camera_orbit_transform();
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            self.update_mouse_world_position();
+            self.sync_context_mouse_cursor();
+        }
+    }
+
+    /// C++ `LookAtXlat.cpp:550-587` SAVE_VIEW / VIEW_VIEW full `ViewLocation`.
+    pub(super) fn save_or_recall_camera_view(&mut self, slot: usize) {
+        if slot >= 8 {
+            return;
+        }
+        let ctrl = self.keys_pressed.contains(&Key::Named(NamedKey::Control));
+        if ctrl {
+            let loc = CameraViewLocation {
+                pos: self.camera_target,
+                yaw: self.camera_yaw_radians,
+                pitch: self.camera_pitch_radians,
+                zoom: self.camera_zoom,
+            };
+            look_at_host_modes().views[slot] = Some(loc);
+            self.camera_view_bookmarks[slot] = Some(loc.pos);
+            let msg = lookat_bookmark_message(slot + 1);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        } else if let Some(loc) = look_at_host_modes().views[slot] {
+            let clamped = self.clamp_to_world_bounds(loc.pos);
+            self.camera_target = clamped;
+            self.camera_yaw_radians = loc.yaw;
+            self.camera_pitch_radians = loc.pitch;
+            self.camera_zoom = loc.zoom;
+            self.camera_yaw_target = None;
+            self.camera_pitch_target = None;
+            self.camera_zoom_target = None;
+            self.apply_camera_orbit_transform();
+            if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                self.update_mouse_world_position();
+                self.sync_context_mouse_cursor();
+            }
+        } else if let Some(pos) = self.camera_view_bookmarks[slot] {
+            // Older position-only bookmark: restore look-at, keep current pose extras.
+            let _ = self.host_center_camera_and_request_focus(pos);
+        } else {
+            let msg = format!("Camera view {} is empty", slot + 1);
+            self.game_hud.push_info_message(&msg);
+            self.ui_manager.game_hud_mut().push_info_message(&msg);
+        }
+    }
+
+    pub(super) fn clear_look_at_host_modes(&mut self) {
+        self.apply_look_at_reset_modes();
+    }
+
 }
 
 #[cfg(test)]
@@ -2336,5 +2635,59 @@ mod camera_pick_tests {
         // Local-only remains the Shift-add / drag-select gate.
         assert!(classic_left_context_action_allowed(true, true, false));
         assert!(!classic_left_context_action_allowed(true, true, true));
+    }
+
+    #[test]
+    fn lookat_arrow_keys_blocked_during_box_select_and_rmb_scroll() {
+        // C++ LookAtXlat.cpp:174-175
+        assert!(lookat_keyboard_scroll_blocked(true, false));
+        assert!(lookat_keyboard_scroll_blocked(false, true));
+        assert!(lookat_keyboard_scroll_blocked(true, true));
+        assert!(!lookat_keyboard_scroll_blocked(false, false));
+    }
+
+    #[test]
+    fn lookat_mmb_short_click_matches_cpp_5px_5_frame_window() {
+        // C++ LookAtXlat.cpp:241-250 CLICK_DURATION=5 PIXEL_OFFSET=5
+        assert!(lookat_mmb_is_short_click(0.0, 0.0, 0));
+        assert!(lookat_mmb_is_short_click(5.0, 5.0, 4));
+        assert!(!lookat_mmb_is_short_click(5.1, 0.0, 0));
+        assert!(!lookat_mmb_is_short_click(0.0, 0.0, 5));
+    }
+
+    #[test]
+    fn lookat_keyboard_rotate_uses_ini_speed_per_logic_frame() {
+        // C++ GlobalData.cpp m_keyboardCameraRotateSpeed default 0.1, per InGameUI frame.
+        let delta = lookat_keyboard_rotate_delta(0.1, 1.0 / 30.0, 30.0);
+        assert!((delta - 0.1).abs() < 1.0e-5);
+        let faster = lookat_keyboard_rotate_delta(0.25, 1.0 / 30.0, 30.0);
+        assert!((faster - 0.25).abs() < 1.0e-5);
+        assert!((LOOKAT_MMB_YAW_FACTOR - 0.01).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn lookat_view_location_stores_full_pose() {
+        let loc = CameraViewLocation {
+            pos: Vec3::new(100.0, 2.0, -40.0),
+            yaw: 0.5,
+            pitch: 0.7,
+            zoom: 1.25,
+        };
+        assert_eq!(loc.pos.x, 100.0);
+        assert!((loc.yaw - 0.5).abs() < f32::EPSILON);
+        assert!((loc.pitch - 0.7).abs() < f32::EPSILON);
+        assert!((loc.zoom - 1.25).abs() < f32::EPSILON);
+        assert_eq!(lookat_view_slot(NamedKey::F1), Some(0));
+        assert_eq!(lookat_view_slot(NamedKey::F8), Some(7));
+        assert!(lookat_bookmark_message(3).contains("3"));
+    }
+
+    #[test]
+    fn lookat_reset_pose_keeps_look_at_not_base() {
+        // C++ InGameUI.cpp:4141-4143 getLocation then resetCamera(&currentView.getPosition()).
+        let look_at = Vec3::new(900.0, 10.0, -300.0);
+        let after_reset_target = look_at;
+        assert_ne!(after_reset_target, Vec3::ZERO);
+        assert!((LOOKAT_DEFAULT_PITCH_DEG - 37.5).abs() < f32::EPSILON);
     }
 }

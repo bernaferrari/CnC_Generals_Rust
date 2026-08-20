@@ -580,6 +580,14 @@ pub struct VeterancyGainCreateMetadata {
     pub science_required: Option<String>,
 }
 
+/// C++ `GrantUpgradeCreateModuleData` — UpgradeToGrant + ExemptStatus.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantUpgradeCreateMetadata {
+    pub upgrade_name: String,
+    /// True when INI `ExemptStatus` includes UNDER_CONSTRUCTION.
+    pub exempt_under_construction: bool,
+}
+
 
 /// The two retail ObjectCreationLists used by `EjectPilotDie`.
 ///
@@ -1182,6 +1190,24 @@ pub struct ThingTemplate {
     /// Authored `VeterancyGainCreate` modules (StartingLevel / ScienceRequired).
     #[serde(default)]
     pub veterancy_gain_creates: Vec<VeterancyGainCreateMetadata>,
+    /// Authored `GrantUpgradeCreate` modules (UpgradeToGrant / ExemptStatus).
+    #[serde(default)]
+    pub grant_upgrade_creates: Vec<GrantUpgradeCreateMetadata>,
+    /// Authored `LockWeaponCreate` slot (PRIMARY=0, SECONDARY=1, TERTIARY=2).
+    #[serde(default)]
+    pub lock_weapon_slot: Option<u8>,
+    /// Authored `PreorderCreate` module presence (not a template-name heuristic).
+    #[serde(default)]
+    pub has_preorder_create: bool,
+    /// Authored `SpecialPowerCreate` module presence.
+    #[serde(default)]
+    pub has_special_power_create: bool,
+    /// Authored `SupplyCenterCreate` module presence.
+    #[serde(default)]
+    pub has_supply_center_create: bool,
+    /// Authored `SupplyWarehouseCreate` module presence.
+    #[serde(default)]
+    pub has_supply_warehouse_create: bool,
     /// Host primary weapon stats when the template defines combat capability.
     /// Prefer this over ad-hoc `Weapon::default()` injection at create time.
     pub primary_weapon: Option<Weapon>,
@@ -1324,6 +1350,12 @@ impl ThingTemplate {
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             is_trainable: false,
             veterancy_gain_creates: Vec::new(),
+            grant_upgrade_creates: Vec::new(),
+            lock_weapon_slot: None,
+            has_preorder_create: false,
+            has_special_power_create: false,
+            has_supply_center_create: false,
+            has_supply_warehouse_create: false,
             primary_weapon: None,
             primary_weapon_name: None,
             primary_weapon_explicitly_none: false,

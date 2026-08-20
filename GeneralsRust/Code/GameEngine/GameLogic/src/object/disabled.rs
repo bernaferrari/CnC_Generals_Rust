@@ -16,7 +16,11 @@ impl Object {
         let edge_case = !self.is_disabled();
 
         if disabled_type == DisabledType::DisabledUnmanned && !self.is_kind_of(KindOf::Drone) {
-            self.play_misc_audio_at_position(|misc| misc.splatter_vehicle_pilots_brain.sound_file.clone());
+            self.play_misc_audio_at_position(|misc| {
+                misc.splatter_vehicle_pilots_brain
+                    .playable_event_name()
+                    .to_string()
+            });
         } else if matches!(
             disabled_type,
             DisabledType::DisabledUnderpowered
@@ -35,11 +39,11 @@ impl Object {
             if !already_power_disabled {
                 if self.is_kind_of(KindOf::Structure) {
                     self.play_misc_audio_at_position(|misc| {
-                        misc.building_disabled.sound_file.clone()
+                        misc.building_disabled.playable_event_name().to_string()
                     });
                 } else if self.is_kind_of(KindOf::Vehicle) {
                     self.play_misc_audio_at_position(|misc| {
-                        misc.vehicle_disabled.sound_file.clone()
+                        misc.vehicle_disabled.playable_event_name().to_string()
                     });
                 }
             }

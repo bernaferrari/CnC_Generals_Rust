@@ -14,7 +14,10 @@ pub mod supply_center_create;
 pub mod supply_warehouse_create;
 pub mod veterancy_gain_create;
 
-pub use create_module::{create_safe_module, CreateModule, CreateModuleData, SafeCreateModule};
+pub use create_module::{
+    create_safe_module, with_create_owner_mut, with_create_owner_object, CreateModule,
+    CreateModuleData, SafeCreateModule,
+};
 pub use game_engine::common::thing::module::CreateInterface as CreateModuleInterface;
 
 pub use preorder_create::PreorderCreate;

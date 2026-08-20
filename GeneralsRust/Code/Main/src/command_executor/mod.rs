@@ -60,6 +60,10 @@ mod special_power;
 mod transport;
 mod validate;
 
+pub use leftover::{
+    host_beacon_caption, host_beacon_is_hidden, take_leftover_dispatch_commands_from_common_stream,
+};
+
 #[cfg(test)]
 mod tests;
 
@@ -96,6 +100,17 @@ impl<'a> CommandExecutor<'a> {
             command.command_type, command.player_id
         );
         self.current_player_id = command.player_id;
+
+        // C++ Player.cpp:708-724 posts MSG_ENABLE_RETALIATION_MODE once/sec
+        // when TheGlobalData->m_clientRetaliationModeEnabled differs from the
+        // logical flag. Apply the same setLogicalRetaliationModeEnabled here
+        // so Auto-Retaliate reaches the live host without GameNetwork.
+        if !matches!(
+            command.command_type,
+            CommandType::EnableRetaliationMode { .. }
+        ) {
+            self.sync_logical_retaliation_from_client();
+        }
 
         // Validate player ownership
         if !self.validate_player_ownership(&command) {
@@ -383,7 +398,9 @@ impl<'a> CommandExecutor<'a> {
             CommandType::PlantBoobyTrap { target_id } => {
                 self.execute_plant_booby_trap(&command.selected_units, *target_id)
             }
-            CommandType::SwitchWeapons => self.execute_switch_weapons(&command.selected_units),
+            CommandType::SwitchWeapons { slot } => {
+                self.execute_switch_weapons(&command.selected_units, *slot)
+            }
             CommandType::ToggleOvercharge => {
                 self.execute_toggle_overcharge(&command.selected_units)
             }
@@ -396,7 +413,19 @@ impl<'a> CommandExecutor<'a> {
             CommandType::PlaceBeacon { location, text } => {
                 self.execute_place_beacon(command.player_id, *location, text)
             }
-            CommandType::RemoveBeacon => self.execute_remove_beacon(command.player_id),
+            CommandType::RemoveBeacon => {
+                self.execute_remove_beacon(command.player_id, &command.selected_units)
+            }
+            CommandType::SetBeaconText { text } => {
+                self.execute_set_beacon_text(command.player_id, &command.selected_units, text)
+            }
+            CommandType::EnableRetaliationMode {
+                player_index,
+                enabled,
+            } => self.execute_enable_retaliation(*player_index, *enabled),
+            CommandType::SelfDestruct { transfer_to_ally } => {
+                self.execute_self_destruct(command.player_id, *transfer_to_ally)
+            }
             CommandType::ViewRadarAt { position } => self.execute_view_radar_at(*position),
 
             // Selection commands
@@ -443,6 +472,22 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         true
+    }
+
+    fn sync_logical_retaliation_from_client(&mut self) {
+        let enabled = game_engine::common::global_data::read_safe()
+            .map(|data| data.client_retaliation_mode_enabled)
+            .unwrap_or(true);
+        let ids: Vec<u32> = self
+            .game_logic
+            .get_players()
+            .values()
+            .filter(|player| player.is_local && player.logical_retaliation_mode_enabled != enabled)
+            .map(|player| player.id)
+            .collect();
+        for id in ids {
+            self.game_logic.set_logical_retaliation_mode(id, enabled);
+        }
     }
 
     /// Get execution statistics

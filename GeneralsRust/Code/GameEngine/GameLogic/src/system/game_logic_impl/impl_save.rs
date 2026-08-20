@@ -176,6 +176,9 @@ impl GameLogic {
         self.game_paused = paused;
     }
 
+    /// C++ `GameLogic::loadPostProcess` (GameLogic.cpp:4996-5071) remakes IDs and the
+    /// sleepy heap only. `ThePartitionManager->update()` is `GameState::gameStatePostProcessLoad`
+    /// after every snapshot (GameState.cpp:1528-1529), not here.
     pub fn load_post_process(&mut self) {
         self.next_object_id = INVALID_ID;
         for obj_id in &self.all_objects {

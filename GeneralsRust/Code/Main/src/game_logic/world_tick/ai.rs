@@ -392,6 +392,7 @@ impl GameLogic {
             let _ = self.try_idle_repulse(object_id);
             // C++ AIIdleState: checkForCrateToPickup → aiMoveToObject.
             let _ = self.try_idle_crate_pickup(object_id);
+            // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
                 let can_attack = obj.can_attack();
                 if dense_world

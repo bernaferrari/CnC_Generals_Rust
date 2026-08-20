@@ -733,6 +733,7 @@ impl GameLogic {
         self.tick_all_turret_state_machines(&object_ids, t, frame);
         self.sync_attack_priority_from_script_engine();
         self.tick_mood_auto_acquire(&object_ids);
+        self.tick_attack_team_persist(&object_ids);
         self.tick_out_of_ammo_jet_damage();
         self.tick_airfield_parking_heal();
         self.tick_airfield_runway_clear();

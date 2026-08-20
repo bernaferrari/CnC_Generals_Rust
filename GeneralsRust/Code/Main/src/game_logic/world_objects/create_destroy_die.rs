@@ -1280,8 +1280,15 @@ impl GameLogic {
             // C++ SpecialPowerModule StartsPaused=Yes residual (pauseCountdown TRUE on create).
             self.init_starts_paused_special_powers(id);
 
-            // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes.
+            // C++ SupplyWarehouseCreate::onCreate residual — StartingBoxes + manager register.
             self.init_supply_warehouse_create(id);
+
+            // C++ GrantUpgradeCreate::onCreate / LockWeaponCreate::onBuildComplete
+            // for map-placed / instant-finished objects.
+            self.apply_grant_upgrade_create_on_create(id);
+            if !starts_under_construction {
+                self.apply_lock_weapon_create(id);
+            }
 
             // C++ SpawnBehavior ModuleTag_12 on stock and general-specific
             // SupplyCenter/Stash objects.  `create_object_under_construction`
@@ -1531,9 +1538,8 @@ impl GameLogic {
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_cash.max(1);
             object.set_position(position);
-            if let Some(level) = player_template_veterancy {
-                let _ = object.set_min_veterancy_level(level);
-            }
+            // C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain then getGroundHeight Z snap.
+            // Applied after insert so the host object exists for snap.
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     id,
@@ -1576,6 +1582,9 @@ impl GameLogic {
             }
             // C++ Object.cpp:473 TheRadar->addObject(this) (under construction too).
             self.host_radar_add_object(id);
+            // C++ DozerAIUpdate.cpp:1692-1698 flattenTerrain + Z snap + pathfind.
+            self.flatten_and_snap_construction(id);
+            self.move_objects_for_construction(position, 12.0, None);
 
             log::debug!(
                 "Started construction of {} ({}) at {:?}",
@@ -2512,5 +2521,52 @@ impl GameLogic {
             return true;
         }
         false
+    }
+
+    /// C++ `GrantUpgradeCreate::onCreate` — grant when ExemptStatus includes
+    /// UNDER_CONSTRUCTION and the object is not currently constructing.
+    pub(in super::super) fn apply_grant_upgrade_create_on_create(&mut self, object_id: ObjectId) {
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if obj.status.under_construction {
+            return;
+        }
+        let grants: Vec<_> = obj
+            .thing
+            .template
+            .grant_upgrade_creates
+            .iter()
+            .filter(|grant| grant.exempt_under_construction)
+            .cloned()
+            .collect();
+        let team = obj.team;
+        if grants.is_empty() {
+            return;
+        }
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            for grant in &grants {
+                o.apply_upgrade_tag(&grant.upgrade_name);
+            }
+        }
+        if let Some(player) = self.players.values_mut().find(|p| p.team == team && p.is_alive) {
+            for grant in &grants {
+                player.add_completed_upgrade(&grant.upgrade_name);
+            }
+        }
+    }
+
+    /// C++ `LockWeaponCreate::onBuildComplete` — permanent authored slot lock.
+    pub(in super::super) fn apply_lock_weapon_create(&mut self, object_id: ObjectId) {
+        let Some(slot) = self
+            .objects
+            .get(&object_id)
+            .and_then(|obj| obj.thing.template.lock_weapon_slot)
+        else {
+            return;
+        };
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            let _ = o.set_weapon_lock(slot, crate::game_logic::WeaponLockType::LockedPermanently);
+        }
     }
 }

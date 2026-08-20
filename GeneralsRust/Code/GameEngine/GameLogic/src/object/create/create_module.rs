@@ -9,15 +9,61 @@
 // Desc: Object Create Module base classes and traits
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+use std::cell::Cell;
+use std::ptr::NonNull;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
 
+use crate::common::ObjectID;
+use crate::helpers::TheGameLogic;
+use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     BaseModuleData, CreateInterface, ModuleData, Thing as ThingTrait,
 };
+
+thread_local! {
+    static CREATE_OWNER: Cell<Option<NonNull<Object>>> = const { Cell::new(None) };
+}
+
+/// C++ `CreateModule::getObject()` is the same `Object*` already on the stack.
+/// Live crate callers (`init_object` / `on_build_complete`) hold that write lock,
+/// so modules must not `find_object_by_id` + `write()` again.
+pub fn with_create_owner_object<R>(object: *mut Object, f: impl FnOnce() -> R) -> R {
+    CREATE_OWNER.with(|cell| {
+        let prev = cell.replace(NonNull::new(object));
+        let result = f();
+        cell.set(prev);
+        result
+    })
+}
+
+/// Apply `f` to the object currently running create hooks, else try-write.
+pub fn with_create_owner_mut(object_id: ObjectID, f: impl FnOnce(&mut Object)) {
+    if object_id == 0 {
+        return;
+    }
+    let applied = CREATE_OWNER.with(|cell| {
+        if let Some(ptr) = cell.get() {
+            // SAFETY: `with_create_owner_object` keeps `&mut Object` live on this thread.
+            f(unsafe { &mut *ptr.as_ptr() });
+            true
+        } else {
+            false
+        }
+    });
+    if applied {
+        return;
+    }
+    let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        return;
+    };
+    if let Ok(mut guard) = object_arc.try_write() {
+        f(&mut guard);
+    }
+}
 
 /// Data structure for create modules
 #[derive(Debug, Clone)]

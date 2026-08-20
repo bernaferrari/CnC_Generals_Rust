@@ -37,6 +37,7 @@ struct MetaMapRec {
 
 #[derive(Debug, Clone)]
 pub struct CommandMapEntry {
+    pub name: String,
     pub key: u32,
     pub mod_state: u32,
     pub category: String,

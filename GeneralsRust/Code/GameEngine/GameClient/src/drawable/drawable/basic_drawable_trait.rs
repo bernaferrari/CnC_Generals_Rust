@@ -211,6 +211,12 @@ impl Drawable for BasicDrawable {
         self.color_flash_envelope(Some(color), duration_frames, 0, 0);
     }
 
+    fn set_time_of_day(&self, time_of_day: TimeOfDay) -> Result<(), Box<dyn Error>> {
+        // C++ Drawable::setTimeOfDay (`Drawable.cpp:4344-4354`).
+        self.pending_time_of_day.set(Some(time_of_day));
+        Ok(())
+    }
+
     fn update(&mut self, _delta_time: f32) {
         self.update_fade();
         self.flush_dirty_model_condition();
@@ -295,6 +301,9 @@ impl Drawable for BasicDrawable {
             }
         }
         self.publish_wheel_info_to_logic();
+        self.apply_pending_time_of_day();
+        self.restart_ambient_if_dropped();
+
     }
 
     fn render(&mut self, view_matrix: &Matrix4, projection_matrix: &Matrix4) {

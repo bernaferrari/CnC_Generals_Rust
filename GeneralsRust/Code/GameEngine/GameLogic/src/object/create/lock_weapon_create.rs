@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use crate::helpers::TheGameLogic;
+
 use crate::object::create::{CreateModule, CreateModuleData};
 use crate::weapon::{WeaponLockType, WeaponSlotType};
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -93,16 +93,12 @@ impl CreateInterface for LockWeaponCreate {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let Ok(mut obj_guard) = object_arc.write() else {
-            return;
-        };
-        obj_guard.set_weapon_lock(
-            self.module_data.slot_to_lock,
-            WeaponLockType::LockedPermanently,
-        );
+        crate::object::create::with_create_owner_mut(object_id, |obj_guard| {
+            obj_guard.set_weapon_lock(
+                self.module_data.slot_to_lock,
+                WeaponLockType::LockedPermanently,
+            );
+        });
     }
 
     fn should_do_on_build_complete(&self) -> bool {
@@ -129,7 +125,11 @@ fn parse_slot_to_lock(
     data: &mut LockWeaponCreateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
     let slot = match token.trim().to_ascii_uppercase().as_str() {
         "PRIMARY" | "PRIMARY_WEAPON" => WeaponSlotType::Primary,
         "SECONDARY" | "SECONDARY_WEAPON" => WeaponSlotType::Secondary,

@@ -1,6 +1,9 @@
+use crate::collision_math::CollisionMath;
 use crate::collision_tests::{AABoxCollisionTest, CollisionTest};
 use crate::intersection::{RayCollisionTest, Triangle};
 use glam::Vec3;
+
+
 
 /// Axis-Aligned Bounding Box Tree for spatial partitioning (ported from aabtree.cpp)
 #[derive(Debug)]
@@ -332,41 +335,15 @@ impl AABTree {
         box_test: &mut AABoxCollisionTest,
         triangle: &Triangle,
     ) -> bool {
-        // Simplified AABox-Triangle collision test
-        // This would need a full SAT implementation for accuracy
-
-        // Quick AABB vs triangle AABB test
-        let tri_min = triangle
-            .vertices
-            .iter()
-            .fold(triangle.vertices[0], |acc, &v| acc.min(v));
-        let tri_max = triangle
-            .vertices
-            .iter()
-            .fold(triangle.vertices[0], |acc, &v| acc.max(v));
-
-        let box_min = box_test.aabb.center - box_test.aabb.extent;
-        let box_max = box_test.aabb.center + box_test.aabb.extent;
-
-        let end_min = box_test.aabb.center + box_test.movement - box_test.aabb.extent;
-        let end_max = box_test.aabb.center + box_test.movement + box_test.aabb.extent;
-
-        let sweep_min = box_min.min(end_min);
-        let sweep_max = box_max.max(end_max);
-
-        // AABB overlap test
-        if sweep_min.x <= tri_max.x
-            && sweep_max.x >= tri_min.x
-            && sweep_min.y <= tri_max.y
-            && sweep_max.y >= tri_min.y
-            && sweep_min.z <= tri_max.z
-            && sweep_max.z >= tri_min.z
-        {
-            return true;
-        }
-
-        false
+        // C++ AABTreeClass::Cast_AABox_To_Polys → CollisionMath::Collide(AABox, move, Tri)
+        CollisionMath::aabox_triangle_swept(
+            &box_test.aabb,
+            box_test.movement,
+            triangle,
+            &mut box_test.result,
+        )
     }
+
 
     /// Update bounding boxes after mesh modification
     pub fn update_bounding_boxes(&mut self, mesh: &dyn MeshGeometry) {

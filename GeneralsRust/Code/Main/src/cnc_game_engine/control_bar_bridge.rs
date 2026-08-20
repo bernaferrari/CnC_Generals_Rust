@@ -621,13 +621,11 @@ impl CnCGameEngine {
                 self.host_control_bar_queue_command(player_id, selected, command_type);
             }
             HostControlBarDirectAction::LockWeapon(slot) => {
-                // `SWITCH_WEAPON` is not a toggle.  The retail button carries
-                // the concrete primary/secondary/tertiary choice and C++ locks
-                // that exact set permanently.
+                // C++ MSG_SWITCH_WEAPONS locks the button's explicit slot.
                 self.host_control_bar_queue_command(
                     player_id,
                     selected,
-                    crate::command_system::CommandType::SetWeaponLock { slot, lock_type: 2 },
+                    crate::command_system::CommandType::SwitchWeapons { slot },
                 );
             }
             HostControlBarDirectAction::ArmUnitAbility(ability) => {

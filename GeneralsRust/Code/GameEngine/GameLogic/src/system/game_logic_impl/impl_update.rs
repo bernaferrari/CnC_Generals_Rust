@@ -148,22 +148,24 @@ impl GameLogic {
         // then TheStatsCollector->update(); TheRecorder->UPDATE();
         let current_crc_interval =
             game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
+        let mut posted_logic_crc = None;
         if self.frame > 0 && self.frame % current_crc_interval == 0 {
             self.crc_cache = self.compute_crc();
             let playback = game_engine::common::recorder::with_recorder(|recorder| {
                 recorder.is_playback()
             })
             .unwrap_or(false);
-            let _ = playback;
             if let Ok(mut stream) =
                 game_engine::common::message_stream::get_message_stream().write()
             {
-                let _ = stream.append_message(
+                let crc_msg = stream.append_message(
                     game_engine::common::message_stream::game_message::GameMessageType::LogicCRC(
                         self.crc_cache,
                     ),
                 );
+                crc_msg.append_boolean_argument(playback);
             }
+            posted_logic_crc = Some(self.crc_cache);
         }
         game_engine::common::stats_collector::with_stats_collector_mut(|collector| {
             collector.update();
@@ -171,6 +173,10 @@ impl GameLogic {
         game_engine::common::recorder::with_recorder_mut(|recorder| {
             recorder.set_current_frame(self.frame);
             recorder.update();
+            if let Some(crc) = posted_logic_crc {
+                // C++ GameLogicDispatch.cpp:1940-1946 — live CRC compares after recorded enqueue.
+                recorder.notify_logic_crc(crc, 0);
+            }
         });
 
 

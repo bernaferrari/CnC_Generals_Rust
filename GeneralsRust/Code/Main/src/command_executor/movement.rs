@@ -22,30 +22,108 @@ use std::collections::{HashMap, HashSet};
 
 impl<'a> CommandExecutor<'a> {
     // === Movement Commands ===
+    /// C++ `STD_WAYPOINT_CLAMP_MARGIN` (`AIGroup.cpp:1494`) = 4 * PATHFIND_CELL_SIZE_F.
+    const STD_WAYPOINT_CLAMP_MARGIN: f32 = 4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+    /// C++ `STD_AIRCRAFT_EXTRA_MARGIN` (`AIGroup.cpp:1495`) = 10 * PATHFIND_CELL_SIZE_F.
+    const STD_AIRCRAFT_EXTRA_MARGIN: f32 = 10.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+
+    /// C++ `GeometryInfo::getBoundingCircleRadius` from authored collision geom,
+    /// not the pick/click `selection_radius` (`AIGroup.cpp:1790-1791`).
+    fn bounding_circle_radius(unit: &crate::game_logic::object::Object) -> f32 {
+        let g = &unit.thing.geometry;
+        let half_x = ((g.bounds_max.x - g.bounds_min.x).abs() * 0.5).max(0.0);
+        let half_z = ((g.bounds_max.z - g.bounds_min.z).abs() * 0.5).max(0.0);
+        if half_x > 1e-3 && half_z > 1e-3 && (half_x - half_z).abs() > 1e-3 {
+            (half_x * half_x + half_z * half_z).sqrt()
+        } else {
+            g.radius.max(half_x).max(half_z).max(1.0)
+        }
+    }
+
+    /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — host KindOf bank does not retain the
+    /// bit, so reuse the existing helicopter template detector.
+    fn is_produced_at_helipad(unit: &crate::game_logic::object::Object) -> bool {
+        crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
+            &unit.template_name,
+        )
+    }
+
+    /// C++ `getHelicopterOffset` (`AIGroup.cpp:1799-1826`). Ground plane is XZ.
+    fn helicopter_offset(pos: Vec3, idx: i32) -> Vec3 {
+        if idx <= 0 {
+            return pos;
+        }
+        const CIRCLE: f32 = 2.0 * std::f32::consts::PI;
+        const HELI_DIAMETER: f32 = 70.0;
+        let mut radius = HELI_DIAMETER;
+        let mut circumference = radius * CIRCLE;
+        let mut angle = 0.0f32;
+        let mut angle_between = HELI_DIAMETER / circumference * CIRCLE;
+        let mut h = 1;
+        while h < idx {
+            angle += angle_between;
+            if angle > CIRCLE {
+                radius += HELI_DIAMETER;
+                circumference = radius * CIRCLE;
+                angle_between = HELI_DIAMETER / circumference * CIRCLE;
+                angle -= CIRCLE;
+            }
+            h += 1;
+        }
+        Vec3::new(
+            pos.x + angle.sin() * radius,
+            pos.y,
+            pos.z + angle.cos() * radius,
+        )
+    }
+
+    /// C++ `clampWaypointPosition` (`AIGroup.cpp:1497-1521`) after the
+    /// helipad/aircraft extra-margin walk (`:1569-1593`).
+    fn clamp_group_waypoint(&self, units: &[ObjectId], mut pos: Vec3) -> Vec3 {
+        if !pos.x.is_finite() || !pos.z.is_finite() {
+            return pos;
+        }
+        let mut extra_margin = 0.0f32;
+        for &id in units {
+            let Some(o) = self.game_logic.host_object(id) else {
+                continue;
+            };
+            if Self::is_produced_at_helipad(o) {
+                extra_margin = extra_margin.max(Self::bounding_circle_radius(o));
+            } else if o.is_kind_of(crate::game_logic::KindOf::Aircraft) {
+                extra_margin = extra_margin.max(Self::STD_AIRCRAFT_EXTRA_MARGIN);
+            }
+        }
+        let margin = Self::STD_WAYPOINT_CLAMP_MARGIN + extra_margin;
+        let (min, max) = self.game_logic.world_bounds();
+        let lo_x = min.x + margin;
+        let hi_x = max.x - margin;
+        let lo_z = min.z + margin;
+        let hi_z = max.z - margin;
+        let inside = pos.x >= lo_x && pos.x <= hi_x && pos.z >= lo_z && pos.z <= hi_z;
+        if !inside {
+            let (cx_lo, cx_hi) = if lo_x <= hi_x { (lo_x, hi_x) } else { (hi_x, lo_x) };
+            let (cz_lo, cz_hi) = if lo_z <= hi_z { (lo_z, hi_z) } else { (hi_z, lo_z) };
+            pos.x = pos.x.clamp(cx_lo, cx_hi);
+            pos.z = pos.z.clamp(cz_lo, cz_hi);
+        }
+        pos
+    }
+
 
     pub(crate) fn execute_move(&mut self, units: &[ObjectId], destination: Vec3) -> CommandResult {
         // Wave 232: move last-writes via GameLogic unit_command_move_free.
-        // C++ groupMoveToPosition: click inside group bounds → tighten (all to point).
-        if self.should_tighten_group_move(units, destination) {
+        // C++ AIGroup::groupMoveToPosition (AIGroup.cpp:1559-1615): click-to-gather
+        // only when !isFormation. A stamped formation always takes
+        // friend_moveFormationToPos and is never tightened.
+        // C++ clamps the click to map extent before tighten/formation (`:1592-1593`).
+        let destination = self.clamp_group_waypoint(units, destination);
+        let is_formation = self.group_is_stamped_formation(units);
+        if !is_formation && self.should_tighten_group_move(units, destination) {
             return self.execute_tighten_to_position(units, destination);
         }
-        // C++ friend_computeGroundPath + friend_moveFormationToPos residual.
-        if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
-            let fid0 = units
-                .first()
-                .and_then(|id| self.game_logic.host_object(*id))
-                .map(|o| o.formation_id)
-                .unwrap_or(0);
-            let is_formation = fid0 != 0
-                && units.iter().all(|&id| {
-                    self.game_logic
-                        .host_object(id)
-                        .map(|o| o.formation_id == fid0)
-                        .unwrap_or(false)
-                });
-            if is_formation {
-                return self.execute_move_formation_to_position(units, destination);
-            }
+        if is_formation && units.len() > 1 {
+            return self.execute_move_formation_to_position(units, destination);
         }
         let goals = self.group_move_destinations(units, destination);
         if units.len() > 1 && self.compute_ground_path_should_group(units, destination) {
@@ -80,6 +158,7 @@ impl<'a> CommandExecutor<'a> {
         waypoints: &[Vec3],
     ) -> CommandResult {
         // Wave 232: move last-writes via GameLogic unit_command_move_to_waypoints.
+        let destination = self.clamp_group_waypoint(units, destination);
         if waypoints.is_empty() && self.should_tighten_group_move(units, destination) {
             return self.execute_tighten_to_position(units, destination);
         }
@@ -109,9 +188,16 @@ impl<'a> CommandExecutor<'a> {
     /// unstealthed combat stealth units can cloak again.
     pub(super) fn apply_player_stealth_mood_delay(&mut self, unit_ids: &[ObjectId]) {
         // Wave 233: stealth mood delay via GameLogic authority API.
+        // C++ GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND) (AIGroup.cpp:2059).
         let now = self.game_logic.get_frame();
-        for (i, &unit_id) in unit_ids.iter().enumerate() {
-            let skew = (i as u32) % 30;
+        for &unit_id in unit_ids {
+            let skew = crate::game_logic::host_rng_residual::pure_logic_random_int(
+                now.wrapping_add(unit_id.0),
+                0,
+                0,
+                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL
+                    as i32,
+            ) as u32;
             let _ = self
                 .game_logic
                 .unit_command_apply_stealth_mood_delay(unit_id, now, skew);
@@ -153,7 +239,8 @@ impl<'a> CommandExecutor<'a> {
                 obj.formation_id,
                 obj.formation_offset,
                 obj.is_kind_of(crate::game_logic::KindOf::Infantry),
-                obj.is_kind_of(crate::game_logic::KindOf::Vehicle),
+                obj.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                    && !obj.is_kind_of(crate::game_logic::KindOf::Aircraft),
             ));
         }
         if movers.is_empty() {
@@ -179,20 +266,80 @@ impl<'a> CommandExecutor<'a> {
         }
 
         // C++ friend_moveInfantryToPos / friend_moveVehicleToPos residual:
-        // when enough pure infantry or vehicles move far enough, pack into columns
-        // along the move direction instead of free-move center offsets.
+        // each kind packs independently (infantry 3-col, vehicles 2-col). Mixed
+        // selections still column-pack; leftovers (aircraft / short counts)
+        // take the free-move path (AIGroup.cpp:1550-1553, :1637-1650).
         if let Some(column) = self.group_column_destinations(&movers, destination) {
-            return column;
+            let packed: HashSet<ObjectId> = column.iter().map(|(id, _)| *id).collect();
+            let leftover: Vec<_> = movers
+                .iter()
+                .filter(|m| !packed.contains(&m.0))
+                .cloned()
+                .collect();
+            if leftover.is_empty() {
+                return column;
+            }
+            let mut out = column;
+            out.extend(Self::free_move_destinations(leftover, destination));
+            return out;
         }
 
+        Self::free_move_destinations(movers, destination)
+    }
+
+    /// C++ AIGroup::getMinMaxAndCenter formation return + groupMoveToPosition
+    /// helipad / airborne-aircraft cancel (AIGroup.cpp:1543, :1575-1586).
+    fn group_is_stamped_formation(&self, units: &[ObjectId]) -> bool {
+        let mut fid0 = None;
+        let mut count = 0u32;
+        for &id in units {
+            let Some(o) = self.game_logic.host_object(id) else {
+                continue;
+            };
+            if !o.is_alive() || o.contained_by.is_some() {
+                continue;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                || o.is_kind_of(crate::game_logic::KindOf::Structure)
+            {
+                continue;
+            }
+            let name = o.template_name.to_ascii_lowercase();
+            let produced_at_helipad = name.contains("heli")
+                || name.contains("chinook")
+                || name.contains("comanche")
+                || name.contains("helix");
+            if produced_at_helipad {
+                return false;
+            }
+            if o.is_kind_of(crate::game_logic::KindOf::Aircraft) && o.status.airborne_target {
+                return false;
+            }
+            match fid0 {
+                None => fid0 = Some(o.formation_id),
+                Some(fid) if fid != o.formation_id => return false,
+                _ => {}
+            }
+            count += 1;
+        }
+        matches!(fid0, Some(fid) if fid != 0) && count >= 2
+    }
+
+    /// C++ groupMoveToPosition free-move loop: nearest unit is the center,
+    /// others keep a clamped offset from that center.
+    fn free_move_destinations(
+        mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)>,
+        destination: Vec3,
+    ) -> Vec<(ObjectId, Vec3)> {
+        if movers.is_empty() {
+            return Vec::new();
+        }
         // Near-to-far vs goal (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
         movers.sort_by(|a, b| {
             let da = (a.1.x - destination.x).hypot(a.1.z - destination.z);
             let db = (b.1.x - destination.x).hypot(b.1.z - destination.z);
             da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
         });
-
-        // Free-move center is the nearest unit's current position (C++ firstUnit branch).
         let center = movers[0].1;
         let mut out = Vec::with_capacity(movers.len());
         for (i, (unit_id, pos, radius, _fid, _off, _inf, _veh)) in movers.into_iter().enumerate() {
@@ -281,7 +428,8 @@ impl<'a> CommandExecutor<'a> {
             && destination.z <= cz + hz
     }
 
-    /// C++ AIGroup::groupTightenToPosition — near-to-far, all path to same pos.
+    /// C++ AIGroup::groupTightenToPosition — near-to-far; helis get
+    /// `getHelicopterOffset` slots (`AIGroup.cpp:1884-1898`).
     pub(crate) fn execute_tighten_to_position(
         &mut self,
         units: &[ObjectId],
@@ -292,7 +440,7 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidLocation;
         }
         // Sort near-to-far (C++ SimpleObjectIterator ITER_SORTED_NEAR_TO_FAR).
-        let mut movers: Vec<(ObjectId, f32)> = Vec::new();
+        let mut movers: Vec<(ObjectId, f32, bool)> = Vec::new();
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
@@ -308,15 +456,20 @@ impl<'a> CommandExecutor<'a> {
             let p = unit.get_position();
             let dx = p.x - destination.x;
             let dz = p.z - destination.z;
-            movers.push((unit_id, dx * dx + dz * dz));
+            movers.push((unit_id, dx * dx + dz * dz, Self::is_produced_at_helipad(unit)));
         }
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let mut any = false;
-        for (unit_id, _) in movers {
-            if self
-                .game_logic
-                .unit_command_tighten_to(unit_id, destination)
-            {
+        let mut heli_idx = 0i32;
+        for (unit_id, _, is_heli) in movers {
+            let dest = if is_heli {
+                let slot = Self::helicopter_offset(destination, heli_idx);
+                heli_idx += 1;
+                slot
+            } else {
+                destination
+            };
+            if self.game_logic.unit_command_tighten_to(unit_id, dest) {
                 any = true;
             }
         }
@@ -453,17 +606,50 @@ impl<'a> CommandExecutor<'a> {
             MIN_VEHICLES_FOR_GROUP_RESIDUAL,
         };
 
-        let n = movers.len() as i32;
-        let all_infantry = movers.iter().all(|m| m.5);
-        let all_vehicles = movers.iter().all(|m| m.6);
-        if !all_infantry && !all_vehicles {
-            return None;
+        // C++ groupMoveToPosition calls friend_moveInfantryToPos then
+        // friend_moveVehicleToPos on the same member list (AIGroup.cpp:1550-1553).
+        // Each pass packs only its kind (infantry 3-col, vehicles 2-col).
+        let infantry: Vec<_> = movers.iter().filter(|m| m.5).cloned().collect();
+        let vehicles: Vec<_> = movers
+            .iter()
+            .filter(|m| m.6 && !m.5)
+            .cloned()
+            .collect();
+
+        let mut out = Vec::new();
+        if let Some(col) = Self::pack_column_kind(
+            &infantry,
+            destination,
+            3,
+            MIN_INFANTRY_FOR_GROUP_RESIDUAL,
+            MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+        ) {
+            out.extend(col);
         }
-        let min_count = if all_infantry {
-            MIN_INFANTRY_FOR_GROUP_RESIDUAL
+        if let Some(col) = Self::pack_column_kind(
+            &vehicles,
+            destination,
+            2,
+            MIN_VEHICLES_FOR_GROUP_RESIDUAL,
+            MIN_DISTANCE_FOR_GROUP_RESIDUAL,
+        ) {
+            out.extend(col);
+        }
+        if out.is_empty() {
+            None
         } else {
-            MIN_VEHICLES_FOR_GROUP_RESIDUAL
-        };
+            Some(out)
+        }
+    }
+
+    fn pack_column_kind(
+        movers: &[(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)],
+        destination: Vec3,
+        num_columns: i32,
+        min_count: i32,
+        min_distance: f32,
+    ) -> Option<Vec<(ObjectId, Vec3)>> {
+        let n = movers.len() as i32;
         if n < min_count {
             return None;
         }
@@ -477,7 +663,7 @@ impl<'a> CommandExecutor<'a> {
         let mut dir_x = destination.x - center.x;
         let mut dir_z = destination.z - center.z;
         let dist = (dir_x * dir_x + dir_z * dir_z).sqrt();
-        if dist < MIN_DISTANCE_FOR_GROUP_RESIDUAL {
+        if dist < min_distance {
             return None;
         }
         dir_x /= dist;
@@ -498,7 +684,6 @@ impl<'a> CommandExecutor<'a> {
             .collect();
         ordered.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
 
-        let num_columns = 3i32;
         let half = num_columns / 2;
         let units_to_path = ordered.len() as i32;
         // C++: spacing uses path cell size; host residual ≈ average radius.
@@ -543,16 +728,34 @@ impl<'a> CommandExecutor<'a> {
         destination: Vec3,
         max_shots: i32,
     ) -> CommandResult {
-        // Wave 232: attack-move last-writes via GameLogic unit_command_attack_move_to_ex.
+        // C++ AIGroup::groupAttackMoveToPosition (`AIGroup.cpp:2260-2273`):
+        // every member gets the identical `pos` — no column/formation spread.
         if !destination.x.is_finite() || !destination.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
-        let goals = self.group_move_destinations(units, destination);
+        let destination = self.clamp_group_waypoint(units, destination);
         let mut any = false;
-        for (unit_id, goal) in goals {
-            if self
+        for &unit_id in units {
+            let (can_move, can_attack) = match self.game_logic.host_object(unit_id) {
+                Some(unit) => (
+                    unit.is_alive() && unit.can_move(),
+                    unit.can_attack() || unit.weapon.is_some(),
+                ),
+                None => continue,
+            };
+            if !can_move {
+                continue;
+            }
+            if can_attack {
+                if self
+                    .game_logic
+                    .unit_command_attack_move_to_ex(unit_id, destination, max_shots)
+                {
+                    any = true;
+                }
+            } else if self
                 .game_logic
-                .unit_command_attack_move_to_ex(unit_id, goal, max_shots)
+                .unit_command_move_free(unit_id, destination, destination)
             {
                 any = true;
             }
@@ -692,7 +895,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             let pos = unit.get_position();
-            let radius = unit.selection_radius.max(5.0);
+            let radius = Self::bounding_circle_radius(unit);
             movers.push((unit_id, pos, radius));
         }
         if movers.is_empty() {

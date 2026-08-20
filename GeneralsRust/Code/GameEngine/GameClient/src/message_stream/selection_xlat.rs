@@ -330,6 +330,40 @@ impl SelectionTranslator {
         TheInGameUI::get_max_select_count()
     }
 
+    /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
+    fn write_leftover_player_create_team(group: u8, object_ids: &[ObjectID]) {
+        let Ok(list) = player_list().read() else {
+            return;
+        };
+        let Some(player_arc) = list.get_local_player().cloned() else {
+            return;
+        };
+        drop(list);
+        let Ok(mut player) = player_arc.write() else {
+            return;
+        };
+        player.process_create_team_game_message(group as i32, object_ids);
+    }
+
+    /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
+    fn write_leftover_player_select_team(group: u8, add: bool) {
+        let Ok(list) = player_list().read() else {
+            return;
+        };
+        let Some(player_arc) = list.get_local_player().cloned() else {
+            return;
+        };
+        drop(list);
+        let Ok(mut player) = player_arc.write() else {
+            return;
+        };
+        if add {
+            player.process_add_team_game_message(group as i32);
+        } else {
+            player.process_select_team_game_message(group as i32);
+        }
+    }
+
     fn selection_limit_reached(&self) -> bool {
         let max = Self::max_select_count();
         max > 0 && self.current_selection.len() >= max as usize
@@ -978,7 +1012,15 @@ impl SelectionTranslator {
                         .unwrap_or(true)
                 })
                 .collect();
+            // C++ Player::processCreateTeamGameMessage evicts each object from every other squad.
+            for (index, members) in self.control_groups.iter_mut().enumerate() {
+                if index == group as usize {
+                    continue;
+                }
+                members.retain(|id| !selected.contains(id));
+            }
             self.control_groups[group as usize] = selected.clone();
+            Self::write_leftover_player_create_team(group, &selected);
 
             messages.push(GameMessageType::CreateTeamSlot(group));
         }
@@ -1025,6 +1067,7 @@ impl SelectionTranslator {
                     messages.push(GameMessageType::CreateSelectedGroup(true, Vec::new()));
                 }
                 messages.push(GameMessageType::SelectTeamSlot(group));
+                Self::write_leftover_player_select_team(group, false);
                 if let Some(msg) = messages.first() {
                     crate::message_stream::translators::play_voice_for_command(
                         self.current_selection.iter().copied(),
@@ -1092,6 +1135,7 @@ impl SelectionTranslator {
             messages.push(GameMessageType::CreateSelectedGroup(false, added));
         }
         messages.push(GameMessageType::AddTeamSlot(group));
+        Self::write_leftover_player_select_team(group, true);
 
         self.last_group_sel_time = now;
         self.last_group_sel_group = group as i32;
@@ -1100,9 +1144,12 @@ impl SelectionTranslator {
     }
 
     /// Handle view-only control group hotkeys (Alt+0-9 in retail bindings).
-    /// Matches C++ MSG_META_VIEW_TEAM0-9 by centering the tactical view on the
-    /// last live object in the hotkey squad without changing selection.
+    /// Matches C++ MSG_META_VIEW_TEAM0-9: `if (group >= 1 && group <= 10)`.
+    /// VIEW_TEAM0 is a silent no-op; `getHotkeySquad(10)` is NULL.
     fn handle_view_control_group(&self, group: u8) {
+        if group < 1 || group > 9 {
+            return;
+        }
         self.look_at_control_group(group);
     }
 
@@ -1764,6 +1811,25 @@ mod tests {
     }
 
     #[test]
+    fn create_control_group_evicts_ids_from_other_squads() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+        translator.current_selection.insert(1);
+        translator.current_selection.insert(2);
+        translator.handle_create_control_group(0);
+        translator.current_selection.clear();
+        translator.current_selection.insert(2);
+        translator.current_selection.insert(3);
+        translator.handle_create_control_group(1);
+        assert_eq!(translator.control_groups[0], vec![1]);
+        let mut group1 = translator.control_groups[1].clone();
+        group1.sort_unstable();
+        assert_eq!(group1, vec![2, 3]);
+    }
+
+
+
+    #[test]
     fn test_add_control_group_double_tap_does_not_append_again() {
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
@@ -1878,6 +1944,38 @@ mod tests {
             assert_eq!(view.position().y, 380.0);
         });
     }
+
+    #[test]
+    fn view_team0_is_silent_noop_like_cpp() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups[0] = vec![10];
+        translator.register_drawable(SelectableDrawable {
+            id: 10,
+            object_id: 10,
+            position: Coord3D::new(100.0, 200.0, 0.0),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+        with_tactical_view(|view| {
+            view.set_position(&Point3::new(0.0, 0.0, 0.0));
+        });
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaViewTeam(0)));
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        with_tactical_view_ref(|view| {
+            assert_eq!(view.position().x, 0.0);
+            assert_eq!(view.position().y, 0.0);
+        });
+    }
+
 
     #[test]
     fn test_is_click_tolerance() {

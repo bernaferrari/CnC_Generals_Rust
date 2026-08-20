@@ -52,9 +52,9 @@ fn play_misc_stealth_sound(discovered: bool, player_index: i32) {
     };
     let misc = misc.read();
     let name = if discovered {
-        misc.stealth_discovered_sound.sound_file.as_str()
+        misc.stealth_discovered_sound.playable_event_name()
     } else {
-        misc.stealth_neutralized_sound.sound_file.as_str()
+        misc.stealth_neutralized_sound.playable_event_name()
     };
     if name.is_empty() {
         return;

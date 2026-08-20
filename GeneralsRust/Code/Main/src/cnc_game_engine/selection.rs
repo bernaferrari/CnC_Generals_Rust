@@ -1546,22 +1546,19 @@ impl CnCGameEngine {
         self.select_all_units_by_type(true);
     }
     /// Retail SELECT_HERO (Ctrl+H) residual.
+    /// C++ `CommandXlat.cpp:822-834` `iNeedAHero` + `:2801-2834` `MSG_META_SELECT_HERO`.
     pub(super) fn select_hero_units_hotkey(&mut self) {
-        // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
-        let team = frame.local_team();
-
-        let selection: Vec<ObjectId> = // Presentation-owned hero identity (no live GameLogic dual-scan).
-            frame.alive_selectable_friendly_hero_ids(team);
-
-        if selection.is_empty() {
+        // Presentation-owned hero identity (no live GameLogic dual-scan).
+        let _ = frame.alive_selectable_friendly_hero_ids(frame.local_team());
+        let Some((target_id, look)) = select_hero_from_frame(frame, frame.local_team()) else {
             return;
-        }
-        // Wave 583: selection residual via host_set_selection.
-        self.host_set_selection(self.current_player_id, selection);
+        };
+        self.host_set_selection(self.current_player_id, vec![target_id]);
         self.play_sound_effect(SoundType::Select);
+        let _ = self.host_center_camera_and_request_focus(look);
     }
 
     /// Retail SELECT_MATCHING_UNITS (KEY_E) residual — type-select from current selection.
@@ -1572,6 +1569,30 @@ impl CnCGameEngine {
         };
         self.select_similar_units(seed);
     }
+}
+
+
+/// C++ `iNeedAHero` first `KINDOF_HERO`, then `getContainedBy()` + lookAt.
+fn select_hero_from_frame(
+    frame: &crate::presentation_frame::PresentationFrame,
+    team: crate::game_logic::Team,
+) -> Option<(ObjectId, glam::Vec3)> {
+    let hero = frame.objects.iter().find(|object| {
+        object.team == team
+            && !object.destroyed
+            && crate::presentation_frame::PresentationFrame::object_has_kind(
+                object,
+                crate::game_logic::KindOf::Hero,
+            )
+    })?;
+    let target_id = hero.contained_by.unwrap_or(hero.id);
+    let look = frame
+        .objects
+        .iter()
+        .find(|object| object.id == target_id)
+        .map(|object| object.position)
+        .unwrap_or(hero.position);
+    Some((target_id, look))
 }
 
 #[cfg(test)]

@@ -1744,6 +1744,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
         .add_kind_of(KindOf::CommandCenter)
         .add_kind_of(KindOf::Immobile)
         .set_health(5000.0);
+    tpl.has_preorder_create = true;
     logic.templates.insert("AmericaCommandCenter".into(), tpl);
     // Ensure a USA player with preorder.
     if logic.players.is_empty() {

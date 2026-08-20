@@ -1375,6 +1375,12 @@ mod tests {
         drawable.overlay_data.health_region =
             Some(IRegion2D::new(ICoord2D::new(10, 20), ICoord2D::new(74, 32)));
         drawable.overlay_data.visible = true;
+        drawable.overlay_data.health_bar_visible = true;
+        drawable.overlay_data.health_fill = [0.0, 1.0, 0.0, 1.0];
+        drawable.overlay_data.construct_text = Some("Under Construction: 42%".to_string());
+        drawable.overlay_data.show_healing = true;
+        drawable.overlay_data.show_disabled = true;
+
         drawable.overlay_data.health_ratio = 0.8;
         drawable.overlay_data.veterancy_level = 2;
         drawable.overlay_data.is_under_construction = true;

@@ -90,6 +90,13 @@ impl<'a> CommandExecutor<'a> {
                 }
                 return CommandResult::InvalidCommand;
             };
+            // C++ BuildAssistant::moveObjectsForConstruction (BuildAssistant.cpp:642+).
+            self.game_logic.move_objects_for_construction(
+                location,
+                crate::game_logic::host_production_buildable_command_residual::STRUCTURE_PLACE_CLEARANCE_RESIDUAL
+                    * 0.5,
+                Some(unit_id),
+            );
             if orientation.abs() > f32::EPSILON {
                 // Wave 233: orientation stamp via GameLogic authority API.
                 let _ = self

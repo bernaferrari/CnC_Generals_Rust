@@ -300,6 +300,18 @@ impl Object {
             }
         }
 
+        // C++ ImmortalBody::internalChangeHealth (ImmortalBody.cpp:31-37):
+        // delta = max(delta, -getHealth()+1) — never below 1, never dead.
+        // SupplyWarehouse / FireWallSegment / TrailRemnant / GPS marker
+        // use ImmortalBody. Distinct from Highlander (UNRESISTABLE still kills).
+        if self.uses_immortal_body() && !battle_bus_start_second {
+            let floor = 1.0;
+            let max_dmg = (self.health.current - floor).max(0.0);
+            if actual_damage > max_dmg {
+                actual_damage = max_dmg;
+            }
+        }
+
         // C++ ActiveBody::internalChangeHealth is a single write
         // (ActiveBody.cpp:1188+). Always mutate host health.current this
         // frame so mid-frame death / HP visibility matches C++, and still
@@ -385,6 +397,26 @@ impl Object {
     ) {
         self.ai_attitude = attitude.as_i8();
         crate::game_logic::host_ai_attitude_log::record(self.id, self.ai_attitude);
+    }
+
+    /// C++ ImmortalBody templates: SupplyWarehouse/Pile/Dock, FireWallSegment,
+    /// ParticleUplink TrailRemnant, GPSScrambler invisible marker.
+    /// ImmortalBody.cpp:31-37 never lets HP drop below 1 (unlike Highlander).
+    pub fn uses_immortal_body(&self) -> bool {
+        if self.firewall_segment {
+            return true;
+        }
+        let n = self.template_name.to_ascii_lowercase();
+        n.contains("supplywarehouse")
+            || n.contains("supply_warehouse")
+            || n.contains("supplypile")
+            || n.contains("supply_pile")
+            || n.contains("supplydock")
+            || n.contains("supply_dock")
+            || n.contains("firewallsegment")
+            || n.contains("fire_wall_segment")
+            || n.contains("trailremnant")
+            || (n.contains("gpsscrambler") && n.contains("marker"))
     }
 }
 

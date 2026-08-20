@@ -2957,12 +2957,9 @@ impl Drawable {
 
     fn find_or_create_audio_event_info(event_name: &str) -> Option<Arc<AudioEventInfo>> {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
-        let mut manager = manager.lock().ok()?;
-        if let Some(info) = manager.find_audio_event_info(event_name) {
-            Some(info)
-        } else {
-            manager.new_audio_event_info(event_name.to_string())
-        }
+        let manager = manager.lock().ok()?;
+        // C++ addAudioEvent / getInfoForAudioEvent never invents a blank definition.
+        manager.find_audio_event_info(event_name)
     }
 
     fn get_ambient_sound_for_damage(

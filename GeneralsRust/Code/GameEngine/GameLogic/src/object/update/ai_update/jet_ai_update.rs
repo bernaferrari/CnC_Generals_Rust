@@ -964,7 +964,7 @@ impl JetStateMachine {
                                 {
                                     let misc_audio = misc_audio.read();
                                     let mut sound = AudioEventRts::new(
-                                        misc_audio.aircraft_wheel_screech.sound_file.clone(),
+                                        misc_audio.aircraft_wheel_screech.playable_event_name(),
                                     );
                                     sound.set_object_id(jet_ai.object_id);
                                     audio.add_audio_event(&sound);
@@ -2023,8 +2023,9 @@ impl JetAIUpdate {
                 if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio()
                 {
                     let misc_audio = misc_audio.read();
-                    let mut lockon_sound =
-                        AudioEventRts::new(misc_audio.lockon_tick_sound.sound_file.clone());
+                    let mut lockon_sound = AudioEventRts::new(
+                        misc_audio.lockon_tick_sound.playable_event_name(),
+                    );
                     lockon_sound.set_object_id(self.object_id);
                     audio.add_audio_event(&lockon_sound);
                 }

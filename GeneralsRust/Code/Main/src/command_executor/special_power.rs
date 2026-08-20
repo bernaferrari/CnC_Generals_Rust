@@ -176,15 +176,24 @@ impl<'a> CommandExecutor<'a> {
             "Executing special power {:?} with target {:?}",
             power_type, target
         );
-        // C++ AIGroup::groupDoSpecialPower* uses getSpecialPowerSourceObject —
-        // only the module owner fires, not every selected unit.
-        let casters: Vec<ObjectId> =
-            if let Some(src) = self.special_power_source_object(units, power_type) {
-                vec![src]
-            } else {
-                // Fall back: any ready member (capture/skills on multi infantry).
-                units.to_vec()
-            };
+        // C++ AIGroup::groupDoSpecialPower* (AIGroup.cpp:2614-2735) loops every
+        // member. getSpecialPowerSourceObject is a cursor/ActionManager query
+        // only — not the fire loop (GameLogicDispatch calls groupDoSpecialPower*).
+        let tracked: Vec<ObjectId> = units
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.game_logic.host_object(id).is_some_and(|o| {
+                    o.is_alive() && o.special_power_cooldowns.contains_key(power_type)
+                })
+            })
+            .collect();
+        let casters: Vec<ObjectId> = if tracked.is_empty() {
+            // Fall back: any ready member (capture/skills on multi infantry).
+            units.to_vec()
+        } else {
+            tracked
+        };
 
         // Capture is a unit SpecialAbility with its own target legality.  It
         // must validate *before* spending charge; the former generic path

@@ -7,7 +7,7 @@
 use super::active_body::{ActiveBody, ActiveBodyModuleData};
 use super::body_module::{
     ArmorSetType, BodyDamageType, BodyError, BodyModuleInterface, BodyResult, DamageInfo,
-    DamageInfoInput, MaxHealthChangeType, ObjectId, VeterancyLevel,
+    DamageInfoInput, DamageType, MaxHealthChangeType, ObjectId, VeterancyLevel,
 };
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -20,8 +20,11 @@ pub struct ImmortalBody {
 impl ImmortalBody {
     /// Create a new immortal body
     pub fn new(module_data: ActiveBodyModuleData, owner_id: ObjectId) -> Self {
-        let active_body = ActiveBody::new_with_owner(module_data, owner_id);
-
+        let mut active_body = ActiveBody::new_with_owner(module_data, owner_id);
+        // C++ ImmortalBody.cpp:31-37 virtual internalChangeHealth. Rust
+        // ActiveBody::attempt_damage calls inherent internal_change_health,
+        // so the 1-HP floor must live on the inner ActiveBody.
+        active_body.set_min_health_floor(1.0);
         Self { active_body }
     }
 
@@ -409,5 +412,64 @@ mod tests {
         // Try to damage again
         assert!(body.internal_change_health(-100.0).is_ok());
         assert_eq!(body.get_health(), 1.0); // Should still be immortal
+    }
+
+    fn make_damage_info(damage_type: DamageType, amount: f32) -> DamageInfo {
+        let mut info = DamageInfo::new();
+        info.input.damage_type = damage_type;
+        info.input.amount = amount;
+        info.sync_from_input();
+        info
+    }
+
+    #[test]
+    fn attempt_damage_cannot_kill_immortal_body() {
+        // C++ ImmortalBody::internalChangeHealth (ImmortalBody.cpp:31-37)
+        // is virtual from ActiveBody::attemptDamage (ActiveBody.cpp:514).
+        // Pre-fix: ImmortalBody::attempt_damage delegated to ActiveBody
+        // which called inherent internal_change_health and skipped the floor.
+        let mut body = create_test_immortal_body();
+        let mut info = make_damage_info(DamageType::Explosion, 10_000.0);
+        assert!(body.attempt_damage(&mut info).is_ok());
+        assert_eq!(body.get_health(), 1.0);
+        assert!(body.get_health() > 0.0);
+        assert_ne!(body.get_damage_state(), BodyDamageType::Rubble);
+
+        let mut again = make_damage_info(DamageType::Unresistable, 999.0);
+        assert!(body.attempt_damage(&mut again).is_ok());
+        assert_eq!(body.get_health(), 1.0);
+    }
+
+    #[test]
+    fn set_max_health_fully_heal_restores_damage_state() {
+        // C++ UndeadBody::startSecondLife -> setMaxHealth(FULLY_HEAL)
+        // (UndeadBody.cpp:85 / ActiveBody.cpp:903-908) goes through
+        // internalChangeHealth so evaluateVisualCondition runs.
+        let mut body = create_test_immortal_body();
+        assert!(body.internal_change_health(-99.0).is_ok());
+        assert_eq!(body.get_health(), 1.0);
+        assert_eq!(body.get_damage_state(), BodyDamageType::ReallyDamaged);
+
+        assert!(body
+            .set_max_health(25.0, MaxHealthChangeType::FullyHeal)
+            .is_ok());
+        assert_eq!(body.get_max_health(), 25.0);
+        assert_eq!(body.get_health(), 25.0);
+        assert_eq!(body.get_previous_health(), 1.0);
+        assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
+    }
+
+    #[test]
+    fn set_max_health_add_current_cannot_drop_below_one() {
+        // C++ setMaxHealth ADD_CURRENT_HEALTH_TOO uses internalChangeHealth
+        // (ActiveBody.cpp:896), so ImmortalBody keeps the 1-HP floor.
+        let mut body = create_test_immortal_body();
+        assert!(body.internal_change_health(-90.0).is_ok());
+        assert_eq!(body.get_health(), 10.0);
+        assert!(body
+            .set_max_health(5.0, MaxHealthChangeType::AddCurrentHealthToo)
+            .is_ok());
+        assert_eq!(body.get_max_health(), 5.0);
+        assert_eq!(body.get_health(), 1.0);
     }
 }

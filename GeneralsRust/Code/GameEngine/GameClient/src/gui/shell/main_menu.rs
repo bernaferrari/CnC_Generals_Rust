@@ -2241,10 +2241,16 @@ impl MainMenu {
     fn rollback_resolution_state(&self) -> DisplaySettings {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
-        // Revert to old resolution
-        // if (TheDisplay->setDisplayMode(...))
+        // C++ DeclineResolution: TheDisplay->setDisplayMode(old settings).
+        let old = state.old_disp_settings;
+        let _ = crate::core::script_action_handler::apply_script_display_mode(
+            old.x_res.max(0) as u32,
+            old.y_res.max(0) as u32,
+            old.bit_depth.max(0) as u32,
+            old.windowed,
+        );
         state.disp_changed = false;
-        state.new_disp_settings = state.old_disp_settings;
+        state.new_disp_settings = old;
         state.new_disp_settings
     }
 
