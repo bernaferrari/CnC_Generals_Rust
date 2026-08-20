@@ -1633,6 +1633,10 @@ fn helicopter_slow_death_defers_destroy() {
 
 #[test]
 fn slow_death_defers_infantry_destruction() {
+    use crate::game_logic::host_slow_death::{
+        clear_slow_death_ini_override_for_tests, override_slow_death_ini_for_tests,
+        HostSlowDeathIni,
+    };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
@@ -1649,8 +1653,7 @@ fn slow_death_defers_infantry_destruction() {
     // C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-501) runs only
     // when the object has that Die module. A bare KindOf::Infantry fixture
     // has no module → DestroyDie.cpp:35-40 / GameLogic.cpp:3932-3967 queues
-    // destroy the same frame. begin_slow_death is the residual API for the
-    // module path (host_slow_death.rs wants_slow_death).
+    // destroy the same frame.
     logic.mark_object_for_destruction(id, None);
     assert!(
         logic.objects.get(&id).unwrap().slow_death.is_none(),
@@ -1671,8 +1674,8 @@ fn slow_death_defers_infantry_destruction() {
     {
         let o = logic.objects.get_mut(&id2).unwrap();
         assert!(
-            o.begin_slow_death(logic.frame as u32),
-            "SlowDeathBehavior residual must start for infantry"
+            o.begin_slow_death_from_ini(logic.frame, &HostSlowDeathIni::infantry_retail()),
+            "SlowDeathBehavior residual must start from authored INI"
         );
         assert!(o.slow_death.as_ref().is_some_and(|s| s.is_active()));
     }
@@ -1690,6 +1693,44 @@ fn slow_death_defers_infantry_destruction() {
     assert!(finished);
     logic.mark_object_for_destruction(id2, None);
     assert!(logic.objects_to_destroy.iter().any(|e| e.id == id2));
+
+    // Combat death with authored SlowDeathBehavior starts beginSlowDeath
+    // (C++ SlowDeathBehavior.cpp:191) and uses INI delays, not KindOf skip.
+    clear_slow_death_ini_override_for_tests();
+    let mut tank_t = ThingTemplate::new("IniSlowDeathCrusader");
+    tank_t.set_health(400.0);
+    tank_t.add_kind_of(KindOf::Vehicle);
+    logic.templates.insert("IniSlowDeathCrusader".into(), tank_t);
+    let ini = crate::game_logic::host_slow_death::slow_death_ini_from_behavior_attrs(&[
+        ("DestructionDelay", "5000"),
+        ("SinkDelay", "0"),
+        ("SinkRate", "0"),
+    ]);
+    override_slow_death_ini_for_tests("IniSlowDeathCrusader", ini);
+    let id3 = logic
+        .create_object(
+            "IniSlowDeathCrusader",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .unwrap();
+    logic.mark_object_for_destruction(id3, None);
+    {
+        let o = logic.objects.get(&id3).unwrap();
+        let sd = o.slow_death.as_ref().expect("INI SlowDeath must begin");
+        assert!(sd.is_active());
+        assert!(!o.status.destroyed);
+        assert_eq!(
+            sd.destroy_at_frame,
+            logic.frame + crate::game_logic::host_slow_death::msec_to_logic_frames(5000),
+            "DestructionDelay from INI, not hardcoded vehicle 1000ms"
+        );
+    }
+    assert!(
+        logic.objects_to_destroy.iter().all(|e| e.id != id3),
+        "INI SlowDeath must defer processDestroyList"
+    );
+    clear_slow_death_ini_override_for_tests();
 }
 
 #[test]

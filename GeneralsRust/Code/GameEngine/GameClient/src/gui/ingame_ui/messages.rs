@@ -129,6 +129,11 @@ impl InGameUI {
         &self.messages
     }
 
+    /// C++ InGameUI::freeMessageResources — ScoreScreen finishSinglePlayerInit.
+    pub fn free_message_resources(&mut self) {
+        self.messages.clear();
+    }
+
     pub fn get_message_color1(&self) -> u32 {
         self.message_color1
     }

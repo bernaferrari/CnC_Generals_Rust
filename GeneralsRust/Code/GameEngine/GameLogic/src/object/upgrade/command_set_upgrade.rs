@@ -7,11 +7,6 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data describing the command set upgrade.
 #[derive(Debug, Clone)]
@@ -147,22 +142,19 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 448: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         if self.applied {
             return false;
         }
         mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
+        use crate::helpers::TheGameLogic;
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::upgrade::center::with_upgrade_center;
 
         let trigger_alt = self.data.trigger_alt().clone();
         let command_set_alt = self.data.command_set_alt().clone();
         let command_set_name = self.data.command_set_name().clone();
-        let Some(use_alt) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+
+        let apply_to = |object_guard: &mut crate::object::Object| {
             let mut use_alt = false;
             if !trigger_alt.is_empty() {
                 let upgrade =
@@ -193,19 +185,32 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
                 object_guard.set_command_set_string_override(&command_set_name);
             }
             use_alt
-        }) else {
+        };
+
+        let found = OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |object_guard| apply_to(object_guard))
+            .or_else(|| {
+                TheGameLogic::find_object_by_id(self.object_id).and_then(|obj| {
+                    obj.write().ok().map(|mut guard| apply_to(&mut guard))
+                })
+            });
+        if found.is_none() {
             log::warn!("CommandSetUpgrade: Object {} not found", self.object_id);
             return false;
-        };
-        let _ = use_alt;
+        }
         crate::control_bar::mark_ui_dirty();
 
         self.applied = true;
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ leaves the override in place; nothing to do for parity.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ leaves the override; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }
 

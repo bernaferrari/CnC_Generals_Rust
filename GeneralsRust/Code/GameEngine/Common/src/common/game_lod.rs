@@ -3,14 +3,17 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 
 use crate::common::ini::ini_game_data::{get_global_data, GlobalData};
 use crate::common::ini::ini_game_lod::{
-    get_game_lod_manager, get_game_lod_manager_mut, StaticGameLODInfo, StaticGameLODLevel,
+    get_game_lod_manager, get_game_lod_manager_mut, set_dynamic_lod_level, ChipsetType, CpuType,
+    DynamicGameLODLevel, StaticGameLODInfo, StaticGameLODLevel,
 };
 use crate::common::ini::{INILoadType, INI};
 use crate::common::user_preferences::UserPreferences;
+
 
 static REBUILD_SHADOWS: OnceLock<fn()> = OnceLock::new();
 static REBUILD_SHORELINE: OnceLock<fn()> = OnceLock::new();
@@ -78,6 +81,10 @@ static CURRENT_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static IDEAL_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static MEM_PASSED_OVERRIDE: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
 static CPU_FREQ_MHZ_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
+static CPU_TYPE_OVERRIDE: OnceLock<RwLock<Option<CpuType>>> = OnceLock::new();
+static VIDEO_CHIP_OVERRIDE: OnceLock<RwLock<Option<ChipsetType>>> = OnceLock::new();
+static RAM_MB_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
+static SKIP_OPTIONS_PERSIST: AtomicBool = AtomicBool::new(false);
 
 fn dynamic_lod_name() -> &'static RwLock<String> {
     DYNAMIC_LOD_NAME.get_or_init(|| RwLock::new("High".to_string()))
@@ -106,6 +113,19 @@ fn mem_passed_override() -> &'static RwLock<Option<bool>> {
 fn cpu_freq_mhz_override() -> &'static RwLock<Option<i32>> {
     CPU_FREQ_MHZ_OVERRIDE.get_or_init(|| RwLock::new(None))
 }
+
+fn cpu_type_override() -> &'static RwLock<Option<CpuType>> {
+    CPU_TYPE_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
+fn video_chip_override() -> &'static RwLock<Option<ChipsetType>> {
+    VIDEO_CHIP_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
+fn ram_mb_override() -> &'static RwLock<Option<i32>> {
+    RAM_MB_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
 
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
@@ -185,10 +205,15 @@ pub fn set_dynamic_lod_from_string(value: &str) {
         "low" => "Low",
         _ => value.trim(),
     };
-    if !mapped.is_empty() {
-        set_dynamic_lod(mapped);
+    if mapped.is_empty() {
+        return;
+    }
+    set_dynamic_lod(mapped);
+    if let Some(level) = DynamicGameLODLevel::from_str(mapped) {
+        set_dynamic_lod_level(level);
     }
 }
+
 
 pub fn get_dynamic_lod() -> String {
     dynamic_lod_name()
@@ -312,6 +337,9 @@ fn recommended_texture_reduction(
     manager: &crate::common::ini::ini_game_lod::GameLODManager,
     requested_level: StaticGameLODLevel,
 ) -> i32 {
+    if get_ideal_static_lod().eq_ignore_ascii_case("Unknown") {
+        let _ = find_static_lod_level();
+    }
     if !did_mem_pass() {
         return manager.static_game_lod_info[StaticGameLODLevel::Low.to_index().unwrap()]
             .texture_reduction;
@@ -329,6 +357,7 @@ fn recommended_texture_reduction(
 
     manager.static_game_lod_info[ideal_level.to_index().unwrap()].texture_reduction
 }
+
 
 /// Mirrors C++ `GameLODManager::refreshCustomStaticLODLevel`.
 ///
@@ -441,6 +470,7 @@ pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
 
 #[doc(hidden)]
 pub fn reset_static_lod_state_for_tests() {
+    SKIP_OPTIONS_PERSIST.store(true, Ordering::Relaxed);
     if let Ok(mut guard) = static_lod_name().write() {
         *guard = "Medium".to_string();
     }
@@ -451,12 +481,131 @@ pub fn reset_static_lod_state_for_tests() {
         *guard = "Unknown".to_string();
     }
     set_mem_passed_override_for_tests(None);
-    set_cpu_freq_mhz_override_for_tests(None);
+    set_hardware_overrides_for_tests(None, None, None, None);
 }
 
-pub fn prefers_low_res_movies() -> bool {
-    matches!(get_static_lod().as_str(), "Low") || matches!(get_ideal_static_lod().as_str(), "Low")
+
+fn probe_cpu_type() -> CpuType {
+    if let Some(value) = cpu_type_override().read().ok().and_then(|guard| *guard) {
+        return value;
+    }
+    // Presets only name P3/P4/K7. Modern hardware is treated as P4 so the
+    // HIGH walk can match; unknown XX never equals a preset (C++ remaps via bench).
+    CpuType::P4
 }
+
+fn probe_video_chip() -> ChipsetType {
+    if let Some(value) = video_chip_override().read().ok().and_then(|guard| *guard) {
+        return value;
+    }
+    // C++ unknown video becomes TNT2. Modern wgpu/Metal is at least R300.
+    ChipsetType::Radeon9700
+}
+
+fn probe_ram_mb() -> i32 {
+    if let Some(value) = ram_mb_override().read().ok().and_then(|guard| *guard) {
+        return value;
+    }
+    detected_physical_memory_bytes()
+        .map(|bytes| (bytes / (1024 * 1024)) as i32)
+        .unwrap_or(256)
+}
+
+fn probe_cpu_mhz() -> i32 {
+    cpu_freq_mhz_override()
+        .read()
+        .ok()
+        .and_then(|guard| *guard)
+        .or_else(detected_cpu_frequency_mhz)
+        .unwrap_or(2000)
+}
+
+fn persist_recommended_static_lod(ideal: &str, also_static: bool) {
+    if SKIP_OPTIONS_PERSIST.load(Ordering::Relaxed) {
+        return;
+    }
+    let mut prefs = UserPreferences::new();
+    let _ = prefs.load("Options.ini");
+    prefs.set_string("IdealStaticGameLOD", ideal.to_string());
+    if also_static {
+        prefs.set_string("StaticGameLOD", ideal.to_string());
+    }
+    let _ = prefs.write();
+}
+
+/// C++ `GameLODManager::findStaticLODLevel`.
+///
+/// First run (ideal still Unknown) walks GameLODPresets.ini against
+/// CPU/MHz/video/RAM (`PROFILE_ERROR_LIMIT` 0.94), writes
+/// `IdealStaticGameLOD`, and writes `StaticGameLOD` when current is Unknown.
+pub fn find_static_lod_level() -> String {
+    let current_ideal = get_ideal_static_lod();
+    if !current_ideal.eq_ignore_ascii_case("Unknown") {
+        return current_ideal;
+    }
+
+    let matched = get_game_lod_manager().match_static_lod_presets(
+        probe_cpu_type(),
+        probe_cpu_mhz(),
+        probe_video_chip(),
+        probe_ram_mb(),
+    );
+    let name = matched.to_str();
+    set_ideal_static_lod_from_string(name);
+
+    let current_unknown = current_static_lod_name()
+        .read()
+        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
+        .unwrap_or(true);
+    persist_recommended_static_lod(name, current_unknown);
+    if current_unknown {
+        if let Ok(mut guard) = static_lod_name().write() {
+            *guard = name.to_string();
+        }
+    }
+    name.to_string()
+}
+
+/// C++ W3DDisplay::init / Options first-open: if static LOD is still
+/// UNKNOWN, apply `findStaticLODLevel()`.
+pub fn ensure_static_lod_applied() {
+    let unknown = current_static_lod_name()
+        .read()
+        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
+        .unwrap_or(true);
+    if unknown {
+        let level = find_static_lod_level();
+        set_static_lod_from_string(&level);
+    }
+}
+
+#[doc(hidden)]
+pub fn set_hardware_overrides_for_tests(
+    cpu: Option<CpuType>,
+    mhz: Option<i32>,
+    video: Option<ChipsetType>,
+    ram_mb: Option<i32>,
+) {
+    if let Ok(mut guard) = cpu_type_override().write() {
+        *guard = cpu;
+    }
+    set_cpu_freq_mhz_override_for_tests(mhz);
+    if let Ok(mut guard) = video_chip_override().write() {
+        *guard = video;
+    }
+    if let Ok(mut guard) = ram_mb_override().write() {
+        *guard = ram_mb;
+    }
+}
+
+
+pub fn prefers_low_res_movies() -> bool {
+    // C++ ScoreScreen: !didMemPass() || findStaticLODLevel()==LOW || getStatic==LOW
+    !did_mem_pass()
+        || matches!(find_static_lod_level().as_str(), "Low")
+        || matches!(get_static_lod().as_str(), "Low")
+}
+
 
 fn ensure_game_lod_loaded() {
     load_game_lod_ini_presets_and_options();
@@ -545,16 +694,33 @@ pub fn load_game_lod_ini_presets_and_options() {
             if let Some(v) = prefs.get_bool("ShowSoftWaterEdge") {
                 global.show_soft_water_edge = v;
             }
-            if let Some(v) = prefs.get_bool("UseHeatEffects") {
+            // C++ OptionPreferences keys (OptionsMenu.cpp), not GameLOD.ini names.
+            if let Some(v) = prefs.get_bool("HeatEffects") {
                 global.use_heat_effects = v;
             }
-            if let Some(v) = prefs.get_bool("UseTrees") {
+            if let Some(v) = prefs.get_bool("ShowTrees") {
                 global.use_trees = v;
+            }
+            if let Some(v) = prefs.get_bool("DynamicLOD") {
+                global.enable_dynamic_lod = v;
+            }
+            if let Some(v) = prefs.get_bool("FPSLimit") {
+                global.use_fps_limit = v;
+            }
+            if let Some(v) = prefs.get_bool("BuildingOcclusion") {
+                global.enable_behind_building_markers = v;
+            }
+            if let Some(v) = prefs.get_bool("ExtraAnimations") {
+                // ExtraAnimations=yes → extra enabled → useDrawModuleLOD false
+                global.use_draw_module_lod = !v;
+                global.use_tree_sway = !global.use_draw_module_lod;
             }
         }
     }
 
-    if !user_detail.eq_ignore_ascii_case("Unknown") {
+    if user_detail.eq_ignore_ascii_case("Unknown") {
+        ensure_static_lod_applied();
+    } else {
         set_static_lod_from_string(&user_detail);
     }
 }
@@ -594,14 +760,11 @@ fn parse_game_lod_ini(contents: &str, map: &mut HashMap<String, f32>) {
 }
 
 pub fn get_slow_death_scale() -> f32 {
-    ensure_game_lod_loaded();
-    let name = get_dynamic_lod();
-    dynamic_lod_slow_death()
-        .read()
-        .ok()
-        .and_then(|guard| guard.get(&name).copied())
-        .unwrap_or(1.0)
+    // C++ TheGameLODManager->getSlowDeathScale() reads the live field
+    // copied by setDynamicLODLevel / applyDynamicLODLevel.
+    get_game_lod_manager().get_slow_death_scale()
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -611,7 +774,7 @@ mod tests {
     fn static_lod_parser_tracks_current_and_ideal_low_detail() {
         reset_static_lod_state_for_tests();
         set_static_lod_from_string("Medium");
-        set_ideal_static_lod_from_string("Unknown");
+        set_ideal_static_lod_from_string("Medium");
         assert!(!prefers_low_res_movies());
 
         set_static_lod_from_string("Low");
@@ -621,6 +784,7 @@ mod tests {
         set_ideal_static_lod_from_string("Low");
         assert!(prefers_low_res_movies());
     }
+
 
     #[test]
     fn custom_static_lod_snapshots_current_global_settings_before_apply() {
@@ -797,4 +961,58 @@ mod tests {
 
         set_mem_passed_override_for_tests(None);
     }
+
+    #[test]
+    fn find_static_lod_level_walks_presets_high_to_low() {
+        reset_static_lod_state_for_tests();
+        {
+            let mut manager = get_game_lod_manager_mut();
+            manager.init();
+            let high = manager.new_lod_preset(2).expect("high preset");
+            high.cpu_type = CpuType::P4;
+            high.mhz = 1500;
+            high.video_type = ChipsetType::GeForce4;
+            high.memory = 256;
+            let low = manager.new_lod_preset(0).expect("low preset");
+            low.cpu_type = CpuType::P3;
+            low.mhz = 800;
+            low.video_type = ChipsetType::TNT2;
+            low.memory = 128;
+        }
+
+        set_hardware_overrides_for_tests(
+            Some(CpuType::P4),
+            Some(2000),
+            Some(ChipsetType::Radeon9700),
+            Some(1024),
+        );
+        assert_eq!(find_static_lod_level(), "High");
+
+        reset_static_lod_state_for_tests();
+        set_hardware_overrides_for_tests(
+            Some(CpuType::P3),
+            Some(850),
+            Some(ChipsetType::TNT2),
+            Some(128),
+        );
+        assert_eq!(find_static_lod_level(), "Low");
+        set_hardware_overrides_for_tests(None, None, None, None);
+        get_game_lod_manager_mut().init();
+
+    }
+
+    #[test]
+    fn get_slow_death_scale_reads_live_dynamic_lod() {
+        reset_static_lod_state_for_tests();
+        set_dynamic_lod_from_string("High");
+        {
+            let mut manager = get_game_lod_manager_mut();
+            let low = DynamicGameLODLevel::Low.to_index().unwrap();
+            manager.dynamic_game_lod_info[low].slow_death_scale = 0.25;
+        }
+        set_dynamic_lod_from_string("Low");
+        assert!((get_slow_death_scale() - 0.25).abs() < f32::EPSILON);
+        set_dynamic_lod_from_string("High");
+    }
+
 }

@@ -564,8 +564,8 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
     );
     let jet = game_logic.host_object(air_id).expect("jet");
     assert!(
-        jet.is_emp_disabled() || jet.status.disabled_emp,
-        "SupW EMP residual must DISABLED_EMP aircraft"
+        !jet.is_alive() || jet.status.destroyed || jet.status.effectively_dead,
+        "SupW EMP residual must kill airborne aircraft"
     );
 }
 

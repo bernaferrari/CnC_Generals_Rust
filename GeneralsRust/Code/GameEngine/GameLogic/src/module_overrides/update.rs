@@ -267,45 +267,6 @@ fn point_defense_laser_update_module_factory(
     ))
 }
 
-fn laser_behavior_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-    let mut data = LaserBehaviorUpdateModuleData::default();
-
-    if let Some(ini) = ini {
-        if let Err(err) = data.parse_from_ini(ini) {
-            warn!(
-                "Failed to parse LaserUpdate (behavior) module data at line {}: {}",
-                ini.get_line_num(),
-                err
-            );
-        }
-    }
-
-    Box::new(data)
-}
-
-fn laser_behavior_update_module_factory(
-    thing: Arc<dyn ModuleThing>,
-    module_data: Arc<dyn ModuleData>,
-) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<LaserBehaviorUpdateModuleData>()
-        .expect("LaserBehaviorUpdateModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
-    let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("LaserUpdate (behavior) requires a valid object");
-    let behavior = LaserBehaviorUpdate::new(object, module_data_arc.clone())
-        .expect("LaserUpdate (behavior) failed to initialize");
-
-    let module_name = AsciiString::from("LaserUpdate");
-    Box::new(LaserBehaviorUpdateModule::new(
-        behavior,
-        &module_name,
-        module_data_arc,
-    ))
-}
 
 fn bone_fx_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = BoneFXUpdateModuleData::default();

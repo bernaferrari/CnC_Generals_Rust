@@ -117,7 +117,7 @@ impl InGameUI {
             templates.push(if texture.is_empty() {
                 crate::radius_decal::RadiusDecalTemplate::default()
             } else {
-                crate::radius_decal::RadiusDecalTemplate::with_texture(texture)
+                crate::radius_decal::RadiusDecalTemplate::from_radius_cursor_texture(texture)
             });
         }
         templates

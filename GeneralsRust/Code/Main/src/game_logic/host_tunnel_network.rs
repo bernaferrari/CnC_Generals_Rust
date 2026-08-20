@@ -21,7 +21,6 @@
 //! - RebuildHole residual: GLAHoleTunnelNetwork HoleMaxHealth **500**
 //!
 //! Fail-closed honesty:
-//! - Not full GuardTunnelNetwork AI / AITNGuard nemesis path
 //! - Not CaveSystem multi-index (player TunnelTracker last-tunnel cave-in IS live)
 //! - Not full ExitStart bone / multi-door exit interface
 //! - Not full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
@@ -151,6 +150,12 @@ pub struct TeamTunnelNetwork {
     pub entry_tunnel: HashMap<u32, ObjectId>,
     /// C++ `TunnelTracker::m_tunnelIDs` residual for this team.
     pub tunnel_ids: Vec<ObjectId>,
+    /// C++ `TunnelTracker::m_curNemesisID`.
+    #[serde(default)]
+    pub cur_nemesis: Option<ObjectId>,
+    /// C++ `TunnelTracker::m_nemesisTimestamp`.
+    #[serde(default)]
+    pub nemesis_timestamp: u32,
 }
 
 /// C++ `TunnelTracker::onTunnelDestroyed` result.
@@ -360,6 +365,54 @@ impl HostTunnelNetworkRegistry {
     /// Residual honesty: TunnelTracker::healObjects exercised.
     pub fn honesty_heal_objects_ok(&self) -> bool {
         self.heal_ticks > 0
+    }
+
+    /// C++ `TunnelTracker::updateNemesis` (TunnelTracker.cpp:87-100).
+    /// Sets only when empty; refreshes timestamp when the same target is seen.
+    pub fn update_nemesis(
+        &mut self,
+        team: Team,
+        target: ObjectId,
+        is_vehicle: bool,
+        is_structure: bool,
+        is_infantry: bool,
+        is_aircraft: bool,
+        frame: u32,
+    ) {
+        if !(is_vehicle || is_structure || is_infantry || is_aircraft) {
+            return;
+        }
+        let net = self.network_mut(team);
+        match net.cur_nemesis {
+            None => {
+                net.cur_nemesis = Some(target);
+                net.nemesis_timestamp = frame;
+            }
+            Some(cur) if cur == target => {
+                net.nemesis_timestamp = frame;
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// C++ `TunnelTracker::getCurNemesis` timeout half (TunnelTracker.cpp:103-108).
+    /// Caller must still reject stealthed-undetected / effectively-dead targets.
+    pub fn get_cur_nemesis_id(&mut self, team: Team, frame: u32) -> Option<ObjectId> {
+        const NEMESIS_TIMEOUT_FRAMES: u32 = 4 * 30;
+        let net = self.networks.get_mut(&team)?;
+        let id = net.cur_nemesis?;
+        if net.nemesis_timestamp.saturating_add(NEMESIS_TIMEOUT_FRAMES) < frame {
+            net.cur_nemesis = None;
+            return None;
+        }
+        Some(id)
+    }
+
+    /// Clear an expired / invalid nemesis (stealthed, dead, missing).
+    pub fn clear_nemesis(&mut self, team: Team) {
+        if let Some(net) = self.networks.get_mut(&team) {
+            net.cur_nemesis = None;
+        }
     }
 
     /// Residual honesty: HealContain auto-exit exercised.
@@ -685,6 +738,23 @@ mod tests {
         assert_eq!(reg.entry_tunnel_of(u1), Some(t2));
         assert!(!reg.honesty_cave_in_ok());
     }
+
+    #[test]
+    fn update_nemesis_sets_once_and_refreshes_same_target() {
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let a = ObjectId(50);
+        let b = ObjectId(51);
+        reg.update_nemesis(Team::GLA, a, true, false, false, false, 10);
+        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 10), Some(a));
+        // Different target while current is live does not replace (C++).
+        reg.update_nemesis(Team::GLA, b, false, false, true, false, 20);
+        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 20), Some(a));
+        reg.update_nemesis(Team::GLA, a, true, false, false, false, 30);
+        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 30), Some(a));
+        // 4 seconds after last refresh expires.
+        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 30 + 4 * 30 + 1), None);
+    }
+
 
 
 }

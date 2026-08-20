@@ -23,6 +23,23 @@ impl RenderPipeline {
     ) {
         item.legacy_model_draw_source = submission.legacy_model_draw_source.clone();
         item.legacy_weapon_bone_bindings = submission.legacy_weapon_bone_bindings.clone();
+        // C++ Drawable::setDrawableOpacity / colorTint travel on the submission.
+        // Placement ghosts are client drawables, not FOW — keep visibility_alpha at 1.
+        let opacity = submission.render_state.opacity;
+        if opacity.is_finite() && (opacity - 1.0).abs() > f32::EPSILON {
+            item.set_presentation_opacity(opacity);
+            item.material.opacity = (item.material.opacity * opacity).clamp(0.0, 1.0);
+            item.set_fow_visibility(crate::fow_rendering::ObjectVisibility {
+                visibility_alpha: 1.0,
+                is_explored: 1.0,
+                visibility_falloff: 1.0,
+            });
+        }
+        if let Some(tint) = submission.render_state.construction_tint {
+            let tint = glam::Vec3::new(tint[0], tint[1], tint[2]);
+            item.material.diffuse_color *= tint;
+            item.material.emissive_color += tint * 0.15;
+        }
     }
 
     /// Translate the frozen GameClient W3DModelDraw animation record into the
@@ -1308,9 +1325,20 @@ impl RenderPipeline {
         bridge.apply_ghost_scene_events(ghost_events);
         self.frozen_ghost_scene = Some(bridge.freeze_ghost_scene());
 
+        // Live host never calls RenderBridge::begin_frame, so flush() has no
+        // camera and would drain+drop pending. Pull them first so placement
+        // ghosts (C++ InGameUI place-icons) reach graphics_system.
+        let extra_pending = bridge.take_pending();
         bridge.flush();
-
-        let submissions = bridge.drain_scene_submissions();
+        let mut submissions = bridge.drain_scene_submissions();
+        for submission in extra_pending {
+            let is_transparent = submission.transparent || submission.render_state.opacity < 1.0;
+            submissions.push(game_client::render_bridge::DrainedDrawSubmission {
+                submission,
+                is_transparent,
+                model_resolution: None,
+            });
+        }
         if submissions.is_empty() {
             return;
         }
@@ -2032,6 +2060,36 @@ mod w3d_live_path_tests {
         assert_eq!(child.legacy_model_draw_source, Some(source));
         assert_eq!(child.legacy_weapon_bone_bindings, Some(bindings));
     }
+
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn bridge_applies_cpp_placement_ghost_opacity_and_illegal_tint() {
+        // C++ InGameUI.cpp:77-78, 1466, 3041 — setDrawableOpacity(0.45) + colorTint red.
+        let mut item = RenderItem::new_unbound_client_drawable(
+            0x504C_4143,
+            "AmericaBarracks".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &crate::assets::W3DMaterial::default(),
+            RenderPass::ForwardTransparent,
+        );
+        let mut submission = game_client::render_bridge::DrawSubmission::default();
+        submission.render_state.opacity = 0.45;
+        submission.render_state.construction_tint = Some([1.0, 0.0, 0.0]);
+        RenderPipeline::attach_bridge_draw_metadata(&mut item, &submission);
+        assert!(
+            (item.presentation_opacity - 0.45).abs() < 1e-5,
+            "placement ghost must use C++ placementOpacity 0.45"
+        );
+        assert!(
+            (item.fow_visibility.visibility_alpha - 1.0).abs() < 1e-5,
+            "placement opacity is not FOW"
+        );
+        assert!(item.material.diffuse_color.x > item.material.diffuse_color.y);
+        assert!(item.material.diffuse_color.y.abs() < 1e-5);
+    }
+
 
     #[test]
     fn real_w3d_name_does_not_count_as_fallback_cube() {

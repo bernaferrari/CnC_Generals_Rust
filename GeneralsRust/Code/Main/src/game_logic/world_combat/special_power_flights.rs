@@ -287,7 +287,8 @@ impl GameLogic {
         producer: ObjectId,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_emp_pulse::{
-            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_LIFETIME_FRAMES,
+            EMP_PULSE_EFFECT_SPHEROID, EMP_SPHEROID_GEOMETRY_RADIUS, EMP_SPHEROID_LIFETIME_FRAMES,
+            EMP_SPHEROID_START_SCALE,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -310,6 +311,8 @@ impl GameLogic {
             o.producer_id = Some(producer);
             o.emp_pulse_spheroid_expires_frame =
                 Some(self.frame.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES));
+            o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * EMP_SPHEROID_START_SCALE;
+            o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
         }
         self.emp_pulses.record_spheroid_spawn();
         self.emp_pulse_flight_reg.record_spheroid();
@@ -318,6 +321,9 @@ impl GameLogic {
 
     pub fn update_emp_pulse_spheroids(&mut self) {
         let frame = self.frame;
+        self.apply_due_emp_pulse_disables();
+
+
         let due: Vec<ObjectId> = self
             .objects
             .iter()
@@ -347,6 +353,7 @@ impl GameLogic {
                 o.status.effectively_dead = true;
                 o.emp_pulse_spheroid = false;
             }
+            self.emp_pulses.remove_spheroid(id);
             self.mark_object_for_destruction(id, None);
         }
     }
@@ -504,6 +511,7 @@ impl GameLogic {
         for id in destroy {
             self.mark_object_for_destruction(id, None);
         }
+        self.apply_due_emp_pulse_disables();
     }
 
     /// C++ SUPERWEAPON_Frenzy OCL Frenzy_InvisibleMarker residual.

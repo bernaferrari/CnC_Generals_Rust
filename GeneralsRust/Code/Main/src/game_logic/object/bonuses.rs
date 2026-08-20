@@ -193,6 +193,10 @@ impl Object {
         if self.weapon_bonus_battle_plan_search_and_destroy {
             range *= SEARCH_AND_DESTROY_RANGE_MULT;
         }
+        // C++ WEAPONBONUSCONDITION_DRONE_SPOTTING residual (GameData RANGE 150%).
+        if self.weapon_bonus_drone_spotting {
+            range *= crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT;
+        }
         // C++ WEAPONBONUSCONDITION_GARRISONED residual (GameData RANGE 133%).
         if self.contained_by.is_some() {
             range *= 1.33;

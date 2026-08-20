@@ -67,6 +67,77 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
 }
 
 #[test]
+fn cancel_production_refunds_controlling_player_not_first_same_team() {
+    // C++ ProductionUpdate.cpp:316 / :456 — cancelUpgrade / cancelUnitCreate
+    // deposit to getObject()->getControllingPlayer(), never the first
+    // same-faction PlayerList slot.
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_barracks_template(&mut game_logic);
+    ensure_test_infantry_template(&mut game_logic);
+
+    let mut teammate = Player::new(4, Team::USA, "USA2", true);
+    teammate.resources.supplies = 80_000;
+    teammate.power_available = 100;
+    game_logic.add_player(teammate);
+
+    // Pin ownership to whoever get_player_by_team would *not* pick so a
+    // first-same-team refund cannot accidentally look correct.
+    let first_same_team = game_logic
+        .get_player_by_team(Team::USA)
+        .expect("USA player")
+        .id;
+    let owner_id = if first_same_team == 0 { 4 } else { 0 };
+    let other_id = first_same_team;
+    let owner_before = game_logic
+        .get_player(owner_id)
+        .expect("owner")
+        .effective_supplies();
+    let other_before = game_logic
+        .get_player(other_id)
+        .expect("other same-team player")
+        .effective_supplies();
+
+    let barracks_id = game_logic
+        .create_object_for_player("TestBarracks", owner_id, Vec3::ZERO)
+        .expect("barracks should be created for the controlling player");
+    assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+    let charged = owner_before.saturating_sub(
+        game_logic
+            .get_player(owner_id)
+            .expect("owner after enqueue")
+            .effective_supplies(),
+    );
+    assert!(charged > 0, "enqueue must charge the controlling player");
+    assert_eq!(
+        game_logic
+            .get_player(other_id)
+            .expect("other after enqueue")
+            .effective_supplies(),
+        other_before,
+        "enqueue must not charge the first same-team player"
+    );
+
+    assert!(game_logic.cancel_production(barracks_id, "TestInfantry".to_string()));
+    assert_eq!(
+        game_logic
+            .get_player(owner_id)
+            .expect("owner after cancel")
+            .effective_supplies(),
+        owner_before,
+        "C++ getControllingPlayer refund must restore the owner"
+    );
+    assert_eq!(
+        game_logic
+            .get_player(other_id)
+            .expect("other after cancel")
+            .effective_supplies(),
+        other_before,
+        "first same-team player must not receive the cancel refund"
+    );
+}
+
+#[test]
 fn exact_player_template_production_maps_keep_cpp_namekey_semantics() {
     use crate::game_logic::host_upgrade_module_residuals::apply_production_cost_factor;
     use game_engine::common::game_common::VeterancyLevel as CommonVeterancyLevel;
@@ -2405,6 +2476,7 @@ fn ocl_create_debris_disposition_spawn() {
         Team::USA,
         Vec3::new(10.0, 5.0, 10.0),
         Vec3::new(2.0, 0.0, 0.0),
+        None,
     );
     assert_eq!(ids.len(), 3);
     let o = logic.host_object(ids[0]).unwrap();

@@ -255,7 +255,7 @@ pub struct GameLogic {
 
     /// Host GLA Tunnel Network residual (TunnelContain shared MaxTunnelCapacity=10).
     /// Enter any allied tunnel; exit/evacuate at any allied tunnel (cross-tunnel).
-    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem cave-in.
+    /// Last-tunnel cave-in, heal, and GuardTunnelNetwork nemesis are live.
     pub(super) tunnel_network: crate::game_logic::host_tunnel_network::HostTunnelNetworkRegistry,
 
     /// Host AirF Combat Chinook residual honesty counters

@@ -148,29 +148,47 @@ impl GameLogic {
                         .unwrap_or(spawn_position.y);
                 }
 
-                let Some(created_id) =
-                    self.create_object(template_name, source_team, spawn_position)
-                else {
+                // C++ ObjectCreationList.cpp:1302-1305
+                // `sourceObj->getControllingPlayer()->getDefaultTeam()`.
+                // `create_object` uses `unique_player_id_for_team`, which is
+                // None in 2v2 same-faction, dropping the controlling player.
+                let source_owner_player_id = source_id
+                    .and_then(|id| self.objects.get(&id).and_then(|o| o.owner_player_id));
+                let Some(created_id) = self.create_object_for_owner_or_team(
+                    template_name,
+                    source_team,
+                    source_owner_player_id,
+                    spawn_position,
+                ) else {
                     continue;
+                };
+                let inherit_name = {
+                    let Some(object) = self.objects.get_mut(&created_id) else {
+                        continue;
+                    };
+
+                    object.producer_id = source_id;
+                    if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                        object.set_orientation(source_orientation);
+                    }
+                    if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
+                        // The host's movement/physics state is the concrete
+                        // equivalent of C++ PhysicsBehavior::applyForce for this
+                        // disposition.  It also preserves DragonTank FireWall
+                        // segment direction without inspecting an OCL name.
+                        object.movement.velocity = source_velocity;
+                    }
+                    // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
+                    // transferObjectName only when the created tracker isTrainable.
+                    let inherit_name = generic.inherit_veterancy && object.is_trainable();
+                    if inherit_name {
+                        object.set_min_veterancy_level(source_veterancy);
+                    }
+                    inherit_name
                 };
                 let Some(object) = self.objects.get_mut(&created_id) else {
                     continue;
                 };
-
-                object.producer_id = source_id;
-                if generic.disposition.has(DebrisDisposition::LIKE_EXISTING) {
-                    object.set_orientation(source_orientation);
-                }
-                if generic.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
-                    // The host's movement/physics state is the concrete
-                    // equivalent of C++ PhysicsBehavior::applyForce for this
-                    // disposition.  It also preserves DragonTank FireWall
-                    // segment direction without inspecting an OCL name.
-                    object.movement.velocity = source_velocity;
-                }
-                if generic.inherit_veterancy {
-                    object.set_min_veterancy_level(source_veterancy);
-                }
                 if generic.max_frames > 0 {
                     let min_frames = i32::try_from(generic.min_frames).unwrap_or(i32::MAX);
                     let max_frames = i32::try_from(generic.max_frames).unwrap_or(i32::MAX);
@@ -206,6 +224,14 @@ impl GameLogic {
                         0.0,
                         std::f32::consts::TAU,
                     ));
+                }
+                drop(object);
+                if inherit_name {
+                    if let Some(sid) = source_id {
+                        // C++ ObjectCreationList.cpp:1005
+                        // TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
+                        let _ = self.transfer_script_object_name(sid, created_id);
+                    }
                 }
                 created.push(created_id);
             }
@@ -2330,7 +2356,7 @@ End
             "OCL_HostMixedParity",
             Some(source),
             Team::China,
-            VeterancyLevel::Regular,
+            VeterancyLevel::Rookie,
             0.0,
             Vec3::ZERO,
             Vec3::new(4.0, 1.0, 8.0),
@@ -2341,6 +2367,154 @@ End
         assert_eq!(field.template_name, "FireFieldSmall");
         assert_eq!(field.team, Team::China);
     }
+
+    /// C++ ObjectCreationList.cpp:1302-1305 — OCL create uses the source
+    /// controlling player, not `unique_player_id_for_team` (None in 2v2).
+    #[test]
+    fn weapon_ocl_create_uses_source_owner_player_id_in_2v2() {
+        let ini = r#"
+ObjectCreationList OCL_HostOwnerParity
+  CreateObject
+    ObjectNames = FireFieldSmall
+    Count = 1
+  End
+End
+"#;
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
+            .expect("owner OCL must parse");
+
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(3, Team::China, "ChinaA", true));
+        logic.add_player(Player::new(7, Team::China, "ChinaB", false));
+        assert_eq!(logic.unique_player_id_for_team(Team::China), None);
+
+        logic.templates.insert(
+            "__OclOwnerSource".into(),
+            ThingTemplate::new("__OclOwnerSource"),
+        );
+        logic.templates.insert(
+            "FireFieldSmall".into(),
+            ThingTemplate::new("FireFieldSmall"),
+        );
+        let source = logic
+            .create_object_for_player("__OclOwnerSource", 7, Vec3::new(10.0, 3.0, 20.0))
+            .expect("source object");
+        assert_eq!(
+            logic.objects.get(&source).and_then(|o| o.owner_player_id),
+            Some(7)
+        );
+
+        let created = logic.execute_parsed_weapon_ocl_at(
+            "OCL_HostOwnerParity",
+            Some(source),
+            Team::China,
+            VeterancyLevel::Veteran,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(10.0, 3.0, 20.0),
+        );
+
+        assert_eq!(created.len(), 1);
+        let field = logic.objects.get(&created[0]).expect("created field");
+        assert_eq!(field.template_name, "FireFieldSmall");
+        assert_eq!(field.team, Team::China);
+        assert_eq!(field.owner_player_id, Some(7));
+        assert_eq!(field.producer_id, Some(source));
+    }
+
+    /// C++ ObjectCreationList.cpp:996-1005 — inherit only if isTrainable
+    /// and transferObjectName with the source script name.
+    #[test]
+    fn ocl_inherit_veterancy_only_if_trainable_and_transfers_script_name() {
+        let ini = r#"
+ObjectCreationList OCL_HostInheritVetParity
+  CreateObject
+    ObjectNames = OclEjectedPilot
+    Count = 1
+    InheritVeterancy = Yes
+  End
+End
+ObjectCreationList OCL_HostInheritFieldParity
+  CreateObject
+    ObjectNames = FireFieldSmall
+    Count = 1
+    InheritVeterancy = Yes
+  End
+End
+"#;
+        gamelogic::object_creation_list::store::load_object_creation_lists_from_str(ini)
+            .expect("inherit OCL must parse");
+
+        let mut logic = GameLogic::new();
+        let mut source_tpl = ThingTemplate::new("__OclVetSource");
+        source_tpl.is_trainable = true;
+        logic.templates.insert("__OclVetSource".into(), source_tpl);
+
+        let mut pilot = ThingTemplate::new("OclEjectedPilot");
+        pilot.is_trainable = true;
+        logic.templates.insert("OclEjectedPilot".into(), pilot);
+        logic.templates.insert(
+            "FireFieldSmall".into(),
+            ThingTemplate::new("FireFieldSmall"),
+        );
+
+        let source = logic
+            .create_object("__OclVetSource", Team::USA, Vec3::new(2.0, 0.0, 4.0))
+            .expect("source");
+        {
+            let src = logic.objects.get_mut(&source).expect("source mut");
+            src.name = "PilotOne".into();
+            src.set_min_veterancy_level(VeterancyLevel::Elite);
+        }
+
+        let created = logic.execute_parsed_weapon_ocl_at(
+            "OCL_HostInheritVetParity",
+            Some(source),
+            Team::USA,
+            VeterancyLevel::Elite,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(2.0, 0.0, 4.0),
+        );
+        assert_eq!(created.len(), 1);
+        let pilot_id = created[0];
+        let spawned = logic.objects.get(&pilot_id).expect("pilot");
+        assert_eq!(spawned.experience.level, VeterancyLevel::Elite);
+        assert_eq!(spawned.name, "PilotOne");
+        assert_eq!(
+            logic.objects.get(&source).map(|o| o.name.as_str()),
+            Some("")
+        );
+        assert_eq!(logic.find_object_id_by_name("PilotOne"), Some(pilot_id));
+
+        let field_src = logic
+            .create_object("__OclVetSource", Team::USA, Vec3::new(8.0, 0.0, 4.0))
+            .expect("field source");
+        {
+            let src = logic.objects.get_mut(&field_src).expect("field src mut");
+            src.name = "FieldSrc".into();
+            src.set_min_veterancy_level(VeterancyLevel::Elite);
+        }
+        let created_field = logic.execute_parsed_weapon_ocl_at(
+            "OCL_HostInheritFieldParity",
+            Some(field_src),
+            Team::USA,
+            VeterancyLevel::Elite,
+            0.0,
+            Vec3::ZERO,
+            Vec3::new(8.0, 0.0, 4.0),
+        );
+        assert_eq!(created_field.len(), 1);
+        let field = logic.objects.get(&created_field[0]).expect("field");
+        assert!(!field.is_trainable());
+        assert_eq!(field.experience.level, VeterancyLevel::Rookie);
+        assert!(field.name.is_empty());
+        assert_eq!(
+            logic.objects.get(&field_src).map(|o| o.name.as_str()),
+            Some("FieldSrc")
+        );
+    }
+
 
     /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
     #[test]

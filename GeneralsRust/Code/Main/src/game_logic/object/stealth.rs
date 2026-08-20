@@ -278,6 +278,36 @@ impl Object {
         self.record_host_stealth_delay();
     }
 
+    /// C++ StealthUpdate.cpp:365-373 — non-garrison container destalths occupants.
+    pub fn transport_contain_should_destalth(container_is_garrisonable: bool) -> bool {
+        !container_is_garrisonable
+    }
+
+    /// C++ StealthUpdate.cpp:696-714 — temp grant expires on timer or CMD_FROM_PLAYER.
+    pub fn temporary_stealth_grant_should_expire(
+        expires_frame: u32,
+        now: u32,
+        last_command_from_player: bool,
+    ) -> bool {
+        expires_frame > 0 && (last_command_from_player || now >= expires_frame)
+    }
+
+    /// C++ FIRING_PRIMARY last-shot residual: only primary slot destalths Burton.
+    pub fn firing_primary_breaks_stealth(
+        forbidden_primary_only: bool,
+        last_fire_slot: u8,
+        last_fire_sim_time: f32,
+        firing: bool,
+    ) -> bool {
+        if !firing {
+            return false;
+        }
+        if !forbidden_primary_only {
+            return true;
+        }
+        last_fire_slot == 0 && last_fire_sim_time > 0.0
+    }
+
     /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
     /// When on, spying player treats this unit as a temporary looker / revealed target.
     pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
@@ -425,5 +455,33 @@ impl Object {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod stealth_grant_tests {
+    use super::Object;
+
+    #[test]
+    fn transport_destalths_non_garrison() {
+        assert!(Object::transport_contain_should_destalth(false));
+        assert!(!Object::transport_contain_should_destalth(true));
+    }
+
+    #[test]
+    fn temp_grant_strips_on_player_order() {
+        assert!(Object::temporary_stealth_grant_should_expire(100, 50, true));
+        assert!(!Object::temporary_stealth_grant_should_expire(100, 50, false));
+        assert!(Object::temporary_stealth_grant_should_expire(100, 100, false));
+        assert!(!Object::temporary_stealth_grant_should_expire(0, 50, true));
+    }
+
+    #[test]
+    fn burton_primary_only_breaks_stealth() {
+        assert!(Object::firing_primary_breaks_stealth(true, 0, 1.0, true));
+        assert!(!Object::firing_primary_breaks_stealth(true, 1, 1.0, true));
+        assert!(!Object::firing_primary_breaks_stealth(true, 0, 0.0, true));
+        assert!(!Object::firing_primary_breaks_stealth(true, 0, 1.0, false));
+        assert!(Object::firing_primary_breaks_stealth(false, 1, 1.0, true));
     }
 }

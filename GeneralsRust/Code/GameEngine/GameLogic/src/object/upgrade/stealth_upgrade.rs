@@ -202,8 +202,13 @@ impl UpgradeModuleInterface for StealthUpgrade {
         self.upgrade_implementation().is_ok()
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not remove stealth status once applied; keep parity.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
+        // Does not remove stealth status once applied.
+        let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
+        if self.mux.reset_upgrade(mask) {
+            self.applied = false;
+        }
     }
 }
 
@@ -327,4 +332,23 @@ mod tests {
         let data = StealthUpgradeModuleData::default();
         assert_eq!(data.module_tag_name_key, 0);
     }
+
+    #[test]
+    fn remove_upgrade_resets_executed_so_module_can_rearm() {
+        let mut data = StealthUpgradeModuleData::default();
+        data.upgrade_mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("Upgrade_GLACamouflage"));
+        let mut upgrade = StealthUpgrade::new(1, Arc::new(data), 100);
+        upgrade.applied = true;
+        upgrade.mux.set_upgrade_executed(true);
+        let mask = crate::common::UpgradeMaskType::from_bits_retain(
+            crate::upgrade::upgrade_mask_for_name("Upgrade_GLACamouflage").to_bits(),
+        );
+        upgrade.remove_upgrade(mask);
+        assert!(!upgrade.is_applied());
+        assert!(!upgrade.mux.is_already_upgraded());
+        assert!(upgrade.can_upgrade(mask));
+    }
+
 }

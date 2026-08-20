@@ -1087,7 +1087,18 @@ impl UpdateModuleInterface for SlavedUpdate {
         let Some(me_arc) = self.object_arc() else {
             return UpdateSleepTime::None;
         };
+        // C++ SlavedUpdate.cpp:127-141: findObjectByID(m_slaver) returning null
+        // is treated like a dead/unmanned master — stopSlavedEffects, DISABLED_UNMANNED,
+        // aiIdle. object_arc succeeding means the dual-world registry is live, so a
+        // missing master is a destroyed slaver, not the Wave 402 host-only empty gate.
         let Some(master_arc) = self.master_arc() else {
+            self.stop_slaved_effects();
+            if let Ok(mut me_write) = me_arc.write() {
+                me_write.set_disabled(DisabledType::Unmanned);
+                if let Some(ai) = me_write.get_ai_update_interface() {
+                    ai.ai_idle(CommandSourceType::FromAi);
+                }
+            }
             return UpdateSleepTime::None;
         };
 
@@ -1429,6 +1440,12 @@ impl Module for SlavedUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+
+    fn on_object_created(&mut self) {
+        // C++ SlavedUpdate::onObjectCreated (SlavedUpdate.cpp:57-65)
+        // Live leftover dispatch is Module::on_object_created, not BehaviorModuleInterface.
+        let _ = BehaviorModuleInterface::on_object_created(&mut self.behavior);
+    }
 }
 
 #[cfg(test)]
@@ -1443,5 +1460,13 @@ mod tests {
         assert_eq!(update.slaver_id(), None);
         update.slaver = 99;
         assert_eq!(update.slaver_id(), Some(99));
+    }
+
+    #[test]
+    fn module_on_object_created_forwards_packing() {
+        let data = Arc::new(SlavedUpdateModuleData::default());
+        let behavior = SlavedUpdate::new(1, data.clone()).expect("slaved update");
+        let mut module = SlavedUpdateModule::new(behavior, &AsciiString::new(), data);
+        Module::on_object_created(&mut module);
     }
 }

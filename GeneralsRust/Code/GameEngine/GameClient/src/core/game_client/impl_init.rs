@@ -604,6 +604,9 @@ impl GameClient {
         if let Some(value) = prefs.get_string("IdealStaticGameLOD") {
             game_engine::common::game_lod::set_ideal_static_lod_from_string(value);
         }
+        // C++ W3DDisplay::init: if getStaticLODLevel()==UNKNOWN, find+set.
+        game_engine::common::game_lod::ensure_static_lod_applied();
+
 
         if self.subsystem_manager.in_game_ui.is_none() {
             let mut ui = InGameUISubsystem::default();

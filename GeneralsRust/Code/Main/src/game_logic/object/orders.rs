@@ -74,7 +74,7 @@ impl Object {
             return false;
         }
         // C++ SpecialPowerModule::isReady requires m_pausedCount == 0.
-        if self.special_power_paused.contains(power) {
+        if self.is_special_power_countdown_paused(power) {
             return false;
         }
         let remaining = self
@@ -85,36 +85,29 @@ impl Object {
         remaining <= 0.0
     }
 
-    /// C++ SpecialPowerModule::pauseCountdown residual.
+    /// C++ SpecialPowerModule::pauseCountdown — refcount, not a set.
+    ///
+    /// First pause increments the count. Nested pauses only increment.
+    /// Final unpause (count → 0) leaves remaining cooldown unchanged: live
+    /// ticks already freeze while paused, so a power that was ready stays
+    /// ready (`availableOnFrame` slides with pause duration in C++).
     pub fn pause_special_power_countdown(&mut self, power: &SpecialPowerType, pause: bool) {
         if pause {
-            self.special_power_paused.insert(power.clone());
-        } else {
-            self.special_power_paused.remove(power);
-            // Unpause starts / continues recharge: if no cooldown entry, begin full reload.
-            // Start/continue recharge residual after final unpause.
-            let mut cd =
-                crate::game_logic::host_special_power_enum_residual::special_power_reload_seconds(
-                    power,
-                )
-                .unwrap_or(0.0);
-            if cd <= 0.0 {
-                cd = if self.special_power_cooldown > 0.0 {
-                    self.special_power_cooldown
-                } else {
-                    // StartsPaused peels without ReloadTime residual default to 1s.
-                    1.0
-                };
+            let count = self.special_power_paused.entry(power.clone()).or_insert(0);
+            *count = count.saturating_add(1);
+        } else if let Some(count) = self.special_power_paused.get_mut(power) {
+            if *count > 0 {
+                *count -= 1;
             }
-            self.special_power_cooldowns
-                .entry(power.clone())
-                .and_modify(|r| {
-                    if *r <= 0.0 {
-                        *r = cd;
-                    }
-                })
-                .or_insert(cd);
+            if *count == 0 {
+                self.special_power_paused.remove(power);
+            }
         }
+    }
+
+    /// C++ `m_pausedCount > 0` residual.
+    pub fn is_special_power_countdown_paused(&self, power: &SpecialPowerType) -> bool {
+        self.special_power_paused.get(power).copied().unwrap_or(0) > 0
     }
 
     /// C++ `SpecialPowerModule::setReadyFrame` residual.
@@ -142,6 +135,11 @@ impl Object {
     /// C++ Object::setWeaponBonusCondition(PLAYER_UPGRADE) residual.
     pub fn set_weapon_bonus_player_upgrade(&mut self, enabled: bool) {
         self.weapon_bonus_player_upgrade = enabled;
+    }
+
+    /// C++ Object::setWeaponBonusCondition(DRONE_SPOTTING) residual.
+    pub fn set_weapon_bonus_drone_spotting(&mut self, enabled: bool) {
+        self.weapon_bonus_drone_spotting = enabled;
     }
 
     /// C++ BodyModule::setArmorSetFlag(ARMORSET_PLAYER_UPGRADE) residual.

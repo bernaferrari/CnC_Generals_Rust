@@ -248,6 +248,10 @@ impl LaserUpdateInterface for LaserUpdateModule {
             size_delta_frames,
         );
     }
+
+    fn set_decay_frames(&mut self, decay_frames: u32) {
+        self.update.set_decay_frames(decay_frames);
+    }
 }
 
 impl Snapshotable for LaserUpdateModule {
@@ -479,7 +483,8 @@ impl LaserUpdate {
         } else if let Some(pos) = start_pos {
             self.start_pos = *pos;
         } else {
-            // No start position available
+            // C++ LaserUpdate.cpp:261-263 — no start, destroy the drawable.
+            self.destroy_owner_drawable();
             return;
         }
 
@@ -495,12 +500,55 @@ impl LaserUpdate {
 
         if let Some(pos) = end_pos {
             self.end_pos = *pos;
+        } else if target.is_none() {
+            // C++ LaserUpdate.cpp:279-283 — no end, destroy the drawable.
+            self.destroy_owner_drawable();
+            return;
         }
 
-        // Create particle systems
+        // Create particle systems once, then always reposition existing IDs.
         self.create_particle_systems(parent);
+        self.reposition_particle_systems();
+
+        // C++ LaserUpdate.cpp:347-366 — parentless beams use the start/end
+        // midpoint so frustum culling has a real world point.
+        let pos_to_use = if let Some(parent_obj) = parent {
+            *parent_obj.get_position()
+        } else {
+            Coord3D {
+                x: (self.start_pos.x + self.end_pos.x) * 0.5,
+                y: (self.start_pos.y + self.end_pos.y) * 0.5,
+                z: (self.start_pos.z + self.end_pos.z) * 0.5,
+            }
+        };
+        self.set_owner_drawable_position(&pos_to_use);
 
         self.dirty = true;
+    }
+
+    fn destroy_owner_drawable(&self) {
+        if self.thing == 0 {
+            return;
+        }
+        if let Some(client) = TheGameClient::get() {
+            client.destroy_drawable(self.thing);
+        }
+    }
+
+    fn set_owner_drawable_position(&self, pos: &Coord3D) {
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        if self.thing != 0 {
+            client.set_drawable_position(self.thing, pos);
+        }
+        if let Some(object) = TheGameLogic::find_object_by_id(self.thing) {
+            if let Ok(guard) = object.read() {
+                if let Some(drawable) = guard.get_drawable() {
+                    client.set_drawable_position(drawable.get_id(), pos);
+                }
+            }
+        }
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -606,17 +654,6 @@ impl LaserUpdate {
         self.update_start_pos();
         self.update_end_pos();
 
-        if self.dirty {
-            if let Some(ps_manager) = TheParticleSystemManager::get() {
-                if let Some(system_id) = self.particle_system_id {
-                    ps_manager.set_particle_system_position(system_id, &self.start_pos);
-                }
-                if let Some(system_id) = self.target_particle_system_id {
-                    ps_manager.set_particle_system_position(system_id, &self.end_pos);
-                }
-            }
-        }
-
         let now = TheGameLogic::get_frame();
 
         if self.decaying {
@@ -627,15 +664,7 @@ impl LaserUpdate {
 
             if self.current_width_scalar <= 0.0 {
                 self.current_width_scalar = 0.0;
-                if let Some(ps_manager) = TheParticleSystemManager::get() {
-                    if let Some(system_id) = self.particle_system_id.take() {
-                        ps_manager.destroy_particle_system(system_id);
-                    }
-                    if let Some(system_id) = self.target_particle_system_id.take() {
-                        ps_manager.destroy_particle_system(system_id);
-                    }
-                }
-                // When decay is finished, delete the laser
+                // C++ LaserUpdate.cpp:186-192 — decay finished; dtor owns particles.
                 return;
             }
         } else if self.widening {
@@ -650,8 +679,9 @@ impl LaserUpdate {
         }
     }
 
-    pub fn set_decay_frames(&mut self, decay_frames: u32, current_frame: u32) {
+    pub fn set_decay_frames(&mut self, decay_frames: u32) {
         if decay_frames > 0 {
+            let current_frame = TheGameLogic::get_frame();
             self.decaying = true;
             self.decay_start_frame = current_frame;
             self.decay_finish_frame = current_frame + decay_frames;
@@ -678,6 +708,11 @@ impl LaserUpdate {
     }
 
     fn create_particle_systems(&mut self, parent: Option<&Object>) {
+        // C++ LaserUpdate.cpp:288 — last-day NULL check; create once.
+        if self.particle_system_id.is_some() {
+            return;
+        }
+
         let local_visible = parent
             .and_then(|parent_obj| {
                 let local_index = ThePlayerList()
@@ -699,7 +734,6 @@ impl LaserUpdate {
                     ps_manager.create_particle_system(Some(&self.module_data.particle_system_name))
                 {
                     self.particle_system_id = Some(system_id);
-                    ps_manager.set_particle_system_position(system_id, &self.start_pos);
                 }
             }
 
@@ -708,9 +742,20 @@ impl LaserUpdate {
                     .create_particle_system(Some(&self.module_data.target_particle_system_name))
                 {
                     self.target_particle_system_id = Some(system_id);
-                    ps_manager.set_particle_system_position(system_id, &self.end_pos);
                 }
             }
+        }
+    }
+
+    fn reposition_particle_systems(&self) {
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        if let Some(system_id) = self.particle_system_id {
+            ps_manager.set_particle_system_position(system_id, &self.start_pos);
+        }
+        if let Some(system_id) = self.target_particle_system_id {
+            ps_manager.set_particle_system_position(system_id, &self.end_pos);
         }
     }
 
@@ -1045,5 +1090,61 @@ mod tests {
         let mut module = LaserUpdateModule::new(11, module_data, Some(22));
 
         assert!(module.get_laser_update_interface().is_some());
+    }
+
+    #[test]
+    fn init_laser_parentless_sets_drawable_to_midpoint() {
+        let _guard = DRAWABLE_TEST_LOCK.lock().unwrap();
+        let client = TheGameClient::get().unwrap();
+        let drawable_id = 0x0100_0004;
+        client.destroy_drawable(drawable_id);
+        register_test_drawable(drawable_id, Coord3D::ZERO);
+
+        let mut update = LaserUpdate::new(drawable_id, LaserUpdateModuleData::default());
+        let start = Coord3D::new(0.0, 0.0, 0.0);
+        let end = Coord3D::new(10.0, 4.0, 2.0);
+        update.init_laser(None, None, Some(&start), Some(&end), String::new(), 0);
+
+        let pos = client
+            .find_drawable_by_id(drawable_id)
+            .expect("drawable")
+            .position;
+        assert_eq!(pos, Coord3D::new(5.0, 2.0, 1.0));
+        client.destroy_drawable(drawable_id);
+    }
+
+    #[test]
+    fn init_laser_does_not_recreate_existing_particle_ids() {
+        let mut data = LaserUpdateModuleData::default();
+        data.particle_system_name = "Muzzle".to_string();
+        data.target_particle_system_name = "Target".to_string();
+        let mut update = LaserUpdate::new(1, data);
+        update.particle_system_id = Some(42);
+        update.target_particle_system_id = Some(43);
+        let start = Coord3D::new(1.0, 2.0, 3.0);
+        let end = Coord3D::new(4.0, 5.0, 6.0);
+        update.init_laser(None, None, Some(&start), Some(&end), String::new(), 0);
+        assert_eq!(update.particle_system_id, Some(42));
+        assert_eq!(update.target_particle_system_id, Some(43));
+    }
+
+    #[test]
+    fn set_decay_frames_starts_width_decay() {
+        let mut update = LaserUpdate::new(1, LaserUpdateModuleData::default());
+        update.set_decay_frames(60);
+        assert!(update.decaying);
+        assert_eq!(update.current_width_scalar, 1.0);
+        assert_eq!(update.decay_finish_frame, update.decay_start_frame + 60);
+    }
+
+    #[test]
+    fn laser_update_interface_exposes_set_decay_frames() {
+        let module_data = Arc::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+        module
+            .get_laser_update_interface()
+            .expect("laser interface")
+            .set_decay_frames(30);
+        assert!(module.update_mut().decaying);
     }
 }

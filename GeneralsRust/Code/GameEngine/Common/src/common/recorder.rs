@@ -10,8 +10,8 @@ use chrono::{Datelike, Local, TimeZone, Timelike};
 
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::message_stream::{
-    is_network_command_message, GameMessage, GameMessageArgumentDataType, GameMessageArgumentType,
-    GameMessageType, MessageSerializer,
+    is_network_command_message, Coord3D, GameMessage, GameMessageArgumentDataType,
+    GameMessageArgumentType, GameMessageType, ICoord2D, MessageSerializer,
 };
 use crate::common::random_value::{
     get_game_logic_random_seed, init_game_logic_random, init_random_with_seed,
@@ -701,6 +701,9 @@ fn decode_replay_type_id(
     if (79..=83).contains(&dense) {
         return decode_selected_group_type(dense, args);
     }
+    if dense == 143 {
+        return Ok(decode_set_replay_camera(args));
+    }
     MessageSerializer::decode_message_type(dense, args).map_err(|err| {
         std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{:?}", err))
     })
@@ -786,6 +789,95 @@ fn decode_selected_group_type(
         )),
     }
 }
+
+/// C++ `LookAtXlat.cpp:463-469` / `GameLogicDispatch.cpp:1810-1820`:
+/// loc, angle, pitch, zoom, MouseCursor int, ICoord2D pixel.
+fn decode_set_replay_camera(args: &[GameMessageArgumentType]) -> (GameMessageType, usize) {
+    let loc = args
+        .iter()
+        .find_map(|arg| match arg {
+            GameMessageArgumentType::Location(coord) => Some(coord.clone()),
+            _ => None,
+        })
+        .unwrap_or(Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        });
+    let reals: Vec<f32> = args
+        .iter()
+        .filter_map(|arg| match arg {
+            GameMessageArgumentType::Real(value) => Some(*value),
+            _ => None,
+        })
+        .collect();
+    let angle = reals.first().copied().unwrap_or(0.0);
+    let zoom = reals
+        .get(2)
+        .copied()
+        .or_else(|| reals.get(1).copied())
+        .unwrap_or(0.0);
+    // Consume 0 so loc/angle/pitch/zoom/cursor/pixel stay on the message.
+    (GameMessageType::SetReplayCamera(loc, angle, zoom), 0)
+}
+
+fn set_replay_camera_file_args(
+    msg: &GameMessage,
+    coord: &Coord3D,
+    type_angle: f32,
+    type_zoom: f32,
+) -> Vec<GameMessageArgumentType> {
+    let extras: Vec<GameMessageArgumentType> = msg
+        .get_arguments()
+        .iter()
+        .map(|arg| arg.data.clone())
+        .collect();
+    let loc = extras
+        .iter()
+        .find_map(|arg| match arg {
+            GameMessageArgumentType::Location(value) => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| coord.clone());
+    let reals: Vec<f32> = extras
+        .iter()
+        .filter_map(|arg| match arg {
+            GameMessageArgumentType::Real(value) => Some(*value),
+            _ => None,
+        })
+        .collect();
+    let angle = reals.first().copied().unwrap_or(type_angle);
+    let pitch = reals.get(1).copied().unwrap_or(0.0);
+    let zoom = reals.get(2).copied().unwrap_or(type_zoom);
+    let cursor = extras
+        .iter()
+        .find_map(|arg| match arg {
+            GameMessageArgumentType::Integer(value) => Some(*value),
+            _ => None,
+        })
+        .unwrap_or(0);
+    let pixel = extras
+        .iter()
+        .find_map(|arg| match arg {
+            GameMessageArgumentType::Pixel(value) => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or(ICoord2D { x: 0, y: 0 });
+    vec![
+        GameMessageArgumentType::Location(loc),
+        GameMessageArgumentType::Real(angle),
+        GameMessageArgumentType::Real(pitch),
+        GameMessageArgumentType::Real(zoom),
+        GameMessageArgumentType::Integer(cursor),
+        GameMessageArgumentType::Pixel(pixel),
+    ]
+}
+
+fn keep_command_during_playback(msg: &GameMessage) -> bool {
+    let ty = msg.get_type();
+    !(is_network_command_message(ty) && !matches!(ty, GameMessageType::LogicCRC(_)))
+}
+
 
 
 /// Replay header structure
@@ -1231,6 +1323,8 @@ impl Recorder {
         if let Some(cull) = &self.command_cull {
             cull();
         }
+        self.pending_commands
+            .retain(keep_command_during_playback);
     }
 
     /// Append next command from file to command list
@@ -1523,8 +1617,11 @@ impl Recorder {
     pub fn stop_recording(&mut self) {
         self.log_game_end();
 
-        if self.was_desync {
-            self.cleanup_replay_file();
+        // C++ Recorder.cpp:681-688 — only when TheNetwork && m_wasDesync.
+        if self.is_multiplayer() {
+            if self.was_desync {
+                self.cleanup_replay_file();
+            }
             self.was_desync = false;
         }
 
@@ -1550,10 +1647,18 @@ impl Recorder {
         file.write_all(&message_type_id.to_le_bytes())?;
         file.write_all(&msg.get_player_index().to_le_bytes())?;
 
-        let mut args = MessageSerializer::encode_message_arguments(msg.get_type());
-        for arg in msg.get_arguments() {
-            args.push(arg.data.clone());
-        }
+        let mut args = match msg.get_type() {
+            GameMessageType::SetReplayCamera(coord, angle, zoom) => {
+                set_replay_camera_file_args(msg, coord, *angle, *zoom)
+            }
+            _ => {
+                let mut args = MessageSerializer::encode_message_arguments(msg.get_type());
+                for arg in msg.get_arguments() {
+                    args.push(arg.data.clone());
+                }
+                args
+            }
+        };
         if matches!(msg.get_type(), GameMessageType::LogicCRC(_))
             && !args
                 .iter()
@@ -2133,7 +2238,16 @@ impl Recorder {
             let _ = file.flush();
         }
 
-        self.was_desync = true;
+        // C++ Recorder.cpp:169-172 — m_wasDesync only in DEBUG/INTERNAL + m_saveStats.
+        #[cfg(debug_assertions)]
+        {
+            if get_global_data()
+                .map(|data| data.read().save_stats)
+                .unwrap_or(false)
+            {
+                self.was_desync = true;
+            }
+        }
         log::error!("CRC mismatch recorded");
     }
 
@@ -2179,18 +2293,35 @@ impl Recorder {
     /// Cleanup replay file after desync
     /// Matches C++ RecorderClass::cleanUpReplayFile() from Recorder.cpp:265-330
     fn cleanup_replay_file(&mut self) {
-        // In DEBUG/INTERNAL builds, this copies the replay to a stats directory
-        if self.filename.is_empty() {
-            return;
-        }
-
-        let filepath = self.get_replay_dir().join(&self.filename);
-        if let Err(err) = std::fs::remove_file(&filepath) {
-            log::warn!(
-                "Failed to cleanup replay file {}: {}",
-                filepath.display(),
-                err
-            );
+        // C++ Recorder.cpp:265-330 — DEBUG/INTERNAL + m_saveStats copies the
+        // .rep into m_baseStatsDir. It never deletes the original.
+        #[cfg(debug_assertions)]
+        {
+            if self.filename.is_empty() {
+                return;
+            }
+            let Some(global) = get_global_data() else {
+                return;
+            };
+            let data = global.read();
+            if !data.save_stats || data.base_stats_dir.trim().is_empty() {
+                return;
+            }
+            let src = self.get_replay_dir().join(&self.filename);
+            if !src.exists() {
+                return;
+            }
+            let dest = PathBuf::from(data.base_stats_dir.trim()).join(&self.filename);
+            if let Some(parent) = dest.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(err) = std::fs::copy(&src, &dest) {
+                log::warn!(
+                    "Failed to copy replay to stats dir {}: {}",
+                    dest.display(),
+                    err
+                );
+            }
         }
     }
 
@@ -3257,5 +3388,90 @@ mod tests {
         reader.set_current_frame(6);
         reader.notify_logic_crc(0xDEAD_BEEF, 0);
         assert!(reader.saw_crc_mismatch());
+    }
+
+    #[test]
+    fn set_replay_camera_file_args_match_cpp_six_layout() {
+        let coord = Coord3D {
+            x: 8.0,
+            y: 1.0,
+            z: 3.0,
+        };
+        let mut msg = GameMessage::new(GameMessageType::SetReplayCamera(coord.clone(), 0.25, 1.5));
+        msg.append_location_argument(coord.clone());
+        msg.append_real_argument(0.25);
+        msg.append_real_argument(0.5);
+        msg.append_real_argument(1.5);
+        msg.append_integer_argument(2);
+        msg.append_pixel_argument(ICoord2D { x: 10, y: 20 });
+
+        let args = set_replay_camera_file_args(&msg, &coord, 0.25, 1.5);
+        assert_eq!(args.len(), 6);
+        match &args[0] {
+            GameMessageArgumentType::Location(loc) => assert!((loc.x - 8.0).abs() < f32::EPSILON),
+            other => panic!("expected location, got {other:?}"),
+        }
+        match &args[1] {
+            GameMessageArgumentType::Real(angle) => assert!((*angle - 0.25).abs() < f32::EPSILON),
+            other => panic!("expected angle, got {other:?}"),
+        }
+        match &args[2] {
+            GameMessageArgumentType::Real(pitch) => assert!((*pitch - 0.5).abs() < f32::EPSILON),
+            other => panic!("expected pitch, got {other:?}"),
+        }
+        match &args[3] {
+            GameMessageArgumentType::Real(zoom) => assert!((*zoom - 1.5).abs() < f32::EPSILON),
+            other => panic!("expected zoom, got {other:?}"),
+        }
+        match &args[4] {
+            GameMessageArgumentType::Integer(cursor) => assert_eq!(*cursor, 2),
+            other => panic!("expected cursor int, got {other:?}"),
+        }
+        match &args[5] {
+            GameMessageArgumentType::Pixel(pixel) => {
+                assert_eq!(pixel.x, 10);
+                assert_eq!(pixel.y, 20);
+            }
+            other => panic!("expected pixel, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn cleanup_replay_file_preserves_original_rep() {
+        let temp = tempfile::tempdir().unwrap();
+        let stats = temp.path().join("stats");
+        if let Some(global) = get_global_data() {
+            let mut data = global.write();
+            data.set_path_user_data(temp.path().to_string_lossy().to_string());
+            data.save_stats = true;
+            data.base_stats_dir = stats.to_string_lossy().to_string();
+            data.map_name = "Maps/Cleanup.map".to_string();
+            data.pending_file.clear();
+        }
+
+        let mut writer = Recorder::new();
+        writer.start_recording(1, 2, 0, 30).unwrap();
+        writer.set_current_frame(4);
+        writer
+            .write_to_file(&GameMessage::new(GameMessageType::LogicCRC(0x1111_2222)))
+            .unwrap();
+        let replay_name = format!(
+            "{}{}",
+            writer.last_replay_filename(),
+            writer.replay_extension()
+        );
+        let src = writer.replay_dir().join(&replay_name);
+        writer.log_crc_mismatch();
+        writer.stop_recording();
+
+        assert!(
+            src.exists(),
+            "C++ cleanUpReplayFile copies the .rep and never deletes it"
+        );
+        #[cfg(debug_assertions)]
+        assert!(
+            stats.join(&replay_name).exists(),
+            "DEBUG + m_saveStats copies the replay into m_baseStatsDir"
+        );
     }
  }

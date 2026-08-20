@@ -677,6 +677,23 @@ impl TheGameClient {
         }
     }
 
+    /// C++ `LaserUpdate::setDecayFrames` on the drawable ClientUpdate module.
+    pub fn set_drawable_laser_decay_frames(&self, id: u32, decay_frames: u32) {
+        let Some(drawable) = self.get_drawable_arc(id) else {
+            return;
+        };
+        let Ok(guard) = drawable.read() else {
+            return;
+        };
+        for module in guard.modules() {
+            module.with_module(|module| {
+                if let Some(laser) = module.get_laser_update_interface() {
+                    laser.set_decay_frames(decay_frames);
+                }
+            });
+        }
+    }
+
     /// C++ `LaserUpdate::getCurrentLaserRadius`.
     pub fn get_current_laser_radius(&self, id: u32) -> Option<Real> {
         let (template_width, growth_frames, growth_start) = {

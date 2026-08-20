@@ -139,6 +139,90 @@ fn supply_truck_gather_credits_retail_value_per_box() {
 
 }
 
+/// C++ `SupplyWarehouseDockUpdate::action` (`SupplyWarehouseDockUpdate.cpp:89-111`)
+/// tentatively `--m_boxesStored` then `gainOneBox` (`SupplyTruckAIUpdate.cpp:134-135`).
+/// Already-at-MaxBoxes fails and the warehouse `++m_boxesStored` takes the box back.
+/// Fail-closed: the last remaining box must not vanish / deleteWhenEmpty.
+#[test]
+fn warehouse_action_does_not_debit_when_collector_already_at_max_boxes() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.resources.supplies = 0;
+    logic.add_player(player);
+
+    let mut truck = ThingTemplate::new("AmericaVehicleChinook");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+
+    let mut warehouse = ThingTemplate::new("LastBoxWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    warehouse.dock_starting_boxes = Some(1);
+    warehouse.dock_delete_when_empty = true;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+
+    let box_value =
+        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32;
+    let source = logic
+        .create_object("LastBoxWarehouse", Team::Neutral, Vec3::new(2.0, 0.0, 0.0))
+        .expect("warehouse");
+    {
+        let warehouse = logic.host_object_mut(source).expect("warehouse mut");
+        warehouse.set_stored_supplies(box_value);
+    }
+
+    let collector_id = logic
+        .create_object_for_player("AmericaVehicleChinook", 0, Vec3::ZERO)
+        .expect("collector");
+    {
+        let collector = logic.host_object_mut(collector_id).expect("collector mut");
+        collector.set_target(Some(source));
+        collector.set_ai_state(AIState::Gathering);
+        collector.supply_truck_state = SupplyTruckState::DockingWarehouse;
+        collector.supply_truck_next_dock_action_frame = 0;
+        collector.set_stored_supplies(4 * box_value);
+    }
+
+    logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
+
+    let cargo = logic
+        .host_object(collector_id)
+        .expect("collector after")
+        .stored_resources
+        .supplies;
+    assert_eq!(
+        cargo,
+        4 * box_value,
+        "already-full collector must not gain another box"
+    );
+    let warehouse = logic
+        .host_object(source)
+        .expect("warehouse must survive gainOneBox take-back");
+    assert!(
+        warehouse.is_alive(),
+        "C++ take-back must not deleteWhenEmpty the last box"
+    );
+    assert_eq!(
+        warehouse.stored_resources.supplies, box_value,
+        "warehouse must keep the box when gainOneBox fails"
+    );
+    assert_eq!(
+        warehouse.drawable_supply_boxes, 1,
+        "C++ updateDrawableSupplyStatus must not drop a crate that was taken back"
+    );
+}
+
+
 #[test]
 fn allied_supply_center_deposit_credits_center_owner() {
     use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};

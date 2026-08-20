@@ -276,10 +276,23 @@ impl GameLogic {
 
         // C++ neutronBlastToObject: if contain → killAllContained, even on
         // structures / transports / drones that are otherwise not unmanned.
+        // TunnelContain iterates the shared TunnelTracker pool, not the local door list.
         let contain_pairs: Vec<(ObjectId, Vec<ObjectId>)> = candidates
             .iter()
             .filter_map(|id| {
-                let occupants = self.objects.get(id).map(|o| o.contained_units())?;
+                let obj = self.objects.get(id)?;
+                let mut occupants = obj.contained_units();
+                let is_tunnel = obj.is_tunnel_network_style_container()
+                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                        &obj.template_name,
+                    );
+                if is_tunnel {
+                    for uid in self.tunnel_network.contained_for_team(obj.team) {
+                        if !occupants.contains(&uid) {
+                            occupants.push(uid);
+                        }
+                    }
+                }
                 if occupants.is_empty() {
                     None
                 } else {
@@ -1724,34 +1737,75 @@ impl GameLogic {
     }
 
     /// Apply EMP disable field residual at location (bomb impact / fail-open path).
+    ///
+    /// C++ EMPUpdate ctor sets `m_tintEnvPlayFrame = now + StartFadeTime` and
+    /// only calls `doDisableAttack` on that exact frame. Spawn the spheroid now;
+    /// disable waits StartFadeTime (9 frames).
     pub fn apply_emp_pulse_at(
         &mut self,
         player_id: u32,
         location: Vec3,
         caster_id: Option<ObjectId>,
     ) -> bool {
+        use crate::game_logic::host_emp_pulse::EMP_PULSE_ACTIVATE_AUDIO;
+
+        let frame = self.frame;
+        let spheroid_id = if let Some(pid) = caster_id {
+            self.spawn_emp_pulse_spheroid(location, pid)
+        } else {
+            self.objects
+                .keys()
+                .next()
+                .copied()
+                .and_then(|pid| self.spawn_emp_pulse_spheroid(location, pid))
+        };
+        if let Some(sid) = spheroid_id {
+            self.emp_pulses
+                .begin_spheroid(sid, player_id, location, caster_id, frame);
+        }
+
+        self.queue_audio_event(
+            AudioEventRequest::new(EMP_PULSE_ACTIVATE_AUDIO)
+                .with_position(location)
+                .with_priority(180),
+        );
+        let _ = self.combat_particles.spawn(
+            CombatParticleKind::WeaponImpact,
+            location,
+            frame,
+            caster_id,
+            None,
+        );
+
+        true
+    }
+
+    /// C++ EMPUpdate::doDisableAttack residual (FROM_BOUNDINGSPHERE_3D).
+    pub fn apply_emp_pulse_disable_field_at(
+        &mut self,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+    ) -> bool {
         use crate::game_logic::host_emp_pulse::{
-            in_emp_pulse_radius_2d, is_emp_hardened_name, is_legal_emp_disable_target,
-            should_emp_kill_airborne, HostEmpPulse, EMP_PULSE_ACTIVATE_AUDIO,
-            EMP_PULSE_DISABLED_DURATION_FRAMES, HOST_EMP_PULSE_RADIUS,
+            in_emp_pulse_radius_from_bounding_sphere_3d, is_emp_hardened_name,
+            is_legal_emp_disable_target, leftover_emp_bounding_sphere_radius,
+            should_emp_kill_airborne, HostEmpPulse, EMP_PULSE_DISABLED_DURATION_FRAMES,
+            HOST_EMP_PULSE_RADIUS,
         };
 
         let frame = self.frame;
         let until = frame.saturating_add(EMP_PULSE_DISABLED_DURATION_FRAMES);
-        let center = (location.x, location.z);
 
-        // Snapshot candidates (avoid borrow conflicts while mutating).
         let candidates: Vec<(
             ObjectId,
-            bool, // is_vehicle
-            bool, // is_faction_structure
-            bool, // is_aircraft
-            bool, // is_airborne
-            bool, // is_spawns_are_weapons (name residual)
-            bool, // under_construction
-            bool, // emp_hardened
-            f32,
-            f32,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
         )> = self
             .objects
             .iter()
@@ -1759,24 +1813,29 @@ impl GameLogic {
                 if !obj.is_alive() {
                     return None;
                 }
-                // Residual: never EMP the caster object itself.
                 if caster_id == Some(*id) {
                     return None;
                 }
                 let pos = obj.get_position();
-                if !in_emp_pulse_radius_2d(center, (pos.x, pos.z), HOST_EMP_PULSE_RADIUS) {
+                let sphere = leftover_emp_bounding_sphere_radius(
+                    obj.thing.geometry.radius,
+                    obj.thing.geometry.bounds_min,
+                    obj.thing.geometry.bounds_max,
+                    obj.selection_radius,
+                );
+                if !in_emp_pulse_radius_from_bounding_sphere_3d(
+                    location,
+                    pos,
+                    sphere,
+                    HOST_EMP_PULSE_RADIUS,
+                ) {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let is_faction_structure = is_structure && obj.is_faction_structure();
                 let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
-                let is_airborne = obj.status.airborne_target
-                    || is_aircraft && {
-                        // Host residual: treat Aircraft KindOf above ground as airborne
-                        // when airborne_target is set; ground aircraft use status only.
-                        obj.status.airborne_target
-                    };
+                let is_airborne = obj.status.airborne_target;
                 let is_spawns = obj
                     .template_name
                     .to_ascii_lowercase()
@@ -1794,8 +1853,6 @@ impl GameLogic {
                     is_spawns,
                     under_construction,
                     emp_hardened,
-                    pos.x,
-                    pos.z,
                 ))
             })
             .collect();
@@ -1813,8 +1870,6 @@ impl GameLogic {
             is_spawns,
             under_construction,
             emp_hardened,
-            _tx,
-            _tz,
         ) in candidates
         {
             if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
@@ -1834,25 +1889,17 @@ impl GameLogic {
                 continue;
             }
 
-            // Ground aircraft / vehicles / faction structures: DISABLED_EMP.
             let Some(target) = self.objects.get_mut(&id) else {
                 continue;
             };
             if !target.is_alive() {
                 continue;
             }
-            let was_emp = target.status.disabled_emp;
             target.apply_disabled_emp(until);
-            if !was_emp {
-                disables = disables.saturating_add(1);
-            } else {
-                // Refresh still counts as a residual disable grant for honesty.
-                disables = disables.saturating_add(1);
-            }
+            disables = disables.saturating_add(1);
         }
 
         for id in destroy_ids {
-            // Source team residual: use caster team if available for kill credit.
             let killer_team = caster_id
                 .and_then(|cid| self.objects.get(&cid).map(|o| o.team))
                 .unwrap_or(Team::Neutral);
@@ -1871,32 +1918,38 @@ impl GameLogic {
             disables,
             airborne_kills,
         });
+        true
+    }
 
-        self.queue_audio_event(
-            AudioEventRequest::new(EMP_PULSE_ACTIVATE_AUDIO)
-                .with_position(location)
-                .with_priority(180),
-        );
-        // Direct-path residual also spawns EMPPulseEffectSpheroid (OCL on detonation).
-        if let Some(pid) = caster_id {
-            let _ = self.spawn_emp_pulse_spheroid(location, pid);
-        } else {
-            // No caster: spawn under Neutral producer residual via temp object skip —
-            // still spawn at location with first friendly unit if any.
-            if let Some((pid, _)) = self.objects.iter().next() {
-                let _ = self.spawn_emp_pulse_spheroid(location, *pid);
+    /// Fire leftover EMPUpdate doDisableAttack on StartFadeTime frames.
+    pub fn apply_due_emp_pulse_disables(&mut self) {
+        use crate::game_logic::host_emp_pulse::EMP_SPHEROID_GEOMETRY_RADIUS;
+
+        let now = self.frame;
+        self.emp_pulses.tick_spheroids(now);
+        let visual: Vec<(ObjectId, f32)> = self
+            .emp_pulses
+            .spheroids()
+            .iter()
+            .map(|s| (s.id, s.current_scale))
+            .collect();
+        for (id, scale) in visual {
+            if let Some(o) = self.objects.get_mut(&id) {
+                if o.emp_pulse_spheroid {
+                    o.thing.geometry.radius = EMP_SPHEROID_GEOMETRY_RADIUS * scale;
+                    o.visual_draw_state_revision = o.visual_draw_state_revision.wrapping_add(1);
+                }
             }
         }
-
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponImpact,
-            location,
-            frame,
-            caster_id,
-            None,
-        );
-
-        true
+        let due = self.emp_pulses.due_disable_spheroids(now);
+        for sph in due {
+            self.emp_pulses.mark_disable_applied(sph.id);
+            let _ = self.apply_emp_pulse_disable_field_at(
+                sph.player_id,
+                sph.location,
+                sph.caster_id,
+            );
+        }
     }
 
     /// Host China Frenzy ("Rage") residual registry (activate + honesty).

@@ -2,8 +2,7 @@
 //!
 //! Residual slice (playability) for `ChinaVehicleListeningOutpost`:
 //! - `StealthDetectorUpdate` DetectionRange = **300**
-//! - `StealthUpdate` InnateStealth = Yes; StealthForbiddenConditions = MOVING
-//!   (RIDERS_ATTACKING residual fail-closed — riders may fire without host uncloak matrix)
+//! - `StealthUpdate` InnateStealth = Yes; StealthForbiddenConditions = MOVING RIDERS_ATTACKING
 //! - `TransportContain` Slots = **2**, AllowInsideKindOf = INFANTRY,
 //!   PassengersAllowedToFire = Yes, ArmedRidersUpgradeMyWeaponSet = Yes
 //! - InitialPayload residual: `ChinaInfantryTankHunter` × 2 (docked on spawn when template exists)
@@ -295,21 +294,22 @@ pub fn listening_outpost_detection_range(template_name: &str) -> Option<f32> {
     }
 }
 
-/// Maintain Listening Outpost move-forbidden stealth residual.
+/// Maintain Listening Outpost move + rider-fire forbidden stealth residual.
 ///
 /// Returns `Some(desired_stealthed)` when residual applies.
-/// Fail-closed: RIDERS_ATTACKING not modeled (passengers may fire while cloaked).
+/// C++ `STEALTH_NOT_WHILE_RIDERS_ATTACKING` destalths the frame a rider attacks.
 pub fn listening_outpost_stealth_desired(
     is_outpost: bool,
     innate_stealth: bool,
     stealth_breaks_on_move: bool,
     is_alive: bool,
     is_moving_state: bool,
+    riders_attacking: bool,
 ) -> Option<bool> {
     if !is_outpost || !innate_stealth || !is_alive {
         return None;
     }
-    if stealth_breaks_on_move && is_moving_state {
+    if (stealth_breaks_on_move && is_moving_state) || riders_attacking {
         Some(false)
     } else {
         Some(true)
@@ -478,20 +478,24 @@ mod tests {
         assert_eq!(LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, 2);
     }
 
-    #[test]
     fn stealth_desired_matrix() {
         assert_eq!(
-            listening_outpost_stealth_desired(true, true, true, true, true),
+            listening_outpost_stealth_desired(true, true, true, true, true, false),
             Some(false),
             "moving outpost uncloaks"
         );
         assert_eq!(
-            listening_outpost_stealth_desired(true, true, true, true, false),
+            listening_outpost_stealth_desired(true, true, true, true, false, false),
             Some(true),
             "idle outpost re-cloaks"
         );
         assert_eq!(
-            listening_outpost_stealth_desired(false, true, true, true, false),
+            listening_outpost_stealth_desired(true, true, true, true, false, true),
+            Some(false),
+            "riders attacking destalths"
+        );
+        assert_eq!(
+            listening_outpost_stealth_desired(false, true, true, true, false, false),
             None
         );
     }

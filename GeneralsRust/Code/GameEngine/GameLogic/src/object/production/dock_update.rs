@@ -16,11 +16,6 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
 
-/// Wave 355: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
 const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
@@ -161,10 +156,6 @@ impl DockUpdate {
     }
 
     fn load_dock_positions(&mut self) {
-        // Wave 355: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
 
         let Some((ignore_bones, drawable)) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
@@ -227,10 +218,6 @@ impl DockUpdate {
     }
 
     fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
-        // Wave 355: empty dual-world → Coord3D::ZERO.
-        if dual_world_registry_unavailable() {
-            return Coord3D::ZERO;
-        }
 
         if !self.positions_loaded {
             self.load_dock_positions();
@@ -308,14 +295,35 @@ impl DockUpdate {
     pub(crate) fn docker_inside(&self) -> Bool {
         self.docker_inside
     }
+
+    /// C++ `getEnterPosition` loads bones if `m_positionsLoaded` is false.
+    fn enter_position_or_peek(&self) -> Coord3D {
+        if self.positions_loaded {
+            self.enter_position
+        } else {
+            peek_pristine_dock_bone(self.owner_id, "DockStart").unwrap_or(self.enter_position)
+        }
+    }
+
+    fn dock_position_or_peek(&self) -> Coord3D {
+        if self.positions_loaded {
+            self.dock_position
+        } else {
+            peek_pristine_dock_bone(self.owner_id, "DockAction").unwrap_or(self.dock_position)
+        }
+    }
+
+    fn exit_position_or_peek(&self) -> Coord3D {
+        if self.positions_loaded {
+            self.exit_position
+        } else {
+            peek_pristine_dock_bone(self.owner_id, "DockEnd").unwrap_or(self.exit_position)
+        }
+    }
 }
 
 impl BehaviorModuleInterface for DockUpdate {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         if self.active_docker == INVALID_ID && !self.dock_crippled {
             for (index, reached) in self.approach_position_reached.iter().enumerate() {
@@ -380,10 +388,6 @@ impl BehaviorModule for DockUpdate {
 }
 
 fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-    // Wave 355: empty dual-world → None.
-    if dual_world_registry_unavailable() {
-        return None;
-    }
 
     if id == INVALID_ID {
         return None;
@@ -391,6 +395,21 @@ fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
     crate::helpers::TheGameLogic::find_object_by_id(id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
 }
+
+fn peek_pristine_dock_bone(owner_id: ObjectID, bone: &str) -> Option<Coord3D> {
+    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+        if owner_guard.is_kind_of(KindOf::IgnoreDockingBones) {
+            return None;
+        }
+        let drawable = owner_guard.get_drawable()?;
+        let drawable_guard = drawable.read().ok()?;
+        drawable_guard
+            .get_pristine_bone_positions(bone, SINGLE_DOCK_BONE_START_INDEX, 1)
+            .first()
+            .copied()
+    })?
+}
+
 
 impl DockUpdateInterface for DockUpdate {
     fn is_dock_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -422,10 +441,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
@@ -601,13 +616,10 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
+        // C++ getEnterPosition always loadDockPositions if not loaded.
+        let enter = self.enter_position_or_peek();
         let zero = Coord3D::ZERO;
-        if self.enter_position == zero {
+        if enter == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
                 if let Ok(docker_guard) = obj.read() {
                     if docker_guard.is_using_airborne_locomotor() {
@@ -628,8 +640,7 @@ impl DockUpdateInterface for DockUpdate {
 
         if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.enter_position), None);
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
                 *goal_pos = world.transform_point3(Coord3D::ZERO);
             }
         }
@@ -640,10 +651,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
@@ -676,13 +683,10 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
+        let enter = self.enter_position_or_peek();
+        let dock = self.dock_position_or_peek();
         let zero = Coord3D::ZERO;
-        if self.enter_position == zero {
+        if enter == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
                 if let Ok(docker_guard) = obj.read() {
                     *goal_pos = *docker_guard.get_position();
@@ -693,8 +697,7 @@ impl DockUpdateInterface for DockUpdate {
 
         if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.dock_position), None);
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
                 *goal_pos = world.transform_point3(Coord3D::ZERO);
             }
         }
@@ -705,10 +708,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
@@ -740,13 +739,10 @@ impl DockUpdateInterface for DockUpdate {
         obj_id: ObjectID,
         goal_pos: &mut Coord3D,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
+        let enter = self.enter_position_or_peek();
+        let exit = self.exit_position_or_peek();
         let zero = Coord3D::ZERO;
-        if self.enter_position == zero {
+        if enter == zero {
             if let Some(obj) = resolve_dock_object(obj_id) {
                 if let Ok(docker_guard) = obj.read() {
                     *goal_pos = *docker_guard.get_position();
@@ -757,8 +753,7 @@ impl DockUpdateInterface for DockUpdate {
 
         if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.exit_position), None);
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
                 *goal_pos = world.transform_point3(Coord3D::ZERO);
             }
         }
@@ -769,10 +764,6 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
 
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(());
@@ -1450,10 +1441,6 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 355: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
 
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(false);

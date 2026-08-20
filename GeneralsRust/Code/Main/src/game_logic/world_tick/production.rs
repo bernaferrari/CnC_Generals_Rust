@@ -436,8 +436,12 @@ impl GameLogic {
     /// scripts can disallow unit types mid-queue; cancel the unit head unless
     /// it is a dozer. Called every live production tick.
     pub(crate) fn cancel_script_disallowed_production_queue_heads(&mut self) {
-        let mut cancelled: Vec<(ObjectId, Team, crate::game_logic::buildings::ProductionItem)> =
-            Vec::new();
+        let mut cancelled: Vec<(
+            ObjectId,
+            Option<u32>,
+            Team,
+            crate::game_logic::buildings::ProductionItem,
+        )> = Vec::new();
         let mut producers: Vec<ObjectId> = self.objects.keys().copied().collect();
         producers.sort_by_key(|id| id.0);
         for producer_id in producers {
@@ -468,6 +472,7 @@ impl GameLogic {
                 .templates
                 .get(&template_name)
                 .is_some_and(|t| t.is_kind_of(KindOf::Structure));
+            let owner_player_id = obj.owner_player_id;
             let owner_id = self.player_owner_for_host_object(obj);
             let team = obj.team;
             let allowed = match owner_id.and_then(|pid| self.get_player(pid)) {
@@ -490,12 +495,12 @@ impl GameLogic {
                             0.0,
                         );
                     }
-                    cancelled.push((producer_id, team, item));
+                    cancelled.push((producer_id, owner_player_id, team, item));
                 }
             }
         }
-        for (producer_id, team, item) in cancelled {
-            self.refund_cancelled_production_item(team, &item);
+        for (producer_id, owner_player_id, team, item) in cancelled {
+            self.refund_cancelled_production_item(owner_player_id, team, &item);
             crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
         }
     }
@@ -942,13 +947,7 @@ impl GameLogic {
                     .map(|p| p.has_unlocked_upgrade(&upgrade_name))
                     .unwrap_or(false);
                 if let Some(player) = self.players.get_mut(&pid) {
-                    // Remove from queued set without refund (research finished).
-                    if let Some(queued) = player.find_queued_upgrade_name(&upgrade_name) {
-                        player.queued_upgrades.remove(&queued);
-                    }
-                    if !player.has_unlocked_upgrade(&upgrade_name) {
-                        player.unlocked_sciences.insert(upgrade_name.clone());
-                    }
+                    player.complete_researched_upgrade(&upgrade_name);
                 }
                 if !already {
                     self.apply_host_upgrade_complete(team, pid, &upgrade_name);
@@ -1526,6 +1525,9 @@ impl GameLogic {
                     }
                     self.ensure_ai_faction_templates(player.team);
                     if self.create_object_for_player(building, pid, pos).is_some() {
+                        gamelogic::player::notify_skirmish_starting_object(
+                            pid, building, true,
+                        );
                         base = Some(pos);
                         log::info!(
                             "Wave 831/832: seeded starting building {} for player {} at {:?}",
@@ -1587,6 +1589,7 @@ impl GameLogic {
                     unit_pos.y = h;
                 }
                 if let Some(id) = self.create_object_for_player(unit_name, pid, unit_pos) {
+                    gamelogic::player::notify_skirmish_starting_object(pid, unit_name, false);
                     log::info!(
                         "Wave 832: starting unit player={} team={:?} spawned {} id={:?}",
                         pid,
@@ -1608,6 +1611,9 @@ impl GameLogic {
                             continue;
                         }
                         if let Some(id) = self.create_object_for_player(fallback, pid, unit_pos) {
+                            gamelogic::player::notify_skirmish_starting_object(
+                                pid, fallback, false,
+                            );
                             log::info!(
                                 "Wave 832: starting unit fallback player={} {} id={:?}",
                                 pid,

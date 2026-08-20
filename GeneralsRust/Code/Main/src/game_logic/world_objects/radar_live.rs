@@ -203,6 +203,17 @@ impl GameLogic {
         radar_obj.is_disguised = disguised;
         radar_obj.is_enemy = !self.host_owner_is_ally_of_local(obj.team, owner_id);
         radar_obj.is_hero = obj.is_kind_of(KindOf::Hero);
+        // C++ StealthDetectorUpdate DetectionRange (or VisionRange fallback).
+        // RadarSystem::update_stealth_detection only reveals when these are set.
+        radar_obj.can_detect_stealth = obj.is_detector;
+        radar_obj.radar_range = if obj.is_detector {
+            obj.effective_detection_range()
+        } else {
+            0.0
+        };
+        // OBJECT_STATUS_DETECTED at insert → not STEALTHLOOK_INVISIBLE.
+        radar_obj.stealth_revealed = radar_obj.is_detected || radar_obj.is_disguised;
+
         radar_obj.color = owner_color;
 
         RadarObjectInsert {

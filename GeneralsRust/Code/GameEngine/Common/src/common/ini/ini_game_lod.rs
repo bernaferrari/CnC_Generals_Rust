@@ -708,6 +708,40 @@ impl GameLODManager {
         DynamicGameLODLevel::from_str(name).and_then(|level| level.to_index())
     }
 
+    /// Walk `m_lodPresets[HIGH..LOW]` against CPU/MHz/video/RAM.
+    /// Matches C++ `GameLODManager::findStaticLODLevel` hardware compare.
+    pub fn match_static_lod_presets(
+        &self,
+        cpu_type: CpuType,
+        cpu_mhz: i32,
+        video: ChipsetType,
+        ram_mb: i32,
+    ) -> StaticGameLODLevel {
+        const PROFILE_ERROR_LIMIT: f32 = 0.94;
+        for level_index in (0..=2).rev() {
+            let count = self.num_level_presets[level_index];
+            for j in 0..count {
+                let Some(preset) = self.lod_presets[level_index][j].as_ref() else {
+                    continue;
+                };
+                let mhz_ok = preset.mhz > 0
+                    && (cpu_mhz as f32) / (preset.mhz as f32) >= PROFILE_ERROR_LIMIT;
+                let ram_ok = preset.memory > 0
+                    && (ram_mb as f32) / (preset.memory as f32) >= PROFILE_ERROR_LIMIT;
+                let video_ok = (video as i32) >= (preset.video_type as i32);
+                if cpu_type == preset.cpu_type && mhz_ok && video_ok && ram_ok {
+                    return match level_index {
+                        2 => StaticGameLODLevel::High,
+                        1 => StaticGameLODLevel::Medium,
+                        _ => StaticGameLODLevel::Low,
+                    };
+                }
+            }
+        }
+        StaticGameLODLevel::Low
+    }
+
+
     /// Add a new LOD preset
     /// Matches C++ GameLODManager::newLODPreset
     pub fn new_lod_preset(&mut self, level_index: usize) -> Option<&mut LODPresetInfo> {

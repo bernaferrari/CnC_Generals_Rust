@@ -45,10 +45,9 @@ impl GameLogic {
 
     /// C++ TunnelContain::onCapture residual.
     ///
-    /// Re-home entrance to new owner's tunnel system. Passengers are NOT
-    /// kicked (isKickOutOnCapture=false). If this was the old owner's last
-    /// entrance and the shared pool is non-empty, eject the pool (same
-    /// last-tunnel safety residual as onSelling).
+    /// Re-home entrance: `onTunnelDestroyed(old)` then `onTunnelCreated(new)`.
+    /// Passengers are NOT kicked (`isKickOutOnCapture=false`). Last old-owner
+    /// entrance cave-in destroys the shared pool (`TunnelTracker::destroyObject`).
     pub fn on_capture_tunnel_network_residual(
         &mut self,
         tunnel_id: ObjectId,
@@ -72,8 +71,7 @@ impl GameLogic {
             return;
         }
 
-        // Count remaining tunnel entrances for old team (exclude this one).
-        let remaining_old: u32 = self
+        let remaining_old: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(id, o)| {
@@ -86,53 +84,40 @@ impl GameLogic {
                             &o.template_name,
                         ))
             })
-            .count() as u32;
+            .map(|(id, _)| *id)
+            .collect();
 
-        if remaining_old == 0 {
-            // Last entrance left old team — eject shared pool (C++ assert path residual).
-            let units: Vec<ObjectId> = self.tunnel_network.contained_for_team(old_team);
-            if !units.is_empty() {
-                let pos = self
-                    .objects
-                    .get(&tunnel_id)
-                    .map(|o| o.get_position())
-                    .unwrap_or(glam::Vec3::ZERO);
-                for (i, uid) in units.into_iter().enumerate() {
-                    let _ = self.tunnel_network.record_exit(old_team, uid, tunnel_id);
-                    if let Some(unit) = self.objects.get_mut(&uid) {
-                        let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
-                        let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 12.0;
-                        unit.stop_moving();
-                        unit.set_position(pos + offset);
-                        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                            let p = pos + offset;
-                            crate::game_logic::host_move_log::record(
-                                unit.id,
-                                Some([p.x, p.y, p.z]),
-                            );
-                            unit.record_host_movement();
-                        }
-                        unit.set_target(None);
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            crate::game_logic::host_ai_decision_log::record_stop_attack(uid);
-                        }
-                        unit.set_contained_by(None);
-                        unit.set_ai_state(AIState::Idle);
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                            crate::game_logic::host_ai_decision_log::record_set_state(uid, 0);
-                        }
-                        unit.set_status_moving(false);
-                        unit.set_status_attacking(false);
+        let outcome =
+            self.tunnel_network
+                .on_tunnel_destroyed(old_team, tunnel_id, &remaining_old);
+        if outcome.cave_in {
+            for uid in outcome.cave_in_units {
+                if let Some(unit) = self.objects.get_mut(&uid) {
+                    unit.set_contained_by(None);
+                    unit.set_target(None);
+                    unit.stop_moving();
+                    unit.set_status_moving(false);
+                    unit.set_status_attacking(false);
+                    unit.status.destroyed = true;
+                    unit.health.current = 0.0;
+                }
+                self.mark_object_for_destruction(uid, Some(new_team));
+                self.capture_tunnel_last_ejects =
+                    self.capture_tunnel_last_ejects.saturating_add(1);
+            }
+        } else if let Some(valid) = outcome.remapped_to {
+            let pool = self.tunnel_network.contained_for_team(old_team);
+            for uid in pool {
+                if let Some(unit) = self.objects.get_mut(&uid) {
+                    if unit.contained_by == Some(tunnel_id) {
+                        unit.set_contained_by(Some(valid));
                     }
-                    self.capture_tunnel_last_ejects =
-                        self.capture_tunnel_last_ejects.saturating_add(1);
                 }
             }
         }
 
-        // Honesty: entrance transferred to new owner (pool stays with old team unless ejected).
+        self.tunnel_network.on_tunnel_created(new_team, tunnel_id);
         self.capture_tunnel_transfers = self.capture_tunnel_transfers.saturating_add(1);
-        let _ = new_team;
     }
 
     /// C++ Object::onCapture residual (after ownership flip).
@@ -804,8 +789,9 @@ impl GameLogic {
     fn builder_is_actively_building(&self, builder_id: ObjectId, structure_id: ObjectId) -> bool {
         self.objects.get(&builder_id).is_some_and(|builder| {
             builder.is_alive()
-                && matches!(builder.ai_state, AIState::Constructing)
-                && builder.target == Some(structure_id)
+                && (builder.dozer_task_build_target == Some(structure_id)
+                    || (matches!(builder.ai_state, AIState::Constructing)
+                        && builder.target == Some(structure_id)))
         })
     }
 
@@ -1137,10 +1123,18 @@ impl GameLogic {
 
     /// C++ DozerPrimaryIdleState bored residual: repair, else mine-clear.
     pub(crate) fn process_dozer_bored_event(&mut self, id: ObjectId) {
-        let Some(obj) = self.objects.get(&id) else {
+        let Some((alive, can_repair)) = self
+            .objects
+            .get(&id)
+            .map(|obj| (obj.is_alive(), obj.can_repair()))
+        else {
             return;
         };
-        if !obj.is_alive() || !obj.can_repair() {
+        if !alive || !can_repair {
+            return;
+        }
+        // C++ idleConditions: isBuildMostImportant before bored scan.
+        if self.dozer_idle_resume_pending_build(id) {
             return;
         }
         // Idle stamp already advanced on GW; attempt service residual once.
@@ -1176,27 +1170,39 @@ impl GameLogic {
         let bored = crate::game_logic::host_repair::DOZER_BORED_TIME_FRAMES;
         let ids: Vec<ObjectId> = self.objects.keys().copied().collect();
         for id in ids {
-            let Some(obj) = self.objects.get_mut(&id) else {
-                continue;
-            };
-            if !obj.is_alive() || !obj.can_repair() {
-                continue;
-            }
-            // Track idle timestamp residual.
-            if matches!(obj.ai_state, AIState::Idle) {
-                if obj.idle_since_frame == 0 {
-                    obj.idle_since_frame = now.max(1);
+            {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                if !obj.is_alive() || !obj.can_repair() {
+                    continue;
                 }
-            } else {
-                obj.idle_since_frame = 0;
+                // Track idle timestamp residual.
+                if matches!(obj.ai_state, AIState::Idle) {
+                    if obj.idle_since_frame == 0 {
+                        obj.idle_since_frame = now.max(1);
+                    }
+                } else {
+                    obj.idle_since_frame = 0;
+                    continue;
+                }
+            }
+            // C++ DozerPrimaryStateMachine idleConditions before bored (DozerAIUpdate.cpp:1260).
+            if self.dozer_idle_resume_pending_build(id) {
                 continue;
             }
-            let idle_since = obj.idle_since_frame;
+            let idle_since = self
+                .objects
+                .get(&id)
+                .map(|obj| obj.idle_since_frame)
+                .unwrap_or(0);
             if now.saturating_sub(idle_since) < bored {
                 continue;
             }
             // Reset stamp so we don't scan every frame (C++ resets idle timestamp).
-            obj.idle_since_frame = now.max(1);
+            if let Some(obj) = self.objects.get_mut(&id) {
+                obj.idle_since_frame = now.max(1);
+            }
 
             if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
                 if let Some(obj) = self.objects.get_mut(&id) {

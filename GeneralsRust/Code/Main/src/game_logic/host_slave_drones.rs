@@ -151,6 +151,9 @@ pub const SLAVE_SCOUT_WANDER_RANGE: f32 = 10.0;
 pub const SLAVE_STAY_ON_SAME_LAYER: bool = true;
 /// Scout DistToTargetToGrantRangeBonus residual.
 pub const SCOUT_DIST_TO_TARGET_RANGE_BONUS: f32 = 20.0;
+/// Retail GameData.ini WeaponBonus DRONE_SPOTTING RANGE **150%** (Scout range-extend).
+pub const DRONE_SPOTTING_RANGE_MULT: f32 = 1.50;
+
 
 // --- Wave 61 body / spawn / upgrade residual ---
 
@@ -409,6 +412,44 @@ pub fn battle_drone_should_repair_master(
         && distance_to_master <= BATTLE_DRONE_REPAIR_RANGE + 40.0 // host residual pad
 }
 
+/// C++ SlavedUpdate.cpp:229-236 idle repair: master health `< 100` after attack/scout.
+///
+/// The 60% `RepairWhenBelowHealth%` gate is first-priority interrupt only.
+pub fn battle_drone_should_idle_repair_master(
+    master_alive: bool,
+    master_health_pct: f32,
+    drone_alive: bool,
+    distance_to_master: f32,
+) -> bool {
+    master_alive
+        && drone_alive
+        && master_health_pct < 100.0
+        && distance_to_master <= BATTLE_DRONE_REPAIR_RANGE + 40.0
+}
+
+/// C++ doAttackLogic DistToTargetToGrantRangeBonus² (Scout residual **20**).
+pub fn scout_drone_should_grant_range_bonus(
+    is_scout: bool,
+    slave_to_victim_dist_sqr: f32,
+) -> bool {
+    is_scout && slave_to_victim_dist_sqr < SCOUT_DIST_TO_TARGET_RANGE_BONUS * SCOUT_DIST_TO_TARGET_RANGE_BONUS
+}
+
+/// C++ SlavedUpdate.cpp:145-150: hijack/defect when master is no longer ALLIES.
+pub fn slave_should_defect_to_master(master_team_eq_slave: bool) -> bool {
+    !master_team_eq_slave
+}
+
+/// C++ StayOnSameLayerAsMaster: copy master height (not `drone.max(master)`).
+pub fn slave_follow_destination_y(drone_y: f32, master_y: f32) -> f32 {
+    if SLAVE_STAY_ON_SAME_LAYER {
+        master_y
+    } else {
+        drone_y.max(master_y)
+    }
+}
+
+
 /// Residual HP restored for one logic frame of Battle Drone repair.
 ///
 /// RepairRatePerSecond 10 @ 30 FPS → 10/30 HP per frame.
@@ -496,6 +537,7 @@ pub fn honesty_slave_drones_wander_residual_ok() -> bool {
         && (SLAVE_SCOUT_WANDER_RANGE - 10.0).abs() < 0.01
         && SLAVE_STAY_ON_SAME_LAYER
         && (SCOUT_DIST_TO_TARGET_RANGE_BONUS - 20.0).abs() < 0.01
+        && (DRONE_SPOTTING_RANGE_MULT - 1.50).abs() < 0.01
         && SCOUT_DETECTION_RATE_MS == 500
         && SCOUT_DETECTION_RATE_FRAMES == slave_drone_ms_to_frames(SCOUT_DETECTION_RATE_MS)
         && SCOUT_DETECTION_RATE_FRAMES == 15
@@ -693,6 +735,15 @@ mod tests {
 
         assert!(battle_drone_should_repair_master(true, 50.0, true, 10.0));
         assert!(!battle_drone_should_repair_master(true, 80.0, true, 10.0));
+        assert!(battle_drone_should_idle_repair_master(true, 80.0, true, 10.0));
+        assert!(!battle_drone_should_idle_repair_master(true, 100.0, true, 10.0));
+        assert!(scout_drone_should_grant_range_bonus(true, 19.0 * 19.0));
+        assert!(!scout_drone_should_grant_range_bonus(true, 21.0 * 21.0));
+        assert!(!scout_drone_should_grant_range_bonus(false, 0.0));
+        assert!(slave_should_defect_to_master(false));
+        assert!(!slave_should_defect_to_master(true));
+        assert!((slave_follow_destination_y(12.0, 4.0) - 4.0).abs() < 0.01);
+
         assert!((battle_drone_repair_amount_for_frame(1.0) - 10.0).abs() < 0.01);
         assert!((battle_drone_repair_amount_for_frame(1.0 / 30.0) - 10.0 / 30.0).abs() < 0.001);
         assert!(battle_drone_auto_fire_eligible(

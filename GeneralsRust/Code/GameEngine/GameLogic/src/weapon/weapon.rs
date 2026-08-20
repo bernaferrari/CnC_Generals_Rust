@@ -1439,22 +1439,48 @@ impl Weapon {
         let Ok(laser_arc) = factory.new_object(template, &team_guard) else {
             return;
         };
-        let Ok(mut laser_guard) = laser_arc.write() else {
-            return;
-        };
-        let _ = laser_guard.set_position(source_guard.get_position());
-        for behavior in laser_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
+        let source_pos = *source_guard.get_position();
+        let mut modules = Vec::new();
+        {
+            let Ok(mut laser_guard) = laser_arc.write() else {
+                return;
             };
-            let Some(laser_update) = behavior.get_laser_behavior_control_interface() else {
-                continue;
-            };
-            if let Some(victim_id) = victim_id {
-                laser_update.activate_laser(victim_id);
+            let _ = laser_guard.set_position(&source_pos);
+            if let Some(drawable) = laser_guard.get_drawable() {
+                if let Ok(draw) = drawable.read() {
+                    modules = draw.modules();
+                }
             }
-            let _ = victim_pos;
-            break;
+            if modules.is_empty() {
+                modules = laser_guard.client_update_modules();
+            }
+        }
+        drop(source_guard);
+
+        let mut end_pos = *victim_pos;
+        if let Some(victim_id) = victim_id {
+            if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
+                if let Ok(v) = victim.read() {
+                    if !v.is_kind_of(KindOf::Projectile) && !v.is_airborne_target() {
+                        end_pos.z += 10.0;
+                    }
+                }
+            }
+        }
+
+        for module in modules {
+            module.with_module(|module| {
+                if let Some(laser_update) = module.get_laser_update_interface() {
+                    laser_update.init_laser(
+                        Some(source_id),
+                        victim_id,
+                        Some(source_pos.to_array()),
+                        Some(end_pos.to_array()),
+                        self.template.laser_bone_name.clone(),
+                        0,
+                    );
+                }
+            });
         }
     }
 

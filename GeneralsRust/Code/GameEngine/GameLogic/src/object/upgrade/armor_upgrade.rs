@@ -369,10 +369,12 @@ impl UpgradeModuleInterface for ArmorUpgrade {
     }
 
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        self.with_inner(|inner| {
-            let _ = inner.remove_armor();
-            mark_armor_removed(inner.object_id, &inner.data, upgrade_mask);
-        });
+        // C++ resetUpgrade does not undo armor; only clear executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 }
 

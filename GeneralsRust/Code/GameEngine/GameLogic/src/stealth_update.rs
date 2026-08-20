@@ -2,14 +2,14 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use crate::common::{
-    Bool, CommandSourceType, Int, KindOf, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real,
-    Relationship, UnsignedInt, FROM_CENTER_2D,
+    Bool, CommandSourceType, DisabledMaskType, Int, KindOf, ObjectID, ObjectStatusMaskType,
+    ObjectStatusTypes, Real, Relationship, UnsignedInt, FROM_CENTER_2D,
 };
 use crate::helpers::{
     game_client_random_value_real, game_logic_random_value, TheAudio, TheGameLogic,
     ThePartitionManager,
 };
-use crate::modules::{StealthUpdate as StealthUpdateTrait, UPDATE_SLEEP_NONE};
+use crate::modules::{StealthUpdate as StealthUpdateTrait, UpdateModuleInterface, UPDATE_SLEEP_NONE};
 use crate::player::{player_list, PlayerArcExt};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -1424,6 +1424,13 @@ impl Module for StealthUpdateModule {
     }
 }
 
+impl UpdateModuleInterface for StealthUpdateModule {
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ StealthUpdate.h:103 — still ticks while DISABLED_HELD.
+        DisabledMaskType::HELD
+    }
+}
+
 impl StealthDisguiseControlInterface for StealthUpdateModule {
     fn disguise_as_template(&mut self, template_name: Option<String>, current_frame: u32) {
         if let Ok(mut controller) = self.controller.lock() {
@@ -2233,5 +2240,15 @@ mod tests {
         assert_eq!(data.pulse_frames, 30);
         assert!(data.innate_stealth);
         assert!(!data.use_rider_stealth);
+    }
+
+    #[test]
+    fn stealth_module_ticks_while_held() {
+        let data = Arc::new(StealthUpdateModuleData::default());
+        let module = StealthUpdateModule::new(1, data, 99);
+        assert_eq!(
+            UpdateModuleInterface::get_disabled_types_to_process(&module),
+            DisabledMaskType::HELD
+        );
     }
 }

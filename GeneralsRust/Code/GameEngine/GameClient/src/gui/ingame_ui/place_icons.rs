@@ -50,8 +50,20 @@ impl InGameUI {
         TheInGameUI::set_placement_angle(angle);
     }
 
-    /// C++ `InGameUI::destroyPlacementIcons`.
     pub fn destroy_placement_icons(&mut self) {
+        // C++ InGameUI.cpp:2933-2948: removeFactionBibDrawable then destroyDrawable,
+        // then removeAllBibs.
+        if let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if let Some(visual) = guard.as_mut() {
+                for icon in &self.place_icons {
+                    visual.remove_faction_bib(
+                        icon.drawable_id,
+                        crate::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+                    );
+                }
+                visual.remove_all_bibs();
+            }
+        }
         for icon in self.place_icons.drain(..) {
             with_drawable_manager(|manager| {
                 manager.destroy_drawable(DrawableId(icon.drawable_id));
@@ -196,6 +208,7 @@ impl InGameUI {
         }
         if let Some(icon) = self.place_icons.first().cloned() {
             Self::update_place_icon_drawable(&icon);
+            self.sync_place_icon_faction_bibs(&icon);
         }
 
         if TheInGameUI::is_placement_anchored() && is_line_build_template_name(&template_name) {
@@ -274,4 +287,44 @@ impl InGameUI {
             Self::update_place_icon_drawable(icon);
         }
     }
+
+    /// C++ InGameUI.cpp:1473-1479 addFactionBibDrawable when LBC != OK.
+    fn sync_place_icon_faction_bibs(&self, icon: &PlaceIconGhost) {
+        let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() else {
+            return;
+        };
+        let Some(visual) = guard.as_mut() else {
+            return;
+        };
+        if icon.illegal {
+            let transform = glam::Mat4::from_translation(glam::Vec3::new(
+                icon.position.x,
+                icon.position.y,
+                icon.position.z,
+            )) * glam::Mat4::from_rotation_z(icon.angle);
+            let (major, minor) = self
+                .placement_preview
+                .as_ref()
+                .map(|p| (p.footprint.x.max(1.0), p.footprint.y.max(1.0)))
+                .unwrap_or((30.0, 30.0));
+            visual.add_faction_bib(
+                icon.drawable_id,
+                crate::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+                transform,
+                major,
+                minor,
+                true,
+                0.0,
+                0.0,
+                true,
+                0.0,
+            );
+        } else {
+            visual.remove_faction_bib(
+                icon.drawable_id,
+                crate::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+            );
+        }
+    }
+
 }

@@ -404,39 +404,78 @@ impl GameLogic {
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
-        let Some(container) = self.objects.get(&container_id) else {
+        let Some((alive, is_chinook_dropper)) = self.objects.get(&container_id).map(|c| {
+            (
+                c.is_alive(),
+                c.is_combat_chinook_style_container() && c.chinook_ai.is_some(),
+            )
+        }) else {
             return false;
         };
-        if !container.is_alive() {
+        if !alive {
             return false;
         }
-        if container.is_combat_chinook_style_container() {
-            if let Some(ai) = container.chinook_ai.as_ref() {
-                if ai.ai_free_to_exit(false)
-                    != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
-                {
-                    if let Some(c) = self.objects.get_mut(&container_id) {
-                        let p = c.get_position();
-                        let contained = c.contained_units().len() as u32;
-                        if let Some(ai) = c.chinook_ai.as_mut() {
-                            ai.pos = [p.x, p.z, p.y];
-                            ai.wanting_enter_or_exit = true;
-                            ai.parent_idle = true;
-                            ai.contained_count = contained;
-                            if and_exit {
-                                ai.command_evac([p.x, p.z, 0.0], true);
-                            } else {
-                                ai.tick_idle_auto_land();
-                            }
-                        }
-                        c.pending_evacuate_on_stop = true;
-                        c.pending_exit_after_evacuate = and_exit;
+        if is_chinook_dropper {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                let p = c.get_position();
+                if let Some(ai) = c.chinook_ai.as_mut() {
+                    ai.pos = [p.x, p.z, p.y];
+                    if ai.state
+                        == crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToCombatDrop
+                    {
+                        ai.arrive_for_combat_drop();
                     }
-                    return false;
                 }
+            }
+            let doing_drop = self.objects.get(&container_id).is_some_and(|c| {
+                c.chinook_ai.as_ref().is_some_and(|ai| {
+                    ai.flight_status
+                        == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::DoingCombatDrop
+                })
+            });
+            if doing_drop {
+                return self.combat_drop_rappel_unload(container_id, and_exit);
+            }
+            let any_rappeller = self.objects.get(&container_id).is_some_and(|c| {
+                c.contained_units().iter().any(|pid| {
+                    self.objects.get(pid).is_some_and(|p| {
+                        crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                            p.is_kind_of(KindOf::Infantry),
+                        )
+                    })
+                })
+            });
+            let wait = self.objects.get(&container_id).is_some_and(|c| {
+                c.chinook_ai.as_ref().is_some_and(|ai| {
+                    ai.ai_free_to_exit(any_rappeller)
+                        != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
+                })
+            });
+            if wait {
+                if let Some(c) = self.objects.get_mut(&container_id) {
+                    let p = c.get_position();
+                    let contained = c.contained_units().len() as u32;
+                    if let Some(ai) = c.chinook_ai.as_mut() {
+                        ai.pos = [p.x, p.z, p.y];
+                        ai.wanting_enter_or_exit = true;
+                        ai.parent_idle = true;
+                        ai.contained_count = contained;
+                        if and_exit {
+                            ai.command_evac([p.x, p.z, 0.0], true);
+                        } else {
+                            ai.tick_idle_auto_land();
+                        }
+                    }
+                    c.pending_evacuate_on_stop = true;
+                    c.pending_exit_after_evacuate = and_exit;
+                }
+                return false;
             }
         }
 
+        let Some(container) = self.objects.get(&container_id) else {
+            return false;
+        };
         let origin = container
             .building_data
             .as_ref()
@@ -516,6 +555,87 @@ impl GameLogic {
             any = true;
         }
         any
+    }
+
+    /// C++ `ChinookCombatDropState::update`: rope delay + `aiRappelInto` at `m_rappelSpeed`.
+    fn combat_drop_rappel_unload(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+        let now = self.frame;
+        let hover = match self.objects.get(&container_id) {
+            Some(c) if c.is_alive() => c.get_position(),
+            _ => return false,
+        };
+        let passengers: Vec<ObjectId> = self
+            .objects
+            .get(&container_id)
+            .map(|c| c.contained_units())
+            .unwrap_or_default();
+        let rappeller = passengers.iter().copied().find(|pid| {
+            self.objects.get(pid).is_some_and(|p| {
+                crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                    p.is_kind_of(KindOf::Infantry),
+                )
+            })
+        });
+        let Some(pid) = rappeller else {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.pending_evacuate_on_stop = false;
+                c.pending_exit_after_evacuate = false;
+            }
+            return false;
+        };
+        let can_release = self.objects.get(&container_id).is_some_and(|c| {
+            c.chinook_ai
+                .as_ref()
+                .is_some_and(|ai| ai.can_release_rappeller(now))
+        });
+        if !can_release {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.pending_evacuate_on_stop = true;
+                c.pending_exit_after_evacuate = and_exit;
+            }
+            return false;
+        }
+        let rappel_speed = self
+            .objects
+            .get(&container_id)
+            .and_then(|c| c.chinook_ai.as_ref())
+            .map(|ai| ai.apply_rappel_speed())
+            .unwrap_or(crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_RAPPEL_SPEED);
+        if let Some(c) = self.objects.get_mut(&container_id) {
+            let _ = c.remove_occupant(pid);
+        }
+        if let Some(p) = self.objects.get_mut(&pid) {
+            p.set_contained_by(None);
+            p.target = None;
+            p.set_position(hover);
+            let ground = glam::Vec3::new(hover.x, 0.0, hover.z);
+            p.movement.path = vec![hover, ground];
+            p.movement.current_path_index = 1;
+            p.movement.target_position = Some(ground);
+            p.movement.max_speed = rappel_speed;
+            p.set_ai_state(AIState::Moving);
+            p.status.moving = true;
+        }
+        self.record_transport_residual_unload();
+        let more = self.objects.get(&container_id).is_some_and(|c| {
+            c.contained_units().iter().any(|id| {
+                self.objects.get(id).is_some_and(|p| {
+                    crate::game_logic::host_combat_chinook::HostChinookAI::passenger_kind_can_rappel(
+                        p.is_kind_of(KindOf::Infantry),
+                    )
+                })
+            })
+        });
+        if let Some(c) = self.objects.get_mut(&container_id) {
+            let remaining = c.contained_units().len() as u32;
+            if let Some(ai) = c.chinook_ai.as_mut() {
+                ai.on_rappeller_released(now);
+                ai.contained_count = remaining;
+            }
+            c.pending_evacuate_on_stop = more;
+            c.pending_exit_after_evacuate = and_exit && !more;
+        }
+        true
     }
 
     pub fn record_transport_residual_unload(&mut self) {
@@ -656,7 +776,9 @@ impl GameLogic {
     /// C++ ApplyRandomForceNugget::create residual on primary (dying) object.
     /// C++ NeutronMissileUpdate::update residual.
     pub fn update_neutron_missile_flights(&mut self) {
-        use crate::game_logic::host_neutron_missile_update::NeutronMissileFlightPhase;
+        use crate::game_logic::host_neutron_missile_update::{
+            NeutronMissileFlightPhase, NeutronMissileWorld, NEUTRON_DEFAULT_BOUNDING_SPHERE,
+        };
 
         let ids: Vec<ObjectId> = self
             .objects
@@ -664,21 +786,61 @@ impl GameLogic {
             .filter(|(_, o)| o.neutron_missile_update.is_some() && o.is_alive())
             .map(|(id, _)| *id)
             .collect();
+        let others: Vec<(ObjectId, glam::Vec3)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive())
+            .map(|(id, o)| (*id, o.get_position()))
+            .collect();
         let mut destroy = Vec::new();
         let mut intermediate_hits = 0u32;
         for id in ids {
+            let (pos, producer, launcher, sphere) = {
+                let Some(o) = self.objects.get(&id) else {
+                    continue;
+                };
+                let data = o.neutron_missile_update.as_ref();
+                (
+                    o.get_position(),
+                    o.producer_id,
+                    data.and_then(|d| d.launcher_id),
+                    data.map(|d| d.bounding_sphere_radius)
+                        .unwrap_or(NEUTRON_DEFAULT_BOUNDING_SPHERE),
+                )
+            };
+            let terrain_y = self.terrain_height_at(pos);
+            let colliding_other = others.iter().find_map(|(oid, opos)| {
+                if *oid == id {
+                    return None;
+                }
+                if launcher == Some(oid.0) {
+                    return None;
+                }
+                if (*opos - pos).length() <= sphere.max(0.0) {
+                    Some(oid.0)
+                } else {
+                    None
+                }
+            });
             let (grounded, phase, is_cruise, producer, launch_fx, ignition_fx) = {
                 let Some(o) = self.objects.get_mut(&id) else {
                     continue;
                 };
-                let pos = o.get_position();
-                let producer = o.producer_id;
+                let producer = o.producer_id.or(producer);
                 let Some(data) = o.neutron_missile_update.as_mut() else {
                     continue;
                 };
                 let was_inter = data.reached_intermediate;
                 let is_cruise = data.is_cruise;
-                let tick = data.tick(pos, self.frame);
+                let tick = data.tick_world(
+                    pos,
+                    self.frame,
+                    NeutronMissileWorld {
+                        terrain_height_y: terrain_y,
+                        bounding_sphere_radius: Some(sphere),
+                        colliding_other,
+                    },
+                );
                 if !was_inter && data.reached_intermediate {
                     intermediate_hits += 1;
                 }

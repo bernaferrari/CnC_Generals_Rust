@@ -47,6 +47,8 @@ use crate::core::game_client::{
     run_live_game_client_load_post_process, xfer_live_game_client_state, InGameUI,
     VideoPlayerInterface,
 };
+use crate::gui::ingame_ui::MessageText;
+
 
 fn xfer_bool_flag(xfer: &mut dyn Xfer, value: &mut bool) -> Result<(), XferStatus> {
     xfer.xfer_bool(value)
@@ -1331,7 +1333,8 @@ pub struct InGameUISubsystem {
     pending_beacon_events: VecDeque<BeaconNotification>,
     selection_events: VecDeque<SelectionEvent>,
     command_log: VecDeque<CommandLogEntry>,
-    hud_messages: VecDeque<String>,
+    hud_messages: VecDeque<MessageText>,
+
     military_subtitles: VecDeque<(String, i32)>,
     /// Wave 1060: presentation floating cash/text residual.
     presentation_floating_texts: Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
@@ -1448,7 +1451,7 @@ impl InGameUISubsystem {
     }
 
     pub fn drain_hud_messages(&mut self) -> Vec<String> {
-        self.hud_messages.drain(..).collect()
+        self.hud_messages.drain(..).map(|m| m.text).collect()
     }
 
     pub fn push_radar_ping(&mut self, ping: RadarPingEvent) {
@@ -1482,13 +1485,64 @@ impl InGameUISubsystem {
         self.command_log.push_back(entry);
     }
 
+    /// C++ `InGameUI.h:622` MAX_UI_MESSAGES.
+    const MAX_UI_MESSAGES: usize = 6;
+    /// C++ `InGameUI.cpp:899` GameMakeColor(255, 255, 255, 255).
+    const MESSAGE_COLOR1: u32 = 0xFFFF_FFFF;
+    /// C++ `InGameUI.cpp:900` GameMakeColor(180, 180, 180, 255).
+    const MESSAGE_COLOR2: u32 = 0xFFB4_B4B4;
+    /// C++ constructor default `m_messageDelayMS` (InGameUI.cpp:906).
+    const MESSAGE_DELAY_MS: i32 = 5000;
+
+    /// C++ `InGameUI::update` fade (InGameUI.cpp:1632-1657): after
+    /// `messageTimeout` drop alpha, remove when it hits 0.
+    pub fn expire_hud_messages(&mut self, current_frame: u32) {
+        let timeout = crate::gui::ingame_ui::InGameUI::message_timeout_frames(Self::MESSAGE_DELAY_MS);
+        self.hud_messages.retain_mut(|msg| {
+            let age = current_frame.saturating_sub(msg.creation_frame);
+            let orig_a = ((msg.original_color >> 24) & 0xFF) as u8;
+            let r = ((msg.original_color >> 16) & 0xFF) as u8;
+            let g = ((msg.original_color >> 8) & 0xFF) as u8;
+            let b = (msg.original_color & 0xFF) as u8;
+            let new_a = crate::gui::ingame_ui::InGameUI::message_alpha_at_age(orig_a, age, timeout);
+            if new_a == 0 {
+                false
+            } else {
+                msg.color = ((new_a as u32) << 24)
+                    | ((r as u32) << 16)
+                    | ((g as u32) << 8)
+                    | (b as u32);
+                true
+            }
+        });
+    }
+
     pub fn push_hud_message(&mut self, message: String) {
-        const MAX_HUD_MESSAGES: usize = 32;
-        if self.hud_messages.len() == MAX_HUD_MESSAGES {
+        let frame = TheGameLogic::get_frame();
+        self.expire_hud_messages(frame);
+        // C++ newest is index 0; we keep newest at the back.
+        let newest = self
+            .hud_messages
+            .back()
+            .map(|m| m.original_color)
+            .unwrap_or(0);
+        let color = crate::gui::ingame_ui::InGameUI::next_message_color(
+            self.hud_messages.is_empty(),
+            newest,
+            Self::MESSAGE_COLOR1,
+            Self::MESSAGE_COLOR2,
+        );
+        if self.hud_messages.len() == Self::MAX_UI_MESSAGES {
             self.hud_messages.pop_front();
         }
-        self.hud_messages.push_back(message);
+        self.hud_messages.push_back(MessageText {
+            text: message,
+            color,
+            original_color: color,
+            creation_frame: frame,
+        });
     }
+
 
     pub fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
         crate::gui::ingame_ui::start_military_subtitle(label, duration_ms);
@@ -1513,9 +1567,10 @@ impl InGameUISubsystem {
     pub fn presentation_floating_texts(&self) -> &[(String, [f32; 3], (u8, u8, u8), u32, u32)] {
         &self.presentation_floating_texts
     }
-    pub fn hud_messages(&self) -> &VecDeque<String> {
+    pub fn hud_messages(&self) -> &VecDeque<MessageText> {
         &self.hud_messages
     }
+
 
     pub fn military_subtitles(&self) -> &VecDeque<(String, i32)> {
         &self.military_subtitles
@@ -1708,6 +1763,10 @@ impl InGameUISubsystem {
 
     fn message(&mut self, text: &str) {
         self.push_hud_message(GameText::fetch(text));
+    }
+
+    fn free_message_resources(&mut self) {
+        self.hud_messages.clear();
     }
 
     fn clear_attack_move_to_mode(&mut self) {
@@ -2177,6 +2236,12 @@ impl InGameUiHooks for InGameUiHandle {
     fn message(&self, text: &str) {
         if let Ok(mut ui) = self.inner.lock() {
             ui.message(text);
+        }
+    }
+
+    fn free_message_resources(&self) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.free_message_resources();
         }
     }
 
@@ -3065,7 +3130,8 @@ mod tests {
             lower_right: ICoord2D::new(3, 4),
         });
         ui.command_log.push_back(CommandLogEntry::Stop);
-        ui.hud_messages.push_back("hello".to_string());
+        ui.push_hud_message("hello".to_string());
+
         ui.military_subtitles
             .push_back(("SCRIPT:Caption".to_string(), 2000));
         ui.tooltips_disabled_until = 99;
@@ -3175,6 +3241,29 @@ mod tests {
         );
         assert!(guard.hud_messages.is_empty());
     }
+
+    #[test]
+    fn hud_messages_timestamp_white_gray_and_fade_to_zero() {
+        // C++ addMessageText (InGameUI.cpp:2090-2103) + update fade (1632-1657).
+        let mut ui = InGameUISubsystem::default();
+        let frame = TheGameLogic::get_frame();
+        ui.push_hud_message("first".to_string());
+        ui.push_hud_message("second".to_string());
+
+        let msgs: Vec<_> = ui.hud_messages().iter().cloned().collect();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].text, "first");
+        assert_eq!(msgs[0].original_color, 0xFFFF_FFFF);
+        assert_eq!(msgs[0].creation_frame, frame);
+        assert_eq!(msgs[1].text, "second");
+        assert_eq!(msgs[1].original_color, 0xFFB4_B4B4);
+        assert_eq!(msgs[1].creation_frame, frame);
+
+        // Age 400 at timeout 0 → alpha 0 (messages.rs message_older_than_cpp_fade_is_removed).
+        ui.expire_hud_messages(frame.saturating_add(400));
+        assert!(ui.hud_messages().is_empty());
+    }
+
 
     #[test]
     fn window_manager_subsystem_reset_does_not_destroy_wnd() {

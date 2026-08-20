@@ -523,6 +523,12 @@ pub struct HostChinookAI {
     pub contained_count: u32,
     pub map_lo: [f32; 2],
     pub map_hi: [f32; 2],
+    /// C++ `RopeInfo::nextDropTime` residual (logic frames).
+    #[serde(default)]
+    pub combat_drop_next_release_frame: u32,
+    /// Rappellers released this drop (rope stagger).
+    #[serde(default)]
+    pub combat_drop_releases: u32,
 }
 
 fn host_chinook_dist_sqr(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -563,6 +569,8 @@ impl HostChinookAI {
             parent_idle: true,
             wanting_enter_or_exit: false,
             kind_of_can_attack,
+            combat_drop_next_release_frame: 0,
+            combat_drop_releases: 0,
             passengers_allowed_to_fire: kind_of_can_attack,
             combat_drop_dest_z: pos[2],
             move_to_bldg_old_preferred: COMBAT_CHINOOK_PREFERRED_HEIGHT,
@@ -597,9 +605,41 @@ impl HostChinookAI {
     pub fn apply_rappel_speed(&self) -> f32 {
         self.rappel_speed
     }
+    /// C++ `KINDOF_CAN_RAPPEL` residual: host rappellers are infantry.
+    pub fn passenger_kind_can_rappel(is_infantry: bool) -> bool {
+        is_infantry
+    }
+
+    /// Hover arrived: enter `DO_COMBAT_DROP` (C++ ChinookMoveToBldg → CombatDrop).
+    pub fn arrive_for_combat_drop(&mut self) {
+        if self.state == HostChinookAIState::MoveToCombatDrop {
+            self.enter_state(HostChinookAIState::DoCombatDrop);
+        }
+    }
+
+    /// C++ `now >= nextDropTime` on a rope.
+    pub fn can_release_rappeller(&self, now: u32) -> bool {
+        self.flight_status == HostChinookFlightStatus::DoingCombatDrop
+            && now >= self.combat_drop_next_release_frame
+    }
+
+    /// C++ `nextDropTime = now + GameLogicRandomValue(perRopeDelayMin, max)`.
+    pub fn on_rappeller_released(&mut self, now: u32) {
+        self.combat_drop_releases = self.combat_drop_releases.saturating_add(1);
+        self.combat_drop_next_release_frame =
+            now.saturating_add(COMBAT_CHINOOK_PER_ROPE_DELAY_MIN_FRAMES);
+    }
+
 
     /// C++ idle + `hasObjectsWantingToEnterOrExit` + not landed → `LANDING`.
+    /// Combat-drop hover must not auto-land (`MOVE_TO_COMBAT_DROP` / `DO_COMBAT_DROP`).
     pub fn tick_idle_auto_land(&mut self) {
+        if matches!(
+            self.state,
+            HostChinookAIState::MoveToCombatDrop | HostChinookAIState::DoCombatDrop
+        ) {
+            return;
+        }
         if !self.parent_idle {
             return;
         }
@@ -695,6 +735,9 @@ impl HostChinookAI {
             HostChinookAIState::DoCombatDrop => {
                 self.flight_status = HostChinookFlightStatus::DoingCombatDrop;
                 self.preferred_height = self.move_to_bldg_old_preferred;
+                self.supply_boxes = 0;
+                self.combat_drop_next_release_frame = 0;
+                self.combat_drop_releases = 0;
             }
         }
     }
@@ -1089,6 +1132,25 @@ mod tests {
         let ai = HostChinookAI::new_combat([0.0, 0.0, 0.0]);
         assert!(ai.passenger_should_follow_attack(false));
         assert!(!ai.passenger_should_follow_attack(true));
+    }
+
+    #[test]
+    fn combat_drop_free_to_exit_only_when_can_rappel() {
+        let mut ai = HostChinookAI::new_combat([0.0, 0.0, 100.0]);
+        ai.command_combat_drop([10.0, 0.0, 0.0], None);
+        ai.arrive_for_combat_drop();
+        assert_eq!(ai.flight_status, HostChinookFlightStatus::DoingCombatDrop);
+        assert_eq!(ai.ai_free_to_exit(false), HostChinookFreeToExit::WaitToExit);
+        assert_eq!(ai.ai_free_to_exit(true), HostChinookFreeToExit::FreeToExit);
+        assert!(HostChinookAI::passenger_kind_can_rappel(true));
+        assert!(!HostChinookAI::passenger_kind_can_rappel(false));
+        ai.wanting_enter_or_exit = true;
+        ai.parent_idle = true;
+        ai.tick_idle_auto_land();
+        assert_eq!(ai.flight_status, HostChinookFlightStatus::DoingCombatDrop);
+        ai.on_rappeller_released(0);
+        assert!(!ai.can_release_rappeller(1));
+        assert!(ai.can_release_rappeller(COMBAT_CHINOOK_PER_ROPE_DELAY_MIN_FRAMES));
     }
 
     #[test]

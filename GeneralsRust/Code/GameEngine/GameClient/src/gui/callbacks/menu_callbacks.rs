@@ -759,12 +759,20 @@ impl OptionsMenu {
         let anti_aliasing = pref
             .get_int_or("AntiAliasing", global.anti_alias_box_value)
             .clamp(0, 2) as usize;
+        // C++ OptionsMenu first-open: if static LOD is UNKNOWN, find+set.
+        game_engine::common::game_lod::ensure_static_lod_applied();
         let detail_name = pref.get_string_or(
             "StaticGameLOD",
             &game_engine::common::game_lod::get_static_lod(),
         );
+        let detail_name = if detail_name.eq_ignore_ascii_case("Unknown") {
+            game_engine::common::game_lod::find_static_lod_level()
+        } else {
+            detail_name
+        };
         let detail_index = Self::detail_index_from_name(&detail_name);
         self.initial_detail_index = detail_index;
+
 
         let texture_reduction = pref
             .get_int("TextureReduction")
@@ -911,7 +919,10 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_heat_effects_id, true);
         Self::set_checkbox(self.check_building_occlusion_id, true);
         Self::set_checkbox(self.check_props_id, true);
-        Self::set_combo_selected(self.combo_detail_id, self.initial_detail_index);
+        // C++ setDefaults: comboBoxDetail = findStaticLODLevel()
+        let recommended = game_engine::common::game_lod::find_static_lod_level();
+        Self::set_combo_selected(self.combo_detail_id, Self::detail_index_from_name(&recommended));
+
         if Self::should_reset_resolution_on_defaults() {
             Self::set_combo_selected(self.combo_resolution_id, self.default_resolution_index());
         }

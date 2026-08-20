@@ -75,6 +75,12 @@ impl GameClient {
     /// Called from the presentation-shell / host present path so
     /// `flush_ui_to_frame` submits them after the 3D scene (C++ postDraw).
     pub fn draw_live_ingame_hud(&mut self) -> LiveInGameHudDrawCounts {
+        let frame = gamelogic::helpers::TheGameLogic::get_frame();
+        if let Some(ui) = &self.subsystem_manager.in_game_ui {
+            if let Ok(mut guard) = ui.lock() {
+                guard.expire_hud_messages(frame);
+            }
+        }
         let mut counts = LiveInGameHudDrawCounts::default();
         self.draw_ingame_post_draw_hud(&mut counts);
         self.draw_drawable_icon_overlays(&mut counts);
@@ -84,10 +90,12 @@ impl GameClient {
     }
 
 
+
     fn packed_ingame_hud_snapshot(
         &self,
     ) -> (
-        Vec<String>,
+        Vec<(String, [f32; 4])>,
+
         Option<String>,
         Vec<(String, String, bool)>,
         Vec<(String, [f32; 3], (u8, u8, u8), u32, u32)>,
@@ -98,16 +106,23 @@ impl GameClient {
         let Ok(guard) = ui.lock() else {
             return (Vec::new(), None, Vec::new(), Vec::new());
         };
-        let messages: Vec<String> = guard
+        let messages: Vec<(String, [f32; 4])> = guard
             .hud_messages()
             .iter()
             .rev()
             .take(6)
-            .cloned()
+            .map(|m| {
+                let a = ((m.color >> 24) & 0xFF) as f32 / 255.0;
+                let r = ((m.color >> 16) & 0xFF) as f32 / 255.0;
+                let g = ((m.color >> 8) & 0xFF) as f32 / 255.0;
+                let b = (m.color & 0xFF) as f32 / 255.0;
+                (m.text.clone(), [r, g, b, a])
+            })
             .collect::<Vec<_>>()
             .into_iter()
             .rev()
             .collect();
+
         let frame = gamelogic::helpers::TheGameLogic::get_frame();
         crate::gui::ingame_ui::step_live_hud(frame);
         let subtitle = crate::gui::ingame_ui::live_military_subtitle_draw(frame)
@@ -163,15 +178,11 @@ impl GameClient {
 
             // C++ InGameUI::postDraw messages (InGameUI.cpp:3429-3458).
             let mut y = 10.0;
-            for text in &messages {
-                let _ = renderer.draw_text_simple(
-                    text,
-                    Vec2::new(10.0, y),
-                    10.0,
-                    [1.0, 1.0, 1.0, 1.0],
-                );
+            for (text, color) in &messages {
+                let _ = renderer.draw_text_simple(text, Vec2::new(10.0, y), 10.0, *color);
                 y += 14.0;
             }
+
 
             // C++ military subtitle (InGameUI.cpp:3461-3484) — typed lines + block.
             let frame = gamelogic::helpers::TheGameLogic::get_frame();

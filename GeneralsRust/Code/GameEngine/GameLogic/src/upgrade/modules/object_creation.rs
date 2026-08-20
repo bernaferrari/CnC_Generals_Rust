@@ -212,8 +212,11 @@ impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not revert object creation upgrades.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
+        // Does not revert spawned OCL objects.
+        let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
+        let _ = self.mux.reset_upgrade(mask);
     }
 }
 

@@ -659,8 +659,10 @@ impl NeutronMissileUpdate {
                 }
 
                 let mut new_pos = pos;
+                // C++: z = heightAtLaunch + (sqr(accelFactor * timeFrac) / accelFactor) * specialSpeedHeight
                 new_pos.z = self.height_at_launch
-                    + (accel_factor * time_frac.powi(2)) * self.module_data.special_speed_height;
+                    + ((accel_factor * time_frac).powi(2) / accel_factor)
+                        * self.module_data.special_speed_height;
 
                 self.vel.x = new_pos.x - pos.x;
                 self.vel.y = new_pos.y - pos.y;

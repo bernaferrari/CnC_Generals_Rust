@@ -255,8 +255,13 @@ impl UpgradeModuleInterface for RadarUpgrade {
         }
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ doesn't remove radar on upgrade removal; only on delete/capture.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ doesn't remove radar; resetUpgrade only clears executed.
+        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
 
     fn on_delete(&mut self, object: &mut crate::object::Object) {

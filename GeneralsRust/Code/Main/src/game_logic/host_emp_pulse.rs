@@ -126,17 +126,19 @@ pub const EMP_HARDENED_NAME_MARKERS: &[&str] = &[
 /// Retail EMPUpdate::doDisableAttack:
 /// - VEHICLE, STRUCTURE (faction only), SPAWNS_ARE_THE_WEAPONS
 /// - Not infantry (unless SPAWNS_ARE_THE_WEAPONS)
-/// - Not EMP_HARDENED (aircraft kill path skips hardened; residual skip disable)
-/// - Not under construction residual
+/// - KINDOF_EMP_HARDENED is consulted only on the airborne-aircraft kill
+///   branch (`should_emp_kill_airborne`). Ground hardened vehicles/structures
+///   still receive `setDisabledUntil(DISABLED_EMP, …)`.
+/// - C++ has no under-construction skip.
 pub fn is_legal_emp_disable_target(
     is_vehicle: bool,
     is_faction_structure: bool,
     is_spawns_are_weapons: bool,
     is_alive: bool,
-    under_construction: bool,
-    is_emp_hardened: bool,
+    _under_construction: bool,
+    _is_emp_hardened: bool,
 ) -> bool {
-    if !is_alive || under_construction || is_emp_hardened {
+    if !is_alive {
         return false;
     }
     is_vehicle || is_faction_structure || is_spawns_are_weapons
@@ -154,10 +156,82 @@ pub fn should_emp_kill_airborne(
 }
 
 /// 2D distance check residual (ground plane x/z; host gameplay convention).
+/// Kept for honesty / older call sites; playable EMP uses the 3D helper.
 pub fn in_emp_pulse_radius_2d(center: (f32, f32), target: (f32, f32), radius: f32) -> bool {
     let dx = center.0 - target.0;
     let dz = center.1 - target.1;
     dx * dx + dz * dz <= radius * radius
+}
+
+/// C++ PartitionManager FROM_BOUNDINGSPHERE_3D: 3D center-to-center minus
+/// the victim bounding-sphere radius (clamped at 0).
+pub fn in_emp_pulse_radius_from_bounding_sphere_3d(
+    center: Vec3,
+    target: Vec3,
+    target_sphere_radius: f32,
+    radius: f32,
+) -> bool {
+    let dx = target.x - center.x;
+    let dy = target.y - center.y;
+    let dz = target.z - center.z;
+    let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
+    let sphere = target_sphere_radius.max(0.0);
+    let boundary = if center_dist <= sphere {
+        0.0
+    } else {
+        center_dist - sphere
+    };
+    boundary <= radius
+}
+
+/// Leftover GeometryInfo bounding-sphere residual (AABB half-extents + radius).
+pub fn leftover_emp_bounding_sphere_radius(
+    radius: f32,
+    bounds_min: Vec3,
+    bounds_max: Vec3,
+    selection_radius: f32,
+) -> f32 {
+    let hx = (bounds_max.x - bounds_min.x).abs() * 0.5;
+    let hy = (bounds_max.y - bounds_min.y).abs() * 0.5;
+    let hz = (bounds_max.z - bounds_min.z).abs() * 0.5;
+    let from_bounds = (hx * hx + hy * hy + hz * hz).sqrt();
+    radius.max(selection_radius).max(from_bounds)
+}
+
+/// C++ EMPUpdate.cpp saturateRGB — 0-1 operate, pack back to 8-bit.
+pub fn saturate_emp_rgb(color: (u8, u8, u8), factor: f32) -> (u8, u8, u8) {
+    let half = factor * 0.5;
+    let sat = |channel: u8| -> u8 {
+        let v = (channel as f32 / 255.0) * factor - half;
+        (v.max(0.0) * 255.0).round().clamp(0.0, 255.0) as u8
+    };
+    (sat(color.0), sat(color.1), sat(color.2))
+}
+
+/// C++ `m_currentScale += (m_targetScale - m_currentScale) * 0.05f`.
+pub fn tick_leftover_emp_spheroid_scale(current: f32, target: f32) -> f32 {
+    current + (target - current) * 0.05
+}
+
+/// Deterministic TargetScaleMin/Max pick (leftover GameLogicRandomValueReal).
+pub fn leftover_emp_target_scale(seed: u32) -> f32 {
+    let t = (seed.wrapping_mul(2_654_435_761) >> 16) as f32 / 65_535.0;
+    EMP_SPHEROID_TARGET_SCALE_MIN
+        + t * (EMP_SPHEROID_TARGET_SCALE_MAX - EMP_SPHEROID_TARGET_SCALE_MIN)
+}
+
+/// StartColor×2 tint before fade; EndColor×5 flash on/after play frame.
+pub fn leftover_emp_spheroid_tint(now: u32, tint_play_frame: u32) -> (u8, u8, u8) {
+    if now < tint_play_frame {
+        saturate_emp_rgb(EMP_SPHEROID_START_COLOR, 2.0)
+    } else {
+        saturate_emp_rgb(EMP_SPHEROID_END_COLOR, 5.0)
+    }
+}
+
+/// C++ `now == m_tintEnvPlayFrame` is the exact disable frame.
+pub fn leftover_emp_should_disable(now: u32, tint_play_frame: u32, already: bool) -> bool {
+    !already && now == tint_play_frame
 }
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
@@ -271,6 +345,23 @@ pub struct HostEmpPulse {
     pub airborne_kills: u32,
 }
 
+/// Leftover EMPPulseEffectSpheroid EMPUpdate residual (scale / tint / StartFadeTime).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostEmpPulseSpheroid {
+    pub id: ObjectId,
+    pub player_id: u32,
+    pub location: Vec3,
+    pub caster_id: Option<ObjectId>,
+    pub tint_env_play_frame: u32,
+    pub die_frame: u32,
+    pub current_scale: f32,
+    pub target_scale: f32,
+    pub tint: (u8, u8, u8),
+    pub disable_applied: bool,
+    pub flashed: bool,
+}
+
+
 /// Host residual registry for EmpPulse special power activations.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostEmpPulseRegistry {
@@ -285,6 +376,9 @@ pub struct HostEmpPulseRegistry {
     pub airborne_kill_count: u32,
     /// Honesty: EMPPulseEffectSpheroid objects spawned.
     pub spheroids_spawned: u32,
+    /// Live leftover spheroids waiting StartFadeTime / Lifetime.
+    spheroids: Vec<HostEmpPulseSpheroid>,
+    last_visual_tick_frame: Option<u32>,
 }
 
 impl HostEmpPulseRegistry {
@@ -355,6 +449,76 @@ impl HostEmpPulseRegistry {
     pub fn honesty_host_path_ok(&self) -> bool {
         self.honesty_activate_ok() && self.honesty_disable_ok()
     }
+
+    /// Begin leftover EMPUpdate on a spawned EMPPulseEffectSpheroid.
+    pub fn begin_spheroid(
+        &mut self,
+        id: ObjectId,
+        player_id: u32,
+        location: Vec3,
+        caster_id: Option<ObjectId>,
+        now: u32,
+    ) {
+        let tint_env_play_frame = now.saturating_add(EMP_SPHEROID_START_FADE_FRAMES);
+        let die_frame = now.saturating_add(EMP_SPHEROID_LIFETIME_FRAMES);
+        let target_scale = leftover_emp_target_scale(id.0.wrapping_add(now));
+        self.spheroids.retain(|s| s.id != id);
+        self.spheroids.push(HostEmpPulseSpheroid {
+            id,
+            player_id,
+            location,
+            caster_id,
+            tint_env_play_frame,
+            die_frame,
+            current_scale: EMP_SPHEROID_START_SCALE,
+            target_scale,
+            tint: leftover_emp_spheroid_tint(now, tint_env_play_frame),
+            disable_applied: false,
+            flashed: false,
+        });
+    }
+
+    pub fn spheroid(&self, id: ObjectId) -> Option<&HostEmpPulseSpheroid> {
+        self.spheroids.iter().find(|s| s.id == id)
+    }
+
+    pub fn spheroids(&self) -> &[HostEmpPulseSpheroid] {
+        &self.spheroids
+    }
+
+    /// C++ EMPUpdate::update scale lerp + colorTint / colorFlash.
+    pub fn tick_spheroids(&mut self, now: u32) {
+        if self.last_visual_tick_frame == Some(now) {
+            return;
+        }
+        self.last_visual_tick_frame = Some(now);
+        for s in &mut self.spheroids {
+            s.current_scale = tick_leftover_emp_spheroid_scale(s.current_scale, s.target_scale);
+            s.tint = leftover_emp_spheroid_tint(now, s.tint_env_play_frame);
+            if now == s.tint_env_play_frame {
+                s.flashed = true;
+            }
+        }
+    }
+
+    /// Spheroids whose StartFadeTime frame is now and disable has not fired.
+    pub fn due_disable_spheroids(&self, now: u32) -> Vec<HostEmpPulseSpheroid> {
+        self.spheroids
+            .iter()
+            .filter(|s| leftover_emp_should_disable(now, s.tint_env_play_frame, s.disable_applied))
+            .cloned()
+            .collect()
+    }
+
+    pub fn mark_disable_applied(&mut self, id: ObjectId) {
+        if let Some(s) = self.spheroids.iter_mut().find(|s| s.id == id) {
+            s.disable_applied = true;
+        }
+    }
+
+    pub fn remove_spheroid(&mut self, id: ObjectId) {
+        self.spheroids.retain(|s| s.id != id);
+    }
 }
 
 #[cfg(test)]
@@ -387,10 +551,11 @@ mod tests {
         assert!(!is_legal_emp_disable_target(
             true, false, false, false, false, false
         ));
-        assert!(!is_legal_emp_disable_target(
+        // C++ still disables under-construction buildings and ground EMP_HARDENED.
+        assert!(is_legal_emp_disable_target(
             true, false, false, true, true, false
         ));
-        assert!(!is_legal_emp_disable_target(
+        assert!(is_legal_emp_disable_target(
             true, false, false, true, false, true
         ));
         assert!(!is_legal_emp_disable_target(
@@ -406,6 +571,32 @@ mod tests {
         assert!(!should_emp_kill_airborne(false, true, false));
         assert!(in_emp_pulse_radius_2d((0.0, 0.0), (100.0, 0.0), 200.0));
         assert!(!in_emp_pulse_radius_2d((0.0, 0.0), (250.0, 0.0), 200.0));
+        // FROM_BOUNDINGSPHERE_3D: airborne jet at same XZ is outside radius 200.
+        assert!(!in_emp_pulse_radius_from_bounding_sphere_3d(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 250.0, 0.0),
+            1.0,
+            200.0,
+        ));
+        assert!(in_emp_pulse_radius_from_bounding_sphere_3d(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(100.0, 0.0, 0.0),
+            1.0,
+            200.0,
+        ));
+        // Large building whose sphere overlaps 200 but whose center is at 205.
+        assert!(in_emp_pulse_radius_from_bounding_sphere_3d(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(205.0, 0.0, 0.0),
+            10.0,
+            200.0,
+        ));
+        assert!(!in_emp_pulse_radius_from_bounding_sphere_3d(
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(205.0, 0.0, 0.0),
+            0.0,
+            200.0,
+        ));
     }
 
     #[test]
@@ -432,8 +623,26 @@ mod tests {
         assert!((EMP_SPHEROID_START_SCALE - 0.01).abs() < 0.0001);
         assert!((EMP_SPHEROID_TARGET_SCALE_MIN - 3.0).abs() < 0.01);
         assert!((EMP_SPHEROID_TARGET_SCALE_MAX - 4.0).abs() < 0.01);
-        assert_eq!(EMP_SPHEROID_START_COLOR, (32, 64, 255));
         assert_eq!(EMP_SPHEROID_END_COLOR, (0, 0, 0));
+        let mut scale = EMP_SPHEROID_START_SCALE;
+        let target = leftover_emp_target_scale(7);
+        assert!(target >= EMP_SPHEROID_TARGET_SCALE_MIN - 0.01);
+        assert!(target <= EMP_SPHEROID_TARGET_SCALE_MAX + 0.01);
+        let next = tick_leftover_emp_spheroid_scale(scale, target);
+        assert!(next > scale);
+        scale = next;
+        assert!(leftover_emp_should_disable(9, 9, false));
+        assert!(!leftover_emp_should_disable(8, 9, false));
+        assert!(!leftover_emp_should_disable(9, 9, true));
+        assert_eq!(
+            leftover_emp_spheroid_tint(0, 9),
+            saturate_emp_rgb(EMP_SPHEROID_START_COLOR, 2.0)
+        );
+        assert_eq!(
+            leftover_emp_spheroid_tint(9, 9),
+            saturate_emp_rgb(EMP_SPHEROID_END_COLOR, 5.0)
+        );
+        let _ = scale;
     }
 
     #[test]
@@ -513,5 +722,31 @@ mod tests {
         assert!(reg.honesty_disable_ok());
         assert!(reg.honesty_host_path_ok());
         assert_eq!(reg.disable_count(), 2);
+    }
+
+    #[test]
+    fn leftover_spheroid_waits_start_fade_and_lerps_scale() {
+        let mut reg = HostEmpPulseRegistry::new();
+        let id = ObjectId(11);
+        reg.begin_spheroid(id, 0, Vec3::ZERO, None, 0);
+        let sph = reg.spheroid(id).expect("spheroid");
+        assert_eq!(sph.tint_env_play_frame, EMP_SPHEROID_START_FADE_FRAMES);
+        assert!((sph.current_scale - EMP_SPHEROID_START_SCALE).abs() < 0.0001);
+        assert!(reg.due_disable_spheroids(0).is_empty());
+        assert!(reg.due_disable_spheroids(8).is_empty());
+        assert_eq!(reg.due_disable_spheroids(9).len(), 1);
+        reg.tick_spheroids(1);
+        let after = reg.spheroid(id).expect("ticked");
+        assert!(after.current_scale > EMP_SPHEROID_START_SCALE);
+        assert_eq!(
+            after.tint,
+            saturate_emp_rgb(EMP_SPHEROID_START_COLOR, 2.0)
+        );
+        reg.tick_spheroids(9);
+        let faded = reg.spheroid(id).expect("faded");
+        assert!(faded.flashed);
+        assert_eq!(faded.tint, saturate_emp_rgb(EMP_SPHEROID_END_COLOR, 5.0));
+        reg.mark_disable_applied(id);
+        assert!(reg.due_disable_spheroids(9).is_empty());
     }
 }

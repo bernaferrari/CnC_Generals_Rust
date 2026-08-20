@@ -1010,13 +1010,16 @@ fn helicopter_slow_death_begins() {
 
 #[test]
 fn slow_death_infantry_defers_and_sinks() {
+    use crate::game_logic::host_slow_death::HostSlowDeathIni;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaInfantryRanger");
     t.set_health(100.0);
     t.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(t, ObjectId(1), Team::USA);
     o.health.current = 0.0;
-    assert!(o.begin_slow_death(0));
+    // C++ SlowDeathBehavior.cpp:191 beginSlowDeath uses authored module data,
+    // not KindOf::Infantry. Bare fixtures must pass INI SinkDelay/SinkRate/DestructionDelay.
+    assert!(o.begin_slow_death_from_ini(0, &HostSlowDeathIni::infantry_retail()));
     assert!(!o.status.destroyed);
     assert!(o.slow_death.as_ref().unwrap().is_active());
     let mut done = false;

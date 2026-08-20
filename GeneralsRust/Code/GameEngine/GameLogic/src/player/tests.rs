@@ -344,3 +344,77 @@ fn process_create_team_evicts_from_other_squads() {
     player.process_select_team_game_message(1);
     assert_eq!(player.get_current_selection_ids(), vec![2, 3]);
 }
+
+#[test]
+fn honor_kindof_filter_uses_retail_vehicle_and_aircraft_bits() {
+    // C++ KindOf.h: VEHICLE=9, AIRCRAFT=10. Local ScoreKindOf Vehicle=5, Aircraft=6
+    // would match KINDOF_CAN_CAST_REFLECTIONS / KINDOF_SHRUBBERY.
+    assert_eq!(ScoreKeeper::score_kindof_retail_bit(KindOf::Vehicle), 9);
+    assert_eq!(ScoreKeeper::score_kindof_retail_bit(KindOf::Aircraft), 10);
+
+    let vehicle_bits = 1u64 << 9;
+    let aircraft_bits = (1u64 << 9) | (1u64 << 10);
+    let shrubbery_bits = 1u64 << 6;
+
+    let mut vehicle_mask = KindOfMaskType::new();
+    vehicle_mask.set(KindOf::Vehicle);
+    let mut aircraft_mask = KindOfMaskType::new();
+    aircraft_mask.set(KindOf::Aircraft);
+    let none = KindOfMaskType::new();
+
+    assert!(ScoreKeeper::kindof_matches_multi(
+        vehicle_bits,
+        &vehicle_mask,
+        &aircraft_mask
+    ));
+    assert!(!ScoreKeeper::kindof_matches_multi(
+        aircraft_bits,
+        &vehicle_mask,
+        &aircraft_mask
+    ));
+    assert!(ScoreKeeper::kindof_matches_multi(
+        aircraft_bits,
+        &aircraft_mask,
+        &none
+    ));
+    assert!(!ScoreKeeper::kindof_matches_multi(
+        shrubbery_bits,
+        &aircraft_mask,
+        &none
+    ));
+}
+
+#[test]
+fn score_keeper_mutators_respect_game_logic_scoring_enabled() {
+    TheGameLogic::set_scoring_enabled(false);
+    let mut keeper = ScoreKeeper::new_for_player(0);
+    keeper.add_unit_built();
+    keeper.add_building_built();
+    keeper.add_object_built_obj(&TestScoreObject::unit("Humvee", 0));
+    keeper.add_object_lost_obj(&TestScoreObject::unit("Humvee", 0));
+    keeper.add_object_destroyed_obj(&TestScoreObject::unit("Enemy", 1));
+    keeper.add_object_captured_obj(&TestScoreObject::structure("Oil", 2));
+    keeper.add_money_earned(50);
+    keeper.add_money_spent(25);
+    assert_eq!(keeper.get_total_units_built(), 0);
+    assert_eq!(keeper.get_total_buildings_built(), 0);
+    assert_eq!(keeper.get_total_units_lost(), 0);
+    assert_eq!(keeper.get_total_units_destroyed(), 0);
+    assert_eq!(keeper.faction_buildings_captured, 0);
+    assert_eq!(keeper.get_total_money_earned(), 50);
+    assert_eq!(keeper.get_total_money_spent(), 25);
+    TheGameLogic::set_scoring_enabled(true);
+}
+
+#[test]
+fn add_object_built_template_counts_score_vehicle_into_objects_built() {
+    TheGameLogic::set_scoring_enabled(true);
+    let mut keeper = ScoreKeeper::new_for_player(0);
+    let vehicle_score = (1u64 << 9) | (1u64 << 35);
+    keeper.add_object_built_template("AmericaVehicleDozer", vehicle_score);
+    assert_eq!(keeper.get_total_units_built(), 1);
+    assert_eq!(keeper.get_total_objects_built("AmericaVehicleDozer"), 1);
+    let civilian = 1u64 << 8; // infantry, no SCORE
+    keeper.add_object_built_template("Civilian", civilian);
+    assert_eq!(keeper.get_total_units_built(), 1);
+}

@@ -69,11 +69,7 @@ impl InGameUI {
             self.radius_cursor_templates[index].set_texture(DEFAULT_RADIUS_DECAL_TEXTURE);
         }
 
-        let Some(owner) = controller.read().ok().map(|player| {
-            Arc::new(parking_lot::RwLock::new(Player::new(player.get_player_index())))
-        }) else {
-            return;
-        };
+        let owner = controller;
         self.radius_cursor_templates[index].create_radius_decal(
             &Self::radius_decal_pos(position),
             resolved_radius,

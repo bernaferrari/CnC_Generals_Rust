@@ -124,12 +124,33 @@ impl CommandSet {
         true
     }
 
-    /// Get command button at index
+    /// C++ `CommandSet::getCommandButton` — consult `GameLogic::findControlBarOverride`.
+    ///
+    /// Script-removed slots (`doRemoveCommandBarButton`) return `None` even when
+    /// the INI CommandSet still holds a button. Added/replaced slots resolve
+    /// the override button by name from the ControlBar catalog.
     pub fn get_command_button(&self, index: usize) -> Option<&CommandButton> {
         if index >= MAX_COMMANDS_PER_SET {
             return None;
         }
-        self.buttons.get(index).and_then(Option::as_ref)
+        match control_bar_slot_override(&self.name, index as i32) {
+            SlotOverride::Removed => None,
+            SlotOverride::Replaced(name) => self
+                .buttons
+                .iter()
+                .flatten()
+                .find(|button| button.name.eq_ignore_ascii_case(&name))
+                .or_else(|| {
+                    // Override button may live only on the ControlBar catalog.
+                    // We cannot return a & to that catalog from &self; if the
+                    // snapshot already holds it in this slot, use that.
+                    self.buttons
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .filter(|button| button.name.eq_ignore_ascii_case(&name))
+                }),
+            SlotOverride::None => self.buttons.get(index).and_then(Option::as_ref),
+        }
     }
 }
 
@@ -512,6 +533,24 @@ fn has_upgrade_in_production_queue(obj: &crate::object::Object) -> bool {
     false
 }
 
+enum SlotOverride {
+    None,
+    Removed,
+    Replaced(String),
+}
+
+/// C++ `GameLogic::findControlBarOverride` — key is `'0'+slot` + command-set name.
+fn control_bar_slot_override(command_set_name: &str, slot: i32) -> SlotOverride {
+    let Ok(logic) = crate::system::game_logic::lock_game_logic() else {
+        return SlotOverride::None;
+    };
+    match logic.find_control_bar_override(command_set_name, slot) {
+        None => SlotOverride::None,
+        Some(None) => SlotOverride::Removed,
+        Some(Some(name)) => SlotOverride::Replaced(name.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,6 +595,28 @@ mod tests {
         )));
         assert!(set.get_command_button(MAX_COMMANDS_PER_SET).is_none());
     }
+
+    #[test]
+    fn get_command_button_honors_script_removed_slot() {
+        let mut set = CommandSet::new("OverrideSet".to_string());
+        let button = CommandButton::new(1, "Command_Stay".to_string(), String::new(), 0);
+        assert!(set.set_command_button(0, Some(button)));
+        assert!(set.get_command_button(0).is_some());
+
+        if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
+            logic.set_control_bar_override("OverrideSet", 0, None);
+            drop(logic);
+            assert!(
+                set.get_command_button(0).is_none(),
+                "script-nulled slot must not return the INI button"
+            );
+            if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
+                logic.set_control_bar_override("OverrideSet", 0, Some("Command_Stay"));
+            }
+            assert!(set.get_command_button(0).is_some());
+        }
+    }
+
 }
 
 pub fn map_gui_command_to_command_type(command: &str) -> crate::commands::command::CommandType {

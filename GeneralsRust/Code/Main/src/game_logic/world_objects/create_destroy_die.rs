@@ -2166,6 +2166,7 @@ impl GameLogic {
         id: ObjectId,
         killer: Option<Team>,
     ) -> bool {
+        let frame = self.frame;
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -2228,14 +2229,12 @@ impl GameLogic {
             return true;
         }
         // C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-501) runs only
-        // when the object has that Die module. DestroyDie.cpp:35-40 then calls
-        // GameLogic::destroyObject (GameLogic.cpp:3932-3967): OBJECT_STATUS_DESTROYED
-        // + m_objectsToDestroy.push_back same frame. `begin_slow_death` used
-        // wants_slow_death(KindOf::Vehicle) for every tank, which is not a module
-        // check — it reset hp=0.01 / destroyed=false and skipped the destroy
-        // queue, so processDestroyList (GameLogic.cpp:3762) never awarded bounty
-        // (Player.cpp:2400 doBountyForKill) or UnitDie audio (Object.cpp:4595-4606
-        // EVA_UnitLost onDie path). Do not auto-start residual SlowDeath here.
+        // when the object has that Die module. Timing is INI SinkDelay/SinkRate/
+        // DestructionDelay (beginSlowDeath :238-239), not KindOf infantry/vehicle.
+        if obj.begin_slow_death(frame) {
+            let _ = killer;
+            return true;
+        }
         false
     }
 
@@ -2337,12 +2336,19 @@ impl GameLogic {
 
     /// C++ CreateObjectDie::onDie residual — spawn OCL templates at dying object.
     pub fn apply_pending_create_object_die(&mut self, dying_id: ObjectId) {
-        let (spawns, transfer_dmg, transfer, team, pos) = {
+        let (spawns, transfer_dmg, transfer, team, owner_player_id, pos) = {
             let Some(o) = self.objects.get_mut(&dying_id) else {
                 return;
             };
             let (spawns, dmg, transfer) = o.take_pending_create_object_die_spawns();
-            (spawns, dmg, transfer, o.team, o.get_position())
+            (
+                spawns,
+                dmg,
+                transfer,
+                o.team,
+                o.owner_player_id,
+                o.get_position(),
+            )
         };
         if spawns.is_empty() {
             return;
@@ -2365,7 +2371,13 @@ impl GameLogic {
                     .get(&dying_id)
                     .map(|o| o.movement.velocity)
                     .unwrap_or(Vec3::ZERO);
-                let ids = self.spawn_ocl_create_debris(&plan, team, pos, inherit);
+                let ids = self.spawn_ocl_create_debris(
+                    &plan,
+                    team,
+                    pos,
+                    inherit,
+                    owner_player_id,
+                );
                 if transfer && transfer_dmg > 0.0 {
                     for id in ids {
                         if let Some(n) = self.objects.get_mut(&id) {
@@ -2386,7 +2398,9 @@ impl GameLogic {
                 }
                 self.templates.insert(tmpl.clone(), t);
             }
-            let Some(new_id) = self.create_object(&tmpl, team, pos) else {
+            let Some(new_id) =
+                self.create_object_for_owner_or_team(&tmpl, team, owner_player_id, pos)
+            else {
                 continue;
             };
             // C++ CreateObject Disposition=LIKE_EXISTING residual: copy pose.
@@ -2552,6 +2566,17 @@ impl GameLogic {
         // C++ SpecialPowerCreate::onBuildComplete walks every getSpecialPower().
         self.on_structure_superweapon_creation(object_id);
         self.on_supply_center_build_complete(object_id);
+        // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
+        if let Some(obj) = self.objects.get(&object_id) {
+            if obj.is_tunnel_network_style_container()
+                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                    &obj.template_name,
+                )
+            {
+                let team = obj.team;
+                self.tunnel_network.on_tunnel_created(team, object_id);
+            }
+        }
     }
 
     /// C++ PreorderCreate::onBuildComplete — controlling player only.

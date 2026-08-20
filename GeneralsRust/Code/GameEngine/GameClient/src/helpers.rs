@@ -73,6 +73,7 @@ pub trait InGameUiHooks: Send + Sync {
     fn set_radius_cursor_none(&self);
     fn display_cant_build_message(&self, message: &str);
     fn message(&self, text: &str);
+    fn free_message_resources(&self) {}
     fn military_subtitle(&self, label: &str, _duration_ms: i32) {
         self.message(label);
     }
@@ -1765,6 +1766,11 @@ impl TheInGameUI {
         if !with_backend(|backend| backend.message(text)) {
             info!("UI message: {}", GameText::fetch(text));
         }
+    }
+
+    /// C++ InGameUI::freeMessageResources.
+    pub fn free_message_resources() {
+        let _ = with_backend(|backend| backend.free_message_resources());
     }
 
     pub fn play_movie(movie_name: &str) -> bool {

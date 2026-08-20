@@ -367,6 +367,8 @@ pub trait LaserUpdateInterface {
         parent_bone_name: String,
         size_delta_frames: i32,
     );
+    fn set_decay_frames(&mut self, decay_frames: u32);
+
 }
 
 pub trait RadarUpdateInterface {

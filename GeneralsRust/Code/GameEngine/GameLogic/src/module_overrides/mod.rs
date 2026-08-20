@@ -122,10 +122,6 @@ use crate::object::{
         GenerateMinefieldBehaviorModuleData,
     },
     behavior::horde_update::{HordeUpdate, HordeUpdateModule, HordeUpdateModuleData},
-    behavior::laser_update::{
-        LaserUpdate as LaserBehaviorUpdate, LaserUpdateModule as LaserBehaviorUpdateModule,
-        LaserUpdateModuleData as LaserBehaviorUpdateModuleData,
-    },
     behavior::lifetime_update::{LifetimeUpdate, LifetimeUpdateModule, LifetimeUpdateModuleData},
     behavior::missile_launcher_building_update::{
         MissileLauncherBuildingUpdate, MissileLauncherBuildingUpdateModule,

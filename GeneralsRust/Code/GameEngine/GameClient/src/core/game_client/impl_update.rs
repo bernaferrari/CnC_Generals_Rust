@@ -249,7 +249,12 @@ impl GameClient {
     /// Tick drawable client modules without GameLogic OBJECT_REGISTRY binding.
     /// Used when Main presentation snapshot owns unit visuals (default host path).
     pub fn update_drawables_local(&mut self, delta_time: f32) -> GameClientResult<()> {
+        // C++ Drawable.cpp:1219 — `TheGameClient->getFrame() % DRAWABLE_FRAMES_PER_FLASH`.
+        // BasicDrawable::update consumes `flash_count` from `self.current_frame`;
+        // leaving it at 0 makes `0 % 15 == 0` fire every tick.
+        let frame = self.frame;
         for drawable in self.drawable_map.values_mut() {
+            drawable.set_current_frame(frame);
             drawable.update(delta_time);
         }
         Ok(())
@@ -1275,6 +1280,7 @@ impl GameClient {
         let local_player_index = self.local_player_id;
 
         for drawable in self.drawable_map.values_mut() {
+            drawable.set_current_frame(frame);
             drawable.update(delta_time);
         }
 

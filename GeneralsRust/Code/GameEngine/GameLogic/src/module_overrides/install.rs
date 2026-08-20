@@ -772,12 +772,6 @@ pub fn install_module_overrides() -> Result<(), String> {
         point_defense_laser_update_module_data_factory,
     )?;
 
-    register_module_override(
-        "LaserUpdate",
-        ModuleType::Behavior,
-        laser_behavior_update_module_factory,
-        laser_behavior_update_module_data_factory,
-    )?;
 
     register_module_override(
         "BoneFXUpdate",

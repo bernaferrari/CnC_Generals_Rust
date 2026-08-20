@@ -225,15 +225,24 @@ impl GameLogic {
     /// entry: `ProductionUpdate::cancelUpgrade` also removes the player's
     /// `IN_PRODUCTION` upgrade status.  Leaving that status behind makes a
     /// cancelled research item impossible to buy again.
+    ///
+    /// C++ `ProductionUpdate::cancelUnitCreate` / `cancelUpgrade` deposit to
+    /// `getObject()->getControllingPlayer()` (ProductionUpdate.cpp:316, :456).
+    /// Fail-closed: an explicit but stale owner is not rewritten to the first
+    /// same-faction slot.
     pub(in super::super) fn refund_cancelled_production_item(
         &mut self,
+        owner_player_id: Option<u32>,
         team: Team,
         item: &ProductionItem,
     ) {
+        let Some(player_id) = self.player_owner_for_event(owner_player_id, team) else {
+            return;
+        };
 
         let mut cancelled_upgrade = None;
 
-        if let Some(player) = self.get_player_mut_by_team(team) {
+        if let Some(player) = self.get_player_mut(player_id) {
             if item.is_upgrade() {
                 let player_id = player.id;
                 if !player.cancel_queued_upgrade(&item.template_name, &item.cost) {
@@ -270,10 +279,16 @@ impl GameLogic {
 
     /// Cancel a queued production item by template name (first match).
     pub fn cancel_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
-        let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {
+        let Some((team, owner_player_id)) = self
+            .objects
+            .get(&producer_id)
+            .map(|p| (p.team, p.owner_player_id))
+        else {
             return false;
         };
-        if !self.players.values().any(|player| player.team == team) {
+        // C++ cancelUnitCreate requires getControllingPlayer(); do not refund
+        // an arbitrary same-faction teammate when ownership is ambiguous.
+        if self.player_owner_for_event(owner_player_id, team).is_none() {
             return false;
         }
 
@@ -291,7 +306,7 @@ impl GameLogic {
         }
 
         if let Some(item) = cancelled {
-            self.refund_cancelled_production_item(team, &item);
+            self.refund_cancelled_production_item(owner_player_id, team, &item);
             crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
             // Wave 485: last cancelled item clears factory exit-delay residual.
             if let Some(producer) = self.objects.get_mut(&producer_id) {
@@ -323,10 +338,14 @@ impl GameLogic {
         producer_id: ObjectId,
         queue_index: usize,
     ) -> bool {
-        let Some(team) = self.objects.get(&producer_id).map(|producer| producer.team) else {
+        let Some((team, owner_player_id)) = self
+            .objects
+            .get(&producer_id)
+            .map(|producer| (producer.team, producer.owner_player_id))
+        else {
             return false;
         };
-        if !self.players.values().any(|player| player.team == team) {
+        if self.player_owner_for_event(owner_player_id, team).is_none() {
             return false;
         }
 
@@ -341,7 +360,7 @@ impl GameLogic {
             return false;
         };
 
-        self.refund_cancelled_production_item(team, &item);
+        self.refund_cancelled_production_item(owner_player_id, team, &item);
         crate::game_logic::host_production_log::record_cancel(producer_id, item.template_name);
 
         // The final cancellation releases the factory door immediately just as
@@ -375,10 +394,14 @@ impl GameLogic {
 
     /// Cancel every queued production item on a producer and refund the owner.
     pub fn cancel_all_production(&mut self, producer_id: ObjectId) -> bool {
-        let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {
+        let Some((team, owner_player_id)) = self
+            .objects
+            .get(&producer_id)
+            .map(|p| (p.team, p.owner_player_id))
+        else {
             return false;
         };
-        if !self.players.values().any(|player| player.team == team) {
+        if self.player_owner_for_event(owner_player_id, team).is_none() {
             return false;
         }
 
@@ -403,7 +426,7 @@ impl GameLogic {
 
         if cancelled_any {
             for item in &cancelled_items {
-                self.refund_cancelled_production_item(team, item);
+                self.refund_cancelled_production_item(owner_player_id, team, item);
             }
             // Wave 484: sole-tick skips per-frame progress log — Cancel refreshes
             // GW producer queue snapshot after host drain (sell/death/cancel-all).

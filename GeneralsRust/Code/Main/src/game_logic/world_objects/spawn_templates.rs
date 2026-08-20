@@ -403,6 +403,19 @@ impl GameLogic {
             template.shroud_clearing_range = scr;
         }
 
+        // C++ ThingTemplate.cpp:226-227 INI::parseUnsignedByte CrusherLevel/CrushableLevel.
+        // 0 is authored (cannot crush / most crushable); do not treat as missing.
+        if let Some(level) = Self::object_definition_attr(definition, "crusherlevel")
+            .and_then(|s| s.trim().parse::<u8>().ok())
+        {
+            template.crusher_level = level;
+        }
+        if let Some(level) = Self::object_definition_attr(definition, "crushablelevel")
+            .and_then(|s| s.trim().parse::<u8>().ok())
+        {
+            template.crushable_level = level;
+        }
+
         // C++ parity: parse BuildCost from INI.
         if let Some(cost) = Self::object_definition_attr(definition, "buildcost")
             .and_then(|s| s.trim().parse::<u32>().ok())
@@ -6122,6 +6135,119 @@ End
             !logic.vision_last_looks.contains_key(&id),
             "death must unlook"
         );
+    }
+
+    #[test]
+    fn ini_crusher_crushable_levels_stamp_live_objects() {
+        // C++ ThingTemplate.cpp:226-227 parseUnsignedByte CrusherLevel/CrushableLevel.
+        // C++ Object.cpp:1156-1164 getCrusherLevel/getCrushableLevel from template.
+        // C++ Object.cpp:1146 crush when crusherLevel > crushableLevel.
+        // C++ ToppleUpdate.cpp:352 / W3DTreeBuffer.cpp:1179 crusher_level > 1.
+        let mut car_def = ObjectDefinition::new("CivilianCar01".to_string());
+        car_def
+            .attributes
+            .insert("CrushableLevel".to_string(), "1".to_string());
+        car_def
+            .attributes
+            .insert("KindOf".to_string(), "VEHICLE".to_string());
+
+        let mut tank_def = ObjectDefinition::new("AmericaTankCrusader".to_string());
+        tank_def
+            .attributes
+            .insert("CrusherLevel".to_string(), "2".to_string());
+        tank_def
+            .attributes
+            .insert("CrushableLevel".to_string(), "2".to_string());
+        tank_def
+            .attributes
+            .insert("KindOf".to_string(), "VEHICLE".to_string());
+
+        let mut overlord_def = ObjectDefinition::new("ChinaTankOverlord".to_string());
+        overlord_def
+            .attributes
+            .insert("CrusherLevel".to_string(), "3".to_string());
+        overlord_def
+            .attributes
+            .insert("CrushableLevel".to_string(), "3".to_string());
+        overlord_def
+            .attributes
+            .insert("KindOf".to_string(), "VEHICLE".to_string());
+
+        let mut prop_def = ObjectDefinition::new("TreeOak".to_string());
+        prop_def
+            .attributes
+            .insert("CrushableLevel".to_string(), "1".to_string());
+
+        let car_t = GameLogic::build_template_from_object_definition(
+            "CivilianCar01",
+            &car_def,
+            None,
+        );
+        let tank_t = GameLogic::build_template_from_object_definition(
+            "AmericaTankCrusader",
+            &tank_def,
+            None,
+        );
+        let ov_t = GameLogic::build_template_from_object_definition(
+            "ChinaTankOverlord",
+            &overlord_def,
+            None,
+        );
+        let prop_t = GameLogic::build_template_from_object_definition("TreeOak", &prop_def, None);
+
+        assert_eq!(car_t.crusher_level, 0);
+        assert_eq!(car_t.crushable_level, 1);
+        assert_eq!(tank_t.crusher_level, 2);
+        assert_eq!(tank_t.crushable_level, 2);
+        assert_eq!(ov_t.crusher_level, 3);
+        assert_eq!(ov_t.crushable_level, 3);
+        assert_eq!(prop_t.crushable_level, 1);
+
+        let car = Object::new(car_t, ObjectId(1), Team::Neutral);
+        let tank = Object::new(tank_t, ObjectId(2), Team::USA);
+        let ov = Object::new(ov_t, ObjectId(3), Team::China);
+        let prop = Object::new(prop_t, ObjectId(4), Team::Neutral);
+
+        assert_eq!(car.crushable_level, 1);
+        assert_eq!(car.crusher_level, 0);
+        assert_eq!(tank.crusher_level, 2);
+        assert_eq!(ov.crusher_level, 3);
+        assert_eq!(prop.crushable_level, 1);
+        assert!(ov.crusher_level > tank.crusher_level);
+
+        use crate::game_logic::host_partition_collision_physics_residual::can_crush_only_residual;
+        assert!(
+            can_crush_only_residual(tank.crusher_level, car.crushable_level, false, false),
+            "tank CrusherLevel 2 must crush car CrushableLevel 1"
+        );
+        assert!(
+            can_crush_only_residual(tank.crusher_level, prop.crushable_level, false, false),
+            "tank must crush props"
+        );
+        assert!(
+            can_crush_only_residual(ov.crusher_level, tank.crushable_level, false, false),
+            "Overlord 3 must crush tank 2"
+        );
+        assert!(!can_crush_only_residual(
+            tank.crusher_level,
+            ov.crushable_level,
+            false,
+            false
+        ));
+        assert!(!crate::game_logic::host_topple::crusher_can_topple(1));
+        assert!(crate::game_logic::host_topple::crusher_can_topple(
+            tank.crusher_level
+        ));
+        assert!(crate::game_logic::host_topple::crusher_can_topple(
+            ov.crusher_level
+        ));
+
+        // KindOf Vehicle must not invent CrusherLevel=1 (pre-fix physics_motion.rs:113).
+        let mut bare = ThingTemplate::new("BareCar");
+        bare.add_kind_of(KindOf::Vehicle);
+        let bare_obj = Object::new(bare, ObjectId(5), Team::Neutral);
+        assert_eq!(bare_obj.crusher_level, 0);
+        assert_eq!(bare_obj.crushable_level, 255);
     }
 }
 

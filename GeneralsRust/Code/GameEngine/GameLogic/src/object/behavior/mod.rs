@@ -613,10 +613,6 @@ impl BehaviorModuleRegistry {
             Box::new(|thing, data| PilotFindVehicleUpdateFactory::create_behavior(thing, data)),
         );
         registry.register_factory(
-            "LaserUpdate",
-            Box::new(|thing, data| LaserUpdateFactory::create_behavior(thing, data)),
-        );
-        registry.register_factory(
             "EMPUpdate",
             Box::new(|thing, data| EMPUpdateFactory::create_behavior(thing, data)),
         );

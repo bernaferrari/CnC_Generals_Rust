@@ -801,6 +801,63 @@ impl GameLogic {
         transferred
     }
 
+
+    /// C++ `Locomotor::handleBehaviorZ` live pose (Locomotor.cpp:2196-2306).
+    ///
+    /// Host march skips Physics Euler Y while pathing (`tick_physics_motion_step`),
+    /// so SurfaceRelative lift force never integrates. Apply the damped
+    /// `preferredHeight + surfaceHt` pose C++ targets, then call
+    /// `handle_behavior_z` for lift / hover-maintain bookkeeping.
+    pub(in super::super) fn apply_live_handle_behavior_z(
+        obj: &mut Object,
+        ground_y: f32,
+        goal_y: Option<f32>,
+    ) {
+        let hover = matches!(
+            obj.loco_appearance,
+            LocomotorAppearance::Hover | LocomotorAppearance::Wings
+        );
+        let z_motive = matches!(
+            obj.loco_behavior_z,
+            LocomotorBehaviorZ::SurfaceRelativeHeight
+                | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                | LocomotorBehaviorZ::AbsoluteHeight
+                | LocomotorBehaviorZ::SeaLevel
+        );
+        if !z_motive && !hover {
+            return;
+        }
+        // Hover with no authored Z still uses Z_SURFACE_RELATIVE_HEIGHT
+        // (Locomotor.cpp:2288).
+        if hover && matches!(obj.loco_behavior_z, LocomotorBehaviorZ::NoZMotiveForce) {
+            obj.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        }
+        let _ = obj.handle_behavior_z(ground_y, goal_y);
+        match obj.loco_behavior_z {
+            LocomotorBehaviorZ::SurfaceRelativeHeight
+            | LocomotorBehaviorZ::SmoothRelativeToHighestLayer => {
+                if obj.loco_preferred_height == 0.0 && goal_y.is_none() {
+                    return;
+                }
+                let mut p = obj.get_position();
+                let preferred_raw = goal_y.unwrap_or(obj.loco_preferred_height + ground_y);
+                let mut delta = preferred_raw - p.y;
+                delta *= obj.loco_preferred_height_damping.clamp(0.0, 1.0);
+                p.y += delta;
+                obj.set_position(p);
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(test)]
+    pub fn apply_live_handle_behavior_z_for_test(
+        obj: &mut Object,
+        ground_y: f32,
+        goal_y: Option<f32>,
+    ) {
+        Self::apply_live_handle_behavior_z(obj, ground_y, goal_y);
+    }
     #[cfg(test)]
     pub fn transfer_attack_for_test(&mut self, from_id: ObjectId, to_id: ObjectId) -> usize {
         self.transfer_attack(from_id, to_id)

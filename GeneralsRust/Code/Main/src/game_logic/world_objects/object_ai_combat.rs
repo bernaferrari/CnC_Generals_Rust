@@ -282,6 +282,7 @@ impl GameLogic {
 
         let frame = self.frame;
         let mut completed: Vec<(Team, u32, String)> = Vec::new();
+        let mut cancelled: Vec<(u32, String)> = Vec::new();
         for entry in self.host_upgrades.entries_snapshot() {
             if entry.phase != HostUpgradePhase::Queued {
                 continue;
@@ -294,6 +295,27 @@ impl GameLogic {
             if building_researching.contains(&key) {
                 continue;
             }
+            // C++ ProductionUpdate.cpp:636-648 / 1109-1112 — research lives
+            // only on the producer's queue. Sold, dead, or a vanished queue
+            // must cancel; never complete leftover residual frames.
+            if let Some(source_id) = entry.source_object {
+                let queue_live = self.objects.get(&source_id).is_some_and(|obj| {
+                    obj.is_alive()
+                        && !obj.status.sold
+                        && obj.building_data.as_ref().is_some_and(|building| {
+                            building.production_queue.iter().any(|item| {
+                                item.kind == ProductionKind::Upgrade
+                                    && crate::game_logic::host_upgrades::normalize_upgrade_identity(
+                                        &item.template_name,
+                                    ) == key.1
+                            })
+                        })
+                });
+                if !queue_live {
+                    cancelled.push((entry.player_id, entry.name.clone()));
+                    continue;
+                }
+            }
             let needed = entry.residual_research_frames.max(1);
             // Count the current simulation step as one research frame residual
             // (frame counter increments after update_simulation returns).
@@ -301,6 +323,15 @@ impl GameLogic {
             if elapsed >= needed {
                 completed.push((entry.team, entry.player_id, entry.name.clone()));
             }
+        }
+
+        for (player_id, name) in cancelled {
+            if let Some(player) = self.players.get_mut(&player_id) {
+                if let Some(queued) = player.find_queued_upgrade_name(&name) {
+                    player.queued_upgrades.remove(&queued);
+                }
+            }
+            self.host_upgrades.record_cancel(&name, player_id);
         }
 
         // Direct player.queue_upgrade without host record (unit-test path):
@@ -340,12 +371,7 @@ impl GameLogic {
                 .map(|p| p.has_unlocked_upgrade(&name))
                 .unwrap_or(false);
             if let Some(player) = self.players.get_mut(&player_id) {
-                if let Some(queued) = player.find_queued_upgrade_name(&name) {
-                    player.queued_upgrades.remove(&queued);
-                }
-                if !player.has_unlocked_upgrade(&name) {
-                    player.unlocked_sciences.insert(name.clone());
-                }
+                player.complete_researched_upgrade(&name);
             }
             if !already {
                 self.apply_host_upgrade_complete(team, player_id, &name);
@@ -855,5 +881,147 @@ mod live_upgrade_mux_tests {
             "China CC grants radar after Upgrade_ChinaRadar"
         );
     }
+
+    #[test]
+    fn object_upgrade_complete_stays_off_player_set() {
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 1, Team::China);
+        let mut t = ThingTemplate::new("ChinaTankOverlord");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("ChinaTankOverlord".into(), t);
+        let a = logic
+            .create_object_for_player("ChinaTankOverlord", 1, Vec3::ZERO)
+            .expect("overlord");
+        logic
+            .get_player_mut(1)
+            .expect("player")
+            .queue_upgrade(
+                UPGRADE_OVERLORD_BUNKER,
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+            );
+        logic.record_host_upgrade_queued(1, Team::China, UPGRADE_OVERLORD_BUNKER, Some(a));
+        logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_OVERLORD_BUNKER);
+        logic
+            .get_player_mut(1)
+            .expect("player")
+            .complete_researched_upgrade(UPGRADE_OVERLORD_BUNKER);
+        assert!(
+            !logic
+                .get_player(1)
+                .expect("player")
+                .has_unlocked_upgrade(UPGRADE_OVERLORD_BUNKER),
+            "OBJECT bunker must not stamp the player unlock set"
+        );
+    }
+
+    #[test]
+    fn dead_producer_cancels_residual_research() {
+        use crate::game_logic::host_upgrades::HostUpgradePhase;
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 0, Team::USA);
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), t);
+        let id = logic
+            .create_object_for_player("AmericaWarFactory", 0, Vec3::ZERO)
+            .expect("factory");
+        logic
+            .get_player_mut(0)
+            .expect("player")
+            .queue_upgrade(
+                "Upgrade_AmericaCompositeArmor",
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+            );
+        logic.record_host_upgrade_queued(
+            0,
+            Team::USA,
+            "Upgrade_AmericaCompositeArmor",
+            Some(id),
+        );
+        logic.objects.remove(&id);
+        logic.update_player_upgrades();
+        let player = logic.get_player(0).expect("player");
+        assert!(
+            !player.has_unlocked_upgrade("Upgrade_AmericaCompositeArmor"),
+            "research must die with the producer"
+        );
+        assert!(!player.has_queued_upgrade("Upgrade_AmericaCompositeArmor"));
+        assert!(
+            logic
+                .host_upgrades()
+                .entries_snapshot()
+                .iter()
+                .any(|e| e.name.eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
+                    && e.phase == HostUpgradePhase::Cancelled),
+            "host residual must record cancel, not complete"
+        );
+    }
+
+    #[test]
+    fn vanished_producer_queue_does_not_complete_residual() {
+        // C++ ProductionUpdate.cpp:636-648 empty queue returns; 647-648 SOLD
+        // freezes production; 1109-1112 onDie cancelAndRefundAllProduction.
+        // Residual frames must not finish research after the queue vanishes.
+        use crate::game_logic::buildings::{BuildingData, BuildingType};
+        use crate::game_logic::host_upgrades::HostUpgradePhase;
+        let mut logic = GameLogic::new();
+        add_player(&mut logic, 0, Team::USA);
+        let mut t = ThingTemplate::new("AmericaWarFactory");
+        t.set_health(1000.0);
+        t.add_kind_of(KindOf::Structure);
+        logic.templates.insert("AmericaWarFactory".into(), t);
+        let id = logic
+            .create_object_for_player("AmericaWarFactory", 0, Vec3::ZERO)
+            .expect("factory");
+        if let Some(obj) = logic.host_object_mut(id) {
+            obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
+        }
+        logic
+            .get_player_mut(0)
+            .expect("player")
+            .queue_upgrade(
+                "Upgrade_AmericaCompositeArmor",
+                &crate::game_logic::Resources {
+                    supplies: 0,
+                    power: 0,
+                },
+            );
+        logic.record_host_upgrade_queued(
+            0,
+            Team::USA,
+            "Upgrade_AmericaCompositeArmor",
+            Some(id),
+        );
+        logic.update_player_upgrades();
+        let player = logic.get_player(0).expect("player");
+        assert!(
+            !player.has_unlocked_upgrade("Upgrade_AmericaCompositeArmor"),
+            "vanished queue must not complete residual research"
+        );
+        assert!(!player.has_queued_upgrade("Upgrade_AmericaCompositeArmor"));
+        assert!(
+            logic
+                .host_upgrades()
+                .entries_snapshot()
+                .iter()
+                .any(|e| e.name.eq_ignore_ascii_case("Upgrade_AmericaCompositeArmor")
+                    && e.phase == HostUpgradePhase::Cancelled),
+            "host residual must record cancel, not complete"
+        );
+        assert!(
+            logic.host_object(id).is_some_and(|o| o.is_alive()),
+            "producer is still alive — only the queue vanished"
+        );
+    }
+
+
 }
 

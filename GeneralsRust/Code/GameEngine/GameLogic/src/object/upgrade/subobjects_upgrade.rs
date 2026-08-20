@@ -400,8 +400,14 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
         true
     }
 
-    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not revert sub-object visibility for this upgrade.
+    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
+        // Does not revert sub-object visibility.
+        let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
+        let mut guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
+        if guard.mux.reset_upgrade(mask) {
+            self.applied = false;
+        }
     }
 
     fn force_refresh_upgrade(&mut self) {

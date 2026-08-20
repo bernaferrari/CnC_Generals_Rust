@@ -2284,4 +2284,59 @@ mod tests {
         assert!(inside);
         assert!(!outside);
     }
+
+    #[test]
+    fn local_drawable_flash_consumes_on_client_frame_multiple() {
+        // C++ Drawable.cpp:1219 — `m_flashCount > 0 && (TheGameClient->getFrame()
+        // % DRAWABLE_FRAMES_PER_FLASH) == 0`. Live host ticks
+        // `GameClient::update_drawables_local`; without stamping `self.frame`
+        // onto drawable_map, `current_frame` stays 0 and flash fires every tick.
+        use crate::drawable::drawable::DRAWABLE_FRAMES_PER_FLASH;
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        insert_basic_drawable_for_test(
+            &mut client,
+            7,
+            "FlashUnit",
+            Vector3::new(0.0, 0.0, 0.0),
+        );
+        {
+            let drawable = client
+                .drawable_map
+                .get_mut(&DrawableId(7))
+                .expect("inserted drawable");
+            let basic = drawable
+                .downcast_mut::<BasicDrawable>()
+                .expect("BasicDrawable");
+            basic.color_flash(Vector3::new(1.0, 1.0, 1.0), 4);
+        }
+
+        for frame in 1..DRAWABLE_FRAMES_PER_FLASH {
+            client.set_frame(frame);
+            client
+                .update_drawables_local(SECONDS_PER_LOGICFRAME_REAL)
+                .expect("local drawable tick");
+            let tint = client
+                .find_drawable_by_id(DrawableId(7))
+                .expect("drawable")
+                .get_tint_color();
+            assert!(
+                tint.x == 0.0 && tint.y == 0.0 && tint.z == 0.0,
+                "flash must not consume on frame {frame} (not a DRAWABLE_FRAMES_PER_FLASH multiple)"
+            );
+        }
+
+        client.set_frame(DRAWABLE_FRAMES_PER_FLASH);
+        client
+            .update_drawables_local(SECONDS_PER_LOGICFRAME_REAL)
+            .expect("local drawable tick");
+        let tint = client
+            .find_drawable_by_id(DrawableId(7))
+            .expect("drawable")
+            .get_tint_color();
+        assert!(
+            tint.x > 0.0,
+            "flash must consume when client frame is a DRAWABLE_FRAMES_PER_FLASH multiple"
+        );
+    }
 }

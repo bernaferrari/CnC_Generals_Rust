@@ -194,6 +194,13 @@ impl GameLogic {
         }
 
         for &id in object_ids {
+            let ground_y = {
+                let Some(obj) = self.objects.get(&id) else {
+                    continue;
+                };
+                self.terrain_height_at(obj.get_position())
+                    .unwrap_or(obj.ground_height)
+            };
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
                 // movement) are skipped while any disabled flag is set and does not
@@ -211,6 +218,15 @@ impl GameLogic {
                     let dz = a.z - b.z;
                     (dx * dx + dz * dz).sqrt()
                 };
+                let z_motive = matches!(
+                    obj.loco_behavior_z,
+                    LocomotorBehaviorZ::SurfaceRelativeHeight
+                        | LocomotorBehaviorZ::SmoothRelativeToHighestLayer
+                        | LocomotorBehaviorZ::AbsoluteHeight
+                ) || matches!(
+                    obj.loco_appearance,
+                    LocomotorAppearance::Hover | LocomotorAppearance::Wings
+                );
 
                 if !obj.movement.path.is_empty()
                     && obj.movement.current_path_index < obj.movement.path.len()
@@ -227,6 +243,7 @@ impl GameLogic {
                                 obj.pending_evacuate_on_stop = true;
                                 obj.pending_exit_after_evacuate = and_exit;
                             }
+                            Self::apply_live_handle_behavior_z(obj, ground_y, None);
                             continue;
                         }
                     }
@@ -237,14 +254,18 @@ impl GameLogic {
                         &obj.movement.path[obj.movement.current_path_index.saturating_sub(1)..],
                     );
                     let mut target = lead;
-                    target.y = current_pos.y;
+                    // Ground locos keep XZ march; Z-motive keeps lead Y so
+                    // preferredHeight can rise over hills (Locomotor.cpp:2300).
+                    if !z_motive {
+                        target.y = current_pos.y;
+                    }
                     obj.movement.target_position = Some(target);
                 }
 
-
                 if let Some(target_pos) = obj.movement.target_position {
                     let current_pos = obj.get_position();
-                    // March in the XZ plane; do not dive to Y=0 path cells.
+                    // XZ heading only — do not dive to Y=0 path cells. Height is
+                    // handleBehaviorZ (preferredHeight + surface), not path Y.
                     let mut flat_target = target_pos;
                     flat_target.y = current_pos.y;
                     let direction = (flat_target - current_pos).normalize_or_zero();
@@ -317,6 +338,7 @@ impl GameLogic {
                         // W3DTreeBuffer::unitMoved (topple/push). set_position
                         // also notifies on integer XY change for GameWorld writeback.
                         obj.notify_terrain_trees_on_unit_move();
+                        Self::apply_live_handle_behavior_z(obj, ground_y, None);
                         if reached_target {
                             // Only stop when there is no further path waypoint.
                             // Mid-path "reached" is handled by index advance above.
@@ -327,19 +349,31 @@ impl GameLogic {
                             } else {
                                 obj.movement.current_path_index += 1;
                                 let mut next = obj.movement.path[obj.movement.current_path_index];
-                                next.y = new_position.y;
+                                if !z_motive {
+                                    next.y = obj.get_position().y;
+                                }
                                 obj.movement.target_position = Some(next);
                             }
                         }
                     } else {
-                        // Already on target (zero horizontal delta).
+                        // Already on target (zero horizontal delta) — still hold height.
                         obj.movement.velocity = Vec3::ZERO;
                         obj.record_host_movement();
+                        Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                        if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
+                            let _ = obj.loco_maintain_current_position(ground_y);
+                        }
                         if obj.movement.path.is_empty()
                             || obj.movement.current_path_index + 1 >= obj.movement.path.len()
                         {
                             obj.stop_moving();
                         }
+                    }
+                } else {
+                    // Idle hover / wings: C++ locoUpdate_maintainCurrentPosition.
+                    Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                    if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
+                        let _ = obj.loco_maintain_current_position(ground_y);
                     }
                 }
             }
@@ -791,6 +825,83 @@ mod tests {
             visual.tree_buffer_mut().trees()[tree_ndx].topple_state,
             game_client::terrain::W3DToppleState::Falling,
             "hq-rdyvl: moving crusher must topple map trees"
+        );
+    }
+
+    /// C++ `Locomotor::handleBehaviorZ` Z_SURFACE_RELATIVE_HEIGHT
+    /// (Locomotor.cpp:2288-2304): preferredHeight + surfaceHt. Live march
+    /// used to pin Y so helicopters clipped hills.
+    #[test]
+    fn hover_surface_relative_follows_preferred_height() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9301);
+        let mut tmpl = ThingTemplate::new("Comanche");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, id, Team::USA);
+        heli.set_position(Vec3::new(0.0, 0.0, 0.0));
+        heli.ground_height = 20.0;
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 10.0;
+        heli.loco_preferred_height_damping = 1.0;
+        heli.movement.max_speed = 30.0;
+        heli.movement.acceleration = 10_000.0;
+        heli.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        assert!(
+            (obj.get_position().y - 30.0).abs() < 0.05,
+            "hover must sit at preferredHeight+surface (30), got {}",
+            obj.get_position().y
+        );
+    }
+
+    /// Idle hover maintain still holds preferredHeight (Locomotor.cpp:2473).
+    #[test]
+    fn idle_hover_maintain_holds_preferred_height() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9302);
+        let mut tmpl = ThingTemplate::new("ComancheIdle");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let mut heli = Object::new(tmpl, id, Team::USA);
+        heli.set_position(Vec3::new(0.0, 4.0, 0.0));
+        heli.ground_height = 8.0;
+        heli.loco_behavior_z = LocomotorBehaviorZ::SurfaceRelativeHeight;
+        heli.loco_appearance = LocomotorAppearance::Hover;
+        heli.loco_preferred_height = 12.0;
+        heli.loco_preferred_height_damping = 1.0;
+        logic.objects.insert(id, heli);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("heli");
+        assert!(
+            (obj.get_position().y - 20.0).abs() < 0.05,
+            "idle hover maintain preferred+surface=20, got {}",
+            obj.get_position().y
+        );
+    }
+
+    /// Ground locos still must not dive to Y=0 path cells.
+    #[test]
+    fn ground_march_does_not_dive_to_path_y() {
+        crate::env_compat::set_var("GENERALS_GAMEWORLD_MOVEMENT_AUTHORITY", "0");
+        let mut logic = GameLogic::new();
+        let id = ObjectId(9303);
+        let mut unit = ranger_at(9303, Vec3::new(0.0, 5.0, 0.0));
+        unit.ground_height = 5.0;
+        unit.loco_behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        unit.movement.max_speed = 30.0;
+        unit.movement.acceleration = 10_000.0;
+        unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("ranger");
+        assert!(
+            (obj.get_position().y - 5.0).abs() < 0.05,
+            "ground march must keep Y, got {}",
+            obj.get_position().y
         );
     }
 }

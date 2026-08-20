@@ -549,6 +549,8 @@ impl<'a> CommandExecutor<'a> {
             if !can {
                 continue;
             }
+            // C++ DozerAIUpdate::newTask — REPAIR does not cancel pending BUILD.
+            self.game_logic.dozer_new_task_repair(unit_id, target_id);
             // C++ WorkerAIUpdate::newTask — build/repair exits AS_SUPPLY_TRUCK.
             self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
             if self.begin_support_order(unit_id, target_id, target_pos, AIState::Repairing) {
@@ -1167,6 +1169,127 @@ pub fn host_beacon_caption(id: ObjectId) -> Option<String> {
 }
 
 impl GameLogic {
+    /// C++ `DozerAIUpdate::newTask(DOZER_TASK_REPAIR)` (DozerAIUpdate.cpp:1948-2008).
+    /// Parks an in-flight BUILD in its own slot; only the REPAIR slot is replaced.
+    pub fn dozer_new_task_repair(&mut self, dozer_id: ObjectId, repair_target: ObjectId) {
+        let frame = self.frame.max(1);
+        if let Some(obj) = self.objects.get_mut(&dozer_id) {
+            if matches!(obj.ai_state, AIState::Constructing) {
+                if let Some(build_id) = obj.target {
+                    if obj.dozer_task_build_target.is_none() {
+                        obj.dozer_task_build_target = Some(build_id);
+                        // Older than this REPAIR so getMostRecentCommand prefers REPAIR.
+                        obj.dozer_task_build_order_frame = frame.saturating_sub(1).max(1);
+                    }
+                }
+            }
+            obj.dozer_task_repair_target = Some(repair_target);
+            obj.dozer_task_repair_order_frame = frame;
+        }
+    }
+
+    /// C++ `DozerAIUpdate::internalTaskComplete` for one task slot.
+    pub fn dozer_internal_task_complete(&mut self, dozer_id: ObjectId, repair: bool) {
+        if let Some(obj) = self.objects.get_mut(&dozer_id) {
+            if repair {
+                obj.dozer_task_repair_target = None;
+                obj.dozer_task_repair_order_frame = 0;
+            } else {
+                obj.dozer_task_build_target = None;
+                obj.dozer_task_build_order_frame = 0;
+            }
+        }
+    }
+
+    fn dozer_most_recent_pending_task(&self, dozer_id: ObjectId) -> Option<(bool, ObjectId)> {
+        let obj = self.objects.get(&dozer_id)?;
+        let mut best: Option<(u32, bool, ObjectId)> = None;
+        if let Some(tid) = obj.dozer_task_build_target {
+            let frame = obj.dozer_task_build_order_frame;
+            if best.is_none_or(|(f, _, _)| frame >= f) {
+                best = Some((frame, false, tid));
+            }
+        }
+        if let Some(tid) = obj.dozer_task_repair_target {
+            let frame = obj.dozer_task_repair_order_frame;
+            if best.is_none_or(|(f, _, _)| frame >= f) {
+                best = Some((frame, true, tid));
+            }
+        }
+        best.map(|(_, is_repair, tid)| (is_repair, tid))
+    }
+
+    /// C++ idle `isBuildMostImportant` / `isRepairMostImportant` (DozerAIUpdate.cpp:1314).
+    /// Call only while the dozer is Idle. Returns true if a pending task was resumed.
+    pub fn dozer_idle_resume_pending_build(&mut self, dozer_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&dozer_id) else {
+            return false;
+        };
+        if !matches!(obj.ai_state, AIState::Idle) {
+            return false;
+        }
+        if !obj.is_alive() || !obj.can_construct() {
+            return false;
+        }
+        // Drop dead / finished slots so getMostRecentCommand matches C++.
+        let build_id = obj.dozer_task_build_target;
+        let repair_id = obj.dozer_task_repair_target;
+        if let Some(tid) = build_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive() && t.is_kind_of(KindOf::Structure) && t.status.under_construction
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, false);
+            }
+        }
+        if let Some(tid) = repair_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive()
+                    && t.is_kind_of(KindOf::Structure)
+                    && !t.status.under_construction
+                    && t.health.current + 0.01 < t.health.maximum
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, true);
+            }
+        }
+        let Some((is_repair, tid)) = self.dozer_most_recent_pending_task(dozer_id) else {
+            return false;
+        };
+        if is_repair {
+            return false;
+        }
+        // C++ idleConditions → DOZER_PRIMARY_BUILD. This is our parked slot,
+        // not a player resume (ActionManager::canResumeConstructionOf).
+        let (dozer_pos, st_pos, st_radius) = {
+            let dpos = self
+                .objects
+                .get(&dozer_id)
+                .map(|d| d.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            let (spos, srad) = self
+                .objects
+                .get(&tid)
+                .map(|s| (s.get_position(), s.selection_radius))
+                .unwrap_or((glam::Vec3::ZERO, 0.0));
+            (dpos, spos, srad)
+        };
+        if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+            dozer.target = Some(tid);
+            dozer.set_ai_state(AIState::Constructing);
+            dozer.idle_since_frame = 0;
+        }
+        let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
+            dozer_pos, st_pos, st_radius,
+        );
+        self.path_approach_with_state(dozer_id, approach, AIState::Constructing);
+        if let Some(st) = self.objects.get_mut(&tid) {
+            st.set_under_construction_model_conditions(true);
+            st.builder_id = Some(dozer_id);
+        }
+        true
+    }
+
     /// C++ `Player::update` (`Player.cpp:708-724`): once per second, if the
     /// local client Auto-Retaliate flag differs from the logical flag, post
     /// `MSG_ENABLE_RETALIATION_MODE` so `CommandExecutor` applies it.
@@ -1517,5 +1640,87 @@ mod leftover_dispatch_tests {
             .expect("exec");
         assert_eq!(result, CommandResult::Success);
         assert_eq!(host_beacon_caption(id).as_deref(), Some("go"));
+    }
+
+    #[test]
+    fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
+        // C++ DozerAIUpdate.cpp:1948 newTask slots + 1314 isBuildMostImportant.
+        use crate::game_logic::ThingTemplate;
+        let mut logic = GameLogic::new();
+        logic.frame = 10;
+        logic
+            .get_players_mut()
+            .insert(0, Player::new(0, Team::USA, "P0", true));
+        let mut dozer_tpl = ThingTemplate::new("DozerParkBuild");
+        dozer_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Dozer)
+            .add_kind_of(KindOf::Worker)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("DozerParkBuild".into(), dozer_tpl);
+        let mut bld = ThingTemplate::new("ScaffoldParkBuild");
+        bld.add_kind_of(KindOf::Structure).set_health(500.0);
+        logic.templates.insert("ScaffoldParkBuild".into(), bld.clone());
+        logic
+            .templates
+            .insert("DamagedParkBuild".into(), bld);
+        let dozer = logic
+            .create_object_for_player("DozerParkBuild", 0, Vec3::ZERO)
+            .expect("dozer");
+        let scaffold = logic
+            .create_object_for_player("ScaffoldParkBuild", 0, Vec3::new(20.0, 0.0, 0.0))
+            .expect("scaffold");
+        let damaged = logic
+            .create_object_for_player("DamagedParkBuild", 0, Vec3::new(40.0, 0.0, 0.0))
+            .expect("damaged");
+        {
+            let sc = logic.host_object_mut(scaffold).expect("sc");
+            sc.status.under_construction = true;
+            sc.builder_id = Some(dozer);
+        }
+        {
+            let dmg = logic.host_object_mut(damaged).expect("dmg");
+            let _ = dmg.take_damage(200.0);
+        }
+        {
+            let dz = logic.host_object_mut(dozer).expect("dz");
+            dz.target = Some(scaffold);
+            dz.set_ai_state(AIState::Constructing);
+        }
+        let result = CommandExecutor::new(&mut logic, 0)
+            .execute_command(command(
+                0,
+                CommandType::Repair { target_id: damaged },
+                vec![dozer],
+            ))
+            .expect("exec");
+        assert_eq!(result, CommandResult::Success);
+        {
+            let dz = logic.host_object(dozer).expect("dz");
+            assert_eq!(dz.ai_state, AIState::Repairing);
+            assert_eq!(dz.target, Some(damaged));
+            assert_eq!(
+                dz.dozer_task_build_target,
+                Some(scaffold),
+                "REPAIR must keep BUILD pending"
+            );
+            assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        }
+        logic.dozer_internal_task_complete(dozer, true);
+        if let Some(dz) = logic.host_object_mut(dozer) {
+            dz.set_target(None);
+            dz.set_ai_state(AIState::Idle);
+        }
+        assert!(
+            logic.dozer_idle_resume_pending_build(dozer),
+            "idle isBuildMostImportant must resume parked BUILD"
+        );
+        let dz = logic.host_object(dozer).expect("dz");
+        assert_eq!(dz.ai_state, AIState::Constructing);
+        assert_eq!(dz.target, Some(scaffold));
+        assert_eq!(dz.dozer_task_build_target, Some(scaffold));
     }
 }

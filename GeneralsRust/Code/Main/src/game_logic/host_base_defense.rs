@@ -1745,16 +1745,18 @@ pub fn supw_patriot_emp_until_frame(current_frame: u32) -> u32 {
 ///
 /// Retail EMPPatriotEffectSpheroid EMPUpdate: vehicles / faction structures /
 /// SPAWNS_ARE_THE_WEAPONS; DoesNotAffectMyOwnBuildings residual skips own structures.
+/// C++ does not skip under-construction or ground EMP_HARDENED (hardened only
+/// exempts the airborne kill branch).
 pub fn is_legal_supw_patriot_emp_target(
     is_vehicle: bool,
     is_aircraft: bool,
     is_faction_structure: bool,
     is_own_structure: bool,
     is_alive: bool,
-    under_construction: bool,
-    is_emp_hardened: bool,
+    _under_construction: bool,
+    _is_emp_hardened: bool,
 ) -> bool {
-    if !is_alive || under_construction || is_emp_hardened {
+    if !is_alive {
         return false;
     }
     // Own buildings not disabled residual (DoesNotAffectMyOwnBuildings = Yes).

@@ -1250,24 +1250,38 @@ impl GameLogic {
 
         let until = supw_patriot_emp_until_frame(self.frame);
         let radius = SUPW_PATRIOT_EMP_RADIUS;
-        let victims: Vec<ObjectId> = self
+        use crate::game_logic::host_emp_pulse::{
+            in_emp_pulse_radius_from_bounding_sphere_3d, leftover_emp_bounding_sphere_radius,
+            should_emp_kill_airborne,
+        };
+        let victims: Vec<(ObjectId, bool, bool)> = self
             .objects
             .iter()
             .filter_map(|(id, obj)| {
                 if *id == source_id || !obj.is_alive() {
                     return None;
                 }
-                let dx = obj.get_position().x - impact.x;
-                let dz = obj.get_position().z - impact.z;
-                if (dx * dx + dz * dz).sqrt() > radius {
+                let pos = obj.get_position();
+                let sphere = leftover_emp_bounding_sphere_radius(
+                    obj.thing.geometry.radius,
+                    obj.thing.geometry.bounds_min,
+                    obj.thing.geometry.bounds_max,
+                    obj.selection_radius,
+                );
+                if !in_emp_pulse_radius_from_bounding_sphere_3d(impact, pos, sphere, radius) {
                     return None;
                 }
                 let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
-                let is_aircraft = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let is_aircraft = obj.is_kind_of(KindOf::Aircraft);
+                let is_airborne = obj.status.airborne_target;
+                let emp_hardened = is_emp_hardened_name(&obj.template_name);
                 let is_structure = obj.is_kind_of(KindOf::Structure);
                 let is_own_structure = is_structure && obj.team == source_team;
                 let is_faction_structure = is_structure
                     && (obj.team == Team::USA || obj.team == Team::China || obj.team == Team::GLA);
+                if should_emp_kill_airborne(is_aircraft, is_airborne, emp_hardened) {
+                    return Some((*id, true, false));
+                }
                 if !is_legal_supw_patriot_emp_target(
                     is_vehicle,
                     is_aircraft,
@@ -1275,19 +1289,30 @@ impl GameLogic {
                     is_own_structure,
                     true,
                     obj.status.under_construction,
-                    is_emp_hardened_name(&obj.template_name),
+                    emp_hardened,
                 ) {
                     return None;
                 }
-                Some(*id)
+                Some((*id, false, true))
             })
             .collect();
         let mut any = false;
-        for vid in victims {
-            if let Some(v) = self.objects.get_mut(&vid) {
-                v.apply_disabled_emp(until);
+        let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        for (vid, kill, disable) in victims {
+            if kill {
+                destroy_ids.push(vid);
                 any = true;
+                continue;
             }
+            if disable {
+                if let Some(v) = self.objects.get_mut(&vid) {
+                    v.apply_disabled_emp(until);
+                    any = true;
+                }
+            }
+        }
+        for id in destroy_ids {
+            self.mark_object_for_destruction(id, Some(source_team));
         }
         if any {
             self.supw_patriot_emp_residual_grants =

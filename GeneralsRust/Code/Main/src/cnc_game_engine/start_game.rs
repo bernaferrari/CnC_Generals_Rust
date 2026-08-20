@@ -85,6 +85,53 @@ fn resolve_map_activation_lighting(env: Option<&PresentationWorldEnv>) -> MapAct
     }
 }
 
+/// C++ `InGameUI.cpp:77` `placementOpacity`.
+const STRUCTURE_PLACEMENT_GHOST_OPACITY: f32 = 0.45;
+/// C++ `InGameUI.cpp:78` `illegalBuildColor`.
+const STRUCTURE_PLACEMENT_ILLEGAL_TINT: [f32; 3] = [1.0, 0.0, 0.0];
+/// Standalone client DrawableID for the live host place-icon (not an ObjectID).
+const STRUCTURE_PLACEMENT_GHOST_DRAWABLE_ID: u32 = 0x504C_4143;
+
+/// C++ `Drawable::colorTint`: red only when illegal; legal is untinted.
+fn structure_placement_ghost_tint(illegal: bool) -> Option<[f32; 3]> {
+    illegal.then_some(STRUCTURE_PLACEMENT_ILLEGAL_TINT)
+}
+
+/// Same hull matrix as `UnitRenderInput::world_matrix` (Y-up + yaw).
+fn structure_placement_model_transform(
+    world_x: f32,
+    world_y: f32,
+    world_z: f32,
+    facing_radians: f32,
+) -> Mat4 {
+    Mat4::from_translation(Vec3::new(world_x, world_y, world_z))
+        * Mat4::from_rotation_y(facing_radians)
+}
+
+/// C++ `addFactionBibDrawable` local corners are ground-plane (x, y, 0).
+/// TerrainVisual overlay uploads `[corner.x, height, corner.z]`, so map C++ Y → world Z.
+fn structure_placement_bib_transform(world_x: f32, world_z: f32, facing_radians: f32) -> Mat4 {
+    let c = facing_radians.cos();
+    let s = facing_radians.sin();
+    Mat4::from_cols(
+        glam::Vec4::new(c, 0.0, s, 0.0),
+        glam::Vec4::new(-s, 0.0, c, 0.0),
+        glam::Vec4::new(0.0, 1.0, 0.0, 0.0),
+        glam::Vec4::new(world_x, 0.0, world_z, 1.0),
+    )
+}
+
+/// Authored W3D key for the building being placed (never a footprint circle).
+fn structure_placement_model_key(template_name: &str) -> String {
+    let key = crate::assets::mesh_asset_resolve::drawable_w3d_model_key(template_name);
+    if key.is_empty() {
+        template_name.trim().to_string()
+    } else {
+        key
+    }
+}
+
+
 impl CnCGameEngine {
     pub(super) fn play_ui_sound_effect(&mut self, path: String) {
         let Some(bytes) = self.ui_sound_cache.get(&path).cloned() else {
@@ -1371,29 +1418,17 @@ impl CnCGameEngine {
         self.apply_camera_orbit_transform();
     }
 
-    /// Placement ghost footprint + pending map radius cursor residual for 3D overlay.
+    /// Radius-cursor / guard rings only. Structure placement is the C++ 3D model ghost.
     pub(super) fn collect_ground_marker_circles(
         &self,
     ) -> Vec<crate::graphics::selection_renderer::SelectedUnit> {
         use crate::graphics::selection_renderer::SelectedUnit;
         let mut out = Vec::new();
 
-        // Structure placement ghost residual (green legal / red illegal).
-        let placement = self.game_hud.construction_panel.placement_preview();
-        if placement.is_active() {
-            let half = placement.footprint_half_extents;
-            let radius = half.0.max(half.1).max(8.0);
-            let color = if placement.is_legal {
-                [0.15, 0.95, 0.2, 0.45]
-            } else {
-                [0.95, 0.15, 0.1, 0.5]
-            };
-            out.push(SelectedUnit {
-                position: glam::Vec3::new(placement.world_pos.0, 0.0, placement.world_pos.1),
-                radius,
-                team_color: color,
-            });
-        }
+        // C++ InGameUI::placeBuildAvailable / handleBuildPlacements: translucent
+        // building Drawable at placementOpacity 0.45 + faction bibs. Not a circle.
+        self.submit_structure_placement_model_ghost();
+
 
         // Special-power / AttackMove / Guard radius cursor residual.
         if let Some(ov) = self.game_hud.construction_panel.radius_overlay() {
@@ -1431,6 +1466,113 @@ impl CnCGameEngine {
 
         out
     }
+
+    /// C++ `InGameUI::placeBuildAvailable` + `handleBuildPlacements`:
+    /// spawn the building model at `placementOpacity` 0.45, red-tint when
+    /// `isLegalBuildLocation` fails, and add/remove faction bibs.
+    fn submit_structure_placement_model_ghost(&self) {
+        let placement = self.game_hud.construction_panel.placement_preview();
+        if !placement.is_active() {
+            self.sync_structure_placement_faction_bibs(None);
+            return;
+        }
+
+        let world_x = placement.world_pos.0;
+        let world_z = placement.world_pos.1;
+        let world_y = self.sample_presentation_height_under(Vec3::new(world_x, 0.0, world_z));
+        let facing = placement.facing_radians;
+        let illegal = !placement.is_legal;
+        let model_name = structure_placement_model_key(&placement.template_name);
+        let world_transform =
+            structure_placement_model_transform(world_x, world_y, world_z, facing);
+        let half = placement.footprint_half_extents;
+        let radius = half.0.max(half.1).max(30.0) * 2.0;
+
+        #[cfg(feature = "game_client")]
+        {
+            let submission = game_client::render_bridge::DrawSubmission {
+                drawable_id: game_client::render_bridge::DrawableId(
+                    STRUCTURE_PLACEMENT_GHOST_DRAWABLE_ID,
+                ),
+                model_name,
+                world_transform,
+                render_state: game_client::render_bridge::RenderStateOverrides {
+                    opacity: STRUCTURE_PLACEMENT_GHOST_OPACITY,
+                    construction_tint: structure_placement_ghost_tint(illegal),
+                    ..Default::default()
+                },
+                bounding_sphere: ww3d_core::BoundingSphere::new(
+                    ww3d_core::glam::Vec3::ZERO,
+                    radius,
+                ),
+                opaque: false,
+                transparent: true,
+                cast_shadow: false,
+                ..Default::default()
+            };
+            if let Ok(mut bridge_guard) = game_client::render_bridge::get_render_bridge().lock() {
+                if let Some(bridge) = bridge_guard.as_mut() {
+                    bridge.submit(submission);
+                }
+            }
+        }
+
+        self.sync_structure_placement_faction_bibs(Some((
+            world_x,
+            world_z,
+            facing,
+            half,
+            illegal,
+        )));
+    }
+
+    /// C++ `TheTerrainVisual->addFactionBibDrawable` when LBC != OK,
+    /// `removeFactionBibDrawable` when legal.
+    fn sync_structure_placement_faction_bibs(
+        &self,
+        active: Option<(f32, f32, f32, (f32, f32), bool)>,
+    ) {
+        #[cfg(feature = "game_client")]
+        {
+            let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() else {
+                return;
+            };
+            let Some(visual) = guard.as_mut() else {
+                return;
+            };
+            let Some((world_x, world_z, facing, half, illegal)) = active else {
+                visual.remove_faction_bib(
+                    STRUCTURE_PLACEMENT_GHOST_DRAWABLE_ID,
+                    game_client::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+                );
+                return;
+            };
+            if illegal {
+                visual.add_faction_bib(
+                    STRUCTURE_PLACEMENT_GHOST_DRAWABLE_ID,
+                    game_client::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+                    structure_placement_bib_transform(world_x, world_z, facing),
+                    half.0,
+                    half.1,
+                    true,
+                    0.0,
+                    0.0,
+                    true,
+                    0.0,
+                );
+            } else {
+                visual.remove_faction_bib(
+                    STRUCTURE_PLACEMENT_GHOST_DRAWABLE_ID,
+                    game_client::terrain::terrain_visual::TerrainBibOwnerKind::Drawable,
+                );
+            }
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            let _ = active;
+        }
+    }
+
 
     pub(super) fn issue_minimap_move(&mut self, world_pos: Vec3) {
         // Wave 219: selection via presentation-first ui_selected_ids.
@@ -1911,5 +2053,64 @@ End
             "new-game start must call GameEngine::reset like GameLogicDispatch.cpp:256"
         );
     }
+
+    #[test]
+    fn structure_placement_ghost_matches_cpp_ingameui_opacity_and_illegal_tint() {
+        // C++ InGameUI.cpp:77-78 placementOpacity / illegalBuildColor.
+        assert!((STRUCTURE_PLACEMENT_GHOST_OPACITY - 0.45).abs() < f32::EPSILON);
+        assert_eq!(structure_placement_ghost_tint(false), None);
+        assert_eq!(
+            structure_placement_ghost_tint(true),
+            Some([1.0, 0.0, 0.0])
+        );
+    }
+
+    #[test]
+    fn structure_placement_model_transform_matches_unit_hull_yaw() {
+        let m = structure_placement_model_transform(10.0, 4.0, 20.0, 0.0);
+        let p = m.transform_point3(Vec3::new(1.0, 0.0, 0.0));
+        assert!((p.x - 11.0).abs() < 1e-4);
+        assert!((p.y - 4.0).abs() < 1e-4);
+        assert!((p.z - 20.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn structure_placement_bib_transform_maps_cpp_xy_ground_to_y_up_xz() {
+        // C++ addFactionBibDrawable local (-10, -5, 0) at (100, 200) identity yaw.
+        let t = structure_placement_bib_transform(100.0, 200.0, 0.0);
+        let p = t.transform_point3(Vec3::new(-10.0, -5.0, 0.0));
+        assert!((p.x - 90.0).abs() < 1e-4);
+        assert!((p.z - 195.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn live_placement_preview_is_model_ghost_not_footprint_circle() {
+        // C++ InGameUI.cpp:2957 placeBuildAvailable creates a ThingFactory Drawable,
+        // not a selection-circle overlay.
+        let src = include_str!("start_game.rs");
+        let live = src
+            .split("#[cfg(test)]")
+            .next()
+            .expect("start_game live path");
+        let start = live
+            .find("fn collect_ground_marker_circles")
+            .expect("collect_ground_marker_circles");
+        let body = &live[start..start + 900];
+        assert!(
+            body.contains("submit_structure_placement_model_ghost"),
+            "live placement must submit the building model ghost"
+        );
+        assert!(
+            !body.contains("[0.15, 0.95, 0.2, 0.45]"),
+            "live placement must not draw the green/red footprint circle"
+        );
+        assert!(
+            live.contains("STRUCTURE_PLACEMENT_GHOST_OPACITY")
+                && live.contains("add_faction_bib")
+                && live.contains("construction_tint"),
+            "live ghost must carry C++ 0.45 opacity, illegal tint, and faction bibs"
+        );
+    }
+
 
 }

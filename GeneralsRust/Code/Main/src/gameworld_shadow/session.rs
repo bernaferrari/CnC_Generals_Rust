@@ -1507,6 +1507,7 @@ pub fn shadow_session_after_host_tick(
                 },
             );
         }
+        logic.apply_due_emp_pulse_disables();
         // Wave 792: A10 drop + detonate (no dual flight).
         // Keep host pending registry in sync with GW-consumed drops.
         logic.a10_strike_flight_reg.pending_drops = shadow.a10_pending_drops.clone();

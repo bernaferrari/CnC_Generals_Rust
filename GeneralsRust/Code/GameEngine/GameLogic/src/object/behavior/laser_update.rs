@@ -1,37 +1,39 @@
-//! LaserUpdate - Rust conversion of C++ LaserUpdate
+//! LaserUpdate leftover is C++ ClientUpdate, not invented DPS Behavior.
 //!
-//! Continuous laser weapon behavior.
-//! Author: EA Pacific (C++ version)
-//! Rust conversion: 2025
+//! C++ `LaserUpdate` is a drawable ClientUpdate (`LaserUpdate.cpp`). It never
+//! deals damage. Damage comes from the weapon. This leftover module forwards
+//! to the live ClientUpdate implementation and keeps leftover factory glue.
 
-use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Bool, ModuleData, ObjectID, Real, LOGICFRAMES_PER_SECOND};
-use crate::damage::{DamageInfo, DamageType, DeathType};
+use crate::common::{AsciiString, ModuleData, ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use crate::object::drawable::DrawableArcExt;
+use crate::object::Object as GameObject;
+use crate::prelude::Coord3D;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::sync::{Arc, RwLock, Weak};
+use game_engine::common::thing::module::{
+    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData as EngineModuleData, NameKeyType,
+};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug)]
 pub struct LaserUpdateModuleData {
     pub base: BehaviorModuleData,
-    pub laser_bone_name: String,
-    pub laser_duration: Real,
-    pub laser_damage: Real,
+    pub particle_system_name: String,
+    pub target_particle_system_name: String,
+    pub punch_through_scalar: Real,
 }
 
 impl Default for LaserUpdateModuleData {
     fn default() -> Self {
         Self {
             base: BehaviorModuleData::default(),
-            laser_bone_name: String::new(),
-            laser_duration: 1.0,
-            laser_damage: 10.0,
+            particle_system_name: String::new(),
+            target_particle_system_name: String::new(),
+            punch_through_scalar: 0.0,
         }
     }
 }
@@ -42,61 +44,78 @@ impl LaserUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, LASER_UPDATE_FIELDS)
     }
+
+    fn to_live(&self) -> crate::object::update::laser_update::LaserUpdateModuleData {
+        crate::object::update::laser_update::LaserUpdateModuleData {
+            module_tag_name_key: 0,
+            particle_system_name: self.particle_system_name.clone(),
+            target_particle_system_name: self.target_particle_system_name.clone(),
+            punch_through_scalar: self.punch_through_scalar,
+        }
+    }
 }
 
-fn parse_laser_bone_name(
+fn parse_muzzle_particle(
     _ini: &mut INI,
     data: &mut LaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.laser_bone_name = token.to_string();
+    let value = tokens
+        .iter()
+        .copied()
+        .find(|t| *t != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.particle_system_name = INI::parse_ascii_string(value)?;
     Ok(())
 }
 
-fn parse_laser_duration(
+fn parse_target_particle(
     _ini: &mut INI,
     data: &mut LaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.laser_duration = INI::parse_real(token)?;
+    let value = tokens
+        .iter()
+        .copied()
+        .find(|t| *t != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.target_particle_system_name = INI::parse_ascii_string(value)?;
     Ok(())
 }
 
-fn parse_laser_damage(
+fn parse_punch_through(
     _ini: &mut INI,
     data: &mut LaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.laser_damage = INI::parse_real(token)?;
+    let value = tokens
+        .iter()
+        .copied()
+        .find(|t| *t != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.punch_through_scalar = INI::parse_real(value)?;
     Ok(())
 }
 
 const LASER_UPDATE_FIELDS: &[FieldParse<LaserUpdateModuleData>] = &[
     FieldParse {
-        token: "LaserBoneName",
-        parse: parse_laser_bone_name,
+        token: "MuzzleParticleSystem",
+        parse: parse_muzzle_particle,
     },
     FieldParse {
-        token: "LaserDuration",
-        parse: parse_laser_duration,
+        token: "TargetParticleSystem",
+        parse: parse_target_particle,
     },
     FieldParse {
-        token: "LaserDamage",
-        parse: parse_laser_damage,
+        token: "PunchThroughScalar",
+        parse: parse_punch_through,
     },
 ];
 
 pub struct LaserUpdate {
     object_id: ObjectID,
     module_data: Arc<LaserUpdateModuleData>,
-    current_target: ObjectID,
-    laser_active: Bool,
-    laser_end_frame: u32,
-    laser_damage_override: Option<Real>,
-    laser_duration_override: Option<Real>,
+    inner: crate::object::update::laser_update::LaserUpdate,
 }
 
 impl LaserUpdate {
@@ -109,96 +128,32 @@ impl LaserUpdate {
             .downcast_ref::<LaserUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let thing_id = object
+            .read()
+            .ok()
+            .and_then(|g| g.get_drawable().map(|drawable| drawable.get_id()))
+            .unwrap_or(object_id);
+
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data: Arc::new(specific_data.clone()),
-            current_target: OBJECT_INVALID_ID,
-            laser_active: false,
-            laser_end_frame: 0,
-            laser_damage_override: None,
-            laser_duration_override: None,
+            inner: crate::object::update::laser_update::LaserUpdate::new(
+                thing_id,
+                specific_data.to_live(),
+            ),
         })
-    }
-
-    pub fn activate_laser(&mut self, target: ObjectID) {
-        self.current_target = target;
-        self.laser_active = true;
-        let duration = self
-            .laser_duration_override
-            .unwrap_or(self.module_data.laser_duration);
-        let duration_frames = (duration * LOGICFRAMES_PER_SECOND as Real).max(0.0) as u32;
-        self.laser_end_frame = TheGameLogic::get_frame().saturating_add(duration_frames);
-    }
-
-    pub fn deactivate_laser(&mut self) {
-        self.laser_active = false;
-        self.current_target = OBJECT_INVALID_ID;
-        self.laser_end_frame = 0;
-    }
-
-    pub fn configure_laser(&mut self, damage_per_frame: Real, duration: Real) {
-        self.laser_damage_override = Some(damage_per_frame * LOGICFRAMES_PER_SECOND as Real);
-        self.laser_duration_override = Some(duration);
     }
 }
 
 impl UpdateModuleInterface for LaserUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if !self.laser_active {
-            return UpdateSleepTime::Forever;
-        }
-
-        let now = TheGameLogic::get_frame();
-        if self.laser_end_frame != 0 && now >= self.laser_end_frame {
-            self.deactivate_laser();
-            return UpdateSleepTime::Forever;
-        }
-
-        let owner_id = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
-        .unwrap_or(OBJECT_INVALID_ID);
-
-        let Some(target_arc) = TheGameLogic::find_object_by_id(self.current_target) else {
-            self.deactivate_laser();
-            return UpdateSleepTime::Forever;
-        };
-
-        if target_arc
-            .read()
-            .ok()
-            .map(|guard| guard.is_destroyed())
-            .unwrap_or(true)
-        {
-            self.deactivate_laser();
-            return UpdateSleepTime::Forever;
-        }
-
-        let laser_damage = self
-            .laser_damage_override
-            .unwrap_or(self.module_data.laser_damage);
-        let damage_per_frame = laser_damage / LOGICFRAMES_PER_SECOND as Real;
-        let mut info = DamageInfo::with_simple(
-            damage_per_frame,
-            owner_id,
-            DamageType::Laser,
-            DeathType::Normal,
-        );
-        info.sync_from_input();
-
-        if let Ok(mut target_guard) = target_arc.write() {
-            let _ = target_guard.attempt_damage(&mut info);
-        }
-
-        UpdateSleepTime::Frames(1) // Update every frame while active
+        // C++ LaserUpdate is ClientUpdate. It never ticks as object Behavior DPS.
+        UpdateSleepTime::Forever
     }
 }
 
@@ -216,18 +171,75 @@ impl BehaviorModuleInterface for LaserUpdate {
     }
 }
 
+/// Invented leftover Behavior hook. C++ LaserUpdate has no object Behavior.
 pub trait LaserBehaviorControlInterface {
     fn activate_laser(&mut self, target: ObjectID);
     fn configure_laser(&mut self, damage_per_frame: Real, duration: Real);
 }
 
 impl LaserBehaviorControlInterface for LaserUpdate {
-    fn activate_laser(&mut self, target: ObjectID) {
-        LaserUpdate::activate_laser(self, target);
+    fn activate_laser(&mut self, _target: ObjectID) {
+        // C++ never deals laser DPS from LaserUpdate. Use ClientUpdate initLaser.
     }
 
-    fn configure_laser(&mut self, damage_per_frame: Real, duration: Real) {
-        LaserUpdate::configure_laser(self, damage_per_frame, duration);
+    fn configure_laser(&mut self, _damage_per_frame: Real, _duration: Real) {}
+}
+
+impl ClientUpdateInterface for LaserUpdate {
+    fn client_update(&mut self) -> bool {
+        self.inner.client_update();
+        true
+    }
+}
+
+impl LaserUpdateInterface for LaserUpdate {
+    fn is_dirty(&self) -> bool {
+        self.inner.is_dirty()
+    }
+
+    fn set_dirty(&mut self, dirty: bool) {
+        self.inner.set_dirty(dirty);
+    }
+
+    fn get_start_pos(&self) -> [f32; 3] {
+        self.inner.get_start_pos().to_array()
+    }
+
+    fn get_end_pos(&self) -> [f32; 3] {
+        self.inner.get_end_pos().to_array()
+    }
+
+    fn get_width_scale(&self) -> f32 {
+        self.inner.get_width_scale()
+    }
+
+    fn init_laser(
+        &mut self,
+        parent_id: Option<ObjectID>,
+        target_id: Option<ObjectID>,
+        start_pos: Option<[f32; 3]>,
+        end_pos: Option<[f32; 3]>,
+        parent_bone_name: String,
+        size_delta_frames: i32,
+    ) {
+        let parent_arc = parent_id.and_then(TheGameLogic::find_object_by_id);
+        let target_arc = target_id.and_then(TheGameLogic::find_object_by_id);
+        let parent_guard = parent_arc.as_ref().and_then(|arc| arc.read().ok());
+        let target_guard = target_arc.as_ref().and_then(|arc| arc.read().ok());
+        let start_pos = start_pos.map(Coord3D::from_array);
+        let end_pos = end_pos.map(Coord3D::from_array);
+        self.inner.init_laser(
+            parent_guard.as_deref(),
+            target_guard.as_deref(),
+            start_pos.as_ref(),
+            end_pos.as_ref(),
+            parent_bone_name,
+            size_delta_frames,
+        );
+    }
+
+    fn set_decay_frames(&mut self, decay_frames: u32) {
+        self.inner.set_decay_frames(decay_frames);
     }
 }
 
@@ -243,38 +255,25 @@ impl Snapshotable for LaserUpdate {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("LaserUpdate xfer version failed: {:?}", e))?;
-
-        xfer.xfer_object_id(&mut self.current_target)
-            .map_err(|e| format!("LaserUpdate xfer current_target failed: {:?}", e))?;
-        xfer.xfer_bool(&mut self.laser_active)
-            .map_err(|e| format!("LaserUpdate xfer active failed: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.laser_end_frame)
-            .map_err(|e| format!("LaserUpdate xfer end frame failed: {:?}", e))?;
-
-        let mut has_damage_override = self.laser_damage_override.is_some();
-        xfer.xfer_bool(&mut has_damage_override)
-            .map_err(|e| format!("LaserUpdate xfer damage override flag failed: {:?}", e))?;
-        if has_damage_override {
-            let mut value = self.laser_damage_override.unwrap_or(0.0);
-            xfer.xfer_real(&mut value)
-                .map_err(|e| format!("LaserUpdate xfer damage override value failed: {:?}", e))?;
-            self.laser_damage_override = Some(value);
-        } else {
-            self.laser_damage_override = None;
-        }
-
-        let mut has_duration_override = self.laser_duration_override.is_some();
-        xfer.xfer_bool(&mut has_duration_override)
-            .map_err(|e| format!("LaserUpdate xfer duration override flag failed: {:?}", e))?;
-        if has_duration_override {
-            let mut value = self.laser_duration_override.unwrap_or(0.0);
-            xfer.xfer_real(&mut value)
-                .map_err(|e| format!("LaserUpdate xfer duration override value failed: {:?}", e))?;
-            self.laser_duration_override = Some(value);
-        } else {
-            self.laser_duration_override = None;
-        }
-
+        let mut start = self.inner.get_start_pos();
+        xfer.xfer_real(&mut start.x)
+            .map_err(|e| format!("LaserUpdate xfer start failed: {:?}", e))?;
+        xfer.xfer_real(&mut start.y)
+            .map_err(|e| format!("LaserUpdate xfer start failed: {:?}", e))?;
+        xfer.xfer_real(&mut start.z)
+            .map_err(|e| format!("LaserUpdate xfer start failed: {:?}", e))?;
+        let mut end = self.inner.get_end_pos();
+        xfer.xfer_real(&mut end.x)
+            .map_err(|e| format!("LaserUpdate xfer end failed: {:?}", e))?;
+        xfer.xfer_real(&mut end.y)
+            .map_err(|e| format!("LaserUpdate xfer end failed: {:?}", e))?;
+        xfer.xfer_real(&mut end.z)
+            .map_err(|e| format!("LaserUpdate xfer end failed: {:?}", e))?;
+        let mut dirty = self.inner.is_dirty();
+        xfer.xfer_bool(&mut dirty)
+            .map_err(|e| format!("LaserUpdate xfer dirty failed: {:?}", e))?;
+        self.inner.set_dirty(dirty);
+        let _ = self.object_id;
         Ok(())
     }
 
@@ -283,7 +282,7 @@ impl Snapshotable for LaserUpdate {
     }
 }
 
-/// Glue that exposes LaserUpdate through the common Module trait.
+/// Glue that exposes leftover LaserUpdate through the common Module trait.
 pub struct LaserUpdateModule {
     behavior: LaserUpdate,
     module_name_key: NameKeyType,
@@ -342,6 +341,14 @@ impl Module for LaserUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        Some(&mut self.behavior)
+    }
+
+    fn get_laser_update_interface(&mut self) -> Option<&mut dyn LaserUpdateInterface> {
+        Some(&mut self.behavior)
     }
 }
 

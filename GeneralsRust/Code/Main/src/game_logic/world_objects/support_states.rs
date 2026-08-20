@@ -1748,6 +1748,26 @@ impl GameLogic {
 
                     let radius = guard_radius.max(GUARD_MIN_RADIUS);
                     if can_attack {
+                        let tunnel_nemesis = {
+                            let guard_is_tunnel = self.objects.get(&guard_target_id).is_some_and(
+                                |g| {
+                                    g.is_tunnel_network_style_container()
+                                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                                            &g.template_name,
+                                        )
+                                },
+                            );
+                            if guard_is_tunnel {
+                                self.resolved_tunnel_nemesis(team)
+                            } else {
+                                None
+                            }
+                        };
+                        if let Some(enemy_id) = tunnel_nemesis {
+                            if self.engage_target_decision_aware(object_id, enemy_id) {
+                                continue;
+                            }
+                        }
                         if let Some((enemy_id, _)) =
                             crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
                                 self,
@@ -1904,6 +1924,8 @@ impl GameLogic {
                                 }
                                 obj.set_actively_constructing(false);
                             }
+                            self.dozer_internal_task_complete(object_id, true);
+                            let _ = self.dozer_idle_resume_pending_build(object_id);
                             continue;
                         }
                     };
@@ -1922,6 +1944,8 @@ impl GameLogic {
                             }
                             obj.set_actively_constructing(false);
                         }
+                        self.dozer_internal_task_complete(object_id, true);
+                        let _ = self.dozer_idle_resume_pending_build(object_id);
                         self.sole_benefactor_repair_rejects =
                             self.sole_benefactor_repair_rejects.saturating_add(1);
                         continue;
@@ -1951,17 +1975,21 @@ impl GameLogic {
                             }
                             obj.set_actively_constructing(false);
                         }
+                        self.dozer_internal_task_complete(object_id, true);
+                        let _ = self.dozer_idle_resume_pending_build(object_id);
                     }
                 }
                 state @ (AIState::SeekingRepair | AIState::SeekingHealing) => {
                     if health_current >= health_maximum - 0.01 {
                         if let Some(tid) = target_id {
+                            if matches!(state, AIState::SeekingRepair) {
+                                self.send_to_rally_after_repair_dock(object_id, tid);
+                            }
                             self.release_dock_if_holder(tid, object_id);
                         }
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.set_target(None);
                         }
-                        continue;
                     }
 
 
@@ -2149,6 +2177,7 @@ impl GameLogic {
                         .get(&object_id)
                         .is_some_and(|o| o.health.current >= o.health.maximum - 0.01);
                     if seeking_repair && fully_repaired {
+                        self.send_to_rally_after_repair_dock(object_id, support_target_id);
                         self.release_dock_if_holder(support_target_id, object_id);
                     }
 
@@ -2872,6 +2901,10 @@ impl GameLogic {
                                 self.evacuate_garrison_for_capture(capture_target_id);
                                 false
                             } else {
+                                // C++ capture uses Object::defect (SpecialAbilityUpdate.cpp:1442).
+                                // defect cancelAndRefundAllProduction (Object.cpp:6136-6139)
+                                // before setTeam; onCapture (Object.cpp:4509) then keeps the
+                                // emptied ProductionUpdate module. Do not transfer the queue.
                                 self.cancel_all_production(capture_target_id);
                                 let transferred = match owner_player_id {
                                     Some(player_id) => {
@@ -4124,6 +4157,27 @@ impl GameLogic {
                     let gather_amount = collector_metadata
                         .map(|_| SUPPLY_BOX_VALUE)
                         .unwrap_or_else(|| (100.0 * dt) as u32);
+                    let max_carry = collector_metadata
+                        .map(|metadata| metadata.max_boxes.saturating_mul(SUPPLY_BOX_VALUE))
+                        .unwrap_or(1000);
+                    let current_carry = self
+                        .objects
+                        .get(&object_id)
+                        .map(|o| o.stored_resources.supplies)
+                        .unwrap_or(0);
+                    // C++ SupplyTruckAIUpdate::gainOneBox (SupplyTruckAIUpdate.cpp:134-135)
+                    // fails when m_numberBoxes >= m_maxBoxesData. Warehouse action
+                    // (SupplyWarehouseDockUpdate.cpp:89-111) then ++m_boxesStored
+                    // to take the tentative debit back.
+                    let already_at_max_boxes = collector_metadata.is_some_and(|metadata| {
+                        let (_remaining, _carry, transferred) =
+                            crate::game_logic::host_supply_gather::warehouse_action_transfer_one_box(
+                                source_supplies / SUPPLY_BOX_VALUE,
+                                current_carry / SUPPLY_BOX_VALUE,
+                                metadata.max_boxes,
+                            );
+                        !transferred && current_carry / SUPPLY_BOX_VALUE >= metadata.max_boxes
+                    });
                     // Keep the legacy generic-resource path intact.  The
                     // precise stock gate is required specifically for the
                     // newly-authored SupplyWarehouseDockUpdate target.
@@ -4178,6 +4232,25 @@ impl GameLogic {
                             continue;
                         }
                     }
+                    if source_is_warehouse && already_at_max_boxes {
+                        self.release_dock_if_holder(source_id, object_id);
+                        let refinery_dest = self
+                            .preferred_or_allied_supply_center(
+                                object_id,
+                                team,
+                                owner_player_id,
+                                position,
+                            )
+                            .and_then(|rid| self.objects.get(&rid).map(|r| r.get_position()));
+                        if let Some(dest) = refinery_dest {
+                            self.path_approach_with_state(
+                                object_id,
+                                dest,
+                                AIState::ReturningResources,
+                            );
+                        }
+                        continue;
+                    }
                     if source_is_warehouse && taken == 0 {
                         self.release_dock_if_holder(source_id, object_id);
 
@@ -4196,16 +4269,7 @@ impl GameLogic {
                         self.begin_supply_regroup(object_id, team, owner_player_id, position);
                         continue;
                     }
-                    let max_carry = collector_metadata
-                        .map(|metadata| metadata.max_boxes.saturating_mul(SUPPLY_BOX_VALUE))
-                        .unwrap_or(1000);
-                    let is_full = self
-                        .objects
-                        .get(&object_id)
-                        .map(|o| o.stored_resources.supplies)
-                        .unwrap_or(0)
-                        + taken
-                        >= max_carry;
+                    let is_full = current_carry + taken >= max_carry;
 
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_stored_supplies(
@@ -4643,6 +4707,8 @@ impl GameLogic {
 
         // C++ HealContain::update + TunnelContain::update → TunnelTracker::healObjects.
         self.tick_heal_contain_and_tunnel();
+        // C++ TunnelContain::update nemesis + AITNGuard::lookForInnerTarget.
+        self.tick_tunnel_network_nemesis();
     }
 
     /// C++ HealContain::update (HealContain.cpp:68-157) and
@@ -4765,6 +4831,191 @@ impl GameLogic {
 
 
 
+    /// C++ `TunnelTracker::getCurNemesis` object-validity half.
+    fn resolved_tunnel_nemesis(&mut self, team: Team) -> Option<ObjectId> {
+        let Some(id) = self.tunnel_network.get_cur_nemesis_id(team, self.frame) else {
+            return None;
+        };
+        let Some(obj) = self.objects.get(&id) else {
+            self.tunnel_network.clear_nemesis(team);
+            return None;
+        };
+        if !obj.is_alive() || obj.status.effectively_dead || obj.is_effectively_stealthed() {
+            self.tunnel_network.clear_nemesis(team);
+            return None;
+        }
+        Some(id)
+    }
+
+    /// C++ TunnelContain::update nemesis write + AITNGuard sally from the pool.
+    fn tick_tunnel_network_nemesis(&mut self) {
+        use crate::game_logic::KindOf;
+        use gamelogic::common::Relationship;
+
+        let mut writes: Vec<(Team, ObjectId)> = Vec::new();
+        for obj in self.objects.values() {
+            if !obj.is_alive() || obj.status.under_construction {
+                continue;
+            }
+            let is_tunnel = obj.is_tunnel_network_style_container()
+                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                    &obj.template_name,
+                );
+            if !is_tunnel {
+                continue;
+            }
+            let Some(src) = obj.last_damage_source else {
+                continue;
+            };
+            let Some(ts) = obj.last_damage_timestamp else {
+                continue;
+            };
+            if ts.saturating_add(30) <= self.frame {
+                continue;
+            }
+            writes.push((obj.team, src));
+        }
+        for (team, src) in writes {
+            let Some((v, s, inf, air, att_team, att_alive, att_owner, tunnel_rel_enemies)) = self
+                .objects
+                .get(&src)
+                .map(|attacker| {
+                    (
+                        attacker.is_kind_of(KindOf::Vehicle),
+                        attacker.is_kind_of(KindOf::Structure),
+                        attacker.is_kind_of(KindOf::Infantry),
+                        attacker.is_kind_of(KindOf::Aircraft),
+                        attacker.team,
+                        attacker.is_alive(),
+                        attacker.owner_player_id,
+                    )
+                })
+                .and_then(|(v, s, inf, air, att_team, att_alive, att_owner)| {
+                    if !att_alive {
+                        return None;
+                    }
+                    let tunnel = self.objects.values().find(|o| {
+                        o.team == team
+                            && o.is_alive()
+                            && (o.is_tunnel_network_style_container()
+                                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                                    &o.template_name,
+                                ))
+                    })?;
+                    let rel = match (tunnel.owner_player_id, att_owner) {
+                        (Some(a), Some(b)) => self.player_relationship(a, b),
+                        _ => Relationship::Neutral,
+                    };
+                    let enemies = rel == Relationship::Enemies
+                        || (rel == Relationship::Neutral
+                            && tunnel.team != att_team
+                            && tunnel.team != Team::Neutral
+                            && att_team != Team::Neutral);
+                    Some((v, s, inf, air, att_team, att_alive, att_owner, enemies))
+                })
+            else {
+                continue;
+            };
+            let _ = (att_team, att_alive, att_owner);
+            if !tunnel_rel_enemies {
+                continue;
+            }
+            self.tunnel_network
+                .update_nemesis(team, src, v, s, inf, air, self.frame);
+        }
+
+        // AITNGuard::lookForInnerTarget residual: pool units that are
+        // GuardTunnelNetwork / tunnel-defender sally to the tracker nemesis.
+        let teams: Vec<Team> = self.tunnel_network_teams_with_occupants();
+        for team in teams {
+            let Some(nemesis) = self.resolved_tunnel_nemesis(team) else {
+                continue;
+            };
+            let Some(nemesis_pos) = self.objects.get(&nemesis).map(|o| o.get_position()) else {
+                continue;
+            };
+            let passengers = self.tunnel_network.contained_for_team(team);
+            let mut sally: Vec<(ObjectId, ObjectId)> = Vec::new();
+            for uid in passengers {
+                let Some(unit) = self.objects.get(&uid) else {
+                    continue;
+                };
+                if !unit.is_alive() || unit.target == Some(nemesis) {
+                    continue;
+                }
+                let guard_is_tunnel = unit.guard_target.is_some_and(|gid| {
+                    self.objects.get(&gid).is_some_and(|g| {
+                        g.is_tunnel_network_style_container()
+                            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                                &g.template_name,
+                            )
+                    })
+                });
+                let is_defender = crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(
+                    &unit.template_name,
+                );
+                if !guard_is_tunnel && !is_defender {
+                    continue;
+                }
+                let exit_tunnel = self
+                    .tunnel_network
+                    .entry_tunnel_of(uid)
+                    .or_else(|| self.first_living_tunnel_for_team(team));
+                let Some(exit_tunnel) = exit_tunnel else {
+                    continue;
+                };
+                sally.push((uid, exit_tunnel));
+            }
+            for (uid, exit_tunnel) in sally {
+                let _ = self.tunnel_network.record_exit(team, uid, exit_tunnel);
+                let pos = self
+                    .objects
+                    .get(&exit_tunnel)
+                    .map(|o| o.get_position())
+                    .unwrap_or(nemesis_pos);
+                if let Some(unit) = self.objects.get_mut(&uid) {
+                    unit.set_contained_by(None);
+                    unit.set_position(pos);
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                        crate::game_logic::host_move_log::record(
+                            unit.id,
+                            Some([pos.x, pos.y, pos.z]),
+                        );
+                        unit.record_host_movement();
+                    }
+                }
+                let _ = self.engage_target_decision_aware(uid, nemesis);
+            }
+        }
+    }
+
+    fn tunnel_network_teams_with_occupants(&self) -> Vec<Team> {
+        [Team::USA, Team::China, Team::GLA]
+            .into_iter()
+            .filter(|team| self.tunnel_network.contain_count(*team) > 0)
+            .collect()
+    }
+
+    fn first_living_tunnel_for_team(&self, team: Team) -> Option<ObjectId> {
+        self.objects.iter().find_map(|(id, o)| {
+            if o.team == team
+                && o.is_alive()
+                && !o.status.sold
+                && (o.is_tunnel_network_style_container()
+                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
+                        &o.template_name,
+                    ))
+            {
+                Some(*id)
+            } else {
+                None
+            }
+        })
+    }
+
+
+
+
 
     fn collector_warehouse_scan(&self, object_id: ObjectId, owner_player_id: Option<u32>) -> Option<f32> {
         let authored = self
@@ -4857,12 +5108,24 @@ impl GameLogic {
     }
 
     fn expire_temporary_stealth_grant(&mut self, object_id: ObjectId) {
-        let expire = self
-            .objects
-            .get(&object_id)
-            .map(|object| object.temporary_stealth_expires_frame)
-            .unwrap_or(0);
-        if expire == 0 || self.frame < expire {
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        let expire = object.temporary_stealth_expires_frame;
+        // Host residual for C++ getLastCommandSource() == CMD_FROM_PLAYER:
+        // a move/attack order after stash grant is the player-visible exploit path.
+        let last_command_from_player = matches!(
+            object.ai_state,
+            AIState::Moving
+                | AIState::Attacking
+                | AIState::AttackMoving
+                | AIState::AttackingGround
+        );
+        if !Object::temporary_stealth_grant_should_expire(
+            expire,
+            self.frame,
+            last_command_from_player,
+        ) {
             return;
         }
         if let Some(object) = self.objects.get_mut(&object_id) {
@@ -4889,10 +5152,18 @@ impl GameLogic {
         if let Some(dock) = self.objects.get_mut(&dock_id) {
             dock.dock_active_docker = next;
         }
-        crate::game_logic::host_supply_gather::dock_is_clear_to_act(next, docker_id)
+        let clear = crate::game_logic::host_supply_gather::dock_is_clear_to_act(next, docker_id);
+        if clear && next == Some(docker_id) && current != Some(docker_id) {
+            self.apply_docking_model_conditions(dock_id, docker_id, true);
+        }
+        clear
     }
 
     fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        let was_holder = self
+            .objects
+            .get(&dock_id)
+            .is_some_and(|dock| dock.dock_active_docker == Some(docker_id));
         if let Some(dock) = self.objects.get_mut(&dock_id) {
             if dock.dock_active_docker == Some(docker_id) {
                 dock.dock_active_docker = None;
@@ -4900,6 +5171,56 @@ impl GameLogic {
             if dock.repair_dock_last_id == Some(docker_id) {
                 dock.repair_dock_last_id = None;
                 dock.repair_dock_health_per_sec = 0.0;
+            }
+        }
+        if was_holder {
+            self.apply_docking_model_conditions(dock_id, docker_id, false);
+        }
+    }
+
+    /// C++ `RepairDockUpdate::isRallyPointAfterDockType` + `AIDockMoveToRallyState`.
+    fn send_to_rally_after_repair_dock(&mut self, docker_id: ObjectId, dock_id: ObjectId) {
+        let Some(dock) = self.objects.get(&dock_id) else {
+            return;
+        };
+        if !dock.is_kind_of(KindOf::RepairPad) {
+            return;
+        }
+        let Some(rally) = dock.building_data.as_ref().and_then(|b| b.rally_point) else {
+            return;
+        };
+        self.path_approach_with_state(docker_id, rally, AIState::Moving);
+    }
+
+    /// C++ `onEnterReached` / `onDockReached` / `onExitReached` MODELCONDITION_DOCKING*.
+    fn apply_docking_model_conditions(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+        entering: bool,
+    ) {
+        use crate::game_logic::host_enum_table_residual::{
+            docking_active_model_bit, docking_beginning_model_bit, docking_ending_model_bit,
+            model_condition_bit_name_index,
+        };
+        let beginning = docking_beginning_model_bit();
+        let active = docking_active_model_bit();
+        let ending = docking_ending_model_bit();
+        let docking = model_condition_bit_name_index("DOCKING").unwrap_or(0) as u32;
+        for id in [dock_id, docker_id] {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                if entering {
+                    obj.model_condition_bits &= !(1u128 << ending);
+                    obj.model_condition_bits |= 1u128 << beginning;
+                    obj.model_condition_bits |= 1u128 << docking;
+                    obj.model_condition_bits |= 1u128 << active;
+                } else {
+                    obj.model_condition_bits &= !(1u128 << beginning);
+                    obj.model_condition_bits &= !(1u128 << docking);
+                    obj.model_condition_bits &= !(1u128 << active);
+                    obj.model_condition_bits |= 1u128 << ending;
+                }
+                obj.record_host_model_condition();
             }
         }
     }

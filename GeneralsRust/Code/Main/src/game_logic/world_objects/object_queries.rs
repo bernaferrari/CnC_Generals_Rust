@@ -3,23 +3,39 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-/// The structure-bound powers whose authority historically came from a
-/// superweapon-looking template name.  They now require a parsed source
-/// `SpecialPowerModule`; other legacy command paths retain their own staged
-/// module ports.
-fn is_structure_superweapon_power(power: &crate::command_system::SpecialPowerType) -> bool {
-    use crate::command_system::SpecialPowerType as P;
+/// C++ `SpecialPowerStore::canUseSpecialPower` (`SpecialPower.cpp:308`)
+/// requires `Object::getSpecialPowerModule`. Frenzy/CashHack and every other
+/// command fail closed without an authored module on the firing object.
+/// Capture / Hacker-disable live residuals store that module outside
+/// `special_power_modules` and still count as present.
+fn object_has_special_power_module(
+    obj: &Object,
+    power: &crate::command_system::SpecialPowerType,
+) -> bool {
+    if obj
+        .thing
+        .template
+        .special_power_module_for_command(power)
+        .is_some()
+    {
+        return true;
+    }
+    if obj
+        .thing
+        .template
+        .capture_power
+        .special_power_type()
+        .as_ref()
+        == Some(power)
+    {
+        return true;
+    }
     matches!(
         power,
-        P::ParticleCannon
-            | P::SuperweaponParticleCannon
-            | P::LaserCannon
-            | P::ScudStorm
-            | P::NuclearMissile
-            | P::NukeNeutronMissile
-            | P::SuperweaponNeutronMissile
-    )
+        crate::command_system::SpecialPowerType::HackerDisableBuilding
+    ) && obj.thing.template.hacker_disable_building.is_some()
 }
+
 
 impl GameLogic {
     /// Wave 958: legacy alias — prefer [`Self::host_object`].
@@ -1237,10 +1253,12 @@ impl GameLogic {
         if obj.is_disabled() {
             return false;
         }
-        let parsed_module = obj.thing.template.special_power_module_for_command(power);
-        if is_structure_superweapon_power(power) && parsed_module.is_none() {
+        // C++ SpecialPower.cpp:308 — no any-unit fallback when the object
+        // does not carry this SpecialPowerModule (Frenzy/CashHack included).
+        if !object_has_special_power_module(obj, power) {
             return false;
         }
+        let parsed_module = obj.thing.template.special_power_module_for_command(power);
         // A parsed module's loaded SpecialPowerTemplate owns science and
         // SharedSyncedTimer policy.  Fall back only for command families not
         // yet represented by a source module record.
@@ -1272,6 +1290,11 @@ impl GameLogic {
                 )
             });
         if shared_n_sync {
+            // C++ doSpecialPower refuses a paused module independently of
+            // SharedNSync; isReady only compares the player timer.
+            if obj.is_special_power_countdown_paused(power) {
+                return false;
+            }
             // C++ getReadyFrame via Player::getOrStartSpecialPowerReadyFrame.
             if let Some(player) = self.controlling_player_for_special_power(obj) {
                 if !player.is_shared_special_power_ready(power) {
@@ -1303,7 +1326,7 @@ impl GameLogic {
             ),
             None => return false,
         };
-        if is_structure_superweapon_power(power) && parsed_module.is_none() {
+        if parsed_module.is_none() {
             return false;
         }
         let reload = parsed_module
@@ -1742,8 +1765,7 @@ impl GameLogic {
             || !source.is_alive()
             || source.is_disabled()
             || source
-                .special_power_paused
-                .contains(&SpecialPowerType::HackerDisableBuilding)
+                .is_special_power_countdown_paused(&SpecialPowerType::HackerDisableBuilding)
         {
             return false;
         }
@@ -2121,20 +2143,13 @@ impl GameLogic {
                 }
                 self.upgrade_module_residuals.record_armor_set(upgrade);
             }
-            // C++ LocomotorSetUpgrade residual → setLocomotorUpgrade(true) + speed peels.
+            // C++ LocomotorSetUpgrade residual → setLocomotorUpgrade(true)
+            // then chooseLocomotorSet(SET_NORMAL) remaps to SET_NORMAL_UPGRADED
+            // and installs the whole template (AIUpdate.cpp:784-803).
             if crate::game_logic::host_upgrade_module_residuals::is_locomotor_set_upgrade(upgrade) {
-                obj.set_locomotor_upgrade(true);
-                if let Some(speed) =
-                    crate::game_logic::host_upgrade_module_residuals::locomotor_upgrade_speed(
-                        upgrade,
-                        &obj.template_name,
-                    )
-                {
-                    // Host residual: raise movement max speed when peel known.
-                    obj.movement.max_speed = obj.movement.max_speed.max(speed);
-                    obj.movement.max_speed_damaged =
-                        obj.movement.max_speed_damaged.max(speed * 0.5);
-                }
+                crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_upgrade(
+                    obj, upgrade,
+                );
                 self.upgrade_module_residuals.record_locomotor_set(upgrade);
             }
             // C++ UnpauseSpecialPowerUpgrade residual.  Capture uses its
@@ -2324,5 +2339,95 @@ mod sides_relationship_tests {
         logic.add_player(a);
         logic.add_player(b);
         assert_eq!(logic.player_relationship(0, 1), Relationship::Enemies);
+    }
+}
+
+#[cfg(test)]
+mod can_use_special_power_module_gate_tests {
+    use super::*;
+    use crate::command_system::SpecialPowerType;
+
+    fn test_module(
+        power: SpecialPowerType,
+        template: &str,
+        kind: SpecialPowerModuleKind,
+    ) -> SpecialPowerModuleMetadata {
+        SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ModuleTag_SpecialPower".into()),
+            module_kind: kind,
+            special_power_template: template.into(),
+            special_power_template_id: 1,
+            command_power: Some(power),
+            reload_time_frames: 0,
+            required_science: None,
+            public_timer: false,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+        }
+    }
+
+    /// C++ `SpecialPowerStore::canUseSpecialPower` (`SpecialPower.cpp:308`)
+    /// requires `getSpecialPowerModule`. A tank with no Frenzy/CashHack
+    /// module must not be ready; a command center that carries the modules is.
+    #[test]
+    fn frenzy_and_cash_hack_require_special_power_module() {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::China, "China", true));
+
+        let mut tank = ThingTemplate::new("Hq4vpduTank");
+        tank.set_health(100.0);
+        logic.templates.insert("Hq4vpduTank".into(), tank);
+        let tank_id = logic
+            .create_object("Hq4vpduTank", Team::China, glam::Vec3::ZERO)
+            .expect("tank");
+
+        assert!(
+            !logic.is_special_power_ready_for(tank_id, &SpecialPowerType::Frenzy),
+            "any-unit Frenzy without SpecialPowerModule must fail closed"
+        );
+        assert!(
+            !logic.is_special_power_ready_for(tank_id, &SpecialPowerType::CashHack),
+            "any-unit CashHack without SpecialPowerModule must fail closed"
+        );
+        assert!(
+            !logic.is_special_power_ready_for(tank_id, &SpecialPowerType::EarlyFrenzy),
+            "EarlyFrenzy without module must fail closed"
+        );
+        assert!(!logic.consume_special_power_charge_for(tank_id, &SpecialPowerType::Frenzy));
+        assert!(!logic.consume_special_power_charge_for(tank_id, &SpecialPowerType::CashHack));
+
+        let mut cc = ThingTemplate::new("Hq4vpduCC");
+        cc.set_health(5000.0);
+        cc.special_power_modules.push(test_module(
+            SpecialPowerType::Frenzy,
+            "SuperweaponFrenzy",
+            SpecialPowerModuleKind::OclSpecialPower,
+        ));
+        cc.special_power_modules.push(test_module(
+            SpecialPowerType::CashHack,
+            "SuperweaponCashHack",
+            SpecialPowerModuleKind::CashHackSpecialPower,
+        ));
+        logic.templates.insert("Hq4vpduCC".into(), cc);
+        let cc_id = logic
+            .create_object("Hq4vpduCC", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
+            .expect("cc");
+
+        assert!(
+            logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Frenzy),
+            "object that carries Frenzy SpecialPowerModule must be ready"
+        );
+        assert!(
+            logic.is_special_power_ready_for(cc_id, &SpecialPowerType::CashHack),
+            "object that carries CashHack SpecialPowerModule must be ready"
+        );
+        assert!(
+            !logic.is_special_power_ready_for(cc_id, &SpecialPowerType::EarlyFrenzy),
+            "CC without EarlyFrenzy module must not inherit Frenzy"
+        );
     }
 }
