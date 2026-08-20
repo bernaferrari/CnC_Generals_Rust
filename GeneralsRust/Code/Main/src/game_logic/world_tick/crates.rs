@@ -21,9 +21,7 @@ impl GameLogic {
     /// Grants `levels` to picker and same-team allies within effect_range
     /// (0 range = picker only). Fail-closed: not full pilot goal-object gate.
 
-    /// C++ HealCrateCollide::executeCrateBehavior residual.
-    ///
-    /// Heals all living objects owned by the picker's team to full health.
+    /// Heals all living objects owned by the picker player (C++ healAllObjects).
 
     /// C++ ShroudCrateCollide::executeCrateBehavior residual.
     ///
@@ -778,14 +776,21 @@ impl GameLogic {
         true
     }
     pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {
-        let team = match self.objects.get(&picker_id) {
-            Some(p) if p.is_alive() => p.team,
+        let picker_owner = match self.objects.get(&picker_id) {
+            Some(p) if p.is_alive() => p.owner_player_id,
             _ => return 0,
         };
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
-            .filter(|(_, o)| o.team == team && o.is_alive() && !o.status.destroyed)
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && !o.status.destroyed
+                    && match picker_owner {
+                        Some(pid) => o.owner_player_id == Some(pid),
+                        None => false,
+                    }
+            })
             .map(|(id, _)| *id)
             .collect();
         let mut n = 0usize;
@@ -803,7 +808,8 @@ impl GameLogic {
 
     /// C++ UnitCrateCollide::executeCrateBehavior residual.
     ///
-    /// Spawns `count` units of `unit_type` on picker's team near picker.
+    /// Missing ThingTemplate → FALSE. Spawn on picker player default team
+    /// via `findPositionAround` maxRadius 20.
     pub fn execute_unit_crate_behavior(
         &mut self,
         picker_id: ObjectId,
@@ -817,27 +823,22 @@ impl GameLogic {
         if unit_type.is_empty() || count == 0 {
             return 0;
         }
-        // Ensure template
         if !self.templates.contains_key(unit_type) {
-            let mut t = ThingTemplate::new(unit_type);
-            // Guess kind from name residual
-            if unit_type.contains("Tank") || unit_type.contains("Vehicle") {
-                t.add_kind_of(KindOf::Vehicle);
-            } else if unit_type.contains("Jet") || unit_type.contains("Aircraft") {
-                t.add_kind_of(KindOf::Aircraft);
-            } else {
-                t.add_kind_of(KindOf::Infantry);
-            }
-            t.add_kind_of(KindOf::Attackable);
-            self.templates.insert(unit_type.to_string(), t);
+            return 0;
         }
+        let occupied: Vec<(glam::Vec3, f32)> = self
+            .objects
+            .values()
+            .filter(|o| o.is_alive() && !o.status.destroyed)
+            .map(|o| (o.get_position(), o.thing.geometry.radius.max(1.0)))
+            .collect();
         let mut spawned = 0usize;
         for i in 0..count {
-            let ang = ori + (i as f32) * 0.9;
-            let pos = glam::Vec3::new(
-                origin.x + ang.cos() * (8.0 + i as f32 * 4.0),
-                origin.y,
-                origin.z + ang.sin() * (8.0 + i as f32 * 4.0),
+            let pos = crate::game_logic::host_supply_gather::find_position_around_xz(
+                origin,
+                &occupied,
+                i,
+                picker_id.0,
             );
             if let Some(nid) = self.create_object(unit_type, team, pos) {
                 if let Some(o) = self.objects.get_mut(&nid) {
@@ -848,6 +849,7 @@ impl GameLogic {
         }
         spawned
     }
+
     pub fn execute_veterancy_crate_behavior(
         &mut self,
         picker_id: ObjectId,
@@ -971,17 +973,51 @@ impl GameLogic {
                 }
             }
         }
+        let victim_vet = self
+            .objects
+            .get(&victim_id)
+            .map(|v| format!("{:?}", v.experience.level));
+        let killer_kind_names: Vec<String> = killer_id
+            .and_then(|kid| self.objects.get(&kid))
+            .map(|k| {
+                k.thing
+                    .template
+                    .kind_of
+                    .iter()
+                    .map(|ko| format!("{ko:?}"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let killer_kind_refs: Vec<&str> = killer_kind_names.iter().map(|s| s.as_str()).collect();
+        let killer_sciences: Vec<String> = killer_id
+            .and_then(|kid| self.objects.get(&kid).and_then(|k| k.owner_player_id))
+            .and_then(|pid| {
+                self.players
+                    .get(&pid)
+                    .map(|p| p.unlocked_sciences.iter().cloned().collect())
+            })
+            .unwrap_or_default();
+        let victim_owner = self
+            .objects
+            .get(&victim_id)
+            .and_then(|v| v.owner_player_id);
         let seed = crate::game_logic::host_create_crate_die::crate_die_seed(
             victim_id, killer_id, self.frame,
         );
         let mut spawned = 0usize;
         for (i, name) in crate_data.iter().enumerate() {
             let draw = (i as u32).wrapping_mul(7);
-            let Some(req) =
-                crate::game_logic::host_create_crate_die::try_roll_crate_spawn(name, seed, draw)
-            else {
+            let gates = crate::game_logic::host_create_crate_die::CrateDieGates {
+                victim_veterancy: victim_vet.as_deref(),
+                killer_kindof_names: &killer_kind_refs,
+                killer_sciences: &killer_sciences,
+            };
+            let Some(req) = crate::game_logic::host_create_crate_die::try_roll_crate_spawn_gated(
+                name, seed, draw, Some(&gates),
+            ) else {
                 continue;
             };
+
             // Spawn offset residual (fail-closed vs findPositionAround).
             let ang = (seed.wrapping_add(i as u32) as f32) * 0.7;
             let pos = glam::Vec3::new(
@@ -998,9 +1034,20 @@ impl GameLogic {
             } else if let Some(existing) = self.templates.get_mut(&req.object_name) {
                 existing.add_kind_of(crate::game_logic::KindOf::Crate);
             }
-            let Some(crate_id) = self.create_object(&req.object_name, Team::Neutral, pos) else {
+            let crate_team = if req.owned_by_maker {
+                victim_team
+            } else {
+                Team::Neutral
+            };
+            let Some(crate_id) = self.create_object(&req.object_name, crate_team, pos) else {
                 continue;
             };
+            if req.owned_by_maker {
+                if let Some(crate_obj) = self.objects.get_mut(&crate_id) {
+                    crate_obj.owner_player_id = victim_owner;
+                }
+            }
+
             if req.is_shroud_crate {
                 self.host_money_crates.register_shroud_crate(crate_id);
             } else if req.is_heal_crate {

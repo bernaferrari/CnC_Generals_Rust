@@ -183,6 +183,99 @@ fn dead_behavior_fires_once_and_skips_under_construction() {
     assert_eq!(logic.execute_temporary_weapon_on_die(source), 0);
 }
 
+/// C++ FireWeaponWhenDeadBehavior.cpp:65-88 — TriggeredBy activates; ConflictsWith
+/// only skips when the object owns the conflicting upgrade.
+#[test]
+fn dead_behavior_honors_triggered_by_and_conflicts_with_ownership() {
+    let mut logic = GameLogic::new();
+    logic.frame = 8;
+    let mux_default = FireWeaponUpgradeMuxMetadata {
+        conflicts_with: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
+        ..Default::default()
+    };
+    let mux_he = FireWeaponUpgradeMuxMetadata {
+        triggered_by: vec!["Upgrade_GLABombTruckHighExplosiveBomb".into()],
+        ..Default::default()
+    };
+    let mut template = ThingTemplate::new("GLAVehicleBombTruck");
+    template.fire_weapon_when_dead_behaviors = vec![
+        FireWeaponWhenDeadMetadata {
+            module_source_index: 0,
+            module_tag: None,
+            starts_active: true,
+            death_weapon: Some("BombTruckDefaultDeathWeapon".into()),
+            upgrade_mux: mux_default,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        },
+        FireWeaponWhenDeadMetadata {
+            module_source_index: 1,
+            module_tag: None,
+            starts_active: false,
+            death_weapon: Some("BombTruckHighExplosionDeathWeapon".into()),
+            upgrade_mux: mux_he,
+            death_types: Default::default(),
+            veterancy_levels: Default::default(),
+            exempt_status: Default::default(),
+            required_status: Default::default(),
+        },
+    ];
+    let mut object = Object::new(template, ObjectId(15), Team::GLA);
+    object.temporary_weapon_runtime.dead = vec![
+        FireWeaponWhenDeadRuntimeState {
+            module_source_index: 0,
+            upgrade_executed: false,
+        },
+        FireWeaponWhenDeadRuntimeState {
+            module_source_index: 1,
+            upgrade_executed: false,
+        },
+    ];
+    object.status.destroyed = true;
+    let source = ObjectId(15);
+    logic.objects.insert(source, object);
+    let first = logic.execute_temporary_weapon_on_die(source);
+    assert!(first > 0, "StartsActive default with empty conflict ownership must fire");
+    assert!(
+        logic
+            .host_object(source)
+            .expect("source")
+            .fire_weapon_when_dead_fired
+    );
+
+    let mut object = logic.objects.remove(&source).expect("obj");
+    object.fire_weapon_when_dead_fired = false;
+    object.apply_upgrade_tag("Upgrade_GLABombTruckHighExplosiveBomb");
+    object.temporary_weapon_runtime.dead[0].upgrade_executed = false;
+    object.temporary_weapon_runtime.dead[1].upgrade_executed = false;
+    logic.objects.insert(source, object);
+    let upgraded = logic.execute_temporary_weapon_on_die(source);
+    assert!(upgraded > 0, "TriggeredBy HE must activate exclusive death module");
+}
+
+#[test]
+fn damaged_reaction_rejects_non_matching_damage_type() {
+    let mut logic = GameLogic::new();
+    logic.frame = 10;
+    let weapon = ready_weapon(
+        "CrusaderTankGun",
+        FireWeaponWhenDamagedWeaponRole::ReactionPristine,
+    );
+    let mut object = damaged_object(16, weapon);
+    object.thing.template.fire_weapon_when_damaged_behaviors[0].damage_types =
+        FireWeaponDamageTypeMask(1u64 << 6); // C++ DAMAGE_FLAME
+    let source = ObjectId(16);
+    logic.objects.insert(source, object);
+    assert_eq!(
+        logic.execute_temporary_weapon_on_damage(source, 10.0, 0),
+        0,
+        "EXPLOSION must not spark a FLAME-only reaction"
+    );
+}
+
+
 #[test]
 fn fx_selection_uses_detonate_only_when_projectile_detonation() {
     assert_eq!(

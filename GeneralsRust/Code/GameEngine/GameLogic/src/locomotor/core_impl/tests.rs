@@ -314,4 +314,155 @@ mod tests {
         assert!(slow_down_dist > 0.0);
         assert!(slow_down_dist < 100.0); // Should not be excessively long
     }
+
+    fn test_path_with_waypoints(waypoints: Vec<Coord3D>) -> crate::ai::pathfinding_system::Path {
+        crate::ai::pathfinding_system::Path {
+            waypoints: waypoints
+                .iter()
+                .enumerate()
+                .map(|(i, pos)| crate::ai::pathfinding_system::PathWaypoint {
+                    position: *pos,
+                    layer: crate::ai::pathfinding_system::PathfindLayerEnum::Ground,
+                    distance: (i * 10) as f32,
+                })
+                .collect(),
+            total_cost: 0.0,
+            complete: true,
+            optimized: false,
+            created_frame: 0,
+        }
+    }
+
+    /// C++ `moveTowardsPositionWheels` (Locomotor.cpp:1437-1444):
+    /// `turnFactor = |actualSpeed|/turnSpeed` so a stopped truck has turnAmount 0.
+    #[test]
+    fn wheeled_turn_factor_zero_speed_does_not_spin() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Humvee".to_string()));
+        let mut loco = Locomotor::new(template);
+        let current = Coord3D::new(0.0, 0.0, 0.0);
+        let target = Coord3D::new(0.0, 100.0, 0.0);
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let (_pos, angle, _speed) = loco.move_towards(
+            current,
+            0.0,
+            0.0,
+            target,
+            15.0,
+            BodyDamageType::Pristine,
+            dt,
+        );
+        assert_eq!(
+            angle, 0.0,
+            "stationary wheeled unit must not rotate (C++ turnFactor=0)"
+        );
+    }
+
+    /// C++ Locomotor.cpp:1438-1444: turnAmount scales with |actualSpeed|/turnSpeed.
+    #[test]
+    fn wheeled_turn_factor_scales_with_speed() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Humvee".to_string()));
+        let mut slow = Locomotor::new(template.clone());
+        let mut fast = Locomotor::new(template);
+        let current = Coord3D::new(0.0, 0.0, 0.0);
+        let target = Coord3D::new(0.0, 100.0, 0.0);
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let (_, slow_angle, _) = slow.move_towards(
+            current,
+            0.0,
+            1.0,
+            target,
+            15.0,
+            BodyDamageType::Pristine,
+            dt,
+        );
+        let (_, fast_angle, _) = fast.move_towards(
+            current,
+            0.0,
+            10.0,
+            target,
+            15.0,
+            BodyDamageType::Pristine,
+            dt,
+        );
+        assert!(
+            fast_angle.abs() > slow_angle.abs(),
+            "faster wheeled unit must turn more (fast={fast_angle}, slow={slow_angle})"
+        );
+        assert!(slow_angle.abs() > 0.0, "rolling wheels must still turn");
+    }
+
+    /// C++ `locoUpdate_moveTowardsPosition` (Locomotor.cpp:941-946, 1393-1396):
+    /// far path clears IS_BRAKING; near dest sets it. Ground path must use the dispatcher.
+    #[test]
+    fn path_following_dispatcher_sets_braking_near_goal() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Truck".to_string()));
+        let mut far = Locomotor::new(template.clone());
+        far.set_path(
+            test_path_with_waypoints(vec![Coord3D::new(200.0, 0.0, 0.0)]),
+            0,
+        );
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let _ = far.update_path_following(
+            Coord3D::new(0.0, 0.0, 0.0),
+            0.0,
+            10.0,
+            BodyDamageType::Pristine,
+            15.0,
+            0,
+            dt,
+        );
+        assert!(
+            !far.is_braking(),
+            "far on-path distance must clear IS_BRAKING (Locomotor.cpp:941-946)"
+        );
+
+        let mut near = Locomotor::new(template);
+        near.set_path(
+            test_path_with_waypoints(vec![Coord3D::new(20.0, 0.0, 0.0)]),
+            0,
+        );
+        let _ = near.update_path_following(
+            Coord3D::new(0.0, 0.0, 0.0),
+            0.0,
+            10.0,
+            BodyDamageType::Pristine,
+            15.0,
+            0,
+            dt,
+        );
+        assert!(
+            near.is_braking(),
+            "near dest must set IS_BRAKING (Locomotor.cpp:1393-1396)"
+        );
+    }
+
+    /// C++ `handleBehaviorZ` Z_NO_Z_MOTIVE_FORCE (Locomotor.cpp:2196+) does not climb.
+    /// Pre-fix `advance_position` walked Z by `speed_limit_z` toward the waypoint.
+    #[test]
+    fn path_following_ground_ignores_speed_limit_z_stepper() {
+        let mut template = LocomotorTemplate::new_wheeled("Truck".to_string());
+        template.behavior_z = LocomotorBehaviorZ::NoZMotiveForce;
+        template.speed_limit_z = 999999.0;
+        let mut loco = Locomotor::new(Arc::new(template));
+        loco.set_path(
+            test_path_with_waypoints(vec![Coord3D::new(100.0, 0.0, 50.0)]),
+            0,
+        );
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let (pos, _angle, _speed) = loco
+            .update_path_following(
+                Coord3D::new(0.0, 0.0, 0.0),
+                0.0,
+                10.0,
+                BodyDamageType::Pristine,
+                15.0,
+                0,
+                dt,
+            )
+            .expect("path following should continue");
+        assert_eq!(
+            pos.z, 0.0,
+            "ground NoZMotiveForce must not climb via speed_limit_z"
+        );
+    }
 }

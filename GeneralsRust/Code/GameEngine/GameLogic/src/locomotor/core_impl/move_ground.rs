@@ -130,7 +130,6 @@ impl Locomotor {
         current_frame: u32,
     ) -> (Coord3D, Real, Real, bool) {
         let max_speed = self.get_max_speed_for_condition(condition);
-        let max_turn_rate = self.get_max_turn_rate(condition);
         let max_acceleration = self.get_max_acceleration(condition);
         let mut desired_speed = desired_speed.min(max_speed);
         if self.is_naval_blocked_at(current_pos) {
@@ -262,14 +261,14 @@ impl Locomotor {
             }
         }
 
-        // Turn rate based on speed - C++ Locomotor.cpp:1438-1444
-        // (Turn factor is used for rotateObjAroundLocoPivot; we incorporate it into desired_angle)
+        // Wheeled can only turn while moving. C++ Locomotor.cpp:1437-1454
+        // turnAmount = turnFactor * maxTurnRate is the per-frame rotateObjAroundLocoPivot cap.
         let turn_factor = if turn_speed > 0.0 {
             (actual_speed / turn_speed).abs().min(1.0)
         } else {
             0.0
         };
-        let _turn_amount = turn_factor * max_turn_rate;
+        self.wheeled_turn_factor = turn_factor;
 
         // Acceleration force - C++ Locomotor.cpp:1458-1496
         let mut speed_delta = goal_speed - actual_speed;

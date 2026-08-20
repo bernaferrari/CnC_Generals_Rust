@@ -16,10 +16,7 @@ impl Locomotor {
     pub fn apply_physics_options(&self, physics: &mut dyn crate::modules::PhysicsBehavior) {
         physics.set_extra_friction(self.ultra_accurate_extra_friction());
         physics.set_allow_airborne_friction(self.template.apply_2d_friction_when_airborne);
-        // C++ setStickToGround — PhysicsBehavior has no setter in this crate;
-        // extra friction + airborne-friction flags are the live PhysicsBehavior path.
-        let _stick = self.template.stick_to_ground;
-        let _ = _stick;
+        physics.set_stick_to_ground(self.template.stick_to_ground);
     }
 
     fn ultra_accurate_extra_friction(&self) -> Real {
@@ -46,6 +43,9 @@ impl Locomotor {
         delta_time: Real,
     ) -> (Coord3D, Real, Real) {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
+        // C++ rotateTowardsPosition uses full maxTurnRate when minSpeed==0 (Locomotor.cpp:887-895).
+        self.wheeled_turn_factor = 1.0;
+
 
         let min_speed = self.template.min_speed;
         if min_speed > 0.0 {

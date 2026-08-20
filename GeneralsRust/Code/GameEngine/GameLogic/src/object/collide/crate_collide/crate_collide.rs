@@ -200,13 +200,6 @@ impl CrateCollide {
     }
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
-        // Wave 303: empty dual-world → missing object.
-        if dual_world_registry_unavailable() {
-            return Err(CollisionError::InvalidObject(
-                "dual-world registry unavailable".into(),
-            ));
-        }
-
         let object_id = self.base_module.get_object_id();
         TheGameLogic::find_object_by_id(object_id)
             .or_else(|| OBJECT_REGISTRY.get_object(object_id))
@@ -217,6 +210,7 @@ impl CrateCollide {
                 ))
             })
     }
+
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Result<R, CollisionError> {
         let object_id = self.base_module.get_object_id();
         OBJECT_REGISTRY.with_object(object_id, f).ok_or_else(|| {
@@ -469,15 +463,15 @@ impl CrateCollide {
     }
 
     fn get_controlling_player_for_object(&self, _object_id: ObjectId) -> Option<PlayerId> {
-        // Wave 303: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        OBJECT_REGISTRY
-            .with_object(_object_id, |obj| obj.get_player_id())
-            .flatten()
+        TheGameLogic::find_object_by_id(_object_id)
+            .and_then(|obj| obj.read().ok().and_then(|guard| guard.get_player_id()))
+            .or_else(|| {
+                OBJECT_REGISTRY
+                    .with_object(_object_id, |obj| obj.get_player_id())
+                    .flatten()
+            })
     }
+
 
     fn is_human_player(&self, _player_id: PlayerId) -> bool {
         let index = _player_id.value() as PlayerIndex;
@@ -618,10 +612,9 @@ impl LegacyCollideAdapter for CrateCollide {
         loc: &Coord3D,
         normal: &Coord3D,
     ) -> Result<(), GameError> {
-        // Wave 303: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
+        // Resolve via TheGameLogic first so the host-only path still validates
+        // PickupScience / KindOf PARACHUTE (C++ isValidToExecute).
+
 
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
@@ -636,10 +629,8 @@ impl LegacyCollideAdapter for CrateCollide {
         &self,
         other_id: crate::common::ObjectID,
     ) -> Result<bool, GameError> {
-        // Wave 303: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
+        // Resolve via TheGameLogic first so empty OBJECT_REGISTRY is not fail-closed.
+
 
         let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))

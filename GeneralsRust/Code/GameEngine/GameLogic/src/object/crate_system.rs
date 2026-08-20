@@ -17,6 +17,8 @@ use std::sync::{Arc, RwLock};
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
 use crate::common::{kind_of_indices, kindof_from_name, VeterancyLevel};
 use game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
+use game_engine::common::ini::{ParsedCrateSystem, ParsedCrateTemplate};
+
 
 /// Crate creation entry - represents one possible crate that can be created
 /// Matches C++ `crateCreationEntry` struct
@@ -36,6 +38,44 @@ impl CrateCreationEntry {
         }
     }
 }
+
+/// Inputs for `CreateCrateDie::onDie` gate evaluation.
+#[derive(Debug, Clone)]
+pub struct CrateDieEval<'a> {
+    /// `GameLogicRandomValueReal(0, 1)` for `testCreationChance`.
+    pub chance_roll: f32,
+    /// `GameLogicRandomValueReal(0, 1)` for weighted `CrateObject` pick.
+    pub pick_roll: f32,
+    /// Dying object's veterancy (`getVeterancyLevel`).
+    pub victim_veterancy: VeterancyLevel,
+    /// Killer template KindOf mask; `None` if there is no killer.
+    pub killer_kindof: Option<u64>,
+    /// Direct `Player::hasScience` result when ScienceType resolved.
+    pub killer_has_science: bool,
+    /// Killer player science names (host residual / unresolved ScienceStore).
+    pub killer_sciences: &'a [&'a str],
+}
+
+impl Default for CrateDieEval<'_> {
+    fn default() -> Self {
+        Self {
+            chance_roll: 0.0,
+            pick_roll: 0.0,
+            victim_veterancy: VeterancyLevel::Regular,
+            killer_kindof: None,
+            killer_has_science: false,
+            killer_sciences: &[],
+        }
+    }
+}
+
+/// Result of a successful crate-data roll (`createCrate` + `OwnedByMaker`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrateDropPick {
+    pub crate_object_name: String,
+    pub is_owned_by_maker: bool,
+}
+
 
 /// Crate Template - defines conditions and types of crates that can be created.
 /// Matches C++ `CrateTemplate` class exactly.
@@ -64,6 +104,10 @@ pub struct CrateTemplate {
     /// Matches C++ `m_killerScience`
     pub killer_science: ScienceType,
 
+    /// INI `KillerScience` token kept for host / ScienceStore-unresolved lookup.
+    /// Empty means SCIENCE_INVALID (no restriction).
+    pub killer_science_name: String,
+
     /// CreationChance is for this CrateData to succeed; this list controls
     /// one-of-n crates created on success (weighted distribution).
     /// Matches C++ `m_possibleCrates` (crateCreationEntryList)
@@ -76,6 +120,7 @@ pub struct CrateTemplate {
     /// Whether this template is an override from a secondary INI file.
     /// Used by `reset()` to strip overrides while preserving base definitions.
     pub is_override: bool,
+
 }
 
 impl CrateTemplate {
@@ -88,6 +133,7 @@ impl CrateTemplate {
             veterancy_level: None,           // C++: m_veterancyLevel = LEVEL_INVALID
             killed_by_type_kindof: 0,        // C++: CLEAR_KINDOFMASK(m_killedByTypeKindof)
             killer_science: SCIENCE_INVALID, // C++: m_killerScience = SCIENCE_INVALID
+            killer_science_name: String::new(),
             possible_crates: Vec::new(),     // C++: m_possibleCrates.clear()
             is_owned_by_maker: false,        // C++: m_isOwnedByMaker = FALSE
             is_override: false,
@@ -101,11 +147,13 @@ impl CrateTemplate {
         self.veterancy_level = other.veterancy_level;
         self.killed_by_type_kindof = other.killed_by_type_kindof;
         self.killer_science = other.killer_science;
+        self.killer_science_name = other.killer_science_name.clone();
         self.possible_crates = other.possible_crates.clone();
         self.is_owned_by_maker = other.is_owned_by_maker;
         // Note: name is NOT copied -- the caller sets the name after copy
         // Note: is_override is NOT copied
     }
+
 
     /// Add a possible crate to the weighted list.
     /// Matches C++ `CrateTemplate::parseCrateCreationEntry`
@@ -141,6 +189,115 @@ impl CrateTemplate {
         // if the Designer didn't make the sum of chances 1"
         None
     }
+
+    /// C++ `CreateCrateDie::testCreationChance` (`CreateCrateDie.cpp:105-111`).
+    pub fn test_creation_chance(&self, roll: f32) -> bool {
+        roll < self.creation_chance
+    }
+
+    /// C++ `CreateCrateDie::testVeterancyLevel` (`CreateCrateDie.cpp:113-119`).
+    /// `None` required level is LEVEL_INVALID (gate not installed).
+    pub fn test_veterancy_level(&self, victim_level: VeterancyLevel) -> bool {
+        match self.veterancy_level {
+            None => true,
+            Some(required) => required == victim_level,
+        }
+    }
+
+    /// C++ `CreateCrateDie::testKillerType` (`CreateCrateDie.cpp:121-131`).
+    ///
+    /// `isKindOfMulti(killedBy, KINDOFMASK_NONE)` — killer must have every bit
+    /// in `m_killedByTypeKindof`. Missing killer fails the gate.
+    pub fn test_killer_type(&self, killer_kindof: Option<u64>) -> bool {
+        if self.killed_by_type_kindof == 0 {
+            return true;
+        }
+        let Some(mask) = killer_kindof else {
+            return false;
+        };
+        (mask & self.killed_by_type_kindof) == self.killed_by_type_kindof
+    }
+
+    /// C++ `CreateCrateDie::testKillerScience` (`CreateCrateDie.cpp:133-148`).
+    pub fn test_killer_science(&self, killer_has_science: bool) -> bool {
+        if !self.science_gate_installed() {
+            return true;
+        }
+        killer_has_science
+    }
+
+    /// True when INI installed a KillerScience condition.
+    pub fn science_gate_installed(&self) -> bool {
+        self.killer_science != SCIENCE_INVALID || !self.killer_science_name.trim().is_empty()
+    }
+
+    /// Name-based science check used when ScienceStore IDs are unavailable.
+    pub fn killer_has_required_science<'a, I>(&self, killer_sciences: I) -> bool
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        if !self.science_gate_installed() {
+            return true;
+        }
+        let required = self.killer_science_name.trim();
+        if required.is_empty() {
+            return false;
+        }
+        killer_sciences
+            .into_iter()
+            .any(|name| name.eq_ignore_ascii_case(required))
+    }
+
+    /// Combined `CreateCrateDie::onDie` tests after `findCrateTemplate`.
+    /// C++ `CreateCrateDie.cpp:66-76`.
+    pub fn passes_on_die_gates(
+        &self,
+        chance_roll: f32,
+        victim_veterancy: VeterancyLevel,
+        killer_kindof: Option<u64>,
+        killer_has_science: bool,
+    ) -> bool {
+        if !self.test_creation_chance(chance_roll) {
+            return false;
+        }
+        if self.veterancy_level.is_some() && !self.test_veterancy_level(victim_veterancy) {
+            return false;
+        }
+        if self.killed_by_type_kindof != 0 && !self.test_killer_type(killer_kindof) {
+            return false;
+        }
+        if self.science_gate_installed() && !self.test_killer_science(killer_has_science) {
+            return false;
+        }
+        true
+    }
+
+    /// Chance + four C++ gates + weighted `CrateObject` pick.
+    pub fn evaluate_on_die(&self, eval: &CrateDieEval<'_>) -> Option<CrateDropPick> {
+        let has_science = if self.science_gate_installed() {
+            if !eval.killer_sciences.is_empty() {
+                self.killer_has_required_science(eval.killer_sciences.iter().copied())
+            } else {
+                eval.killer_has_science
+            }
+        } else {
+            true
+        };
+        if !self.passes_on_die_gates(
+            eval.chance_roll,
+            eval.victim_veterancy,
+            eval.killer_kindof,
+            has_science,
+        ) {
+            return None;
+        }
+        let crate_object_name = self.select_crate(eval.pick_roll)?;
+        Some(CrateDropPick {
+            crate_object_name,
+            is_owned_by_maker: self.is_owned_by_maker,
+        })
+    }
+
 }
 
 impl Default for CrateTemplate {
@@ -220,6 +377,18 @@ impl CrateSystem {
         self.templates.get_mut(name)
     }
 
+    /// Host residual lookup: CrateData names are compared case-insensitively.
+    pub fn find_crate_template_ci(&self, name: &str) -> Option<&CrateTemplate> {
+        if let Some(found) = self.templates.get(name) {
+            return Some(found);
+        }
+        self.templates
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, tmpl)| tmpl)
+    }
+
+
     // ---- Registration ------------------------------------------------------
 
     /// Create a new crate template. If a "DefaultCrate" template exists, its
@@ -260,6 +429,43 @@ impl CrateSystem {
         }
         self.templates.insert(name, template);
     }
+
+
+    /// Convert Common-layer `ParsedCrateTemplate` into a runtime template.
+    pub fn template_from_parsed(parsed: &ParsedCrateTemplate) -> CrateTemplate {
+        let mut template = CrateTemplate::new(parsed.name.clone());
+        template.creation_chance = parsed.creation_chance;
+        template.veterancy_level = if parsed.veterancy_level.trim().is_empty() {
+            None
+        } else {
+            Some(parse_veterancy_level(&parsed.veterancy_level))
+        };
+        template.killed_by_type_kindof = parsed.killed_by_type_kindof;
+        template.killer_science_name = parsed.killer_science.clone();
+        template.killer_science = parse_science_type(&parsed.killer_science);
+
+        template.possible_crates = parsed
+            .possible_crates
+            .iter()
+            .map(|entry| CrateCreationEntry::new(entry.crate_name.clone(), entry.crate_chance))
+            .collect();
+        template.is_owned_by_maker = parsed.is_owned_by_maker;
+        template
+    }
+
+    /// Feed `ParsedCrateSystem` (Crate.ini) into the live leftover CrateSystem.
+    pub fn import_from_parsed(&mut self, parsed: &ParsedCrateSystem) {
+        for tmpl in parsed.iter() {
+            if self.has_template(&tmpl.name) {
+                // INI override wins: replace the runtime copy.
+                self.templates
+                    .insert(tmpl.name.clone(), Self::template_from_parsed(tmpl));
+                continue;
+            }
+            self.register_template(Self::template_from_parsed(tmpl));
+        }
+    }
+
 
     /// Insert template (C++ semantics: first one wins unless explicitly overriding).
     pub fn insert_template(&mut self, template: CrateTemplate) {
@@ -328,8 +534,36 @@ lazy_static::lazy_static! {
 /// Access the global crate system (read-write handle).
 /// Matches C++ `TheCrateSystem` pointer access.
 pub fn get_crate_system() -> Arc<RwLock<CrateSystem>> {
+    sync_runtime_crate_system_from_parsed();
     THE_CRATE_SYSTEM.clone()
 }
+
+fn sync_runtime_crate_system_from_parsed() {
+    {
+        let Ok(runtime) = THE_CRATE_SYSTEM.read() else {
+            return;
+        };
+        if runtime.get_template_count() > 0 {
+            return;
+        }
+    }
+    let Some(parsed) = game_engine::common::ini::get_crate_system() else {
+        return;
+    };
+    let parsed_guard = parsed.read();
+    if parsed_guard.is_empty() {
+        return;
+    }
+
+    let Ok(mut runtime) = THE_CRATE_SYSTEM.write() else {
+        return;
+    };
+    if runtime.get_template_count() > 0 {
+        return;
+    }
+    runtime.import_from_parsed(&parsed_guard);
+}
+
 
 // ---------------------------------------------------------------------------
 // INI Field Parsing
@@ -394,8 +628,10 @@ pub fn parse_crate_template_definition(
             }
             "KillerScience" => {
                 let sci_str = ini.get_next_token()?;
+                template.killer_science_name = sci_str.clone();
                 template.killer_science = parse_science_type(&sci_str);
             }
+
             "CrateObject" => {
                 let crate_name = ini.get_next_token()?;
                 let chance_str = ini.get_next_token()?;
@@ -422,12 +658,22 @@ pub fn parse_crate_template_definition(
 /// Matches C++ `TheVeterancyNames` lookup table.
 fn parse_veterancy_level(name: &str) -> VeterancyLevel {
     match name.to_ascii_lowercase().as_str() {
-        "regular" => VeterancyLevel::Regular,
+        "regular" | "rookie" => VeterancyLevel::Regular,
         "veteran" => VeterancyLevel::Veteran,
         "elite" => VeterancyLevel::Elite,
         "heroic" => VeterancyLevel::Heroic,
         _ => VeterancyLevel::Regular,
     }
+}
+
+/// Public C++ `TheVeterancyNames` lookup for host CreateCrateDie.
+pub fn veterancy_level_from_ini_name(name: &str) -> VeterancyLevel {
+    parse_veterancy_level(name)
+}
+
+/// Public C++ `KindOfMaskType::parseFromINI` for host CreateCrateDie.
+pub fn killed_by_type_mask_from_ini(token: &str) -> u64 {
+    parse_kind_of_mask(token)
 }
 
 /// Parse a KindOf mask from a string token.
@@ -775,4 +1021,139 @@ mod tests {
         let science: ScienceType = SCIENCE_INVALID;
         assert_eq!(science, SCIENCE_INVALID);
     }
+
+    #[test]
+    fn salvage_killed_by_type_uses_salvager_bit() {
+        // C++ KindOf.cpp s_bitNameList: SALVAGER is index 16 when ALLOW_SURRENDER is off.
+        assert_eq!(parse_kind_of_mask("SALVAGER"), 1u64 << 16);
+    }
+
+    #[test]
+    fn create_crate_die_gates_match_cpp_on_die() {
+        // C++ CreateCrateDie.cpp:66-76 — chance, veterancy, killer type, science.
+        let mut salvage = CrateTemplate::new("SalvageCrateData".into());
+        salvage.creation_chance = 1.0;
+        salvage.killed_by_type_kindof = parse_kind_of_mask("SALVAGER");
+        salvage.add_possible_crate("SalvageCrate".into(), 1.0);
+
+        assert!(!salvage.test_killer_type(None));
+        assert!(!salvage.test_killer_type(Some(1u64 << 8))); // INFANTRY only
+        assert!(salvage.test_killer_type(Some(1u64 << 16)));
+
+        let salvager_eval = CrateDieEval {
+            chance_roll: 0.5,
+            pick_roll: 0.0,
+            victim_veterancy: VeterancyLevel::Regular,
+            killer_kindof: Some(1u64 << 16),
+            killer_has_science: false,
+            killer_sciences: &[],
+        };
+        let pick = salvage
+            .evaluate_on_die(&salvager_eval)
+            .expect("salvager should pass KilledByType");
+        assert_eq!(pick.crate_object_name, "SalvageCrate");
+        assert!(!pick.is_owned_by_maker);
+
+        let infantry_eval = CrateDieEval {
+            killer_kindof: Some(1u64 << 8),
+            ..salvager_eval.clone()
+        };
+        assert!(
+            salvage.evaluate_on_die(&infantry_eval).is_none(),
+            "non-salvager must not drop SalvageCrateData"
+        );
+    }
+
+    #[test]
+    fn elite_tank_crate_requires_elite_and_creation_chance() {
+        // Retail residual: EliteTankCrateData CreationChance 0.75, VeterancyLevel ELITE.
+        let mut elite = CrateTemplate::new("EliteTankCrateData".into());
+        elite.creation_chance = 0.75;
+        elite.veterancy_level = Some(VeterancyLevel::Elite);
+        elite.add_possible_crate("EliteTankCrate".into(), 1.0);
+
+        let mut eval = CrateDieEval {
+            chance_roll: 0.5,
+            pick_roll: 0.0,
+            victim_veterancy: VeterancyLevel::Regular,
+            killer_kindof: None,
+            killer_has_science: false,
+            killer_sciences: &[],
+        };
+        assert!(elite.evaluate_on_die(&eval).is_none());
+
+        eval.victim_veterancy = VeterancyLevel::Elite;
+        assert_eq!(
+            elite.evaluate_on_die(&eval).unwrap().crate_object_name,
+            "EliteTankCrate"
+        );
+
+        eval.chance_roll = 0.75;
+        assert!(
+            elite.evaluate_on_die(&eval).is_none(),
+            "C++ testCreationChance is roll < chance"
+        );
+    }
+
+    #[test]
+    fn killer_science_and_owned_by_maker_from_parsed() {
+        let mut parsed = ParsedCrateTemplate::new("MissionCrate".into());
+        parsed.creation_chance = 1.0;
+        parsed.killer_science = "SCIENCE_GLA".into();
+        parsed.is_owned_by_maker = true;
+        parsed.possible_crates.push(
+            game_engine::common::ini::ParsedCrateCreationEntry {
+                crate_name: "1000DollarCrate".into(),
+                crate_chance: 1.0,
+            },
+        );
+
+        let tmpl = CrateSystem::template_from_parsed(&parsed);
+        assert!(tmpl.science_gate_installed());
+        assert_eq!(tmpl.killer_science_name, "SCIENCE_GLA");
+        assert!(tmpl.killer_has_required_science(["SCIENCE_GLA"]));
+        assert!(!tmpl.killer_has_required_science(["SCIENCE_AMERICA"]));
+
+        let denied = CrateDieEval {
+            chance_roll: 0.0,
+            pick_roll: 0.0,
+            victim_veterancy: VeterancyLevel::Regular,
+            killer_kindof: None,
+            killer_has_science: false,
+            killer_sciences: &[],
+        };
+        assert!(tmpl.evaluate_on_die(&denied).is_none());
+
+        let granted = CrateDieEval {
+            killer_sciences: &["SCIENCE_GLA"],
+            ..denied.clone()
+        };
+        let pick = tmpl.evaluate_on_die(&granted).expect("science granted");
+        assert_eq!(pick.crate_object_name, "1000DollarCrate");
+        assert!(pick.is_owned_by_maker);
+    }
+
+    #[test]
+    fn import_from_parsed_feeds_runtime_crate_system() {
+        let mut parsed = ParsedCrateSystem::new();
+        let mut salvage = ParsedCrateTemplate::new("SalvageCrateData".into());
+        salvage.creation_chance = 1.0;
+        salvage.killed_by_type_kindof = parse_kind_of_mask("SALVAGER");
+        salvage.possible_crates.push(
+            game_engine::common::ini::ParsedCrateCreationEntry {
+                crate_name: "SalvageCrate".into(),
+                crate_chance: 1.0,
+            },
+        );
+        parsed.insert(salvage);
+
+        let mut system = CrateSystem::new();
+        system.import_from_parsed(&parsed);
+        let tmpl = system
+            .find_crate_template("SalvageCrateData")
+            .expect("imported");
+        assert_eq!(tmpl.killed_by_type_kindof, 1u64 << 16);
+        assert_eq!(tmpl.creation_chance, 1.0);
+    }
+
 }

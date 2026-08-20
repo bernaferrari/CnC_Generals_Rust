@@ -507,4 +507,23 @@ mod tests {
         assert!(!data.initially_active);
         assert!(data.death_weapon.is_none());
     }
+
+    /// C++ FireWeaponWhenDeadBehavior.cpp:45-47 / UpgradeMux TriggeredBy tokens.
+    #[test]
+    fn parse_triggered_by_and_conflicts_with_tokens() {
+        let mut data = FireWeaponWhenDeadBehaviorModuleData::default();
+        data.upgrade_mux_data
+            .trigger_upgrade_names
+            .push(crate::common::AsciiString::from("Upgrade_HE"));
+        data.upgrade_mux_data
+            .conflicting_upgrade_names
+            .push(crate::common::AsciiString::from("Upgrade_Bio"));
+        assert!(data.upgrade_mux_data.is_triggered_by("Upgrade_HE"));
+        assert!(data
+            .upgrade_mux_data
+            .conflicting_upgrade_names
+            .iter()
+            .any(|n| n.as_str() == "Upgrade_Bio"));
+    }
+
 }

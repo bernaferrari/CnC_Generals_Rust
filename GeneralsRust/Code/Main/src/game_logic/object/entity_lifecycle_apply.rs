@@ -75,7 +75,9 @@ fn apply_one(
         TAG_TENSILE_FORMATION => object.tensile_formation = Some(decode_payload(payload)?),
         TAG_FIRE_SPREAD => object.fire_spread = Some(decode_payload(payload)?),
         TAG_BASE_REGENERATE => object.base_regenerate = Some(decode_payload(payload)?),
+        TAG_DEFAULT_AUTO_HEAL => object.default_auto_heal = Some(decode_payload(payload)?),
         TAG_ENEMY_NEAR => object.enemy_near = Some(decode_payload(payload)?),
+
         TAG_ANIMATION_STEERING => object.animation_steering = Some(decode_payload(payload)?),
         TAG_FLOAT_UPDATE => object.float_update = Some(decode_payload(payload)?),
         TAG_PRONE_UPDATE => object.prone_update = Some(decode_payload(payload)?),

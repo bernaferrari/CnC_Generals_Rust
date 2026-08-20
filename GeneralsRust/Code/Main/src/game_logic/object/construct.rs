@@ -87,7 +87,15 @@ impl Object {
         let subdual_damage_cap = template.subdual_damage_cap.max(0.0);
         let subdual_heal_rate_frames = template.subdual_heal_rate_frames;
         let subdual_heal_amount = template.subdual_heal_amount.max(0.0);
-
+        let pitch_roll_yaw_factor = if template.pitch_roll_yaw_factor.is_finite()
+            && template.pitch_roll_yaw_factor > 0.0
+        {
+            template.pitch_roll_yaw_factor
+        } else {
+            2.0
+        };
+        let physics_mass = template.physics_mass.max(1.0e-4);
+        let shock_resistance = template.shock_resistance.max(0.0);
 
         let (mut power_provided, mut power_consumed) = building_data
             .as_ref()
@@ -426,7 +434,9 @@ impl Object {
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
+            default_auto_heal: None,
             enemy_near: None,
+
             animation_steering: None,
             float_update: None,
             prone_update: None,
@@ -450,8 +460,8 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
-            physics_mass: template.physics_mass.max(1.0e-4),
-            shock_resistance: template.shock_resistance.max(0.0),
+            physics_mass,
+            shock_resistance,
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
@@ -471,13 +481,7 @@ impl Object {
             allow_to_fall: false,
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
-            pitch_roll_yaw_factor: if template.pitch_roll_yaw_factor.is_finite()
-                && template.pitch_roll_yaw_factor > 0.0
-            {
-                template.pitch_roll_yaw_factor
-            } else {
-                2.0
-            },
+            pitch_roll_yaw_factor,
             is_braking: false,
             braking_factor: 1.0,
             braking: 99999.0,
@@ -581,6 +585,10 @@ impl Object {
             armor_set_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
+            terrain_decal_type: 8,
+            terrain_decal_size: 0.0,
+            terrain_decal_fade_target: 0.0,
+            terrain_decal_fade_rate: 0.0,
             sub_object_visibility: Default::default(),
             special_power_completion: None,
             power_plant_rods_extended: false,
@@ -604,6 +612,7 @@ impl Object {
             rider_change_scuttled_on_frame: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
+            chinook_ai: None,
             contained_by: None,
             cheer_timer: 0.0,
             prone_timer: 0.0,
@@ -770,6 +779,15 @@ impl Object {
             ObjectType::Neutral => 10.0,
             _ => 10.0,
         };
+        let pitch_roll_yaw_factor = if template.pitch_roll_yaw_factor.is_finite()
+            && template.pitch_roll_yaw_factor > 0.0
+        {
+            template.pitch_roll_yaw_factor
+        } else {
+            2.0
+        };
+        let physics_mass = template.physics_mass.max(1.0e-4);
+        let shock_resistance = template.shock_resistance.max(0.0);
 
         Self {
             thing: Thing::new(template),
@@ -1092,7 +1110,9 @@ impl Object {
             tensile_formation: None,
             fire_spread: None,
             base_regenerate: None,
+            default_auto_heal: None,
             enemy_near: None,
+
             animation_steering: None,
             float_update: None,
             prone_update: None,
@@ -1116,8 +1136,8 @@ impl Object {
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
             is_panicking: false,
-            physics_mass: template.physics_mass.max(1.0e-4),
-            shock_resistance: template.shock_resistance.max(0.0),
+            physics_mass,
+            shock_resistance,
             physics_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
@@ -1137,13 +1157,7 @@ impl Object {
             allow_to_fall: false,
             was_airborne_last_frame: false,
             center_of_mass_offset: 0.0,
-            pitch_roll_yaw_factor: if template.pitch_roll_yaw_factor.is_finite()
-                && template.pitch_roll_yaw_factor > 0.0
-            {
-                template.pitch_roll_yaw_factor
-            } else {
-                2.0
-            },
+            pitch_roll_yaw_factor,
             is_braking: false,
             braking_factor: 1.0,
             braking: 99999.0,
@@ -1247,6 +1261,10 @@ impl Object {
             armor_set_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
+            terrain_decal_type: 8,
+            terrain_decal_size: 0.0,
+            terrain_decal_fade_target: 0.0,
+            terrain_decal_fade_rate: 0.0,
             sub_object_visibility: Default::default(),
             special_power_completion: None,
             power_plant_rods_extended: false,
@@ -1270,6 +1288,7 @@ impl Object {
             rider_change_scuttled_on_frame: 0,
             is_tunnel_network: false,
             is_combat_chinook_transport: false,
+            chinook_ai: None,
             contained_by: None,
             cheer_timer: 0.0,
             prone_timer: 0.0,

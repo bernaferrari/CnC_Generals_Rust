@@ -489,28 +489,16 @@ impl GameLogic {
 
     /// Recompute China infantry HordeUpdate residual (Red Guard + Tank Hunter + MiniGunner).
     ///
-    /// KindOf INFANTRY allies within Radius 30; Count 5 (includes self). ExactMatch=No
-    /// so any ally infantry counts. RubOff residual omitted (fail-closed).
+    /// Only HordeUpdate infantry count (C++ getHUI). Radius 30 / Count 5 / RubOff 20.
     pub fn update_china_infantry_horde_status(&mut self) {
+        use crate::game_logic::host_battlemaster::evaluate_leftover_horde_blob;
         use crate::game_logic::host_minigunner::is_minigunner_template;
         use crate::game_logic::host_red_guard::{
-            counts_toward_infantry_horde, distance_2d, is_china_infantry_horde_unit,
-            is_in_infantry_horde, is_red_guard_template, INFANTRY_HORDE_RADIUS,
+            counts_toward_infantry_horde, is_china_infantry_horde_unit, is_red_guard_template,
+            leftover_infantry_is_horde_neighbor, INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS,
+            INFANTRY_HORDE_RUB_OFF_RADIUS,
         };
         use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
-
-        // Snapshot all living infantry (ally count uses KindOf INFANTRY residual).
-        let infantry_snapshot: Vec<(ObjectId, Team, f32, f32, bool)> = self
-            .objects
-            .iter()
-            .filter_map(|(id, o)| {
-                if !o.is_alive() || !o.is_kind_of(KindOf::Infantry) {
-                    return None;
-                }
-                let p = o.get_position();
-                Some((*id, o.team, p.x, p.z, o.is_alive()))
-            })
-            .collect();
 
         let horde_units: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
             .objects
@@ -524,6 +512,27 @@ impl GameLogic {
             })
             .collect();
 
+        let units: Vec<(f32, f32, bool)> = horde_units
+            .iter()
+            .map(|(_, _, x, z, alive, _)| (*x, *z, *alive))
+            .collect();
+        let membership = evaluate_leftover_horde_blob(
+            &units,
+            INFANTRY_HORDE_COUNT,
+            INFANTRY_HORDE_RADIUS,
+            INFANTRY_HORDE_RUB_OFF_RADIUS,
+            |i, j, dist| {
+                counts_toward_infantry_horde(
+                    horde_units[i].4,
+                    horde_units[j].4,
+                    horde_units[i].1 == horde_units[j].1,
+                    leftover_infantry_is_horde_neighbor(&horde_units[j].5),
+                    dist,
+                    INFANTRY_HORDE_RADIUS,
+                )
+            },
+        );
+
         let mut red_grants = 0u32;
         let mut th_grants = 0u32;
         let mut mg_grants = 0u32;
@@ -531,29 +540,13 @@ impl GameLogic {
         let mut to_refresh_th: Vec<ObjectId> = Vec::new();
         let mut to_refresh_mg: Vec<ObjectId> = Vec::new();
 
-        for (id, team, x, z, alive, name) in &horde_units {
-            let mut nearby = 0u32;
-            for (oid, oteam, ox, oz, oalive) in &infantry_snapshot {
-                if *oid == *id {
-                    continue;
-                }
-                let dist = distance_2d(*x, *z, *ox, *oz);
-                if counts_toward_infantry_horde(
-                    *alive,
-                    *oalive,
-                    *team == *oteam,
-                    true, // already filtered KindOf Infantry
-                    dist,
-                    INFANTRY_HORDE_RADIUS,
-                ) {
-                    nearby = nearby.saturating_add(1);
-                }
-            }
-            let now_horde = is_in_infantry_horde(nearby);
+        for (idx, (id, _team, _x, _z, _alive, name)) in horde_units.iter().enumerate() {
+            let now_horde = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let was = obj.weapon_bonus_horde;
                 obj.weapon_bonus_horde = now_horde;
                 obj.record_host_weapon_bonus();
+                obj.apply_horde_terrain_decal(was, now_horde, true);
                 if now_horde && !was {
                     if is_red_guard_template(name) {
                         red_grants = red_grants.saturating_add(1);
@@ -595,6 +588,7 @@ impl GameLogic {
             self.refresh_minigunner_weapon(id);
         }
     }
+
 
     /// Apply Red Guard residual fire: bayonet one-shot vs close infantry, else gun damage.
     pub(in super::super) fn apply_red_guard_residual_at(

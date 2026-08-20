@@ -346,6 +346,8 @@ pub enum InputEvent {
     MouseLeave { x: i32, y: i32 },
     /// Mouse dragged while button is pressed
     MouseDrag { x: i32, y: i32, button: MouseButton },
+    /// Mouse wheel over (x, y). Negative `delta` is C++ `GWM_WHEEL_DOWN`.
+    MouseWheel { x: i32, y: i32, delta: i32 },
     /// Key pressed
     KeyDown {
         key: KeyCode,
@@ -590,7 +592,8 @@ impl GadgetManager {
         match event {
             InputEvent::MouseMove { x, y }
             | InputEvent::MouseDown { x, y, .. }
-            | InputEvent::MouseUp { x, y, .. } => {
+            | InputEvent::MouseUp { x, y, .. }
+            | InputEvent::MouseWheel { x, y, .. } => {
                 // Find gadget under mouse
                 for gadget in self.gadgets.values_mut() {
                     if gadget.is_visible()
@@ -639,6 +642,8 @@ impl GadgetManager {
                 }
             }
         }
+        self.apply_click_focus(&messages);
+
 
         messages
     }
@@ -668,6 +673,21 @@ impl GadgetManager {
         });
         (direction, key_handled)
     }
+    fn apply_click_focus(&mut self, messages: &[GadgetMessage]) {
+        let Some(gadget_id) = messages.iter().rev().find_map(|message| match message {
+            GadgetMessage::FocusChanged {
+                gadget_id,
+                has_focus: true,
+            } => Some(*gadget_id),
+            _ => None,
+        }) else {
+            return;
+        };
+        if self.focused_gadget != Some(gadget_id) {
+            let _ = self.set_focus(Some(gadget_id));
+        }
+    }
+
 
     /// Set focus to a specific gadget
     pub fn set_focus(&mut self, id: Option<GadgetId>) -> bool {
@@ -775,6 +795,35 @@ impl Default for GadgetManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// C++ `GetDoubleClickTime()` (`GadgetListBox.cpp:43`). Cached like the retail static.
+pub fn os_double_click_time_ms() -> u64 {
+    static CACHED: std::sync::LazyLock<u64> = std::sync::LazyLock::new(query_os_double_click_time_ms);
+    *CACHED
+}
+
+fn query_os_double_click_time_ms() -> u64 {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn GetDoubleClickTime() -> u32;
+        }
+        return unsafe { GetDoubleClickTime() }.max(1) as u64;
+    }
+
+    #[cfg(all(target_os = "macos", feature = "cocoa"))]
+    {
+        use objc::{class, msg_send, sel, sel_impl};
+        let interval: f64 = unsafe { msg_send![class!(NSEvent), doubleClickInterval] };
+        let ms = (interval * 1000.0).round();
+        if ms.is_finite() && ms >= 1.0 {
+            return ms as u64;
+        }
+    }
+
+    500
 }
 
 #[cfg(test)]

@@ -1131,6 +1131,7 @@ impl GameLogic {
         obj.stamp_partition_value_threat();
         let team = obj.team;
         let pos = obj.get_position();
+        let name = obj.template_name.clone();
         let has_preorder_create = obj.thing.template.has_preorder_create;
         let grant_upgrades = obj.thing.template.grant_upgrade_creates.clone();
         let lock_weapon_slot = obj.thing.template.lock_weapon_slot;
@@ -1295,13 +1296,43 @@ impl GameLogic {
 
     /// C++ DozerAIUpdate / ProductionUpdate ACTIVELY_CONSTRUCTING residual.
     ///
-    /// - Dozers with AIState::Constructing get the bit set
+    /// - Dozers get the bit only while Constructing/Repairing **and at the dock**
+    ///   (DozerAIUpdate.cpp:511/670). Driving to the site stays un-animated.
     /// - Factories with non-empty production queue get the bit set
     /// - Cleared when idle / empty queue
     pub fn update_actively_constructing_model_conditions(&mut self) {
         use crate::game_logic::host_enum_table_residual::actively_constructing_model_bit;
         let ac_mask = 1u128 << actively_constructing_model_bit();
         let mut updates = 0u32;
+        // C++ DozerAIUpdate.cpp:511/670: ACTIVELY_CONSTRUCTING only while AT the dock.
+        let dozer_at_site: std::collections::HashMap<ObjectId, bool> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| {
+                o.is_alive()
+                    && o.can_construct()
+                    && matches!(o.ai_state, AIState::Constructing | AIState::Repairing)
+            })
+            .map(|(&id, o)| {
+                let Some(tid) = o.target else {
+                    return (id, false);
+                };
+                let Some(target) = self.objects.get(&tid) else {
+                    return (id, false);
+                };
+                let range = match o.ai_state {
+                    AIState::Repairing => {
+                        crate::game_logic::host_repair::repair_action_range(target.selection_radius)
+                    }
+                    _ => crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE,
+                };
+                let p = o.get_position();
+                let t = target.get_position();
+                let dx = p.x - t.x;
+                let dz = p.z - t.z;
+                (id, (dx * dx + dz * dz).sqrt() <= range)
+            })
+            .collect();
         // Only workers / producers / objects already carrying the bit — skip the
         // rest of Lone Eagle's ~900 decorative props each frame.
         let ids: Vec<ObjectId> = self
@@ -1322,9 +1353,9 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
-            // C++ DozerAIUpdate: ACTIVELY_CONSTRUCTING for BUILD and REPAIR.
             let is_dozer_building = obj.can_construct()
-                && matches!(obj.ai_state, AIState::Constructing | AIState::Repairing);
+                && matches!(obj.ai_state, AIState::Constructing | AIState::Repairing)
+                && dozer_at_site.get(&id).copied().unwrap_or(false);
             let is_producing = obj
                 .building_data
                 .as_ref()

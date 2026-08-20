@@ -298,7 +298,8 @@ impl GameInitializer {
             params.game_mode,
             GameMode::Skirmish | GameMode::Multiplayer | GameMode::Replay
         );
-        let Ok(mut sides) = get_sides_list().write() else {
+        let sides_list = get_sides_list();
+        let Ok(mut sides) = sides_list.write() else {
             return;
         };
         if is_mp_or_skirmish {

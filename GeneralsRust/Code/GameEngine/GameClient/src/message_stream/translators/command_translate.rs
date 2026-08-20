@@ -149,6 +149,22 @@ impl GameMessageTranslator for CommandTranslator {
                     GameMessageDisposition::DestroyMessage
                 };
             }
+            GameMessageType::MetaSelectNextWorker => {
+                return {
+                    for msg in handle_select_next_or_prev_worker(true) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
+            GameMessageType::MetaSelectPrevWorker => {
+                return {
+                    for msg in handle_select_next_or_prev_worker(false) {
+                        dispatch_translated_message(&msg);
+                    }
+                    GameMessageDisposition::DestroyMessage
+                };
+            }
             GameMessageType::MetaSelectAll => {
                 return {
                     for msg in handle_select_all(false) {

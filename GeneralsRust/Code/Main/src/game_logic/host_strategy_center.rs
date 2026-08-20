@@ -1005,6 +1005,56 @@ pub fn strategy_center_mood_vision_range(search_and_destroy_active: bool) -> f32
     }
 }
 
+/// C++ `BattlePlanUpdate::setBattlePlan(PLANSTATUS_SEARCHANDDESTROY)`
+/// (`BattlePlanUpdate.cpp:804-810`) multiplies the Strategy Center's own
+/// vision + shroud-clearing ranges by
+/// `StrategyCenterSearchAndDestroySightRangeScalar` (retail **2.0**).
+/// Scalar `1.0` is a no-op, matching the C++ `!= 1.0f` gate.
+pub fn apply_strategy_center_search_and_destroy_sight(
+    vision_range: f32,
+    shroud_clearing_range: f32,
+) -> (f32, f32) {
+    scale_strategy_center_search_and_destroy_sight(
+        vision_range,
+        shroud_clearing_range,
+        STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
+        false,
+    )
+}
+
+/// C++ removal (`BattlePlanUpdate.cpp:745-749`) divides both ranges by the
+/// same building sight scalar so fog returns to the authored 400.
+pub fn remove_strategy_center_search_and_destroy_sight(
+    vision_range: f32,
+    shroud_clearing_range: f32,
+) -> (f32, f32) {
+    scale_strategy_center_search_and_destroy_sight(
+        vision_range,
+        shroud_clearing_range,
+        STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
+        true,
+    )
+}
+
+fn scale_strategy_center_search_and_destroy_sight(
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    scalar: f32,
+    invert: bool,
+) -> (f32, f32) {
+    if (scalar - 1.0).abs() < f32::EPSILON {
+        return (vision_range, shroud_clearing_range);
+    }
+    if invert {
+        if scalar.abs() < f32::EPSILON {
+            return (vision_range, shroud_clearing_range);
+        }
+        (vision_range / scalar, shroud_clearing_range / scalar)
+    } else {
+        (vision_range * scalar, shroud_clearing_range * scalar)
+    }
+}
+
 /// Whether distance is within residual mood vision range (Partition vision filter).
 pub fn strategy_center_mood_target_in_vision(distance: f32, vision_range: f32) -> bool {
     vision_range > 0.0 && distance <= vision_range + f32::EPSILON
@@ -2175,6 +2225,17 @@ mod tests {
         assert!((STRATEGY_CENTER_BASE_VISION_RANGE - 400.0).abs() < 0.001);
         assert!((strategy_center_mood_vision_range(false) - 400.0).abs() < 0.001);
         assert!((strategy_center_mood_vision_range(true) - 800.0).abs() < 0.001);
+        let (vision, shroud) =
+            apply_strategy_center_search_and_destroy_sight(400.0, 400.0);
+        assert!((vision - 800.0).abs() < 0.001);
+        assert!((shroud - 800.0).abs() < 0.001);
+        let (vision, shroud) = remove_strategy_center_search_and_destroy_sight(vision, shroud);
+        assert!((vision - 400.0).abs() < 0.001);
+        assert!((shroud - 400.0).abs() < 0.001);
+        let (vision, shroud) =
+            scale_strategy_center_search_and_destroy_sight(400.0, 400.0, 1.0, false);
+        assert!((vision - 400.0).abs() < 0.001);
+        assert!((shroud - 400.0).abs() < 0.001);
         assert!(strategy_center_mood_target_in_vision(400.0, 400.0));
         assert!(!strategy_center_mood_target_in_vision(401.0, 400.0));
         // Within vision but outside weapon min band → illegal.

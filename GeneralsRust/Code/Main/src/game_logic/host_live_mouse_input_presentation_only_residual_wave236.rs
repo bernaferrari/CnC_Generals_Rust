@@ -281,6 +281,10 @@ mod tests {
                 capture_target_effectively_stealthed: false,
                 is_crate: false,
                 is_salvage_crate: false,
+                is_vehicle: false,
+                is_aircraft: false,
+                is_drone: false,
+                is_carbomb: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: attacker,

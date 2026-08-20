@@ -15,27 +15,35 @@ impl AIIdleState {
         }
     }
 
-    fn do_init_idle_state(&mut self) {
+    fn do_init_idle_state(&mut self, context: &AIStateMachineContext) {
         if !self.inited {
-            self.initial_sleep_offset = game_logic_random_value(0, LOGICFRAMES_PER_SECOND * 2) as u16;
-            self.inited = true;
+            return;
         }
+        self.inited = false;
+        leftover_restake_idle_pathfinder(context.owner_id);
     }
+
 }
 
 impl AIState for AIIdleState {
     fn on_enter(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
-        self.do_init_idle_state();
+        // C++ AIIdleState::onEnter: mark inited so first update restakes.
+        self.initial_sleep_offset = game_logic_random_value(0, LOGICFRAMES_PER_SECOND * 2) as u16;
+        self.inited = true;
         StateReturnType::Continue
     }
 
+
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
+        // C++ AIIdleState::update calls doInitIdleState on first tick.
+        self.do_init_idle_state(context);
         if self.should_look_for_targets {
             // Look for enemies to attack
             // This would interface with targeting system
         }
         StateReturnType::Continue
     }
+
 
     fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
         // Cleanup when leaving idle state
@@ -49,6 +57,72 @@ impl AIState for AIIdleState {
         true
     }
 }
+
+/// C++ AIIdleState::doInitIdleState first updateGoal (AIStates.cpp:1320-1358).
+fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
+    if dual_world_registry_unavailable() {
+        return;
+    }
+    let Some(owner_arc) = OBJECT_REGISTRY.get_object(owner_id) else {
+        return;
+    };
+    let Ok(owner) = owner_arc.read() else {
+        return;
+    };
+    let Some(ai) = owner.get_ai_update_interface() else {
+        return;
+    };
+    let Ok(mut ai_guard) = ai.lock() else {
+        return;
+    };
+    let ultra_accurate = ai_guard
+        .get_cur_locomotor()
+        .and_then(|loco| loco.lock().ok().map(|l| l.is_ultra_accurate()))
+        .unwrap_or(false);
+    let pos = *owner.get_position();
+    let plan = crate::ai::states::idle_pathfinder_restake_plan(
+        ai_guard.is_idle(),
+        ai_guard.is_doing_ground_movement(),
+        pos,
+        ultra_accurate,
+    );
+    if plan.first_restake {
+        let layer = match owner.get_layer() {
+            crate::common::PathfindLayerEnum::Top
+            | crate::common::PathfindLayerEnum::Bridge1
+            | crate::common::PathfindLayerEnum::Bridge2
+            | crate::common::PathfindLayerEnum::Bridge3
+            | crate::common::PathfindLayerEnum::Bridge4 => {
+                crate::ai::pathfind::PathfindLayerEnum::Top
+            }
+            crate::common::PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
+            crate::common::PathfindLayerEnum::Invalid | crate::common::PathfindLayerEnum::Last => {
+                crate::ai::pathfind::PathfindLayerEnum::Invalid
+            }
+            _ => crate::ai::pathfind::PathfindLayerEnum::Ground,
+        };
+        let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
+        if plan.snap {
+            if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
+                if TheGameLogic::get_frame() <= 1 {
+                    ai_guard.set_locomotor_goal_none();
+                    ai_guard.set_current_victim(None);
+                    drop(ai_guard);
+                    drop(owner);
+                    if let Ok(mut obj_w) = owner_arc.write() {
+                        let _ = obj_w.set_position(&snapped);
+                    }
+                    let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &snapped, layer);
+                    return;
+                }
+                let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &snapped, layer);
+            }
+        }
+    }
+    ai_guard.set_locomotor_goal_none();
+    ai_guard.set_current_victim(None);
+}
+
 
 /// AI Move To State
 #[derive(Debug)]

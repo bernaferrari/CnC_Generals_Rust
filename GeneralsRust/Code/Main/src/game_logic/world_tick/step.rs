@@ -316,8 +316,9 @@ impl GameLogic {
         }
 
         // Host USA Ambulance AutoHeal residual: heal ally infantry in radius.
-        // Fail-closed vs full AutoHealBehavior sole-benefactor / vehicle matrix.
+        // Fail-closed vs full AutoHealBehavior particle / world-anim pulse FX.
         self.update_ambulance_auto_heal(dt);
+        self.update_default_auto_heal();
 
         // Host China Propaganda / Speaker Tower residual: heal + ENTHUSIASTIC buff.
         // Fail-closed vs full PropagandaTowerBehavior sole-benefactor / PulseFX matrix.
@@ -330,9 +331,9 @@ impl GameLogic {
             self.update_power_plant_rods();
         }
 
-        // Host China Battlemaster HordeUpdate residual (ExactMatch allies Radius 75 / Count 5).
-        // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
-        // Retail UpdateRate 1000ms — residual rechecks each frame when battlemasters exist.
+        // Host China vehicle HordeUpdate residual (ExactMatch family, Radius 75 / Count 5 /
+        // RubOff 20 + terrain-decal fade). Retail UpdateRate 1000ms — residual rechecks
+        // each frame when horde vehicles exist.
         // Wave 812: under coupled shadow, horde status owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -340,8 +341,9 @@ impl GameLogic {
             self.update_battlemaster_horde_status();
         }
 
-        // Host China infantry HordeUpdate residual (Red Guard / Tank Hunter, Radius 30 / Count 5).
-        // Fail-closed vs full RubOffRadius honorary / terrain-decal flag matrix.
+        // Host China infantry HordeUpdate residual (HordeUpdate infantry only, Radius 30 /
+        // Count 5 / RubOff 20 + terrain-decal fade).
+
         // Wave 813: under coupled shadow, horde status owned by GW expire + logs.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
             && crate::gameworld_shadow::shadow_coupled_tick_active())
@@ -779,6 +781,9 @@ impl GameLogic {
             );
             hits
         };
+        for victim in self.combat_system.take_pending_under_attack() {
+            let _ = self.try_under_attack_event(victim);
+        }
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.
         self.flush_countermeasure_flare_spawns();

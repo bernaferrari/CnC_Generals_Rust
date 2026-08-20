@@ -155,6 +155,11 @@ impl POWTruckBehavior {
         pow_ai.load_prisoner(prisoner_id);
         Ok(())
     }
+
+    /// C++ OpenContain::onDelete via POWTruckBehavior contain.
+    pub fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.contain.on_delete().map_err(|e| e.into())
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -338,6 +343,10 @@ impl ContainModuleInterface for POWTruckBehavior {
     fn friend_get_rider(&self) -> Option<ObjectID> {
         self.contain.friend_get_rider()
     }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        POWTruckBehavior::on_delete(self)
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -444,6 +453,7 @@ impl POWTruckBehaviorModule {
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
         Arc::new(Mutex::new(POWTruckBehaviorContainHandle {
             behavior: Arc::clone(&self.behavior),
+            cached_ids: CachedContainIds::default(),
         }))
     }
 }
@@ -452,6 +462,23 @@ impl POWTruckBehaviorModule {
 #[derive(Debug)]
 struct POWTruckBehaviorContainHandle {
     behavior: Arc<Mutex<POWTruckBehavior>>,
+    cached_ids: CachedContainIds,
+}
+
+/// Slice cache for `get_contained_objects` (C++ iterateContained real list).
+#[derive(Debug, Default)]
+struct CachedContainIds {
+    ids: std::cell::UnsafeCell<Vec<ObjectID>>,
+}
+
+unsafe impl Sync for CachedContainIds {}
+
+impl CachedContainIds {
+    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        let cache = unsafe { &mut *self.ids.get() };
+        *cache = ids;
+        unsafe { &*self.ids.get() }
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -478,7 +505,12 @@ impl ContainModuleInterface for POWTruckBehaviorContainHandle {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        &[]
+        self.cached_ids.refresh(
+            self.behavior
+                .lock()
+                .map(|guard| guard.get_contained_objects().to_vec())
+                .unwrap_or_default(),
+        )
     }
 
     fn get_contained_count(&self) -> usize {
@@ -493,6 +525,13 @@ impl ContainModuleInterface for POWTruckBehaviorContainHandle {
             .lock()
             .map(|guard| guard.get_max_capacity())
             .unwrap_or(0)
+    }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior
+            .lock()
+            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned")?
+            .on_delete()
     }
 }
 
@@ -562,6 +601,9 @@ impl Module for POWTruckBehaviorModule {
     }
 
     fn on_delete(&mut self) {
+        if let Ok(mut behavior) = self.behavior.lock() {
+            let _ = behavior.on_delete();
+        }
         let object_id = self
             .behavior
             .lock()
@@ -587,3 +629,32 @@ pub struct POWTruckBehavior;
 #[cfg(not(feature = "allow_surrender"))]
 #[derive(Debug, Default)]
 pub struct POWTruckBehaviorModule;
+
+#[cfg(all(test, feature = "allow_surrender"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contain_handle_exposes_open_contain_riders() {
+        // C++ POWTruckAIUpdate.cpp:766 iterateContained(putPrisonersInPrison)
+        // walks the truck OpenContain list, not an empty stub.
+        let src = include_str!("pow_truck_behavior.rs");
+        let start = src
+            .find("fn get_contained_objects(&self) -> &[ObjectID] {")
+            .expect("POWTruckBehaviorContainHandle::get_contained_objects");
+        // Skip POWTruckBehavior's own impl (first match) and check handle impl.
+        let handle = src[start + 1..]
+            .find("fn get_contained_objects(&self) -> &[ObjectID] {")
+            .map(|i| i + start + 1)
+            .expect("handle get_contained_objects");
+        let body = &src[handle..handle + 220];
+        assert!(
+            body.contains("cached_ids.refresh") && body.contains("guard.get_contained_objects()"),
+            "handle must forward OpenContain riders: {body}"
+        );
+        assert!(
+            !body.contains("&[]"),
+            "handle must not hardcode empty contain list: {body}"
+        );
+    }
+}

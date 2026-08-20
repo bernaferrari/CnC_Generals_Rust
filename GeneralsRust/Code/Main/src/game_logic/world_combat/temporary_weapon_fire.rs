@@ -66,9 +66,11 @@ impl GameLogic {
         actual_damage: f32,
         damage_type_ordinal: u32,
     ) -> Option<TemporaryWeaponRuntimeKey> {
+        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
         let object = self.objects.get_mut(&source)?;
         let body = body_state_of(object);
         let logic_frame = self.frame;
+        let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = None;
         for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
             object
@@ -77,8 +79,11 @@ impl GameLogic {
                 .fire_weapon_when_damaged_behaviors
                 .iter(),
         ) {
-            if metadata.starts_active {
+            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
+            }
+            if metadata.upgrade_mux.conflicts_with_owned(&owned) {
+                continue;
             }
             if !runtime.upgrade_executed {
                 continue;
@@ -108,9 +113,11 @@ impl GameLogic {
     }
 
     fn damaged_continuous_plan(&mut self, source: ObjectId) -> Option<TemporaryWeaponRuntimeKey> {
+        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
         let object = self.objects.get_mut(&source)?;
         let body = body_state_of(object);
         let logic_frame = self.frame;
+        let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut chosen = None;
         for (runtime, metadata) in object.temporary_weapon_runtime.damaged.iter_mut().zip(
             object
@@ -119,8 +126,11 @@ impl GameLogic {
                 .fire_weapon_when_damaged_behaviors
                 .iter(),
         ) {
-            if metadata.starts_active {
+            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
+            }
+            if metadata.upgrade_mux.conflicts_with_owned(&owned) {
+                continue;
             }
             if !runtime.upgrade_executed {
                 continue;
@@ -143,19 +153,33 @@ impl GameLogic {
         chosen
     }
 
+    fn fire_when_owned_upgrade_tags(&self, source: ObjectId) -> Option<(Vec<String>, Vec<String>)> {
+        let object = self.objects.get(&source)?;
+        let object_tags = object.applied_upgrades.iter().cloned().collect();
+        let player_tags = object
+            .owner_player_id
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| p.completed_upgrades.iter().cloned().collect())
+            .unwrap_or_default();
+        Some((object_tags, player_tags))
+    }
+
     fn dead_ephemeral_spec(
         &mut self,
         source: ObjectId,
     ) -> Option<
         crate::game_logic::host_temporary_weapon_behavior::FireWeaponWhenDeadEphemeralWeaponSpec,
     > {
-        let object = self.objects.get_mut(&source)?;
+        let object = self.objects.get(&source)?;
         if object.fire_weapon_when_dead_fired || object.status.under_construction {
             return None;
         }
         let death_ordinal = u32::from(object.status.death_type.ordinal());
         let veterancy_ordinal = object.experience.level as u32;
         let statuses = object.object_status_bits;
+        let (object_tags, player_tags) = self.fire_when_owned_upgrade_tags(source)?;
+        let object = self.objects.get_mut(&source)?;
+        let owned = owned_upgrade_tag_refs(&object_tags, &player_tags);
         let mut spec = None;
         for (runtime, metadata) in object
             .temporary_weapon_runtime
@@ -163,7 +187,7 @@ impl GameLogic {
             .iter_mut()
             .zip(object.thing.template.fire_weapon_when_dead_behaviors.iter())
         {
-            if metadata.starts_active {
+            if metadata.starts_active || metadata.upgrade_mux.triggered_by_owned(&owned) {
                 runtime.upgrade_executed = true;
             }
             if !runtime.upgrade_executed {
@@ -172,7 +196,7 @@ impl GameLogic {
             if !metadata.die_mux_allows(death_ordinal, veterancy_ordinal, statuses) {
                 continue;
             }
-            if !metadata.upgrade_mux.conflicts_with.is_empty() {
+            if metadata.upgrade_mux.conflicts_with_owned(&owned) {
                 continue;
             }
             spec = metadata.ephemeral_weapon_spec();
@@ -217,3 +241,12 @@ const fn continuous_role(body: FireWeaponBodyDamageState) -> FireWeaponWhenDamag
         FireWeaponBodyDamageState::Rubble => FireWeaponWhenDamagedWeaponRole::ContinuousRubble,
     }
 }
+
+fn owned_upgrade_tag_refs<'a>(object_tags: &'a [String], player_tags: &'a [String]) -> Vec<&'a str> {
+    object_tags
+        .iter()
+        .chain(player_tags.iter())
+        .map(|s| s.as_str())
+        .collect()
+}
+

@@ -23,6 +23,7 @@ pub enum TextEntryAction {
     EditDone,
     NextTab,
     PrevTab,
+    Focus,
     Ignored,
 }
 
@@ -36,6 +37,7 @@ pub struct TextEntryState {
     pub ascii_only: bool,
     pub is_secret: bool,
     pub ime_composing: bool,
+    pub focused: bool,
 }
 
 impl Default for TextEntryState {
@@ -49,6 +51,7 @@ impl Default for TextEntryState {
             ascii_only: false,
             is_secret: false,
             ime_composing: false,
+            focused: false,
         }
     }
 }
@@ -77,6 +80,12 @@ impl TextEntryState {
         self.text.push(ch);
         self.secret_text.push('*');
         TextEntryAction::UpdateText
+    }
+
+    /// C++ GadgetTextEntry GWM_LEFT_DOWN: winSetFocus.
+    pub fn left_down(&mut self) -> TextEntryAction {
+        self.focused = true;
+        TextEntryAction::Focus
     }
 
     pub fn key_press(&mut self, key: &str, down: bool, alt_or_ctrl: bool) -> TextEntryAction {
@@ -173,4 +182,13 @@ mod tests {
         );
         assert!(state.text.is_empty());
     }
+
+    #[test]
+    fn left_down_sets_keyboard_focus_like_cpp() {
+        let mut state = TextEntryState::default();
+        assert!(!state.focused);
+        assert_eq!(state.left_down(), TextEntryAction::Focus);
+        assert!(state.focused);
+    }
+
 }

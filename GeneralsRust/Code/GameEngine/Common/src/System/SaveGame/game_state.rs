@@ -522,30 +522,81 @@ impl GameState {
             && haystack.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
     }
 
+    fn normalize_portable_path(path: &str) -> String {
+        path.replace('/', "\\")
+    }
+
+    /// C++ `getMapLeafAndDirName` (GameState.cpp:800-826): last two `\` components.
+    fn get_map_leaf_and_dir_name(path: &str) -> String {
+        let trimmed = path.trim_end_matches('\\');
+        if let Some(last) = trimmed.rfind('\\') {
+            if last > 0 {
+                if let Some(prev) = trimmed[..last].rfind('\\') {
+                    return trimmed[prev + 1..].to_string();
+                }
+            }
+            return trimmed.to_string();
+        }
+        trimmed.to_string()
+    }
+
+    /// Directory-boundary match for `dir` (`maps` / `userdata\maps`).
+    /// Returns the byte index after `dir\` when `dir` is a path component.
+    fn dir_prefix_index(normalized_lower: &str, dir_lower: &str) -> Option<usize> {
+        let dir = dir_lower.trim_end_matches('\\');
+        if normalized_lower == dir {
+            return Some(normalized_lower.len());
+        }
+        if normalized_lower.starts_with(dir)
+            && normalized_lower.as_bytes().get(dir.len()) == Some(&b'\\')
+        {
+            return Some(dir.len() + 1);
+        }
+        let pat = format!("\\{dir}\\");
+        if let Some(idx) = normalized_lower.find(&pat) {
+            return Some(idx + pat.len());
+        }
+        let suffix = format!("\\{dir}");
+        if normalized_lower.ends_with(&suffix) {
+            return Some(normalized_lower.len());
+        }
+        None
+    }
+
     /// Convert real map path to portable map path
     pub fn real_map_path_to_portable_map_path(&self, path: &str) -> String {
-        let path_lower = path.to_lowercase();
-        let save_dir = self.save_directory.to_string_lossy().to_lowercase();
-        if path_lower.starts_with(&save_dir) {
+        // C++ GameState.cpp:848-875 ordered PREFIX checks: save dir, Maps,
+        // UserData\Maps, else passthrough. Pre-fix used find("maps\\") so
+        // UserData\Maps was stolen by the official Maps branch.
+        let normalized = Self::normalize_portable_path(path);
+        let lower = normalized.to_lowercase();
+        let save_dir = Self::normalize_portable_path(&self.save_directory.to_string_lossy())
+            .to_lowercase();
+        let save_dir = save_dir.trim_end_matches('\\').to_string();
+
+        if !save_dir.is_empty()
+            && (lower == save_dir || lower.starts_with(&format!("{save_dir}\\")))
+        {
             let mut out = String::from(super::game_state_map::PORTABLE_SAVE);
-            out.push_str(&self.get_map_leaf_name(path));
+            out.push_str(&self.get_map_leaf_name(&normalized));
             return out.to_lowercase();
         }
 
-        let map_dir = "maps\\";
-        let user_map_dir = "userdata\\maps\\";
-        if let Some(idx) = path_lower.find(map_dir) {
-            let mut out = String::from(super::game_state_map::PORTABLE_MAPS);
-            out.push_str(&path[idx + map_dir.len()..]);
-            return out.to_lowercase();
-        }
-        if let Some(idx) = path_lower.find(user_map_dir) {
+        // User maps before official maps so `\maps\` inside UserData\Maps
+        // cannot win. C++ PREFIX on getUserMapDir() vs getMapDir() is
+        // unambiguous; we approximate with directory-boundary names.
+        if Self::dir_prefix_index(&lower, "userdata\\maps").is_some() {
             let mut out = String::from(super::game_state_map::PORTABLE_USER_MAPS);
-            out.push_str(&path[idx + user_map_dir.len()..]);
+            out.push_str(&Self::get_map_leaf_and_dir_name(&normalized));
+            return out.to_lowercase();
+        }
+        if Self::dir_prefix_index(&lower, "maps").is_some() {
+            let mut out = String::from(super::game_state_map::PORTABLE_MAPS);
+            out.push_str(&Self::get_map_leaf_and_dir_name(&normalized));
             return out.to_lowercase();
         }
 
-        path_lower
+        lower
     }
 
     /// Convert portable map path to real map path
@@ -641,6 +692,17 @@ impl GameState {
         }
     }
 
+    /// C++ GameState.cpp:696-701 — failed load clears in-game world then resets.
+    fn cleanup_after_failed_load() {
+        notify_clear_game_data();
+        if let Some(engine) = get_game_engine() {
+            let mut engine = engine.lock();
+            if let Err(err) = futures::executor::block_on(engine.reset()) {
+                eprintln!("Error resetting game engine after failed load: {}", err);
+            }
+        }
+    }
+
     /// Load a game
     pub fn load_game(&mut self, game_info: AvailableGameInfo) -> Result<SaveCode, XferStatus> {
         let requested_mission_save =
@@ -673,7 +735,11 @@ impl GameState {
 
         // Open load file
         let mut xfer_load = XferLoad::new();
-        xfer_load.open(filepath.to_str().unwrap_or("").to_string())?;
+        if let Err(err) = xfer_load.open(filepath.to_str().unwrap_or("").to_string()) {
+            eprintln!("Error opening load file '{:?}': {:?}", filepath, err);
+            Self::cleanup_after_failed_load();
+            return Ok(SaveCode::InvalidData);
+        }
         let post_process_list: *mut Vec<(SnapshotType, usize)> =
             &mut self.snapshot_post_process_list;
         let pending_snapshot: *mut Option<(SnapshotType, usize)> =
@@ -713,12 +779,16 @@ impl GameState {
             Ok(_) => {
                 if let Err(close_err) = close_result {
                     self.snapshot_post_process_list.clear();
+                    self.pending_post_process_snapshot = None;
                     eprintln!("Error closing load file: {:?}", close_err);
+                    Self::cleanup_after_failed_load();
                     return Ok(SaveCode::InvalidData);
                 }
                 if let Err(post_process_err) = post_process_result {
                     self.snapshot_post_process_list.clear();
+                    self.pending_post_process_snapshot = None;
                     eprintln!("Error post-processing loaded game: {:?}", post_process_err);
+                    Self::cleanup_after_failed_load();
                     return Ok(SaveCode::InvalidData);
                 }
 
@@ -763,6 +833,7 @@ impl GameState {
                 eprintln!("Error loading game: {:?}", e);
                 self.snapshot_post_process_list.clear();
                 self.pending_post_process_snapshot = None;
+                Self::cleanup_after_failed_load();
                 Ok(SaveCode::InvalidData)
             }
         }
@@ -1136,8 +1207,10 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::register_save_load_mission_hooks;
     use std::fs;
     use std::path::Path;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1525,6 +1598,70 @@ mod tests {
         assert_eq!(state.get_save_game_info().map_label, "Pretty World Name");
 
         register_world_dict_map_name(|| None);
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    /// C++ GameState.cpp:848-875 — UserData\Maps is not official Maps.
+    #[test]
+    fn user_data_maps_are_portable_user_maps_not_official_maps() {
+        let save_dir = unique_temp_save_dir("portable_user_maps");
+        let state = GameState::new(save_dir.clone());
+
+        assert_eq!(
+            state.real_map_path_to_portable_map_path(
+                r"C:\Users\me\UserData\Maps\MyMap\MyMap.map"
+            ),
+            r"userdata\maps\mymap\mymap.map"
+        );
+        assert_eq!(
+            state.real_map_path_to_portable_map_path("UserData/Maps/MyMap/MyMap.map"),
+            r"userdata\maps\mymap\mymap.map"
+        );
+        assert_eq!(
+            state.real_map_path_to_portable_map_path(r"Maps\Alpine\Alpine.map"),
+            r"maps\alpine\alpine.map"
+        );
+        assert_eq!(
+            state.real_map_path_to_portable_map_path(
+                r"C:\Games\Generals\Maps\Alpine\Alpine.map"
+            ),
+            r"maps\alpine\alpine.map"
+        );
+
+        let _ = fs::remove_dir_all(save_dir);
+    }
+
+    /// C++ GameState.cpp:696-701 — failed load calls clearGameData + reset.
+    #[test]
+    fn load_game_failure_clears_game_data() {
+        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let clears = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&clears);
+        register_save_load_mission_hooks(
+            Some(Arc::new(move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            })),
+            None,
+        );
+
+        let save_dir = unique_temp_save_dir("load_fail_clear");
+        let path = save_dir.join("00000001.sav");
+        fs::write(&path, b"not-a-valid-save-file").expect("write corrupt save");
+
+        let mut state = GameState::new(save_dir.clone());
+        let result = state
+            .load_game(AvailableGameInfo {
+                filename: "00000001.sav".to_string(),
+                save_game_info: SaveGameInfo::default(),
+            })
+            .expect("load_game returns SaveCode");
+        assert_eq!(result, SaveCode::InvalidData);
+        assert!(
+            clears.load(Ordering::SeqCst) >= 1,
+            "failed load must notify_clear_game_data (C++ GameState.cpp:699-701)"
+        );
+
+        register_save_load_mission_hooks(None, None);
         let _ = fs::remove_dir_all(save_dir);
     }
 

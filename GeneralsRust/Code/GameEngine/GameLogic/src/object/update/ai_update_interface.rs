@@ -1626,7 +1626,8 @@ impl AIUpdateInterface {
         else {
             return;
         };
-        let current_speed = self.cur_locomotor_speed;
+        let current_speed = self.owner_forward_speed_2d();
+        self.apply_cur_locomotor_physics_options();
         let mut speed = {
             let Some(locomotor) = self.cur_locomotor.as_ref() else {
                 return;
@@ -1667,7 +1668,8 @@ impl AIUpdateInterface {
         else {
             return;
         };
-        let current_speed = self.cur_locomotor_speed;
+        let current_speed = self.owner_forward_speed_2d();
+        self.apply_cur_locomotor_physics_options();
         let mut speed = {
             let Some(locomotor) = self.cur_locomotor.as_ref() else {
                 return;
@@ -1742,6 +1744,39 @@ impl AIUpdateInterface {
             })
             .unwrap_or(LocoBodyDamageType::Pristine)
     }
+
+    /// C++ Locomotor.cpp:925 setPhysicsOptions every move-towards tick.
+    fn apply_cur_locomotor_physics_options(&self) {
+        let Some(loco) = self.cur_locomotor.as_ref() else {
+            return;
+        };
+        let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+            return;
+        };
+        let Ok(owner) = obj.try_read() else {
+            return;
+        };
+        let Some(physics) = owner.get_physics() else {
+            return;
+        };
+        drop(owner);
+        if let Ok(mut phys) = physics.try_lock() {
+            loco.apply_physics_options(&mut *phys);
+        }
+    }
+
+    /// C++ physics->getForwardSpeed2D() for locomotor currentSpeed.
+    fn owner_forward_speed_2d(&self) -> Real {
+        OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner| {
+                owner
+                    .get_physics()
+                    .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
+                    .unwrap_or(self.cur_locomotor_speed)
+            })
+            .unwrap_or(self.cur_locomotor_speed)
+    }
+
 
     fn clamped_desired_speed(&self, locomotor: &Locomotor, condition: LocoBodyDamageType) -> Real {
         let max_speed = locomotor.get_max_speed_for_condition(condition);

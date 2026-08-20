@@ -618,7 +618,7 @@ fn apply_nugget_property(nugget: &mut GenericObjectCreationNugget, key: &str, va
             }
         }
         "EXTRAFRICTION" => {
-            if let Some(parsed) = parse_first_real(value) {
+            if let Some(parsed) = parse_friction_per_sec(value) {
                 nugget.extra_friction = parsed;
             }
         }
@@ -755,6 +755,11 @@ fn parse_first_real(value: &str) -> Option<f32> {
         .split_whitespace()
         .next()
         .and_then(|token| token.parse::<f32>().ok())
+}
+
+/// C++ ObjectCreationList.cpp:703-708 `parseFrictionPerSec`.
+fn parse_friction_per_sec(value: &str) -> Option<f32> {
+    parse_first_real(value).map(|per_sec| per_sec * SECONDS_PER_LOGICFRAME_REAL)
 }
 
 fn parse_angle_token(value: &str) -> Option<f32> {
@@ -1826,6 +1831,15 @@ End
         assert_eq!(parse_duration_to_frames("1s"), Some(30));
         assert_eq!(parse_duration_to_frames("500ms"), Some(15));
         assert_eq!(parse_duration_to_frames("10frames"), Some(10));
+    }
+
+    #[test]
+    fn extra_friction_parse_converts_per_sec_to_per_frame() {
+        // C++ ObjectCreationList.cpp:703-708 parseFrictionPerSec:
+        // fricPerFrame = fricPerSec * SECONDS_PER_LOGICFRAME_REAL (1/30).
+        assert!((parse_friction_per_sec("-0.3").unwrap() + 0.01).abs() < 1e-6);
+        assert!((parse_friction_per_sec("3.0").unwrap() - 0.1).abs() < 1e-6);
+        assert!(parse_friction_per_sec("").is_none());
     }
 
     #[test]

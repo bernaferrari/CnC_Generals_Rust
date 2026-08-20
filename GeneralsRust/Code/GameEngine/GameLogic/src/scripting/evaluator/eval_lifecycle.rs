@@ -109,6 +109,7 @@ impl ScriptEvaluator {
     }
 
     fn evaluate_named_destroyed_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
+        // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
         let unit_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
                 "NamedDestroyed condition missing unit parameter".to_string(),
@@ -116,10 +117,11 @@ impl ScriptEvaluator {
         })?;
         let unit_name = unit_param.get_string();
         if dual_world_registry_unavailable() {
-            // C++ NamedDestroyed: missing/dead named unit is true.
-            return Ok(crate::scripting::host_script_named_unit_alive(unit_name)
-                .map(|alive| !alive)
-                .unwrap_or(true));
+            // C++: existing unit → isEffectivelyDead(); never existed → false.
+            match crate::scripting::host_script_named_unit_alive(unit_name) {
+                Some(alive) => return Ok(!alive),
+                None => return Ok(false),
+            }
         }
 
         log::debug!("Evaluating NamedDestroyed for unit: {}", unit_name);
@@ -128,12 +130,12 @@ impl ScriptEvaluator {
         if let Ok(Some(object_id)) = tracker.get_object_id(unit_name) {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj) = obj_arc.read() {
-                    return Ok(obj.is_destroyed());
+                    return Ok(obj.is_effectively_dead());
                 }
             }
             return Ok(true);
         }
-        Ok(true)
+        Ok(tracker.did_object_exist(unit_name).unwrap_or(false))
     }
 
     fn evaluate_named_created_condition(&self, condition: &Condition) -> GameLogicResult<bool> {

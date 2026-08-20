@@ -335,11 +335,14 @@ impl Weapon {
                 // C++ Weapon.cpp:2629-2632 — empty clip + auto-reload starts
                 // reloadWithBonus immediately (ammo refill + RELOADING_CLIP).
                 let _ = self.reload_with_bonus(source, bonus, false);
-            } else {
-                self.status = WeaponStatus::OutOfAmmo;
-                self.when_we_can_fire_again = 0x7fffffff;
+                return true;
             }
-            return true;
+            // C++ Weapon.cpp:2634-2637, 2672 — no-auto-reload stays empty
+            // and reports reloaded=false so Object.cpp:1466 does not release
+            // LOCKED_TEMPORARILY.
+            self.status = WeaponStatus::OutOfAmmo;
+            self.when_we_can_fire_again = 0x7fffffff;
+            return false;
         }
 
         let delay = self.template.get_delay_between_shots(bonus);
@@ -438,32 +441,47 @@ impl Weapon {
             return false;
         }
 
-        let Some(source_pos) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |guard| *guard.get_position())
+        let Some((source_pos, source_radius)) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |guard| {
+                (
+                    *guard.get_position(),
+                    guard.get_geometry_info().get_bounding_circle_radius(),
+                )
+            })
         else {
             return false;
         };
 
-        let target_pos = if let Some(pos) = target_pos {
-            *pos
-        } else if let Some(target_id) = target_obj {
-            let Some(pos) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_id, |guard| *guard.get_position())
-            else {
+        let (target_pos, target_radius) = if let Some(target_id) = target_obj {
+            let Some(pair) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                target_id,
+                |guard| {
+                    (
+                        *guard.get_position(),
+                        guard.get_geometry_info().get_bounding_circle_radius(),
+                    )
+                },
+            ) else {
                 return false;
             };
-            pos
+            pair
+        } else if let Some(pos) = target_pos {
+            (*pos, 0.0)
         } else {
             return false;
         };
 
         let min_range = self.template.get_minimum_attack_range();
+        if min_range == 0.0 {
+            return false;
+        }
         let dx = source_pos.x - target_pos.x;
         let dy = source_pos.y - target_pos.y;
-        let dist_sqr = dx * dx + dy * dy;
-        let min_range_sqr = min_range * min_range;
-
-        dist_sqr < min_range_sqr
+        let center = (dx * dx + dy * dy).sqrt();
+        let boundary = (center - source_radius - target_radius).max(0.0);
+        // C++ Weapon::isTooClose (Weapon.cpp:2211-2222): contact distance,
+        // no -0.5 fudge (RATIONALIZE_ATTACK_RANGE).
+        boundary * boundary < min_range * min_range
     }
 
     /// Get the attack distance including object bounding radii.
@@ -500,12 +518,9 @@ impl Weapon {
 
     /// Check if the source object's goal position is within attack range of the target.
     ///
-    /// Matches C++ Weapon::isSourceObjectWithGoalPositionWithinAttackRange() from
-    /// Weapon.cpp line 2110. Uses 2D distance squared comparison with the same
-    /// fudge factor and min-range guard as the C++ original.
-    ///
-    /// C++ uses `FROM_BOUNDINGSPHERE_2D`, which measures 2D boundary distance
-    /// after subtracting source/target bounding circle radii.
+    /// Matches C++ Weapon::isSourceObjectWithGoalPositionWithinAttackRange()
+    /// (Weapon.cpp:2110) with RATIONALIZE_ATTACK_RANGE: contact/bounding-sphere
+    /// distance and no `-0.5` min-range fudge (Weapon.cpp:2122-2124).
     pub fn is_source_object_with_goal_position_within_attack_range(
         &self,
         source_obj: ObjectId,
@@ -553,8 +568,8 @@ impl Weapon {
         let attack_range = self.get_attack_range(source_obj);
         let min_attack_range = self.template.get_minimum_attack_range();
 
-        // C++ line 2134: if (distSqr < minAttackRangeSqr - 0.5f) return false;
-        if dist_sqr < min_attack_range * min_attack_range - 0.5 {
+        // C++ Weapon.cpp:2122-2124 (RATIONALIZE_ATTACK_RANGE): no -0.5 fudge.
+        if dist_sqr < min_attack_range * min_attack_range {
             return false;
         }
 
@@ -645,7 +660,10 @@ impl Weapon {
         }
 
         if current_frame >= self.when_we_can_fire_again {
-            if self.ammo_in_clip > 0 || self.template.clip_size <= 0 {
+            // C++ Weapon::getStatus (Weapon.cpp:2743-2748): Ready only when
+            // ammo remains. ClipSize 0 is unlimited (0x7fffffff), not a
+            // Ready override for an empty no-auto-reload clip.
+            if self.ammo_in_clip > 0 {
                 return WeaponStatus::ReadyToFire;
             }
             return WeaponStatus::OutOfAmmo;

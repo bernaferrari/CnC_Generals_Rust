@@ -758,11 +758,39 @@ mod tests {
             encoded.len() > 4,
             "snapshot must be the versioned field stream, not u32-len + 0 bytes"
         );
-        let decoded = try_decode_skirmish_snapshot(&encoded)
-            .expect("C++ snapshot bytes must round-trip");
         assert_eq!(decoded.seed, 0x11);
         assert_eq!(decoded.map_name, "AlpineAssault.map");
         assert!(try_decode_skirmish_snapshot(&[1, 2, 3, 4]).is_none());
+    }
+
+    #[test]
+    fn production_hook_v4_bytes_populate_skirmish_snapshot() {
+        // hq-6rwbw: hook payload must be GameInfo.cpp:1488 v4 xfer, not bincode.
+        let mut live = crate::System::ChallengeGameInfoXfer::default();
+        live.seed = 0x5EED;
+        live.map_name = "UserData\\Maps\\Custom\\Custom.map".to_string();
+        live.starting_cash = 12_000;
+        live.slots[0].name = "Host".to_string();
+        live.slots[0].state = 5;
+        let hook_bytes = live.encode_xfer_bytes();
+        assert_eq!(hook_bytes.first().copied(), Some(SKIRMISH_GAME_INFO_VERSION));
+        let decoded = try_decode_skirmish_snapshot(&hook_bytes)
+            .expect("GameStateMap must accept the same v4 bytes the live hook emits");
+        assert_eq!(decoded.seed, 0x5EED);
+        assert_eq!(decoded.map_name, "UserData\\Maps\\Custom\\Custom.map");
+        assert_eq!(decoded.starting_cash, 12_000);
+        assert_eq!(decoded.slots[0].name, "Host");
+        assert_eq!(decoded.slots[0].state, 5);
+        assert!(
+            try_decode_skirmish_snapshot(&bincode_like_blob()).is_none(),
+            "bincode hook blobs must not decode as SkirmishGameInfo v4"
+        );
+    }
+
+    fn bincode_like_blob() -> Vec<u8> {
+        // bincode structs typically do not start with xfer version byte 4
+        // plus a valid GameInfo field stream.
+        vec![0x00, 0x01, 0x02, 0x03, 0x10, 0x00, 0x00, 0x00]
     }
 }
 

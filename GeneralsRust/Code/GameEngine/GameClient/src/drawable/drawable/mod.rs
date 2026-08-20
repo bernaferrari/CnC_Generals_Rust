@@ -5,7 +5,7 @@
 //! names stay identical so `crate::drawable::drawable::*` keeps working.
 
 use std::any::Any;
-use std::cell::Cell;
+use std::sync::atomic::AtomicU8;
 
 
 use crate::drawable::DrawableShroudClearState;
@@ -118,7 +118,7 @@ pub struct BasicDrawable {
     /// Live C++ `m_ambientSound` event after startAmbientSound.
     ambient_sound_event: Option<AudioEventRts>,
     /// C++ `setTimeOfDay` is invoked via `&self` iterate; applied on next `update()`.
-    pending_time_of_day: Cell<Option<crate::system::TimeOfDay>>,
+    pending_time_of_day: AtomicU8,
 
     current_frame: u32,
     /// C++ `m_isModelDirty` (`DIRTY_CONDITION_FLAGS`).
@@ -258,7 +258,7 @@ impl BasicDrawable {
             custom_sound_ambient_base_name: None,
             custom_sound_ambient_dynamic_info: None,
             ambient_sound_event: None,
-            pending_time_of_day: Cell::new(None),
+            pending_time_of_day: AtomicU8::new(0),
 
             current_frame: 0,
             is_model_dirty: true,

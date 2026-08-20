@@ -137,6 +137,71 @@ impl Object {
         self.terrain_decal_chemsuit = enabled;
     }
 
+    /// C++ Drawable::setTerrainDecal residual (HordeUpdate rings).
+    pub fn set_terrain_decal(&mut self, decal_type: u8) {
+        if self.terrain_decal_type == decal_type {
+            return;
+        }
+        self.terrain_decal_type = decal_type;
+    }
+
+    /// C++ Drawable::getTerrainDecalType residual.
+    pub fn get_terrain_decal_type(&self) -> u8 {
+        self.terrain_decal_type
+    }
+
+    /// C++ Drawable::setTerrainDecalSize residual.
+    pub fn set_terrain_decal_size(&mut self, x: f32, _y: f32) {
+        self.terrain_decal_size = x;
+    }
+
+    /// C++ Drawable::setTerrainDecalFadeTarget residual.
+    pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
+        self.terrain_decal_fade_target = target;
+        self.terrain_decal_fade_rate = rate;
+    }
+
+    /// C++ HordeUpdate terrain-decal type / size / fade matrix.
+    pub fn apply_horde_terrain_decal(
+        &mut self,
+        was_in_horde: bool,
+        now_in_horde: bool,
+        draw_icon_ui: bool,
+    ) {
+        use crate::game_logic::host_battlemaster::{
+            is_portable_structure_template, leftover_horde_decal_fade, leftover_horde_decal_type,
+            leftover_vehicle_horde_decal_size, TERRAIN_DECAL_NONE,
+        };
+        if !self.is_alive() {
+            return;
+        }
+        let is_infantry = self.is_kind_of(crate::game_logic::KindOf::Infantry);
+        if draw_icon_ui {
+            if now_in_horde && !is_portable_structure_template(&self.template_name) {
+                let has_nationalism = self.weapon_bonus_nationalism;
+                let has_fanaticism = self.applied_upgrades.iter().any(|u| {
+                    let n = u.to_ascii_lowercase();
+                    n.contains("fanaticism")
+                });
+                let ty = leftover_horde_decal_type(is_infantry, has_nationalism, has_fanaticism);
+                if !is_infantry {
+                    let size = leftover_vehicle_horde_decal_size(self.selection_radius.max(1.0));
+                    self.set_terrain_decal_size(size, size);
+                }
+                if self.get_terrain_decal_type() != ty {
+                    self.set_terrain_decal(ty);
+                }
+            }
+        } else {
+            self.set_terrain_decal(TERRAIN_DECAL_NONE);
+        }
+        if let Some((target, rate)) = leftover_horde_decal_fade(was_in_horde, now_in_horde) {
+            self.set_terrain_decal_fade_target(target, rate);
+        }
+    }
+
+
+
     /// C++ SpecialPowerCompletionDie::setCreator residual.
     pub fn set_special_power_completion(
         &mut self,
@@ -929,19 +994,14 @@ impl Object {
         if !self.is_battle_bus_transport {
             return false;
         }
-        // C++ UndeadBody: DAMAGE_UNRESISTABLE bypasses intercept (penalty / script kill).
+        // C++ UndeadBody.cpp:58-62 — only DAMAGE_UNRESISTABLE and
+        // !IsHealthDamagingDamage (Damage.h:110-127) skip second-life
+        // intercept. DAMAGE_PENALTY is ordinary HP and must trigger it.
         if matches!(
             damage_type,
             crate::game_logic::combat::DamageType::Unresistable
-                | crate::game_logic::combat::DamageType::Penalty
-                | crate::game_logic::combat::DamageType::Healing
-                | crate::game_logic::combat::DamageType::Status
-                | crate::game_logic::combat::DamageType::Hack
-                | crate::game_logic::combat::DamageType::Deploy
-                | crate::game_logic::combat::DamageType::Disarm
-                | crate::game_logic::combat::DamageType::KillGarrisoned
-                | crate::game_logic::combat::DamageType::Surrender
-        ) {
+        ) || !damage_type.is_health_damaging()
+        {
             return false;
         }
         let second = self
@@ -1085,7 +1145,7 @@ impl Object {
     /// Install residual Air Force Combat Chinook transport:
     /// C++ TransportContain Slots=8, PassengersAllowedToFire=Yes,
     /// ArmedRidersUpgradeMyWeaponSet=Yes, AllowInsideKindOf=INFANTRY VEHICLE.
-    /// Fail-closed: not ChinookAIUpdate ropes / supply / rappel / combat drop.
+    /// Fail-closed: leftover dual-world ropes/drawable still require OBJECT_REGISTRY.
     pub fn install_combat_chinook_transport(&mut self) {
         self.is_combat_chinook_transport = true;
         self.max_transport = crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_TRANSPORT_SLOTS;
@@ -1093,6 +1153,10 @@ impl Object {
         self.armed_riders_upgrade_weapon_set = true;
         // Combat Chinook KindOf includes CAN_ATTACK residual (vanilla Chinook does not).
         self.thing.template.add_kind_of(KindOf::Attackable);
+        let p = self.get_position();
+        self.chinook_ai = Some(
+            crate::game_logic::host_combat_chinook::HostChinookAI::new_combat([p.x, p.z, p.y]),
+        );
         // Retail WeaponSet Conditions=None has PRIMARY NONE until PLAYER_UPGRADE
         // (ListeningOutpostUpgradedDummyWeapon). Strip kind-based Weapon::default.
         self.weapon = None;

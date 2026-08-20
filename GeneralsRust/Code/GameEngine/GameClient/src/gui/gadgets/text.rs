@@ -1380,13 +1380,12 @@ impl Gadget for TextEntry {
 
         match event {
             InputEvent::MouseDown { .. } => {
-                // Set focus when clicked
-                if !self.focused {
-                    messages.push(GadgetMessage::FocusChanged {
-                        gadget_id: self.id,
-                        has_focus: true,
-                    });
-                }
+                // C++ GadgetTextEntry GWM_LEFT_DOWN: winSetFocus(window).
+                self.set_focus(true);
+                messages.push(GadgetMessage::FocusChanged {
+                    gadget_id: self.id,
+                    has_focus: true,
+                });
                 self.state = GadgetState::Hovered;
             }
             InputEvent::MouseEnter { .. } => {
@@ -1917,4 +1916,38 @@ mod tests {
             }
         ));
     }
+
+    #[test]
+    fn left_down_sets_keyboard_focus_like_cpp() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30);
+        assert!(!entry.has_focus());
+
+        let messages = entry.handle_input(&InputEvent::MouseDown {
+            x: 4,
+            y: 4,
+            button: MouseButton::Left,
+        });
+        assert!(entry.has_focus());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::FocusChanged {
+                gadget_id: 1,
+                has_focus: true
+            }]
+        ));
+
+        let typed = entry.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('A'),
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(entry.text(), "A");
+        assert!(typed.iter().any(|message| matches!(
+            message,
+            GadgetMessage::ValueChanged {
+                value: GadgetValue::String(text),
+                ..
+            } if text == "A"
+        )));
+    }
+
 }

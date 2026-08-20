@@ -1,5 +1,5 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
-use crate::ai::states::{AIEnterState, AttackExitConditionsInterface, AttackStateMachine};
+use crate::ai::states::{AIAttackObjectState, AIEnterState, AIPickUpCrateState};
 use crate::ai::{object_registry::get_legacy_object, vision_factors, GuardMode, THE_AI};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
@@ -7,6 +7,7 @@ use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::*;
 use crate::compat::{legacy_transition, register_classic_state, ClassicState};
+use crate::game_logic::ai_internal_move_to_state::AIInternalMoveToState;
 use crate::helpers::{game_logic_random_value, TheGameLogic, ThePartitionManager};
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
@@ -14,7 +15,6 @@ use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::state_machine::*;
 use crate::terrain::get_terrain_logic;
-
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// Wave 428: host-only path has no dual-world factory objects.
@@ -23,10 +23,71 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Close enough distance constant
-const CLOSE_ENOUGH: f32 = 25.0;
-/// Crate pickup range squared (matches AIPickUpCrateState)
-const CRATE_PICKUP_RANGE_SQR: f32 = 100.0;
+fn guard_attack_should_exit(
+    exit_conditions: &Arc<Mutex<ExitConditions>>,
+    machine_state: &State,
+) -> bool {
+    let Ok(machine) = machine_state.get_machine() else {
+        return false;
+    };
+    let Ok(machine_guard) = machine.lock() else {
+        return false;
+    };
+    let Ok(exit_guard) = exit_conditions.lock() else {
+        return false;
+    };
+    exit_guard.should_exit(&machine_guard)
+}
+
+fn start_guard_attack_object(
+    machine_state: &State,
+    nemesis_id: ObjectID,
+    follow: bool,
+    force: bool,
+) -> Result<(AIAttackObjectState, StateReturnType), String> {
+    let _ = machine_state.get_machine().ok().and_then(|machine| {
+        machine
+            .lock()
+            .ok()
+            .map(|mut guard| guard.set_goal_object_by_id(Some(nemesis_id)))
+    });
+    let machine_arc = machine_state.get_machine()?;
+    let mut attack_state = {
+        let machine_guard = machine_arc
+            .lock()
+            .map_err(|_| "guard attack machine lock poisoned".to_string())?;
+        AIAttackObjectState::new(&machine_guard, force, follow)
+    };
+    let result = attack_state.on_enter();
+    Ok((attack_state, result))
+}
+
+/// C++ `AIGuardIdleState::update` (`AIGuard.cpp:722-730`): per-axis
+/// `|d| > 2 * PATHFIND_CELL_SIZE` via `delta*delta > 4*cell*cell`.
+fn guardee_moved_beyond_return_threshold(guardee_pos: &Coord3D, current_pos: &Coord3D) -> bool {
+    let limit_sqr = 4.0 * PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F;
+    let dx = guardee_pos.x - current_pos.x;
+    if dx * dx > limit_sqr {
+        return true;
+    }
+    let dy = guardee_pos.y - current_pos.y;
+    dy * dy > limit_sqr
+}
+
+/// C++ `AIGuardAttackAggressorState::onEnter` (`AIGuard.cpp:791-796`):
+/// last-damage `sourceID` always overwrites a pre-existing nemesis.
+fn last_damage_overrides_nemesis(
+    last_damage_source: ObjectID,
+    existing_nemesis: ObjectID,
+) -> ObjectID {
+    if last_damage_source != crate::common::INVALID_ID {
+        last_damage_source
+    } else {
+        existing_nemesis
+    }
+}
+
+
 
 fn get_guard_enemy_scan_rate() -> u32 {
     let Ok(ai_guard) = THE_AI.read() else {
@@ -348,6 +409,87 @@ mod tests {
         let current = machine.lock().unwrap().get_current_state_id();
         assert_eq!(current, Some(GuardStateType::Outer as u32));
     }
+
+    #[test]
+    fn idle_follows_guardee_per_axis_two_cells_not_euclidean_four() {
+        // C++ AIGuard.cpp:722-730 — `delta*delta > 4*PATHFIND_CELL_SIZE_F^2` per axis.
+        // Pre-fix leftover used Euclidean length > 4 cells, so a 2.5-cell X-only
+        // walk (25 world units) would not trip a return-to-post.
+        let post = Coord3D::new(0.0, 0.0, 0.0);
+        let x_only = Coord3D::new(PATHFIND_CELL_SIZE_F * 2.5, 0.0, 0.0);
+        assert!(
+            guardee_moved_beyond_return_threshold(&post, &x_only),
+            "2.5 cells on X alone must return-to-post"
+        );
+        let diagonal_under = Coord3D::new(
+            PATHFIND_CELL_SIZE_F * 1.5,
+            PATHFIND_CELL_SIZE_F * 1.5,
+            0.0,
+        );
+        assert!(
+            !guardee_moved_beyond_return_threshold(&post, &diagonal_under),
+            "1.5 cells on both axes stays idle (each axis < 2 cells)"
+        );
+        let exactly_two = Coord3D::new(PATHFIND_CELL_SIZE_F * 2.0, 0.0, 0.0);
+        assert!(
+            !guardee_moved_beyond_return_threshold(&post, &exactly_two),
+            "exactly 2 cells is not greater than the C++ 4*cell*cell threshold"
+        );
+    }
+
+    #[test]
+    fn attack_aggressor_last_damage_overwrites_existing_nemesis() {
+        // C++ AIGuard.cpp:791-796 — lastDamageInfo sourceID overwrites nemesis
+        // even when a machine goal / prior inner nemesis is already set.
+        let prior = 11;
+        let attacker = 22;
+        assert_eq!(
+            last_damage_overrides_nemesis(attacker, prior),
+            attacker
+        );
+        assert_eq!(
+            last_damage_overrides_nemesis(crate::common::INVALID_ID, prior),
+            prior
+        );
+        assert_eq!(
+            last_damage_overrides_nemesis(attacker, crate::common::INVALID_ID),
+            attacker
+        );
+    }
+
+    #[test]
+    fn return_and_crate_construct_internal_move_helpers() {
+        // C++ AIGuard.h:193 AIGuardReturnState : public AIInternalMoveToState
+        // C++ AIGuard.cpp:744 AIGuardPickUpCrateState : public AIPickUpCrateState
+        let machine = Arc::new(Mutex::new(StateMachine::new(
+            Some(Weak::new()),
+            "test_guard_return",
+        )));
+        let shared = Arc::new(GuardSharedState::new(&machine));
+        let ret = AIGuardReturnState::new(&machine, shared.clone());
+        let _ = ret.move_helper.get_adjusts_destination();
+        let crate_state = AIGuardPickUpCrateState::new(&machine, shared);
+        assert!(crate_state.crate_state.is_none());
+    }
+
+    #[test]
+    fn inner_outer_aggressor_wrap_ai_attack_object_state() {
+        // C++ AIGuard.cpp:397/520/815 construct AIAttackState, not a bare AttackStateMachine.
+        let machine = Arc::new(Mutex::new(StateMachine::new(
+            Some(Weak::new()),
+            "test_guard_attack",
+        )));
+        let shared = Arc::new(GuardSharedState::new(&machine));
+        let inner = AIGuardInnerState::new(&machine, shared.clone());
+        let outer = AIGuardOuterState::new(&machine, shared.clone());
+        let agg = AIGuardAttackAggressorState::new(&machine, shared);
+        let _: &Option<AIAttackObjectState> = &inner.attack_state;
+        let _: &Option<AIAttackObjectState> = &outer.attack_state;
+        let _: &Option<AIAttackObjectState> = &agg.attack_state;
+        assert!(inner.attack_state.is_none());
+        assert!(outer.attack_state.is_none());
+        assert!(agg.attack_state.is_none());
+    }
 }
 
 /// Exit condition flags
@@ -424,25 +566,6 @@ impl ExitConditions {
     }
 }
 
-#[derive(Debug, Clone)]
-struct GuardExitConditionsHandle {
-    inner: Arc<Mutex<ExitConditions>>,
-}
-
-impl GuardExitConditionsHandle {
-    fn new(inner: Arc<Mutex<ExitConditions>>) -> Self {
-        Self { inner }
-    }
-}
-
-impl AttackExitConditionsInterface for GuardExitConditionsHandle {
-    fn should_exit(&self, machine: &StateMachine) -> bool {
-        let Ok(guard) = self.inner.lock() else {
-            return false;
-        };
-        guard.should_exit(machine)
-    }
-}
 
 /// Main guard state machine
 #[derive(Debug)]
@@ -886,7 +1009,7 @@ pub struct AIGuardInnerState {
     base: GuardState,
     exit_conditions: Arc<Mutex<ExitConditions>>,
     is_attacking: bool,
-    attack_machine: Option<AttackStateMachine>,
+    attack_state: Option<AIAttackObjectState>,
     enter_state: Option<AIEnterState>,
 }
 
@@ -896,7 +1019,7 @@ impl AIGuardInnerState {
             base: GuardState::new(machine, shared, "AIGuardInner"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
             is_attacking: false,
-            attack_machine: None,
+            attack_state: None,
             enter_state: None,
         }
     }
@@ -941,7 +1064,7 @@ impl ClassicState for AIGuardInnerState {
             .flatten()
         else {
             self.is_attacking = false;
-            self.attack_machine = None;
+            self.attack_state = None;
             self.enter_state = None;
             return Ok(StateReturnType::Success);
         };
@@ -965,7 +1088,7 @@ impl ClassicState for AIGuardInnerState {
                 .with_machine(|machine| machine.set_goal_object_by_id(nemesis_id));
 
             self.is_attacking = false;
-            self.attack_machine = None;
+            self.attack_state = None;
             self.enter_state = Some(enter_state);
             if let Some(enter_state) = self.enter_state.as_mut() {
                 let result = enter_state.on_enter();
@@ -1000,21 +1123,18 @@ impl ClassicState for AIGuardInnerState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
-            "AIGuardAttackMachine",
-            false,
-            true,
-            false,
-        );
-        attack_machine.set_exit_conditions(Box::new(GuardExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
+        if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+            self.is_attacking = false;
+            self.attack_state = None;
+            self.enter_state = None;
+            return Ok(StateReturnType::Success);
+        }
 
-        let result = attack_machine.init_default_state();
+        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        let (attack_state, result) =
+            start_guard_attack_object(self.base.state(), nemesis_id, false, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
-        self.attack_machine = Some(attack_machine);
+        self.attack_state = Some(attack_state);
         self.enter_state = None;
 
         if result == StateReturnType::Continue {
@@ -1025,7 +1145,7 @@ impl ClassicState for AIGuardInnerState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Some(attack_machine) = self.attack_machine.as_mut() {
+        if let Some(attack_state) = self.attack_state.as_mut() {
             let target_to_guard = self.base.get_target_to_guard();
             if target_to_guard != crate::common::INVALID_ID {
                 if let Some(target_arc) = get_legacy_object(target_to_guard) {
@@ -1036,7 +1156,10 @@ impl ClassicState for AIGuardInnerState {
                     }
                 }
             }
-            return Ok(attack_machine.update());
+            if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+                return Ok(StateReturnType::Success);
+            }
+            return Ok(attack_state.update());
         }
 
         if let Some(enter_state) = self.enter_state.as_mut() {
@@ -1047,8 +1170,8 @@ impl ClassicState for AIGuardInnerState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(mut machine) = self.attack_machine.take() {
-            let _ = machine.halt();
+        if let Some(mut attack_state) = self.attack_state.take() {
+            attack_state.on_exit(_exit);
         }
         if let Some(mut enter_state) = self.enter_state.take() {
             enter_state.on_exit(_exit);
@@ -1218,14 +1341,9 @@ impl ClassicState for AIGuardIdleState {
         if target_id != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_id) {
                 if let Ok(target_guard) = target_arc.read() {
-                    let target_pos = target_guard.get_position();
-                    let delta = Coord3D::new(
-                        target_pos.x - self.guardee_pos.x,
-                        target_pos.y - self.guardee_pos.y,
-                        0.0,
-                    );
-                    let threshold = PATHFIND_CELL_SIZE_F * 4.0;
-                    if Vector3Ext::length_sqr(&delta) > threshold * threshold {
+                    let pos = *target_guard.get_position();
+                    if guardee_moved_beyond_return_threshold(&self.guardee_pos, &pos) {
+                        self.guardee_pos = pos;
                         return Ok(StateReturnType::Failure);
                     }
                 }
@@ -1251,7 +1369,7 @@ pub struct AIGuardOuterState {
     base: GuardState,
     exit_conditions: Arc<Mutex<ExitConditions>>,
     is_attacking: bool,
-    attack_machine: Option<AttackStateMachine>,
+    attack_state: Option<AIAttackObjectState>,
 }
 
 impl AIGuardOuterState {
@@ -1260,7 +1378,7 @@ impl AIGuardOuterState {
             base: GuardState::new(machine, shared, "AIGuardOuter"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
             is_attacking: false,
-            attack_machine: None,
+            attack_state: None,
         }
     }
 
@@ -1316,7 +1434,7 @@ impl ClassicState for AIGuardOuterState {
             None
         }) else {
             self.is_attacking = false;
-            self.attack_machine = None;
+            self.attack_state = None;
             return Ok(StateReturnType::Success);
         };
 
@@ -1370,21 +1488,17 @@ impl ClassicState for AIGuardOuterState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
-            "AIGuardAttackMachine",
-            false,
-            true,
-            false,
-        );
-        attack_machine.set_exit_conditions(Box::new(GuardExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
-        let result = attack_machine.init_default_state();
+        if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+            self.is_attacking = false;
+            self.attack_state = None;
+            return Ok(StateReturnType::Success);
+        }
 
+        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        let (attack_state, result) =
+            start_guard_attack_object(self.base.state(), nemesis_id, false, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
-        self.attack_machine = Some(attack_machine);
+        self.attack_state = Some(attack_state);
 
         if result == StateReturnType::Continue {
             Ok(StateReturnType::Continue)
@@ -1399,7 +1513,7 @@ impl ClassicState for AIGuardOuterState {
             return Ok(StateReturnType::Continue);
         }
 
-        let Some(attack_machine) = self.attack_machine.as_mut() else {
+        let Some(attack_state) = self.attack_state.as_mut() else {
             return Ok(StateReturnType::Success);
         };
 
@@ -1443,12 +1557,15 @@ impl ClassicState for AIGuardOuterState {
             }
         }
 
-        Ok(attack_machine.update())
+        if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+            return Ok(StateReturnType::Success);
+        }
+        Ok(attack_state.update())
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(mut machine) = self.attack_machine.take() {
-            let _ = machine.halt();
+        if let Some(mut attack_state) = self.attack_state.take() {
+            attack_state.on_exit(_exit);
         }
         self.is_attacking = false;
         Ok(())
@@ -1469,6 +1586,7 @@ pub struct AIGuardReturnState {
     base: GuardState,
     next_return_scan_time: u32,
     goal_position: Coord3D,
+    move_helper: AIInternalMoveToState,
 }
 
 impl AIGuardReturnState {
@@ -1477,6 +1595,8 @@ impl AIGuardReturnState {
             base: GuardState::new(machine, shared, "AIGuardReturn"),
             next_return_scan_time: 0,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
+            move_helper: AIInternalMoveToState::new(machine, "AIGuardReturn".to_string())
+                .expect("AIInternalMoveToState bind"),
         }
     }
 }
@@ -1533,14 +1653,13 @@ impl ClassicState for AIGuardReturnState {
                     if ai_guard.is_doing_ground_movement() {
                         let _ = ai_guard.adjust_destination(&mut self.goal_position);
                     }
-                    ai.ai_move_to_position(&self.goal_position, false, CommandSourceType::FromAi);
                 }
             }
         }
-        let _ = self
-            .base
-            .with_machine(|machine| machine.set_goal_position(self.goal_position));
-        Ok(StateReturnType::Continue)
+        // C++ AIGuard.cpp:624-625 — setAdjustsDestination(true); AIInternalMoveToState::onEnter()
+        self.move_helper.set_adjusts_destination(true);
+        self.move_helper.set_goal_position(self.goal_position);
+        self.move_helper.on_enter()
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1583,27 +1702,13 @@ impl ClassicState for AIGuardReturnState {
             }
         }
 
-        let owner = self
-            .base
-            .state()
-            .get_machine_owner()
-            .ok_or_else(|| "guard return missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "guard return owner lock poisoned".to_string())?;
-        let owner_pos = owner_guard.get_position();
-        let dx = owner_pos.x - self.goal_position.x;
-        let dy = owner_pos.y - self.goal_position.y;
-        if dx * dx + dy * dy <= CLOSE_ENOUGH * CLOSE_ENOUGH {
-            return Ok(StateReturnType::Success);
-        }
-
-        Ok(StateReturnType::Continue)
+        // C++ AIGuard.cpp:640 — return AIInternalMoveToState::update()
+        self.move_helper.update()
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Cleanup when exiting return guard state
-        Ok(())
+        // C++ AIGuard.cpp:646 — AIInternalMoveToState::onExit(status)
+        self.move_helper.on_exit(_exit)
     }
 
     fn classic_is_busy(&self) -> bool {
@@ -1615,12 +1720,14 @@ impl ClassicState for AIGuardReturnState {
 #[derive(Debug)]
 pub struct AIGuardPickUpCrateState {
     base: GuardState,
+    crate_state: Option<AIPickUpCrateState>,
 }
 
 impl AIGuardPickUpCrateState {
     pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardPickUpCrate"),
+            crate_state: None,
         }
     }
 }
@@ -1674,52 +1781,32 @@ impl ClassicState for AIGuardPickUpCrateState {
             .shared
             .with_machine(|machine| machine.set_goal_object_by_id(crate_id));
 
-        if let Ok(crate_guard) = crate_obj.read() {
-            ai.ai_move_to_position(crate_guard.get_position(), false, CommandSourceType::FromAi);
-        }
+        drop(ai_guard);
+        drop(owner_guard);
 
-        Ok(StateReturnType::Continue)
+        let machine_arc = self.base.state().get_machine()?;
+        let mut crate_state = {
+            let machine_guard = machine_arc
+                .lock()
+                .map_err(|_| "pick up crate machine lock poisoned".to_string())?;
+            AIPickUpCrateState::new(&machine_guard)
+        };
+        let result = crate_state.on_enter();
+        self.crate_state = Some(crate_state);
+        Ok(result)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        // Wave 428: empty dual-world → Ok(Continue).
-        if dual_world_registry_unavailable() {
-            return Ok(StateReturnType::Continue);
-        }
-
-        let owner = self
-            .base
-            .state()
-            .get_machine_owner()
-            .ok_or_else(|| "pick up crate missing owner".to_string())?;
-        let Some(goal_id) = self.base.state().get_machine_goal_object_id() else {
+        let Some(crate_state) = self.crate_state.as_mut() else {
             return Ok(StateReturnType::Success);
         };
-
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "pick up crate owner lock poisoned".to_string())?;
-        let Some(dist_sqr) =
-            crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
-                let owner_pos = owner_guard.get_position();
-                let goal_pos = goal_guard.get_position();
-                let dx = owner_pos.x - goal_pos.x;
-                let dy = owner_pos.y - goal_pos.y;
-                dx * dx + dy * dy
-            })
-        else {
-            return Ok(StateReturnType::Success);
-        };
-
-        if dist_sqr <= CRATE_PICKUP_RANGE_SQR {
-            return Ok(StateReturnType::Success);
-        }
-
-        Ok(StateReturnType::Continue)
+        Ok(crate_state.update())
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Cleanup when exiting pick up crate state
+        if let Some(mut crate_state) = self.crate_state.take() {
+            crate_state.on_exit(_exit);
+        }
         Ok(())
     }
 
@@ -1728,13 +1815,14 @@ impl ClassicState for AIGuardPickUpCrateState {
     }
 }
 
+
 /// Attack aggressor state - attack something that attacked us
 #[derive(Debug)]
 pub struct AIGuardAttackAggressorState {
     base: GuardState,
     exit_conditions: Arc<Mutex<ExitConditions>>,
     is_attacking: bool,
-    attack_machine: Option<AttackStateMachine>,
+    attack_state: Option<AIAttackObjectState>,
 }
 
 impl AIGuardAttackAggressorState {
@@ -1743,7 +1831,7 @@ impl AIGuardAttackAggressorState {
             base: GuardState::new(machine, shared, "AIGuardAttackAggressor"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
             is_attacking: false,
-            attack_machine: None,
+            attack_state: None,
         }
     }
 
@@ -1782,36 +1870,37 @@ impl ClassicState for AIGuardAttackAggressorState {
             .get_machine_owner()
             .ok_or_else(|| "guard aggressor missing owner".to_string())?;
 
-        let mut nemesis_id = self
-            .base
-            .state()
-            .get_machine_goal_object_id()
-            .unwrap_or(crate::common::INVALID_ID);
-        if nemesis_id == crate::common::INVALID_ID {
+        // C++ AIGuard.cpp:791-798 — last damage source always overwrites nemesis.
+        let last_damage_source = {
+            let mut source = crate::common::INVALID_ID;
             if let Ok(owner_guard) = owner.read() {
                 if let Some(body) = owner_guard.get_body_module() {
                     if let Ok(body_guard) = body.lock() {
                         if let Some(info) = body_guard.get_last_damage_info() {
-                            if info.source_id != crate::common::INVALID_ID {
-                                nemesis_id = info.source_id;
-                                let _ = self.base.with_machine(|machine| {
-                                    machine.set_goal_object_by_id(Some(info.source_id))
-                                });
-                            }
+                            source = if info.input.source_id != crate::common::INVALID_ID {
+                                info.input.source_id
+                            } else {
+                                info.source_id
+                            };
                         }
                     }
                 }
             }
+            source
+        };
+        let existing_nemesis = self.base.get_nemesis_to_attack();
+        let nemesis_id = last_damage_overrides_nemesis(last_damage_source, existing_nemesis);
+        if nemesis_id != crate::common::INVALID_ID {
+            self.base.set_nemesis_to_attack(nemesis_id);
         }
-        let mut nemesis = if nemesis_id != crate::common::INVALID_ID {
+
+        let Some(nemesis) = (if nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
         } else {
             None
-        };
-
-        let Some(nemesis) = nemesis else {
+        }) else {
             self.is_attacking = false;
-            self.attack_machine = None;
+            self.attack_state = None;
             return Ok(StateReturnType::Success);
         };
 
@@ -1843,21 +1932,18 @@ impl ClassicState for AIGuardAttackAggressorState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
-            "AIGuardAttackMachine",
-            true,
-            true,
-            false,
-        );
-        attack_machine.set_exit_conditions(Box::new(GuardExitConditionsHandle::new(
-            self.exit_conditions.clone(),
-        )));
-        attack_machine.set_goal_object(nemesis.read().ok().map(|g| g.get_id()));
-        let result = attack_machine.init_default_state();
+        if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+            self.is_attacking = false;
+            self.attack_state = None;
+            return Ok(StateReturnType::Success);
+        }
 
+        let nemesis_id = nemesis.read().ok().map(|g| g.get_id()).unwrap_or(nemesis_id);
+        // C++ AIGuard.cpp:815 — AIAttackState(machine, follow=true, attackingObject, !force)
+        let (attack_state, result) =
+            start_guard_attack_object(self.base.state(), nemesis_id, true, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
-        self.attack_machine = Some(attack_machine);
+        self.attack_state = Some(attack_state);
 
         if result == StateReturnType::Continue {
             Ok(StateReturnType::Continue)
@@ -1867,7 +1953,7 @@ impl ClassicState for AIGuardAttackAggressorState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let Some(attack_machine) = self.attack_machine.as_mut() else {
+        let Some(attack_state) = self.attack_state.as_mut() else {
             return Ok(StateReturnType::Success);
         };
 
@@ -1882,12 +1968,15 @@ impl ClassicState for AIGuardAttackAggressorState {
             }
         }
 
-        Ok(attack_machine.update())
+        if guard_attack_should_exit(&self.exit_conditions, self.base.state()) {
+            return Ok(StateReturnType::Success);
+        }
+        Ok(attack_state.update())
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(mut machine) = self.attack_machine.take() {
-            let _ = machine.halt();
+        if let Some(mut attack_state) = self.attack_state.take() {
+            attack_state.on_exit(_exit);
         }
         self.is_attacking = false;
 

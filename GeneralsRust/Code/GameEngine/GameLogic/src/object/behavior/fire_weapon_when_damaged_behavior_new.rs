@@ -491,11 +491,11 @@ impl FireWeaponWhenDamagedBehavior {
         let weapon = Weapon::new(template, WeaponSlotType::Primary);
 
         // Wrap in Arc<Mutex<>> for thread-safe shared ownership
-        // The weapon will be reloaded via load_ammo_now() or reload_ammo() when needed
+        // C++ ctor calls reloadAmmo (clip reload delay), not loadAmmoNow.
         let weapon = Arc::new(Mutex::new(weapon));
         if object_id != crate::common::INVALID_ID {
             if let Ok(mut guard) = weapon.lock() {
-                let _ = guard.load_ammo_now(object_id);
+                let _ = guard.reload_ammo(object_id);
             }
         }
         weapon

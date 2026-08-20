@@ -345,13 +345,17 @@ impl DefaultCommandHandler {
             .read()
             .ok()
             .and_then(|ai| ai.pathfinder())
-            .and_then(|pf| pf.read().ok())
             .map(|pf| {
-                if let Some(loco) = loco.as_ref() {
-                    pf.client_safe_quick_does_path_exist_for_ui(loco, &from, &destination)
-                } else {
-                    true
-                }
+                pf.read()
+                    .ok()
+                    .map(|pf| {
+                        if let Some(loco) = loco.as_ref() {
+                            pf.client_safe_quick_does_path_exist_for_ui(loco, &from, &destination)
+                        } else {
+                            true
+                        }
+                    })
+                    .unwrap_or(true)
             })
             .unwrap_or(true);
         if !path_ok {

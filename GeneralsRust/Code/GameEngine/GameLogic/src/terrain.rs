@@ -228,6 +228,13 @@ impl BridgeAttackInfo {
     }
 }
 
+/// C++ `ShroudStatusStoreRestore` buckets used by `setActiveBoundary`.
+#[derive(Debug, Default)]
+struct BoundaryShroudStore {
+    fogged: Vec<(i32, i32, i32)>,
+    revealed: Vec<(i32, i32, i32)>,
+}
+
 /// Bridge class for terrain logic
 #[derive(Debug)]
 pub struct Bridge {
@@ -1388,7 +1395,9 @@ impl TerrainLogic {
 
     /// Find closest edge point
     pub fn find_closest_edge_point(&self, closest_to: &Coord3D) -> Coord3D {
-        let extent = self.get_maximum_pathfind_extent();
+        // C++ TerrainLogic.cpp:2036-2079 uses getExtent() (active boundary),
+        // not getMaximumPathfindExtent(). W3DTerrainLogic.cpp:176-193.
+        let extent = self.get_extent();
         let distances = [
             (closest_to.y - extent.lo.y).abs(), // top
             (closest_to.x - extent.hi.x).abs(), // right
@@ -1600,7 +1609,8 @@ impl TerrainLogic {
     }
 
     pub fn find_farthest_edge_point(&self, farthest_from: &Coord3D) -> Coord3D {
-        let extent = self.get_maximum_pathfind_extent();
+        // C++ TerrainLogic.cpp:2088-2110 uses getExtent() (active boundary).
+        let extent = self.get_extent();
         let width = extent.hi.x - extent.lo.x;
         let height = extent.hi.y - extent.lo.y;
 
@@ -2754,6 +2764,7 @@ impl TerrainLogic {
 
 
     /// Set active boundary and rebuild partition/shroud/radar like C++ TerrainLogic.
+    /// C++ `TerrainLogic::setActiveBoundary` (TerrainLogic.cpp:2545-2615).
     pub fn set_active_boundary(&mut self, new_active_boundary: i32) {
         if new_active_boundary < 0 || new_active_boundary as usize >= self.boundaries.len() {
             return;
@@ -2775,6 +2786,35 @@ impl TerrainLogic {
             .ok()
             .map(|logic| logic.get_all_object_ids().to_vec())
             .unwrap_or_default();
+
+        // C++ storeFoggedCells(partitionStore, TRUE) — snapshot FOGGED cells
+        // before objects detach. Also keep the existing store_fogged_cells hook.
+        let fog_store = crate::system::game_logic::get_game_logic()
+            .lock()
+            .ok()
+            .map(|logic| {
+                Self::capture_shroud_status_store(
+                    logic.partition_manager(),
+                    &self.get_maximum_pathfind_extent(),
+                )
+            });
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            let pm = logic.partition_manager_mut();
+            for player in 0..crate::common::MAX_PLAYER_COUNT {
+                pm.store_fogged_cells(player, true);
+            }
+        }
+
+        self.active_boundary = new_active_boundary;
+
+        // C++ TheGhostObjectManager->releasePartitionData()
+        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+            ghosts.release_partition_data();
+        }
+        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            ghosts.release_partition_data();
+        }
+
         for object_id in &object_ids {
             if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
                 if let Ok(mut guard) = obj.write() {
@@ -2783,14 +2823,41 @@ impl TerrainLogic {
             }
         }
 
-        self.active_boundary = new_active_boundary;
-
+        // C++ storeFoggedCells(partitionStore, FALSE) — permanently revealed.
+        // The typed store already captured both buckets; this second call
+        // keeps the existing PartitionManager snapshot API in C++ order.
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            logic.partition_manager_mut().clear();
+            let pm = logic.partition_manager_mut();
+            for player in 0..crate::common::MAX_PLAYER_COUNT {
+                pm.store_fogged_cells(player, false);
+            }
+            // C++ ThePartitionManager->reset(); ThePartitionManager->init();
+            pm.clear();
         }
 
         if let Some(radar) = crate::helpers::TheRadar::get() {
             radar.refresh_terrain();
+        }
+
+        // Restore permanently revealed cells (C++ restoreFoggedCells(..., FALSE)).
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            let pm = logic.partition_manager_mut();
+            if let Some(store) = &fog_store {
+                for &(player, x, y) in &store.revealed {
+                    pm.add_looker(player, x, y);
+                }
+            }
+            for player in 0..crate::common::MAX_PLAYER_COUNT {
+                pm.restore_fogged_cells(player, false);
+            }
+        }
+
+        // C++ TheGhostObjectManager->lockGhostObjects(TRUE)
+        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+            ghosts.lock_ghost_objects(true);
+        }
+        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            ghosts.set_lock_ghost_objects(true);
         }
 
         for object_id in &object_ids {
@@ -2801,7 +2868,59 @@ impl TerrainLogic {
             }
         }
 
+        // Restore fogged cells (C++ restoreFoggedCells(..., TRUE)).
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            let pm = logic.partition_manager_mut();
+            if let Some(store) = &fog_store {
+                for &(player, x, y) in &store.fogged {
+                    pm.add_looker(player, x, y);
+                    pm.remove_looker(player, x, y);
+                }
+            }
+            for player in 0..crate::common::MAX_PLAYER_COUNT {
+                pm.restore_fogged_cells(player, true);
+            }
+        }
+
+        // C++ restorePartitionData + lockGhostObjects(FALSE)
+        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+            ghosts.restore_partition_data();
+            ghosts.lock_ghost_objects(false);
+        }
+        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            ghosts.restore_partition_data();
+            ghosts.set_lock_ghost_objects(false);
+        }
+
         crate::helpers::TheTacticalView::force_camera_constraint_recalc();
+    }
+
+    fn capture_shroud_status_store(
+        pm: &crate::system::game_logic::PartitionManager,
+        extent: &Region3D,
+    ) -> BoundaryShroudStore {
+        let cell = crate::object::collide::partition_manager::PARTITION_CELL_SIZE;
+        let min_x = (extent.lo.x / cell).floor() as i32;
+        let min_y = (extent.lo.y / cell).floor() as i32;
+        let max_x = (extent.hi.x / cell).ceil() as i32;
+        let max_y = (extent.hi.y / cell).ceil() as i32;
+        let mut store = BoundaryShroudStore::default();
+        for y in min_y..max_y.max(min_y) {
+            for x in min_x..max_x.max(min_x) {
+                for player in 0..crate::common::MAX_PLAYER_COUNT as i32 {
+                    match pm.get_shroud_status_for_player_cell(player, x, y) {
+                        game_engine::common::system::radar::CellShroudStatus::Fogged => {
+                            store.fogged.push((player, x, y));
+                        }
+                        game_engine::common::system::radar::CellShroudStatus::Clear => {
+                            store.revealed.push((player, x, y));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        store
     }
 
 
@@ -3041,6 +3160,12 @@ impl TerrainLogic {
         }
     }
 
+    /// C++ `MAX(1, getRawMapHeight(&gridPos) - displacementAmount)`:
+    /// Int promotes to Real, subtract, then truncate toward zero to Int.
+    fn crater_raw_target_height(current_height: i32, displacement_amount: f32) -> i32 {
+        1i32.max((current_height as f32 - displacement_amount) as i32)
+    }
+
     /// Dig a deep circular gorge into the terrain beneath an object.
     /// Reference: C++ TerrainLogic::createCraterInTerrain() in TerrainLogic.cpp
     ///
@@ -3073,7 +3198,8 @@ impl TerrainLogic {
                 if distance < radius {
                     let displacement_amount = radius * (1.0 - distance / radius);
                     let current_height = self.get_raw_map_height(i, j);
-                    let target_height = (1i32).max(current_height - displacement_amount as i32);
+                    let target_height =
+                        Self::crater_raw_target_height(current_height, displacement_amount);
                     self.set_raw_map_height(i, j, target_height);
                 }
             }
@@ -3360,8 +3486,16 @@ impl TerrainLogic {
             current = bridge.next.as_deref();
         }
 
-        // Fallback: if bridge not found, use object position for both points
-        // C++ lines 1930-1932
+        // Fallback: C++ TerrainLogic.cpp:1936-1937 uses the bridge OBJECT position,
+        // not the map origin, when no Bridge list entry matches the object ID.
+        if let Some(bridge_obj) = crate::helpers::TheGameLogic::find_object_by_id(bridge_id) {
+            if let Ok(guard) = bridge_obj.read() {
+                let pos = *guard.get_position();
+                attack_info.attack_point1 = pos;
+                attack_info.attack_point2 = pos;
+                return;
+            }
+        }
         attack_info.attack_point1 = Coord3D::origin();
         attack_info.attack_point2 = Coord3D::origin();
     }
@@ -4332,6 +4466,90 @@ mod tests {
             .expect("add_bridge_to_logic must run for map bridges");
         assert_eq!(bridge.get_bridge_template_name().as_str(), "TestBridge");
         assert_eq!(bridge.get_bridge_info().bridge_width, 10.0);
+    }
+
+    #[test]
+    fn crater_subtracts_in_float_then_truncates_like_cpp() {
+        // C++ TerrainLogic.cpp:2875: MAX(1, rawHeight - displacementAmount)
+        // raw 10, displacement 2.9 → 7.1 truncates to 7, not 10-2=8.
+        assert_eq!(TerrainLogic::crater_raw_target_height(10, 2.9), 7);
+        assert_eq!(TerrainLogic::crater_raw_target_height(10, 2.0), 8);
+        assert_eq!(TerrainLogic::crater_raw_target_height(1, 2.9), 1);
+    }
+
+    #[test]
+    fn edge_points_use_active_boundary_extent_not_max_pathfind() {
+        // C++ findClosestEdgePoint/findFarthestEdgePoint call getExtent()
+        // (W3DTerrainLogic.cpp:176-193 active boundary), not the largest.
+        let mut terrain = TerrainLogic::new();
+        let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5]);
+        map_data.boundaries = vec![ICoord2D::new(3, 4), ICoord2D::new(7, 5)];
+        terrain.load_map_data(map_data);
+
+        let near_origin = Coord3D::new(MAP_XY_FACTOR, MAP_XY_FACTOR, 0.0);
+        let farthest = terrain.find_farthest_edge_point(&near_origin);
+        assert_eq!(farthest.x, 3.0 * MAP_XY_FACTOR);
+        assert_eq!(farthest.y, 4.0 * MAP_XY_FACTOR);
+
+        let max_extent = terrain.get_maximum_pathfind_extent();
+        assert!(
+            (farthest.x - max_extent.hi.x).abs() > 1.0,
+            "farthest edge must not use the largest boundary"
+        );
+
+        let closest = terrain.find_closest_edge_point(&near_origin);
+        let active = terrain.get_extent();
+        assert!(
+            (closest.x - active.lo.x).abs() < f32::EPSILON
+                || (closest.y - active.lo.y).abs() < f32::EPSILON
+                || (closest.x - active.hi.x).abs() < f32::EPSILON
+                || (closest.y - active.hi.y).abs() < f32::EPSILON
+        );
+    }
+
+    #[test]
+    fn bridge_attack_fallback_looks_up_object_position_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/terrain.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn get_bridge_attack_points")
+            .expect("get_bridge_attack_points");
+        let w = &prod[i..prod.len().min(i + 1800)];
+        assert!(
+            w.contains("find_object_by_id(bridge_id)")
+                && w.contains("attack_info.attack_point1 = pos")
+                && w.contains("attack_info.attack_point2 = pos"),
+            "fallback must use the bridge object position like TerrainLogic.cpp:1936-1937"
+        );
+        assert!(
+            !w.contains("attack_info.attack_point1 = Coord3D::origin();\n        attack_info.attack_point2 = Coord3D::origin();\n        return;"),
+            "origin must not be the first fallback"
+        );
+    }
+
+    #[test]
+    fn set_active_boundary_runs_fog_and_ghost_dance_surface() {
+        let src = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/terrain.rs"));
+        let prod = src.split("#[cfg(test)]").next().expect("production");
+        let i = prod
+            .find("pub fn set_active_boundary")
+            .expect("set_active_boundary");
+        let w = &prod[i..prod.len().min(i + 4500)];
+        assert!(
+            w.contains("store_fogged_cells(player, true)")
+                && w.contains("store_fogged_cells(player, false)")
+                && w.contains("restore_fogged_cells(player, false)")
+                && w.contains("restore_fogged_cells(player, true)")
+                && w.contains("release_partition_data")
+                && w.contains("lock_ghost_objects(true)")
+                && w.contains("restore_partition_data")
+                && w.contains("lock_ghost_objects(false)")
+                && w.contains("set_lock_ghost_objects(true)")
+                && w.contains("set_lock_ghost_objects(false)")
+                && w.contains("add_looker")
+                && w.contains("remove_looker"),
+            "setActiveBoundary must store/restore fog and lock/release ghosts like TerrainLogic.cpp:2545-2615"
+        );
     }
 }
 

@@ -14,10 +14,9 @@ pub struct W3DModelDraw {
 
     /// Animation loop duration for next state
     next_state_anim_loop_duration: u32,
-
     /// Current hex color
-    #[allow(dead_code)]
     hex_color: i32,
+
 
     /// Index of currently playing animation in current state
     which_anim_in_cur_state: i32,
@@ -58,6 +57,8 @@ pub struct W3DModelDraw {
     current_anim_speed_factor: Real,
     /// Fractional leftover from AnimationSpeedFactor / duration multiplier ticks.
     anim_frame_accumulator: Real,
+    /// +1 forward / -1 reverse for `ANIM_MODE_LOOP_PINGPONG`.
+    anim_direction: i32,
 
     /// Deferred MODELCONDITION_CARRYING intent (C++ writes this on the Drawable).
     pending_carrying: Option<bool>,
@@ -118,6 +119,7 @@ impl W3DModelDraw {
             current_anim_complete: true,
             current_anim_speed_factor: 1.0,
             anim_frame_accumulator: 0.0,
+            anim_direction: 1,
             pending_carrying: None,
             shadow_allocated: false,
 
@@ -165,11 +167,83 @@ impl W3DModelDraw {
 
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.owner_id = Some(owner_id);
+        self.seed_hex_color_from_owner();
+        self.apply_receives_dynamic_lights();
     }
 
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id
     }
+
+    fn seed_hex_color_from_owner(&mut self) {
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let night = TheGlobalData::get()
+            .map(|data| data.get_time_of_day() == crate::common::audio::TimeOfDay::Night)
+            .unwrap_or(false);
+        let color = if night {
+            obj.get_night_indicator_color()
+        } else {
+            obj.get_indicator_color()
+        };
+        self.hex_color = packed_indicator_hex(color);
+    }
+
+    fn apply_receives_dynamic_lights(&self) {
+        if self.data.receives_dynamic_lights {
+            return;
+        }
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        crate::object::draw::client_visual::set_receives_dynamic_lights(owner_id, false);
+    }
+
+    /// C++ `W3DModelDraw::replaceIndicatorColor`.
+    pub fn replace_indicator_color(&mut self, color: i32) {
+        if !self.data.ok_to_change_model_color {
+            return;
+        }
+        let new_color = if color == 0 { 0 } else { color | 0xFF00_0000u32 as i32 };
+        if new_color == self.hex_color {
+            return;
+        }
+        self.hex_color = new_color;
+        let Some(cur) = self.cur_state else {
+            return;
+        };
+        // C++ nulls m_curState then setModelState(tmp) so house-color textures rebuild.
+        self.cur_state = None;
+        self.next_state = None;
+        self.next_state_anim_loop_duration = NO_NEXT_DURATION;
+        match cur {
+            ActiveModelState::Condition(index) => self.set_model_state(index),
+            ActiveModelState::Transition(index) => {
+                if let Some(state) = self.data.transition_states.get(index) {
+                    if let Some(dest) = self
+                        .data
+                        .condition_states
+                        .iter()
+                        .position(|candidate| candidate.transition_key == state.transition_to_key)
+                    {
+                        self.set_model_state(dest);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn hex_color(&self) -> i32 {
+        self.hex_color
+    }
+
 
     pub fn fully_obscured_by_shroud(&self) -> bool {
         self.fully_obscured_by_shroud
@@ -360,6 +434,32 @@ impl W3DModelDraw {
         cols[1].atan2(cols[0])
     }
 
+    /// C++ `recalcBonesForClientParticleSystems`: identity×scale then live bone.
+    fn live_particle_bone_model_space(&self, bone_name: &str) -> Option<(i32, Matrix3D)> {
+        if bone_name.is_empty() {
+            return None;
+        }
+        self.with_owner_drawable(|drawable| {
+            let local = drawable.get_bone_local_transform(bone_name)?;
+            let scale = drawable.get_world_scale().x;
+            let scale = if scale.is_finite() && scale > 0.0 {
+                scale
+            } else {
+                1.0
+            };
+            let scaled = Matrix3D::from_scale(Coord3D::splat(scale)) * local;
+            let index = self
+                .current_state()
+                .and_then(|state| state.find_pristine_bone_by_name(bone_name))
+                .map(|(_, bone)| bone.bone_index)
+                .filter(|index| *index != 0)
+                .unwrap_or(1);
+            Some((index, scaled))
+        })
+        .flatten()
+    }
+
+
     /// C++ `Matrix3D::Translate_Z` — post-multiply a local-Z translation.
     fn translate_z(mtx: &mut Matrix3D, z: Real) {
         *mtx *= Matrix3D::from_translation(Coord3D::new(0.0, 0.0, z));
@@ -457,9 +557,12 @@ impl W3DModelDraw {
             };
 
             let (bone_index, bone_transform) = self
-                .current_state()
-                .and_then(|state| state.find_pristine_bone_by_name(info.bone_name.as_str()))
-                .map(|(_, bone)| (bone.bone_index, bone.transform))
+                .live_particle_bone_model_space(info.bone_name.as_str())
+                .or_else(|| {
+                    self.current_state()
+                        .and_then(|state| state.find_pristine_bone_by_name(info.bone_name.as_str()))
+                        .map(|(_, bone)| (bone.bone_index, bone.transform))
+                })
                 .unwrap_or((0, Matrix3D::IDENTITY));
 
             if bone_index != 0 {
@@ -935,5 +1038,15 @@ impl W3DModelDraw {
             return true;
         };
         object_should_animate(&obj, self.data.animations_require_power)
+    }
+}
+
+/// C++ `replaceIndicatorColor`: zero stays zero, else OR opaque alpha.
+fn packed_indicator_hex(color: crate::common::Color) -> i32 {
+    let packed = ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32);
+    if packed == 0 {
+        0
+    } else {
+        (packed | 0xFF00_0000) as i32
     }
 }

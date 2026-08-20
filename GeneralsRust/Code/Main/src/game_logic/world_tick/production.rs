@@ -7,7 +7,7 @@ impl GameLogic {
     /// C++ DozerAIUpdate.cpp:305 — one exclusive builder per structure.
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
 
-        const BUILDER_RANGE: f32 = 30.0; // Max distance for a dozer to contribute.
+        const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
 
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
@@ -251,21 +251,39 @@ impl GameLogic {
         for &completed_id in &completed_structures {
             // C++ SupplyCenterCreate::onBuildComplete residual.
             self.on_supply_center_build_complete(completed_id);
+            let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
+            let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             for obj in self.objects.values_mut() {
                 if obj.ai_state == AIState::Constructing
                     && obj.target == Some(completed_id)
                     && obj.is_alive()
                 {
                     let oid = obj.id;
+                    let dozer_pos = obj.get_position();
+                    let is_worker = obj.is_resource_collector()
+                        || obj.template_name.to_ascii_lowercase().contains("worker");
                     obj.set_target(None);
-                    obj.stop_moving();
-                    // Collect for decision-aware Idle after borrow ends.
-                    // (set below via second pass if needed — apply inline with free log)
+                    if is_worker {
+                        obj.stop_moving();
+                    } else if let Some(bpos) = building_pos {
+                        end_moves.push((
+                            oid,
+                            crate::game_logic::host_repair::dozer_end_dock_position(
+                                dozer_pos, bpos,
+                            ),
+                        ));
+                    } else {
+                        obj.stop_moving();
+                    }
                     obj.set_ai_state(AIState::Idle);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
                     }
                 }
+            }
+            for (oid, end) in end_moves {
+                // C++ DozerAIUpdate.cpp:627-635 aiMoveToPosition(END).
+                self.path_approach_with_state(oid, end, AIState::Moving);
             }
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
                 self.record_structure_completion(team);
@@ -347,19 +365,38 @@ impl GameLogic {
         }
         for &completed_id in &completed_structures {
             self.on_supply_center_build_complete(completed_id);
+            let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
+            let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
             for obj in self.objects.values_mut() {
                 if obj.ai_state == AIState::Constructing
                     && obj.target == Some(completed_id)
                     && obj.is_alive()
                 {
                     let oid = obj.id;
+                    let dozer_pos = obj.get_position();
+                    let is_worker = obj.is_resource_collector()
+                        || obj.template_name.to_ascii_lowercase().contains("worker");
                     obj.set_target(None);
-                    obj.stop_moving();
+                    if is_worker {
+                        obj.stop_moving();
+                    } else if let Some(bpos) = building_pos {
+                        end_moves.push((
+                            oid,
+                            crate::game_logic::host_repair::dozer_end_dock_position(
+                                dozer_pos, bpos,
+                            ),
+                        ));
+                    } else {
+                        obj.stop_moving();
+                    }
                     obj.set_ai_state(AIState::Idle);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
                     }
                 }
+            }
+            for (oid, end) in end_moves {
+                self.path_approach_with_state(oid, end, AIState::Moving);
             }
             if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
                 self.record_structure_completion(team);

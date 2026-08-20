@@ -1110,7 +1110,9 @@ enum UpgradeModuleKindMut<'a> {
         &'a mut crate::object::upgrade::unpause_special_power_upgrade::UnpauseSpecialPowerUpgrade,
     ),
     ObjectCreation(&'a mut crate::object::upgrade::object_creation_upgrade::ObjectCreationUpgrade),
+    AutoHeal(&'a mut crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule),
 }
+
 
 impl<'a> UpgradeModuleKindMut<'a> {
     fn into_interface(self) -> &'a mut dyn UpgradeModuleInterface {
@@ -1135,6 +1137,7 @@ impl<'a> UpgradeModuleKindMut<'a> {
             Self::ReplaceObject(module) => module,
             Self::UnpauseSpecialPower(module) => module,
             Self::ObjectCreation(module) => module,
+            Self::AutoHeal(module) => module.behavior_mut(),
         }
     }
 }
@@ -1303,6 +1306,14 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
             )
             .map(|m| UpgradeModuleKindMut::ObjectCreation(m));
     }
+    if module
+        .as_any()
+        .is::<crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule>()
+    {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule>()
+            .map(|m| UpgradeModuleKindMut::AutoHeal(m));
+    }
 
     None
 }
@@ -1314,6 +1325,7 @@ enum DieModuleKindMut<'a> {
     ProductionUpdate(
         &'a mut crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
     ),
+    SlowDeath(&'a mut crate::object::behavior::slow_death_behavior::SlowDeathBehavior),
 }
 
 impl<'a> DieModuleKindMut<'a> {
@@ -1324,6 +1336,7 @@ impl<'a> DieModuleKindMut<'a> {
             Self::LegacyBox(module) => module.as_mut(),
             Self::Minefield(module) => module.behavior_mut(),
             Self::ProductionUpdate(module) => module.behavior_mut(),
+            Self::SlowDeath(module) => module,
         }
     }
 }
@@ -1348,6 +1361,14 @@ fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
         return (module as &mut dyn Any)
             .downcast_mut::<crate::object::production::production_update_complete::ProductionUpdateCompleteModule>()
             .map(DieModuleKindMut::ProductionUpdate);
+    }
+    if module
+        .as_any()
+        .is::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+    {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+            .map(DieModuleKindMut::SlowDeath);
     }
     if module.as_any().is::<Box<dyn DieModuleInterface>>() {
         return (module as &mut dyn Any)
@@ -1653,6 +1674,16 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             .flatten())
     }
 
+    fn get_exit_position(&self, exit_position: &mut Coord3D) -> bool {
+        self.with_exit_behavior(|module| module.get_exit_position(exit_position))
+            .unwrap_or(false)
+    }
+
+    fn get_natural_rally_point(&self, rally_point: &mut Coord3D, offset: bool) -> bool {
+        self.with_exit_behavior(|module| module.get_natural_rally_point(rally_point, offset))
+            .unwrap_or(false)
+    }
+
     fn reserve_door_for_exit(
         &mut self,
         spawner: Option<&crate::object::Object>,
@@ -1802,6 +1833,16 @@ impl ModuleEntry {
         func(guard.as_mut())
     }
 
+    fn try_with_module<F, R>(&self, func: F) -> Option<R>
+    where
+        F: FnOnce(&mut dyn Module) -> R,
+    {
+        self.module
+            .try_lock()
+            .ok()
+            .map(|mut guard| func(guard.as_mut()))
+    }
+
     /// Mutable module access - same as with_module but explicitly named for clarity
     #[allow(dead_code)]
     fn with_module_mut<F, R>(&self, func: F) -> R
@@ -1897,6 +1938,11 @@ impl ModuleUpdateProxy {
             crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
         );
         update_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
+        if let Some(module) = (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+        {
+            return Some(module.update_simple());
+        }
         update_via_behavior!(
             crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule
         );
@@ -2045,6 +2091,11 @@ impl ModuleUpdateProxy {
             crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
         );
         mask_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
+        if let Some(module) = (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+        {
+            return Some(module.get_disabled_types_to_process());
+        }
         mask_via_behavior!(
             crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule
         );
@@ -2117,6 +2168,11 @@ impl ModuleUpdateProxy {
             crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
         );
         phase_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
+        if let Some(module) = (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+        {
+            return Some(module.get_update_phase());
+        }
         phase_via_behavior!(
             crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule
         );
@@ -2184,6 +2240,14 @@ fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
                     >>()
                     .map(|module| module.behavior().initial_wake_frame())
             })
+            .or_else(|| {
+                // C++ SlowDeathBehavior ctor setWakeFrame(UPDATE_SLEEP_FOREVER)
+                // until beginSlowDeath.
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
+                    .map(|_| UpdateSleepTime::Forever.to_u32())
+            })
             .unwrap_or(0)
     })
 }
@@ -2250,6 +2314,13 @@ impl BehaviorModuleHandle {
         F: FnOnce(&mut dyn Module) -> R,
     {
         self.entry.with_module(func)
+    }
+
+    pub fn try_with_module<F, R>(&self, func: F) -> Option<R>
+    where
+        F: FnOnce(&mut dyn Module) -> R,
+    {
+        self.entry.try_with_module(func)
     }
 
     pub fn with_module_data<F, R>(&self, func: F) -> R

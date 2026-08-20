@@ -226,6 +226,18 @@ impl Team {
                         return None;
                     }
 
+                    // C++ Team.cpp:2350-2352 — per-unit AI isRecruitable override.
+                    if let Some(ai) = object_guard.get_ai_update_interface() {
+                        let recruitable = ai
+                            .lock()
+                            .ok()
+                            .map(|ai_guard| ai_guard.is_recruitable())
+                            .unwrap_or(true);
+                        if !recruitable {
+                            return None;
+                        }
+                    }
+
                     let pos = *object_guard.get_position();
                     let dx = team_home.x - pos.x;
                     let dy = team_home.y - pos.y;

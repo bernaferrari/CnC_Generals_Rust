@@ -1165,6 +1165,47 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
+        if victim_guard.is_kind_of(KindOf::Shrubbery) {
+            return if self.death_type == DeathType::Burned {
+                1.0
+            } else {
+                0.0
+            };
+        }
+        if victim_guard.is_kind_of(KindOf::Structure) && self.damage_type == DamageType::Sniper {
+            if let Some(contain) = victim_guard.get_contain() {
+                if let Ok(guard) = contain.try_lock() {
+                    if guard.get_contained_count() == 0 {
+                        return 0.0;
+                    }
+                }
+            }
+        }
+        if self.damage_type == DamageType::Surrender || self.allow_attack_garrisoned_bldgs {
+            if let Some(contain) = victim_guard.get_contain() {
+                if let Ok(guard) = contain.try_lock() {
+                    if guard.get_contained_count() > 0
+                        && guard.is_garrisonable()
+                        && !guard.is_immune_to_clear_building_attacks()
+                    {
+                        return 1.0;
+                    }
+                }
+            }
+        }
+        if self.damage_type == DamageType::Disarm {
+            if victim_guard.is_kind_of(KindOf::Mine)
+                || victim_guard.is_kind_of(KindOf::BoobyTrap)
+                || victim_guard.is_kind_of(KindOf::Demotrap)
+            {
+                return 1.0;
+            }
+            return 0.0;
+        }
+        if self.damage_type == DamageType::Deploy && !victim_guard.is_airborne_target() {
+            return 1.0;
+        }
+
         let damage_info = DamageInfoInput {
             damage_type: crate::damage::DamageType::from_u32(self.damage_type as u32),
             death_type: crate::damage::DeathType::from_u32(self.death_type as u32),

@@ -71,7 +71,10 @@ const BUILTIN_BEHAVIOR_DESCRIPTORS: &[(&str, ModuleInterfaceType)] = &[
     ("FireWeaponCollide", ModuleInterfaceType::COLLIDE),
     (
         "AutoHealBehavior",
-        mask_or(ModuleInterfaceType::UPDATE, ModuleInterfaceType::UPGRADE),
+        mask_or(
+            mask_or(ModuleInterfaceType::UPDATE, ModuleInterfaceType::UPGRADE),
+            ModuleInterfaceType::DAMAGE,
+        ),
     ),
     (
         "SlowDeathBehavior",

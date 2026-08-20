@@ -1584,19 +1584,11 @@ impl InGameUISubsystem {
     }
 
     fn play_radar_movie(&mut self, movie_name: &str) -> bool {
-        let target_window = [
-            // C++ used this window name historically.
-            "ControlBar.wnd:CameoMovieWindow",
-            // Current layouts route portrait/radar media through RightHUD.
-            "ControlBar.wnd:RightHUD",
-        ]
-        .into_iter()
-        .find_map(|window_name| {
-            let window_id = NameKeyGenerator::name_to_key(window_name) as i32;
+        let window_id =
+            NameKeyGenerator::name_to_key("ControlBar.wnd:LeftHUD") as i32;
+        let Some(window) =
             crate::gui::with_window_manager_ref(|manager| manager.get_window_by_id(window_id))
-        });
-
-        let Some(window) = target_window else {
+        else {
             return false;
         };
 
@@ -1604,6 +1596,7 @@ impl InGameUISubsystem {
             manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
         })
     }
+
 
     fn update_radar_movie_playback(&mut self) {
         with_window_video_manager(|manager| manager.update());
@@ -1899,10 +1892,13 @@ impl SubsystemInterface for InGameUISubsystem {
 impl InGameUI for InGameUISubsystem {
     fn disregard_drawable(
         &self,
-        _drawable: &dyn Drawable,
+        drawable: &dyn Drawable,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let object_id = drawable.get_object_id().unwrap_or(drawable.get_id().0);
+        crate::gui::ingame_ui::InGameUI::disregard_live_drawable(object_id);
         Ok(())
     }
+
 
     fn handle_beacon_notification(
         &mut self,

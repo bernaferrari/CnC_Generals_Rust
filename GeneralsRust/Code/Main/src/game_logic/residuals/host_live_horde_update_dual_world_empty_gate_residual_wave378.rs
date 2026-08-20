@@ -1,35 +1,28 @@
-//! Wave 378 residual peels: HordeUpdate dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), horde
-//! helpers fail-closed without dual-world factory walks.
+//! Wave 378 residual: HordeUpdate no longer Forever-sleeps when
+//! `OBJECT_REGISTRY` is empty. C++ `HordeUpdate::update` always runs.
 //! Never flips shell `playable_claim`. Network deferred.
-//!
-//! Orthogonal to Wave 377 PoisonedBehavior dual-world empty-gate residual.
 //!
 //! Sources:
 //! - `GameLogic/src/object/behavior/horde_update.rs`
-//!
-//! Fail-closed:
-//! - Shell `playable_claim` stays false; network deferred
-//! - Dual-world still active when registry is populated
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 
-/// HordeUpdate dual-world empty-gate residual method names.
+/// HordeUpdate dual-world empty-gate residual method names (gate closed).
 pub const LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE378: &[&str] = &[
-    "dual_world_registry_unavailable",
     "show_hide_flag",
     "check_horde_status",
     "update_simple",
+    "no dual_world_registry_unavailable",
     "playable_claim = false",
 ];
 
 /// Ordered residual navigation steps.
 pub const LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE378: &[&str] = &[
-    "REQUIRE_DUAL_WORLD_HELPER",
-    "REQUIRE_HORDE_UPDATE_EMPTY_GATES",
+    "REQUIRE_HORDE_UPDATE_ALWAYS_RUNS",
+    "REQUIRE_NO_EMPTY_REGISTRY_FOREVER",
     "LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE",
     "LIVE_PLAYABLE_CLAIM_FALSE",
 ];
@@ -46,12 +39,12 @@ pub fn honesty_live_horde_update_dual_world_empty_gate_method_names_residual_wav
     LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE378.len() == 5
         && residual_name_index(
             LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE378,
-            "dual_world_registry_unavailable",
+            "show_hide_flag",
         ) == Some(0)
         && residual_name_index(
             LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE378,
             "update_simple",
-        ) == Some(3)
+        ) == Some(2)
         && residual_name_index(
             LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE378,
             "playable_claim = false",
@@ -63,7 +56,7 @@ pub fn honesty_live_horde_update_dual_world_empty_gate_nav_commands_residual_wav
     LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE378.len() == 4
         && residual_name_index(
             LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE378,
-            "REQUIRE_DUAL_WORLD_HELPER",
+            "REQUIRE_HORDE_UPDATE_ALWAYS_RUNS",
         ) == Some(0)
         && residual_name_index(
             LIVE_HORDE_UPDATE_DUAL_WORLD_EMPTY_GATE_NAV_STEPS_WAVE378,
@@ -78,62 +71,14 @@ pub fn honesty_live_horde_update_dual_world_empty_gate_residual_pack_wave378() -
         && honesty_live_horde_update_dual_world_empty_gate_nav_commands_residual_wave378()
 }
 
-fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let mut search_from = 0usize;
-    while let Some(rel) = src[search_from..].find(name) {
-        let i = search_from + rel;
-        let Some(b) = src[i..].find('{') else {
-            search_from = i + name.len();
-            continue;
-        };
-        let brace = i + b;
-        let mut depth = 0usize;
-        for (off, ch) in src[brace..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        search_from = i + name.len();
-    }
-    None
-}
-
-/// Source residual: HordeUpdate empty dual-world short-circuits.
+/// Source residual: HordeUpdate empty dual-world gate is closed (C++ always runs).
 pub fn honesty_horde_update_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/object/behavior/horde_update.rs");
-    if !(g.contains("Wave 378")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
-        return false;
-    }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
-    let Some(flag) = fn_body(g, "fn show_hide_flag(") else {
-        return false;
-    };
-    let Some(status) = fn_body(g, "fn check_horde_status(") else {
-        return false;
-    };
-    let Some(update) = fn_body(g, "fn update_simple(") else {
-        return false;
-    };
-    helper_ok
-        && flag.contains("return;")
-        && status.contains("return;")
-        && update.contains("return UpdateSleepTime::Forever")
+    !g.contains("fn dual_world_registry_unavailable")
+        && !g.contains("dual_world_registry_unavailable()")
+        && g.contains("fn show_hide_flag(")
+        && g.contains("fn check_horde_status(")
+        && g.contains("fn update_simple(")
 }
 
 /// Live residual: source honesty pack latches.

@@ -69,6 +69,15 @@ impl AIAttackState {
     }
 }
 
+fn clear_team_target_if_victim(owner: &crate::object::Object, victim_id: ObjectID) {
+    if let Some(team_arc) = owner.get_team() {
+        if let Ok(mut team_guard) = team_arc.write() {
+            crate::ai::states::clear_team_target_object_if_victim(&mut team_guard, victim_id);
+        }
+    }
+}
+
+
 impl AIState for AIAttackState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
         // Wave 254: empty dual-world → fail-closed (no factory owner).
@@ -106,6 +115,13 @@ impl AIState for AIAttackState {
             }
             self.original_victim_pos = *target.get_position();
             self.victim_team = target.get_team_id();
+            drop(target);
+            // C++ AIAttackFireWeaponState::onEnter seeds AttackCommonTarget (AIStates.cpp:5153-5156).
+            if let Some(team_arc) = owner_arc.read().ok().and_then(|owner| owner.get_team()) {
+                if let Ok(mut team_guard) = team_arc.write() {
+                    crate::ai::states::seed_team_target_if_attack_common(&mut team_guard, target_id);
+                }
+            }
         } else {
             let Some(pos) = context.goal_position else {
                 return StateReturnType::Failed;
@@ -175,6 +191,8 @@ impl AIState for AIAttackState {
                             && contain_guard.get_contained_count() == 0
                             && relationship == Relationship::Neutral
                         {
+                            context.goal_object = None;
+                            clear_team_target_if_victim(&owner, target_id);
                             return StateReturnType::Failed;
                         }
                     }
@@ -182,6 +200,8 @@ impl AIState for AIAttackState {
             }
 
             if relationship != Relationship::Enemies {
+                context.goal_object = None;
+                clear_team_target_if_victim(&owner, target_id);
                 return StateReturnType::Failed;
             }
 
@@ -230,6 +250,7 @@ impl AIState for AIAttackState {
                 ObjectStatusMaskType::from(ObjectStatusTypes::IgnoringStealth),
                 false,
             );
+            owner.clear_leech_range_mode_for_all_weapons();
         });
     }
 

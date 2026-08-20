@@ -9,12 +9,17 @@ fn anim_duration_multiplier(natural_ms: Real, desired_ms: Real) -> Real {
 }
 
 /// Advance a discrete AnimMode clip by `speed` frames (HLOD frame-rate multiplier).
+/// `direction` is +1 forward / -1 reverse; only `LoopPingPong` flips it.
 fn advance_anim_mode(
     mode: AnimMode,
     frame: i32,
     num_frames: i32,
     steps: i32,
-) -> (i32, bool) {
+    mut direction: i32,
+) -> (i32, bool, i32) {
+    if direction == 0 {
+        direction = 1;
+    }
     if num_frames <= 0 || steps <= 0 {
         let complete = matches!(mode, AnimMode::Once | AnimMode::OnceBackwards)
             && match mode {
@@ -22,7 +27,7 @@ fn advance_anim_mode(
                 AnimMode::OnceBackwards => frame <= 0,
                 _ => false,
             };
-        return (frame, complete);
+        return (frame, complete, direction);
     }
 
     let last = num_frames.saturating_sub(1);
@@ -30,8 +35,32 @@ fn advance_anim_mode(
     let mut complete = false;
     for _ in 0..steps {
         match mode {
-            AnimMode::Loop | AnimMode::LoopPingPong => {
+            AnimMode::Loop => {
                 current = (current + 1).rem_euclid(num_frames);
+                complete = false;
+            }
+            AnimMode::LoopPingPong => {
+                // C++ ANIM_MODE_LOOP_PINGPONG: reflect overflow and flip direction.
+                if direction >= 0 {
+                    current += 1;
+                    if current >= last {
+                        current = last * 2 - current;
+                        if current >= last {
+                            current = last;
+                        }
+                        direction = -1;
+                    }
+                } else {
+                    current -= 1;
+                    if current < 0 {
+                        current = -current;
+                        if current >= last {
+                            current = 0;
+                        }
+                        direction = 1;
+                    }
+                }
+                current = current.clamp(0, last);
                 complete = false;
             }
             AnimMode::LoopBackwards => {
@@ -62,7 +91,7 @@ fn advance_anim_mode(
             }
         }
     }
-    (current, complete)
+    (current, complete, direction)
 }
 
 impl W3DModelDraw {
@@ -128,13 +157,15 @@ impl W3DModelDraw {
         self.anim_frame_accumulator += speed;
         let steps = self.anim_frame_accumulator.floor() as i32;
         self.anim_frame_accumulator -= steps as Real;
-        let (frame, complete) = advance_anim_mode(
+        let (frame, complete, direction) = advance_anim_mode(
             cur_state.anim_mode,
             self.current_anim_frame,
             self.current_anim_num_frames,
             steps,
+            self.anim_direction,
         );
         self.current_anim_frame = frame;
         self.current_anim_complete = complete;
+        self.anim_direction = direction;
     }
 }

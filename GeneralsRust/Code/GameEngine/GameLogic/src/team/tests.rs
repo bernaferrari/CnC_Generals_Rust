@@ -610,8 +610,9 @@ mod tests {
     #[test]
     fn get_team_target_object_rejects_missing_object() {
         let mut team = Team::new(AsciiString::from("TargetTeam"), 1);
-        team.common_attack_target = 999_999;
+        team.common_attack_target.set(999_999);
         assert_eq!(team.get_team_target_object(), INVALID_ID);
+        assert_eq!(team.common_attack_target.get(), INVALID_ID);
     }
 
     #[test]
@@ -741,4 +742,78 @@ mod tests {
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
+
+    #[test]
+    fn init_team_resolves_team_home_waypoint() {
+        // C++ Team.cpp:669-679 last name match wins. load_map_data prepends, so
+        // the first vec entry is the tail of getFirstWaypoint / getNext.
+        let mut map_data = crate::system::map_loader::MapData::new();
+        map_data.width = 2;
+        map_data.height = 2;
+        map_data.heightmap = vec![0; 4];
+        map_data.waypoints = vec![
+            crate::system::map_loader::MapWaypoint {
+                id: 7701,
+                name: "TeamHomeOriginA".to_string(),
+                location: crate::system::map_loader::Coord3D::new(111.0, 222.0, 9.0),
+                path_label1: String::new(),
+                path_label2: String::new(),
+                path_label3: String::new(),
+                bi_directional: false,
+            },
+            crate::system::map_loader::MapWaypoint {
+                id: 7702,
+                name: "TeamHomeOriginA".to_string(),
+                location: crate::system::map_loader::Coord3D::new(333.0, 444.0, 9.0),
+                path_label1: String::new(),
+                path_label2: String::new(),
+                path_label3: String::new(),
+                bi_directional: false,
+            },
+        ];
+        crate::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain write")
+            .load_map_data(map_data);
+
+        let expected = crate::terrain::get_terrain_logic()
+            .read()
+            .expect("terrain read")
+            .get_first_waypoint()
+            .and_then(|way| way.get_next())
+            .map(|way| *way.get_location())
+            .expect("duplicate teamHome tail waypoint");
+
+        let mut factory = TeamFactory::new();
+        let mut dict = Dict::new();
+        dict.set_ascii_string(key_team_home(), "TeamHomeOriginA");
+        let prototype = factory
+            .init_team(
+                AsciiString::from("HomeTeam"),
+                AsciiString::from("PlyrCivilian"),
+                false,
+                Some(&dict),
+            )
+            .expect("prototype should be created");
+        assert!(prototype.has_home_location());
+        assert_eq!(prototype.home_location(), expected);
+
+        let mut missing = Dict::new();
+        missing.set_ascii_string(key_team_home(), "NoSuchTeamHome");
+        let missing_proto = factory
+            .init_team(
+                AsciiString::from("NoHomeTeam"),
+                AsciiString::from("PlyrCivilian"),
+                false,
+                Some(&missing),
+            )
+            .expect("missing-home prototype should be created");
+        assert!(!missing_proto.has_home_location());
+
+        crate::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain reset")
+            .reset();
+    }
+
 }

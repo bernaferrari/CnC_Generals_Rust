@@ -1,7 +1,11 @@
-//! Host ambulance AutoHeal residual (USA AmericaVehicleMedic).
+//! Host AutoHeal leftovers: DefaultAutoHealBehavior + ambulance radius pulse.
 //!
 //! Residual slice (playability):
-//! - AmericaVehicleMedic / Ambulance: C++ `AutoHealBehavior` radius pulse residual —
+//! - Trainable units: C++ `ModuleTag_DefaultAutoHealBehavior` — StartsActive=Yes,
+//!   HealingAmount=**2**, HealingDelay=**1000**ms, StartHealingDelay=**5000**ms,
+//!   radius 0. Ctor `giveSelfUpgrade`; `update()` self-heals then sleeps forever
+//!   at max health; `onDamage` restarts after StartHealingDelay. HELD still heals.
+//! - AmericaVehicleMedic / Ambulance: C++ `AutoHealBehavior` radius **pulse** —
 //!   - ModuleTag_22 infantry: HealingAmount=**4**, HealingDelay=**1000**ms,
 //!     Radius=**100**, KindOf=INFANTRY, StartsActive=Yes.
 //!   - ModuleTag_23 vehicle: HealingAmount=**5**, HealingDelay=**1000**ms,
@@ -9,14 +13,14 @@
 //!     SkipSelfForHealing=Yes, StartsActive=Yes.
 //! - TransportContain residual: Slots=**3**, HealthRegen%PerSec=**25** while embarked
 //!   (AllowInsideKindOf=INFANTRY).
-//! - Sole-benefactor residual map (ObjectId → healer_id, first-healer-wins per pulse).
+//! - Sole-benefactor: Object `attemptHealingFromSoleBenefactor` for HealingDelay frames.
 //! - HealPad `GetHealed` residual honesty counters live in `GameLogic`.
 //!
 //! Fail-closed honesty:
-//! - Not full multi-ambulance reject matrix beyond first-healer-wins residual
 //! - Not full particle / world-anim heal pulse FX
 //! - Not full TransportContain embark/exit door matrix / DamagePercentToUnits combat
 //! - Not network heal replication (network deferred)
+
 
 use super::ObjectId;
 use std::collections::HashMap;
@@ -32,6 +36,8 @@ pub const AMBULANCE_HEAL_DELAY_SEC: f32 = 1.0;
 
 /// Retail HealingDelay msec residual (shared ModuleTag_22 / ModuleTag_23).
 pub const AMBULANCE_HEAL_DELAY_MS: u32 = 1000;
+/// Retail HealingDelay in logic frames (30 fps).
+pub const AMBULANCE_HEAL_DELAY_FRAMES: u32 = 30;
 
 /// Continuous residual rate equivalent to infantry amount/delay pulse average.
 pub const HOST_AMBULANCE_INFANTRY_HEAL_HP_PER_SEC: f32 =
@@ -55,6 +61,135 @@ pub const AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC: f32 = 25.0;
 
 /// Retail TransportContain DamagePercentToUnits residual (honesty pack).
 pub const AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS: f32 = 0.10;
+
+
+/// Retail `ModuleTag_DefaultAutoHealBehavior` HealingAmount residual.
+pub const DEFAULT_AUTO_HEAL_AMOUNT: f32 = 2.0;
+/// Retail DefaultAutoHeal HealingDelay = 1000 ms.
+pub const DEFAULT_AUTO_HEAL_DELAY_MS: u32 = 1000;
+/// Retail DefaultAutoHeal HealingDelay in logic frames (30 fps).
+pub const DEFAULT_AUTO_HEAL_DELAY_FRAMES: u32 = 30;
+/// Retail DefaultAutoHeal StartHealingDelay = 5000 ms.
+pub const DEFAULT_AUTO_HEAL_START_DELAY_MS: u32 = 5000;
+/// Retail DefaultAutoHeal StartHealingDelay in logic frames (30 fps).
+pub const DEFAULT_AUTO_HEAL_START_DELAY_FRAMES: u32 = 150;
+
+/// C++ PartitionFilterRelationship ALLOW_ALLIES: same player or allied player.
+/// Leftover fallback: same non-neutral team when player ids are missing.
+pub fn ambulance_heal_is_ally(same_team: bool, player_allies: Option<bool>) -> bool {
+    match player_allies {
+        Some(allies) => allies,
+        None => same_team,
+    }
+}
+
+/// Accumulate `dt` toward a 1-second AutoHeal pulse. Returns true when a pulse is due.
+pub fn ambulance_pulse_ready(accum: &mut f32, dt: f32) -> bool {
+    if dt <= 0.0 {
+        return false;
+    }
+    *accum += dt;
+
+    if *accum + f32::EPSILON >= AMBULANCE_HEAL_DELAY_SEC {
+        *accum -= AMBULANCE_HEAL_DELAY_SEC;
+        if *accum < 0.0 {
+            *accum = 0.0;
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Per-object leftover `ModuleTag_DefaultAutoHealBehavior` residual.
+///
+/// C++: StartsActive=Yes, HealingAmount=2, HealingDelay=1000ms, StartHealingDelay=5000ms,
+/// radius 0. Ctor `giveSelfUpgrade`; `update()` self-heals then sleeps forever at max
+/// health; `onDamage` restarts after StartHealingDelay. HELD (garrisoned) still heals.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HostDefaultAutoHealData {
+    /// Frame when the next self-heal pulse may run.
+    pub wake_frame: u32,
+    /// Guard so onDamage cannot force a heal before HealingDelay after a pulse.
+    pub soonest_heal_frame: u32,
+    pub stopped: bool,
+    /// C++ `giveSelfUpgrade` from StartsActive=Yes.
+    pub upgrade_active: bool,
+    /// Set by leftover damage path; consumed on next tick.
+    pub pending_damage: bool,
+}
+
+impl Default for HostDefaultAutoHealData {
+    fn default() -> Self {
+        Self {
+            wake_frame: 0,
+            soonest_heal_frame: 0,
+            stopped: false,
+            upgrade_active: true,
+            pending_damage: false,
+        }
+    }
+}
+
+impl HostDefaultAutoHealData {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Trainable units inherit DefaultAutoHeal; C++ drops the module when `!isTrainable`.
+    pub fn for_trainable_template(_template_name: &str, is_trainable: bool) -> Option<Self> {
+        if is_trainable {
+            Some(Self::new())
+        } else {
+            None
+        }
+    }
+
+    /// C++ AutoHealBehavior::onDamage for radius==0: reset StartHealingDelay.
+    pub fn on_damage(&mut self, current_frame: u32) {
+        if self.stopped || !self.upgrade_active {
+            return;
+        }
+        self.pending_damage = false;
+        if DEFAULT_AUTO_HEAL_START_DELAY_FRAMES > 0 {
+            self.wake_frame = current_frame.saturating_add(DEFAULT_AUTO_HEAL_START_DELAY_FRAMES);
+        } else if current_frame > self.soonest_heal_frame {
+            self.wake_frame = current_frame;
+        }
+    }
+
+    pub fn mark_damaged(&mut self) {
+        if self.upgrade_active && !self.stopped {
+            self.pending_damage = true;
+        }
+    }
+
+    /// Pulse amount this frame, or 0 if sleeping / full health / stopped.
+    /// Garrisoned / HELD units still heal (C++ DISABLED_HELD).
+    pub fn tick_heal_amount(
+        &mut self,
+        current_frame: u32,
+        current_health: f32,
+        max_health: f32,
+    ) -> f32 {
+        if self.stopped || !self.upgrade_active {
+            return 0.0;
+        }
+        if self.pending_damage {
+            self.on_damage(current_frame);
+        }
+        if max_health <= 0.0 || current_health >= max_health - f32::EPSILON {
+            // C++ update() at max health: UPDATE_SLEEP_FOREVER until onDamage.
+            return 0.0;
+        }
+        if current_frame < self.wake_frame {
+            return 0.0;
+        }
+        self.soonest_heal_frame = current_frame.saturating_add(DEFAULT_AUTO_HEAL_DELAY_FRAMES);
+        self.wake_frame = self.soonest_heal_frame;
+        DEFAULT_AUTO_HEAL_AMOUNT
+    }
+}
 
 /// Whether template is a residual ambulance / medic healer unit.
 ///
@@ -190,10 +325,16 @@ pub fn honesty_ambulance_auto_heal_constants_ok() -> bool {
         && (AMBULANCE_TRANSPORT_HEALTH_REGEN_PERCENT_PER_SEC - 25.0).abs() < 0.001
         && (AMBULANCE_TRANSPORT_DAMAGE_PERCENT_TO_UNITS - 0.10).abs() < 0.001
 }
-/// Combined residual honesty pack (Wave 71).
+/// Combined residual honesty pack (Wave 71 + DefaultAutoHeal).
 pub fn honesty_heal_residual_pack_ok() -> bool {
     honesty_ambulance_auto_heal_constants_ok()
+        && (DEFAULT_AUTO_HEAL_AMOUNT - 2.0).abs() < 0.001
+        && DEFAULT_AUTO_HEAL_DELAY_MS == 1000
+        && DEFAULT_AUTO_HEAL_DELAY_FRAMES == 30
+        && DEFAULT_AUTO_HEAL_START_DELAY_MS == 5000
+        && DEFAULT_AUTO_HEAL_START_DELAY_FRAMES == 150
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -329,4 +470,43 @@ mod tests {
         assert_eq!(HOST_AMBULANCE_HEAL_RADIUS, 100.0);
         assert_eq!(AMBULANCE_TRANSPORT_SLOTS, 3);
     }
+
+    #[test]
+    fn default_auto_heal_on_damage_then_pulse() {
+        let mut d = HostDefaultAutoHealData::new();
+        assert!(HostDefaultAutoHealData::for_trainable_template("USA_Ranger", true).is_some());
+        assert!(HostDefaultAutoHealData::for_trainable_template("AmericaCommandCenter", false).is_none());
+
+        d.on_damage(10);
+        assert_eq!(d.wake_frame, 10 + DEFAULT_AUTO_HEAL_START_DELAY_FRAMES);
+        assert_eq!(
+            d.tick_heal_amount(10 + DEFAULT_AUTO_HEAL_START_DELAY_FRAMES - 1, 50.0, 100.0),
+            0.0
+        );
+        assert_eq!(
+            d.tick_heal_amount(10 + DEFAULT_AUTO_HEAL_START_DELAY_FRAMES, 50.0, 100.0),
+            DEFAULT_AUTO_HEAL_AMOUNT
+        );
+        // At max health: sleep forever until damaged again.
+        assert_eq!(
+            d.tick_heal_amount(10 + DEFAULT_AUTO_HEAL_START_DELAY_FRAMES + 30, 100.0, 100.0),
+            0.0
+        );
+    }
+
+    #[test]
+    fn ambulance_pulse_and_ally_filter() {
+        let mut accum = 0.0;
+        assert!(!ambulance_pulse_ready(&mut accum, 1.0 / 30.0));
+        for _ in 0..28 {
+            assert!(!ambulance_pulse_ready(&mut accum, 1.0 / 30.0));
+        }
+        assert!(ambulance_pulse_ready(&mut accum, 1.0 / 30.0));
+
+        assert!(ambulance_heal_is_ally(true, None));
+        assert!(!ambulance_heal_is_ally(false, None));
+        assert!(ambulance_heal_is_ally(false, Some(true)));
+        assert!(!ambulance_heal_is_ally(true, Some(false)));
+    }
+
 }

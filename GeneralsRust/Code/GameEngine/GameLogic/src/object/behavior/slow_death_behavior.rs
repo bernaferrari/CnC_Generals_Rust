@@ -12,6 +12,7 @@ use crate::common::{
     ModuleData, ObjectID, Real, UnsignedInt, Vector3, LOGICFRAMES_PER_SECOND, PI,
     SECONDS_PER_LOGICFRAME_REAL,
 };
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -34,8 +35,8 @@ use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
     BodyModuleInterface, DieModuleInterface, ModuleInterface, PhysicsBehavior, PhysicsBehaviorExt,
     SlavedUpdateInterface, SlowDeathBehaviorInterface as ModuleSlowDeathBehaviorInterface,
-    UpdateModule, UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE, UPDATE_SLEEP,
-    UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    UpdateModule, UpdateModuleInterface, UpdateModulePtr, UpdateSleepTime, MODULEINTERFACE_DIE,
+    MODULEINTERFACE_UPDATE, UPDATE_SLEEP, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::weapon::with_weapon_store;
@@ -95,9 +96,9 @@ pub struct SlowDeathBehaviorModuleData {
     pub destruction_altitude: Real,
     pub destruction_delay: UnsignedInt,
     pub destruction_delay_variance: UnsignedInt,
-    pub fx: [Vec<Arc<FXList>>; SlowDeathPhaseType::COUNT],
-    pub ocls: [Vec<Arc<ObjectCreationList>>; SlowDeathPhaseType::COUNT],
-    pub weapons: [Vec<Arc<WeaponTemplate>>; SlowDeathPhaseType::COUNT],
+    pub fx: [Vec<Option<Arc<FXList>>>; SlowDeathPhaseType::COUNT],
+    pub ocls: [Vec<Option<Arc<ObjectCreationList>>>; SlowDeathPhaseType::COUNT],
+    pub weapons: [Vec<Option<Arc<WeaponTemplate>>>; SlowDeathPhaseType::COUNT],
     pub fling_force: Real,
     pub fling_force_variance: Real,
     pub fling_pitch: Real,
@@ -245,17 +246,22 @@ pub(crate) fn parse_fx(
     data: &mut SlowDeathBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
+    // C++ SlowDeathBehavior.cpp:62-72 parseFX — push every token, including null
+    // finds, so empty slots still occupy the random distribution.
     let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_slow_death_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
     for token in tokens.iter().skip(1) {
-        for name in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-            if let Some(fx) = TheFXListStore::find_fx_list(name) {
-                data.fx[phase.to_index()].push(fx);
-                data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_FX;
-            }
+        let name = token.trim();
+        if name.is_empty() {
+            continue;
         }
+        let fx = TheFXListStore::find_fx_list(name);
+        if fx.is_some() {
+            data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_FX;
+        }
+        data.fx[phase.to_index()].push(fx);
     }
     Ok(())
 }
@@ -265,17 +271,21 @@ pub(crate) fn parse_ocl(
     data: &mut SlowDeathBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
+    // C++ SlowDeathBehavior.cpp:76-86 parseOCL — null finds still occupy a slot.
     let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_slow_death_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
     for token in tokens.iter().skip(1) {
-        for name in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-            if let Some(ocl) = TheObjectCreationListStore::find_object_creation_list(name) {
-                data.ocls[phase.to_index()].push(ocl);
-                data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_OCL;
-            }
+        let name = token.trim();
+        if name.is_empty() {
+            continue;
         }
+        let ocl = TheObjectCreationListStore::find_object_creation_list(name);
+        if ocl.is_some() {
+            data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_OCL;
+        }
+        data.ocls[phase.to_index()].push(ocl);
     }
     Ok(())
 }
@@ -285,20 +295,23 @@ pub(crate) fn parse_weapon(
     data: &mut SlowDeathBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
+    // C++ SlowDeathBehavior.cpp:90-100 parseWeapon — null finds still occupy a slot.
     let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_slow_death_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
     for token in tokens.iter().skip(1) {
-        for name in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
-            let template = with_weapon_store(|store| store.find_weapon_template(name).cloned())
-                .ok()
-                .flatten();
-            if let Some(weapon) = template {
-                data.weapons[phase.to_index()].push(weapon);
-                data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_WEAPON;
-            }
+        let name = token.trim();
+        if name.is_empty() {
+            continue;
         }
+        let weapon = with_weapon_store(|store| store.find_weapon_template(name).cloned())
+            .ok()
+            .flatten();
+        if weapon.is_some() {
+            data.mask_of_loaded_effects |= SlowDeathBehaviorModuleData::HAS_WEAPON;
+        }
+        data.weapons[phase.to_index()].push(weapon);
     }
     Ok(())
 }
@@ -544,6 +557,18 @@ pub trait SlowDeathBehaviorInterface: Send + Sync {
     fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool;
 }
 
+/// Scheduler identity for C++ `UpdateModule::setWakeFrame` (this module only).
+#[derive(Default)]
+struct BoundUpdateModule(Option<UpdateModulePtr>);
+
+impl std::fmt::Debug for BoundUpdateModule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoundUpdateModule")
+            .field("bound", &self.0.is_some())
+            .finish()
+    }
+}
+
 /// Main SlowDeathBehavior implementation
 #[derive(Debug)]
 pub struct SlowDeathBehavior {
@@ -558,6 +583,7 @@ pub struct SlowDeathBehavior {
     midpoint_frame: UnsignedInt,
     destruction_frame: UnsignedInt,
     accelerated_time_scale: Real,
+    update_proxy: BoundUpdateModule,
 }
 
 impl SlowDeathBehavior {
@@ -600,6 +626,7 @@ impl SlowDeathBehavior {
             midpoint_frame: 0,
             destruction_frame: 0,
             accelerated_time_scale: 1.0,
+            update_proxy: BoundUpdateModule(None),
         })
     }
 
@@ -609,6 +636,35 @@ impl SlowDeathBehavior {
 
     pub fn set_object_id(&mut self, object_id: ObjectID) {
         self.object_id = object_id;
+    }
+
+    /// Bind the sleepy-heap `UpdateModulePtr` created for this instance.
+    /// C++ `UpdateModule::setWakeFrame` wakes `this` only (UpdateModule.cpp:61-64).
+    pub(crate) fn bind_update_proxy(&mut self, proxy: UpdateModulePtr) {
+        self.update_proxy = BoundUpdateModule(Some(proxy));
+    }
+
+    fn wake_this_module_only(&mut self, sleep_time: UpdateSleepTime) {
+        let now = TheGameLogic::get_frame();
+        let wake_frame = match sleep_time {
+            UpdateSleepTime::None => 0,
+            UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames.max(1)),
+        };
+        self.next_call_frame_and_phase = wake_frame;
+        let Some(proxy) = self.update_proxy.0.clone() else {
+            return;
+        };
+        let _ = crate::helpers::TheGameLogic::register_update_module(
+            self.object_id,
+            proxy,
+            wake_frame,
+        );
+    }
+
+    fn destroy_owner(&self) {
+        // C++ SlowDeathBehavior.cpp uses TheGameLogic->destroyObject (full teardown).
+        let _ = crate::helpers::TheGameLogic::destroy_object_by_id(self.get_object_id());
     }
 
     fn get_object_id(&self) -> ObjectID {
@@ -692,11 +748,12 @@ impl SlowDeathBehavior {
         let object_id = self.get_object_id();
         let position = self.with_object(|obj| *obj.get_position())?;
 
-        // Execute FX list if present (C++ lines 323-331)
+        // Execute FX list if present (C++ lines 323-331). Null slots stay in the
+        // distribution; C++ FXList::doFXObj no-ops a null pointer.
         let fx_list = &data.fx[phase_index];
         if !fx_list.is_empty() {
             let idx = GameLogicRandomValue(0, fx_list.len() as Int - 1) as usize;
-            if let Some(fx) = fx_list.get(idx) {
+            if let Some(Some(fx)) = fx_list.get(idx) {
                 // Matches C++ SlowDeathBehavior.cpp:330 - FXList::doFXObj(fxl, getObject(), NULL)
                 if let Err(e) = fx.do_fx_obj_ids(object_id, None, None) {
                     log::warn!("Failed to execute FX for phase {:?}: {}", phase, e);
@@ -708,7 +765,7 @@ impl SlowDeathBehavior {
         let ocl_list = &data.ocls[phase_index];
         if !ocl_list.is_empty() {
             let idx = GameLogicRandomValue(0, ocl_list.len() as Int - 1) as usize;
-            if let Some(ocl) = ocl_list.get(idx) {
+            if let Some(Some(ocl)) = ocl_list.get(idx) {
                 // Matches C++ SlowDeathBehavior.cpp:340 - ObjectCreationList::create(ocl, getObject(), NULL)
                 if let Err(e) = ocl.create_at_position(&position, object_id) {
                     log::warn!("Failed to execute OCL for phase {:?}: {}", phase, e);
@@ -720,7 +777,7 @@ impl SlowDeathBehavior {
         let weapon_list = &data.weapons[phase_index];
         if !weapon_list.is_empty() {
             let idx = GameLogicRandomValue(0, weapon_list.len() as Int - 1) as usize;
-            if let Some(weapon) = weapon_list.get(idx) {
+            if let Some(Some(weapon)) = weapon_list.get(idx) {
                 // Matches C++ SlowDeathBehavior.cpp:352 - TheWeaponStore->createAndFireTempWeapon(...)
                 if let Some(weapon_store) = TheWeaponStore::get() {
                     if let Err(e) = weapon_store
@@ -776,7 +833,7 @@ impl UpdateModuleInterface for SlowDeathBehavior {
         if time_scale != 1.0 && self.accelerated_time_scale == 1.0 && !data.has_non_lod_effects() {
             if time_scale == 0.0 {
                 // Instant death - destroy immediately (C++ line 377)
-                crate::helpers::TheGameLogic::remove_object(self.get_object_id());
+                self.destroy_owner();
                 return Ok(UPDATE_SLEEP_NONE);
             }
 
@@ -800,12 +857,15 @@ impl UpdateModuleInterface for SlowDeathBehavior {
                 let sink_rate = data.sink_rate;
                 let outcome = self.with_object_mut(
                     |obj_write| -> Result<u8, Box<dyn std::error::Error + Send + Sync>> {
+                        // C++ SlowDeathBehavior.cpp:397-424 — landing sets BOUNCED then
+                        // still runs the tree-snag check on the same frame.
+                        let mut bounced = false;
                         if !obj_write.is_above_terrain() {
                             obj_write.clear_and_set_model_condition_flags(
                                 MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_FLAILING),
                                 MAKE_MODELCONDITION_MASK!(MODELCONDITION_EXPLODED_BOUNCING),
                             )?;
-                            return Ok(1); // bounced
+                            bounced = true;
                         }
 
                         if let Some(physics) = obj_write.get_physics() {
@@ -839,14 +899,18 @@ impl UpdateModuleInterface for SlowDeathBehavior {
                                 }
                             }
                         }
-                        Ok(0)
+                        if bounced {
+                            Ok(1)
+                        } else {
+                            Ok(0)
+                        }
                     },
                 )??;
 
                 match outcome {
                     1 => self.flags |= 1 << Self::BOUNCED,
                     2 => {
-                        crate::helpers::TheGameLogic::remove_object(self.get_object_id());
+                        self.destroy_owner();
                         return Ok(UPDATE_SLEEP_NONE);
                     }
                     _ => {}
@@ -878,11 +942,16 @@ impl UpdateModuleInterface for SlowDeathBehavior {
         if now >= self.destruction_frame {
             self.do_phase_stuff(SlowDeathPhaseType::Final)?;
             // Matches C++ line 449: TheGameLogic->destroyObject(obj)
-            crate::helpers::TheGameLogic::remove_object(self.get_object_id());
+            self.destroy_owner();
             return Ok(UPDATE_SLEEP_NONE);
         }
 
         Ok(UPDATE_SLEEP_NONE)
+    }
+
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ SlowDeathBehavior.h:124 getDisabledTypesToProcess = DISABLEDMASK_ALL
+        DisabledMaskType::all()
     }
 }
 
@@ -917,20 +986,26 @@ impl DieModuleInterface for SlowDeathBehavior {
             return Ok(());
         }
 
-        // Calculate total probability from all applicable slow death behaviors (C++ lines 475-484)
-        let behavior_modules = self
-            .with_object(|obj| obj.get_behavior_modules())
+        // C++ SlowDeathBehavior.cpp:475-499 walks getBehaviorModules() /
+        // getSlowDeathBehaviorInterface(). TemplateModuleBehavior does not
+        // forward that interface, so walk ModuleEntry handles (try_lock so we
+        // do not deadlock on the ModuleEntry already held by on_die).
+        let handles = self
+            .with_object(|obj| obj.behavior_modules())
             .map_err(|e| format!("Lock error: {e}"))?;
 
         let mut total_probability: Int = 0;
-        for module in behavior_modules.iter() {
-            if let Ok(mut module_guard) = module.lock() {
-                if let Some(sdu) = module_guard.get_slow_death_behavior_interface() {
-                    if sdu.is_die_applicable(damage_info) {
-                        total_probability += sdu.get_probability_modifier(damage_info);
+        if self.is_die_applicable(damage_info) {
+            total_probability += self.get_probability_modifier(damage_info);
+        }
+        for handle in &handles {
+            handle.try_with_module(|module| {
+                if let Some(other) = (module as &mut dyn Any).downcast_mut::<SlowDeathBehavior>() {
+                    if other.is_die_applicable(damage_info) {
+                        total_probability += other.get_probability_modifier(damage_info);
                     }
                 }
-            }
+            });
         }
 
         if total_probability <= 0 {
@@ -940,18 +1015,29 @@ impl DieModuleInterface for SlowDeathBehavior {
         // Roll dice to select which behavior executes (C++ lines 488)
         let mut roll = GameLogicRandomValue(1, total_probability);
 
-        // Find the selected behavior (C++ lines 490-503)
-        for module in behavior_modules.iter() {
-            if let Ok(mut module_guard) = module.lock() {
-                if let Some(sdu) = module_guard.get_slow_death_behavior_interface() {
-                    if sdu.is_die_applicable(damage_info) {
-                        roll -= sdu.get_probability_modifier(damage_info);
+        if self.is_die_applicable(damage_info) {
+            roll -= self.get_probability_modifier(damage_info);
+            if roll <= 0 {
+                return self.begin_slow_death(damage_info);
+            }
+        }
+
+        for handle in &handles {
+            let mut started = false;
+            let mut result: Result<(), Box<dyn std::error::Error + Send + Sync>> = Ok(());
+            handle.try_with_module(|module| {
+                if let Some(other) = (module as &mut dyn Any).downcast_mut::<SlowDeathBehavior>() {
+                    if other.is_die_applicable(damage_info) {
+                        roll -= other.get_probability_modifier(damage_info);
                         if roll <= 0 {
-                            sdu.begin_slow_death(damage_info)?;
-                            return Ok(());
+                            started = true;
+                            result = other.begin_slow_death(damage_info);
                         }
                     }
                 }
+            });
+            if started {
+                return result;
             }
         }
 
@@ -962,7 +1048,8 @@ impl DieModuleInterface for SlowDeathBehavior {
 
 impl BehaviorModuleInterface for SlowDeathBehavior {
     fn get_interface_mask() -> u32 {
-        MODULEINTERFACE_DIE
+        // C++ SlowDeathBehavior.h:115 UpdateModule | MODULEINTERFACE_DIE
+        MODULEINTERFACE_UPDATE | MODULEINTERFACE_DIE
     }
 
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
@@ -1021,7 +1108,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 
         // Check for instant death (C++ lines 219-224)
         if time_scale == 0.0 && !data.has_non_lod_effects() {
-            crate::helpers::TheGameLogic::remove_object(self.get_object_id());
+            self.destroy_owner();
             return Ok(());
         }
 
@@ -1124,21 +1211,18 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             }
         }
 
-        let obj_id = self.get_object_id();
         let when_to_wake = self
             .sink_frame
             .min(self.destruction_frame)
             .min(self.midpoint_frame);
 
-        // Wake immediately for physics updates (C++ line 289)
+        // C++ UpdateModule.cpp:61-64 setWakeFrame wakes only this module.
         if flung {
-            crate::helpers::TheGameLogic::set_wake_frame(obj_id, crate::modules::UPDATE_SLEEP_NONE);
+            self.wake_this_module_only(UPDATE_SLEEP_NONE);
         } else {
-            // Set wake timing if not flung (C++ lines 294-300)
             // C++ line 300: setWakeFrame(obj, UPDATE_SLEEP(whenToWakeTime))
-            let sleep_time =
-                crate::modules::UpdateSleepTime::Frames(when_to_wake.saturating_sub(now));
-            crate::helpers::TheGameLogic::set_wake_frame(obj_id, sleep_time);
+            let sleep_time = UpdateSleepTime::Frames(when_to_wake.saturating_sub(now));
+            self.wake_this_module_only(sleep_time);
         }
 
         // Mark as activated
@@ -1322,5 +1406,71 @@ mod tests {
     fn parse_duration_frames_accepts_duration_suffixes() {
         assert_eq!(parse_duration_frames(&["1500ms"]).expect("duration"), 45);
         assert_eq!(parse_duration_frames(&["1.5s"]).expect("duration"), 45);
+    }
+
+    #[test]
+    fn parse_fx_keeps_null_slots_and_does_not_comma_split() {
+        // C++ SlowDeathBehavior.cpp:62-72 — missing names still occupy the roll.
+        let mut ini = INI::new();
+        let mut data = SlowDeathBehaviorModuleData::new();
+        parse_fx(
+            &mut ini,
+            &mut data,
+            &["INITIAL", "DoesNotExist", "AlsoMissing"],
+        )
+        .expect("parse_fx");
+        assert_eq!(data.fx[0].len(), 2);
+        assert!(data.fx[0][0].is_none());
+        assert!(data.fx[0][1].is_none());
+        assert_eq!(data.mask_of_loaded_effects, 0);
+
+        let mut comma = SlowDeathBehaviorModuleData::new();
+        parse_fx(&mut ini, &mut comma, &["INITIAL", "Foo,Bar"]).expect("comma token");
+        assert_eq!(
+            comma.fx[0].len(),
+            1,
+            "C++ getNextToken does not comma-split"
+        );
+    }
+
+    #[test]
+    fn parse_ocl_and_weapon_keep_null_slots() {
+        let mut ini = INI::new();
+        let mut data = SlowDeathBehaviorModuleData::new();
+        parse_ocl(&mut ini, &mut data, &["MIDPOINT", "MissingOcl"]).expect("parse_ocl");
+        parse_weapon(&mut ini, &mut data, &["FINAL", "MissingWeapon"]).expect("parse_weapon");
+        assert_eq!(data.ocls[1].len(), 1);
+        assert!(data.ocls[1][0].is_none());
+        assert_eq!(data.weapons[2].len(), 1);
+        assert!(data.weapons[2][0].is_none());
+        assert_eq!(data.mask_of_loaded_effects, 0);
+    }
+
+    #[test]
+    fn disabled_mask_is_all_like_cpp() {
+        // C++ SlowDeathBehavior.h:124 getDisabledTypesToProcess = DISABLEDMASK_ALL
+        let data: Arc<dyn ModuleData> = Arc::new(SlowDeathBehaviorModuleData::new());
+        let sd = SlowDeathBehavior::new_with_object_id(1, data).expect("ctor");
+        assert_eq!(
+            UpdateModuleInterface::get_disabled_types_to_process(&sd),
+            DisabledMaskType::all()
+        );
+        assert_eq!(
+            SlowDeathBehavior::get_interface_mask() & MODULEINTERFACE_UPDATE,
+            MODULEINTERFACE_UPDATE
+        );
+        assert_eq!(
+            SlowDeathBehavior::get_interface_mask() & MODULEINTERFACE_DIE,
+            MODULEINTERFACE_DIE
+        );
+    }
+
+    #[test]
+    fn wake_without_bound_proxy_does_not_wake_all_modules() {
+        // C++ UpdateModule.cpp:61-64 setWakeFrame wakes only `this`.
+        let data: Arc<dyn ModuleData> = Arc::new(SlowDeathBehaviorModuleData::new());
+        let mut sd = SlowDeathBehavior::new_with_object_id(1, data).expect("ctor");
+        sd.wake_this_module_only(UPDATE_SLEEP_NONE);
+        assert!(sd.update_proxy.0.is_none());
     }
 }

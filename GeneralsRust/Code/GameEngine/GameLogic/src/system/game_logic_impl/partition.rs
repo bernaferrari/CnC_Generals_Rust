@@ -19,6 +19,9 @@ pub struct PartitionManager {
     cell_size: Real,
     /// C++ PartitionCell shroud levels (40wu).
     shroud: crate::object::collide::partition_shroud::PartitionShroudGrid,
+    /// C++ `storeFoggedCells` / `restoreFoggedCells` snapshot, keyed by
+    /// `(player_index, store_to_fog)`.
+    fogged_cells: HashMap<(usize, bool), HashSet<(i32, i32)>>,
 }
 
 impl PartitionManager {
@@ -30,6 +33,7 @@ impl PartitionManager {
             ghost_links: HashMap::new(),
             cell_size: 40.0,
             shroud: crate::object::collide::partition_shroud::PartitionShroudGrid::new(),
+            fogged_cells: HashMap::new(),
         }
     }
 
@@ -400,6 +404,16 @@ impl PartitionManager {
         self.shroud.status_at_world(player_index, loc)
     }
 
+    /// C++ `getShroudStatusForPlayer(player, x, y)`.
+    pub fn get_shroud_status_for_player_cell(
+        &self,
+        player_index: i32,
+        x: i32,
+        y: i32,
+    ) -> game_engine::common::system::radar::CellShroudStatus {
+        self.shroud.cell_status(player_index, x, y)
+    }
+
     /// C++ `getPropShroudStatusForPlayer`.
     pub fn get_prop_shroud_status_for_player(
         &self,
@@ -417,6 +431,47 @@ impl PartitionManager {
         self.shroud.undo_reveal_circle(center, radius, player_mask);
     }
 
+    pub fn add_looker(&mut self, player_index: i32, x: i32, y: i32) {
+        self.shroud.add_looker(player_index, x, y);
+    }
+
+    pub fn remove_looker(&mut self, player_index: i32, x: i32, y: i32) {
+        self.shroud.remove_looker(player_index, x, y);
+    }
+
+    /// C++ `PartitionManager::storeFoggedCells`.
+    pub fn store_fogged_cells(&mut self, player_index: usize, store_to_fog: bool) {
+        let player = player_index as i32;
+        let mut cells = HashSet::new();
+        for &(x, y) in self.grid.keys() {
+            match self.shroud.cell_status(player, x, y) {
+                game_engine::common::system::radar::CellShroudStatus::Fogged if store_to_fog => {
+                    cells.insert((x, y));
+                }
+                game_engine::common::system::radar::CellShroudStatus::Clear if !store_to_fog => {
+                    cells.insert((x, y));
+                }
+                _ => {}
+            }
+        }
+        self.fogged_cells
+            .insert((player_index, store_to_fog), cells);
+    }
+
+    /// C++ `PartitionManager::restoreFoggedCells`.
+    pub fn restore_fogged_cells(&mut self, player_index: usize, restore_to_fog: bool) {
+        let Some(cells) = self.fogged_cells.get(&(player_index, restore_to_fog)).cloned() else {
+            return;
+        };
+        let player = player_index as i32;
+        for (x, y) in cells {
+            self.shroud.add_looker(player, x, y);
+            if restore_to_fog {
+                self.shroud.remove_looker(player, x, y);
+            }
+        }
+    }
+
     /// C++ `PartitionManager::clear` — drop all registered occupants so a
     /// map-boundary change can re-register objects on the new grid.
     pub fn clear(&mut self) {
@@ -424,6 +479,7 @@ impl PartitionManager {
         self.object_cells.clear();
         self.object_positions.clear();
         self.ghost_links.clear();
+        self.shroud.clear();
     }
 }
 

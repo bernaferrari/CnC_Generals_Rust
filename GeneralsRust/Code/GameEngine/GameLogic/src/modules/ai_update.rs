@@ -876,6 +876,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Set recruitable state (matches C++ AIUpdateInterface::setIsRecruitable).
     fn set_is_recruitable(&mut self, _recruitable: Bool) {}
 
+    /// Get recruitable state (matches C++ AIUpdateInterface::isRecruitable).
+    /// Default true: units without an override stay recruitable.
+    fn is_recruitable(&self) -> bool {
+        true
+    }
+
     /// Get attitude
     fn get_attitude(&self) -> AIAttitudeType {
         AIAttitudeType::Normal

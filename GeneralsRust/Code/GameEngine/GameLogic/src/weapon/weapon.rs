@@ -1104,9 +1104,9 @@ impl Weapon {
         }
         let dist_sqr = Self::distance_squared(goal_pos, target_pos);
 
-        // Oversize min range by 1/4 pathfind cell
+        // C++ Weapon.cpp:2278-2280 (RATIONALIZE_ATTACK_RANGE): no -0.5 fudge.
         let min_range = self.template.get_minimum_attack_range() + pathfind_fudge;
-        if dist_sqr < min_range * min_range - 0.5 {
+        if dist_sqr < min_range * min_range {
             return false;
         }
         dist_sqr <= attack_range * attack_range
@@ -1126,7 +1126,7 @@ impl Weapon {
         }
 
         let mut attack_range = self.template.get_attack_range(bonus);
-        let mut min_attack_range = self.template.get_minimum_attack_range();
+        let min_attack_range = self.template.get_minimum_attack_range();
 
         if let Some(source_r) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
             source_guard
@@ -1163,7 +1163,8 @@ impl Weapon {
         let attack_range_sqr = attack_range * attack_range;
         let min_range_sqr = min_attack_range * min_attack_range;
 
-        if dist_sqr < min_range_sqr - 0.5 {
+        // C++ Weapon.cpp:2122-2124 (RATIONALIZE_ATTACK_RANGE): no -0.5 fudge.
+        if dist_sqr < min_range_sqr {
             return false;
         }
         dist_sqr <= attack_range_sqr

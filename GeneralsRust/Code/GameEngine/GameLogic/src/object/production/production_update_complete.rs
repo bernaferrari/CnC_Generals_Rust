@@ -1287,7 +1287,7 @@ impl ProductionUpdateComplete {
             };
             let factory = TheThingFactory::get().map_err(|err| err.to_string())?;
             let new_obj = factory
-                .new_object_with_team_handle(template, team)
+                .new_object_with_team_handle(Arc::clone(&template), team)
                 .map_err(|err| err.to_string())?;
             let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
             let first_of_batch = self
@@ -1413,7 +1413,6 @@ impl ProductionUpdateComplete {
             }
             if let Ok(center) = THE_UPGRADE_CENTER.read() {
                 if let Some(upgrade) = center.find_upgrade(&upgrade_name) {
-                    use crate::player::list::PlayerArcExt;
                     let cost = player
                         .read()
                         .ok()
@@ -1421,7 +1420,11 @@ impl ProductionUpdateComplete {
                         .unwrap_or(0);
                     match upgrade.get_upgrade_type() {
                         UpgradeType::Player => {
-                            player.add_upgrade(upgrade.as_ref(), UpgradeStatus::Complete);
+                            crate::player::PlayerArcExt::add_upgrade(
+                                &player,
+                                upgrade.as_ref(),
+                                UpgradeStatus::Complete,
+                            );
                         }
                         UpgradeType::Object => {
                             if let Ok(mut obj) = owner.write() {
@@ -1506,8 +1509,11 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
                         {
                             if !tmpl.is_kind_of(crate::common::KindOf::Dozer) {
                                 if let Some(player) = guard.get_controlling_player() {
-                                    use crate::player::list::PlayerArcExt;
-                                    if !player.allowed_to_build(tmpl.as_ref()) {
+                                    if player
+                                        .read()
+                                        .ok()
+                                        .is_some_and(|p| !p.can_build_template(tmpl.as_ref()))
+                                    {
                                         cancel_disallowed = true;
                                     }
                                 }
@@ -2006,7 +2012,7 @@ impl Module for ProductionUpdateCompleteModule {
     }
 
     fn on_delete(&mut self) {
-        self.behavior.on_destroy();
+        BehaviorModule::on_destroy(&mut self.behavior);
     }
 
     fn get_production_control_interface(&mut self) -> Option<&mut dyn ProductionControlInterface> {

@@ -1371,8 +1371,7 @@ impl GarrisonContain {
         Ok(())
     }
 
-    /// Calculate best garrison position
-    #[allow(dead_code)]
+    /// C++ GarrisonContain::calcBestGarrisonPosition (GarrisonContain.cpp:256).
     fn calc_best_garrison_position(&self, source_pos: &mut Coord3D, target_pos: &Coord3D) -> bool {
         if !self.garrison_points_initialized {
             return false;
@@ -2874,6 +2873,14 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn is_garrisonable(&self) -> bool {
         GarrisonContain::is_garrisonable(self)
+    }
+
+    fn calc_best_garrison_position(
+        &self,
+        source_pos: &mut Coord3D,
+        target_pos: &Coord3D,
+    ) -> bool {
+        GarrisonContain::calc_best_garrison_position(self, source_pos, target_pos)
     }
 
     fn is_bustable(&self) -> bool {

@@ -6,9 +6,10 @@
 
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::game_common::ObjectShroudStatus;
 use crate::common::ini::ini::INI;
 
 pub type FXListResult<T> = Result<T, FXListError>;
@@ -339,6 +340,127 @@ impl FXList {
     }
 }
 
+/// C++ `FXList::doFXObj` live runner (GameClient registers the full nugget impls).
+pub trait FxListObjRuntime: Send + Sync {
+    /// Handle `FXList::doFXObj` for `name`. Return `true` when the client runner
+    /// owns playback (shroud + every nugget). `false` lets Common dispatch locally.
+    fn do_fx_obj(&self, name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool;
+    fn object_shrouded_status(&self, _object_id: u32) -> Option<ObjectShroudStatus> {
+        None
+    }
+}
+
+static FX_LIST_OBJ_RUNTIME: LazyLock<RwLock<Option<Arc<dyn FxListObjRuntime>>>> =
+    LazyLock::new(|| RwLock::new(None));
+static DISPATCHED_FX_NUGGETS: LazyLock<Mutex<Vec<DispatchedFxNugget>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+fn fx_list_obj_runtime_slot() -> &'static RwLock<Option<Arc<dyn FxListObjRuntime>>> {
+    &FX_LIST_OBJ_RUNTIME
+}
+
+/// Register the live `FXList::doFXObj` runner (C++ DamageFX.cpp:73).
+pub fn register_fx_list_obj_runtime(runtime: Arc<dyn FxListObjRuntime>) {
+    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+        *slot = Some(runtime);
+    }
+}
+
+pub fn clear_fx_list_obj_runtime() {
+    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+        *slot = None;
+    }
+}
+
+pub fn fx_list_obj_runtime() -> Option<Arc<dyn FxListObjRuntime>> {
+    fx_list_obj_runtime_slot()
+        .read()
+        .ok()
+        .and_then(|slot| slot.clone())
+}
+
+/// Nuggets actually visited by Common `FXList::doFXObj` (tests + leftover drain).
+#[derive(Debug, Clone, PartialEq)]
+pub enum DispatchedFxNugget {
+    Sound(String),
+    Tracer(String),
+    RayEffect(String),
+    LightPulse,
+    ViewShake(CameraShakeType),
+    TerrainScorch(ScorchType),
+    ParticleSystem(String),
+    FXListAtBonePos(String),
+}
+
+fn dispatched_fx_nuggets() -> &'static Mutex<Vec<DispatchedFxNugget>> {
+    &DISPATCHED_FX_NUGGETS
+}
+
+pub fn record_dispatched_fx_nugget(nugget: DispatchedFxNugget) {
+    if let Ok(mut log) = dispatched_fx_nuggets().lock() {
+        log.push(nugget);
+    }
+}
+
+pub fn take_dispatched_fx_nuggets() -> Vec<DispatchedFxNugget> {
+    dispatched_fx_nuggets()
+        .lock()
+        .map(|mut log| std::mem::take(&mut *log))
+        .unwrap_or_default()
+}
+
+/// C++ `FXList.cpp:796` — skip FX when primary is fogged/shrouded.
+pub fn fx_obj_is_visible(
+    primary_id: Option<u32>,
+    primary_shroud: Option<ObjectShroudStatus>,
+) -> bool {
+    let Some(primary_id) = primary_id else {
+        return true;
+    };
+    let status = primary_shroud.or_else(|| {
+        fx_list_obj_runtime().and_then(|runtime| runtime.object_shrouded_status(primary_id))
+    });
+    let Some(status) = status else {
+        return true;
+    };
+    (status as u32) <= (ObjectShroudStatus::PartialClear as u32)
+}
+
+impl FXNugget {
+    pub fn dispatched_kind(&self) -> DispatchedFxNugget {
+        match self {
+            FXNugget::Sound { name } => DispatchedFxNugget::Sound(name.as_str().to_string()),
+            FXNugget::Tracer { name, .. } => DispatchedFxNugget::Tracer(name.as_str().to_string()),
+            FXNugget::RayEffect { name, .. } => {
+                DispatchedFxNugget::RayEffect(name.as_str().to_string())
+            }
+            FXNugget::LightPulse { .. } => DispatchedFxNugget::LightPulse,
+            FXNugget::ViewShake { shake_type } => DispatchedFxNugget::ViewShake(*shake_type),
+            FXNugget::TerrainScorch { scorch_type, .. } => {
+                DispatchedFxNugget::TerrainScorch(*scorch_type)
+            }
+            FXNugget::ParticleSystem { name, .. } => {
+                DispatchedFxNugget::ParticleSystem(name.as_str().to_string())
+            }
+            FXNugget::FXListAtBonePos { fx_name, .. } => {
+                DispatchedFxNugget::FXListAtBonePos(fx_name.as_str().to_string())
+            }
+        }
+    }
+}
+
+impl FXList {
+    /// C++ `FXList::doFXObj` (FXList.cpp:794-804): shroud gate, then every nugget.
+    pub fn do_fx_obj(&self, primary_id: Option<u32>, primary_shroud: Option<ObjectShroudStatus>) {
+        if !fx_obj_is_visible(primary_id, primary_shroud) {
+            return;
+        }
+        for nugget in &self.nuggets {
+            record_dispatched_fx_nugget(nugget.dispatched_kind());
+        }
+    }
+}
+
 /// FX List store
 pub struct FXListStore {
     fx_lists: HashMap<AsciiString, FXList>,
@@ -547,5 +669,23 @@ mod tests {
             &fx_list.nuggets[7],
             FXNugget::FXListAtBonePos { .. }
         ));
+    }
+
+    #[test]
+    fn do_fx_obj_visits_every_nugget_unless_fogged() {
+        // C++ FXList.cpp:794-804
+        let _ = take_dispatched_fx_nuggets();
+        let mut fx_list = FXList::new(AsciiString::from("DoFxObjTest"));
+        fx_list.add_nugget(FXNugget::Sound {
+            name: AsciiString::from("Hit"),
+        });
+        fx_list.add_nugget(FXNugget::ViewShake {
+            shake_type: CameraShakeType::Strong,
+        });
+        fx_list.do_fx_obj(Some(1), Some(ObjectShroudStatus::Clear));
+        let dispatched = take_dispatched_fx_nuggets();
+        assert_eq!(dispatched.len(), 2);
+        fx_list.do_fx_obj(Some(1), Some(ObjectShroudStatus::Fogged));
+        assert!(take_dispatched_fx_nuggets().is_empty());
     }
 }

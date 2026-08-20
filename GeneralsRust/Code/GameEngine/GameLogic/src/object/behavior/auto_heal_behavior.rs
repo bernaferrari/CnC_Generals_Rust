@@ -8,10 +8,11 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, GameLogicRandomValue, Int, KindOf, KindOfMaskType,
+    AsciiString, Bool, Coord3D, DisabledMaskType, GameLogicRandomValue, Int, KindOf, KindOfMaskType,
     NameKeyGenerator, ObjectID, ParticleSystemID, ParticleSystemTemplate, Real, UnsignedInt,
     UpgradeMaskType, XferVersion, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE,
 };
+
 use crate::damage::{BodyDamageType, DamageInfo};
 use crate::helpers::{TheGameLogic, TheInGameUI, TheParticleSystemManager};
 use crate::modules::{
@@ -405,6 +406,71 @@ fn parse_pulse_particle_field(
     Ok(())
 }
 
+fn parse_triggered_by_field(
+    _ini: &mut INI,
+    data: &mut AutoHealBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .add_activation_upgrade_name(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_conflicts_with_field(
+    _ini: &mut INI,
+    data: &mut AutoHealBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .add_conflicting_upgrade_name(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_removes_upgrades_field(
+    _ini: &mut INI,
+    data: &mut AutoHealBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .add_removal_upgrade_name(AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_requires_all_triggers_field(
+    _ini: &mut INI,
+    data: &mut AutoHealBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.upgrade_mux_data
+        .set_requires_all_triggers(parse_bool_flag(value)?);
+    Ok(())
+}
+
+fn parse_fx_list_upgrade_field(
+    _ini: &mut INI,
+    data: &mut AutoHealBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.upgrade_mux_data
+        .set_fx_list_upgrade_name(AsciiString::from(value));
+    Ok(())
+}
+
+
 const AUTO_HEAL_BEHAVIOR_FIELDS: &[FieldParse<AutoHealBehaviorModuleData>] = &[
     FieldParse {
         token: "StartsActive",
@@ -454,6 +520,27 @@ const AUTO_HEAL_BEHAVIOR_FIELDS: &[FieldParse<AutoHealBehaviorModuleData>] = &[
         token: "UnitHealPulseParticleSystemName",
         parse: parse_pulse_particle_field,
     },
+    FieldParse {
+        token: "TriggeredBy",
+        parse: parse_triggered_by_field,
+    },
+    FieldParse {
+        token: "ConflictsWith",
+        parse: parse_conflicts_with_field,
+    },
+    FieldParse {
+        token: "RemovesUpgrades",
+        parse: parse_removes_upgrades_field,
+    },
+    FieldParse {
+        token: "RequiresAllTriggers",
+        parse: parse_requires_all_triggers_field,
+    },
+    FieldParse {
+        token: "FXListUpgrade",
+        parse: parse_fx_list_upgrade_field,
+    },
+
 ];
 
 /// Minimal Update module data carrier until the shared implementation lands.
@@ -529,6 +616,18 @@ impl AutoHealBehaviorModuleData {
             radius_particle_system_tmpl: None,
             unit_heal_pulse_particle_system_tmpl: None,
         }
+    }
+
+    /// C++ `ModuleTag_DefaultAutoHealBehavior` inheritable retail values.
+    /// StartsActive=Yes, HealingAmount=2, HealingDelay=1000ms, StartHealingDelay=5000ms, radius 0.
+    pub fn default_auto_heal() -> Self {
+        let mut data = Self::new();
+        data.initially_active = true;
+        data.healing_amount = 2;
+        data.healing_delay = 30;
+        data.start_healing_delay = 150;
+        data.radius = 0.0;
+        data
     }
 
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
@@ -650,6 +749,8 @@ pub struct AutoHealBehavior {
     pub next_call_frame_and_phase: UnsignedInt,
     pub upgrade_executed: Bool,
     object_id: ObjectID,
+    /// Last `setWakeFrame` request (C++ AutoHealBehavior.cpp:148/154). Test/debug.
+    last_wake_sleep: Option<UpdateSleepTime>,
     upgrade_masks: Mutex<Option<(UpgradeMaskType, UpgradeMaskType)>>,
 }
 
@@ -664,10 +765,11 @@ impl fmt::Debug for AutoHealBehavior {
 }
 
 impl AutoHealBehavior {
-    fn construct_with_object_id(
+    pub(crate) fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<AutoHealBehaviorModuleData>,
     ) -> Self {
+
         let mut behavior = Self {
             module_data,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
@@ -676,6 +778,7 @@ impl AutoHealBehavior {
             next_call_frame_and_phase: 0,
             upgrade_executed: false,
             object_id,
+            last_wake_sleep: None,
             upgrade_masks: Mutex::new(None),
         };
 
@@ -901,10 +1004,16 @@ impl AutoHealBehavior {
 
     /// Set wake frame for update scheduling
     fn set_wake_frame(&mut self, sleep_time: UpdateSleepTime) {
+        self.last_wake_sleep = Some(sleep_time);
         if self.object_id == OBJECT_INVALID_ID {
             return;
         }
         TheGameLogic::set_wake_frame(self.object_id, sleep_time);
+    }
+
+    /// Last `setWakeFrame` requested by ctor / onDamage / update.
+    pub fn last_wake_sleep(&self) -> Option<UpdateSleepTime> {
+        self.last_wake_sleep
     }
 }
 
@@ -932,6 +1041,12 @@ impl UpdateModuleInterface for AutoHealBehavior {
 
         self.heal_self_only()
     }
+
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        // C++ AutoHealBehavior::getDisabledTypesToProcess = DISABLED_HELD
+        DisabledMaskType::HELD
+    }
+
 }
 
 // Implement DamageModuleInterface for handling damage events
@@ -1369,9 +1484,16 @@ impl AutoHealBehavior {
                 .upgrade_mux_data
                 .activation_upgrade_names()
                 .iter()
+                .chain(
+                    self.module_data
+                        .upgrade_mux_data
+                        .trigger_upgrade_names()
+                        .iter(),
+                )
                 .fold(UpgradeMaskType::none(), |mask, name| {
                     mask | upgrade_mask_for_ascii(name)
                 });
+
 
             let conflicting = self
                 .module_data
@@ -1412,6 +1534,93 @@ mod tests {
     }
 
     #[test]
+    fn auto_heal_triggered_by_mux_tokens_parse() {
+        let mut data = AutoHealBehaviorModuleData::default();
+        parse_triggered_by_field(
+            &mut INI::new(),
+            &mut data,
+            &["=", "Upgrade_AmericaAdvancedTraining"],
+        )
+        .unwrap();
+        parse_conflicts_with_field(&mut INI::new(), &mut data, &["=", "Upgrade_Dummy"]).unwrap();
+        parse_requires_all_triggers_field(&mut INI::new(), &mut data, &["=", "Yes"]).unwrap();
+        parse_removes_upgrades_field(&mut INI::new(), &mut data, &["=", "Upgrade_Old"]).unwrap();
+
+        assert_eq!(
+            data.upgrade_mux_data.activation_upgrade_names()[0].as_str(),
+            "Upgrade_AmericaAdvancedTraining"
+        );
+        assert_eq!(
+            data.upgrade_mux_data.conflicting_upgrade_names()[0].as_str(),
+            "Upgrade_Dummy"
+        );
+        assert_eq!(
+            data.upgrade_mux_data.removal_upgrade_names()[0].as_str(),
+            "Upgrade_Old"
+        );
+        assert!(data.upgrade_mux_data.requires_all_triggers());
+    }
+
+    #[test]
+    fn auto_heal_processes_while_held() {
+        let data = Arc::new(AutoHealBehaviorModuleData::new());
+        let behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
+        assert_eq!(
+            UpdateModuleInterface::get_disabled_types_to_process(&behavior),
+            DisabledMaskType::HELD
+        );
+    }
+
+    #[test]
+    fn default_auto_heal_module_data_matches_retail() {
+        // C++ ModuleTag_DefaultAutoHealBehavior: StartsActive=Yes, HealingAmount=2,
+        // HealingDelay=1000ms, StartHealingDelay=5000ms, radius 0.
+        let data = AutoHealBehaviorModuleData::default_auto_heal();
+        assert!(data.initially_active);
+        assert_eq!(data.healing_amount, 2);
+        assert_eq!(data.healing_delay, 30);
+        assert_eq!(data.start_healing_delay, 150);
+        assert_eq!(data.radius, 0.0);
+    }
+
+    #[test]
+    fn on_damage_wakes_after_full_health_sleep() {
+        // C++ AutoHealBehavior.cpp:136-157 — radius==0 onDamage resets StartHealingDelay
+        // after update() returned UPDATE_SLEEP_FOREVER at max health (:218-219).
+        let data = Arc::new(AutoHealBehaviorModuleData::default_auto_heal());
+        let mut behavior = AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, data);
+        assert!(behavior.is_upgrade_active());
+        behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
+
+        let mut damage = DamageInfo::default();
+        behavior.on_damage(&mut damage).expect("on_damage");
+        assert_eq!(
+            behavior.last_wake_sleep(),
+            Some(update_sleep_time(150)),
+            "onDamage must restart StartHealingDelay after SLEEP_FOREVER"
+        );
+    }
+
+    #[test]
+    fn on_damage_does_not_force_wake_before_soonest_heal_frame() {
+        // C++ AutoHealBehavior.cpp:150-154 — startHealingDelay==0 only wakes
+        // UPDATE_SLEEP_NONE when getFrame() > m_soonestHealFrame.
+        let mut data = AutoHealBehaviorModuleData::default_auto_heal();
+        data.start_healing_delay = 0;
+        let mut behavior =
+            AutoHealBehavior::construct_with_object_id(OBJECT_INVALID_ID, Arc::new(data));
+        behavior.soonest_heal_frame = UnsignedInt::MAX;
+        behavior.last_wake_sleep = Some(UPDATE_SLEEP_FOREVER);
+        let mut damage = DamageInfo::default();
+        behavior.on_damage(&mut damage).expect("on_damage");
+        assert_eq!(
+            behavior.last_wake_sleep(),
+            Some(UPDATE_SLEEP_FOREVER),
+            "onDamage must not force a heal before soonest_heal_frame"
+        );
+    }
+
+    #[test]
     fn test_healing_logic() {
         // Test different healing scenarios
     }
@@ -1420,4 +1629,5 @@ mod tests {
     fn test_upgrade_integration() {
         // Test upgrade system integration
     }
+
 }

@@ -3196,6 +3196,93 @@ fn base_regenerate_structure_heals_after_delay() {
 }
 
 #[test]
+fn default_auto_heal_trainable_heals_after_start_delay() {
+    // C++ AutoHealBehavior.cpp:205-219 self-heal; :136-157 onDamage StartHealingDelay.
+    use crate::game_logic::host_heal::{
+        DEFAULT_AUTO_HEAL_AMOUNT, DEFAULT_AUTO_HEAL_START_DELAY_FRAMES,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("USA_Ranger");
+    tpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+    tpl.is_trainable = true;
+    logic.templates.insert("USA_Ranger".to_string(), tpl);
+    let id = logic
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .expect("ranger");
+    assert!(
+        logic.host_object(id).unwrap().default_auto_heal.is_some(),
+        "trainable units inherit ModuleTag_DefaultAutoHealBehavior"
+    );
+
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.health.current = 50.0;
+        if let Some(ah) = o.default_auto_heal.as_mut() {
+            ah.on_damage(0);
+        }
+    }
+    logic.set_current_frame(0);
+    logic.update_default_auto_heal();
+    let mid = logic.host_object(id).unwrap().health.current;
+    assert!(
+        (mid - 50.0).abs() < 0.01,
+        "no heal during StartHealingDelay, got {mid}"
+    );
+
+    logic.set_current_frame(u64::from(DEFAULT_AUTO_HEAL_START_DELAY_FRAMES));
+    logic.update_default_auto_heal();
+    let after = logic.host_object(id).unwrap().health.current;
+    assert!(
+        (after - (50.0 + DEFAULT_AUTO_HEAL_AMOUNT)).abs() < 0.01,
+        "must pulse HealingAmount=2 after StartHealingDelay (after={after})"
+    );
+
+    // Full health sleeps forever; later combat must restart StartHealingDelay.
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.health.current = o.health.maximum;
+    }
+    logic.update_default_auto_heal();
+    {
+        let o = logic.host_object_mut(id).unwrap();
+        o.health.current = 50.0;
+        if let Some(ah) = o.default_auto_heal.as_mut() {
+            ah.on_damage(logic.frame);
+        }
+    }
+    logic.update_default_auto_heal();
+    let after_second_hit = logic.host_object(id).unwrap().health.current;
+    assert!(
+        (after_second_hit - 50.0).abs() < 0.01,
+        "onDamage must re-arm StartHealingDelay after full-health sleep"
+    );
+    logic.set_current_frame(
+        u64::from(logic.frame) + u64::from(DEFAULT_AUTO_HEAL_START_DELAY_FRAMES),
+    );
+    logic.update_default_auto_heal();
+    let after_restart = logic.host_object(id).unwrap().health.current;
+    assert!(
+        (after_restart - (50.0 + DEFAULT_AUTO_HEAL_AMOUNT)).abs() < 0.01,
+        "self-heal must restart after later combat (after={after_restart})"
+    );
+
+    let mut building = ThingTemplate::new("AmericaCommandCenter");
+    building.add_kind_of(KindOf::Structure).set_health(1000.0);
+    building.is_trainable = false;
+    logic
+        .templates
+        .insert("AmericaCommandCenter".to_string(), building);
+    let cc = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("cc");
+    assert!(
+        logic.host_object(cc).unwrap().default_auto_heal.is_none(),
+        "C++ drops DefaultAutoHeal when !isTrainable"
+    );
+}
+
+#[test]
 fn fire_spread_tree_ignites_neighbor() {
     use crate::game_logic::host_fire_spread::{
         honesty_fire_spread_residual_ok, TREE_SPREAD_TRY_RANGE,

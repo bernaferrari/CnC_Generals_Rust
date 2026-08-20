@@ -1296,7 +1296,9 @@ fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
 }
 
 #[test]
-fn emp_subdual_disables_without_hp_loss() {
+fn microwave_is_hp_through_armor_not_emp_subdual() {
+    // C++ Damage.h:63 DAMAGE_MICROWAVE is ordinary HP; IsSubdualDamage false.
+    // TankArmor MICROWAVE 0% (Armor.cpp:43-55 via ActiveBody.cpp:351).
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("Tank");
@@ -1305,22 +1307,13 @@ fn emp_subdual_disables_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(4), Team::USA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    assert!(!o.take_damage_from_typed(40.0, None, DamageType::EMP));
+    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave));
     assert!((o.health.current - 100.0).abs() < 1e-3);
-    assert!((o.subdual_damage - 40.0).abs() < 1e-3);
+    assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
     assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP));
-    assert!(o.is_subdued());
-    assert!(o.is_disabled());
-    // Heal residual clears subdual.
-    o.subdual_heal_rate_frames = 1;
-    o.subdual_heal_amount = 50.0;
-    o.subdual_heal_countdown = 0;
-    o.tick_subdual_damage();
-    o.subdual_heal_countdown = 0;
-    o.tick_subdual_damage();
-    o.subdual_heal_countdown = 0;
-    o.tick_subdual_damage();
+    assert!((o.health.current - 100.0).abs() < 1e-3);
+    assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
 }
 

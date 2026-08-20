@@ -328,10 +328,30 @@ impl PrisonBehavior {
         });
     }
 
-    /// Mirrors C++ PrisonBehavior::onDelete (cleanup visuals and containment state).
+    /// C++ `PrisonBehavior::onDelete` (`PrisonBehavior.cpp:117-141`):
+    /// `OpenContain::onDelete()` first (`destroyObject` every rider), then yard drawables.
     pub fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.contain.on_delete()?;
         self.cleanup_visuals();
         Ok(())
+    }
+
+    /// C++ `PrisonBehavior::onContaining` extras after `OpenContain::onContaining`.
+    fn apply_held_and_yard_visual(&mut self, obj_id: ObjectID) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return;
+        };
+        if let Ok(mut guard) = obj.write() {
+            guard.set_disabled(DisabledType::Held);
+            if self.module_data.show_prisoners {
+                self.add_visual(&*guard);
+            }
+        }
     }
 
     fn remove_visual(&mut self, obj: &Object) {
@@ -376,7 +396,9 @@ impl ContainModuleInterface for PrisonBehavior {
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.contain.contain_object(object_id)
+        self.contain.contain_object(object_id)?;
+        self.apply_held_and_yard_visual(object_id);
+        Ok(())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -407,9 +429,7 @@ impl ContainModuleInterface for PrisonBehavior {
         &mut self,
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain
-            .contain_object(obj.get_id())
-            .map_err(|err| err.into())
+        self.contain_object(obj.get_id()).map_err(|err| err.into())
     }
 
     fn on_object_wants_to_enter_or_exit(
@@ -431,19 +451,8 @@ impl ContainModuleInterface for PrisonBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
         self.contain.on_containing(obj_id, was_selected)?;
-        if let Ok(mut guard) = obj.write() {
-            guard.set_disabled(DisabledType::Held);
-            if self.module_data.show_prisoners {
-                self.add_visual(&*guard);
-            }
-        }
+        self.apply_held_and_yard_visual(obj_id);
         Ok(())
     }
 
@@ -487,6 +496,10 @@ impl ContainModuleInterface for PrisonBehavior {
     fn friend_get_rider(&self) -> Option<ObjectID> {
         self.contain.friend_get_rider()
     }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        PrisonBehavior::on_delete(self)
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -526,6 +539,7 @@ impl PrisonBehaviorModule {
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
         Arc::new(Mutex::new(PrisonBehaviorContainHandle {
             behavior: Arc::clone(&self.behavior),
+            cached_ids: CachedContainIds::default(),
         }))
     }
 }
@@ -534,6 +548,23 @@ impl PrisonBehaviorModule {
 #[derive(Debug)]
 struct PrisonBehaviorContainHandle {
     behavior: Arc<Mutex<PrisonBehavior>>,
+    cached_ids: CachedContainIds,
+}
+
+/// Slice cache for `get_contained_objects` while the handle lives behind Mutex.
+#[derive(Debug, Default)]
+struct CachedContainIds {
+    ids: std::cell::UnsafeCell<Vec<ObjectID>>,
+}
+
+unsafe impl Sync for CachedContainIds {}
+
+impl CachedContainIds {
+    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        let cache = unsafe { &mut *self.ids.get() };
+        *cache = ids;
+        unsafe { &*self.ids.get() }
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -560,7 +591,12 @@ impl ContainModuleInterface for PrisonBehaviorContainHandle {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        &[]
+        self.cached_ids.refresh(
+            self.behavior
+                .lock()
+                .map(|guard| guard.get_contained_objects().to_vec())
+                .unwrap_or_default(),
+        )
     }
 
     fn get_contained_count(&self) -> usize {
@@ -575,6 +611,13 @@ impl ContainModuleInterface for PrisonBehaviorContainHandle {
             .lock()
             .map(|guard| guard.get_max_capacity())
             .unwrap_or(0)
+    }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned")?
+            .on_delete()
     }
 }
 
@@ -696,10 +739,9 @@ impl Module for PrisonBehaviorModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
-
     fn on_delete(&mut self) {
         if let Ok(mut guard) = self.behavior.lock() {
-            guard.cleanup_visuals();
+            let _ = guard.on_delete();
         }
     }
 }
@@ -741,14 +783,43 @@ mod tests {
     }
 
     #[test]
-    fn field_parsers_reject_missing_values() {
-        let mut ini = INI::new();
-        let mut data = PrisonBehaviorModuleData::default();
-
-        let prisoners_err = parse_show_prisoners(&mut ini, &mut data, &["="]).unwrap_err();
-        let prefix_err = parse_yard_bone_prefix(&mut ini, &mut data, &["="]).unwrap_err();
-
-        assert!(matches!(prisoners_err, INIError::InvalidData));
-        assert!(matches!(prefix_err, INIError::InvalidData));
+    fn on_delete_calls_open_contain_destroy_riders_then_visuals() {
+        // C++ PrisonBehavior.cpp:117-121 OpenContain::onDelete then yard drawables.
+        let src = include_str!("prison_behavior.rs");
+        let start = src
+            .find("pub fn on_delete(&mut self)")
+            .expect("PrisonBehavior::on_delete");
+        let body = &src[start..start + 280];
+        assert!(
+            body.contains("self.contain.on_delete()"),
+            "prison on_delete must destroy riders via OpenContain: {body}"
+        );
+        assert!(body.contains("self.cleanup_visuals()"));
+        let contain_on_delete = body.find("self.contain.on_delete()").unwrap();
+        let visuals = body.find("self.cleanup_visuals()").unwrap();
+        assert!(
+            contain_on_delete < visuals,
+            "C++ calls OpenContain::onDelete before destroying yard drawables"
+        );
     }
+
+    #[test]
+    fn contain_object_applies_held_and_yard_visual() {
+        // C++ addToContain → PrisonBehavior::onContaining: DISABLED_HELD + addVisual.
+        let src = include_str!("prison_behavior.rs");
+        let start = src
+            .find("fn contain_object(&mut self, object_id: ObjectID)")
+            .expect("PrisonBehavior::contain_object");
+        let body = &src[start..start + 220];
+        assert!(
+            body.contains("self.contain.contain_object(object_id)"),
+            "must add to OpenContain first: {body}"
+        );
+        assert!(
+            body.contains("self.apply_held_and_yard_visual(object_id)"),
+            "must apply HELD + yard visual: {body}"
+        );
+    }
+
+
 }

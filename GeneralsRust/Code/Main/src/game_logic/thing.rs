@@ -432,7 +432,10 @@ pub enum SupplyTruckState {
     Wanting,
     DockingWarehouse,
     DockingCenter,
+    /// C++ `ST_REGROUPING` — wanting failed, hang out at base.
+    Regrouping,
 }
+
 
 /// The production-exit interfaces carried by the bounded live producer
 /// path.  This is deliberately not inferred from a building kind or basename:
@@ -1047,6 +1050,10 @@ pub struct ThingTemplate {
     /// Exact `SupplyTruckAIUpdate` module data, when authored.
     #[serde(default)]
     pub supply_truck_metadata: Option<SupplyTruckMetadata>,
+    /// C++ `SupplyTruckAIUpdateModuleData::m_suppliesDepletedVoice`.
+    #[serde(default)]
+    pub supplies_depleted_voice: String,
+
     /// `RailedTransportContain::Slots`, when that exact contain module is
     /// present.  A railed dock with no contain module never gains synthetic
     /// transport capacity.
@@ -1315,8 +1322,10 @@ impl ThingTemplate {
             dock_starting_boxes: None,
             dock_delete_when_empty: false,
             supply_truck_metadata: None,
+            supplies_depleted_voice: String::new(),
             railed_transport_slots: None,
             contain_module: ContainModuleMetadata::default(),
+
             stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
             stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
             parking_place: None,

@@ -174,9 +174,11 @@ impl GameWorldShadow {
                 host_calc_body_damage_state, HostBodyDamageType,
             };
             let reload = e.fwwd_continuous_reload_frames.max(1);
-            let ready = e.fwwd_last_continuous_frame == 0
-                || frame.saturating_sub(e.fwwd_last_continuous_frame) >= reload;
-            if ready {
+            // C++ ctor reloadAmmo: first observation starts the clip-reload clock.
+            if e.fwwd_last_continuous_frame == 0 {
+                e.fwwd_last_continuous_frame = frame;
+                changed = true;
+            } else if frame.saturating_sub(e.fwwd_last_continuous_frame) >= reload {
                 let max_h = e.max_health.max(e.health).max(1.0);
                 let state = host_calc_body_damage_state(e.health, max_h);
                 let name = match state {

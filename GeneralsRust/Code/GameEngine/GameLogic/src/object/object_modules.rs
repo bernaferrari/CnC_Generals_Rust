@@ -908,6 +908,12 @@ impl Object {
                                     .downcast_ref::<crate::object::behavior::prison_behavior::PrisonBehaviorModule>()
                                     .map(|module| module.contain_handle())
                             })
+                            .or_else(|| {
+                                module
+                                    .as_any()
+                                    .downcast_ref::<crate::object::behavior::propaganda_center_behavior::PropagandaCenterBehaviorModule>()
+                                    .map(|module| module.contain_handle())
+                            })
                     });
                     if let Some(handle) = contain_handle {
                         guard.set_contain(Some(handle));
@@ -932,7 +938,7 @@ impl Object {
                     })
                     .unwrap_or(crate::common::types::VeterancyLevel::Regular)
             };
-            if let Some(tracker) = &guard.experience_tracker {
+            if let Some(tracker) = guard.experience_tracker.clone() {
                 if let Ok(mut tracker_guard) = tracker.lock() {
                     if let Some(old_level) = tracker_guard.set_veterancy_level(production_level) {
                         let new_level = tracker_guard.get_veterancy_level();
@@ -951,6 +957,13 @@ impl Object {
                     Arc::clone(entry),
                     object_id,
                 )));
+                entry.with_module(|module| {
+                    if let Some(slow_death) = (module as &mut dyn Any).downcast_mut::<
+                        crate::object::behavior::slow_death_behavior::SlowDeathBehavior,
+                    >() {
+                        slow_death.bind_update_proxy(proxy.clone());
+                    }
+                });
                 let wake_frame = initial_update_wake_frame(entry.as_ref());
                 if let Err(err) = crate::helpers::TheGameLogic::register_update_module(
                     object_id,
@@ -1226,4 +1239,22 @@ impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
         let _ = (object_id, damage);
         0.0
     }
+
+    fn on_damage(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // C++ AutoHealBehavior is MODULEINTERFACE_DAMAGE; the wrapper must
+        // downcast so onDamage can restart StartHealingDelay after SLEEP_FOREVER.
+        self.entry.with_module(|module| {
+            if let Some(auto_heal) = (module as &mut dyn Any).downcast_mut::<
+                crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule,
+            >() {
+                auto_heal.behavior_mut().on_damage(damage_info)
+            } else {
+                Ok(())
+            }
+        })
+    }
 }
+

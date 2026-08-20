@@ -589,6 +589,39 @@ impl AIAttackObjectState {
     }
 }
 
+/// C++ Team::setTeamTargetObject(NULL) when this victim was the shared team target.
+pub(crate) fn team_target_matches_victim(team_target: ObjectID, victim_id: ObjectID) -> bool {
+    team_target != INVALID_ID && team_target == victim_id
+}
+
+pub(crate) fn clear_team_target_object_if_victim(team: &mut Team, victim_id: ObjectID) {
+    if team_target_matches_victim(team.get_team_target_object(), victim_id) {
+        team.set_team_target_object(INVALID_ID);
+    }
+}
+
+
+fn clear_team_target_if_victim(owner: &Object, victim_id: ObjectID) {
+    if let Some(team_arc) = owner.get_team() {
+        if let Ok(mut team_guard) = team_arc.write() {
+            clear_team_target_object_if_victim(&mut team_guard, victim_id);
+        }
+    }
+}
+
+
+/// C++ `AIAttackState::update` (`AIStates.cpp:5629-5633`):
+/// parent-machine retargets are forwarded into the nested AttackStateMachine.
+pub(crate) fn forward_parent_goal_to_nested_machine(
+    machine: &mut AttackStateMachine,
+    parent_goal: ObjectID,
+) {
+    if parent_goal != INVALID_ID && machine.get_goal_object_id() != parent_goal {
+        machine.set_goal_object(Some(parent_goal));
+    }
+}
+
+
 impl StateImplementation for AIAttackObjectState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
@@ -791,6 +824,11 @@ impl ClassicState for AIAttackObjectState {
             }
         }
 
+        // C++ AIAttackState::update uses getMachineGoalObject() each frame so parent
+        // retargets (transferAttack / hunt re-scan) reach the nested machine.
+        if let Some(parent_goal) = self.base.get_machine_goal_object_id() {
+            self.target_id = parent_goal;
+        }
         if self.target_id == INVALID_ID {
             return Ok(StateReturnType::Failure);
         }
@@ -828,12 +866,19 @@ impl ClassicState for AIAttackObjectState {
             let target_team = target_guard.get_team_id();
             if self.victim_team != target_team {
                 if let Ok(owner_guard) = owner.read() {
-                    let should_stop = {
-                        let owner_rel = owner_guard.relationship_to(&*target_guard);
-                        owner_rel != Relationship::Enemies
-                    };
+                    let relationship = owner_guard.relationship_to(&*target_guard);
+                    let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
+                        && target_guard.get_contain().is_some_and(|contain| {
+                            contain.lock().ok().is_some_and(|contain_guard| {
+                                contain_guard.is_garrisonable()
+                                    && contain_guard.get_contained_count() == 0
+                            })
+                        })
+                        && relationship == Relationship::Neutral;
+                    let should_stop = empty_garrison || relationship != Relationship::Enemies;
 
                     if should_stop {
+                        clear_team_target_if_victim(&*owner_guard, victim_id);
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 ai_guard.set_goal_object(None);
@@ -846,6 +891,12 @@ impl ClassicState for AIAttackObjectState {
                 self.victim_team = target_team;
             }
         }
+
+        // C++ lines 5629-5633: parent goal change is forwarded into AttackStateMachine.
+        if let Some(attack_machine) = self.attack_machine.as_mut() {
+            forward_parent_goal_to_nested_machine(attack_machine, self.target_id);
+        }
+
 
         // C++ lines 5640-5642: Re-evaluate weapon choice every frame
         {
@@ -924,6 +975,7 @@ impl ClassicState for AIAttackObjectState {
                         | ObjectStatusMaskType::IGNORING_STEALTH,
                 );
                 owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
+                owner_guard.clear_leech_range_mode_for_all_weapons();
 
                 // Clear AI state: current victim, turret targets, goal object
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
@@ -1213,6 +1265,7 @@ impl ClassicState for AIAttackPositionState {
                         | ObjectStatusMaskType::IGNORING_STEALTH,
                 );
                 owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
+                owner_guard.clear_leech_range_mode_for_all_weapons();
 
                 // Clear AI state: current victim, turret targets, goal object
                 if let Some(ai) = owner_guard.get_ai_update_interface() {

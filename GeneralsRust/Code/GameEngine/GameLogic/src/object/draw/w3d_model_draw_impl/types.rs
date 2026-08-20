@@ -304,13 +304,64 @@ impl ModelConditionInfo {
             .unwrap_or(0)
     }
 
+    /// C++ `ModelConditionInfo::validateCachedBones` (`W3DModelDraw.cpp:566-689`).
+    fn validate_cached_bones(&mut self, scale: Real) {
+        if (self.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID) != 0 {
+            return;
+        }
+        // Tests / xfer may already have inserted bones without the valid bit.
+        // C++ would have set the bit when it produced them; keep that map.
+        if !self.pristine_bones.is_empty() {
+            self.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+            return;
+        }
+        self.pristine_bones.clear();
+        // C++ sets the valid bit before the model load so a missing asset still
+        // unblocks turret/barrel validation (indices stay 0).
+        self.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
+        if self.model_name.is_empty() || self.model_name.is_none() {
+            return;
+        }
+
+        let frame = if test_flag_bit(self.flags, ACBIT_PRISTINE_BONE_POS_IN_FINAL_FRAME) {
+            PRISTINE_BONE_LAST_FRAME
+        } else {
+            0
+        };
+        let model = self.model_name.as_str().to_string();
+        let public_bones = self.public_bones.clone();
+
+        {
+            let global = game_engine::common::global_data::read();
+            for bone in &global.standard_public_bones {
+                let _ = do_single_bone_name(
+                    &mut self.pristine_bones,
+                    &model,
+                    scale,
+                    frame,
+                    bone,
+                );
+            }
+        }
+        for bone in &public_bones {
+            let _ = do_single_bone_name(
+                &mut self.pristine_bones,
+                &model,
+                scale,
+                frame,
+                bone.as_str(),
+            );
+        }
+    }
+
     fn validate_turret_info(&mut self) {
+
         if (self.valid_stuff & MODEL_CONDITION_TURRETS_VALID) != 0 {
             return;
         }
-        if self.pristine_bones.is_empty() {
-            return;
-        }
+        // C++ `validateTurretInfo` does not bail when the pristine map is empty
+        // after `PRISTINE_BONES_VALID` is set. Missing bones stay index 0.
+
 
         let angle_keys: Vec<NameKeyType> = self
             .turrets
@@ -351,15 +402,8 @@ impl ModelConditionInfo {
         if (self.valid_stuff & MODEL_CONDITION_BARRELS_VALID) != 0 {
             return;
         }
-        let has_requested_weapon_bones = (0..WEAPONSLOT_COUNT).any(|slot| {
-            !self.weapon_fire_fx_bone[slot].is_empty()
-                || !self.weapon_recoil_bone[slot].is_empty()
-                || !self.weapon_muzzle_flash[slot].is_empty()
-                || !self.weapon_projectile_launch_bone[slot].is_empty()
-        });
-        if has_requested_weapon_bones && self.pristine_bones.is_empty() {
-            return;
-        }
+        // C++ still walks authored weapon-bone names after a failed model load.
+
 
         let mut validated_barrels = vec![Vec::new(); WEAPONSLOT_COUNT];
 
@@ -467,10 +511,12 @@ impl ModelConditionInfo {
     }
 
     fn validate_runtime_caches(&mut self, extra_public_bones: &[AsciiString]) {
+        self.validate_runtime_caches_scaled(extra_public_bones, 1.0);
+    }
+
+    fn validate_runtime_caches_scaled(&mut self, extra_public_bones: &[AsciiString], scale: Real) {
         self.validate_public_bones(extra_public_bones);
-        if !self.pristine_bones.is_empty() {
-            self.valid_stuff |= MODEL_CONDITION_PRISTINE_BONES_VALID;
-        }
+        self.validate_cached_bones(scale);
         self.validate_turret_info();
         self.validate_weapon_barrel_info();
     }
@@ -491,5 +537,75 @@ impl Default for ModelConditionInfo {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Sentinel frame: pose the last clip frame (`PRISTINE_BONE_POS_IN_FINAL_FRAME`).
+const PRISTINE_BONE_LAST_FRAME: i32 = -1;
+
+pub type PristineBoneLookupHook =
+    std::sync::Arc<dyn Fn(&str, Real, i32, &str) -> Option<(i32, Matrix3D)> + Send + Sync>;
+
+static PRISTINE_BONE_LOOKUP: std::sync::LazyLock<std::sync::RwLock<Option<PristineBoneLookupHook>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+
+/// Register a W3D backend that can pose a state model and return a bone.
+/// `frame == -1` means last clip frame. `None` unregisters.
+pub fn register_pristine_bone_lookup_hook(hook: Option<PristineBoneLookupHook>) {
+    if let Ok(mut guard) = PRISTINE_BONE_LOOKUP.write() {
+        *guard = hook;
+    }
+}
+
+fn lookup_pristine_bone(
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone_name: &str,
+) -> Option<(i32, Matrix3D)> {
+    let guard = PRISTINE_BONE_LOOKUP.read().ok()?;
+    let hook = guard.as_ref()?;
+    hook(model, scale, frame, bone_name)
+}
+
+/// C++ `doSingleBoneName`: base name plus numbered `name01`..`name99` variants.
+fn do_single_bone_name(
+    map: &mut HashMap<NameKeyType, PristineBoneInfo>,
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone_name: &str,
+) -> bool {
+    if bone_name.is_empty() || bone_name.eq_ignore_ascii_case("none") {
+        return false;
+    }
+    let bone_name = bone_name.to_ascii_lowercase();
+    let mut found = false;
+    if let Some((bone_index, transform)) = lookup_pristine_bone(model, scale, frame, &bone_name) {
+        map.insert(
+            name_key_generate(&bone_name),
+            PristineBoneInfo {
+                transform,
+                bone_index,
+            },
+        );
+        found = true;
+    }
+    for index in 1..=99 {
+        let numbered = format!("{bone_name}{index:02}");
+        if let Some((bone_index, transform)) = lookup_pristine_bone(model, scale, frame, &numbered)
+        {
+            map.insert(
+                name_key_generate(&numbered),
+                PristineBoneInfo {
+                    transform,
+                    bone_index,
+                },
+            );
+            found = true;
+        } else {
+            break;
+        }
+    }
+    found
 }
 

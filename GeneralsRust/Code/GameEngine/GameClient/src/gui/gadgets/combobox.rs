@@ -659,12 +659,6 @@ impl Gadget for ComboBox {
             }
 
             InputEvent::KeyDown { key, .. } if self.focused => match key {
-                KeyCode::Enter | KeyCode::Space => {
-                    self.toggle();
-                }
-                KeyCode::Escape => {
-                    self.close();
-                }
                 KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
                     return vec![GadgetMessage::Custom {
                         gadget_id: self.id,
@@ -677,32 +671,14 @@ impl Gadget for ComboBox {
                         data: "tab_prev".to_string(),
                     }];
                 }
-                KeyCode::Backspace => {
-                    if self.is_editable && !self.text.is_empty() {
-                        self.text.pop();
-                        return vec![GadgetMessage::ValueChanged {
-                            gadget_id: self.id,
-                            value: GadgetValue::String(self.text.clone()),
-                        }];
-                    }
-                }
-                KeyCode::Char(ch) if self.is_editable => {
-                    if self.max_chars > 0 && self.text.len() >= self.max_chars {
-                        return Vec::new();
-                    }
-                    if self.ascii_only && !ch.is_ascii() {
-                        return Vec::new();
-                    }
-                    if self.letters_and_numbers && !ch.is_ascii_alphanumeric() {
-                        return Vec::new();
-                    }
-                    self.text.push(*ch);
-                    return vec![GadgetMessage::ValueChanged {
+                // C++ GadgetComboBoxInput default forwards GWM_CHAR to the edit box.
+                // Combo itself does not toggle/close or edit a shadow string.
+                _ => {
+                    return vec![GadgetMessage::Custom {
                         gadget_id: self.id,
-                        value: GadgetValue::String(self.text.clone()),
+                        data: "forward_to_edit".to_string(),
                     }];
                 }
-                _ => {}
             },
 
             _ => {}
@@ -997,4 +973,47 @@ mod tests {
         combobox.set_visible(false);
         assert!(combobox.render_commands(&theme).is_empty());
     }
+
+    #[test]
+    fn enter_space_escape_do_not_toggle_or_close_like_cpp() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.set_focus(true);
+        combobox.set_editable(true);
+        let before = combobox.text().to_string();
+
+        for key in [KeyCode::Enter, KeyCode::Space, KeyCode::Escape] {
+            let messages = combobox.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(!combobox.is_open(), "key {key:?} must not toggle/close");
+            assert_eq!(combobox.text(), before);
+            assert!(matches!(
+                messages.as_slice(),
+                [GadgetMessage::Custom { gadget_id: 1, data }] if data == "forward_to_edit"
+            ));
+        }
+    }
+
+    #[test]
+    fn keyboard_chars_do_not_edit_combo_shadow_string_like_cpp() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.select_index(0);
+        combobox.set_focus(true);
+        combobox.set_editable(true);
+        let before = combobox.text().to_string();
+
+        let typed = combobox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('z'),
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(combobox.text(), before);
+        assert!(matches!(
+            typed.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data }] if data == "forward_to_edit"
+        ));
+    }
+
 }

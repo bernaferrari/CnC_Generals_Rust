@@ -5,31 +5,41 @@
 //! continuous weapons while body damage state is Damaged/ReallyDamaged/Rubble.
 //!
 //! Residual playability slice:
-//! - Body-state keyed reaction + continuous weapon names
-//! - DamageAmount threshold on actual HP lost
-//! - Continuous fire rate residual (default 30 frames / 1s)
+//! - Exact body-state reaction + continuous weapon names (no cross-state fallback)
+//! - DamageAmount threshold and authored DamageTypes mask
+//! - Continuous rate from weapon DelayBetweenShots; ctor matches reloadAmmo
 //! - Splash via GameLogic instant-hit residual (not full forceFireWeapon matrix)
 //!
 //! Fail-closed:
-//! - Not full UpgradeMux StartsActive gating / damage-type flag matrix
+//! - Not full UpgradeMux StartsActive gating
 //! - Not full WeaponStore ammo / READY_TO_FIRE clip state
 //! - Not full projectile Object creation
 
 use crate::game_logic::host_enum_table_residual::{
     host_calc_body_damage_state, HostBodyDamageType,
 };
+use crate::game_logic::host_temporary_weapon_behavior::FireWeaponDamageTypeMask;
 use serde::{Deserialize, Serialize};
 
-/// Default continuous fire interval residual (1 second @ 30 FPS).
+/// Fallback continuous interval when the weapon store has no DelayBetweenShots.
 pub const FWWDB_CONTINUOUS_RELOAD_FRAMES: u32 = 30;
 /// Default reaction debounce residual (avoid multi-fire same frame stacks).
 pub const FWWDB_REACTION_DEBOUNCE_FRAMES: u32 = 1;
 
+fn leftover_weapon_reload_frames(name: &str) -> u32 {
+    crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs(name)
+        .map(|secs| (secs * 30.0).round() as u32)
+        .filter(|&frames| frames > 0)
+        .unwrap_or(FWWDB_CONTINUOUS_RELOAD_FRAMES)
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostFireWeaponWhenDamagedData {
     pub active: bool,
     /// C++ m_damageAmount residual.
     pub damage_amount: f32,
+    /// C++ `m_damageTypes` (default ALL).
+    #[serde(default)]
+    pub damage_types: FireWeaponDamageTypeMask,
     pub reaction_pristine: Option<String>,
     pub reaction_damaged: Option<String>,
     pub reaction_really_damaged: Option<String>,
@@ -48,6 +58,7 @@ impl Default for HostFireWeaponWhenDamagedData {
         Self {
             active: true,
             damage_amount: 1.0,
+            damage_types: FireWeaponDamageTypeMask::ALL,
             reaction_pristine: None,
             reaction_damaged: None,
             reaction_really_damaged: None,
@@ -79,12 +90,13 @@ impl HostFireWeaponWhenDamagedData {
 
     /// Toxic bunker continuous poison residual (CivilianBuilding.ini).
     pub fn toxic_bunker_residual() -> Self {
+        let damaged = "SmallPoisonFieldWeaponUpgraded";
         Self {
             active: true,
             damage_amount: 1.0,
-            continuous_damaged: Some("SmallPoisonFieldWeaponUpgraded".into()),
+            continuous_damaged: Some(damaged.into()),
             continuous_really_damaged: Some("MediumPoisonFieldWeaponUpgraded".into()),
-            continuous_reload_frames: FWWDB_CONTINUOUS_RELOAD_FRAMES,
+            continuous_reload_frames: leftover_weapon_reload_frames(damaged),
             ..Default::default()
         }
     }
@@ -106,9 +118,9 @@ impl HostFireWeaponWhenDamagedData {
             )
         };
         match state {
-            HostBodyDamageType::Rubble => u.or(r).or(d).or(p),
-            HostBodyDamageType::ReallyDamaged => r.or(d).or(p),
-            HostBodyDamageType::Damaged => d.or(p),
+            HostBodyDamageType::Rubble => u,
+            HostBodyDamageType::ReallyDamaged => r,
+            HostBodyDamageType::Damaged => d,
             HostBodyDamageType::Pristine => p,
         }
     }
@@ -120,8 +132,12 @@ impl HostFireWeaponWhenDamagedData {
         health: f32,
         max_health: f32,
         current_frame: u32,
+        damage_type_ordinal: u32,
     ) -> Option<String> {
         if !self.active {
+            return None;
+        }
+        if !self.damage_types.contains_ordinal(damage_type_ordinal) {
             return None;
         }
         if actual_damage < self.damage_amount {
@@ -148,19 +164,24 @@ impl HostFireWeaponWhenDamagedData {
         if !self.active {
             return None;
         }
-        let reload = self.continuous_reload_frames.max(1);
-        if self.last_continuous_frame > 0
-            && current_frame.saturating_sub(self.last_continuous_frame) < reload
-        {
-            return None;
-        }
         let state = host_calc_body_damage_state(health, max_health);
         // Continuous weapons typically only for damaged+ states in retail toxic bunkers.
         if matches!(state, HostBodyDamageType::Pristine) && self.continuous_pristine.is_none() {
             return None;
         }
         let name = self.weapon_for_state(state, true)?.to_string();
+        let reload = leftover_weapon_reload_frames(&name).max(1);
+        // C++ ctor reloadAmmo: first observation starts the clip-reload clock.
+        if self.last_continuous_frame == 0 {
+            self.last_continuous_frame = current_frame;
+            self.continuous_reload_frames = reload;
+            return None;
+        }
+        if current_frame.saturating_sub(self.last_continuous_frame) < reload {
+            return None;
+        }
         self.last_continuous_frame = current_frame;
+        self.continuous_reload_frames = reload;
         Some(name)
     }
 }
@@ -217,24 +238,33 @@ pub fn fire_when_damaged_config_for_template(name: &str) -> Option<HostFireWeapo
 mod tests {
     use super::*;
 
-    #[test]
     fn reaction_fires_on_threshold_damage() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
-        assert!(d.on_damage(0.5, 100.0, 100.0, 1).is_none()); // below threshold
-        let w = d.on_damage(5.0, 80.0, 100.0, 2).expect("reaction");
+        assert!(d.on_damage(0.5, 100.0, 100.0, 1, 0).is_none()); // below threshold
+        let w = d.on_damage(5.0, 80.0, 100.0, 2, 0).expect("reaction");
         assert!(w.contains("BattleshipTarget"));
+        // Exact body slot: rubble has no authored reaction.
+        assert!(d.on_damage(5.0, 0.0, 100.0, 10, 0).is_none());
+        // Authored type filter rejects non-matching ordinals.
+        d.damage_types = FireWeaponDamageTypeMask::NONE;
+        assert!(d.on_damage(5.0, 80.0, 100.0, 20, 0).is_none());
     }
 
     #[test]
     fn continuous_fires_when_damaged() {
         let mut d = HostFireWeaponWhenDamagedData::toxic_bunker_residual();
         assert!(d.tick_continuous(100.0, 100.0, 1).is_none()); // pristine
-        let w = d.tick_continuous(40.0, 100.0, 1).expect("cont");
+        // C++ reloadAmmo: first damaged tick arms the clip, does not fire.
+        assert!(d.tick_continuous(40.0, 100.0, 1).is_none());
+        let reload = d.continuous_reload_frames.max(1);
+        let w = d
+            .tick_continuous(40.0, 100.0, 1 + reload)
+            .expect("cont");
         assert!(w.contains("PoisonField"));
         // reload gate
-        assert!(d.tick_continuous(40.0, 100.0, 2).is_none());
+        assert!(d.tick_continuous(40.0, 100.0, 2 + reload).is_none());
         let w2 = d
-            .tick_continuous(40.0, 100.0, 1 + FWWDB_CONTINUOUS_RELOAD_FRAMES)
+            .tick_continuous(40.0, 100.0, 1 + reload + reload)
             .unwrap();
         assert!(w2.contains("PoisonField"));
     }

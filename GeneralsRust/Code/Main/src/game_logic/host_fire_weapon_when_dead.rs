@@ -22,8 +22,36 @@ pub struct DeathWeaponSplash {
     pub weapon_name: &'static str,
 }
 
+/// Templates whose specialized leftover already applies the exclusive death weapon.
+/// C++ fires **one** FireWeaponWhenDead module; do not dual-ring again here.
+fn specialized_death_residual_covers(template_name: &str) -> bool {
+    crate::game_logic::host_bomb_truck_detonate::is_bomb_truck_template(template_name)
+        || crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name)
+        || crate::game_logic::host_nuclear_tanks::is_nuclear_tanks_eligible(template_name)
+}
+
+/// Resolve leftover DeathWeapon splash for a dying object.
+/// Skips terrorist SUICIDED deaths — host_terrorist already applied the pack.
+pub fn death_weapon_for_dying_object(
+    template_name: &str,
+    death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+) -> Option<DeathWeaponSplash> {
+    if crate::game_logic::host_terrorist::is_terrorist_template(template_name)
+        && matches!(
+            death_type,
+            crate::game_logic::host_usa_pilot::HostDeathType::Suicided
+        )
+    {
+        return None;
+    }
+    death_weapon_for_template(template_name)
+}
+
 /// Resolve residual DeathWeapon splash for a template, if any.
 pub fn death_weapon_for_template(template_name: &str) -> Option<DeathWeaponSplash> {
+    if specialized_death_residual_covers(template_name) {
+        return None;
+    }
     let n = template_name.to_ascii_lowercase();
     // Retail NapalmBomb FireWeaponWhenDead → NapalmBombWeapon / BlackNapalmBombWeapon.
     // Black vs standard is selected by caller via template name peel residual.
@@ -135,6 +163,17 @@ mod tests {
         assert!(death_weapon_for_template("GLAInfantryTerrorist").is_some());
         assert!(death_weapon_for_template("GLAScudStorm").is_some());
         assert!(death_weapon_for_template("AmericaTankCrusader").is_none());
+        assert!(death_weapon_for_template("GLAVehicleBombTruck").is_none());
+        assert!(death_weapon_for_dying_object(
+            "GLAInfantryTerrorist",
+            crate::game_logic::host_usa_pilot::HostDeathType::Suicided
+        )
+        .is_none());
+        assert!(death_weapon_for_dying_object(
+            "GLAInfantryTerrorist",
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal
+        )
+        .is_some());
     }
 
     #[test]

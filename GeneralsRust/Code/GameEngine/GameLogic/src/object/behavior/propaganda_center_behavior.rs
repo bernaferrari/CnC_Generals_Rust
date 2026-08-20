@@ -569,6 +569,7 @@ impl PropagandaCenterBehaviorModule {
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
         Arc::new(Mutex::new(PropagandaCenterBehaviorContainHandle {
             behavior: Arc::clone(&self.behavior),
+            cached_ids: CachedContainIds::default(),
         }))
     }
 }
@@ -577,6 +578,23 @@ impl PropagandaCenterBehaviorModule {
 #[derive(Debug)]
 struct PropagandaCenterBehaviorContainHandle {
     behavior: Arc<Mutex<PropagandaCenterBehavior>>,
+    cached_ids: CachedContainIds,
+}
+
+/// Slice cache for `get_contained_objects` (C++ iterateContained real list).
+#[derive(Debug, Default)]
+struct CachedContainIds {
+    ids: std::cell::UnsafeCell<Vec<ObjectID>>,
+}
+
+unsafe impl Sync for CachedContainIds {}
+
+impl CachedContainIds {
+    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
+        let cache = unsafe { &mut *self.ids.get() };
+        *cache = ids;
+        unsafe { &*self.ids.get() }
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -603,7 +621,12 @@ impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        &[]
+        self.cached_ids.refresh(
+            self.behavior
+                .lock()
+                .map(|guard| guard.get_contained_objects().to_vec())
+                .unwrap_or_default(),
+        )
     }
 
     fn get_contained_count(&self) -> usize {
@@ -618,6 +641,13 @@ impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
             .lock()
             .map(|guard| guard.get_max_capacity())
             .unwrap_or(0)
+    }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned")?
+            .on_delete()
     }
 }
 

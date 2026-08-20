@@ -528,4 +528,132 @@ mod tests {
         let out = draw.adjust_transform_mtx(&mtx);
         assert_eq!(out, mtx);
     }
+
+    #[test]
+    fn loop_pingpong_reverses_at_clip_end() {
+        // C++ `Animatable3DObjClass::Compute_Current_Frame` ANIM_MODE_LOOP_PINGPONG
+        // (animobj.cpp:941-963): reflect overflow and flip direction.
+        let last = 4;
+        let (frame, _, direction) = advance_anim_mode(AnimMode::LoopPingPong, last - 1, 5, 1, 1);
+        assert_eq!(frame, last);
+        assert_eq!(direction, -1);
+        let (frame, _, direction) = advance_anim_mode(AnimMode::LoopPingPong, frame, 5, 1, direction);
+        assert_eq!(frame, last - 1);
+        assert_eq!(direction, -1);
+        let (wrapped, _, _) = advance_anim_mode(AnimMode::Loop, last, 5, 1, 1);
+        assert_eq!(wrapped, 0);
+    }
+
+
+    #[test]
+    fn hidden_do_draw_still_ticks_animation() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.anim_mode = AnimMode::Once;
+        state.animations.push(W3DAnimationInfo::new(
+            AsciiString::from("idle"),
+            false,
+            0.0,
+        ));
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+        draw.current_anim_num_frames = 4;
+        draw.current_anim_frame = 0;
+        draw.pause_animation = false;
+        draw.hidden = true;
+        draw.fully_obscured_by_shroud = true;
+        draw.current_anim_speed_factor = 1.0;
+        draw.anim_frame_accumulator = 0.0;
+        DrawModule::do_draw_module(&mut draw, &Matrix3D::IDENTITY);
+        assert_eq!(draw.current_anim_frame, 1);
+    }
+
+    #[test]
+    fn attach_offset_goes_to_turret_pivots_not_launch() {
+        // C++ `W3DModelDraw::getProjectileLaunchOffset` CACHE_ATTACH_BONE
+        // (W3DModelDraw.cpp:3282-3372): offset is added to turret rot/pitch only.
+        let mut data = W3DModelDrawModuleData::new();
+        data.attach_to_drawable_bone = AsciiString::from("attach");
+        data.attach_to_drawable_bone_offset = Coord3D::new(5.0, 6.0, 7.0);
+        let mut state = ModelConditionInfo::new();
+        let turret_key = name_key_generate("turret");
+        state.turrets.push(TurretInfo {
+            turret_angle_name_key: turret_key,
+            ..TurretInfo::new()
+        });
+        state.pristine_bones.insert(
+            turret_key,
+            PristineBoneInfo {
+                transform: Matrix3D::from_translation(Coord3D::new(1.0, 2.0, 3.0)),
+                bone_index: 9,
+            },
+        );
+        let launch = Matrix3D::from_translation(Coord3D::new(10.0, 0.0, 0.0));
+        state.weapon_barrels[0].push(WeaponBarrelInfo {
+            projectile_offset_mtx: launch,
+            ..WeaponBarrelInfo::new()
+        });
+        data.condition_states.push(state);
+        let draw = W3DModelDraw::new(data);
+        let mut launch_pos = Matrix3D::IDENTITY;
+        let mut rot = Coord3D::origin();
+        let mut pitch = Coord3D::origin();
+        assert!(ObjectDrawInterface::get_projectile_launch_offset(
+            &draw,
+            &ModelConditionFlags::empty(),
+            0,
+            0,
+            &mut launch_pos,
+            TurretType::Primary,
+            &mut rot,
+            &mut pitch,
+        ));
+        assert!((launch_pos.w_axis.x - 10.0).abs() < 1e-4);
+        assert!((rot.x - 6.0).abs() < 1e-4);
+        assert!((rot.y - 8.0).abs() < 1e-4);
+        assert!((rot.z - 10.0).abs() < 1e-4);
+    }
+
+
+    #[test]
+    fn replace_indicator_color_rebuilds_when_ok() {
+        // C++ `W3DModelDraw::replaceIndicatorColor` (W3DModelDraw.cpp:3188-3207).
+        let mut data = W3DModelDrawModuleData::new();
+        data.ok_to_change_model_color = true;
+        data.condition_states.push(ModelConditionInfo::new());
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+        ObjectDrawInterface::replace_indicator_color(&mut draw, 0x00AA_1122);
+        assert_eq!(draw.hex_color() & 0x00FF_FFFF, 0x00AA_1122);
+        assert_ne!(draw.hex_color() & 0xFF00_0000u32 as i32, 0);
+    }
+
+    #[test]
+    fn validate_cached_bones_fills_from_hook() {
+        // C++ `ModelConditionInfo::validateCachedBones` (W3DModelDraw.cpp:566-689)
+        // + `doSingleBoneName` for public bones.
+        register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(
+            |model, _scale, _frame, bone| {
+                if model == "unit" && bone == "turret" {
+                    Some((4, Matrix3D::from_translation(Coord3D::new(1.0, 0.0, 0.0))))
+                } else {
+                    None
+                }
+            },
+        )));
+        let mut state = ModelConditionInfo::new();
+        state.model_name = AsciiString::from("unit");
+        state.public_bones.push(AsciiString::from("turret"));
+        state.validate_runtime_caches(&[]);
+        let key = name_key_generate("turret");
+        let bone = state.pristine_bones.get(&key).expect("cached");
+        assert_eq!(bone.bone_index, 4);
+        assert_eq!(
+            state.valid_stuff & MODEL_CONDITION_PRISTINE_BONES_VALID,
+            MODEL_CONDITION_PRISTINE_BONES_VALID
+        );
+        register_pristine_bone_lookup_hook(None);
+    }
 }
+

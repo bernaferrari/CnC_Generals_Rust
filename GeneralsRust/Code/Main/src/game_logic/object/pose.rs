@@ -556,7 +556,9 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
-        if old_state != state {
+        // C++ ActiveBody.cpp:1219 — no damaged-art visuals while building.
+        let show_health_visuals = !self.status.under_construction || self.status.destroyed;
+        if old_state != state && show_health_visuals {
             if self.bone_fx_damage.is_none()
                 && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
             {
@@ -567,22 +569,30 @@ impl Object {
                 let _ = bfx.on_body_damage_state_change(&self.template_name, old_state, state);
             }
         }
-        self.ensure_transition_damage_fx();
-        if let Some(cfg) = self.transition_damage_fx.as_ref() {
-            if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
-                cfg, old_state, state,
-            ) {
-                self.pending_transition_damage_fx.push(ev);
+        if show_health_visuals {
+            self.ensure_transition_damage_fx();
+            if let Some(cfg) = self.transition_damage_fx.as_ref() {
+                if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
+                    cfg, old_state, state,
+                ) {
+                    self.pending_transition_damage_fx.push(ev);
+                }
             }
         }
-        if matches!(state, HostBodyDamageType::Rubble)
+        if show_health_visuals
+            && matches!(state, HostBodyDamageType::Rubble)
             && !matches!(old_state, HostBodyDamageType::Rubble)
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
         }
+        let visual_state = if show_health_visuals {
+            state
+        } else {
+            HostBodyDamageType::Pristine
+        };
         self.model_condition_bits =
-            host_apply_body_damage_model_bits(self.model_condition_bits, state);
+            host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
         self.record_host_model_condition();
     }
 
@@ -601,8 +611,11 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        // C++ ActiveBody.cpp:1219 — skip evaluateVisualCondition while
+        // OBJECT_STATUS_UNDER_CONSTRUCTION (no damaged-art health visuals).
+        let show_health_visuals = !self.status.under_construction || self.status.destroyed;
         // C++ BoneFXDamage::onBodyDamageStateChange residual.
-        if old_state != state {
+        if old_state != state && show_health_visuals {
             if self.bone_fx_damage.is_none()
                 && crate::game_logic::host_bone_fx_damage::wants_bone_fx(&self.template_name)
             {
@@ -614,22 +627,30 @@ impl Object {
             }
         }
         // C++ TransitionDamageFX::onBodyDamageStateChange residual.
-        self.ensure_transition_damage_fx();
-        if let Some(cfg) = self.transition_damage_fx.as_ref() {
-            if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
-                cfg, old_state, state,
-            ) {
-                self.pending_transition_damage_fx.push(ev);
+        if show_health_visuals {
+            self.ensure_transition_damage_fx();
+            if let Some(cfg) = self.transition_damage_fx.as_ref() {
+                if let Some(ev) = crate::game_logic::host_transition_damage_fx::transition_event(
+                    cfg, old_state, state,
+                ) {
+                    self.pending_transition_damage_fx.push(ev);
+                }
             }
         }
         // C++ FXListDie when entering rubble / destroyed.
-        if matches!(state, HostBodyDamageType::Rubble)
+        if show_health_visuals
+            && matches!(state, HostBodyDamageType::Rubble)
             && !matches!(old_state, HostBodyDamageType::Rubble)
         {
             self.fire_fx_list_die();
             self.fire_create_object_die();
         }
-        let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, state);
+        let visual_state = if show_health_visuals {
+            state
+        } else {
+            HostBodyDamageType::Pristine
+        };
+        let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
         // Motion / combat residual bits from ObjectStatus.
         if self.status.moving {
             bits |= 1u128 << MC_BIT_MOVING;

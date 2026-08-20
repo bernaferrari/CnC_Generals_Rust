@@ -248,6 +248,19 @@ impl GameLogic {
         };
         let msg = localization::localize(msg_key, msg_fallback);
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
+        // C++ Radar.cpp:1155 tryEvent(UNDER_ATTACK) — minimap blip + last-event.
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            let loc = game_engine::common::system::radar::Coord3D {
+                x: pos.x,
+                y: pos.z,
+                z: pos.y,
+            };
+            let _ = radar.try_event(
+                game_engine::common::system::radar::RadarEventType::UnderAttack,
+                &loc,
+            );
+        }
+        gamelogic::helpers::TheControlBar::trigger_radar_attack_glow();
         self.queue_audio_event(
             AudioEventRequest::new(audio)
                 .with_object(victim_id)
@@ -409,20 +422,28 @@ impl GameLogic {
         }
         let victim_team = obj.team;
         let pos = obj.get_position();
-        // Local-player residual: only warn if a local player owns the victim team.
+        // C++ Radar.cpp:1243 — only the local victim is warned.
         let local_victim = self
             .players
             .values()
             .any(|p| p.team == victim_team && p.is_local);
         if !local_victim {
-            // Still record honesty for AI-vs-AI residual observability when any
-            // player on that team exists (fail-open for headless host tests).
-            if !self.players.values().any(|p| p.team == victim_team) {
-                return;
-            }
+            return;
         }
         let msg = localization::localize("RADAR:Infiltration", "Infiltration event");
         self.queue_radar_message_at(msg, pos, radar_notifications::RadarKind::Attack);
+        if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
+            let loc = game_engine::common::system::radar::Coord3D {
+                x: pos.x,
+                y: pos.z,
+                z: pos.y,
+            };
+            radar.create_event(
+                &loc,
+                game_engine::common::system::radar::RadarEventType::Infiltration,
+                4.0,
+            );
+        }
         self.queue_audio_event(
             AudioEventRequest::new(
                 crate::game_logic::host_radar_stealth_vision_residual::RADAR_INFILTRATION_AUDIO,

@@ -542,6 +542,10 @@ impl AttackStateMachine {
         self.base.set_goal_object_by_id(obj_id);
     }
 
+    pub fn get_goal_object_id(&self) -> ObjectID {
+        self.base.get_goal_object_id()
+    }
+
     pub fn set_goal_position(&mut self, pos: Coord3D) {
         self.base.set_goal_position(pos);
     }
@@ -943,6 +947,23 @@ impl ClassicState for AIAttackAimAtTargetState {
     }
 }
 
+/// C++ `AIAttackFireWeaponState::onEnter` (`AIStates.cpp:5153-5156`).
+/// First shot from an AttackCommonTarget team seeds the shared victim.
+pub(crate) fn should_seed_attack_common_target(
+    has_victim: bool,
+    attack_common_target: bool,
+    team_target: ObjectID,
+) -> bool {
+    has_victim && attack_common_target && team_target == INVALID_ID
+}
+
+pub(crate) fn seed_team_target_if_attack_common(team: &mut Team, victim_id: ObjectID) {
+    if should_seed_attack_common_target(true, team.attack_common_target(), team.get_team_target_object())
+    {
+        team.set_team_target_object(victim_id);
+    }
+}
+
 #[derive(Debug)]
 pub struct AIAttackFireWeaponState {
     pub(crate) base: State,
@@ -1000,6 +1021,16 @@ impl ClassicState for AIAttackFireWeaponState {
         }
 
         let victim_id = self.base.get_machine_goal_object_id();
+        // C++ AIAttackFireWeaponState::onEnter: first shot seeds AttackCommonTarget.
+        if let Some(victim_id) = victim_id {
+            if let Some(team_arc) = owner_guard.get_team() {
+                if let Ok(mut team_guard) = team_arc.write() {
+                    seed_team_target_if_attack_common(&mut team_guard, victim_id);
+                }
+            }
+        }
+
+
         owner_guard.set_status(
             ObjectStatusMaskType::from_status(ObjectStatusTypes::IsFiringWeapon),
             true,
@@ -1319,12 +1350,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
 
     let victim_speed = victim
         .get_physics()
-        .and_then(|physics| {
-            physics.lock().ok().map(|guard| {
-                let velocity = guard.get_velocity();
-                (velocity.x * velocity.x + velocity.y * velocity.y).sqrt()
-            })
-        })
+        .and_then(|physics| physics.lock().ok().map(|guard| guard.get_forward_speed_2d()))
         .unwrap_or(0.0);
 
     if victim_speed >= our_max_speed {
@@ -1570,12 +1596,7 @@ impl AIAttackPursueTargetState {
 
             let mut desired_speed = victim_guard
                 .get_physics()
-                .and_then(|physics| {
-                    physics.lock().ok().map(|guard| {
-                        let velocity = guard.get_velocity();
-                        (velocity.x * velocity.x + velocity.y * velocity.y).sqrt()
-                    })
-                })
+                .and_then(|physics| physics.lock().ok().map(|guard| guard.get_forward_speed_2d()))
                 .unwrap_or(FAST_AS_POSSIBLE);
             desired_speed *= 0.95;
             ai_guard.set_desired_speed(desired_speed.max(0.0));

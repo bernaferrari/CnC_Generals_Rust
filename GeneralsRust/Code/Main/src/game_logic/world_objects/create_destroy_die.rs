@@ -41,18 +41,17 @@ impl GameLogic {
         if !is_harvester || !legal_center {
             return false;
         }
-        let Some(source_id) = self.find_nearest_harvestable_supply(collector_team, collector_pos)
+        let is_computer = collector_owner
+            .is_some_and(|pid| self.ai_manager.ai_players.contains_key(&pid));
+        let scan = scan_distance.map(|distance| {
+            crate::game_logic::host_supply_gather::warehouse_scan_distance(distance, is_computer)
+        });
+        let Some(source_id) =
+            self.find_nearest_harvestable_supply_within(collector_team, collector_pos, scan)
         else {
             return false;
         };
-        if scan_distance.is_some_and(|distance| {
-            distance > 0.0
-                && self
-                    .host_object(source_id)
-                    .is_some_and(|source| source.get_position().distance(collector_pos) > distance)
-        }) {
-            return false;
-        }
+
         if let Some(collector) = self.host_object_mut(collector_id) {
             // `m_preferredDock` is set by the supply-center/AI handoff, and
             // stays distinct from merely sharing a faction team.
@@ -586,7 +585,9 @@ impl GameLogic {
             if object.base_regenerate.is_some() {
                 self.base_regenerate_reg.record_install();
             }
+            object.install_default_auto_heal_if_needed();
             object.install_enemy_near_if_needed();
+
             if object.enemy_near.is_some() {
                 self.enemy_near_reg.record_install();
             }
@@ -1615,10 +1616,14 @@ impl GameLogic {
             .push_back(DestructionEvent { id, killer: None });
     }
 
-    /// C++ FireWeaponWhenDeadBehavior::onDie residual — death weapon splash.
+    /// C++ FireWeaponWhenDeadBehavior::onDie leftover — death weapon splash.
+    /// Specialized leftovers (bomb truck / toxin / nuke / demo) own exclusive modules.
     pub(in super::super) fn apply_fire_weapon_when_dead(&mut self, dying_id: ObjectId) {
+        use crate::game_logic::host_demo_suicide_bomb::{
+            has_demo_suicide_bomb_upgrade, is_demo_suicide_bomb_eligible_template,
+        };
         use crate::game_logic::host_fire_weapon_when_dead::{
-            death_weapon_for_template, splash_damage_at_distance,
+            death_weapon_for_dying_object, splash_damage_at_distance,
         };
 
         let Some(obj) = self.objects.get(&dying_id) else {
@@ -1630,7 +1635,13 @@ impl GameLogic {
         if obj.status.under_construction {
             return;
         }
-        let Some(splash) = death_weapon_for_template(&obj.template_name) else {
+        if is_demo_suicide_bomb_eligible_template(&obj.template_name)
+            && has_demo_suicide_bomb_upgrade(&obj.applied_upgrades)
+        {
+            return;
+        }
+        let Some(splash) = death_weapon_for_dying_object(&obj.template_name, obj.status.death_type)
+        else {
             return;
         };
         let pos = obj.get_position();

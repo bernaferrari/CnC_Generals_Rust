@@ -301,7 +301,9 @@ pub struct TheRadar;
 impl TheRadar {
     pub fn get() -> Option<&'static Self> {
         static RADAR: OnceLock<TheRadar> = OnceLock::new();
-        Some(RADAR.get_or_init(|| TheRadar))
+        let radar = RADAR.get_or_init(|| TheRadar);
+        ensure_radar_event_feedback_registered();
+        Some(radar)
     }
 
     pub fn create_event(
@@ -334,11 +336,21 @@ impl TheRadar {
         if target.is_destroyed() {
             return Ok(());
         }
+        // C++ Radar.cpp:1243 — only warn if the victim is the local player.
         if !target.is_locally_controlled() {
             return Ok(());
         }
 
         let position = *target.get_position();
+        let player_index = target
+            .get_controlling_player()
+            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .unwrap_or(-1);
+        let victim = game_engine::common::system::radar::RadarVictimInfo {
+            is_local_player: true,
+            player_index,
+            ..Default::default()
+        };
 
         let radar = get_radar_system();
         if let Ok(mut guard) = radar.write() {
@@ -347,7 +359,7 @@ impl TheRadar {
                 y: position.y,
                 z: position.z,
             };
-            guard.try_infiltration_event(&world_loc);
+            guard.try_infiltration_event_for(&world_loc, Some(&victim));
         }
         Ok(())
     }
@@ -366,6 +378,58 @@ impl TheRadar {
             .unwrap_or(Ok(()))
     }
 
+    /// C++ `Radar::tryUnderAttackEvent` — ping + glow + per-kind UI/audio/EVA.
+    pub fn try_under_attack_event(target: Arc<RwLock<Object>>) -> Result<bool, GameError> {
+        let Ok(target_guard) = target.read() else {
+            return Err(GameError::LockError);
+        };
+        Self::try_under_attack_event_for_object(&target_guard)
+    }
+
+    pub fn try_under_attack_event_for_object(target: &Object) -> Result<bool, GameError> {
+        if target.is_destroyed() {
+            return Ok(false);
+        }
+        let position = *target.get_position();
+        let player_index = target
+            .get_controlling_player()
+            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .unwrap_or(-1);
+        let victim = game_engine::common::system::radar::RadarVictimInfo {
+            is_infantry: target.is_kind_of(KindOf::Infantry),
+            is_vehicle: target.is_kind_of(KindOf::Vehicle),
+            is_harvester: target.is_kind_of(KindOf::Harvester),
+            is_structure: target.is_kind_of(KindOf::Structure),
+            is_mp_count_for_victory: target.is_kind_of(KindOf::CountsForVictory),
+            is_local_player: target.is_locally_controlled(),
+            is_ally: false,
+            player_index,
+        };
+        let radar = get_radar_system();
+        let created = if let Ok(mut guard) = radar.write() {
+            let world_loc = game_engine::system::radar::Coord3D {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+            };
+            guard.try_under_attack_event_for(&world_loc, Some(&victim))
+        } else {
+            false
+        };
+        Ok(created)
+    }
+
+    /// Location-only under-attack ping (crate `radar_notifier` BaseAttacked).
+    pub fn try_under_attack_event_at(x: f32, y: f32) -> bool {
+        ensure_radar_event_feedback_registered();
+        let radar = get_radar_system();
+        if let Ok(mut guard) = radar.write() {
+            let world_loc = game_engine::system::radar::Coord3D { x, y, z: 0.0 };
+            return guard.try_under_attack_event(&world_loc);
+        }
+        false
+    }
+
     pub fn refresh_terrain(&self) {
         let radar = get_radar_system();
         let radar_lock = radar.write();
@@ -373,6 +437,69 @@ impl TheRadar {
             guard.refresh_terrain();
         }
     }
+}
+
+/// C++ `TheControlBar->triggerRadarAttackGlow()` leftover + live consume hook.
+pub struct TheControlBar;
+
+static RADAR_ATTACK_GLOW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+impl TheControlBar {
+    pub fn trigger_radar_attack_glow() {
+        RADAR_ATTACK_GLOW.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Consume a pending glow request (ControlBar::update).
+    pub fn take_radar_attack_glow() -> bool {
+        RADAR_ATTACK_GLOW.swap(false, std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+struct LeftoverRadarEventFeedback;
+
+impl game_engine::common::system::radar::RadarEventFeedback for LeftoverRadarEventFeedback {
+    fn trigger_radar_attack_glow(&self) {
+        TheControlBar::trigger_radar_attack_glow();
+    }
+
+    fn show_radar_message(&self, message_key: &str) {
+        TheInGameUI::display_message(message_key);
+    }
+
+    fn play_radar_audio(&self, event_name: &str, player_index: i32) {
+        let Some(audio) = TheAudio::get() else {
+            return;
+        };
+        let mapped = match event_name {
+            "RadarHarvesterUnderAttackSound" => "RadarNotifyHarvesterUnderAttackSound",
+            "RadarStructureUnderAttackSound" => "RadarNotifyStructureUnderAttackSound",
+            "RadarInfiltrationSound" => "RadarNotifyInfiltrationSound",
+            other => other,
+        };
+        let mut event = AudioEventRts::new(mapped);
+        if player_index >= 0 {
+            event.set_player_index(player_index as u32);
+        }
+        audio.add_audio_event(&event);
+    }
+
+    fn set_eva_should_play(&self, eva_name: &str) {
+        let event = match eva_name {
+            "EVA_BaseUnderAttack" => EvaEvent::BaseUnderAttack,
+            "EVA_AllyUnderAttack" => EvaEvent::AllyUnderAttack,
+            _ => return,
+        };
+        let _ = TheEva::set_should_play(event);
+    }
+}
+
+fn ensure_radar_event_feedback_registered() {
+    static REGISTERED: OnceLock<()> = OnceLock::new();
+    let _ = REGISTERED.get_or_init(|| {
+        let _ = game_engine::common::system::radar::register_radar_event_feedback(Arc::new(
+            LeftoverRadarEventFeedback,
+        ));
+    });
 }
 
 /// C++ `TheTacticalView` camera constraint hook used by SWITCH_BORDER.

@@ -695,53 +695,47 @@ impl ParkingPlaceBehavior {
     /// Calculate parking place info
     /// Matches C++ ParkingPlaceBehavior::calcPPInfo (line 357)
     fn calc_pp_info(&self, id: ObjectID, info: &mut PPInfo) {
-        let space_opt = self.spaces.iter().find(|s| s.object_in_space == id);
+        let Some(ppi) = self.spaces.iter().find(|s| s.object_in_space == id) else {
+            return;
+        };
+        let data = self.get_module_data();
+        info.parking_space = if data.park_in_hangars {
+            ppi.hangar_start
+        } else {
+            ppi.location
+        };
+        info.runway_prep = ppi.prep;
+        info.parking_orientation = if data.park_in_hangars {
+            ppi.hangar_start_orient
+        } else {
+            ppi.orientation
+        };
+        info.hangar_internal = ppi.hangar_start;
+        info.hangar_internal_orient = ppi.hangar_start_orient;
 
-        if let Some(ppi) = space_opt {
-            let data = self.get_module_data();
+        let Some(runway) = self.runways.get(ppi.runway as usize) else {
+            return;
+        };
+        info.runway_start = runway.start;
+        info.runway_end = runway.end;
+        info.runway_approach = runway.end;
 
-            if let Some(runway) = self.runways.get(ppi.runway as usize) {
-                info.parking_space = if data.park_in_hangars {
-                    ppi.hangar_start
-                } else {
-                    ppi.location
-                };
+        const APPROACH_DIST: Real = 0.75;
+        info.runway_approach.x += (runway.end.x - runway.start.x) * APPROACH_DIST;
+        info.runway_approach.y += (runway.end.y - runway.start.y) * APPROACH_DIST;
+        info.runway_approach.z =
+            runway.end.z + data.approach_height + data.landing_deck_height_offset;
 
-                info.runway_prep = ppi.prep;
+        info.runway_exit = info.runway_approach;
 
-                info.parking_orientation = if data.park_in_hangars {
-                    ppi.hangar_start_orient
-                } else {
-                    ppi.orientation
-                };
+        let dx = info.runway_start.x - info.runway_end.x;
+        let dy = info.runway_start.y - info.runway_end.y;
+        let dz = info.runway_start.z - info.runway_end.z;
+        info.runway_takeoff_dist = (dx * dx + dy * dy + dz * dz).sqrt();
 
-                info.runway_start = runway.start;
-                info.runway_end = runway.end;
-                info.runway_approach = runway.end;
-
-                // Calculate approach position with distance factor
-                const APPROACH_DIST: Real = 0.75;
-                info.runway_approach.x += (runway.end.x - runway.start.x) * APPROACH_DIST;
-                info.runway_approach.y += (runway.end.y - runway.start.y) * APPROACH_DIST;
-                info.runway_approach.z =
-                    runway.end.z + data.approach_height + data.landing_deck_height_offset;
-
-                info.runway_exit = info.runway_approach;
-                info.hangar_internal = ppi.hangar_start;
-                info.hangar_internal_orient = ppi.hangar_start_orient;
-
-                // Calculate runway takeoff distance
-                let dx = info.runway_start.x - info.runway_end.x;
-                let dy = info.runway_start.y - info.runway_end.y;
-                let dz = info.runway_start.z - info.runway_end.z;
-                info.runway_takeoff_dist = (dx * dx + dy * dy + dz * dz).sqrt();
-
-                // Check if was in line (adjust runway start)
-                for rw in &self.runways {
-                    if rw.in_use_by == id && rw.was_in_line {
-                        info.runway_start = info.runway_prep;
-                    }
-                }
+        for rw in &self.runways {
+            if rw.in_use_by == id && rw.was_in_line {
+                info.runway_start = info.runway_prep;
             }
         }
     }
@@ -878,6 +872,39 @@ impl ParkingPlaceBehavior {
         } else {
             None
         }
+    }
+
+    /// C++ `ParkingPlaceBehavior::getExitPosition` / `getNaturalRallyPoint` bone.
+    fn lookup_helipark01(&self, out: &mut Coord3D) -> bool {
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+        if self.object_id == crate::common::INVALID_ID {
+            return false;
+        }
+        let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return false;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return false;
+        };
+        let (found, pos, _) = owner_guard.get_single_logical_bone_position("HeliPark01");
+        if found {
+            *out = pos;
+        }
+        found
+    }
+
+    /// C++ `ParkingPlaceBehavior::getExitPosition` (`HeliPark01`).
+    pub fn get_exit_position(&self, exit_position: &mut Coord3D) -> bool {
+        self.lookup_helipark01(exit_position)
+    }
+
+    /// C++ `ParkingPlaceBehavior::getNaturalRallyPoint` (`HeliPark01`; offset unused).
+    pub fn get_natural_rally_point(&self, rally_point: &mut Coord3D, _offset: bool) -> bool {
+        self.lookup_helipark01(rally_point)
     }
 
     /// Get current game frame
@@ -1375,6 +1402,14 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
         Ok(ParkingPlaceBehavior::get_rally_point(self).copied())
     }
 
+    fn get_exit_position(&self, exit_position: &mut Coord3D) -> bool {
+        ParkingPlaceBehavior::get_exit_position(self, exit_position)
+    }
+
+    fn get_natural_rally_point(&self, rally_point: &mut Coord3D, offset: bool) -> bool {
+        ParkingPlaceBehavior::get_natural_rally_point(self, rally_point, offset)
+    }
+
     fn exit_object_via_door(
         &mut self,
         obj_id: ObjectID,
@@ -1519,54 +1554,50 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
 
 impl ParkingPlaceBehavior {
     fn fill_behavior_pp_info(&self, id: ObjectID, info: &mut BehaviorPPInfo) {
-        let space_opt = self.spaces.iter().find(|s| s.object_in_space == id);
+        let Some(ppi) = self.spaces.iter().find(|s| s.object_in_space == id) else {
+            return;
+        };
+        let data = self.get_module_data();
+        info.parking_space = if data.park_in_hangars {
+            ppi.hangar_start
+        } else {
+            ppi.location
+        };
+        info.runway_prep = ppi.prep;
+        info.parking_orientation = if data.park_in_hangars {
+            ppi.hangar_start_orient
+        } else {
+            ppi.orientation
+        };
+        info.hangar_internal = ppi.hangar_start;
+        info.hangar_internal_orient = ppi.hangar_start_orient;
 
-        if let Some(ppi) = space_opt {
-            let data = self.get_module_data();
+        let Some(runway) = self.runways.get(ppi.runway as usize) else {
+            return;
+        };
+        info.runway_start = runway.start;
+        info.runway_end = runway.end;
+        info.runway_landing_start = runway.start;
+        info.runway_landing_end = runway.end;
+        info.runway_approach = runway.end;
 
-            if let Some(runway) = self.runways.get(ppi.runway as usize) {
-                info.parking_space = if data.park_in_hangars {
-                    ppi.hangar_start
-                } else {
-                    ppi.location
-                };
+        const APPROACH_DIST: Real = 0.75;
+        info.runway_approach.x += (runway.end.x - runway.start.x) * APPROACH_DIST;
+        info.runway_approach.y += (runway.end.y - runway.start.y) * APPROACH_DIST;
+        info.runway_approach.z =
+            runway.end.z + data.approach_height + data.landing_deck_height_offset;
 
-                info.runway_prep = ppi.prep;
+        info.runway_exit = info.runway_approach;
 
-                info.parking_orientation = if data.park_in_hangars {
-                    ppi.hangar_start_orient
-                } else {
-                    ppi.orientation
-                };
+        let dx = info.runway_start.x - info.runway_end.x;
+        let dy = info.runway_start.y - info.runway_end.y;
+        let dz = info.runway_start.z - info.runway_end.z;
+        info.runway_takeoff_dist = (dx * dx + dy * dy + dz * dz).sqrt();
 
-                info.runway_start = runway.start;
-                info.runway_end = runway.end;
-                info.runway_landing_start = runway.start;
-                info.runway_landing_end = runway.end;
-                info.runway_approach = runway.end;
-
-                // Calculate approach position with distance factor.
-                const APPROACH_DIST: Real = 0.75;
-                info.runway_approach.x += (runway.end.x - runway.start.x) * APPROACH_DIST;
-                info.runway_approach.y += (runway.end.y - runway.start.y) * APPROACH_DIST;
-                info.runway_approach.z =
-                    runway.end.z + data.approach_height + data.landing_deck_height_offset;
-
-                info.runway_exit = info.runway_approach;
-                info.hangar_internal = ppi.hangar_start;
-                info.hangar_internal_orient = ppi.hangar_start_orient;
-
-                let dx = info.runway_start.x - info.runway_end.x;
-                let dy = info.runway_start.y - info.runway_end.y;
-                let dz = info.runway_start.z - info.runway_end.z;
-                info.runway_takeoff_dist = (dx * dx + dy * dy + dz * dz).sqrt();
-
-                for rw in &self.runways {
-                    if rw.in_use_by == id && rw.was_in_line {
-                        info.runway_start = info.runway_prep;
-                        info.runway_landing_start = info.runway_prep;
-                    }
-                }
+        for rw in &self.runways {
+            if rw.in_use_by == id && rw.was_in_line {
+                info.runway_start = info.runway_prep;
+                info.runway_landing_start = info.runway_prep;
             }
         }
     }
@@ -1663,6 +1694,8 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
     }
 
     fn transfer_runway_reservation_to_next_in_line_for_takeoff(&mut self, id: ObjectID) {
+        self.build_info();
+        self.purge_dead();
         for runway in &mut self.runways {
             if runway.in_use_by == id && runway.next_in_line_for_takeoff != OBJECT_INVALID_ID {
                 runway.in_use_by = runway.next_in_line_for_takeoff;

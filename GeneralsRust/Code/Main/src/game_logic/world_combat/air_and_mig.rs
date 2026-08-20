@@ -1468,21 +1468,21 @@ impl GameLogic {
         true
     }
 
-    /// Recompute Battlemaster HordeUpdate residual for all living battlemasters.
-    ///
-    /// ExactMatch allies within Radius 75; Count 5 (includes self). RubOff residual omitted
-    /// (fail-closed). Refreshes weapon ROF when status changes.
+    /// Recompute China vehicle HordeUpdate residual (Battlemaster + other ExactMatch
+    /// HordeUpdate vehicles). Radius 75 / Count 5 / RubOff 20; terrain-decal fade.
     pub fn update_battlemaster_horde_status(&mut self) {
         use crate::game_logic::host_battlemaster::{
-            counts_toward_battlemaster_horde, distance_2d, is_battlemaster_template, is_in_horde,
-            BATTLE_MASTER_HORDE_RADIUS,
+            counts_toward_battlemaster_horde, evaluate_leftover_horde_blob,
+            is_battlemaster_template, is_china_vehicle_horde_unit, same_vehicle_horde_family,
+            BATTLE_MASTER_HORDE_COUNT, BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
         };
 
         let snapshot: Vec<(ObjectId, Team, f32, f32, bool, String)> = self
             .objects
             .iter()
             .filter_map(|(id, o)| {
-                if !o.is_alive() || !is_battlemaster_template(&o.template_name) {
+                if !o.is_alive() || !is_china_vehicle_horde_unit(&o.template_name) {
                     return None;
                 }
                 let p = o.get_position();
@@ -1490,39 +1490,41 @@ impl GameLogic {
             })
             .collect();
 
+        let units: Vec<(f32, f32, bool)> = snapshot
+            .iter()
+            .map(|(_, _, x, z, alive, _)| (*x, *z, *alive))
+            .collect();
+        let membership = evaluate_leftover_horde_blob(
+            &units,
+            BATTLE_MASTER_HORDE_COUNT,
+            BATTLE_MASTER_HORDE_RADIUS,
+            BATTLE_MASTER_HORDE_RUB_OFF_RADIUS,
+            |i, j, dist| {
+                counts_toward_battlemaster_horde(
+                    snapshot[i].4,
+                    snapshot[j].4,
+                    snapshot[i].1 == snapshot[j].1,
+                    same_vehicle_horde_family(&snapshot[i].5, &snapshot[j].5),
+                    dist,
+                    BATTLE_MASTER_HORDE_RADIUS,
+                )
+            },
+        );
+
         let mut grants = 0u32;
         let mut to_refresh: Vec<ObjectId> = Vec::new();
 
-        for (id, team, x, z, alive, _name) in &snapshot {
-            let mut nearby = 0u32;
-            for (oid, oteam, ox, oz, oalive, oname) in &snapshot {
-                if *oid == *id {
-                    continue;
-                }
-                let dist = distance_2d(*x, *z, *ox, *oz);
-                if counts_toward_battlemaster_horde(
-                    *alive,
-                    *oalive,
-                    *team == *oteam,
-                    is_battlemaster_template(oname),
-                    dist,
-                    BATTLE_MASTER_HORDE_RADIUS,
-                ) {
-                    nearby = nearby.saturating_add(1);
-                }
-            }
-            let now_horde = is_in_horde(nearby);
+        for (idx, (id, _team, _x, _z, _alive, name)) in snapshot.iter().enumerate() {
+            let now_horde = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let was = obj.weapon_bonus_horde;
                 obj.weapon_bonus_horde = now_horde;
                 obj.record_host_weapon_bonus();
+                obj.apply_horde_terrain_decal(was, now_horde, true);
                 if now_horde && !was {
                     grants = grants.saturating_add(1);
                 }
-                if now_horde != was {
-                    to_refresh.push(*id);
-                } else if now_horde {
-                    // Keep weapon ROF in sync with nationalism tag changes.
+                if is_battlemaster_template(name) && (now_horde != was || now_horde) {
                     to_refresh.push(*id);
                 }
             }
@@ -1536,6 +1538,7 @@ impl GameLogic {
             self.refresh_battlemaster_weapon(id);
         }
     }
+
 
     /// Apply Battlemaster residual fire (primary on intended + small splash radius).
     ///

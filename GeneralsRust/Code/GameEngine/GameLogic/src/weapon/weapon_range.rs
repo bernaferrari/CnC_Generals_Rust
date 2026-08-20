@@ -40,7 +40,8 @@ impl Weapon {
 
         if let Some(pos) = target_pos {
             let dist_sqr = boundary_dist_sqr(&source_pos, source_radius, pos, 0.0);
-            if dist_sqr < min_range_sqr - 0.5 {
+            // C++ Weapon.cpp:2140-2141 (RATIONALIZE_ATTACK_RANGE): no -0.5 fudge.
+            if dist_sqr < min_range_sqr {
                 return false;
             }
             return dist_sqr <= attack_range_sqr;
@@ -78,7 +79,9 @@ impl Weapon {
             boundary_dist_sqr(&source_pos, source_radius, &target_pos, target_radius)
         };
 
-        if dist_sqr < min_range_sqr - 0.5 {
+        // C++ Weapon.cpp:2175-2176 (RATIONALIZE_ATTACK_RANGE): contact distance,
+        // no -0.5 fudge.
+        if dist_sqr < min_range_sqr {
             return false;
         }
         if dist_sqr > attack_range_sqr {

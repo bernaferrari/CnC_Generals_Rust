@@ -569,6 +569,11 @@ impl WorkerAIUpdate {
         if !ActionManager::can_repair_object(&*owner_guard, &*target_guard, cmd_source) {
             return;
         }
+        // C++ WorkerAIUpdate::privateRepair — sole healer, not builder_id.
+        let sole = target_guard.get_sole_healing_benefactor();
+        if sole != INVALID_ID && sole != self.object_id {
+            return;
+        }
 
         self.new_task(WorkerDozerTaskSlot::Repair, target_id);
         self.dozer_task = Some(WorkerDozerTask {
@@ -612,6 +617,12 @@ impl WorkerAIUpdate {
         if !ActionManager::can_resume_construction_of(&*owner_guard, &*target_guard, cmd_source) {
             return;
         }
+        // C++ resume is DOZER_TASK_BUILD: percent += 100/frames, heal max/frames.
+        let frames = target_guard.get_template().calc_time_to_build(None).max(1) as u32;
+        let max_health = target_guard
+            .get_body_module()
+            .map(|b| b.get_max_health())
+            .unwrap_or(0.0);
 
         self.new_task(WorkerDozerTaskSlot::Build, target_id);
         self.dozer_task = Some(WorkerDozerTask {
@@ -619,8 +630,8 @@ impl WorkerAIUpdate {
             target_id,
             dock_point: None,
             failed_attempts: 0,
-            build_total_frames: 0,
-            build_max_health: 0.0,
+            build_total_frames: frames,
+            build_max_health: max_health,
             is_rebuild: false,
             started_construction: false,
         });
@@ -696,6 +707,7 @@ impl WorkerAIUpdate {
             .get_geometry_info()
             .get_bounding_sphere_radius();
         let target_builder_id = target_guard.get_builder_id();
+        let target_sole = target_guard.get_sole_healing_benefactor();
         let target_is_bridge_tower = target_guard.is_kind_of(KindOf::BridgeTower);
         drop(target_guard);
 
@@ -767,7 +779,7 @@ impl WorkerAIUpdate {
             }
             WorkerDozerActionState::DoAction => match task.task_type {
                 WorkerDozerTaskType::Repair => {
-                    if target_builder_id != INVALID_ID && target_builder_id != self.object_id {
+                    if target_sole != INVALID_ID && target_sole != self.object_id {
                         self.dozer_task = None;
                         clear_current(self);
                         return;
@@ -785,22 +797,44 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    if let Some(body) = target_guard.get_body_module() {
-                        let max_health = body.get_max_health();
-                        let current = body.get_health();
-                        if max_health > 0.0 {
-                            let delta = max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL;
-                            let new_health = (current + delta).min(max_health);
-                            body.set_health(new_health);
-                            if new_health >= max_health {
-                                if target_is_bridge_tower {
-                                    Self::remove_bridge_scaffolding(task.target_id);
-                                }
-                                self.dozer_task = None;
-                                self.clear_task(WorkerDozerTaskSlot::Repair);
-                            }
+                    drop(target_guard);
+                    let health = {
+                        let max_health = if let Ok(tg) = target.read() {
+                            tg.get_body_module()
+                                .map(|b| b.get_max_health())
+                                .unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
+                        max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL
+                    };
+                    let healed = if let Ok(mut tw) = target.write() {
+                        match tw.attempt_healing_from_sole_benefactor(
+                            health,
+                            Some(&*owner_guard),
+                            2,
+                        ) {
+                            Ok(ok) => ok,
+                            Err(_) => false,
                         }
                     } else {
+                        false
+                    };
+                    if !healed {
+                        self.dozer_task = None;
+                        clear_current(self);
+                        return;
+                    }
+                    let full = target
+                        .read()
+                        .ok()
+                        .and_then(|g| g.get_body_module())
+                        .map(|b| b.get_max_health() > 0.0 && b.get_health() >= b.get_max_health() - 0.01)
+                        .unwrap_or(false);
+                    if full {
+                        if target_is_bridge_tower {
+                            Self::remove_bridge_scaffolding(task.target_id);
+                        }
                         self.dozer_task = None;
                         self.clear_task(WorkerDozerTaskSlot::Repair);
                     }
@@ -832,11 +866,32 @@ impl WorkerAIUpdate {
                         return;
                     }
                     drop(target_guard);
-                    let new_percent = (current_percent
-                        + repair_rate * 100.0 * SECONDS_PER_LOGICFRAME_REAL)
-                        .min(100.0);
+                    let frames = if task.build_total_frames > 0 {
+                        task.build_total_frames
+                    } else if let Ok(tg) = target.read() {
+                        tg.get_template().calc_time_to_build(None).max(1) as u32
+                    } else {
+                        1
+                    } as f32;
+                    // C++ DozerAIUpdate.cpp:515-526: +100/frames percent and +max/frames HP.
+                    let new_percent = (current_percent + 100.0 / frames).min(100.0);
                     if let Ok(mut target_write) = target.write() {
                         target_write.set_construction_percent(new_percent);
+                        let max_health = if task.build_max_health > 0.0 {
+                            task.build_max_health
+                        } else {
+                            target_write
+                                .get_body_module()
+                                .map(|b| b.get_max_health())
+                                .unwrap_or(0.0)
+                        };
+                        if max_health > 0.0 {
+                            if let Some(body) = target_write.get_body_module() {
+                                let new_health =
+                                    (body.get_health() + max_health / frames).min(max_health);
+                                body.set_health(new_health);
+                            }
+                        }
                     }
                     if new_percent >= 100.0 {
                         build_complete_rebuild = Some(task.is_rebuild);
@@ -1031,6 +1086,15 @@ impl WorkerAIUpdate {
         true
     }
 
+    /// C++ WorkerAIUpdate::aiDoCommand: drop carried boxes when clearing mines.
+    pub fn drop_all_boxes_if_carrying(&mut self) {
+        if self.number_boxes <= 0 {
+            return;
+        }
+        self.number_boxes = 0;
+        self.update_drawable_supply_status();
+    }
+
     pub fn gain_one_box(&mut self, remaining_stock: i32) -> bool {
         // Wave 298: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
@@ -1181,6 +1245,22 @@ impl WorkerAIUpdate {
 
     pub fn set_state(&mut self, state: SupplyTruckState) {
         self.state = state;
+    }
+}
+
+#[cfg(test)]
+mod worker_dozer_parity_tests {
+    use super::*;
+
+    #[test]
+    fn drop_all_boxes_if_carrying_clears_count() {
+        // C++ WorkerAIUpdate.cpp:1043-1050.
+        let mut worker = WorkerAIUpdate::new(WorkerAIUpdateData::default(), INVALID_ID, 0);
+        worker.number_boxes = 3;
+        worker.drop_all_boxes_if_carrying();
+        assert_eq!(worker.get_number_boxes(), 0);
+        worker.drop_all_boxes_if_carrying();
+        assert_eq!(worker.get_number_boxes(), 0);
     }
 }
 

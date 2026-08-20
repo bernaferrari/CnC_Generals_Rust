@@ -17,6 +17,9 @@ pub struct TeamFactory {
 impl TeamFactory {
     /// Create new team factory
     pub fn new() -> Self {
+        game_engine::common::rts::team::set_team_home_waypoint_resolver(
+            leftover_resolve_team_home_waypoint,
+        );
         Self {
             prototypes: HashMap::new(),
             teams: HashMap::new(),
@@ -213,6 +216,11 @@ impl TeamFactory {
                     },
                 );
             }
+
+            // C++ Team.cpp:669-679 — TheKey_teamHome walks TheTerrainLogic
+            // waypoints; last name match sets m_homeLocation / m_hasHomeLocation.
+            apply_team_home_from_dict(&mut prototype, dict);
+
 
             if dict.get_type(key_team_max_instances()).is_some() {
                 prototype.set_max_instances(dict.get_int(key_team_max_instances()));
@@ -660,6 +668,68 @@ impl TeamFactory {
 
     /// Notify that team is about to be deleted
     pub fn team_about_to_be_deleted(&mut self, team_id: TeamID) {
+        let team_arc = self.teams.get(&team_id).cloned();
+        let team_name = team_arc
+            .as_ref()
+            .and_then(|arc| arc.read().ok().map(|team| team.get_name().to_string()));
+
+        // C++ TeamFactory::teamAboutToBeDeleted — drop override relationships.
+        for other in self.teams.values() {
+            if let Ok(mut other_guard) = other.try_write() {
+                let _ = other_guard.remove_override_team_relationship(team_id);
+            }
+        }
+        if let (Some(team_arc), Ok(list)) = (&team_arc, player_list().read()) {
+            if let Ok(team_guard) = team_arc.read() {
+                for player_arc in list.iter() {
+                    if let Ok(mut player) = player_arc.write() {
+                        let _ = player.remove_team_relationship(&team_guard);
+                    }
+                }
+            }
+        }
+
+        // C++ Team::~Team — notify scripts, then every Player::preTeamDestroy.
+        if let Some(name) = &team_name {
+            if let Ok(mut engine) = get_script_engine().lock() {
+                engine.notify_of_team_destruction(name);
+            }
+        }
+        if let Some(team_arc) = &team_arc {
+            if let Ok(list) = player_list().read() {
+                for player_arc in list.iter() {
+                    let player_id = player_arc
+                        .read()
+                        .ok()
+                        .map(|player| player.get_player_index() as u32);
+                    let Some(player_id) = player_id else {
+                        continue;
+                    };
+                    let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+                        manager.with_ai_player_mut(player_id, |ai| match ai {
+                            crate::ai::integration::IntegratedAiPlayer::Standard(player) => {
+                                player.ai_pre_team_destroy(team_arc);
+                            }
+                            crate::ai::integration::IntegratedAiPlayer::Skirmish(player) => {
+                                player.ai_pre_team_destroy(team_arc);
+                            }
+                        })
+                    });
+                }
+            }
+
+            let members = team_arc
+                .read()
+                .ok()
+                .map(|team| team.get_members().to_vec())
+                .unwrap_or_default();
+            for object_id in members {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                    let _ = object.set_team(None);
+                });
+            }
+        }
+
         self.teams.remove(&team_id);
     }
 
@@ -671,6 +741,43 @@ impl TeamFactory {
         std::mem::take(&mut self.pending_generic_script_evals)
     }
 }
+
+/// C++ TeamTemplateInfo (Team.cpp:669-679): walk `getFirstWaypoint` / `getNext`.
+/// Last matching name wins. Empty names are still searched if the key exists.
+pub(super) fn resolve_team_home_waypoint_location(name: &str) -> Option<Coord3D> {
+    let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+        return None;
+    };
+    let mut current = terrain.get_first_waypoint();
+    let mut found = None;
+    while let Some(way) = current {
+        if way.get_name().as_str() == name {
+            found = Some(*way.get_location());
+        }
+        current = way.get_next();
+    }
+    found
+}
+
+fn leftover_resolve_team_home_waypoint(
+    name: &str,
+) -> Option<game_engine::common::system::geometry::Coord3D> {
+    resolve_team_home_waypoint_location(name).map(|loc| {
+        game_engine::common::system::geometry::Coord3D::new(loc.x, loc.y, loc.z)
+    })
+}
+
+
+fn apply_team_home_from_dict(prototype: &mut TeamPrototype, dict: &Dict) {
+    if dict.get_type(key_team_home()).is_none() {
+        return;
+    }
+    let waypoint = dict.get_ascii_string(key_team_home());
+    if let Some(loc) = resolve_team_home_waypoint_location(&waypoint) {
+        prototype.set_home_location(loc);
+    }
+}
+
 
 fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
     if script_names.is_empty() {

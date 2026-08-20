@@ -1158,6 +1158,8 @@ pub struct CnCGameEngine {
     pub(crate) selection_start_screen: Option<(f32, f32)>,
     pub(crate) last_click_time: Option<Instant>,
     pub(crate) last_click_position: Option<Vec3>,
+    pub(crate) last_right_click_time: Option<Instant>,
+    pub(crate) last_right_click_position: Option<Vec3>,
     pub(crate) left_click_release_behavior: LeftMouseReleaseBehavior,
     /// Physical provenance for a classic-layout LMB context gesture.  Both
     /// edges must be physical before the existing gameplay evidence path may

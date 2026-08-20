@@ -17,6 +17,8 @@ pub struct HostDamageEvent {
     pub amount: f32,
     pub source: Option<ObjectId>,
     pub destroyed: bool,
+    /// C++ `DamageType` ordinal (`DAMAGE_EXPLOSION` = 0).
+    pub damage_type_ordinal: u32,
 }
 
 thread_local! {
@@ -27,7 +29,19 @@ thread_local! {
 }
 
 /// Record a damage event (called from Object::take_damage_from).
+/// Untyped callers default to C++ `DAMAGE_EXPLOSION` (ordinal 0).
 pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed: bool) {
+    record_typed(target, amount, source, destroyed, 0);
+}
+
+/// Record a damage event with the C++ `DamageType` ordinal.
+pub fn record_typed(
+    target: ObjectId,
+    amount: f32,
+    source: Option<ObjectId>,
+    destroyed: bool,
+    damage_type_ordinal: u32,
+) {
     if amount <= 0.0 && !destroyed {
         return;
     }
@@ -41,6 +55,7 @@ pub fn record(target: ObjectId, amount: f32, source: Option<ObjectId>, destroyed
             amount,
             source,
             destroyed,
+            damage_type_ordinal,
         });
     });
 }

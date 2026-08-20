@@ -104,6 +104,18 @@ pub struct PresentationTargetHint {
     /// C++ `Object::isSalvageCrate` frozen for MSG_DO_SALVAGE.
     #[serde(default)]
     pub is_salvage_crate: bool,
+    /// C++ `KINDOF_VEHICLE` frozen for hijack / convert-to-carbomb.
+    #[serde(default)]
+    pub is_vehicle: bool,
+    /// C++ `KINDOF_AIRCRAFT` — hijack/carbomb reject airborne vehicles.
+    #[serde(default)]
+    pub is_aircraft: bool,
+    /// C++ `KINDOF_DRONE` — `canHijackVehicle` rejects drones.
+    #[serde(default)]
+    pub is_drone: bool,
+    /// C++ `OBJECT_STATUS_IS_CARBOMB` — convert-to-carbomb rejects already-bombs.
+    #[serde(default)]
+    pub is_carbomb: bool,
 }
 
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.

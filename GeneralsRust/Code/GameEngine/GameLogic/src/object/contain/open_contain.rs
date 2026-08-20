@@ -1343,7 +1343,11 @@ impl OpenContain {
             let Some(contain) = parent_guard.get_contain() else {
                 return true;
             };
-            contain.is_passenger_allowed_to_fire(None)
+            if let Ok(contain_guard) = contain.lock() {
+                contain_guard.is_passenger_allowed_to_fire(None)
+            } else {
+                true
+            }
         })
         .unwrap_or(true)
     }

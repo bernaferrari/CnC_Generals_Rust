@@ -43,6 +43,45 @@ pub struct SupplyWarehouseDockUpdate {
     is_crippled: bool,
 }
 
+/// C++ `PATHFIND_CELL_SIZE_F` (`AIPathfind.h:416`).
+pub const PATHFIND_CELL_SIZE_F: Real = 10.0;
+/// C++ twitch range: `0.4 * PATHFIND_CELL_SIZE_F`.
+pub const WAREHOUSE_TWITCH_RANGE: Real = 0.4 * PATHFIND_CELL_SIZE_F;
+
+/// Geometry snapshot for C++ `SupplyWarehouseDockUpdate::action` close-enough.
+#[derive(Debug, Clone, Copy)]
+pub struct WarehouseDockProximity {
+    pub docker_pos: Coord3D,
+    pub warehouse_pos: Coord3D,
+    pub docker_bounding_circle_radius: Real,
+    pub twitch_x: Real,
+    pub twitch_y: Real,
+}
+
+/// C++ `setDockCrippled` side effect after the latch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DockCrippleSideEffect {
+    None,
+    /// Docker is inside and must `kill()` unless airborne.
+    KillGroundDocker(ObjectID),
+    /// Docker is between Approach and Enter: `aiIdle` + `setForceWantingState`.
+    RetryDocker(ObjectID),
+}
+
+/// C++ close-enough: 2D center distance² vs `(boundingCircle * 2)²`.
+pub fn warehouse_close_enough_sqr(docker_bounding_circle_radius: Real) -> Real {
+    let diameter = docker_bounding_circle_radius * 2.0;
+    diameter * diameter
+}
+
+/// Horizontal (C++ XY / host XZ) distance squared.
+pub fn warehouse_horizontal_dist_sqr(ax: Real, ay: Real, bx: Real, by: Real) -> Real {
+    let dx = ax - bx;
+    let dy = ay - by;
+    dx * dx + dy * dy
+}
+
+
 impl SupplyWarehouseDockUpdate {
     pub fn new(data: SupplyWarehouseDockUpdateData) -> Self {
         let boxes_stored = data.starting_boxes;
@@ -57,18 +96,38 @@ impl SupplyWarehouseDockUpdate {
 
     /// Perform dock action - give boxes to truck
     /// Matches C++ SupplyWarehouseDockUpdate::action()
-    pub fn action(&mut self, _docker_id: ObjectID) -> Result<bool, String> {
+    pub fn action(
+        &mut self,
+        _docker_id: ObjectID,
+        proximity: Option<&WarehouseDockProximity>,
+    ) -> Result<(bool, Option<Coord3D>), String> {
         if self.boxes_stored == 0 {
-            return Ok(false);
+            return Ok((false, None));
+        }
+
+        if let Some(prox) = proximity {
+            let close_enough_sqr = warehouse_close_enough_sqr(prox.docker_bounding_circle_radius);
+            let cur_dist_sqr = warehouse_horizontal_dist_sqr(
+                prox.docker_pos.x,
+                prox.docker_pos.y,
+                prox.warehouse_pos.x,
+                prox.warehouse_pos.y,
+            );
+            if cur_dist_sqr > close_enough_sqr {
+                let twitched = Coord3D {
+                    x: prox.docker_pos.x + prox.twitch_x,
+                    y: prox.docker_pos.y + prox.twitch_y,
+                    z: prox.docker_pos.z,
+                };
+                return Ok((false, Some(twitched)));
+            }
         }
 
         // Decrease boxes (docker will see we're shy by one from within gainOneBox)
         self.boxes_stored -= 1;
-
-        // Return true if truck successfully gained the box
-        // The truck will call gainOneBox() to actually take it
-        Ok(true)
+        Ok((true, None))
     }
+
 
     /// Give one box to a truck
     /// Called by truck AI after action() succeeds
@@ -91,14 +150,22 @@ impl SupplyWarehouseDockUpdate {
 
     /// Set dock crippled state
     /// Matches C++ SupplyWarehouseDockUpdate::setDockCrippled()
-    pub fn set_dock_crippled(&mut self, crippled: bool) {
+    pub fn set_dock_crippled(&mut self, crippled: bool) -> DockCrippleSideEffect {
+        let effect = if crippled {
+            match self.active_docker {
+                Some(id) if self.docker_inside => DockCrippleSideEffect::KillGroundDocker(id),
+                Some(id) => DockCrippleSideEffect::RetryDocker(id),
+                None => DockCrippleSideEffect::None,
+            }
+        } else {
+            DockCrippleSideEffect::None
+        };
         self.is_crippled = crippled;
+        effect
+    }
 
-        if crippled && self.active_docker.is_some() {
-            // If docker is inside, kill it (handled by game logic)
-            // If between approach and enter, tell it to stop and retry later
-            // This is handled by the AI system
-        }
+    pub fn is_crippled(&self) -> bool {
+        self.is_crippled
     }
 
     pub fn get_boxes_stored(&self) -> i32 {

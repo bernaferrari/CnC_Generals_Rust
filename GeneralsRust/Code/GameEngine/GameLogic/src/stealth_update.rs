@@ -63,9 +63,10 @@ fn play_object_stealth_sound(object_id: ObjectID, stealth_on: bool) {
 }
 
 fn play_per_unit_sound(object_id: ObjectID, sound_name: &str) {
-    let Some(mut event) = OBJECT_REGISTRY.with_object(object_id, |obj| {
-        obj.get_template().get_per_unit_sound(sound_name)
-    }) else {
+    let Some(mut event) = OBJECT_REGISTRY
+        .with_object(object_id, |obj| obj.get_template().get_per_unit_sound(sound_name))
+        .flatten()
+    else {
         return;
     };
     event.set_object_id(object_id);

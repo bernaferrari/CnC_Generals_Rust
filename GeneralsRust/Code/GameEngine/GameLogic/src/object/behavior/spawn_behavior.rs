@@ -70,6 +70,95 @@ const SPAWN_DELAY_MIN_FRAMES: Int = 16; // Minimum delay between successive exit
 const NONE_SPAWNED_YET: UnsignedInt = 0xFFFFFFFF;
 const BIG_DISTANCE: Real = 99999999.9;
 
+/// C++ SpawnBehavior::update first-pass burst queue (SpawnBehavior.cpp:187-208).
+/// Computes `birthFrame += listIndex * SPAWN_DELAY_MIN_FRAMES` for runtime-produced
+/// InitialBurst slots so the hive exits stagger instead of dumping on one frame.
+fn initial_burst_replacement_times(
+    now: UnsignedInt,
+    spawn_number: Int,
+    initial_burst: Int,
+    runtime_produced: bool,
+) -> Vec<Int> {
+    let mut times = Vec::with_capacity(spawn_number.max(0) as usize);
+    let mut burst_init_count = initial_burst;
+    for list_index in 0..spawn_number {
+        if initial_burst > 0 {
+            let mut birth_frame = now;
+            if runtime_produced && burst_init_count > 0 {
+                burst_init_count -= 1;
+                birth_frame = birth_frame
+                    .saturating_add((list_index * SPAWN_DELAY_MIN_FRAMES) as UnsignedInt);
+            }
+            times.push(birth_frame as Int);
+        } else {
+            times.push(list_index);
+        }
+    }
+    times
+}
+
+/// C++ SpawnBehavior::createSpawn (SpawnBehavior.cpp:600):
+/// `if (md->m_canReclaimOrphans && md->m_isOneShotData == FALSE)`.
+fn should_attempt_orphan_reclaim(can_reclaim_orphans: bool, is_one_shot: bool) -> bool {
+    can_reclaim_orphans && !is_one_shot
+}
+
+/// C++ reclaimOrphanSpawn comment: skip authored list redundancy (consecutive dups).
+/// Written C++ `if (prevName.compare(*tempName)) continue` is inverted strcmp
+/// (skips *different* names). Live path follows the comment: skip same-as-prev.
+fn orphan_template_is_redundant(prev_name: &str, template_name: &str) -> bool {
+    prev_name == template_name
+}
+
+/// C++ computeAggregateStates (SpawnBehavior.cpp:982-985):
+/// `setInitialHealth(100.0f * actualHealth)` — `Int` cast truncates toward zero,
+/// no 0..100 clamp. Clamping hid over-population health and changed hive HP.
+fn aggregate_initial_health_percent(
+    acr_health: Real,
+    avg_health_max_sum: Real,
+    spawn_count: Int,
+    spawn_count_max: Int,
+) -> i32 {
+    if spawn_count <= 0 {
+        return 0;
+    }
+    let avg_health_max = avg_health_max_sum / spawn_count as Real;
+    let perfect_total_health = avg_health_max * spawn_count_max as Real;
+    if perfect_total_health == 0.0 {
+        return 0;
+    }
+    let actual_health = acr_health / perfect_total_health;
+    (100.0 * actual_health) as i32
+}
+
+/// C++ SpawnBehavior::maySpawnSelfTaskAI (SpawnBehavior.cpp:252-278).
+/// When the parent has AI, last command must be CMD_FROM_AI.
+/// When the parent has no AI (hive/building), still evaluate the ratio so
+/// spawnlings keep self-task AI instead of standing idle (hq-ifx4u).
+fn may_spawn_self_task_ai_decision(
+    spawn_count: UnsignedInt,
+    max_self_taskers_ratio: Real,
+    self_tasking_spawn_count: UnsignedInt,
+    parent_last_command_source: Option<CommandSourceType>,
+) -> bool {
+    if spawn_count == 0 || max_self_taskers_ratio == 0.0 {
+        return false;
+    }
+    if let Some(src) = parent_last_command_source {
+        if src != CMD_FROM_AI {
+            return false;
+        }
+    }
+    let cur = self_tasking_spawn_count as Real / spawn_count as Real;
+    cur < max_self_taskers_ratio
+}
+
+/// C++ SpawnBehavior::shouldTryToSpawn (SpawnBehavior.cpp:809-813):
+/// reconstructing + OneShot latches the module off forever.
+fn hole_rebuild_one_shot_should_latch(reconstructing: bool, is_one_shot: bool) -> bool {
+    reconstructing && is_one_shot
+}
+
 /// Module data for SpawnBehavior
 #[derive(Debug, Clone)]
 pub struct SpawnBehaviorModuleData {
@@ -591,39 +680,36 @@ impl SpawnBehavior {
         Ok(())
     }
 
-    fn should_try_to_spawn(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    fn should_try_to_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let data = Arc::clone(&self.module_data);
 
-        // Not if we are turned off
         if !self.active {
             return Ok(false);
         }
 
-        self.with_object(|obj_guard| {
-            // Check for reconstruction and one-shot spawning
-            if obj_guard
-                .get_status_bits()
-                .test(OBJECT_STATUS_RECONSTRUCTING)
-                && data.is_one_shot_data
-            {
-                // If we are a Hole rebuild, not only should we not, but we should never ask again.
-                return Ok(false);
-            }
+        let (hole_rebuild_one_shot, blocked, neutral) = self.with_object(|obj_guard| {
+            let hole_rebuild_one_shot = hole_rebuild_one_shot_should_latch(
+                obj_guard
+                    .get_status_bits()
+                    .test(OBJECT_STATUS_RECONSTRUCTING),
+                data.is_one_shot_data,
+            );
+            let blocked = obj_guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
+                || obj_guard.test_status(OBJECT_STATUS_SOLD);
+            let neutral = obj_guard.is_neutral_controlled();
+            (hole_rebuild_one_shot, blocked, neutral)
+        })?;
 
-            // Not if we are under construction or being sold
-            if obj_guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
-                || obj_guard.test_status(OBJECT_STATUS_SOLD)
-            {
-                return Ok(false);
-            }
-
-            // Not if we are civilian controlled
-            if obj_guard.is_neutral_controlled() {
-                return Ok(false);
-            }
-
-            Ok(true)
-        })?
+        // C++ SpawnBehavior::shouldTryToSpawn (SpawnBehavior.cpp:809-813):
+        // Hole rebuild + OneShot latches off forever via stopSpawning().
+        if hole_rebuild_one_shot {
+            self.stop_spawning();
+            return Ok(false);
+        }
+        if blocked || neutral {
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     fn create_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -655,7 +741,7 @@ impl SpawnBehavior {
         let mut reclaimed_orphan = false;
 
         // Try to reclaim orphaned objects if possible
-        if data.can_reclaim_orphans && !data.is_one_shot_data {
+        if should_attempt_orphan_reclaim(data.can_reclaim_orphans, data.is_one_shot_data) {
             new_spawn = self.reclaim_orphan_spawn()?;
             if new_spawn.is_some() {
                 reclaimed_orphan = true;
@@ -881,12 +967,12 @@ impl SpawnBehavior {
         let mut closest_distance = BIG_DISTANCE;
 
         // Check each template type
-        let mut checked_templates = std::collections::HashSet::new();
+        let mut prev_template_name = String::new();
         for template_name in &data.spawn_template_name_data {
-            if checked_templates.contains(template_name) {
-                continue; // Skip duplicates
+            if orphan_template_is_redundant(&prev_template_name, template_name.as_str()) {
+                continue;
             }
-            checked_templates.insert(template_name.clone());
+            prev_template_name = template_name.as_str().to_string();
 
             if let Some(template) = TheObjectFactory::find_template(template_name) {
                 let player_object_ids = {
@@ -1094,14 +1180,16 @@ impl SpawnBehavior {
 
         // Update aggregate health
         if spawn_count > 0 {
-            avg_health_max /= spawn_count as Real;
-            let perfect_total_health = avg_health_max * spawn_count_max as Real;
-            let actual_health = acr_health / perfect_total_health;
+            let percent = aggregate_initial_health_percent(
+                acr_health,
+                avg_health_max,
+                spawn_count,
+                spawn_count_max,
+            );
 
             self.with_object_mut(|obj_guard| {
                 if let Some(body) = obj_guard.get_body_module() {
                     let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
-                    let percent = (100.0 * actual_health).clamp(0.0, 100.0).round() as i32;
                     body_guard
                         .set_initial_health(percent)
                         .map_err(|e| format!("Failed to set spawn initial health: {e}"))?;
@@ -1154,19 +1242,13 @@ impl UpdateModuleInterface for SpawnBehavior {
                 self.with_object(|obj_guard| obj_guard.get_producer_id() != INVALID_ID)?;
 
             let now = TheGameLogic::get_frame();
-            let mut burst_init_count = self.initial_burst_countdown;
-
-            for list_index in 0..data.spawn_number_data {
-                if data.initial_burst > 0 {
-                    let mut birth_frame = now;
-                    if runtime_produced && burst_init_count > 0 {
-                        burst_init_count -= 1;
-                        birth_frame += (list_index * SPAWN_DELAY_MIN_FRAMES) as UnsignedInt;
-                    }
-                    self.replacement_times.push_back(birth_frame as Int);
-                } else {
-                    self.replacement_times.push_back(list_index);
-                }
+            for birth in initial_burst_replacement_times(
+                now,
+                data.spawn_number_data,
+                data.initial_burst,
+                runtime_produced,
+            ) {
+                self.replacement_times.push_back(birth);
             }
         }
 
@@ -1350,24 +1432,20 @@ impl DamageModuleInterface for SpawnBehavior {
 
 impl SpawnBehaviorInterface for SpawnBehavior {
     fn may_spawn_self_task_ai(&self, max_self_taskers_ratio: Real) -> bool {
-        if self.spawn_count == 0 || max_self_taskers_ratio == 0.0 {
-            return false;
-        }
-
-        // Check if last attack command was from player/script
-        if let Ok(Some(last_command_source)) = self.with_object(|object| {
-            object
-                .get_ai_update_interface()
-                .and_then(|ai| ai.lock().ok().map(|g| g.get_last_command_source()))
-        }) {
-            if last_command_source != CMD_FROM_AI {
-                return false;
-            }
-        }
-
-        let cur_self_taskers_ratio =
-            self.self_tasking_spawn_count as Real / self.spawn_count as Real;
-        cur_self_taskers_ratio < max_self_taskers_ratio
+        let parent_last_command_source = self
+            .with_object(|object| {
+                object
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.lock().ok().map(|g| g.get_last_command_source()))
+            })
+            .ok()
+            .flatten();
+        may_spawn_self_task_ai_decision(
+            self.spawn_count,
+            max_self_taskers_ratio,
+            self.self_tasking_spawn_count,
+            parent_last_command_source,
+        )
     }
 
     fn on_spawn_death(
@@ -1455,7 +1533,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
                 if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                     if let Ok(spawn_guard) = spawn_obj.read() {
                         if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                            ai.ai_attack_object(
+                            // C++ SpawnBehavior::orderSlavesToAttackTarget
+                            // (SpawnBehavior.cpp:314): aiForceAttackObject.
+                            ai.ai_force_attack_object(
                                 target_handle.read().ok().map(|g| g.get_id()).unwrap_or(0),
                                 max_shots_to_fire,
                                 cmd_source,
@@ -1620,6 +1700,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                 let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
+                // C++ SpawnBehavior::orderSlavesDisabledUntil (SpawnBehavior.cpp:362-367):
+                // idle slave AI first, then setDisabledUntil.
+                if let Some(ai) = spawn_guard.get_ai_update_interface() {
+                    ai.ai_idle(CMD_FROM_AI);
+                }
                 spawn_guard.set_disabled_until(disabled_type, frame);
                 drop(spawn_guard);
             }
@@ -1793,59 +1878,9 @@ impl Drop for SpawnBehavior {
 
 impl Snapshotable for SpawnBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 2;
-        xfer.xfer_version(&mut version, 2)
-            .map_err(|err| format!("SpawnBehavior::xfer version failed: {err}"))?;
-
-        xfer_behavior_module_base_versions(xfer)?;
-
-        if version >= 2 {
-            let mut initial_burst_times_inited = self.initial_burst_times_inited;
-            xfer.xfer_bool(&mut initial_burst_times_inited)
-                .map_err(|err| {
-                    format!("SpawnBehavior::xfer initial_burst_times_inited failed: {err}")
-                })?;
-        }
-
-        let mut template_name = self
-            .spawn_template
-            .as_ref()
-            .map(|template| template.get_name().to_string())
-            .unwrap_or_default();
-        xfer.xfer_ascii_string(&mut template_name)
-            .map_err(|err| format!("SpawnBehavior::xfer spawn_template failed: {err}"))?;
-
-        let mut one_shot_countdown = self.one_shot_countdown;
-        xfer.xfer_int(&mut one_shot_countdown)
-            .map_err(|err| format!("SpawnBehavior::xfer one_shot_countdown failed: {err}"))?;
-        let mut frames_to_wait = self.frames_to_wait;
-        xfer.xfer_int(&mut frames_to_wait)
-            .map_err(|err| format!("SpawnBehavior::xfer frames_to_wait failed: {err}"))?;
-        let mut first_batch_count = self.first_batch_count;
-        xfer.xfer_int(&mut first_batch_count)
-            .map_err(|err| format!("SpawnBehavior::xfer first_batch_count failed: {err}"))?;
-
-        let mut replacement_times: Vec<Int> = self.replacement_times.iter().copied().collect();
-        xfer.xfer_stl_int_list(&mut replacement_times)
-            .map_err(|err| format!("SpawnBehavior::xfer replacement_times failed: {err}"))?;
-
-        let mut spawn_ids: Vec<ObjectID> = self.spawn_ids.iter().copied().collect();
-        xfer.xfer_stl_object_id_list(&mut spawn_ids)
-            .map_err(|err| format!("SpawnBehavior::xfer spawn_ids failed: {err}"))?;
-
-        let mut active = self.active;
-        xfer.xfer_bool(&mut active)
-            .map_err(|err| format!("SpawnBehavior::xfer active failed: {err}"))?;
-        let mut aggregate_health = self.aggregate_health;
-        xfer.xfer_bool(&mut aggregate_health)
-            .map_err(|err| format!("SpawnBehavior::xfer aggregate_health failed: {err}"))?;
-        let mut spawn_count = self.spawn_count;
-        xfer.xfer_unsigned_int(&mut spawn_count)
-            .map_err(|err| format!("SpawnBehavior::xfer spawn_count failed: {err}"))?;
-        let mut self_tasking_spawn_count = self.self_tasking_spawn_count;
-        xfer.xfer_unsigned_int(&mut self_tasking_spawn_count)
-            .map_err(|err| format!("SpawnBehavior::xfer self_tasking_spawn_count failed: {err}"))?;
-        Ok(())
+        // C++ SpawnBehavior::crc (SpawnBehavior.cpp:1043-1048):
+        // BehaviorModule::crc only — no spawn-module payload.
+        xfer_behavior_module_base_versions(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -2023,5 +2058,95 @@ mod tests {
     fn parse_duration_frames_accepts_duration_suffixes() {
         assert_eq!(parse_duration_frames(&["1500ms"]).expect("duration"), 45);
         assert_eq!(parse_duration_frames(&["1.5s"]).expect("duration"), 45);
+    }
+
+    // C++ SpawnBehavior::update (SpawnBehavior.cpp:196-204):
+    // runtime-produced InitialBurst slots stagger by SPAWN_DELAY_MIN_FRAMES.
+    #[test]
+    fn burst_replacement_times_stagger_runtime_produced() {
+        let times = initial_burst_replacement_times(100, 4, 3, true);
+        assert_eq!(times, vec![100, 116, 132, 100]);
+    }
+
+    #[test]
+    fn burst_replacement_times_no_stagger_without_producer() {
+        let times = initial_burst_replacement_times(100, 4, 3, false);
+        assert_eq!(times, vec![100, 100, 100, 100]);
+    }
+
+    #[test]
+    fn burst_replacement_times_without_initial_burst_uses_index() {
+        let times = initial_burst_replacement_times(100, 3, 0, true);
+        assert_eq!(times, vec![0, 1, 2]);
+    }
+
+    // C++ SpawnBehavior::createSpawn (SpawnBehavior.cpp:600).
+    #[test]
+    fn orphan_reclaim_only_when_authored_and_not_one_shot() {
+        assert!(should_attempt_orphan_reclaim(true, false));
+        assert!(!should_attempt_orphan_reclaim(false, false));
+        assert!(!should_attempt_orphan_reclaim(true, true));
+        assert!(!should_attempt_orphan_reclaim(false, true));
+    }
+
+    #[test]
+    fn orphan_template_skips_consecutive_redundancy_not_different_names() {
+        assert!(!orphan_template_is_redundant("", "A"));
+        assert!(orphan_template_is_redundant("A", "A"));
+        assert!(!orphan_template_is_redundant("A", "B"));
+    }
+
+    // C++ computeAggregateStates (SpawnBehavior.cpp:985): Int cast, no clamp/round.
+    #[test]
+    fn aggregate_health_percent_truncates_like_cpp() {
+        assert_eq!(aggregate_initial_health_percent(300.0, 300.0, 3, 4), 75);
+        // 73.7 would round to 74; C++ Int(73.7f) == 73.
+        assert_eq!(aggregate_initial_health_percent(73.7, 100.0, 1, 1), 73);
+        // Over-population must not clamp to 100 (5/4 → 125).
+        assert_eq!(aggregate_initial_health_percent(500.0, 500.0, 5, 4), 125);
+        assert_eq!(aggregate_initial_health_percent(0.0, 0.0, 0, 4), 0);
+    }
+
+    // C++ maySpawnSelfTaskAI: parent with no AI still evaluates the ratio.
+    #[test]
+    fn may_spawn_self_task_ai_allows_when_parent_has_no_ai() {
+        assert!(may_spawn_self_task_ai_decision(4, 0.5, 0, None));
+        assert!(!may_spawn_self_task_ai_decision(
+            4,
+            0.5,
+            0,
+            Some(CommandSourceType::FromPlayer)
+        ));
+        assert!(may_spawn_self_task_ai_decision(
+            4,
+            0.5,
+            0,
+            Some(CommandSourceType::FromAi)
+        ));
+        assert!(!may_spawn_self_task_ai_decision(4, 0.5, 3, None));
+        assert!(!may_spawn_self_task_ai_decision(0, 0.5, 0, None));
+    }
+
+    // C++ shouldTryToSpawn hole-rebuild latch (SpawnBehavior.cpp:809-813).
+    #[test]
+    fn hole_rebuild_one_shot_latches() {
+        assert!(hole_rebuild_one_shot_should_latch(true, true));
+        assert!(!hole_rebuild_one_shot_should_latch(true, false));
+        assert!(!hole_rebuild_one_shot_should_latch(false, true));
+    }
+
+    // C++ SpawnBehavior::crc is BehaviorModule::crc only (SpawnBehavior.cpp:1043-1048).
+    #[test]
+    fn crc_does_not_write_spawn_payload() {
+        let src = include_str!("spawn_behavior.rs");
+        let crc_fn = src
+            .split("impl Snapshotable for SpawnBehavior")
+            .nth(1)
+            .and_then(|rest| rest.split("fn xfer(").next())
+            .expect("crc impl");
+        assert!(crc_fn.contains("xfer_behavior_module_base_versions"));
+        assert!(!crc_fn.contains("xfer_ascii_string"));
+        assert!(!crc_fn.contains("xfer_stl_int_list"));
+        assert!(!crc_fn.contains("one_shot_countdown"));
     }
 }

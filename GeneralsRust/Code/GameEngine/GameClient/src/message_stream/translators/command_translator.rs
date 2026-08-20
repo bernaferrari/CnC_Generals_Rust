@@ -440,7 +440,23 @@ impl CommandTranslator {
             z: 0.0,
         });
 
+        Self::record_double_click_attack_move_order_given();
+        TheInGameUI::trigger_double_click_attack_move_guard_hint();
         Some(GameMessageType::DoGuardPosition(world, 0))
+    }
+
+    fn record_double_click_attack_move_order_given() {
+        let Ok(list) = player_list::ThePlayerList().read() else {
+            return;
+        };
+        let Some(player) = list.get_local_player() else {
+            return;
+        };
+        if let Ok(mut player) = player.write() {
+            player
+                .get_academy_stats_mut()
+                .record_double_click_attack_move_order_given();
+        }
     }
 
     pub(super) fn evaluate_context_action(

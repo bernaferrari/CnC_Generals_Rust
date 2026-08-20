@@ -709,7 +709,7 @@ impl GameLogic {
     }
 
     /// C++ BuildAssistant::moveObjectsForConstruction — scatter allied mobiles.
-    pub(in super::super) fn move_objects_for_construction(
+    pub(crate) fn move_objects_for_construction(
         &mut self,
         location: glam::Vec3,
         place_r: f32,
@@ -1179,12 +1179,9 @@ impl GameLogic {
                     // from a name and accidentally overbook a parking slot.
                     return u32::MAX;
                 };
-                if template.is_kind_of(KindOf::Aircraft) {
-                    // C++ exempts PRODUCED_AT_HELIPAD here, but Main's compact
-                    // host KindOf bank does not retain that source bit.  Do
-                    // not guess from an aircraft name and over-admit a queue:
-                    // conservatively reserve a real parking space until that
-                    // template-specific special case is represented.
+                if template.is_kind_of(KindOf::Aircraft)
+                    && !Self::template_is_produced_at_helipad(template)
+                {
                     queued = queued.saturating_add(1);
                 }
             }
@@ -1254,7 +1251,10 @@ impl GameLogic {
         // allowed: absent authored ParkingPlace data fails closed.
         let parking_full = {
             let is_aircraft = template.is_kind_of(KindOf::Aircraft);
-            if producer.is_kind_of(KindOf::FSAirfield) && is_aircraft {
+            if producer.is_kind_of(KindOf::FSAirfield)
+                && is_aircraft
+                && !Self::template_is_produced_at_helipad(template)
+            {
                 self.airfield_parking_capacity(producer_id)
                     .map_or(true, |capacity| {
                         let capacity = u32::try_from(capacity).unwrap_or(u32::MAX);

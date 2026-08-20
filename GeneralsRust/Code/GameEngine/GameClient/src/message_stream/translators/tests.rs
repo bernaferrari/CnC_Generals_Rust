@@ -1189,3 +1189,87 @@ fn test_double_click_guard_command_gated_by_mouse_mode() {
         data.double_click_attack_move = previous_double_click_attack_move;
     }
 }
+
+#[test]
+fn force_attack_object_uses_new_target_forced_like_cpp() {
+    // C++ CommandXlat.cpp:163-178 canObjectForceAttack uses ATTACK_NEW_TARGET_FORCED.
+    let src = include_str!("attack.rs");
+    let start = src
+        .find("fn force_attack_object_result_for_attacker")
+        .expect("force_attack_object_result_for_attacker");
+    let body = &src[start..start + 1600];
+    assert!(
+        body.contains("AbleToAttackType::NewTargetForced"),
+        "object force-attack must use NewTargetForced"
+    );
+    assert!(
+        body.contains("KindOf::SpawnsAreTheWeapons"),
+        "object force-attack must re-test spawn slaves / riders"
+    );
+}
+
+#[test]
+fn evaluate_context_action_checks_hijack_before_enter_and_attack() {
+    // C++ CommandXlat.cpp:1856-1962 — hijack/carbomb/sabotage before enter/attack.
+    let src = include_str!("command_translator.rs");
+    let start = src
+        .find("fn evaluate_context_action")
+        .expect("evaluate_context_action");
+    let body = &src[start..start + 8000];
+    let hijack = body
+        .find("selection_can_hijack_target")
+        .expect("hijack");
+    let carbomb = body
+        .find("selection_can_convert_to_carbomb_target")
+        .expect("carbomb");
+    let sabotage = body
+        .find("selection_can_sabotage_target")
+        .expect("sabotage");
+    let enter = body.find("selection_can_enter_target").expect("enter");
+    let attack = body.find("selection_attack_result").expect("attack");
+    assert!(
+        hijack < carbomb && carbomb < sabotage && sabotage < enter && enter < attack,
+        "evaluateContextCommand order must be hijack, carbomb, sabotage, enter, attack"
+    );
+}
+
+#[test]
+fn select_next_worker_is_dozer_only_and_looks_at() {
+    // C++ CommandXlat.cpp:2573-2798 MSG_META_SELECT_NEXT/PREV_WORKER.
+    let _guard = test_state_lock();
+    let team = setup_local_player_team();
+    let dozer = register_test_object(
+        78_080,
+        vec![KindOf::Selectable, KindOf::Dozer],
+        team.clone(),
+    );
+    let _harvester = register_test_object(
+        78_081,
+        vec![KindOf::Selectable, KindOf::Harvester],
+        team,
+    );
+    set_test_object_position(&dozer, 40.0, 10.0, 0.0);
+
+    let messages = handle_select_next_or_prev_worker(true);
+    assert_eq!(messages.len(), 1);
+    match &messages[0] {
+        GameMessageType::CreateSelectedGroup(true, ids) => {
+            assert_eq!(ids.as_slice(), &[78_080]);
+        }
+        other => panic!("expected CreateSelectedGroup dozer, got {other:?}"),
+    }
+
+    OBJECT_REGISTRY.unregister_object(78_080);
+    OBJECT_REGISTRY.unregister_object(78_081);
+}
+
+#[test]
+fn command_translate_wires_select_next_prev_worker() {
+    let src = include_str!("command_translate.rs");
+    assert!(
+        src.contains("GameMessageType::MetaSelectNextWorker")
+            && src.contains("handle_select_next_or_prev_worker(true)")
+            && src.contains("handle_select_next_or_prev_worker(false)"),
+        "leftover CommandXlat must handle SELECT_NEXT/PREV_WORKER"
+    );
+}

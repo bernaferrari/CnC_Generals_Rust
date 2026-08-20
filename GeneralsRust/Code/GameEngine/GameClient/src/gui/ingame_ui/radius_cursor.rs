@@ -85,7 +85,7 @@ impl InGameUI {
         self.radius_cursor.active = !self.cur_radius_decal.is_empty();
         self.radius_cursor.position = position;
         self.radius_cursor.radius = resolved_radius;
-        self.guard_hint_stashed_position = position;
+        // C++ setRadiusCursor does not write m_duringDoubleClickAttackMoveGuardHintStashedPosition.
         self.handle_radius_cursor();
     }
 
@@ -123,16 +123,27 @@ impl InGameUI {
         let pos = Self::radius_cursor_world_from_mouse(screen)
             .unwrap_or(self.radius_cursor.position);
 
+        let live_timer = TheInGameUI::double_click_attack_move_guard_timer();
+        let (guard_timer, stash) = if self.double_click_attack_move_guard_timer > 0 {
+            (
+                self.double_click_attack_move_guard_timer,
+                self.guard_hint_stashed_position,
+            )
+        } else {
+            let (x, y, z) = TheInGameUI::guard_hint_stashed_position();
+            (live_timer, Coord3D::new(x, y, z))
+        };
         let double_click_guard = get_global_data()
             .map(|data| data.read().double_click_attack_move)
             .unwrap_or(false)
-            && self.double_click_attack_move_guard_timer > 0;
+            && guard_timer > 0;
 
         if double_click_guard {
             self.cur_radius_decal
-                .set_opacity(self.double_click_attack_move_guard_timer as f32 * 0.1);
+                .set_opacity(guard_timer as f32 * 0.1);
             self.cur_radius_decal
-                .set_position(&Self::radius_decal_pos(self.guard_hint_stashed_position));
+                .set_position(&Self::radius_decal_pos(stash));
+
         } else {
             self.cur_radius_decal
                 .set_position(&Self::radius_decal_pos(pos));

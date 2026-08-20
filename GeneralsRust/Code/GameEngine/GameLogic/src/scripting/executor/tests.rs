@@ -1422,6 +1422,8 @@ fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
 
 #[test]
 fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
+    // C++ ScriptEngine.cpp:4414-4416 template [INT, COMPARISON, SIDE]
+    // ScriptConditions.cpp:952-966 compares credits param to countMoney().
     player_list().write().unwrap().clear();
     let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
     {
@@ -1433,16 +1435,16 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
 
     let mut condition = Condition::new(ConditionType::PlayerHasCredits);
     condition
-        .add_parameter(Parameter::with_string(
-            ParameterType::Side,
-            "CreditsExecutorPlayer".to_string(),
-        ))
+        .add_parameter(Parameter::with_int(ParameterType::Int, 500))
         .unwrap();
     condition
         .add_parameter(Parameter::with_int(ParameterType::Comparison, 0))
         .unwrap();
     condition
-        .add_parameter(Parameter::with_int(ParameterType::Int, 500))
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "CreditsExecutorPlayer".to_string(),
+        ))
         .unwrap();
 
     let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
@@ -1452,7 +1454,105 @@ fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
         ScriptConditionResult::True,
         "C++ evaluates threshold < player's credits, not player's credits < threshold"
     );
+
+    let mut missing = Condition::new(ConditionType::PlayerHasCredits);
+    missing
+        .add_parameter(Parameter::with_int(ParameterType::Int, 0))
+        .unwrap();
+    missing
+        .add_parameter(Parameter::with_int(ParameterType::Comparison, 2))
+        .unwrap();
+    missing
+        .add_parameter(Parameter::with_string(
+            ParameterType::Side,
+            "NoSuchCreditsExecutorPlayer".to_string(),
+        ))
+        .unwrap();
+    assert_eq!(
+        evaluator.evaluate_condition(&mut missing).unwrap(),
+        ScriptConditionResult::False,
+        "C++ evaluatePlayerHasCredits returns false when playerFromParam fails"
+    );
 }
+
+#[test]
+fn named_destroyed_false_if_name_never_existed_like_cxx() {
+    // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+    crate::scripting::clear_host_script_query_snapshot();
+
+    let mut condition = Condition::new(ConditionType::NamedDestroyed);
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "NeverSpawnedHero".into(),
+        ))
+        .unwrap();
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut condition).unwrap(),
+        ScriptConditionResult::False,
+        "C++ evaluateNamedUnitDestroyed returns false when the name never existed"
+    );
+}
+
+#[test]
+fn named_destroyed_and_dying_use_effectively_dead_while_object_exists_like_cxx() {
+    // C++ ScriptConditions.cpp:274-318 — existing unit uses isEffectivelyDead();
+    // NAMED_DYING is false once the object is gone.
+    let _test_lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    get_named_object_tracker().clear().unwrap();
+
+    const ID: u32 = 0x5C01_D571;
+    let obj = Arc::new(RwLock::new(crate::object::Object::new_test(ID, 100.0)));
+    obj.write().unwrap().set_effectively_dead(true);
+    crate::object::registry::OBJECT_REGISTRY.register_object(ID, &obj);
+    get_named_object_tracker()
+        .register_named_object("DyingHero".to_string(), ID)
+        .unwrap();
+
+    let mut destroyed = Condition::new(ConditionType::NamedDestroyed);
+    destroyed
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "DyingHero".into(),
+        ))
+        .unwrap();
+    let mut dying = Condition::new(ConditionType::NamedDying);
+    dying
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "DyingHero".into(),
+        ))
+        .unwrap();
+
+    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        evaluator.evaluate_condition(&mut destroyed).unwrap(),
+        ScriptConditionResult::True,
+        "C++ evaluateNamedUnitDestroyed uses isEffectivelyDead while the object exists"
+    );
+    assert_eq!(
+        evaluator.evaluate_condition(&mut dying).unwrap(),
+        ScriptConditionResult::True,
+        "C++ evaluateNamedUnitDying is isEffectivelyDead while the object exists"
+    );
+
+    crate::object::registry::OBJECT_REGISTRY.unregister_object(ID);
+    drop(obj);
+    get_named_object_tracker().unregister_object(ID).unwrap();
+
+    assert_eq!(
+        evaluator.evaluate_condition(&mut dying).unwrap(),
+        ScriptConditionResult::False,
+        "C++ evaluateNamedUnitDying is false once the object is gone"
+    );
+    get_named_object_tracker().clear().unwrap();
+}
+
 
 #[test]
 fn active_script_counter_and_victory_reenter_without_relocking_the_global_engine() {

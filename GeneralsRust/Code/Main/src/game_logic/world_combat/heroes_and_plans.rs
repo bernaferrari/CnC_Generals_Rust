@@ -566,10 +566,11 @@ impl GameLogic {
         use crate::game_logic::host_strategy_center::{
             battle_plan_paralyze_until_frame, is_dozer_template_name, is_drone_template_name,
             is_legal_battle_plan_member, is_strategy_center_template,
+            apply_strategy_center_search_and_destroy_sight,
+            remove_strategy_center_search_and_destroy_sight,
             strategy_center_stealth_detection_range_when_enabled,
             strategy_center_stealth_detector_enabled_for_plan, HostBattlePlan,
             STRATEGY_CENTER_HOLD_THE_LINE_MAX_HEALTH_SCALAR,
-            STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR,
         };
 
         let frame = self.frame;
@@ -632,7 +633,13 @@ impl GameLogic {
                         center.record_host_detector();
                         center.next_detection_scan_frame = 0;
                         disabled_stealth_detector = true;
-                        let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
+                        // C++ BattlePlanUpdate.cpp:745-749 divide vision/shroud by scalar.
+                        let (vision, shroud) = remove_strategy_center_search_and_destroy_sight(
+                            center.vision_range,
+                            center.shroud_clearing_range,
+                        );
+                        center.vision_range = vision;
+                        center.shroud_clearing_range = shroud;
                     }
                     HostBattlePlan::Bombardment => {
                         let _ = center.replace_weapon_set_slot(0, None);
@@ -811,7 +818,13 @@ impl GameLogic {
                                 center.next_detection_scan_frame = 0;
                                 enabled_stealth_detector = true;
                             }
-                            let _ = STRATEGY_CENTER_SEARCH_AND_DESTROY_SIGHT_SCALAR;
+                            // C++ BattlePlanUpdate.cpp:804-810 multiply vision/shroud by 2.0.
+                            let (vision, shroud) = apply_strategy_center_search_and_destroy_sight(
+                                center.vision_range,
+                                center.shroud_clearing_range,
+                            );
+                            center.vision_range = vision;
+                            center.shroud_clearing_range = shroud;
                             building_bonus = true;
                         }
                         HostBattlePlan::Bombardment => {
@@ -978,7 +991,7 @@ impl GameLogic {
     /// Residual slice:
     /// - Bombardment: DAMAGE 120% + StrategyCenterGun after ACTIVE
     /// - HoldTheLine: armor 0.9 + center max-health ×2 after ACTIVE
-    /// - SearchAndDestroy: RANGE 120% + StealthDetector 500 after ACTIVE
+    /// - SearchAndDestroy: RANGE 120% + building vision/shroud ×2 + StealthDetector 500 after ACTIVE
     /// - BattlePlanChangeParalyzeTime: 150 frames on PACKING (NONE transition)
     /// - AnimationTime **7000**ms → **210** frames pack/unpack
     /// - Bombardment non-natural turret → recenter (angle-based or **30** frame coast)

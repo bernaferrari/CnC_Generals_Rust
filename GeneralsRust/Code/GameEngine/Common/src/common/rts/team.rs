@@ -14,6 +14,50 @@ use crate::common::system::xfer::{Xfer, XferMode, XferVersion};
 // Import Coord3D from geometry
 use crate::common::system::geometry::Coord3D;
 
+use crate::common::name_key_generator::NameKeyGenerator;
+use crate::common::well_known_keys::{
+    key_team_aggressiveness, key_team_all_clear_script, key_team_attack_common_target,
+    key_team_auto_reinforce, key_team_avoid_threats, key_team_destroyed_threshold,
+    key_team_enemy_sighted_script, key_team_executes_actions_on_create,
+    key_team_generic_script_hook, key_team_home, key_team_initial_idle_frames,
+    key_team_is_ai_recruitable, key_team_is_base_defense, key_team_is_perimeter_defense,
+    key_team_max_instances, key_team_on_create_script, key_team_on_destroyed_script,
+    key_team_on_idle_script, key_team_on_unit_destroyed_script, key_team_production_condition,
+    key_team_production_priority, key_team_production_priority_failure_decrease,
+    key_team_production_priority_success_increase, key_team_reinforcement_origin,
+    key_team_starts_full, key_team_transport, key_team_transports_exit, key_team_transports_return,
+    key_team_unit_max_count1, key_team_unit_max_count2, key_team_unit_max_count3,
+    key_team_unit_max_count4, key_team_unit_max_count5, key_team_unit_max_count6,
+    key_team_unit_max_count7, key_team_unit_min_count1, key_team_unit_min_count2,
+    key_team_unit_min_count3, key_team_unit_min_count4, key_team_unit_min_count5,
+    key_team_unit_min_count6, key_team_unit_min_count7, key_team_unit_type1, key_team_unit_type2,
+    key_team_unit_type3, key_team_unit_type4, key_team_unit_type5, key_team_unit_type6,
+    key_team_unit_type7,
+};
+
+static TEAM_HOME_WAYPOINT_RESOLVER: LazyLock<Mutex<Option<fn(&str) -> Option<Coord3D>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// GameLogic registers terrain waypoint lookup so leftover `from_dict` can resolve `teamHome`.
+pub fn set_team_home_waypoint_resolver(resolver: fn(&str) -> Option<Coord3D>) {
+    if let Ok(mut guard) = TEAM_HOME_WAYPOINT_RESOLVER.lock() {
+        *guard = Some(resolver);
+    }
+}
+
+pub fn clear_team_home_waypoint_resolver() {
+    if let Ok(mut guard) = TEAM_HOME_WAYPOINT_RESOLVER.lock() {
+        *guard = None;
+    }
+}
+
+fn resolve_team_home_waypoint(name: &str) -> Option<Coord3D> {
+    TEAM_HOME_WAYPOINT_RESOLVER
+        .lock()
+        .ok()
+        .and_then(|guard| guard.and_then(|resolver| resolver(name)))
+}
+
 /// Invalid object ID constant (corresponds to C++ INVALID_ID)
 pub const INVALID_OBJECT_ID: u32 = 0;
 
@@ -267,11 +311,178 @@ impl TeamTemplateInfo {
     /// Create a TeamTemplateInfo from a Dict (used when loading from map/sides)
     ///
     /// Corresponds to C++ TeamTemplateInfo::TeamTemplateInfo(Dict *d)
-    pub fn from_dict(_dict: &crate::common::dict::Dict) -> Self {
-        // In a full implementation, this would parse all fields from the dict
-        // using the well-known keys (TheKey_teamUnitMinCount1, etc.)
-        // For now, return default values
-        Self::default()
+    pub fn from_dict(dict: &crate::common::dict::Dict) -> Self {
+        let mut info = Self::default();
+
+        let unit_type_keys = [
+            key_team_unit_type1(),
+            key_team_unit_type2(),
+            key_team_unit_type3(),
+            key_team_unit_type4(),
+            key_team_unit_type5(),
+            key_team_unit_type6(),
+            key_team_unit_type7(),
+        ];
+        let unit_min_keys = [
+            key_team_unit_min_count1(),
+            key_team_unit_min_count2(),
+            key_team_unit_min_count3(),
+            key_team_unit_min_count4(),
+            key_team_unit_min_count5(),
+            key_team_unit_min_count6(),
+            key_team_unit_min_count7(),
+        ];
+        let unit_max_keys = [
+            key_team_unit_max_count1(),
+            key_team_unit_max_count2(),
+            key_team_unit_max_count3(),
+            key_team_unit_max_count4(),
+            key_team_unit_max_count5(),
+            key_team_unit_max_count6(),
+            key_team_unit_max_count7(),
+        ];
+
+        // C++ packs valid unit slots densely into m_unitsInfo[m_numUnitsInfo++].
+        for idx in 0..MAX_UNIT_TYPES {
+            if dict.get_type(unit_type_keys[idx]).is_none()
+                || dict.get_type(unit_max_keys[idx]).is_none()
+            {
+                continue;
+            }
+            let max_units = dict.get_int(unit_max_keys[idx]);
+            if max_units <= 0 {
+                continue;
+            }
+            let template_name = dict.get_ascii_string(unit_type_keys[idx]);
+            if template_name.is_empty() {
+                continue;
+            }
+            let slot = info.num_units_info as usize;
+            if slot >= MAX_UNIT_TYPES {
+                break;
+            }
+            info.units_info[slot] = TCreateUnitsInfo::with_values(
+                dict.get_int(unit_min_keys[idx]),
+                max_units,
+                template_name,
+            );
+            info.num_units_info += 1;
+        }
+
+        // C++ Team.cpp:669-679 — TheKey_teamHome walks TheTerrainLogic waypoints.
+        if dict.get_type(key_team_home()).is_some() {
+            let waypoint = dict.get_ascii_string(key_team_home());
+            if !waypoint.is_empty() {
+                if let Some(loc) = resolve_team_home_waypoint(&waypoint) {
+                    info.home_location = loc;
+                    info.has_home_location = true;
+                }
+            }
+        }
+
+        if dict.get_type(key_team_on_create_script()).is_some() {
+            info.script_on_create = dict.get_ascii_string(key_team_on_create_script());
+        }
+        if dict.get_type(key_team_is_ai_recruitable()).is_some() {
+            info.is_ai_recruitable = dict.get_bool(key_team_is_ai_recruitable());
+        }
+        if dict.get_type(key_team_is_base_defense()).is_some() {
+            info.is_base_defense = dict.get_bool(key_team_is_base_defense());
+        }
+        if dict.get_type(key_team_is_perimeter_defense()).is_some() {
+            info.is_perimeter_defense = dict.get_bool(key_team_is_perimeter_defense());
+        }
+        if dict.get_type(key_team_auto_reinforce()).is_some() {
+            info.automatically_reinforce = dict.get_bool(key_team_auto_reinforce());
+        }
+        if dict.get_type(key_team_aggressiveness()).is_some() {
+            info.initial_team_attitude =
+                AttitudeType::from_i32(dict.get_int(key_team_aggressiveness()));
+        }
+        if dict.get_type(key_team_transports_return()).is_some() {
+            info.transports_return = dict.get_bool(key_team_transports_return());
+        }
+        if dict.get_type(key_team_avoid_threats()).is_some() {
+            info.avoid_threats = dict.get_bool(key_team_avoid_threats());
+        }
+        if dict.get_type(key_team_attack_common_target()).is_some() {
+            info.attack_common_target = dict.get_bool(key_team_attack_common_target());
+        }
+        if dict.get_type(key_team_max_instances()).is_some() {
+            info.max_instances = dict.get_int(key_team_max_instances());
+        }
+        if dict.get_type(key_team_on_idle_script()).is_some() {
+            info.script_on_idle = dict.get_ascii_string(key_team_on_idle_script());
+        }
+        if dict.get_type(key_team_initial_idle_frames()).is_some() {
+            info.initial_idle_frames = dict.get_int(key_team_initial_idle_frames());
+        }
+        if dict.get_type(key_team_enemy_sighted_script()).is_some() {
+            info.script_on_enemy_sighted = dict.get_ascii_string(key_team_enemy_sighted_script());
+        }
+        if dict.get_type(key_team_all_clear_script()).is_some() {
+            info.script_on_all_clear = dict.get_ascii_string(key_team_all_clear_script());
+        }
+        if dict.get_type(key_team_on_destroyed_script()).is_some() {
+            info.script_on_destroyed = dict.get_ascii_string(key_team_on_destroyed_script());
+        }
+        if dict.get_type(key_team_destroyed_threshold()).is_some() {
+            info.destroyed_threshold = dict.get_real(key_team_destroyed_threshold());
+        }
+        if dict.get_type(key_team_on_unit_destroyed_script()).is_some() {
+            info.script_on_unit_destroyed =
+                dict.get_ascii_string(key_team_on_unit_destroyed_script());
+        }
+        if dict.get_type(key_team_production_priority()).is_some() {
+            info.production_priority = dict.get_int(key_team_production_priority());
+        }
+        if dict.get_type(key_team_production_priority_success_increase()).is_some() {
+            info.production_priority_success_increase =
+                dict.get_int(key_team_production_priority_success_increase());
+        }
+        if dict.get_type(key_team_production_priority_failure_decrease()).is_some() {
+            info.production_priority_failure_decrease =
+                dict.get_int(key_team_production_priority_failure_decrease());
+        }
+        if dict.get_type(key_team_production_condition()).is_some() {
+            info.production_condition = dict.get_ascii_string(key_team_production_condition());
+        }
+        if dict.get_type(key_team_executes_actions_on_create()).is_some() {
+            info.execute_actions = dict.get_bool(key_team_executes_actions_on_create());
+        }
+
+        let generic_base =
+            NameKeyGenerator::key_to_name(key_team_generic_script_hook()).unwrap_or_default();
+        for idx in 0..MAX_GENERIC_SCRIPTS {
+            let key = NameKeyGenerator::name_to_key(&format!("{}{}", generic_base, idx));
+            if dict.get_type(key).is_some() {
+                info.team_generic_scripts[idx] = dict.get_ascii_string(key);
+            }
+        }
+
+        if dict.get_type(key_team_transport()).is_some() {
+            info.transport_unit_type = dict.get_ascii_string(key_team_transport());
+        }
+        if dict.get_type(key_team_transports_exit()).is_some() {
+            info.transports_exit = dict.get_bool(key_team_transports_exit());
+        }
+        if dict.get_type(key_team_starts_full()).is_some() {
+            info.team_starts_full = dict.get_bool(key_team_starts_full());
+        }
+        if dict.get_type(key_team_reinforcement_origin()).is_some() {
+            info.start_reinforce_waypoint = dict.get_ascii_string(key_team_reinforcement_origin());
+        }
+        let veterancy_key = NameKeyGenerator::name_to_key("teamVeterancy");
+        if dict.get_type(veterancy_key).is_some() {
+            info.veterancy = match dict.get_int(veterancy_key) {
+                1 => VeterancyLevel::Veteran,
+                2 => VeterancyLevel::Elite,
+                3 => VeterancyLevel::Heroic,
+                _ => VeterancyLevel::Regular,
+            };
+        }
+
+        info
     }
 
     /// Get the units info array
@@ -621,6 +832,21 @@ pub trait TeamMember {
 
     /// Check if member is disabled by being held
     fn is_disabled_held(&self) -> bool;
+
+    /// C++ getTeamTargetObject: stealthed and not detected/disguised.
+    fn is_stealthed_undetected_undisguised(&self) -> bool {
+        false
+    }
+
+    /// C++ getTeamTargetObject: getContainedBy() != NULL.
+    fn is_contained(&self) -> bool {
+        false
+    }
+
+    /// C++ getTeamTargetObject: isKindOf(KINDOF_AIRCRAFT).
+    fn is_kind_of_aircraft(&self) -> bool {
+        false
+    }
 
     /// Check if member has AI update interface (for targetable count)
     fn has_ai_update_interface(&self) -> bool {
@@ -1337,7 +1563,26 @@ impl Team {
     /// Get the team's target object
     ///
     /// Corresponds to C++ Team::getTeamTargetObject()
-    pub fn get_team_target_object(&self) -> u32 {
+    pub fn get_team_target_object<M: TeamMember>(
+        &mut self,
+        get_target: impl Fn(u32) -> Option<M>,
+    ) -> u32 {
+        if self.common_attack_target == INVALID_OBJECT_ID {
+            return INVALID_OBJECT_ID;
+        }
+        let valid = match get_target(self.common_attack_target) {
+            None => false,
+            Some(target) => {
+                !target.is_stealthed_undetected_undisguised()
+                    && !target.is_effectively_dead()
+                    && !target.is_contained()
+                    && !target.is_kind_of_aircraft()
+            }
+        };
+        if !valid {
+            self.common_attack_target = INVALID_OBJECT_ID;
+            return INVALID_OBJECT_ID;
+        }
         self.common_attack_target
     }
 
@@ -1878,7 +2123,13 @@ impl Team {
             return;
         }
 
-        // Transfer all members
+        // C++ obj->setTeam(newTeam) updates object team pointer / player membership.
+        if let Some(sink) = get_team_command_sink() {
+            for &member_id in &self.members {
+                sink.set_object_team(member_id, target_team.id);
+            }
+        }
+
         for member_id in self.members.drain(..) {
             target_team.add_member(member_id);
         }
@@ -1893,6 +2144,7 @@ impl Team {
         _template_name: &str,
         team_home: &Coord3D,
         max_dist: f32,
+        candidate_ids: impl IntoIterator<Item = u32>,
         get_member: impl Fn(u32) -> Option<M>,
         get_member_team: impl Fn(u32) -> Option<TeamID>,
         is_member_template_equivalent: impl Fn(&M, &str) -> bool,
@@ -1905,7 +2157,8 @@ impl Team {
         let mut recruit: Option<u32> = None;
         let mut best_dist_sqr = dist_sqr;
 
-        for &member_id in &self.members {
+        // C++ walks TheGameLogic object list, not this team's members.
+        for member_id in candidate_ids {
             if let Some(member) = get_member(member_id) {
                 // Check if template matches
                 if !is_member_template_equivalent(&member, _template_name) {
@@ -2518,6 +2771,10 @@ impl TeamPrototype {
     ///
     /// Corresponds to C++ TeamPrototype::teamAboutToBeDeleted()
     pub fn team_about_to_be_deleted(&mut self, team_id: TeamID) {
+        // C++ TeamPrototype::teamAboutToBeDeleted removes override relationships.
+        for team in &mut self.team_instances {
+            team.remove_override_team_relationship(team_id);
+        }
         self.team_instances.retain(|t| t.id != team_id);
     }
 
@@ -2871,6 +3128,22 @@ pub trait TeamCommandSink: Send + Sync {
     fn move_object_to(&self, object_id: u32, destination: Coord3D);
     fn handle_partition_cell_maintenance(&self, object_id: u32) {
         let _ = object_id;
+    }
+    /// C++ Object::setTeam from Team::transferUnitsTo.
+    fn set_object_team(&self, object_id: u32, team_id: TeamID) {
+        let _ = (object_id, team_id);
+    }
+    /// C++ ScriptEngine::notifyOfTeamDestruction.
+    fn notify_of_team_destruction(&self, team_name: &str) {
+        let _ = team_name;
+    }
+    /// C++ Player::preTeamDestroy / AIPlayer::aiPreTeamDestroy.
+    fn pre_team_destroy(&self, team_id: TeamID) {
+        let _ = team_id;
+    }
+    /// C++ PlayerList::teamAboutToBeDeleted / removeTeamRelationship.
+    fn remove_player_team_relationship(&self, team_id: TeamID) {
+        let _ = team_id;
     }
 }
 
@@ -3236,6 +3509,15 @@ impl TeamFactory {
     ///
     /// Corresponds to C++ TeamFactory::teamAboutToBeDeleted()
     pub fn team_about_to_be_deleted(&mut self, team_id: TeamID) {
+        // C++ Team::~Team notify + preTeamDestroy, then factory relationship cleanup.
+        let team_name = self.find_team_by_id(team_id).map(|team| team.name.clone());
+        if let Some(sink) = get_team_command_sink() {
+            if let Some(name) = &team_name {
+                sink.notify_of_team_destruction(name);
+            }
+            sink.pre_team_destroy(team_id);
+            sink.remove_player_team_relationship(team_id);
+        }
         for prototype in self.prototypes.values_mut() {
             prototype.team_about_to_be_deleted(team_id);
         }
@@ -3379,13 +3661,14 @@ mod tests {
             KindOfMask::empty()
         }
 
+        fn get_position(&self) -> Option<Coord3D> {
+            Some(Coord3D::new(0.0, 0.0, 0.0))
+        }
+
         fn get_id(&self) -> u32 {
             self.id
         }
 
-        fn get_position(&self) -> Option<Coord3D> {
-            None
-        }
 
         fn is_ai_recruitable(&self) -> bool {
             true
@@ -3549,5 +3832,76 @@ mod tests {
         assert!(!team.should_attempt_generic_script[0]);
         assert!(!team.should_attempt_generic_script[1]);
         assert!(team.should_attempt_generic_script[2]);
+    }
+
+    #[test]
+    fn from_dict_resolves_team_home_waypoint() {
+        set_team_home_waypoint_resolver(|name| {
+            (name == "HomeFlag").then_some(Coord3D::new(120.0, 40.0, 3.0))
+        });
+        let mut dict = crate::common::dict::Dict::new();
+        dict.set_ascii_string(key_team_home(), "HomeFlag");
+        dict.set_int(key_team_unit_min_count1(), 1);
+        dict.set_int(key_team_unit_max_count1(), 3);
+        dict.set_ascii_string(key_team_unit_type1(), "AmericaTankCrusader");
+
+        let info = TeamTemplateInfo::from_dict(&dict);
+        clear_team_home_waypoint_resolver();
+
+        assert!(info.has_home_location);
+        assert_eq!(info.home_location, Coord3D::new(120.0, 40.0, 3.0));
+        assert_eq!(info.num_units_info, 1);
+        assert_eq!(info.units_info[0].unit_thing_name, "AmericaTankCrusader");
+    }
+
+    #[test]
+    fn get_team_target_object_clears_dead_or_missing_target() {
+        let mut team = Team::with_id("TargetTeam".to_string(), 5);
+        team.set_team_target_object(99);
+        assert_eq!(
+            team.get_team_target_object(|_| None::<TestTeamMember>),
+            INVALID_OBJECT_ID
+        );
+        assert_eq!(team.get_team_target_object(|_| None::<TestTeamMember>), 0);
+
+        team.set_team_target_object(10);
+        let dead = TestTeamMember {
+            id: 10,
+            template_name: "AmericaTankCrusader",
+            equivalent_names: &[],
+            dead: true,
+            under_construction: false,
+        };
+        assert_eq!(
+            team.get_team_target_object(|_| Some(dead.clone())),
+            INVALID_OBJECT_ID
+        );
+    }
+
+    #[test]
+    fn try_to_recruit_walks_world_candidates_and_honors_ai_recruitable() {
+        let team = Team::with_id("RecruitTeam".to_string(), 6);
+        let home = Coord3D::new(0.0, 0.0, 0.0);
+        let recruitable = TestTeamMember {
+            id: 77,
+            template_name: "AmericaTankCrusader",
+            equivalent_names: &[],
+            dead: false,
+            under_construction: false,
+        };
+        let found = team.try_to_recruit(
+            "AmericaTankCrusader",
+            &home,
+            100.0,
+            [77],
+            |_| Some(recruitable.clone()),
+            |_| Some(1),
+            |member, name| member.is_template_equivalent_to(name),
+            |_| 0,
+            |_| true,
+            |_| true,
+            10,
+        );
+        assert_eq!(found, Some(77));
     }
 }

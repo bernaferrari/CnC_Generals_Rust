@@ -155,49 +155,57 @@ impl CnCGameEngine {
         self.play_sound_effect(SoundType::Select);
     }
 
-    /// Retail SELECT_NEXT/PREV_WORKER residual — prefer dozers/workers/harvesters.
+    /// Retail SELECT_NEXT/PREV_WORKER — KINDOF_DOZER only, lookAt the chosen dozer.
     pub(super) fn cycle_friendly_worker_selection(&mut self, delta: i32) {
         // Presentation-only: InGame always has last_presentation_frame.
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
         let team = frame.local_team();
-
-        let (mut idle_workers, mut busy_workers) = (
-            frame.alive_selectable_friendly_idle_worker_ids(team),
-            frame.alive_selectable_friendly_busy_worker_ids(team),
-        );
-        idle_workers.sort_by_key(|id| id.0);
-        busy_workers.sort_by_key(|id| id.0);
-        // Cycle idle first; fall back to all workers if none idle.
-        let mut workers = if !idle_workers.is_empty() {
-            idle_workers
-        } else {
-            busy_workers
-        };
+        let workers: Vec<(ObjectId, glam::Vec3)> = frame
+            .objects
+            .iter()
+            .filter(|o| {
+                !o.destroyed
+                    && o.team == team
+                    && o.contained_by.is_none()
+                    && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+                    && crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        crate::game_logic::KindOf::Dozer,
+                    )
+                    && (delta >= 0 || o.is_mobile)
+            })
+            .map(|o| (o.id, o.position))
+            .collect();
         if workers.is_empty() {
-            // Fail-open: fall back to general unit cycle.
-            self.cycle_friendly_selection(delta);
             return;
         }
 
+        // C++ NEXT walks the prepended drawable list backwards; PREV walks forward.
         let next = if let Some(current) = self.selected_objects.first().copied() {
             workers
                 .iter()
-                .position(|id| *id == current)
+                .position(|(id, _)| *id == current)
                 .map(|idx| {
                     let n = workers.len() as i32;
-                    let i = (idx as i32 + delta).rem_euclid(n) as usize;
+                    let step = if delta >= 0 { -1 } else { 1 };
+                    let i = (idx as i32 + step).rem_euclid(n) as usize;
                     workers[i]
                 })
-                .unwrap_or(workers[0])
+                .unwrap_or(if delta >= 0 {
+                    workers[workers.len() - 1]
+                } else {
+                    workers[0]
+                })
         } else if delta >= 0 {
-            workers[0]
-        } else {
             workers[workers.len() - 1]
+        } else {
+            workers[0]
         };
 
-        self.host_set_selection(self.current_player_id, vec![next]);
+        self.host_set_selection(self.current_player_id, vec![next.0]);
+        self.host_center_camera_on(next.1);
         self.play_sound_effect(SoundType::Select);
     }
 

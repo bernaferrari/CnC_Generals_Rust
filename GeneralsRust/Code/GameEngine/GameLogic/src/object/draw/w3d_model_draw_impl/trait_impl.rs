@@ -1,5 +1,7 @@
 impl Module for W3DModelDraw {
     fn on_drawable_bound_to_object(&mut self) {
+        self.seed_hex_color_from_owner();
+        self.apply_receives_dynamic_lights();
         if self.data.default_state >= 0 {
             self.set_model_state(self.data.default_state as usize);
         } else if let Some(state_index) = self.find_best_state_index(&ModelConditionFlags::empty())
@@ -50,10 +52,8 @@ impl DrawModule for W3DModelDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         // C++: setPauseAnimation(!getDrawable()->getShouldAnimate(m_animationsRequirePower))
         self.set_pause_animation(!self.owner_should_animate());
+        // C++ doDrawModule never early-returns on hidden/shroud; hide is Set_Hidden only.
 
-        if self.fully_obscured_by_shroud || self.hidden {
-            return;
-        }
 
         self.tick_animation_state();
         if self.current_animation_complete() {
@@ -376,11 +376,6 @@ impl ObjectDrawInterface for W3DModelDraw {
             TheGameLogic::find_object_by_id(id)
                 .and_then(|obj_arc| obj_arc.read().ok().and_then(|guard| guard.get_drawable()))
         });
-        let owner_orientation = self
-            .owner_id
-            .and_then(TheGameLogic::find_object_by_id)
-            .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.get_orientation()))
-            .unwrap_or(0.0);
 
         let resolve_pivot_transform = |name_key: NameKeyType| -> Option<Matrix3D> {
             if name_key == 0 {
@@ -406,15 +401,8 @@ impl ObjectDrawInterface for W3DModelDraw {
             draw_guard.get_bone_local_transform(&name)
         };
 
-        let mut tech_offset = Coord3D::origin();
-        if !self.data.attach_to_drawable_bone.is_empty() {
-            let attach_key =
-                NameKeyGenerator::name_to_key(self.data.attach_to_drawable_bone.as_str());
-            if let Some(pivot) = resolve_pivot_transform(attach_key) {
-                let rotated = Matrix3D::from_rotation_z(owner_orientation) * pivot;
-                tech_offset = rotated.w_axis.truncate();
-            }
-        }
+        // C++ CACHE_ATTACH_BONE: attach offset goes to turret rot/pitch, not launch.
+        let attach_offset = self.attach_to_drawable_bone_offset().unwrap_or(Coord3D::origin());
 
         if turret_type != TurretType::Invalid {
             let turret_index = match turret_type {
@@ -432,6 +420,13 @@ impl ObjectDrawInterface for W3DModelDraw {
                     if let Some(pitch) = resolve_pivot_transform(turret.turret_pitch_name_key) {
                         *turret_pitch_pos = pitch.w_axis.truncate();
                     }
+
+                    turret_rot_pos.x += attach_offset.x;
+                    turret_rot_pos.y += attach_offset.y;
+                    turret_rot_pos.z += attach_offset.z;
+                    turret_pitch_pos.x += attach_offset.x;
+                    turret_pitch_pos.y += attach_offset.y;
+                    turret_pitch_pos.z += attach_offset.z;
                 }
             }
         }
@@ -466,9 +461,7 @@ impl ObjectDrawInterface for W3DModelDraw {
             }
         }
 
-        launch_pos.w_axis.x += tech_offset.x;
-        launch_pos.w_axis.y += tech_offset.y;
-        launch_pos.w_axis.z += tech_offset.z;
+        // C++ compiled CACHE_ATTACH_BONE path does not add attach offset to launchPos.
 
         true
     }
@@ -608,5 +601,9 @@ impl ObjectDrawInterface for W3DModelDraw {
         }
 
         0
+    }
+
+    fn replace_indicator_color(&mut self, color: i32) {
+        W3DModelDraw::replace_indicator_color(self, color);
     }
 }

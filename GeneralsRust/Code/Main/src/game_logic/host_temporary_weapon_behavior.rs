@@ -165,6 +165,40 @@ pub struct FireWeaponUpgradeMuxMetadata {
     pub requires_all_triggers: bool,
 }
 
+impl FireWeaponUpgradeMuxMetadata {
+    fn owns_named_upgrade(owned: &[&str], name: &str) -> bool {
+        owned.iter().any(|tag| tag.eq_ignore_ascii_case(name))
+    }
+
+    /// C++ `UpgradeMux::attemptUpgrade` / `wouldUpgrade` TriggeredBy check.
+    /// `StartsActive` is handled by the caller via `upgrade_executed`.
+    pub fn triggered_by_owned(&self, owned: &[&str]) -> bool {
+        if self.triggered_by.is_empty() {
+            return false;
+        }
+        if self.requires_all_triggers {
+            self.triggered_by
+                .iter()
+                .all(|need| Self::owns_named_upgrade(owned, need))
+        } else {
+            self.triggered_by
+                .iter()
+                .any(|need| Self::owns_named_upgrade(owned, need))
+        }
+    }
+
+    /// C++ `FireWeaponWhenDeadBehavior::onDie` lines 81-88:
+    /// ConflictsWith skips only when the object or player *owns* a conflicting upgrade.
+    pub fn conflicts_with_owned(&self, owned: &[&str]) -> bool {
+        !self.conflicts_with.is_empty()
+            && self
+                .conflicts_with
+                .iter()
+                .any(|need| Self::owns_named_upgrade(owned, need))
+    }
+}
+
+
 /// The four C++ `BodyDamageType` choices used by this behavior.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -853,6 +887,7 @@ impl TemporaryWeaponRuntimeBundle {
             .map(|metadata| {
                 let mut runtime = FireWeaponWhenDamagedRuntimeState {
                     module_source_index: metadata.module_source_index,
+                    upgrade_executed: metadata.starts_active,
                     ..Default::default()
                 };
                 for spec in metadata.runtime_specs() {
@@ -1604,6 +1639,21 @@ mod tests {
         assert_eq!(defaults.damage_amount, 0.0);
         assert!(!defaults.starts_active);
     }
+
+    /// C++ FireWeaponWhenDeadBehavior.cpp:81-88 / UpgradeMux wouldUpgrade.
+    #[test]
+    fn upgrade_mux_triggered_by_and_conflicts_use_owned_names() {
+        let mux = FireWeaponUpgradeMuxMetadata {
+            triggered_by: vec!["Upgrade_HE".into()],
+            conflicts_with: vec!["Upgrade_Bio".into()],
+            ..Default::default()
+        };
+        assert!(!mux.conflicts_with_owned(&[]));
+        assert!(mux.conflicts_with_owned(&["Upgrade_Bio"]));
+        assert!(!mux.triggered_by_owned(&[]));
+        assert!(mux.triggered_by_owned(&["Upgrade_HE"]));
+    }
+
 
     #[test]
     fn rejects_non_cxx_flag_or_bool_syntax_instead_of_guessing() {

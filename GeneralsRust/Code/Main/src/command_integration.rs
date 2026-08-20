@@ -897,6 +897,10 @@ impl InputCommandProcessor {
             capture_target_effectively_stealthed: o.effectively_stealthed,
             is_crate: o.is_crate,
             is_salvage_crate: o.is_salvage_crate,
+            is_vehicle: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Vehicle),
+            is_aircraft: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft),
+            is_drone: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Drone),
+            is_carbomb: o.is_carbomb,
         })
     }
 

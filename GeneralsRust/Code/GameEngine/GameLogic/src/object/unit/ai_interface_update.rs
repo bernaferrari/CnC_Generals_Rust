@@ -243,6 +243,10 @@ impl UnitAIUpdate {
             }
         }
 
+        if let Some(jet_ai) = self.jet_ai.as_mut() {
+            Snapshotable::xfer(jet_ai, xfer)?;
+        }
+
         Ok(true)
     }
     pub(super) fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

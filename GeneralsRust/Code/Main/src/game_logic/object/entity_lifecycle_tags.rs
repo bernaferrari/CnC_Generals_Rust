@@ -71,8 +71,11 @@ pub const TAG_TENSILE_FORMATION: &str = "TensileFormationUpdate";
 pub const TAG_FIRE_SPREAD: &str = "FireSpreadUpdate";
 /// C++ BaseRegenerateUpdate residual.
 pub const TAG_BASE_REGENERATE: &str = "BaseRegenerateUpdate";
+/// C++ ModuleTag_DefaultAutoHealBehavior residual.
+pub const TAG_DEFAULT_AUTO_HEAL: &str = "DefaultAutoHealBehavior";
 /// C++ EnemyNearUpdate residual.
 pub const TAG_ENEMY_NEAR: &str = "EnemyNearUpdate";
+
 /// C++ AnimationSteeringUpdate residual.
 pub const TAG_ANIMATION_STEERING: &str = "AnimationSteeringUpdate";
 /// C++ FloatUpdate residual.
@@ -150,8 +153,10 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_TENSILE_FORMATION,
     TAG_FIRE_SPREAD,
     TAG_BASE_REGENERATE,
+    TAG_DEFAULT_AUTO_HEAL,
     TAG_ENEMY_NEAR,
     TAG_ANIMATION_STEERING,
+
     TAG_FLOAT_UPDATE,
     TAG_PRONE_UPDATE,
     TAG_RADIUS_DECAL,

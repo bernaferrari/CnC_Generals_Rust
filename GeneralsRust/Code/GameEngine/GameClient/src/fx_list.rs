@@ -127,7 +127,40 @@ impl FXListManagerInterface for FXListManagerBridge {
 
 pub fn register_fx_list_manager_bridge() {
     let _ = gamelogic::helpers::register_fx_list_manager(Arc::new(FXListManagerBridge));
+    game_engine::common::ini::register_fx_list_obj_runtime(Arc::new(DamageFxListRuntime));
     ensure_default_ray_effect_manager();
+}
+
+/// Common DamageFX::doDamageFX → C++ FXList::doFXObj (FXList.cpp:794).
+struct DamageFxListRuntime;
+
+impl game_engine::common::ini::FxListObjRuntime for DamageFxListRuntime {
+    fn do_fx_obj(&self, name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
+        do_named_fx_obj(name, primary_id, secondary_id)
+    }
+}
+
+fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
+    let store = get_fx_list_store();
+    let Some(fx) = store.find_fx_list(name) else {
+        return false;
+    };
+    let primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
+    let secondary = secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
+    match primary.as_ref() {
+        Some(object) => {
+            if let Ok(guard) = object.read() {
+                let source_guard = secondary.as_ref().and_then(|source| source.read().ok());
+                fx.do_fx_obj(Some(&*guard), source_guard.as_deref());
+            }
+            true
+        }
+        None if primary_id.is_none() => {
+            fx.do_fx_obj(None, None);
+            true
+        }
+        None => false,
+    }
 }
 
 fn ensure_default_ray_effect_manager() {

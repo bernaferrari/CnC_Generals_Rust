@@ -296,7 +296,7 @@ pub(super) fn force_attack_object_result_for_attacker(
         attacker,
         target,
         CommandSourceType::FromPlayer,
-        AbleToAttackType::NewTarget,
+        AbleToAttackType::NewTargetForced,
     );
 
     if !attacker.is_kind_of(KindOf::SpawnsAreTheWeapons) {
@@ -313,7 +313,7 @@ pub(super) fn force_attack_object_result_for_attacker(
             if let Some(slave) = OBJECT_REGISTRY.get_object(slave_id) {
                 if let Ok(slave_guard) = slave.read() {
                     result = slave_guard.get_able_to_attack_specific_object(
-                        AbleToAttackType::NewTarget,
+                        AbleToAttackType::NewTargetForced,
                         target,
                         CommandSourceType::FromPlayer,
                     );
@@ -324,7 +324,7 @@ pub(super) fn force_attack_object_result_for_attacker(
         if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
             if let Ok(rider_guard) = rider.read() {
                 let rider_result = rider_guard.get_able_to_attack_specific_object(
-                    AbleToAttackType::NewTarget,
+                    AbleToAttackType::NewTargetForced,
                     target,
                     CommandSourceType::FromPlayer,
                 );

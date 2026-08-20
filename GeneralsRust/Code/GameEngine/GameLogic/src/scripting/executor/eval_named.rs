@@ -95,6 +95,10 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // C++ ScriptConditions::evaluateNamedUnitDestroyed (ScriptConditions.cpp:274-286)
+        // if (theUnit) return theUnit->isEffectivelyDead();
+        // if (didUnitExist(name)) return true;  // name known, pointer now NULL
+        // return false;                         // never existed is not destroyed
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is destroyed", object_name);
 
@@ -107,43 +111,70 @@ impl ScriptConditionEvaluator {
                 });
             }
             if crate::scripting::host_script_query_has_any() {
-                return Ok(ScriptConditionResult::True);
+                // Host snapshot is authoritative and does not list this name.
+                return Ok(ScriptConditionResult::False);
             }
         }
 
-        // Look up the named object using the tracker
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
-            // Check if the object exists and is destroyed
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj) = obj_arc.read() {
-                    return Ok(if obj.is_destroyed() {
+                    return Ok(if obj.is_effectively_dead() {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
                     });
                 }
             }
-            // Object ID exists but object not found - considered destroyed
+            // Name still tracked, object gone — C++ didUnitExist (pointer == NULL).
             return Ok(ScriptConditionResult::True);
         }
-        // Object not in tracker - considered destroyed
-        Ok(ScriptConditionResult::True)
+        Ok(
+            if tracker.did_object_exist(&object_name).unwrap_or(false) {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            },
+        )
     }
 
     pub(crate) fn eval_named_not_destroyed(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // C++ NAMED_NOT_DESTROYED → evaluateNamedUnitExists (ScriptConditions.cpp:291-299)
+        // if (theUnit) return !theUnit->isEffectivelyDead();
+        // return false;
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is not destroyed", object_name);
 
-        // Invert the destroyed check
-        match self.eval_named_destroyed(condition)? {
-            ScriptConditionResult::True => Ok(ScriptConditionResult::False),
-            ScriptConditionResult::False => Ok(ScriptConditionResult::True),
-            ScriptConditionResult::Error(e) => Ok(ScriptConditionResult::Error(e)),
+        if crate::object::registry::OBJECT_REGISTRY.is_empty() {
+            if let Some(alive) = crate::scripting::host_script_named_unit_alive(&object_name) {
+                return Ok(if alive {
+                    ScriptConditionResult::True
+                } else {
+                    ScriptConditionResult::False
+                });
+            }
+            return Ok(ScriptConditionResult::False);
         }
+
+        let tracker = get_named_object_tracker();
+        let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        Ok(if obj.is_effectively_dead() {
+            ScriptConditionResult::False
+        } else {
+            ScriptConditionResult::True
+        })
     }
 
     pub(crate) fn eval_named_attacked_by_object_type(
@@ -627,17 +658,17 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // C++ ScriptConditions::evaluateNamedUnitDying (ScriptConditions.cpp:305-318)
+        // if (theUnit) return theUnit->isEffectivelyDead();
+        // return false; // already totally gone, or never existed, is not dying
         let object_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if '{}' is dying", object_name);
 
-        // Look up the named object
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj) = obj_arc.read() {
-                    // Object is dying if destroyed but not yet effectively dead
-                    let is_dying = obj.is_destroyed() && !obj.is_effectively_dead();
-                    return Ok(if is_dying {
+                    return Ok(if obj.is_effectively_dead() {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -645,7 +676,6 @@ impl ScriptConditionEvaluator {
                 }
             }
         }
-        // Object not found - not dying
         Ok(ScriptConditionResult::False)
     }
 

@@ -106,3 +106,18 @@ impl Coord3D {
     }
 }
 
+/// C++ `TheGameText->fetch("GUI:AddCash")` formatted with the deposit value.
+pub fn format_gui_add_cash(value: u32) -> String {
+    let template = crate::helpers::TheGameText::fetch("GUI:AddCash");
+    if template.contains("%d") {
+        template.replace("%d", &value.to_string())
+    } else if template.contains("%i") {
+        template.replace("%i", &value.to_string())
+    } else if template.is_empty() || template == "GUI:AddCash" {
+        format!("+${}", value)
+    } else {
+        format!("{}{}", template, value)
+    }
+}
+
+

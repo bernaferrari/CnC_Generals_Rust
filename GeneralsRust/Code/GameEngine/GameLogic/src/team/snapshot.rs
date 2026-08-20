@@ -68,7 +68,7 @@ impl Snapshotable for Team {
         xfer.xfer_bool(&mut recruitable)
             .map_err(|e| e.to_string())?;
 
-        let mut target = self.common_attack_target;
+        let mut target = self.common_attack_target.get();
         xfer.xfer_object_id(&mut target)
             .map_err(|e| e.to_string())?;
 
@@ -208,8 +208,10 @@ impl Snapshotable for Team {
             .map_err(|e| e.to_string())?;
 
         // Common attack target
-        xfer.xfer_object_id(&mut self.common_attack_target)
+        let mut target = self.common_attack_target.get();
+        xfer.xfer_object_id(&mut target)
             .map_err(|e| e.to_string())?;
+        self.common_attack_target.set(target);
 
         // Team relations (inline, matching C++ TeamRelationMap::xfer)
         {

@@ -153,8 +153,10 @@ pub use ini_eva_event::{
     EvaCheckInfo, EvaEventStore, EvaMessage, EvaSideSounds,
 };
 pub use ini_fx_list::{
-    get_fx_list_store, get_fx_list_store_mut, parse_fx_list_definition, FXList, FXListError,
-    FXListResult, FXListStore, FXNugget,
+    clear_fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, get_fx_list_store_mut,
+    parse_fx_list_definition, register_fx_list_obj_runtime, take_dispatched_fx_nuggets,
+    DispatchedFxNugget, FXList, FXListError, FXListResult, FXListStore, FXNugget,
+    FxListObjRuntime,
 };
 pub use ini_game_lod::{
     get_dynamic_lod_level, get_game_lod_manager, get_game_lod_manager_mut, init_game_lod_manager,

@@ -594,9 +594,8 @@ fn worker_unfinished_construction_presentation_source() {
         .expect("worker cycle");
     let body = &eng[i..eng.len().min(i + 2200)];
     assert!(
-        body.contains("alive_selectable_friendly_idle_worker_ids")
-            && body.contains("alive_selectable_friendly_busy_worker_ids"),
-        "worker cycle must prefer presentation idle/busy worker ids"
+        body.contains("KindOf::Dozer") && body.contains("host_center_camera_on"),
+        "worker cycle must be KINDOF_DOZER + lookAt (CommandXlat.cpp:2573-2798)"
     );
     let i = eng
         .find("fn cycle_unfinished_construction")

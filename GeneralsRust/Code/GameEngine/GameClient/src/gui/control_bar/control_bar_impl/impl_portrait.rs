@@ -64,6 +64,9 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_radar_attack_glow(&mut self) {
+        if gamelogic::helpers::TheControlBar::take_radar_attack_glow() {
+            self.trigger_radar_attack_glow();
+        }
         if !self.radar_attack_glow_on {
             return;
         }
@@ -599,6 +602,7 @@ impl ControlBar {
         if under_construction {
             self.displayed_construct_percent = self.presentation_construction_percent;
         }
+        let mut inventory_synced = false;
         if let Ok(mut context) = self.context.write() {
             context.last_recorded_inventory_count = garrisoned_count as u32;
             if under_construction {
@@ -615,29 +619,29 @@ impl ControlBar {
                 }
             }
             if max_garrison > 0 {
-                drop(context);
-                if let Ok(mut ctx) = self.context.write() {
-                    if ctx.current_state == ControlBarState::StructureInventory {
-                        let _ = super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
-                            &mut ctx,
-                            max_garrison,
-                            garrisoned_count,
-                        );
-                    } else {
-                        let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(
-                            &mut ctx,
-                            max_garrison,
-                            garrisoned_count,
-                        );
-                    }
-                    ctx.ui_dirty = true;
+                if context.current_state == ControlBarState::StructureInventory {
+                    let _ = super::control_bar_structure_inventory::append_structure_inventory_commands_with_presentation(
+                        &mut context,
+                        max_garrison,
+                        garrisoned_count,
+                    );
+                } else {
+                    let _ = super::control_bar_structure_inventory::do_transport_inventory_ui(
+                        &mut context,
+                        max_garrison,
+                        garrisoned_count,
+                    );
                 }
-                self.mark_ui_dirty();
-                return;
+                context.ui_dirty = true;
+                inventory_synced = true;
+            } else {
+                context.ui_dirty = true;
             }
-            context.ui_dirty = true;
         }
         self.mark_ui_dirty();
+        if inventory_synced {
+            return;
+        }
     }
 
     /// Wave 1031: host/presentation OCL timer residual (ControlBar OclTimer context).

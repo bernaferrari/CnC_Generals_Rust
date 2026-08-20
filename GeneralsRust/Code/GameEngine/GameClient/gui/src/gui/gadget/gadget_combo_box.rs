@@ -181,6 +181,26 @@ mod tests {
         assert!(!state.expanded);
     }
 
+
+    #[test]
+    fn enter_space_escape_do_not_toggle_or_edit_shadow_like_cpp() {
+        let mut state = ComboBoxState {
+            selected_text: "Alpha".to_string(),
+            entries: vec!["Alpha".to_string(), "Beta".to_string()],
+            allow_edit: true,
+            ..Default::default()
+        };
+        for key in ["Enter", "Space", "Escape", "a"] {
+            let expanded = state.expanded;
+            let text = state.selected_text.clone();
+            let action = state.key_press(key, true);
+            assert_ne!(action, ComboBoxAction::Expand);
+            assert_ne!(action, ComboBoxAction::Collapse);
+            assert_eq!(state.expanded, expanded);
+            assert_eq!(state.selected_text, text);
+        }
+    }
+
     #[test]
     fn expanded_combobox_limits_visible_entries() {
         let state = ComboBoxState {

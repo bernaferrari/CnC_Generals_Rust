@@ -182,6 +182,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// C++ ContainModuleInterface::calcBestGarrisonPosition (WeaponSet.cpp:638).
+    fn calc_best_garrison_position(
+        &self,
+        _source_pos: &mut Coord3D,
+        _target_pos: &Coord3D,
+    ) -> bool {
+        false
+    }
+
+
     /// Returns the apparent controlling player when the container is garrisoned/stealth-contained.
     fn get_apparent_controlling_player(
         &self,

@@ -1938,6 +1938,11 @@ impl AISkirmishPlayer {
         self.base.repair_structure(structure_id)
     }
 
+    /// C++ AIPlayer::aiPreTeamDestroy inherited by AISkirmishPlayer.
+    pub fn ai_pre_team_destroy(&mut self, deleted: &Arc<RwLock<crate::team::Team>>) {
+        self.base.ai_pre_team_destroy(deleted);
+    }
+
     pub fn on_structure_produced(
         &mut self,
         factory_id: ObjectID,

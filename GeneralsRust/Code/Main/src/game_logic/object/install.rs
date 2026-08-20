@@ -426,6 +426,25 @@ impl Object {
         }
     }
 
+    pub fn install_default_auto_heal_if_needed(&mut self) {
+        if self.default_auto_heal.is_some() {
+            return;
+        }
+        if let Some(data) = crate::game_logic::host_heal::HostDefaultAutoHealData::for_trainable_template(
+            &self.template_name,
+            self.is_trainable(),
+        ) {
+            self.default_auto_heal = Some(data);
+        }
+    }
+
+    pub fn notify_default_auto_heal_damage(&mut self, current_frame: u32) {
+        if let Some(ah) = self.default_auto_heal.as_mut() {
+            ah.on_damage(current_frame);
+        }
+    }
+
+
     pub fn notify_base_regenerate_damage(&mut self, current_frame: u32, is_healing: bool) {
         if let Some(br) = self.base_regenerate.as_mut() {
             br.on_damage(current_frame, is_healing);

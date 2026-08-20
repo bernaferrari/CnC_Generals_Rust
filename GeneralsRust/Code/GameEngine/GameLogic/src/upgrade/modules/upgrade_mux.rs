@@ -532,4 +532,19 @@ mod tests {
         assert!(data.fx_list_upgrade.is_none());
     }
 
+    /// C++ UpgradeMux::testUpgradeConditions: ConflictsWith is not an always-off switch.
+    #[test]
+    fn conflicts_with_listed_does_not_block_empty_completed_mask() {
+        let data = UpgradeMuxData {
+            conflicting_upgrade_names: vec![AsciiString::from("Upgrade_HE")],
+            ..Default::default()
+        };
+        let mux = UpgradeMux::new(data);
+        assert!(
+            mux.test_upgrade_conditions(UpgradeMask::none()),
+            "C++ onDie only skips when object/player completed mask intersects ConflictsWith"
+        );
+    }
+
+
 }

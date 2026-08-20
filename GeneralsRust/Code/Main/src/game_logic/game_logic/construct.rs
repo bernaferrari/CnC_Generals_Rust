@@ -147,13 +147,18 @@ impl GameLogic {
             repair_residual_structure_heals: 0,
             repair_residual_vehicle_heals: 0,
             heal_residual_ambulance_heals: 0,
+            ambulance_auto_heal_pulse_accum: 0.0,
             heal_residual_heal_pad_heals: 0,
+
             propaganda_residual_heals: 0,
             propaganda_residual_buffs: 0,
             ecm_residual_jams: 0,
             microwaves: crate::game_logic::host_microwave::HostMicrowaveRegistry::new(),
             airfield_parking_spaces: std::collections::HashMap::new(),
             runway_reservations: std::collections::HashMap::new(),
+            airfield_runway_next_in_line: std::collections::HashMap::new(),
+            airfield_runway_was_in_line: std::collections::HashMap::new(),
+            airfield_pending_helipad_exits: std::collections::HashMap::new(),
             emp_pulses: crate::game_logic::host_emp_pulse::HostEmpPulseRegistry::new(),
             baikonur_launches:
                 crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new(),
@@ -733,13 +738,18 @@ impl GameLogic {
         self.repair_residual_structure_heals = 0;
         self.repair_residual_vehicle_heals = 0;
         self.heal_residual_ambulance_heals = 0;
+        self.ambulance_auto_heal_pulse_accum = 0.0;
         self.heal_residual_heal_pad_heals = 0;
+
         self.propaganda_residual_heals = 0;
         self.propaganda_residual_buffs = 0;
         self.ecm_residual_jams = 0;
         self.microwaves.clear();
         self.airfield_parking_spaces.clear();
         self.runway_reservations.clear();
+        self.airfield_runway_next_in_line.clear();
+        self.airfield_runway_was_in_line.clear();
+        self.airfield_pending_helipad_exits.clear();
         self.emp_pulses.clear();
         self.baikonur_launches =
             crate::game_logic::host_baikonur_launch::HostBaikonurLaunchRegistry::new();

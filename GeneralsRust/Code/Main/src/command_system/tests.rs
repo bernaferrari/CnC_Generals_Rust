@@ -1233,6 +1233,10 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
             capture_target_effectively_stealthed: false,
             is_crate: true,
             is_salvage_crate: true,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_drone: false,
+            is_carbomb: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: salvager,
@@ -1354,6 +1358,10 @@ fn ordinary_crate_click_issues_move_to_crate() {
             capture_target_effectively_stealthed: false,
             is_crate: true,
             is_salvage_crate: false,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_drone: false,
+            is_carbomb: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: unit,
@@ -2034,4 +2042,135 @@ fn retail_special_power_names_map_without_fuzzy_asset_or_id_fallbacks() {
         None,
         "Booby Trap is an object-target ability, not a nearby superweapon"
     );
+}
+
+#[test]
+fn hijacker_context_click_issues_hijack_before_attack() {
+    // C++ CommandXlat.cpp:1856-1962 — hijack before enter/attack.
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::GLA, "GLA", true));
+
+    let mut hijacker_t = ThingTemplate::new("GLAInfantryHijacker");
+    hijacker_t
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryHijacker".into(), hijacker_t);
+    let mut tank_t = ThingTemplate::new("AmericaTankCrusader");
+    tank_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(400.0);
+    logic
+        .templates
+        .insert("AmericaTankCrusader".into(), tank_t);
+
+    let hijacker = logic
+        .create_object_for_player(
+            "GLAInfantryHijacker",
+            0,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("hijacker");
+    let tank = logic
+        .create_object(
+            "AmericaTankCrusader",
+            Team::USA,
+            glam::Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("tank");
+
+    let ctx = MouseCommandContext {
+        world_position: glam::Vec3::new(20.0, 0.0, 0.0),
+        target_object: Some(tank),
+        target_presentation: Some(PresentationTargetHint {
+            id: tank,
+            is_alive: true,
+            is_structure: false,
+            is_resource: false,
+            under_construction: false,
+            sold: false,
+            team: Team::USA,
+            is_enemy_of_local: true,
+            is_neutral: false,
+            template_name: "AmericaTankCrusader".into(),
+            can_be_entered: false,
+            enter_available_capacity: 0,
+            enter_uses_transport_slots: false,
+            enter_requires_infantry: false,
+            enter_forbids_aircraft: false,
+            enter_disabled_subdued: false,
+            enter_is_rider_change: false,
+            rider_change_allowed_templates: Vec::new(),
+            is_damaged: false,
+            is_friendly_of_local: false,
+            provides_vehicle_repair: false,
+            provides_aircraft_repair: false,
+            provides_heal: false,
+            can_provide_service: true,
+            dock_kind: crate::game_logic::DockKind::None,
+            dock_controller_is_local: false,
+            stored_supplies: 0,
+            capturable: false,
+            immune_to_capture: false,
+            capture_garrisonable: false,
+            capture_nonstealthed_garrison_count: 0,
+            capture_friendly_garrison_count: 0,
+            capture_target_effectively_stealthed: false,
+            is_crate: false,
+            is_salvage_crate: false,
+            is_vehicle: true,
+            is_aircraft: false,
+            is_drone: false,
+            is_carbomb: false,
+        }),
+        selected_presentation: vec![PresentationSelectedUnitHint {
+            id: hijacker,
+            is_alive: true,
+            is_resource_collector: false,
+            is_worker: false,
+            can_attack: true,
+            can_move: true,
+            can_request_service: true,
+            can_capture: false,
+            template_name: "GLAInfantryHijacker".into(),
+            can_repair: false,
+            is_damaged: false,
+            is_vehicle: false,
+            is_aircraft: false,
+            is_above_terrain: false,
+            is_infantry: true,
+            transport_slot_count: 1,
+            stored_supplies: 0,
+            is_controlled_by_local: true,
+            capture_power: crate::game_logic::CapturePowerKind::None,
+            capture_power_ready: false,
+            is_salvager: false,
+        }],
+        presentation_box_select_units: Vec::new(),
+        presentation_select_similar_units: Vec::new(),
+        screen_position: glam::Vec2::ZERO,
+        viewport_size: None,
+        world_min: None,
+        world_max: None,
+        mouse_button: MouseButton::Right,
+        modifier_keys: ModifierKeys::default(),
+        is_drag: false,
+        drag_start: None,
+        drag_end: None,
+        drag_start_world: None,
+        drag_end_world: None,
+    };
+    let mut sys = CommandSystem::new();
+    let cmd = sys
+        .process_mouse_input(&ctx, &[hijacker], 0, None)
+        .expect("hijack context command");
+    match cmd.command_type {
+        CommandType::Hijack { target_id } => assert_eq!(target_id, tank),
+        other => panic!("expected Hijack before Attack, got {other:?}"),
+    }
 }
