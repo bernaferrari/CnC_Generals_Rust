@@ -65,12 +65,13 @@ impl Object {
         };
 
         // `GarrisonContain::ContainMax` is an authored containment interface,
-        // not a building-name category.  It is also used by C++ capture
-        // legality to reject non-stealthed occupants, so preserve it before
-        // the template moves into `Thing`.
+        // not a building-name category.  HealContain uses the same ContainMax
+        // body-count list (C++ OpenContain) so barracks/hospitals are enterable
+        // without becoming GarrisonContain (garrison_contain_max stays None).
         let authored_garrison_capacity = if matches!(
             template.contain_module.kind,
             crate::game_logic::ContainModuleKind::Garrison
+                | crate::game_logic::ContainModuleKind::Heal
         ) {
             template.contain_module.slots
         } else {
@@ -113,6 +114,11 @@ impl Object {
             power_consumed = c;
         }
 
+        let mut template = template;
+        template.bind_weapon_set_from_live_assets();
+        let tracker = template.weapon_tracker_bind();
+        let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
+
         Self {
             thing: Thing::new(template),
             id,
@@ -143,6 +149,13 @@ impl Object {
             supply_truck_state: SupplyTruckState::Idle,
             supply_truck_force_pending: false,
             supply_truck_next_dock_action_frame: 0,
+            dock_active_docker: None,
+            drawable_supply_boxes: dock_starting_boxes,
+            drawable_supply_max_boxes: dock_starting_boxes,
+            repair_dock_last_id: None,
+            repair_dock_health_per_sec: 0.0,
+            temporary_stealth_expires_frame: 0,
+
             highlander_body: false,
             upgrade_die: None,
             construction_complete_clear_frame: 0,
@@ -689,10 +702,10 @@ impl Object {
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
-            continuous_fire_one_shots: u32::MAX,
-            continuous_fire_two_shots: u32::MAX,
-            continuous_fire_coast_frames: 0,
-            auto_reload_when_idle_frames: 0,
+            continuous_fire_one_shots: tracker.continuous_fire_one_shots,
+            continuous_fire_two_shots: tracker.continuous_fire_two_shots,
+            continuous_fire_coast_frames: tracker.continuous_fire_coast_frames,
+            auto_reload_when_idle_frames: tracker.auto_reload_when_idle_frames,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             fire_ocl_after_cooldown: None,
@@ -767,7 +780,9 @@ impl Object {
 
     /// Alternative constructor for command system compatibility
     pub fn new_simple(id: ObjectId, object_type: ObjectType, template_name: String) -> Self {
-        let template = ThingTemplate::new(&template_name);
+        let mut template = ThingTemplate::new(&template_name);
+        template.bind_weapon_set_from_live_assets();
+        let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
@@ -788,6 +803,7 @@ impl Object {
         };
         let physics_mass = template.physics_mass.max(1.0e-4);
         let shock_resistance = template.shock_resistance.max(0.0);
+        let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
 
         Self {
             thing: Thing::new(template),
@@ -819,6 +835,13 @@ impl Object {
             supply_truck_state: SupplyTruckState::Idle,
             supply_truck_force_pending: false,
             supply_truck_next_dock_action_frame: 0,
+            dock_active_docker: None,
+            drawable_supply_boxes: dock_starting_boxes,
+            drawable_supply_max_boxes: dock_starting_boxes,
+            repair_dock_last_id: None,
+            repair_dock_health_per_sec: 0.0,
+            temporary_stealth_expires_frame: 0,
+
             highlander_body: false,
             upgrade_die: None,
             construction_complete_clear_frame: 0,
@@ -1365,10 +1388,10 @@ impl Object {
             battle_plan_sight_scalar_applied: 1.0,
             continuous_fire_consecutive: 0,
             continuous_fire_level: 0,
-            continuous_fire_one_shots: u32::MAX,
-            continuous_fire_two_shots: u32::MAX,
-            continuous_fire_coast_frames: 0,
-            auto_reload_when_idle_frames: 0,
+            continuous_fire_one_shots: tracker.continuous_fire_one_shots,
+            continuous_fire_two_shots: tracker.continuous_fire_two_shots,
+            continuous_fire_coast_frames: tracker.continuous_fire_coast_frames,
+            auto_reload_when_idle_frames: tracker.auto_reload_when_idle_frames,
             frame_to_force_reload: 0,
             continuous_fire_coast_until_frame: 0,
             fire_ocl_after_cooldown: None,
@@ -1662,6 +1685,11 @@ impl Object {
     }
 
     pub fn is_selectable(&self) -> bool {
+        // C++ Object.cpp:3011 — KINDOF_ALWAYS_SELECTABLE is never
+        // unselectable, even if effectively dead.
+        if self.is_kind_of(KindOf::AlwaysSelectable) {
+            return true;
+        }
         self.is_alive()
             && self.is_kind_of(KindOf::Selectable)
             && !self.status.masked
@@ -1808,4 +1836,31 @@ impl Object {
     // C++ ActiveBody::onSubdualChange → setDisabled(DISABLED_SUBDUED).
     // Structures stop production / attack while cooked; residual continuous
     // while microwave keeps attacking (not full subdual accumulate/heal).
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn always_selectable_is_selectable_even_when_dead() {
+        // C++ Object.cpp:3011 — KINDOF_ALWAYS_SELECTABLE returns TRUE first.
+        let mut template = ThingTemplate::new("UIBeacon");
+        template.add_kind_of(KindOf::AlwaysSelectable);
+        let mut obj = Object::new(template, ObjectId(1), Team::USA);
+        obj.status.destroyed = true;
+        obj.status.effectively_dead = true;
+        assert!(!obj.is_alive());
+        assert!(obj.is_selectable());
+    }
+
+    #[test]
+    fn dead_selectable_without_always_selectable_is_not_selectable() {
+        let mut template = ThingTemplate::new("Ranger");
+        template.add_kind_of(KindOf::Selectable);
+        let mut obj = Object::new(template, ObjectId(2), Team::USA);
+        obj.status.destroyed = true;
+        assert!(!obj.is_selectable());
+    }
 }

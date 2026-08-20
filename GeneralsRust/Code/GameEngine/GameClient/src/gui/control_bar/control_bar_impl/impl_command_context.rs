@@ -126,61 +126,70 @@ impl ControlBar {
         let buttons_snapshot: Vec<CommandButton> = context.available_commands.clone();
         drop(context);
 
+        // C++ ControlBarCommand.cpp:788-881: evaluate each shown ButtonCommand
+        // window, then winHide / winEnable / WIN_STATUS_NOT_READY / ALWAYS_COLOR.
+        let mut availability_by_name: HashMap<String, (CommandAvailability, Option<u8>)> =
+            HashMap::new();
         for button in &buttons_snapshot {
             let availability = self.get_command_availability(button, obj_id, player_id)?;
+            let clock = if availability == CommandAvailability::NotReady {
+                self.command_not_ready_clock(button, obj_id)
+            } else {
+                None
+            };
             let name = button.command_name.clone();
-            if let Ok(mut context) = self.context.write() {
-                if let Some(state) = context
-                    .available_commands
-                    .iter_mut()
-                    .find(|b| b.command_name == name)
-                {
-                    match availability {
-                        CommandAvailability::Hidden => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.visible = false;
-                            }
-                        }
-                        CommandAvailability::Restricted => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.enabled = false;
-                                bs.availability = CommandAvailability::Restricted;
-                            }
-                        }
-                        CommandAvailability::NotReady => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.enabled = false;
-                                bs.availability = CommandAvailability::NotReady;
-                            }
-                        }
-                        CommandAvailability::CantAfford => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.enabled = false;
-                                bs.availability = CommandAvailability::CantAfford;
-                            }
-                        }
-                        CommandAvailability::Active => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.enabled = true;
-                                bs.availability = CommandAvailability::Active;
-                                if (button.options & CommandOption::CheckLike as u32) != 0 {
-                                    bs.check_like_active = true;
-                                }
-                            }
-                        }
-                        CommandAvailability::Available => {
-                            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                                bs.enabled = true;
-                                bs.availability = CommandAvailability::Available;
-                                if (button.options & CommandOption::CheckLike as u32) != 0 {
-                                    bs.check_like_active = false;
-                                }
-                            }
-                        }
+            let bs = self
+                .button_states
+                .entry(name.clone())
+                .or_insert_with(ButtonState::default);
+            match availability {
+                CommandAvailability::Hidden => {
+                    bs.visible = false;
+                    bs.enabled = false;
+                    bs.availability = CommandAvailability::Hidden;
+                    bs.progress = 0.0;
+                }
+                CommandAvailability::Restricted => {
+                    bs.visible = true;
+                    bs.enabled = false;
+                    bs.availability = CommandAvailability::Restricted;
+                    bs.progress = 0.0;
+                }
+                CommandAvailability::NotReady => {
+                    bs.visible = true;
+                    bs.enabled = false;
+                    bs.availability = CommandAvailability::NotReady;
+                    bs.progress = clock.map(|p| p as f32).unwrap_or(0.0);
+                }
+                CommandAvailability::CantAfford => {
+                    bs.visible = true;
+                    bs.enabled = false;
+                    bs.availability = CommandAvailability::CantAfford;
+                    bs.progress = 0.0;
+                }
+                CommandAvailability::Active => {
+                    bs.visible = true;
+                    bs.enabled = true;
+                    bs.availability = CommandAvailability::Active;
+                    bs.progress = 0.0;
+                    if (button.options & CommandOption::CheckLike as u32) != 0 {
+                        bs.check_like_active = true;
+                    }
+                }
+                CommandAvailability::Available => {
+                    bs.visible = true;
+                    bs.enabled = true;
+                    bs.availability = CommandAvailability::Available;
+                    bs.progress = 0.0;
+                    if (button.options & CommandOption::CheckLike as u32) != 0 {
+                        bs.check_like_active = false;
                     }
                 }
             }
+            availability_by_name.insert(name, (availability, clock));
         }
+
+        self.apply_command_availability_to_windows(&buttons_snapshot, &availability_by_name);
 
         Ok(())
     }
@@ -217,6 +226,9 @@ impl ControlBar {
                         return Ok(CommandAvailability::Restricted);
                     }
                 }
+                if Self::command_uses_ready_clock(command) {
+                    return Ok(self.presentation_typed_availability(command, Some(&entry)));
+                }
                 if !entry.command_set_name.is_empty() || entry.selectable {
                     return Ok(CommandAvailability::Available);
                 }
@@ -225,6 +237,9 @@ impl ControlBar {
                 || !self.presentation_primary_command_set.is_empty()
                 || !self.presentation_command_set_names.is_empty()
             {
+                if Self::command_uses_ready_clock(command) {
+                    return Ok(self.presentation_typed_availability(command, None));
+                }
                 return Ok(CommandAvailability::Available);
             }
             return Ok(CommandAvailability::Hidden);
@@ -418,20 +433,10 @@ impl ControlBar {
                 }
                 Ok(CommandAvailability::Available)
             }
-            CommandType::FireWeapon => {
-                if obj.get_ai_update_interface().is_none() {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::DoSpecialPower => {
-                if command.special_power.is_empty() {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::ToggleOvercharge => Ok(CommandAvailability::Available),
-            CommandType::SwitchWeapons => Ok(CommandAvailability::Available),
+            CommandType::FireWeapon => Ok(self.fire_weapon_availability(&obj, command).0),
+            CommandType::DoSpecialPower => Ok(self.special_power_availability(&obj, command).0),
+            CommandType::ToggleOvercharge => Ok(self.toggle_overcharge_availability(&obj)),
+            CommandType::SwitchWeapons => Ok(self.switch_weapon_availability(&obj, command)),
             CommandType::InternetHack => {
                 if obj.is_moving() {
                     return Ok(CommandAvailability::Restricted);
@@ -455,6 +460,253 @@ impl ControlBar {
                 | CommandType::SwitchWeapons
         )
     }
+
+    fn command_uses_ready_clock(command: &CommandButton) -> bool {
+        matches!(
+            command.command_type,
+            CommandType::FireWeapon
+                | CommandType::DoSpecialPower
+                | CommandType::ToggleOvercharge
+                | CommandType::SwitchWeapons
+        )
+    }
+
+    fn presentation_typed_availability(
+        &self,
+        command: &CommandButton,
+        entry: Option<&crate::presentation_translator_residual::TranslatorCatalogEntry>,
+    ) -> CommandAvailability {
+        match command.command_type {
+            CommandType::DoSpecialPower => {
+                if command.special_power.is_empty() {
+                    return CommandAvailability::Restricted;
+                }
+                let ready = entry
+                    .map(|e| e.special_power_ready)
+                    .unwrap_or(false)
+                    || self.portrait_state.special_power_ready;
+                if ready {
+                    CommandAvailability::Available
+                } else {
+                    CommandAvailability::NotReady
+                }
+            }
+            CommandType::ToggleOvercharge => CommandAvailability::Available,
+            CommandType::FireWeapon | CommandType::SwitchWeapons => {
+                CommandAvailability::Restricted
+            }
+            _ => CommandAvailability::Restricted,
+        }
+    }
+
+    fn logic_weapon_slot(slot: WeaponSlotType) -> gamelogic::weapon::WeaponSlotType {
+        match slot {
+            WeaponSlotType::Primary => gamelogic::weapon::WeaponSlotType::Primary,
+            WeaponSlotType::Secondary => gamelogic::weapon::WeaponSlotType::Secondary,
+            WeaponSlotType::Tertiary => gamelogic::weapon::WeaponSlotType::Tertiary,
+        }
+    }
+
+    fn fire_weapon_availability(
+        &self,
+        obj: &gamelogic::object::Object,
+        command: &CommandButton,
+    ) -> (CommandAvailability, Option<u8>) {
+        // C++ ControlBarCommand.cpp:1266-1328 GUI_COMMAND_FIRE_WEAPON.
+        if obj.get_ai_update_interface().is_none() {
+            return (CommandAvailability::Restricted, None);
+        }
+        let slot = Self::logic_weapon_slot(command.weapon_slot);
+        let weapon = obj.get_weapon_in_weapon_slot(slot);
+        if let Some(weapon) = weapon {
+            if weapon.get_clip_reload_time(obj.get_id()) == 0 {
+                return (CommandAvailability::Available, None);
+            }
+            let now = TheGameLogic::get_frame();
+            let next = weapon.get_possible_next_shot_frame();
+            let status = weapon.get_status();
+            if status != gamelogic::weapon::WeaponStatus::ReadyToFire
+                || next == now
+                || next == now.saturating_sub(1)
+            {
+                let clock = if status == gamelogic::weapon::WeaponStatus::ReloadingClip {
+                    Some((weapon.get_percent_ready_to_fire() * 100.0).clamp(0.0, 100.0) as u8)
+                } else {
+                    None
+                };
+                return (CommandAvailability::NotReady, clock);
+            }
+            (CommandAvailability::Available, None)
+        } else if (command.options & CommandOption::UsesMineClearingWeaponSet as u32) != 0
+            && !obj.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::MineClearingDetail)
+        {
+            (CommandAvailability::Available, None)
+        } else {
+            (CommandAvailability::Restricted, None)
+        }
+    }
+
+    fn special_power_availability(
+        &self,
+        obj: &gamelogic::object::Object,
+        command: &CommandButton,
+    ) -> (CommandAvailability, Option<u8>) {
+        // C++ ControlBarCommand.cpp:1385-1428 GUI_COMMAND_SPECIAL_POWER*.
+        if command.special_power.is_empty() {
+            return (CommandAvailability::Restricted, None);
+        }
+        let Some((ready, percent)) =
+            obj.with_special_power_module_interface_by_name(&command.special_power, |sp| {
+                (sp.is_ready(), sp.get_percent_ready())
+            })
+        else {
+            // C++ DEBUG_CRASH then falls through to AVAILABLE when the module is missing.
+            return (CommandAvailability::Available, None);
+        };
+        if !ready {
+            let clock = Some((percent * 100.0).clamp(0.0, 100.0) as u8);
+            return (CommandAvailability::NotReady, clock);
+        }
+        (CommandAvailability::Available, None)
+    }
+
+    fn toggle_overcharge_availability(
+        &self,
+        obj: &gamelogic::object::Object,
+    ) -> CommandAvailability {
+        // C++ ControlBarCommand.cpp:1430-1444: ACTIVE while overcharge is on.
+        if obj
+            .with_overcharge_behavior_interface(|overcharge| overcharge.is_overcharge_active())
+            .unwrap_or(false)
+        {
+            CommandAvailability::Active
+        } else {
+            CommandAvailability::Available
+        }
+    }
+
+    fn switch_weapon_availability(
+        &self,
+        obj: &gamelogic::object::Object,
+        command: &CommandButton,
+    ) -> CommandAvailability {
+        // C++ ControlBarCommand.cpp:1448-1471: missing slot is restricted;
+        // ACTIVE when every locally-controlled selected unit already uses the slot.
+        let slot = Self::logic_weapon_slot(command.weapon_slot);
+        if obj.get_weapon_in_weapon_slot(slot).is_none() {
+            return CommandAvailability::Restricted;
+        }
+        let selected = {
+            let Ok(context) = self.context.read() else {
+                return CommandAvailability::Active;
+            };
+            context.selected_objects.clone()
+        };
+        for selected_id in selected {
+            let Some(selected_arc) = OBJECT_REGISTRY.get_object(selected_id) else {
+                continue;
+            };
+            let Ok(selected_obj) = selected_arc.read() else {
+                continue;
+            };
+            if !selected_obj.is_locally_controlled() {
+                continue;
+            }
+            if let Some((_, current_slot)) = selected_obj.get_current_weapon() {
+                if current_slot != slot {
+                    return CommandAvailability::Available;
+                }
+            }
+        }
+        CommandAvailability::Active
+    }
+
+    fn command_not_ready_clock(&self, command: &CommandButton, obj_id: u32) -> Option<u8> {
+        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
+        let obj = obj_arc.read().ok()?;
+        match command.command_type {
+            CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
+            CommandType::DoSpecialPower => self.special_power_availability(&obj, command).1,
+            _ => None,
+        }
+    }
+
+    fn apply_command_availability_to_windows(
+        &self,
+        buttons: &[CommandButton],
+        availability_by_name: &HashMap<String, (CommandAvailability, Option<u8>)>,
+    ) {
+        const CLOCK_COLOR: crate::gui::gadgets::Color = crate::gui::gadgets::Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 100,
+        };
+        with_window_manager(|wm| {
+            for i in 0..14 {
+                let win_name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                let Some(win) = wm.find_window_by_name(&win_name) else {
+                    continue;
+                };
+                if win.borrow().is_hidden() {
+                    continue;
+                }
+                let command_name = win
+                    .borrow()
+                    .get_user_data::<String>()
+                    .cloned()
+                    .or_else(|| buttons.get(i).map(|button| button.command_name.clone()));
+                let Some(command_name) = command_name else {
+                    continue;
+                };
+                let Some((availability, clock)) = availability_by_name.get(&command_name) else {
+                    continue;
+                };
+                let options = buttons
+                    .iter()
+                    .find(|button| button.command_name == command_name)
+                    .map(|button| button.options)
+                    .unwrap_or(0);
+                let mut window = win.borrow_mut();
+                let _ = window.clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
+                let _ = window.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                match availability {
+                    CommandAvailability::Hidden => {
+                        let _ = window.hide(true);
+                    }
+                    CommandAvailability::Restricted => {
+                        let _ = window.enable(false);
+                    }
+                    CommandAvailability::NotReady => {
+                        let _ = window.enable(false);
+                        window.set_status(crate::gui::game_window::WindowStatus::NOT_READY);
+                        if let Some(percent) = clock {
+                            if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                                window.widget_mut()
+                            {
+                                button.set_inverse_clock(*percent, CLOCK_COLOR);
+                            }
+                        }
+                    }
+                    CommandAvailability::CantAfford => {
+                        let _ = window.enable(false);
+                        window.set_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
+                    }
+                    CommandAvailability::Available | CommandAvailability::Active => {
+                        let _ = window.enable(true);
+                    }
+                }
+                if (options & CommandOption::CheckLike as u32) != 0 {
+                    if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
+                        window.widget_mut()
+                    {
+                        button.set_checkbox(true, *availability == CommandAvailability::Active);
+                    }
+                }
+            }
+        });
+    }
+
 
 
     // ---------------------------------------------------------------------------
@@ -733,3 +985,26 @@ impl ControlBar {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod command_availability_window_tests {
+    use super::*;
+
+    fn button(command_type: CommandType) -> CommandButton {
+        let mut button = CommandButton::default();
+        button.command_type = command_type;
+        button.command_name = "Command_Test".to_string();
+        button
+    }
+
+    #[test]
+    fn ready_clock_types_match_cpp_special_fire_overcharge_switch() {
+        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::FireWeapon)));
+        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::DoSpecialPower)));
+        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::ToggleOvercharge)));
+        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::SwitchWeapons)));
+        assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::Sell)));
+        assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::DozerConstruct)));
+    }
+}
+

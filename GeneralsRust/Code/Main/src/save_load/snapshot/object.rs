@@ -130,6 +130,7 @@ pub struct ObjectSnapshot {
         Option<crate::game_logic::host_temporary_weapon_behavior::TemporaryWeaponRuntimeBundle>,
 }
 
+
 /// Object status snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectStatusSnapshot {
@@ -638,6 +639,43 @@ impl XferData for ObjectSnapshot {
         self.xfer_for_world_version(xfer, WORLD_SNAPSHOT_DIRECT_XFER_VERSION)
     }
 }
+
+impl XferData for GuardMode {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match *self {
+            GuardMode::Normal => 0u8,
+            GuardMode::WithoutPursuit => 1,
+            GuardMode::FlyingUnitsOnly => 2,
+        };
+        xfer.xfer_u8(&mut value)?;
+        *self = match value {
+            1 => GuardMode::WithoutPursuit,
+            2 => GuardMode::FlyingUnitsOnly,
+            _ => GuardMode::Normal,
+        };
+        Ok(())
+    }
+}
+
+impl XferData for ObjectInstanceGuardSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectInstanceGuardSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("InstanceName")?;
+        self.instance_name.xfer(xfer)?;
+        xfer.xfer_marker_label("GuardPosition")?;
+        xfer_option(xfer, &mut self.guard_position, Vec3::ZERO)?;
+        xfer.xfer_marker_label("GuardTarget")?;
+        xfer_option(xfer, &mut self.guard_target, ObjectId(0))?;
+        xfer.xfer_marker_label("GuardRadius")?;
+        xfer.xfer_f32(&mut self.guard_radius)?;
+        xfer.xfer_marker_label("GuardMode")?;
+        self.guard_mode.xfer(xfer)?;
+        Ok(())
+    }
+}
+
 
 impl XferData for WeaponBarrelStateSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {

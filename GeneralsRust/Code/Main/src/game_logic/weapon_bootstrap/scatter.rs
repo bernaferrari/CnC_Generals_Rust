@@ -220,3 +220,29 @@ pub fn scatter_aim_offset(seed: u32, scatter_radius: f32) -> glam::Vec3 {
     // Gameplay XZ plane residual (Y up).
     glam::Vec3::new(r * ang.cos(), 0.0, r * ang.sin())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_scatter_targets_read_authored_store_table() {
+        // C++ Weapon.cpp:2584-2609 rebuildScatterTargets / unused pick.
+        ensure_host_weapon_store();
+        const NAME: &str = "Hunt4ScatterPatternWeapon";
+        let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = WeaponTemplate::new(NAME.to_string());
+            template.primary_damage = 10.0;
+            template.attack_range = 100.0;
+            template.scatter_target_scalar = 50.0;
+            template.scatter_targets = vec![
+                gamelogic::weapon::Coord2D { x: 1.0, y: 0.0 },
+                gamelogic::weapon::Coord2D { x: 0.0, y: 1.0 },
+            ];
+            store.add_weapon_template(template);
+        });
+        let targets = host_scatter_targets_for_weapon_name(NAME);
+        assert_eq!(targets, vec![(1.0, 0.0), (0.0, 1.0)]);
+        assert!((host_scatter_target_scalar_for_weapon_name(NAME) - 50.0).abs() < 0.01);
+    }
+}

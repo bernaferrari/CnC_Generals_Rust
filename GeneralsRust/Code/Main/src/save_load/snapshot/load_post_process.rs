@@ -209,6 +209,24 @@ impl Snapshot for WorldSnapshot {
             self.player_ranks.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION {
+            xfer.xfer_marker_label("ObjectInstanceGuards")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.object_instance_guards,
+                ObjectInstanceGuardSnapshot {
+                    object_id: ObjectId(0),
+                    instance_name: String::new(),
+                    guard_position: None,
+                    guard_target: None,
+                    guard_radius: 0.0,
+                    guard_mode: GuardMode::Normal,
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.object_instance_guards.clear();
+        }
+
         Ok(())
     }
 

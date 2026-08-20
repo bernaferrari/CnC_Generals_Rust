@@ -22,7 +22,6 @@
 //!
 //! Fail-closed honesty:
 //! - Not full GuardTunnelNetwork AI / AITNGuard nemesis path
-//! - Not full TimeForFullHeal matrix / healObjects tick
 //! - Not CaveSystem multi-index / last-tunnel cave-in destroy matrix
 //! - Not full ExitStart bone / multi-door exit interface
 //! - Not full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
@@ -41,7 +40,7 @@ pub const MAX_TUNNEL_CAPACITY: usize = 10;
 /// Residual of TunnelContain `TimeForFullHeal = 5000` ms.
 pub const TUNNEL_FULL_HEAL_MS: u32 = 5000;
 /// Residual of TunnelContain `TimeForFullHeal = 5000` ms → frames @ 30 FPS.
-/// Fail-closed: heal tick not required for enter/exit honesty.
+/// C++ TunnelTracker::healObjects uses this duration for sliver + snap-to-max.
 pub const TUNNEL_FULL_HEAL_FRAMES: u32 = 150;
 
 /// Retail TunnelNetworkGun primary weapon template name.
@@ -127,6 +126,12 @@ pub struct HostTunnelNetworkRegistry {
     pub gun_fires: u32,
     /// Residual units hit by TunnelNetworkGun residual.
     pub gun_units_hit: u32,
+    /// C++ TunnelTracker::healObjects ticks applied (sliver or snap-to-max).
+    pub heal_ticks: u32,
+    /// C++ HealContain::update auto-exits after TimeForFullHeal.
+    pub heal_auto_exits: u32,
+    /// C++ `Object::m_containedByFrame` residual for HealContain + TunnelTracker.
+    contained_by_frame: HashMap<u32, u32>,
     /// Per-team shared passenger lists (C++ Player::TunnelTracker contain list).
     networks: HashMap<Team, TeamTunnelNetwork>,
 }
@@ -239,7 +244,40 @@ impl HostTunnelNetworkRegistry {
                 self.cross_exits = self.cross_exits.saturating_add(1);
             }
         }
+        self.contained_by_frame.remove(&unit_id.0);
         entry
+    }
+
+    /// C++ `Object::setContainedBy` stamps `m_containedByFrame`.
+    pub fn stamp_contained_by_frame(&mut self, unit_id: ObjectId, frame: u32) {
+        self.contained_by_frame.insert(unit_id.0, frame);
+    }
+
+    /// C++ `Object::getContainedByFrame`.
+    pub fn contained_by_frame(&self, unit_id: ObjectId) -> Option<u32> {
+        self.contained_by_frame.get(&unit_id.0).copied()
+    }
+
+    pub fn clear_contained_by_frame(&mut self, unit_id: ObjectId) {
+        self.contained_by_frame.remove(&unit_id.0);
+    }
+
+    pub fn record_heal_tick(&mut self) {
+        self.heal_ticks = self.heal_ticks.saturating_add(1);
+    }
+
+    pub fn record_heal_auto_exit(&mut self) {
+        self.heal_auto_exits = self.heal_auto_exits.saturating_add(1);
+    }
+
+    /// Residual honesty: TunnelTracker::healObjects exercised.
+    pub fn honesty_heal_objects_ok(&self) -> bool {
+        self.heal_ticks > 0
+    }
+
+    /// Residual honesty: HealContain auto-exit exercised.
+    pub fn honesty_heal_contain_auto_exit_ok(&self) -> bool {
+        self.heal_auto_exits > 0
     }
 
     /// Residual honesty: enter then exit exercised.
@@ -377,6 +415,32 @@ pub fn unit_can_use_tunnel(is_aircraft: bool, is_alive: bool, under_construction
     is_alive && !under_construction && !is_aircraft
 }
 
+/// C++ TunnelTracker::healObject / HealContain::doHeal amount for one frame.
+///
+/// If `contained_frames >= frames_for_full_heal` (including a 0-frame HealContain
+/// default), snap to max health. Otherwise apply `max_health / frames`.
+pub fn tunnel_tracker_heal_amount(
+    max_health: f32,
+    contained_frames: u32,
+    frames_for_full_heal: u32,
+) -> f32 {
+    if max_health <= 0.0 {
+        return 0.0;
+    }
+    if contained_frames >= frames_for_full_heal {
+        max_health
+    } else {
+        max_health / (frames_for_full_heal as f32)
+    }
+}
+
+/// C++ HealContain::doHeal done flag: contained duration reached TimeForFullHeal.
+/// A 0-frame authored duration completes on the first update (`contained >= 0`).
+pub fn heal_contain_done(contained_frames: u32, frames_for_full_heal: u32) -> bool {
+    contained_frames >= frames_for_full_heal
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,4 +535,30 @@ mod tests {
         assert!(honesty_tunnel_network_camo_hole_residual_ok());
         assert!(honesty_tunnel_network_residual_pack_ok());
     }
+
+    #[test]
+    fn tunnel_tracker_heal_object_matches_cpp() {
+        // C++ TunnelTracker.cpp:248-268 / HealContain.cpp:127-151.
+        assert!((tunnel_tracker_heal_amount(150.0, 0, 150) - 1.0).abs() < 1e-5);
+        assert!((tunnel_tracker_heal_amount(150.0, 149, 150) - 1.0).abs() < 1e-5);
+        assert!((tunnel_tracker_heal_amount(150.0, 150, 150) - 150.0).abs() < 1e-5);
+        // HealContain default TimeForFullHeal = 0 → first update snaps to max.
+        assert!((tunnel_tracker_heal_amount(80.0, 0, 0) - 80.0).abs() < 1e-5);
+        assert!(heal_contain_done(0, 0));
+        assert!(!heal_contain_done(59, 60));
+        assert!(heal_contain_done(60, 60));
+
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let unit = ObjectId(7);
+        reg.stamp_contained_by_frame(unit, 10);
+        assert_eq!(reg.contained_by_frame(unit), Some(10));
+        reg.record_heal_tick();
+        assert!(reg.honesty_heal_objects_ok());
+        assert!(!reg.honesty_heal_contain_auto_exit_ok());
+        reg.record_heal_auto_exit();
+        assert!(reg.honesty_heal_contain_auto_exit_ok());
+        reg.clear_contained_by_frame(unit);
+        assert_eq!(reg.contained_by_frame(unit), None);
+    }
+
 }

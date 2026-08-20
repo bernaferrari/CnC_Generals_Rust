@@ -3,6 +3,38 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+
+/// C++ GarrisonContain FIREPOINT residual: occupants shoot from points around
+/// the container, not the building center. Closest ring point to the victim
+/// wins (`calcBestGarrisonPosition`); occupant index breaks ties as station.
+fn garrison_occupant_fire_point(
+    container_pos: glam::Vec3,
+    occupant_index: usize,
+    occupant_count: usize,
+    target_pos: glam::Vec3,
+) -> glam::Vec3 {
+    const FIRE_POINT_RADIUS: f32 = 12.0;
+    const MAX_POINTS: usize = 8;
+    let n = occupant_count.clamp(1, MAX_POINTS);
+    let mut best = container_pos;
+    let mut best_score = f32::MAX;
+    for i in 0..n {
+        let ang = (i as f32) * (std::f32::consts::TAU / n as f32);
+        let p = glam::Vec3::new(
+            container_pos.x + ang.cos() * FIRE_POINT_RADIUS,
+            container_pos.y,
+            container_pos.z + ang.sin() * FIRE_POINT_RADIUS,
+        );
+        let assigned = if i == occupant_index % n { -1.0 } else { 0.0 };
+        let score = (p - target_pos).length_squared() + assigned;
+        if score < best_score {
+            best_score = score;
+            best = p;
+        }
+    }
+    best
+}
+
 impl GameLogic {
     /// Apply NeutronBlast residual at world impact: kill infantry + unman vehicles
     /// in blast radius. Returns (infantry_kills, vehicles_unmanned, vehicle_kills).
@@ -206,6 +238,8 @@ impl GameLogic {
         let mut passengers_killed = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
         let mut bomb_detonate_ids: Vec<ObjectId> = Vec::new();
+        let mut unmanned_ids: Vec<ObjectId> = Vec::new();
+
 
         let candidates: Vec<ObjectId> = self
             .objects
@@ -284,9 +318,15 @@ impl GameLogic {
                         bomb_detonate_ids.push(id);
                     } else {
                         obj.apply_kill_pilot_unmanned();
+                        // C++ NeutonBlastBehavior.cpp:124-127 neutronBlastToObject:
+                        //   getAI()->aiIdle(CMD_FROM_AI);
+                        //   TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE);
+                        obj.set_ai_state(AIState::Idle);
+                        obj.deselect();
                         // C++ NeutronBlastBehavior: setTeam(neutral) residual.
                         obj.team = Team::Neutral;
                         vehicles_unmanned = vehicles_unmanned.saturating_add(1);
+                        unmanned_ids.push(id);
                     }
                 }
                 NeutronEffect::KillVehicle => {
@@ -323,6 +363,19 @@ impl GameLogic {
                 passengers_killed = passengers_killed.saturating_add(1);
                 infantry_kills = infantry_kills.saturating_add(1);
                 destroy_ids.push(occ_id);
+            }
+        }
+
+
+        // C++ deselectObject(PLAYERMASK_ALL): drop unmanned husks from every
+        // selection roster so they cannot keep player/AI orders.
+        if !unmanned_ids.is_empty() {
+            self.selected_objects
+                .retain(|sid| !unmanned_ids.contains(sid));
+            for player in self.players.values_mut() {
+                player
+                    .selected_objects
+                    .retain(|sid| !unmanned_ids.contains(sid));
             }
         }
 
@@ -514,32 +567,39 @@ impl GameLogic {
         }
     }
 
-    /// Residual fire-from-garrison: garrisoned infantry auto-engage nearest
-    /// enemy in weapon range from the **container position**.
-    /// Fail-closed: not C++ garrison weapon bone positions / multi-slot matrix.
+    /// Residual fire-from-garrison: each occupant fires **their current weapon**
+    /// from a FIREPOINT offset (C++ GarrisonContain `getCurrentWeapon` +
+    /// `calcBestGarrisonPosition`), not a single PRIMARY from building center.
+    /// Fail-closed: not C++ bone FIREPOINT01-nn artwork / enclosing shuffle.
     pub(in super::super) fn try_garrison_residual_fire(&mut self, garrisoned_id: ObjectId) {
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
 
         let Some(attacker) = self.objects.get(&garrisoned_id) else {
             return;
         };
-        if !attacker.is_alive() || attacker.weapon.is_none() {
+        if !attacker.is_alive() {
             return;
         }
-        let Some(weapon) = attacker.weapon.as_ref() else {
-            return;
-        };
-        if !Object::weapon_ready(weapon, current_time) {
+        let has_any_weapon = attacker.weapon_slot(0).is_some()
+            || attacker.weapon_slot(1).is_some()
+            || attacker.weapon_slot(2).is_some();
+        if !has_any_weapon {
             return;
         }
 
         let container_id = attacker.container_id();
         let team = attacker.team;
-        let range = weapon.range;
-        let damage = weapon.damage;
-        let fire_pos = container_id
+        let container_pos = container_id
             .and_then(|cid| self.objects.get(&cid).map(|c| c.get_position()))
             .unwrap_or_else(|| attacker.get_position());
+        let occupants = container_id
+            .and_then(|cid| self.objects.get(&cid).map(|c| c.contained_units()))
+            .unwrap_or_default();
+        let occupant_index = occupants
+            .iter()
+            .position(|&id| id == garrisoned_id)
+            .unwrap_or(0);
+        let occupant_count = occupants.len().max(1);
 
         // Pure residual acquire query (fire decision choice phase).
         let candidates: Vec<_> = self
@@ -568,48 +628,84 @@ impl GameLogic {
                 }
             })
             .collect();
-        let best = crate::game_logic::host_residual_acquire::pick_nearest_residual_target(
-            garrisoned_id,
-            team,
-            fire_pos,
-            candidates,
-            |_| range,
-            |c| c.is_alive && c.team != team && !c.is_neutral && c.combat_kind,
-        );
 
-        let Some((target_id, _, _)) = best else {
+        // C++ GarrisonContain: occupant getCurrentWeapon + best FIREPOINT vs victim.
+        let mut best: Option<(ObjectId, f32, u8, glam::Vec3, f32)> = None;
+        for cand in &candidates {
+            if !(cand.is_alive && cand.team != team && !cand.is_neutral && cand.combat_kind) {
+                continue;
+            }
+            let fire_pos = garrison_occupant_fire_point(
+                container_pos,
+                occupant_index,
+                occupant_count,
+                cand.position,
+            );
+            let Some(target_obj) = self.objects.get(&cand.id) else {
+                continue;
+            };
+            let Some(attacker) = self.objects.get(&garrisoned_id) else {
+                return;
+            };
+            let slot = attacker
+                .select_combat_weapon_slot(target_obj, current_time)
+                .or_else(|| {
+                    let s = attacker.active_weapon_slot;
+                    attacker
+                        .weapon_slot(s)
+                        .filter(|w| Object::weapon_ready(w, current_time))
+                        .map(|_| s)
+                });
+            let Some(slot) = slot else {
+                continue;
+            };
+            let Some(weapon) = attacker.weapon_slot(slot) else {
+                continue;
+            };
+            if !Object::weapon_ready(weapon, current_time) {
+                continue;
+            }
+            let dist = fire_pos.distance(cand.position);
+            if dist > weapon.range {
+                continue;
+            }
+            if best.as_ref().map(|(_, d, _, _, _)| dist < *d).unwrap_or(true) {
+                best = Some((cand.id, dist, slot, fire_pos, weapon.damage));
+            }
+        }
+
+        let Some((target_id, _, slot, fire_pos, damage)) = best else {
             return;
         };
 
         let weapon_snap = self
             .objects
             .get(&garrisoned_id)
-            .and_then(|a| a.weapon.clone());
+            .and_then(|a| a.weapon_slot(slot).cloned());
         let (destroyed, kill_xp) = self.residual_auto_fire_apply_damage(
             garrisoned_id,
             target_id,
             damage,
             fire_pos,
             weapon_snap.as_ref(),
-            0,
+            slot,
         );
 
         if let Some(attacker) = self.objects.get_mut(&garrisoned_id) {
             let _ = attacker.capture_pending_weapon_visual_dispatch(
-                0,
+                slot,
                 self.frame,
                 Some(target_id),
                 None,
             );
-            if let Some(w) = attacker.weapon.as_mut() {
+            if let Some(w) = attacker.weapon_slot_mut(slot) {
                 // Clip/ammo residual parity with fire_at path (not last_fire-only stamp).
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
             if crate::gameworld_shadow::gameworld_ai_attack_authority_live() {
                 let (dmg, rng) = attacker
-                    .weapon
-                    .as_ref()
+                    .weapon_slot(slot)
                     .map(|w| (w.damage, w.range))
                     .unwrap_or((0.0, 0.0));
                 let frame = crate::game_logic::host_historic_bonus::logic_frame();
@@ -617,7 +713,7 @@ impl GameLogic {
                 crate::game_logic::host_fire_intent_log::record(
                     attacker.id,
                     target_id.0,
-                    0,
+                    slot,
                     dmg,
                     rng,
                     current_time,
@@ -635,9 +731,8 @@ impl GameLogic {
             }
             // Kill XP awarded after this borrow via award_experience.
         }
-        // One garrisoned infantry shot can use a container muzzle position,
-        // but it retains the passenger's exact PRIMARY barrel identity.
-        let _ = self.record_accepted_weapon_discharge(garrisoned_id, 0);
+        // Occupant discharges their own current slot from the FIREPOINT offset.
+        let _ = self.record_accepted_weapon_discharge(garrisoned_id, slot);
 
         if destroyed {
             self.award_experience(garrisoned_id, kill_xp);
@@ -2002,3 +2097,88 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{AIState, GameLogic, KindOf, Player, Team, ThingTemplate};
+    use glam::Vec3;
+
+    /// C++ NeutonBlastBehavior.cpp:124-127 — unmanned vehicles are aiIdle'd
+    /// and deselectObject'd so they do not stay selected or keep orders.
+    #[test]
+    fn neutron_unman_deselects_and_idles_ai() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+
+        let mut tank = ThingTemplate::new("NeutronUnmanTank");
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(250.0);
+        logic
+            .templates
+            .insert("NeutronUnmanTank".to_string(), tank);
+
+        let tank_id = logic
+            .create_object(
+                "NeutronUnmanTank",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("tank");
+        logic.select_objects(0, vec![tank_id]);
+        {
+            let obj = logic.host_object_mut(tank_id).expect("tank mut");
+            obj.set_ai_state(AIState::Moving);
+            obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
+            obj.set_status_moving(true);
+            assert!(obj.selected || obj.status.selected);
+            assert!(matches!(obj.ai_state, AIState::Moving));
+        }
+        assert!(
+            logic
+                .players
+                .get(&0)
+                .unwrap()
+                .selected_objects
+                .contains(&tank_id)
+        );
+
+        let (kills, unmanned, vehicle_kills) =
+            logic.apply_neutron_blast_at(Vec3::ZERO, Team::China, None, true);
+        assert_eq!(kills, 0);
+        assert_eq!(unmanned, 1);
+        assert_eq!(vehicle_kills, 0);
+
+        let obj = logic.host_object(tank_id).expect("husk");
+        assert!(obj.is_unmanned(), "neutron must unman the vehicle");
+        assert_eq!(obj.team, Team::Neutral);
+        assert!(!obj.selected, "C++ deselectObject must clear object.selected");
+        assert!(
+            !obj.status.selected,
+            "C++ deselectObject must clear status.selected"
+        );
+        assert!(
+            matches!(obj.ai_state, AIState::Idle),
+            "C++ aiIdle(CMD_FROM_AI) must idle the husk"
+        );
+        assert!(
+            obj.target_location.is_none(),
+            "idle unman must drop pending move orders"
+        );
+        assert!(
+            !logic
+                .players
+                .get(&0)
+                .unwrap()
+                .selected_objects
+                .contains(&tank_id),
+            "PLAYERMASK_ALL deselect must drop the husk from the player roster"
+        );
+        assert!(!logic.selected_objects.contains(&tank_id));
+    }
+}
+

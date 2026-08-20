@@ -28,6 +28,46 @@ pub fn rods_extend_frames_for_template(template_name: &str) -> u32 {
     AMERICA_RODS_EXTEND_FRAMES
 }
 
+/// C++ SpecialPowerCompletionDieModuleData::m_specialPowerTemplate.
+/// Fail-closed: only templates that author the die module (or residual peels).
+pub fn completion_die_power_for_template(template_name: &str) -> Option<String> {
+    if let Some(power) = authored_completion_die_power(template_name) {
+        return Some(power);
+    }
+    residual_completion_die_power(template_name)
+}
+
+fn authored_completion_die_power(template_name: &str) -> Option<String> {
+    let manager = crate::assets::get_asset_manager()?;
+    let manager = manager.lock().ok()?;
+    let definition = manager.get_object_definition(template_name)?;
+    for module in &definition.behavior_modules {
+        if !module
+            .class_name
+            .eq_ignore_ascii_case("SpecialPowerCompletionDie")
+        {
+            continue;
+        }
+        if let Some(power) = module
+            .attribute("SpecialPowerTemplate")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return Some(power.to_string());
+        }
+    }
+    None
+}
+
+fn residual_completion_die_power(template_name: &str) -> Option<String> {
+    let n = template_name.to_ascii_lowercase();
+    if n.contains("scudstormmissile") {
+        return Some("SuperweaponScudStorm".into());
+    }
+    None
+}
+
+
 /// C++ SpecialPowerCompletionDie residual payload on an object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostSpecialPowerCompletionDieData {
@@ -81,4 +121,15 @@ mod tests {
         assert_eq!(rods_extend_frames_for_template("AmericaPowerPlant"), 18);
         assert_eq!(rods_extend_frames_for_template("ChinaPowerPlant"), 1);
     }
+
+    #[test]
+    fn scud_missile_has_completion_die_power() {
+        // C++ SpecialPowerCompletionDie on ScudStormMissile + setCreator from OCL/weapon.
+        assert_eq!(
+            completion_die_power_for_template("ScudStormMissile").as_deref(),
+            Some("SuperweaponScudStorm")
+        );
+        assert!(completion_die_power_for_template("AmericaInfantryRanger").is_none());
+    }
+
 }

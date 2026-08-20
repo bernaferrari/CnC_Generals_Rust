@@ -182,6 +182,17 @@ impl BasicDrawable {
     }
 
 
+    /// C++ `Drawable::s_veterancyImage[level]` (`Drawable.cpp:254-257`).
+    /// Regular (0) has no chevron; Veteran/Elite/Heroic use SCVeter1-3.
+    pub fn veterancy_image_name(level: u8) -> Option<&'static str> {
+        match level {
+            1 => Some("SCVeter1"),
+            2 => Some("SCVeter2"),
+            0 => None,
+            _ => Some("SCVeter3"),
+        }
+    }
+
     fn draw_veterancy(&mut self, _health_region: &IRegion2D) {
         // Wave 970: host empty dual-world → presentation veterancy residual.
         if dual_world_registry_unavailable() {
@@ -817,6 +828,19 @@ impl BasicDrawable {
     }
 
     pub fn draw_icon_ui(&mut self) {
+        // C++ `setStealthLook` is independent of drawIconUI. Friendly cloak
+        // stays VisibleFriendly (translucent); only Invisible hides.
+        if dual_world_registry_unavailable() {
+            let look = if self.hidden_by_stealth {
+                StealthLook::Invisible
+            } else if self.presentation_effectively_stealthed {
+                StealthLook::VisibleFriendly
+            } else {
+                StealthLook::None
+            };
+            self.apply_stealth_look(look);
+        }
+
         // C++ Drawable::drawIconUI (`Drawable.cpp:2738-2788`).
         if !self.icon_ui_allowed() {
             self.clear_icon_ui_overlay();
@@ -832,7 +856,6 @@ impl BasicDrawable {
             self.clear_icon_ui_overlay();
             return;
         }
-
         if let Some(health_region) = &region {
             self.draw_health_bar(health_region);
             self.draw_emoticon(health_region);
@@ -883,3 +906,56 @@ impl BasicDrawable {
     }
 
 }
+
+#[cfg(test)]
+mod hud_stealth_veterancy_tests {
+    use super::super::{BasicDrawable, Drawable, DrawableId, StealthLook};
+
+    #[test]
+    fn veterancy_image_names_are_scveter() {
+        assert_eq!(BasicDrawable::veterancy_image_name(0), None);
+        assert_eq!(BasicDrawable::veterancy_image_name(1), Some("SCVeter1"));
+        assert_eq!(BasicDrawable::veterancy_image_name(2), Some("SCVeter2"));
+        assert_eq!(BasicDrawable::veterancy_image_name(3), Some("SCVeter3"));
+    }
+
+    #[test]
+    fn friendly_stealth_look_is_translucent_not_hidden() {
+        game_engine::common::ini::init_global_data();
+        let mut drawable = BasicDrawable::new(DrawableId(42));
+        drawable.set_presentation_host_residual(
+            Vec::new(),
+            None,
+            true,
+            false,
+            1.0,
+            true,
+            2,
+            false,
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            false,
+            false,
+            false,
+            0.0,
+            false,
+            0,
+            Vec::new(),
+            String::new(),
+            0,
+            0,
+            String::new(),
+        );
+        drawable.draw_icon_ui();
+        assert_eq!(drawable.get_stealth_look(), StealthLook::VisibleFriendly);
+        assert!(!drawable.is_effectively_hidden());
+        assert_eq!(
+            BasicDrawable::veterancy_image_name(drawable.overlay_data.veterancy_level),
+            Some("SCVeter2")
+        );
+    }
+}
+

@@ -537,6 +537,11 @@ impl GameLogic {
             }
             // C++ VeterancyCrateCollide residual path.
             if entry.is_veterancy {
+                // C++ onCollide: isValidToExecute false leaves the crate.
+                if !self.veterancy_crate_is_valid_to_execute(picker_id, entry.veterancy_levels)
+                {
+                    continue;
+                }
                 let _ = self.execute_veterancy_crate_behavior(
                     picker_id,
                     entry.veterancy_effect_range,
@@ -739,14 +744,14 @@ impl GameLogic {
     /// CommandCenter / RadarVan radar-online residual (C++ Player::hasRadar).
     ///
     /// Retail: America CC GrantUpgradeCreate Upgrade_AmericaRadar + RadarUpgrade;
-    /// China CC RadarUpgrade (researched); GLA RadarVan GrantUpgradeCreate
-    /// Upgrade_GLARadar + RadarUpgrade DisableProof.
-    /// Residual: owning any alive constructed CC or RadarVan sets player
-    /// radar_count and has_radar. Fail-closed vs full RadarUpgrade module matrix,
-    /// power-brownout removeRadar, capture transfer, and Fake CC (skipped).
-    pub(in super::super) fn update_player_radar(&mut self) {
+    /// China CC RadarUpgrade TriggeredBy Upgrade_ChinaRadar (researched);
+    /// GLA RadarVan GrantUpgradeCreate Upgrade_GLARadar + RadarUpgrade DisableProof.
+    pub(crate) fn update_player_radar(&mut self) {
         use crate::game_logic::host_radar::{
             is_legal_radar_provider, RADAR_OFFLINE_AUDIO, RADAR_ONLINE_AUDIO,
+        };
+        use crate::game_logic::host_upgrades::{
+            normalize_upgrade_identity, radar_provider_required_research_upgrade,
         };
         use std::collections::HashMap;
 
@@ -765,6 +770,23 @@ impl GameLogic {
             let Some(player_id) = self.player_owner_for_host_object(obj) else {
                 continue;
             };
+            // C++ RadarUpgrade::attemptUpgrade: China CC needs the researched
+            // radar tag. America CC / RadarVan GrantUpgradeCreate skip this.
+            if let Some(required) = radar_provider_required_research_upgrade(&obj.template_name) {
+                let researched = self.players.get(&player_id).is_some_and(|player| {
+                    player.has_unlocked_upgrade(required)
+                        || player.unlocked_sciences.iter().any(|name| {
+                            normalize_upgrade_identity(name).contains("chinaradar")
+                        })
+                });
+                let tagged = obj.has_upgrade_tag(required)
+                    || obj.applied_upgrades.iter().any(|name| {
+                        normalize_upgrade_identity(name).contains("chinaradar")
+                    });
+                if !researched && !tagged {
+                    continue;
+                }
+            }
             *providers_by_player.entry(player_id).or_insert(0) += 1;
         }
 
@@ -796,6 +818,28 @@ impl GameLogic {
             }
         }
     }
+
+    /// C++ VeterancyCrateCollide::isValidToExecute for the collider.
+    /// Heroic / untrainable / levels<=0 leave the crate on the ground.
+    fn veterancy_crate_is_valid_to_execute(&self, picker_id: ObjectId, levels: u8) -> bool {
+        let Some(picker) = self.objects.get(&picker_id) else {
+            return false;
+        };
+        if !picker.is_alive() || picker.status.destroyed {
+            return false;
+        }
+        if levels == 0 {
+            return false;
+        }
+        if !picker.is_trainable() {
+            return false;
+        }
+        crate::game_logic::host_usa_pilot::vehicle_can_gain_exp_for_levels(
+            picker.experience.level,
+            levels,
+        )
+    }
+
 
     /// C++ parity (Player::update → doPowerDisable): set/clear
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on

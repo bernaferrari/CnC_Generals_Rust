@@ -1293,17 +1293,19 @@ impl GameLogic {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
+            let p = obj.get_position();
+            let contained = obj.contained_units().len() as u32;
+            let idle = !obj.status.moving && obj.movement.path.is_empty();
             let Some(ai) = obj.chinook_ai.as_mut() else {
                 continue;
             };
-            let p = obj.get_position();
             ai.pos = [p.x, p.z, p.y];
-            ai.parent_idle = !obj.status.moving && obj.movement.path.is_empty();
+            ai.parent_idle = idle;
             ai.wanting_enter_or_exit = wanting;
-            ai.contained_count = obj.contained_units().len() as u32;
+            ai.contained_count = contained;
             ai.tick(step);
-            obj.set_position(glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]));
-            obj.loco_preferred_height = if matches!(
+            let new_pos = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
+            let preferred = if matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
                     | crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
@@ -1312,7 +1314,11 @@ impl GameLogic {
             } else {
                 ai.preferred_height
             };
-            if ai.destroyed {
+            let destroyed = ai.destroyed;
+            drop(ai);
+            obj.set_position(new_pos);
+            obj.loco_preferred_height = preferred;
+            if destroyed {
                 obj.status.destroyed = true;
             }
         }

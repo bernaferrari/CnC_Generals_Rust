@@ -3608,6 +3608,61 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
 }
 
 #[test]
+fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
+    // C++ RebuildHoleExposeDie.cpp:108-110 isPlayerActive; :131 transferObjectName.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut st = ThingTemplate::new("GLATunnelNetwork");
+    st.add_kind_of(KindOf::Structure).set_health(1000.0);
+    logic.templates.insert("GLATunnelNetwork".into(), st);
+    let sid = logic
+        .create_object(
+            "GLATunnelNetwork",
+            Team::GLA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("tn");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.name = "NamedTunnel".into();
+    }
+    let hole = logic.maybe_spawn_rebuild_hole(sid).expect("hole");
+    assert_eq!(
+        logic.host_object(hole).unwrap().name,
+        "NamedTunnel",
+        "hole must inherit script name"
+    );
+
+    let mut dead = GameLogic::new();
+    let mut defeated = Player::new(0, Team::GLA, "GLA", true);
+    defeated.is_alive = false;
+    dead.players.insert(0, defeated);
+    let mut st2 = ThingTemplate::new("GLATunnelNetwork");
+    st2.add_kind_of(KindOf::Structure).set_health(1000.0);
+    dead.templates.insert("GLATunnelNetwork".into(), st2);
+    let sid2 = dead
+        .create_object(
+            "GLATunnelNetwork",
+            Team::GLA,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("tn2");
+    if let Some(o) = dead.host_object_mut(sid2) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    assert!(
+        dead.maybe_spawn_rebuild_hole(sid2).is_none(),
+        "defeated player must not expose a rebuild hole"
+    );
+}
+
+
+#[test]
 fn production_door_hold_open_blocks_close_until_released() {
     use crate::game_logic::host_enum_table_residual::{
         door_1_waiting_open_model_bit, host_model_condition_has,

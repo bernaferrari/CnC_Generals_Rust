@@ -7,6 +7,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
 
+/// C++ `BuildListInfo::UNLIMITED_REBUILDS` (`SidesList.h:240`).
+pub const UNLIMITED_REBUILDS: u32 = u32::MAX;
+
+
 /// AI difficulty levels affecting decision making and timing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AIDifficulty {
@@ -162,6 +166,27 @@ impl AIBuildingInfo {
             Some(t0) => current_time >= t0 + delay_seconds,
         }
     }
+
+    /// C++ `BuildListInfo::isBuildable` (`SidesList.h:361-366`).
+    pub fn is_buildable(&self) -> bool {
+        self.max_rebuilds == UNLIMITED_REBUILDS || self.rebuild_count < self.max_rebuilds
+    }
+
+    /// C++ `BuildListInfo::decrementNumRebuilds` — no-op for `UNLIMITED_REBUILDS`.
+    pub fn decrement_num_rebuilds(&mut self) {
+        if self.max_rebuilds != UNLIMITED_REBUILDS {
+            self.rebuild_count = self.rebuild_count.saturating_add(1);
+        }
+    }
+
+    /// C++ `BuildListInfo::incrementNumRebuilds`. `newMap` adds one because the
+    /// first construction consumes a rebuild (`AISkirmishPlayer.cpp:1083`).
+    pub fn increment_num_rebuilds(&mut self) {
+        if self.max_rebuilds != UNLIMITED_REBUILDS {
+            self.max_rebuilds = self.max_rebuilds.saturating_add(1);
+        }
+    }
+
 }
 
 /// Base AI Player implementation
@@ -205,6 +230,16 @@ pub struct AIPlayer {
 
     /// Count of production-linked actions (build/produce/attack) for gates.
     pub activity_count: u64,
+
+    // C++ `AISkirmishPlayer` front/flank defense fan (`AISkirmishPlayer.cpp:50-57`).
+    cur_front_base_defense: i32,
+    cur_flank_base_defense: i32,
+    cur_front_left_defense_angle: f32,
+    cur_front_right_defense_angle: f32,
+    cur_left_flank_left_defense_angle: f32,
+    cur_left_flank_right_defense_angle: f32,
+    cur_right_flank_left_defense_angle: f32,
+    cur_right_flank_right_defense_angle: f32,
 }
 
 /// AI strategic states
@@ -255,6 +290,14 @@ impl AIPlayer {
             current_strategy: AIStrategy::EarlyGame,
             build_phase: AIBuildPhase::BaseConstruction,
             activity_count: 0,
+            cur_front_base_defense: 0,
+            cur_flank_base_defense: 0,
+            cur_front_left_defense_angle: 0.0,
+            cur_front_right_defense_angle: 0.0,
+            cur_left_flank_left_defense_angle: 0.0,
+            cur_left_flank_right_defense_angle: 0.0,
+            cur_right_flank_left_defense_angle: 0.0,
+            cur_right_flank_right_defense_angle: 0.0,
         }
     }
 
@@ -316,56 +359,114 @@ impl AIPlayer {
     /// Set up initial base building layout.
     ///
     /// Core pads plus the C++ `AIData.ini` `SkirmishBuildList` tech/air
-    /// structures and `SideInfo::BaseDefenseStructure1`.  Offsets stay inside
-    /// the host 512² MinDistFromEdge residual (|offset| ≤ 100).
+    /// structures and `SideInfo::BaseDefenseStructure1`.  Core pads stay
+    /// inside the host 512² MinDistFromEdge residual (|offset| ≤ 100).
+    /// Defenses use the C++ approach-path fan, not a fixed +80/+80 pad.
     fn setup_base_layout(&mut self) {
         let center = self.base_center;
+        self.reset_base_defense_fan();
 
-        // Core base buildings based on team
+        // Core base buildings based on team. C++ `newMap` increments rebuilds
+        // so the first construction does not spend the last rebuild, and
+        // `UNLIMITED_REBUILDS` is a no-op decrement.
         match self.team {
             Team::USA => {
-                self.add_building("AmericaCommandCenter", center, 1);
-                self.add_building("AmericaSupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
-                self.add_building("AmericaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
-                self.add_building("AmericaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("AmericaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                self.add_layout_building("AmericaCommandCenter", center, UNLIMITED_REBUILDS);
+                self.add_layout_building(
+                    "AmericaSupplyCenter",
+                    center + Vec3::new(50.0, 0.0, 0.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "AmericaPowerPlant",
+                    center + Vec3::new(-50.0, 0.0, 0.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "AmericaBarracks",
+                    center + Vec3::new(0.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "AmericaWarFactory",
+                    center + Vec3::new(100.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
                 // C++ SkirmishBuildList America: StrategyCenter + Airfield.
-                self.add_building(
+                self.add_layout_building(
                     "AmericaStrategyCenter",
                     center + Vec3::new(-100.0, 0.0, 50.0),
-                    1,
+                    UNLIMITED_REBUILDS,
                 );
-                self.add_building("AmericaAirfield", center + Vec3::new(50.0, 0.0, -100.0), 1);
+                self.add_layout_building(
+                    "AmericaAirfield",
+                    center + Vec3::new(50.0, 0.0, -100.0),
+                    UNLIMITED_REBUILDS,
+                );
             }
             Team::China => {
-                self.add_building("ChinaCommandCenter", center, 1);
-                self.add_building("ChinaSupplyCenter", center + Vec3::new(50.0, 0.0, 0.0), 2);
-                self.add_building("ChinaPowerPlant", center + Vec3::new(-50.0, 0.0, 0.0), 2);
-                self.add_building("ChinaBarracks", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("ChinaWarFactory", center + Vec3::new(100.0, 0.0, 50.0), 1);
+                self.add_layout_building("ChinaCommandCenter", center, UNLIMITED_REBUILDS);
+                self.add_layout_building(
+                    "ChinaSupplyCenter",
+                    center + Vec3::new(50.0, 0.0, 0.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "ChinaPowerPlant",
+                    center + Vec3::new(-50.0, 0.0, 0.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "ChinaBarracks",
+                    center + Vec3::new(0.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "ChinaWarFactory",
+                    center + Vec3::new(100.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
                 // C++ SkirmishBuildList China: PropagandaCenter + Airfield.
-                self.add_building(
+                self.add_layout_building(
                     "ChinaPropagandaCenter",
                     center + Vec3::new(-100.0, 0.0, 50.0),
-                    1,
+                    UNLIMITED_REBUILDS,
                 );
-                self.add_building("ChinaAirfield", center + Vec3::new(50.0, 0.0, -100.0), 1);
+                self.add_layout_building(
+                    "ChinaAirfield",
+                    center + Vec3::new(50.0, 0.0, -100.0),
+                    UNLIMITED_REBUILDS,
+                );
             }
             Team::GLA => {
-                self.add_building("GLACommandCenter", center, 1);
-                self.add_building("GLASupplyStash", center + Vec3::new(50.0, 0.0, 0.0), 3);
-                self.add_building("GLAArmsDealer", center + Vec3::new(0.0, 0.0, 50.0), 2);
-                self.add_building("GLABarracks", center + Vec3::new(-50.0, 0.0, 50.0), 2);
+                self.add_layout_building("GLACommandCenter", center, UNLIMITED_REBUILDS);
+                self.add_layout_building(
+                    "GLASupplyStash",
+                    center + Vec3::new(50.0, 0.0, 0.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "GLAArmsDealer",
+                    center + Vec3::new(0.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
+                self.add_layout_building(
+                    "GLABarracks",
+                    center + Vec3::new(-50.0, 0.0, 50.0),
+                    UNLIMITED_REBUILDS,
+                );
                 // C++ SkirmishBuildList GLA: Palace is the tech structure.
-                self.add_building("GLAPalace", center + Vec3::new(100.0, 0.0, -50.0), 1);
+                self.add_layout_building(
+                    "GLAPalace",
+                    center + Vec3::new(100.0, 0.0, -50.0),
+                    UNLIMITED_REBUILDS,
+                );
             }
             _ => {}
         }
 
-        // C++ `AISkirmishPlayer::buildAIBaseDefense` → `m_baseDefenseStructure1`.
-        if let Some(defense) = self.base_defense_structure() {
-            self.add_building(defense, center + Vec3::new(80.0, 0.0, 80.0), 1);
-        }
+        // C++ `AISkirmishPlayer::buildAIBaseDefense` — first front-fan slot.
+        self.queue_front_base_defense(None);
     }
 
     /// C++ `AIData.ini` `SideInfo` name for the live host team.
@@ -396,6 +497,177 @@ impl AIPlayer {
         let building = AIBuildingInfo::new(template_name.to_string(), position, max_rebuilds);
         self.building_queue.push(building);
     }
+
+    /// C++ `AISkirmishPlayer::newMap` layout slot: increment rebuilds so the
+    /// first construction does not consume the last rebuild.
+    fn add_layout_building(&mut self, template_name: &str, position: Vec3, max_rebuilds: u32) {
+        let mut building = AIBuildingInfo::new(template_name.to_string(), position, max_rebuilds);
+        building.increment_num_rebuilds();
+        self.building_queue.push(building);
+    }
+
+    /// C++ `TAiData::m_skirmishBaseDefenseExtraDistance` (Default/AIData.ini = 150).
+    pub const SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE: f32 = 150.0;
+
+    fn reset_base_defense_fan(&mut self) {
+        self.cur_front_base_defense = 0;
+        self.cur_flank_base_defense = 0;
+        self.cur_front_left_defense_angle = 0.0;
+        self.cur_front_right_defense_angle = 0.0;
+        self.cur_left_flank_left_defense_angle = 0.0;
+        self.cur_left_flank_right_defense_angle = 0.0;
+        self.cur_right_flank_left_defense_angle = 0.0;
+        self.cur_right_flank_right_defense_angle = 0.0;
+    }
+
+    /// C++ `AISkirmishPlayer::buildAIBaseDefense(false)` — one front-fan slot.
+    fn queue_front_base_defense(&mut self, game_logic: Option<&GameLogic>) {
+        let Some(defense) = self.base_defense_structure() else {
+            return;
+        };
+        if let Some(position) = self.place_next_base_defense_structure(game_logic, defense, false) {
+            self.add_layout_building(defense, position, UNLIMITED_REBUILDS);
+        }
+    }
+
+    /// Approach goal for the defense fan.
+    ///
+    /// C++ `buildAIBaseDefenseStructure` (`AISkirmishPlayer.cpp:599-609`):
+    /// closest Center/Flank/Backdoor waypoint, else enemy structure bounds
+    /// center for front, else abort for flank.
+    fn approach_goal(&self, game_logic: Option<&GameLogic>, flank: bool) -> Option<Vec3> {
+        if let Some(gl) = game_logic {
+            if let Some(enemy_id) = self.enemy_player_id {
+                if let Some(enemy) = gl.get_player(enemy_id) {
+                    return Some(self.find_enemy_base_center(gl, enemy.team));
+                }
+            }
+            for player_id in 0..8u32 {
+                if player_id == self.player_id {
+                    continue;
+                }
+                if let Some(player) = gl.get_player(player_id) {
+                    if player.team != self.team && player.is_alive {
+                        return Some(self.find_enemy_base_center(gl, player.team));
+                    }
+                }
+            }
+        }
+        if flank {
+            return None;
+        }
+        // C++ no-waypoint front fallback is enemy bounds; without an enemy,
+        // `find_enemy_base_center` uses the opposite corner (`-base_center`).
+        Some(-self.base_center)
+    }
+
+    /// C++ `AISkirmishPlayer::buildAIBaseDefenseStructure` (`AISkirmishPlayer.cpp:580-686`).
+    ///
+    /// Walks the left/right approach fan until a legal pad is found or the
+    /// angle exceeds π/3.
+    fn place_next_base_defense_structure(
+        &mut self,
+        game_logic: Option<&GameLogic>,
+        thing_name: &str,
+        flank: bool,
+    ) -> Option<Vec3> {
+        loop {
+            let goal = self.approach_goal(game_logic, flank)?;
+            let mut offset_x = goal.x - self.base_center.x;
+            let mut offset_z = goal.z - self.base_center.z;
+            let length = (offset_x * offset_x + offset_z * offset_z).sqrt();
+            if length > 0.001 {
+                offset_x /= length;
+                offset_z /= length;
+            } else {
+                offset_x = 1.0;
+                offset_z = 0.0;
+            }
+            let defense_distance =
+                self.base_radius + Self::SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE;
+            offset_x *= defense_distance;
+            offset_z *= defense_distance;
+
+            let structure_radius = 20.0;
+            let base_circumference = 2.0 * std::f32::consts::PI * defense_distance.max(1.0);
+            let angle_offset = 2.0
+                * std::f32::consts::PI
+                * (structure_radius * 4.0 / base_circumference);
+
+            let angle = if flank {
+                let selector = self.cur_flank_base_defense >> 1;
+                if self.cur_flank_base_defense & 1 != 0 {
+                    if selector & 1 != 0 {
+                        self.cur_left_flank_right_defense_angle -= angle_offset;
+                        self.cur_left_flank_right_defense_angle
+                    } else {
+                        let result = self.cur_left_flank_left_defense_angle;
+                        self.cur_left_flank_left_defense_angle += angle_offset;
+                        result
+                    }
+                } else if selector & 1 != 0 {
+                    self.cur_right_flank_right_defense_angle -= angle_offset;
+                    self.cur_right_flank_right_defense_angle
+                } else {
+                    let result = self.cur_right_flank_left_defense_angle;
+                    self.cur_right_flank_left_defense_angle += angle_offset;
+                    result
+                }
+            } else if self.cur_front_base_defense & 1 != 0 {
+                self.cur_front_right_defense_angle -= angle_offset;
+                self.cur_front_right_defense_angle
+            } else {
+                let result = self.cur_front_left_defense_angle;
+                self.cur_front_left_defense_angle += angle_offset;
+                result
+            };
+
+            if angle > std::f32::consts::PI / 3.0 {
+                return None;
+            }
+
+            let s = angle.sin();
+            let c = angle.cos();
+            let mut build_pos = self.base_center;
+            build_pos.x += offset_x * c - offset_z * s;
+            build_pos.z += offset_z * c + offset_x * s;
+
+            if flank {
+                self.cur_flank_base_defense += 1;
+            } else {
+                self.cur_front_base_defense += 1;
+            }
+
+            let legal = game_logic
+                .map(|gl| gl.is_location_legal_to_build(self.team, build_pos, thing_name))
+                .unwrap_or(true);
+            if legal {
+                return Some(build_pos);
+            }
+        }
+    }
+
+    /// If a queued front-defense pad is illegal, walk the C++ fan for a new pad.
+    fn relocate_defense_if_illegal(&mut self, game_logic: &GameLogic, index: usize) {
+        let Some(building) = self.building_queue.get(index) else {
+            return;
+        };
+        let name = building.template_name.clone();
+        let position = building.position;
+        if self.base_defense_structure() != Some(name.as_str()) {
+            return;
+        }
+        if game_logic.is_location_legal_to_build(self.team, position, &name) {
+            return;
+        }
+        if let Some(next) = self.place_next_base_defense_structure(Some(game_logic), &name, false)
+        {
+            if let Some(building) = self.building_queue.get_mut(index) {
+                building.position = next;
+            }
+        }
+    }
+
 
     /// Set up initial AI strategy based on personality
     fn setup_initial_strategy(&mut self) {
@@ -733,7 +1005,7 @@ impl AIPlayer {
         let build_index = game_logic.get_player(self.player_id).and_then(|player| {
             self.building_queue.iter().position(|building| {
                 !building.is_built
-                    && building.rebuild_count < building.max_rebuilds
+                    && building.is_buildable()
                     && building.object_id.is_none()
                     && building.rebuild_delay_elapsed(current_time, Self::REBUILD_DELAY_SECONDS)
                     && game_logic
@@ -744,6 +1016,7 @@ impl AIPlayer {
         });
 
         if let Some(index) = build_index {
+            self.relocate_defense_if_illegal(game_logic, index);
             if let Some((template_name, position, build_cost)) =
                 self.building_queue.get(index).and_then(|building| {
                     game_logic
@@ -799,7 +1072,7 @@ impl AIPlayer {
                 if let Some(object_id) = started {
                     let building = &mut self.building_queue[index];
                     building.object_id = Some(object_id);
-                    building.rebuild_count += 1;
+                    building.decrement_num_rebuilds();
                     // C++ setObjectTimestamp(0) once rebuild is enabled/started.
                     building.destroyed_at_time = None;
                     self.activity_count = self.activity_count.saturating_add(1);
@@ -4212,6 +4485,100 @@ mod cpp_parity_tests {
             ));
         }
     }
+
+    #[test]
+    fn unlimited_rebuilds_do_not_spend_budget_on_first_build() {
+        // C++ `BuildListInfo::decrementNumRebuilds` (`SidesList.h:349-353`) is
+        // a no-op for `UNLIMITED_REBUILDS`. `newMap` also increments finite
+        // rebuilds so the first construction does not consume the last slot
+        // (`AISkirmishPlayer.cpp:1083`).
+        let mut unlimited =
+            AIBuildingInfo::new("AmericaAirfield".into(), Vec3::ZERO, UNLIMITED_REBUILDS);
+        unlimited.increment_num_rebuilds();
+        unlimited.decrement_num_rebuilds();
+        unlimited.decrement_num_rebuilds();
+        assert!(unlimited.is_buildable());
+        assert_eq!(unlimited.rebuild_count, 0);
+        assert_eq!(unlimited.max_rebuilds, UNLIMITED_REBUILDS);
+
+        let mut factory = AIBuildingInfo::new("AmericaWarFactory".into(), Vec3::ZERO, 1);
+        factory.increment_num_rebuilds();
+        assert!(factory.is_buildable());
+        factory.decrement_num_rebuilds(); // first construction
+        assert!(
+            factory.is_buildable(),
+            "first build must not spend the last rebuild"
+        );
+        factory.decrement_num_rebuilds(); // one rebuild
+        assert!(!factory.is_buildable());
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.initialize(Vec3::new(-120.0, 0.0, -120.0));
+        let factory = ai
+            .building_queue
+            .iter_mut()
+            .find(|b| b.template_name == "AmericaWarFactory")
+            .expect("layout factory");
+        assert_eq!(factory.max_rebuilds, UNLIMITED_REBUILDS);
+        assert!(factory.is_buildable());
+        factory.decrement_num_rebuilds();
+        assert!(
+            factory.is_buildable(),
+            "unlimited layout factory must still rebuild after first start"
+        );
+        assert_eq!(factory.rebuild_count, 0);
+    }
+
+    #[test]
+    fn base_defense_uses_approach_fan_not_plus_80() {
+        // C++ `AISkirmishPlayer::buildAIBaseDefenseStructure`
+        // (`AISkirmishPlayer.cpp:542-686`): first front pad is along the
+        // approach at `baseRadius + extraDistance`, then left/right fan.
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        ai.initialize(Vec3::new(-120.0, 0.0, -120.0));
+        let patriot = ai
+            .building_queue
+            .iter()
+            .find(|b| b.template_name == "AmericaPatriotBattery")
+            .expect("SideInfo defense is queued");
+        let plus_80 = ai.base_center + Vec3::new(80.0, 0.0, 80.0);
+        assert!(
+            (patriot.position - plus_80).length() > 1.0,
+            "defense must not sit on the old +80/+80 pad, got {:?}",
+            patriot.position
+        );
+        let approach = -ai.base_center;
+        let dir = Vec3::new(approach.x, 0.0, approach.z).normalize();
+        let expected = ai.base_center
+            + dir * (ai.base_radius + AIPlayer::SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE);
+        assert!(
+            (patriot.position - expected).length() < 0.25,
+            "first front defense must sit on the approach ring: {:?} vs {:?}",
+            patriot.position,
+            expected
+        );
+
+        let first = patriot.position;
+        let second = ai
+            .place_next_base_defense_structure(None, "AmericaPatriotBattery", false)
+            .expect("fan continues to the next legal slot");
+        assert!(
+            (second - first).length() > 1.0,
+            "legality fan must rotate off the previous pad"
+        );
+        let radius = ai.base_radius + AIPlayer::SKIRMISH_BASE_DEFENSE_EXTRA_DISTANCE;
+        let second_radius = Vec3::new(
+            second.x - ai.base_center.x,
+            0.0,
+            second.z - ai.base_center.z,
+        )
+        .length();
+        assert!(
+            (second_radius - radius).abs() < 0.25,
+            "fan slots stay on the defense ring: {second_radius} vs {radius}"
+        );
+    }
+
 
     #[test]
     fn ai_building_placement_is_deterministic() {

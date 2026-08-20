@@ -8,6 +8,74 @@ use super::prelude::*;
 use super::script_camera::*;
 use super::*;
 
+/// Map-authored SidesList leftovers applied onto a live host player.
+/// C++ `Player::initFromDict` + `PlayerList` relationship pass.
+#[derive(Debug, Clone)]
+pub struct PlayerMapSideState {
+    /// Dict `playerName` used to resolve playerAllies / playerEnemies tokens.
+    pub map_player_name: String,
+    /// Explicit overrides. Missing entries default Neutral (C++ PlayerRelationMap).
+    pub relations: HashMap<u32, gamelogic::common::Relationship>,
+    /// C++ `Handicap::m_handicaps[BUILDCOST][GENERIC]`.
+    pub handicap_build_cost_generic: f32,
+    /// C++ `Handicap::m_handicaps[BUILDCOST][BUILDINGS]`.
+    pub handicap_build_cost_buildings: f32,
+    /// C++ `Handicap::m_handicaps[BUILDTIME][GENERIC]`.
+    pub handicap_build_time_generic: f32,
+    /// C++ `Handicap::m_handicaps[BUILDTIME][BUILDINGS]`.
+    pub handicap_build_time_buildings: f32,
+    /// SidesList BuildListInfo rows (template, world xz, rebuilds, initiallyBuilt).
+    pub build_list: Vec<HostAuthoredBuild>,
+}
+
+/// One SidesList build-list row consumed by live host AI.
+#[derive(Debug, Clone)]
+pub struct HostAuthoredBuild {
+    pub template: String,
+    pub position: (f32, f32, f32),
+    pub num_rebuilds: u32,
+    pub initially_built: bool,
+}
+
+impl Default for PlayerMapSideState {
+    fn default() -> Self {
+        Self {
+            map_player_name: String::new(),
+            relations: HashMap::new(),
+            handicap_build_cost_generic: 1.0,
+            handicap_build_cost_buildings: 1.0,
+            handicap_build_time_generic: 1.0,
+            handicap_build_time_buildings: 1.0,
+            build_list: Vec::new(),
+        }
+    }
+}
+
+impl PlayerMapSideState {
+    fn read_handicap_from_dict(&mut self, dict: &Dict) {
+        const KEYS: [(&str, fn(&mut PlayerMapSideState, f32)); 4] = [
+            ("HANDICAP_BUILDCOST_GENERIC", |s, v| {
+                s.handicap_build_cost_generic = v;
+            }),
+            ("HANDICAP_BUILDCOST_BUILDINGS", |s, v| {
+                s.handicap_build_cost_buildings = v;
+            }),
+            ("HANDICAP_BUILDTIME_GENERIC", |s, v| {
+                s.handicap_build_time_generic = v;
+            }),
+            ("HANDICAP_BUILDTIME_BUILDINGS", |s, v| {
+                s.handicap_build_time_buildings = v;
+            }),
+        ];
+        for (name, apply) in KEYS {
+            let key = NameKeyGenerator::name_to_key(name);
+            if dict.get_type(key).is_some() {
+                apply(self, dict.get_real(key));
+            }
+        }
+    }
+}
+
 /// Player structure
 #[derive(Debug, Clone)]
 pub struct Player {
@@ -71,6 +139,9 @@ pub struct Player {
     pub skill_points: i32,
     /// C++ Player::m_sciencePurchasePoints residual.
     pub science_purchase_points: i32,
+    /// C++ Player::m_skillPointsModifier residual (default 1.0).
+    pub skill_points_modifier: f32,
+
     /// C++ Player::m_canBuildUnits (Player.cpp:2301). Scripts flip this via
     /// PLAYER_DISABLE/ENABLE_UNIT_CONSTRUCTION.
     pub can_build_units: bool,
@@ -87,6 +158,8 @@ pub struct Player {
     pub resource_supply_centers: Vec<ObjectId>,
     /// C++ ResourceGatheringManager supply-warehouse object IDs.
     pub resource_supply_warehouses: Vec<ObjectId>,
+    /// C++ initFromDict / PlayerList relationship leftovers from the map SidesList.
+    pub map_side: PlayerMapSideState,
 }
 
 /// Main-owned identity of the C++ `PlayerTemplate` that constructed a host
@@ -280,10 +353,13 @@ impl Player {
             rank_level: 1,
             skill_points: 0,
             science_purchase_points: 0,
+            skill_points_modifier: 1.0,
+
             can_build_units: true,
             can_build_base: true,
 
             shared_special_power_cooldowns: HashMap::new(),
+            map_side: PlayerMapSideState::default(),
             completed_upgrades: HashSet::new(),
             resource_supply_centers: Vec::new(),
             resource_supply_warehouses: Vec::new(),
@@ -509,38 +585,123 @@ impl Player {
         bounty
     }
 
-    /// C++ Player::addSkillPoints residual — returns true if rank increased.
+    /// C++ Player::addSkillPoints — modifier ceil, point cap, rank-up loop.
+    /// Negative deltas lower skill points (C++ `min(pointCap, skill+delta)`).
+    /// Rank-down is `set_rank_level` / `reset_rank`, not this loop.
     pub fn add_skill_points(&mut self, points: i32) -> bool {
-        use crate::game_logic::host_science_rank::{
-            retail_cumulative_science_points_through, retail_rank_for_level,
-            retail_rank_level_for_skill_points,
+        self.add_skill_points_limited(
+            points,
+            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
+        )
+    }
+
+    /// C++ Player::addSkillPoints with GameLogic rank-level limit.
+    pub fn add_skill_points_limited(&mut self, points: i32, rank_level_limit: i32) -> bool {
+        use crate::game_logic::host_rank_ui_residual::{
+            add_skill_points_residual, rank_level_down_threshold_residual,
+            rank_level_up_threshold_residual, RankSkillStateResidual,
         };
-        if points <= 0 {
+        use crate::game_logic::host_science_rank::retail_rank_for_level;
+
+        let old_level = self.rank_level.max(1);
+        let old_skill = self.skill_points;
+        let state = RankSkillStateResidual {
+            rank_level: old_level,
+            skill_points: self.skill_points,
+            science_purchase_points: self.science_purchase_points,
+            level_up: rank_level_up_threshold_residual(old_level),
+            level_down: rank_level_down_threshold_residual(old_level),
+        };
+        let (new_state, level_gained) = add_skill_points_residual(
+            state,
+            points,
+            self.skill_points_modifier,
+            rank_level_limit,
+        );
+        self.rank_level = new_state.rank_level;
+        self.skill_points = new_state.skill_points;
+        self.science_purchase_points = new_state.science_purchase_points;
+        if new_state.rank_level > old_level {
+            for lvl in (old_level + 1)..=new_state.rank_level {
+                if let Some(row) = retail_rank_for_level(lvl) {
+                    self.unlocked_sciences
+                        .insert(row.science_granted.to_string());
+                }
+            }
+        }
+        if self.skill_points != old_skill || self.rank_level != old_level {
+            self.record_host_progress();
+            self.record_host_sciences();
+        }
+        level_gained
+    }
+
+    /// C++ Player::addSkillPointsForKill — victim template SkillPointValue.
+    pub fn add_skill_points_for_kill(&mut self, victim_skill_value: i32) -> bool {
+        self.add_skill_points(victim_skill_value)
+    }
+
+    /// C++ Player::resetRank — rank 1, skill 0, intrinsic+Rank1 SPP, sciences reset.
+    pub fn reset_rank(&mut self) {
+        use crate::game_logic::host_rank_ui_residual::reset_rank_residual;
+        let reset = reset_rank_residual(0);
+        self.rank_level = reset.rank_level;
+        self.skill_points = reset.skill_points;
+        self.unlocked_sciences.clear();
+        self.apply_faction_intrinsic_sciences();
+        self.science_purchase_points = reset.science_purchase_points;
+        self.record_host_progress();
+        self.record_host_sciences();
+    }
+
+    /// C++ Player::setRankLevel — downgrade calls resetRank then climbs.
+    pub fn set_rank_level(&mut self, new_level: u32) -> bool {
+        use crate::game_logic::host_rank_ui_residual::{
+            set_rank_level_residual, rank_level_down_threshold_residual,
+            rank_level_up_threshold_residual, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
+            RankSkillStateResidual,
+        };
+        use crate::game_logic::host_science_rank::{
+            retail_rank_for_level, RETAIL_RANK_COUNT,
+        };
+
+        let old = self.rank_level.max(1);
+        let target = new_level.max(1).min(RETAIL_RANK_COUNT);
+        if target == old {
             return false;
         }
-        self.skill_points = self.skill_points.saturating_add(points);
-        let new_level = retail_rank_level_for_skill_points(self.skill_points).max(1);
-        if new_level <= self.rank_level {
-            return false;
+        if target < old {
+            self.reset_rank();
+            if target == 1 {
+                return true;
+            }
         }
-        let old = self.rank_level;
-        self.rank_level = new_level;
-        // Grant cumulative science points delta residual.
-        let old_spp = retail_cumulative_science_points_through(old);
-        let new_spp = retail_cumulative_science_points_through(new_level);
-        let delta = (new_spp - old_spp).max(0);
-        self.science_purchase_points = self.science_purchase_points.saturating_add(delta);
-        // Unlock rank sciences residual.
-        for lvl in (old + 1)..=new_level {
-            if let Some(row) = retail_rank_for_level(lvl) {
-                self.unlocked_sciences
-                    .insert(row.science_granted.to_string());
+        let climb_from = self.rank_level.max(1);
+        let state = RankSkillStateResidual {
+            rank_level: climb_from,
+            skill_points: self.skill_points,
+            science_purchase_points: self.science_purchase_points,
+            level_up: rank_level_up_threshold_residual(climb_from),
+            level_down: rank_level_down_threshold_residual(climb_from),
+        };
+        let new_state =
+            set_rank_level_residual(state, target, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
+        self.rank_level = new_state.rank_level;
+        self.skill_points = new_state.skill_points;
+        self.science_purchase_points = new_state.science_purchase_points;
+        if new_state.rank_level > climb_from {
+            for lvl in (climb_from + 1)..=new_state.rank_level {
+                if let Some(row) = retail_rank_for_level(lvl) {
+                    self.unlocked_sciences
+                        .insert(row.science_granted.to_string());
+                }
             }
         }
         self.record_host_progress();
         self.record_host_sciences();
         true
     }
+
 
     /// Supplies visible to purchase gates (includes in-flight economy-authority delta).
     pub fn effective_supplies(&self) -> u32 {
@@ -862,8 +1023,8 @@ impl Player {
         if !self.is_capable_of_purchasing_science(&canonical) {
             return false;
         }
-        let cost = science_purchase_point_cost_residual(&canonical).unwrap_or(1);
-        if cost > self.science_purchase_points {
+        let cost = science_purchase_point_cost_residual(&canonical).unwrap_or(0);
+        if cost <= 0 || cost > self.science_purchase_points {
             return false;
         }
         self.science_purchase_points -= cost;
@@ -872,6 +1033,10 @@ impl Player {
         let unlocked = self.unlock_science(&canonical);
         if unlocked {
             self.record_host_progress();
+            crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::sync_host_science_to_crate_player(
+                self.id,
+                &canonical,
+            );
         }
         unlocked
     }
@@ -915,6 +1080,61 @@ impl Player {
 
     pub fn record_resources_spent(&mut self, amount: u32) {
         self.statistics.resources_spent = self.statistics.resources_spent.saturating_add(amount);
+    }
+
+    /// C++ `Player::initFromDict` money/color/handicap.
+    ///
+    /// `replace_default_money` is the campaign/map-create path: dict
+    /// `playerStartMoney` replaces `Player::new`'s $10k fallback.
+    /// Skirmish lobby cash is applied separately (`replace_default_money=false`).
+    pub fn apply_map_side_dict(&mut self, dict: &Dict, replace_default_money: bool) {
+        let map_name = dict.get_ascii_string(key_player_name());
+        if !map_name.is_empty() {
+            self.map_side.map_player_name = map_name;
+        }
+
+        if replace_default_money && dict.get_type(key_player_start_money()).is_some() {
+            // C++ deposits onto template money (usually 0). Host `new` planted
+            // DEFAULT as fallback when no map key existed.
+            self.resources.supplies = dict.get_int(key_player_start_money()).max(0) as u32;
+        }
+
+        if dict.get_type(key_player_color()).is_some() {
+            let color = dict.get_int(key_player_color()) as u32;
+            self.color_rgb = (
+                ((color >> 16) & 0xff) as u8,
+                ((color >> 8) & 0xff) as u8,
+                (color & 0xff) as u8,
+            );
+        }
+
+        self.map_side.read_handicap_from_dict(dict);
+    }
+
+    /// C++ `Player::setPlayerRelationship`.
+    pub fn set_map_relationship(
+        &mut self,
+        other_player_id: u32,
+        relationship: gamelogic::common::Relationship,
+    ) {
+        self.map_side.relations.insert(other_player_id, relationship);
+    }
+
+    /// C++ `Player::getRelationship` map lookup (missing → Neutral at the caller).
+    pub fn map_relationship(
+        &self,
+        other_player_id: u32,
+    ) -> Option<gamelogic::common::Relationship> {
+        self.map_side.relations.get(&other_player_id).copied()
+    }
+
+    /// C++ `Handicap::getHandicap(BUILDCOST, …)`.
+    pub fn handicap_build_cost_multiplier(&self, is_structure: bool) -> f32 {
+        if is_structure {
+            self.map_side.handicap_build_cost_buildings
+        } else {
+            self.map_side.handicap_build_cost_generic
+        }
     }
 }
 
@@ -1092,5 +1312,47 @@ impl<'a> IntoIterator for &'a mut HostObjectStore {
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.map.iter_mut()
+    }
+}
+
+#[cfg(test)]
+mod map_side_dict_tests {
+    use super::*;
+
+    #[test]
+    fn map_start_money_replaces_default_ten_k() {
+        let mut player = Player::new(0, Team::USA, "PlyrAmerica", true);
+        assert_eq!(player.resources.supplies, Player::DEFAULT_STARTING_MONEY);
+        let mut dict = Dict::new();
+        dict.set_int(key_player_start_money(), 2_500);
+        dict.set_int(key_player_color(), 0x00aa_3311);
+        dict.set_ascii_string(key_player_name(), "PlyrAmerica");
+        player.apply_map_side_dict(&dict, true);
+        assert_eq!(player.resources.supplies, 2_500);
+        assert_eq!(player.color_rgb, (0xaa, 0x33, 0x11));
+        assert_eq!(player.map_side.map_player_name, "PlyrAmerica");
+    }
+
+    #[test]
+    fn lobby_cash_is_not_clobbered_by_map_start_money() {
+        let mut player = Player::new(0, Team::USA, "Human", true);
+        player.resources.supplies = 20_000;
+        let mut dict = Dict::new();
+        dict.set_int(key_player_start_money(), 2_500);
+        player.apply_map_side_dict(&dict, false);
+        assert_eq!(player.resources.supplies, 20_000);
+    }
+
+    #[test]
+    fn handicap_keys_apply_from_dict() {
+        let mut player = Player::new(0, Team::USA, "P", true);
+        let mut dict = Dict::new();
+        dict.set_real(
+            NameKeyGenerator::name_to_key("HANDICAP_BUILDCOST_BUILDINGS"),
+            0.75,
+        );
+        player.apply_map_side_dict(&dict, false);
+        assert!((player.handicap_build_cost_multiplier(true) - 0.75).abs() < f32::EPSILON);
+        assert!((player.handicap_build_cost_multiplier(false) - 1.0).abs() < f32::EPSILON);
     }
 }

@@ -372,20 +372,169 @@ pub fn command_set_allows_unit(producer_template: &str, unit_template: &str) -> 
     Some(allowed)
 }
 
+/// C++ `ProductionUpdateModuleData` door fields after INI parse.
+/// Times are logic frames (`INI::parseDurationUnsignedInt`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProductionDoorIni {
+    pub num_door_animations: i32,
+    pub opening_frames: u32,
+    pub wait_open_frames: u32,
+    pub close_frames: u32,
+}
+
+impl Default for ProductionDoorIni {
+    fn default() -> Self {
+        Self {
+            num_door_animations: PRODUCTION_NUM_DOOR_ANIMATIONS_DEFAULT,
+            opening_frames: PRODUCTION_DOOR_OPENING_TIME_DEFAULT,
+            wait_open_frames: PRODUCTION_DOOR_WAIT_OPEN_TIME_DEFAULT,
+            close_frames: PRODUCTION_DOOR_CLOSING_TIME_DEFAULT,
+        }
+    }
+}
+
+/// C++ `INI::parseInt` / `parseDurationUnsignedInt` for ProductionUpdate door fields.
+///
+/// `ProductionUpdate.cpp:112-115` — `NumDoorAnimations` is a raw int; door times
+/// are authored milliseconds converted with ceil(ms × 30 / 1000).
+pub fn parse_production_door_ini_fields<'a>(
+    get: impl Fn(&str) -> Option<&'a str>,
+) -> ProductionDoorIni {
+    use crate::game_logic::host_structure_economy_residual::structure_economy_ms_to_frames;
+    let num_door_animations = get("NumDoorAnimations")
+        .and_then(parse_ini_i32_token)
+        .unwrap_or(PRODUCTION_NUM_DOOR_ANIMATIONS_DEFAULT);
+    ProductionDoorIni {
+        num_door_animations,
+        opening_frames: structure_economy_ms_to_frames(
+            get("DoorOpeningTime")
+                .and_then(parse_ini_u32_token)
+                .unwrap_or(0),
+        ),
+        wait_open_frames: structure_economy_ms_to_frames(
+            get("DoorWaitOpenTime")
+                .and_then(parse_ini_u32_token)
+                .unwrap_or(0),
+        ),
+        close_frames: structure_economy_ms_to_frames(
+            get("DoorCloseTime")
+                .and_then(parse_ini_u32_token)
+                .unwrap_or(0),
+        ),
+    }
+}
+
+fn parse_ini_i32_token(raw: &str) -> Option<i32> {
+    raw.split_whitespace().next()?.parse().ok()
+}
+
+fn parse_ini_u32_token(raw: &str) -> Option<u32> {
+    raw.split_whitespace().next()?.parse().ok()
+}
+
+/// Retail Object INI `ProductionUpdate` door fields (canonical template identity).
+/// Values are authored INI tokens, not name-family guesses.
+///
+/// `GLAArmsDealer` is a war-factory with `NumDoorAnimations = 1` (not matched by
+/// a `warfactory` substring). Barracks keep door-1 so existing spawn harnesses
+/// that never load Object INI stay gated; empty modules parse to 0 when INI is live.
+const RETAIL_PRODUCTION_DOOR_INI: &[(&str, &str, &str, &str, &str)] = &[
+    ("AmericaCommandCenter", "1", "1500", "3000", "1500"),
+    ("ChinaCommandCenter", "1", "3000", "3000", "3000"),
+    ("GLACommandCenter", "1", "1500", "3000", "1500"),
+    ("AmericaWarFactory", "1", "3250", "3000", "4000"),
+    ("ChinaWarFactory", "1", "4000", "2000", "5000"),
+    ("GLAArmsDealer", "1", "2000", "3000", "2000"),
+    ("AmericaAirfield", "4", "2000", "3000", "2000"),
+    ("AmericaBarracks", "1", "0", "0", "0"),
+    ("ChinaBarracks", "1", "0", "0", "0"),
+    ("GLABarracks", "1", "0", "0", "0"),
+];
+
+const GENERAL_OBJECT_PREFIXES: &[&str] = &[
+    "GC_Chem_",
+    "GC_Slth_",
+    "GC_Infa_",
+    "AirF_",
+    "Chem_",
+    "Demo_",
+    "Infa_",
+    "Lazr_",
+    "Nuke_",
+    "Slth_",
+    "SupW_",
+    "SuperWeapon_",
+    "Tank_",
+    "Boss_",
+    "Early_",
+];
+
+fn parse_ini_identity_key(name: &str) -> String {
+    name.bytes()
+        .filter(|b| *b != b'_')
+        .map(|b| b.to_ascii_lowercase() as char)
+        .collect()
+}
+
+fn strip_general_object_prefix(name: &str) -> &str {
+    let mut rest = name;
+    loop {
+        let Some(prefix) = GENERAL_OBJECT_PREFIXES
+            .iter()
+            .find(|p| rest.len() >= p.len() && rest[..p.len()].eq_ignore_ascii_case(p))
+        else {
+            return rest;
+        };
+        rest = &rest[prefix.len()..];
+    }
+}
+
+fn retail_production_door_ini(template_name: &str) -> ProductionDoorIni {
+    let stripped = strip_general_object_prefix(template_name);
+    let key = parse_ini_identity_key(stripped);
+    for (name, num, open, wait, close) in RETAIL_PRODUCTION_DOOR_INI {
+        if parse_ini_identity_key(name) == key {
+            return parse_production_door_ini_fields(|field| match field {
+                "NumDoorAnimations" => Some(*num),
+                "DoorOpeningTime" => Some(*open),
+                "DoorWaitOpenTime" => Some(*wait),
+                "DoorCloseTime" => Some(*close),
+                _ => None,
+            });
+        }
+    }
+    ProductionDoorIni::default()
+}
+
+fn authored_production_door_ini(template_name: &str) -> Option<ProductionDoorIni> {
+    let manager = crate::assets::get_asset_manager()?;
+    let manager = manager.lock().ok()?;
+    let definition = manager
+        .get_object_definition(template_name)
+        .or_else(|| manager.resolve_object_definition(template_name, None))?;
+    let module = definition.behavior_modules.iter().find(|module| {
+        module
+            .class_name
+            .eq_ignore_ascii_case("ProductionUpdate")
+    })?;
+    Some(parse_production_door_ini_fields(|field| module.attribute(field)))
+}
+
+/// C++ `ProductionUpdateModuleData` door fields for a producer template.
+///
+/// Prefers live Object INI `ProductionUpdate` (`NumDoorAnimations` / `Door*Time`).
+/// Test templates stay 0 so existing spawn harnesses are not door-gated.
+pub fn producer_door_ini(template_name: &str) -> ProductionDoorIni {
+    if template_name.len() >= 4 && template_name[..4].eq_ignore_ascii_case("test") {
+        return ProductionDoorIni::default();
+    }
+    authored_production_door_ini(template_name).unwrap_or_else(|| retail_production_door_ini(template_name))
+}
+
 /// Retail ProductionUpdate `NumDoorAnimations` for a producer template.
 /// Test templates stay 0 so existing spawn harnesses are not door-gated.
 pub fn producer_num_door_animations(template_name: &str) -> i32 {
-    let n = template_name.to_ascii_lowercase();
-    if n.starts_with("test") {
-        return 0;
-    }
-    if n.contains("airfield") {
-        return 4;
-    }
-    if n.contains("barracks") || n.contains("warfactory") || n.contains("commandcenter") {
-        return 1;
-    }
-    0
+    producer_door_ini(template_name).num_door_animations
 }
 
 /// C++ ProductionUpdate INI DoorOpeningTime / DoorWaitOpenTime / DoorCloseTime
@@ -394,62 +543,8 @@ pub fn producer_num_door_animations(template_name: &str) -> i32 {
 /// Returns `(opening_frames, wait_open_frames, close_frames)`.
 /// Templates with no authored door times keep the C++ module-data default of 0.
 pub fn producer_door_phase_frames(template_name: &str) -> (u32, u32, u32) {
-    use crate::game_logic::host_structure_economy_residual::{
-        CHINA_CC_DOOR_CLOSE_FRAMES, CHINA_CC_DOOR_OPENING_FRAMES, CHINA_CC_DOOR_WAIT_OPEN_FRAMES,
-        USA_CC_DOOR_CLOSE_FRAMES, USA_CC_DOOR_OPENING_FRAMES, USA_CC_DOOR_WAIT_OPEN_FRAMES,
-        structure_economy_ms_to_frames,
-    };
-    let n = template_name.to_ascii_lowercase();
-    if n.starts_with("test") {
-        return (0, 0, 0);
-    }
-    if n.contains("commandcenter") {
-        if n.contains("china") {
-            return (
-                CHINA_CC_DOOR_OPENING_FRAMES,
-                CHINA_CC_DOOR_WAIT_OPEN_FRAMES,
-                CHINA_CC_DOOR_CLOSE_FRAMES,
-            );
-        }
-        // America / GLA / general variants of USA CC use 1500/3000/1500.
-        return (
-            USA_CC_DOOR_OPENING_FRAMES,
-            USA_CC_DOOR_WAIT_OPEN_FRAMES,
-            USA_CC_DOOR_CLOSE_FRAMES,
-        );
-    }
-    if n.contains("airfield") {
-        return (
-            structure_economy_ms_to_frames(2000),
-            structure_economy_ms_to_frames(3000),
-            structure_economy_ms_to_frames(2000),
-        );
-    }
-    if n.contains("warfactory") {
-        if n.contains("china") {
-            // ChinaWarFactory: 4000 / 2000 / 5000 ms.
-            return (
-                structure_economy_ms_to_frames(4000),
-                structure_economy_ms_to_frames(2000),
-                structure_economy_ms_to_frames(5000),
-            );
-        }
-        // AmericaWarFactory: 3250 / 3000 / 4000 ms.
-        return (
-            structure_economy_ms_to_frames(3250),
-            structure_economy_ms_to_frames(3000),
-            structure_economy_ms_to_frames(4000),
-        );
-    }
-    if n.contains("armsdealer") {
-        return (
-            structure_economy_ms_to_frames(2000),
-            structure_economy_ms_to_frames(3000),
-            structure_economy_ms_to_frames(2000),
-        );
-    }
-    // AmericaBarracks and other empty ProductionUpdate modules: defaults 0.
-    (0, 0, 0)
+    let door = producer_door_ini(template_name);
+    (door.opening_frames, door.wait_open_frames, door.close_frames)
 }
 
 /// Frames to remain in a production-door phase (0 = advance next comparison).
@@ -553,6 +648,11 @@ pub fn honesty_production_residual_deepen_pack_wave99() -> bool {
         && (production_percent_complete_residual(45, 150) - 30.0).abs() < 1e-3
         && (production_percent_complete_residual(150, 150) - 100.0).abs() < 1e-3
         && (production_percent_complete_residual(0, 0) - 100.0).abs() < 1e-3
+        && producer_num_door_animations("GLAArmsDealer") == 1
+        && producer_num_door_animations("Chem_GLAArmsDealer") == 1
+        && producer_num_door_animations("AmericaAirfield") == 4
+        && producer_num_door_animations("TestBarracks") == 0
+        && !production_door_allows_spawn(producer_num_door_animations("GLAArmsDealer"), 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -1651,5 +1751,45 @@ mod tests {
     #[test]
     fn production_buildable_command_residual_pack_wave99_honesty() {
         assert!(honesty_production_buildable_command_residual_pack_wave99());
+    }
+
+    #[test]
+    fn parsed_num_door_animations_gives_arms_dealer_doors() {
+        // C++ ProductionUpdate.cpp:112 NumDoorAnimations parseInt; :596 updateDoors
+        // when m_numDoorAnimations > 0. GLAArmsDealer Object INI authors
+        // NumDoorAnimations=1 / DoorOpeningTime=2000 / DoorWaitOpenTime=3000 /
+        // DoorCloseTime=2000 — not matched by a warfactory/barracks name heuristic.
+        use crate::game_logic::host_structure_economy_residual::structure_economy_ms_to_frames;
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("NumDoorAnimations", "1");
+        fields.insert("DoorOpeningTime", "2000");
+        fields.insert("DoorWaitOpenTime", "3000");
+        fields.insert("DoorCloseTime", "2000");
+        let parsed = parse_production_door_ini_fields(|k| fields.get(k).copied());
+        assert_eq!(parsed.num_door_animations, 1);
+        assert_eq!(parsed.opening_frames, structure_economy_ms_to_frames(2000));
+        assert_eq!(parsed.wait_open_frames, structure_economy_ms_to_frames(3000));
+        assert_eq!(parsed.close_frames, structure_economy_ms_to_frames(2000));
+
+        assert_eq!(producer_num_door_animations("GLAArmsDealer"), 1);
+        assert_eq!(producer_num_door_animations("Demo_GLAArmsDealer"), 1);
+        assert_eq!(producer_num_door_animations("Slth_GLAArmsDealer"), 1);
+        assert_eq!(
+            producer_door_phase_frames("GLAArmsDealer"),
+            (
+                structure_economy_ms_to_frames(2000),
+                structure_economy_ms_to_frames(3000),
+                structure_economy_ms_to_frames(2000),
+            )
+        );
+        assert!(!production_door_allows_spawn(
+            producer_num_door_animations("GLAArmsDealer"),
+            0
+        ));
+        assert!(production_door_allows_spawn(
+            producer_num_door_animations("GLAArmsDealer"),
+            2
+        ));
+        assert_eq!(producer_num_door_animations("AmericaSupplyCenter"), 0);
     }
 }

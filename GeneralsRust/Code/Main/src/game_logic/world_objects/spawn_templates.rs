@@ -602,6 +602,22 @@ impl GameLogic {
         if has_kind("salvager") {
             template.add_kind_of(KindOf::Salvager);
         }
+        // C++ KindOf.h:63-67,86 — authored bits EVA/victory/selection consume.
+        if has_kind("always_selectable") {
+            template.add_kind_of(KindOf::AlwaysSelectable);
+        }
+        if has_kind("mp_count_for_victory") {
+            template.add_kind_of(KindOf::MpCountForVictory);
+        }
+        if has_kind("score") {
+            template.add_kind_of(KindOf::Score);
+        }
+        if has_kind("score_create") {
+            template.add_kind_of(KindOf::ScoreCreate);
+        }
+        if has_kind("score_destroy") {
+            template.add_kind_of(KindOf::ScoreDestroy);
+        }
     }
 
     /// Preserve the exact DockUpdate and normal-containment slice that the
@@ -935,6 +951,21 @@ impl GameLogic {
                     ContainModuleKind::InternetHack,
                     parse_slots(module, "Slots"),
                 ))
+            } else if module.class_name.eq_ignore_ascii_case("HealContain") {
+                Some((
+                    ContainModuleKind::Heal,
+                    parse_slots(module, "ContainMax"),
+                ))
+            } else if module.class_name.eq_ignore_ascii_case("CaveContain") {
+                Some((
+                    ContainModuleKind::Cave,
+                    parse_slots(module, "ContainMax"),
+                ))
+            } else if module.class_name.eq_ignore_ascii_case("TunnelContain") {
+                Some((
+                    ContainModuleKind::Tunnel,
+                    parse_slots(module, "ContainMax"),
+                ))
             } else {
                 None
             };
@@ -949,6 +980,12 @@ impl GameLogic {
                     parse_rider_change(module, rider_change_normal_locomotors)
                 } else {
                     (Vec::new(), None, String::new(), 0)
+                };
+                let frames_for_full_heal = match module.attribute("TimeForFullHeal") {
+                    Some(value) => parse_duration_frames(value),
+                    None if kind == ContainModuleKind::Heal => Some(0),
+                    None if kind == ContainModuleKind::Tunnel => Some(1),
+                    None => None,
                 };
                 let candidate = ContainModuleMetadata {
                     kind,
@@ -970,6 +1007,7 @@ impl GameLogic {
                     rider_change_scuttle_delay_frames,
                     rider_change_scuttle_status,
                     rider_change_scuttle_status_mask,
+                    frames_for_full_heal,
                 };
                 // Retail gives an object one active normal contain interface.
                 // A malformed/custom stack is not safely representable here;
@@ -3983,21 +4021,22 @@ mod tests {
         assert!(logic.hacker_income().is_hacking(contained_hacker));
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
 
-        // `HackInternetState` decrements a positive timer, then deposits on
-        // its following update.  The contained hacker therefore fires at
-        // 54 + 1, before the field hacker's 60 + 1.
-        logic.frame = 54;
+        // UNPACKING (219) then CashUpdateDelay, then decrement-fire.
+        // Contained uses fast delay 54 → 219+54+1=274; field 219+60+1=280.
+        logic.frame = 273;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 0);
-        logic.frame = 55;
+        logic.frame = 274;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
-        logic.frame = 60;
+        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned, 5);
+        logic.frame = 279;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 5);
-        logic.frame = 61;
+        logic.frame = 280;
         logic.update_hacker_income();
         assert_eq!(logic.get_player(1).unwrap().resources.supplies, 10);
+        assert_eq!(logic.get_player(1).unwrap().statistics.money_earned, 10);
     }
 
     #[test]
@@ -5520,4 +5559,205 @@ End
             "locomotor store must not reload after first host seed"
         );
     }
+
+    #[test]
+    fn heal_cave_tunnel_contain_kinds_map_and_heal_contain_auto_exits() {
+        use glam::Vec3;
+
+        // C++ HealContain.cpp:68-157 heals then auto-exits.
+        // C++ TunnelTracker.cpp:225-268 healObjects sliver / snap-to-max.
+        // Pre-fix: spawn_templates mapped Heal/Cave/Tunnel to ContainModuleKind::None.
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
+Object ProbeHealContainBarracks
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE HEAL_PAD
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 1000.0
+  End
+  Behavior = HealContain ModuleTag_Heal
+    ContainMax = 10
+    TimeForFullHeal = 2000
+    AllowInsideKindOf = INFANTRY
+    AllowAlliesInside = Yes
+    AllowEnemiesInside = No
+    AllowNeutralInside = No
+  End
+End
+Object ProbeCaveContain
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = CaveContain ModuleTag_Cave
+    ContainMax = 10
+  End
+End
+Object ProbeTunnelContain
+  Type = Structure
+  KindOf = STRUCTURE SELECTABLE
+  Behavior = TunnelContain ModuleTag_Tunnel
+    TimeForFullHeal = 5000
+  End
+End
+Object ProbeHealInfantry
+  Type = Infantry
+  KindOf = INFANTRY SELECTABLE
+  TransportSlotCount = 1
+  Body = ActiveBody ModuleTag_01
+    MaxHealth = 80.0
+  End
+End
+
+"#,
+                "heal_cave_tunnel_contain_probe.ini",
+            )
+            .expect("parse contain kind probe");
+
+        let barracks = GameLogic::build_template_from_object_definition(
+            "ProbeHealContainBarracks",
+            parser
+                .get_definition("ProbeHealContainBarracks")
+                .expect("heal barracks"),
+            None,
+        );
+        assert_eq!(barracks.contain_module.kind, ContainModuleKind::Heal);
+        assert_eq!(barracks.contain_module.slots, Some(10));
+        assert_eq!(barracks.contain_module.frames_for_full_heal, Some(60));
+        assert_eq!(
+            barracks.contain_module.admission,
+            ContainAdmission::InfantryOnly
+        );
+        assert!(barracks.contain_module.allow_allies_inside);
+        assert!(!barracks.contain_module.allow_enemies_inside);
+        assert!(!barracks.contain_module.allow_neutral_inside);
+        assert!(barracks.garrison_contain_max.is_none());
+
+        let cave = GameLogic::build_template_from_object_definition(
+            "ProbeCaveContain",
+            parser.get_definition("ProbeCaveContain").expect("cave"),
+            None,
+        );
+        assert_eq!(cave.contain_module.kind, ContainModuleKind::Cave);
+        assert_eq!(cave.contain_module.slots, Some(10));
+
+        let tunnel = GameLogic::build_template_from_object_definition(
+            "ProbeTunnelContain",
+            parser.get_definition("ProbeTunnelContain").expect("tunnel"),
+            None,
+        );
+        assert_eq!(tunnel.contain_module.kind, ContainModuleKind::Tunnel);
+        assert_eq!(tunnel.contain_module.frames_for_full_heal, Some(150));
+
+        let infantry = GameLogic::build_template_from_object_definition(
+            "ProbeHealInfantry",
+            parser
+                .get_definition("ProbeHealInfantry")
+                .expect("infantry"),
+            None,
+        );
+
+        let mut logic = GameLogic::new();
+        let usa = Player::new(1, Team::USA, "USA", true);
+        logic.add_player(usa);
+        logic
+            .templates
+            .insert("ProbeHealContainBarracks".to_string(), barracks);
+        logic
+            .templates
+            .insert("ProbeHealInfantry".to_string(), infantry);
+        logic
+            .templates
+            .insert("ProbeTunnelContain".to_string(), tunnel);
+
+        let pad = logic
+            .create_object_for_player("ProbeHealContainBarracks", 1, Vec3::ZERO)
+            .expect("heal barracks");
+        let unit = logic
+            .create_object_for_player("ProbeHealInfantry", 1, Vec3::ZERO)
+            .expect("infantry");
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.health.current = 20.0;
+            obj.health.maximum = 80.0;
+        }
+
+        assert!(
+            logic.can_unit_enter_normal_target(unit, pad),
+            "damaged infantry must enter HealContain"
+        );
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.health.current = 80.0;
+        }
+        assert!(
+            !logic.can_unit_enter_normal_target(unit, pad),
+            "C++ ActionManager.cpp:636-644 rejects full-health HealContain enter"
+        );
+        if let Some(obj) = logic.host_object_mut(unit) {
+            obj.health.current = 20.0;
+            obj.set_ai_state(AIState::Entering);
+            obj.target = Some(pad);
+        }
+
+        logic.frame = 10;
+        logic.update_support_states(&[unit], 1.0 / 30.0);
+        assert_eq!(
+            logic.host_object(unit).and_then(|o| o.contained_by),
+            Some(pad)
+        );
+        let after_enter = logic
+            .host_object(unit)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        // First contained update applies max/60 sliver (HealContain.cpp:148).
+        assert!(
+            (after_enter - (20.0 + 80.0 / 60.0)).abs() < 0.05
+                || after_enter > 20.0,
+            "HealContain must sliver-heal, got {after_enter}"
+        );
+
+        for _ in 0..60 {
+            logic.frame = logic.frame.saturating_add(1);
+            logic.update_support_states(&[unit], 1.0 / 30.0);
+        }
+        let after = logic.host_object(unit).expect("unit after heal");
+        assert!(
+            after.health.current >= after.health.maximum - 0.01,
+            "HealContain must finish at max health"
+        );
+        assert!(
+            after.contained_by.is_none(),
+            "HealContain.cpp:97-101 auto-exits when done healing"
+        );
+        assert!(logic.tunnel_network.honesty_heal_contain_auto_exit_ok());
+
+        let tunnel_id = logic
+            .create_object_for_player("ProbeTunnelContain", 1, Vec3::new(40.0, 0.0, 0.0))
+            .expect("tunnel");
+        let rider = logic
+            .create_object_for_player("ProbeHealInfantry", 1, Vec3::new(40.0, 0.0, 0.0))
+            .expect("tunnel rider");
+        if let Some(obj) = logic.host_object_mut(rider) {
+            obj.health.current = 30.0;
+            obj.health.maximum = 80.0;
+        }
+        assert!(logic.tunnel_network.record_enter(Team::USA, rider, tunnel_id));
+        logic.tunnel_network.stamp_contained_by_frame(rider, logic.frame);
+        let before_tunnel = logic
+            .host_object(rider)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_support_states(&[rider], 1.0 / 30.0);
+        let after_tunnel = logic
+            .host_object(rider)
+            .map(|o| o.health.current)
+            .unwrap_or(0.0);
+        assert!(
+            after_tunnel > before_tunnel,
+            "TunnelTracker::healObjects must sliver-heal, {before_tunnel} -> {after_tunnel}"
+        );
+        assert!(logic.tunnel_network.honesty_heal_objects_ok());
+    }
 }
+
+

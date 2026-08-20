@@ -1140,6 +1140,10 @@ impl GameClient {
                     || (entry.effectively_stealthed && !local);
                 if entry.effectively_stealthed && !local {
                     drawable.set_stealth_look(crate::drawable::drawable::StealthLook::Invisible);
+                } else if entry.effectively_stealthed && local {
+                    drawable.set_stealth_look(
+                        crate::drawable::drawable::StealthLook::VisibleFriendly,
+                    );
                 }
                 drawable.set_visible(!fully_obscured && !status_hidden);
                 drawable.set_fully_obscured_by_shroud(fully_obscured);

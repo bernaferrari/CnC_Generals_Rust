@@ -99,7 +99,6 @@ impl ScriptActionDispatcher {
             waypoint_name
         );
 
-        // Look up object and waypoint, issue FollowWaypointPath command
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
@@ -108,24 +107,23 @@ impl ScriptActionDispatcher {
                 let reference_pos = obj_arc.read().ok().map(|obj| *obj.get_position());
                 let waypoint_id = reference_pos
                     .and_then(|pos| self.resolve_follow_waypoint_id(&waypoint_name, pos));
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(ai_arc) = obj.get_ai_update_interface() {
-                        if let Ok(mut ai) = ai_arc.lock() {
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::FollowWaypointPath,
-                                CommandSourceType::FromScript,
-                            );
-                            let Some(waypoint_id) = waypoint_id else {
-                                return Ok(ScriptActionResult::Success);
-                            };
-                            params.waypoint = Some(waypoint_id);
-                            let _ = ai.execute_command(&params);
-                            log::debug!(
-                                "Unit '{}' follow waypoints '{}' command issued",
-                                unit_name,
-                                waypoint_name
-                            );
-                        }
+                let Some(waypoint_id) = waypoint_id else {
+                    return Ok(ScriptActionResult::Success);
+                };
+                // C++ ScriptActions.cpp:1621-1623 leaveGroup + NORMAL loco.
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                        return Ok(ScriptActionResult::Success);
+                    };
+                    obj_guard.leave_group();
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::FollowWaypointPath,
+                            CommandSourceType::FromScript,
+                        );
+                        params.waypoint = Some(waypoint_id);
+                        let _ = ai.execute_command(&params);
                     }
                 }
             }
@@ -148,7 +146,6 @@ impl ScriptActionDispatcher {
             waypoint_name
         );
 
-        // Look up object and waypoint, issue FollowWaypointPathExact command
         let tracker = get_named_object_tracker();
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
@@ -157,24 +154,23 @@ impl ScriptActionDispatcher {
                 let reference_pos = obj_arc.read().ok().map(|obj| *obj.get_position());
                 let waypoint_id = reference_pos
                     .and_then(|pos| self.resolve_follow_waypoint_id(&waypoint_name, pos));
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(ai_arc) = obj.get_ai_update_interface() {
-                        if let Ok(mut ai) = ai_arc.lock() {
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::FollowWaypointPathExact,
-                                CommandSourceType::FromScript,
-                            );
-                            let Some(waypoint_id) = waypoint_id else {
-                                return Ok(ScriptActionResult::Success);
-                            };
-                            params.waypoint = Some(waypoint_id);
-                            let _ = ai.execute_command(&params);
-                            log::info!(
-                                "Unit '{}' follow waypoints exact '{}' command issued",
-                                unit_name,
-                                waypoint_name
-                            );
-                        }
+                let Some(waypoint_id) = waypoint_id else {
+                    return Ok(ScriptActionResult::Success);
+                };
+                // C++ ScriptActions.cpp:1648-1650 leaveGroup + NORMAL loco.
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                        return Ok(ScriptActionResult::Success);
+                    };
+                    obj_guard.leave_group();
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::FollowWaypointPathExact,
+                            CommandSourceType::FromScript,
+                        );
+                        params.waypoint = Some(waypoint_id);
+                        let _ = ai.execute_command(&params);
                     }
                 }
             }
@@ -193,17 +189,12 @@ impl ScriptActionDispatcher {
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' attacking area '{}'", unit_name, area_name);
 
-        let (area_center, trigger_id) = if let Ok(terrain) = get_terrain_logic().read() {
-            if let Some(trigger) = terrain.get_trigger_area_by_name(&area_name) {
-                (trigger.get_center_point(), trigger.get_id())
-            } else {
+        let (area_center, trigger_id) = match self.get_trigger_area(&area_name) {
+            Ok(trigger) => (trigger.get_center_point(), trigger.get_id()),
+            Err(_) => {
                 log::warn!("Trigger area '{}' not found", area_name);
                 return Ok(ScriptActionResult::Success);
             }
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to lock terrain logic".to_string(),
-            ));
         };
 
         let tracker = get_named_object_tracker();
@@ -368,30 +359,14 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
-        let attitude_str = self.get_string_param(action, 1)?;
+        // C++ ScriptActions.cpp:6585 updateNamedSetAttitude(..., getInt()).
+        let attitude = self.attitude_from_script_int(self.get_int_param(action, 1)?);
 
         log::info!(
-            "Unit '{}' setting attitude to '{}'",
+            "Unit '{}' setting attitude to {:?}",
             unit_name,
-            attitude_str
+            attitude
         );
-
-        // Parse attitude string to AIAttitudeType (Normal, Aggressive, Defensive, Passive)
-        let attitude = match attitude_str.to_uppercase().as_str() {
-            "PASSIVE" => AIAttitudeType::Passive,
-            "SLEEP" => AIAttitudeType::Sleep,
-            "NORMAL" => AIAttitudeType::Normal,
-            "DEFENSIVE" | "ALERT" => AIAttitudeType::Defensive,
-            "AGGRESSIVE" => AIAttitudeType::Aggressive,
-            _ => {
-                log::warn!(
-                    "Unknown attitude type '{}' for unit '{}'",
-                    attitude_str,
-                    unit_name
-                );
-                return Ok(ScriptActionResult::Success);
-            }
-        };
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();
@@ -807,8 +782,12 @@ impl ScriptActionDispatcher {
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(true);
         });
+        if let Some(handler) = current_script_action_handler() {
+            let _ = handler.pause_named_special_power_countdown(&unit_name, &special_power, true);
+        }
 
         Ok(ScriptActionResult::Success)
+
     }
 
     pub(crate) fn do_named_start_special_power_countdown(
@@ -826,8 +805,12 @@ impl ScriptActionDispatcher {
         self.with_named_special_power_module_mut(&unit_name, &special_power, |sp_module| {
             sp_module.pause_countdown(false);
         });
+        if let Some(handler) = current_script_action_handler() {
+            let _ = handler.pause_named_special_power_countdown(&unit_name, &special_power, false);
+        }
 
         Ok(ScriptActionResult::Success)
+
     }
 
     pub(crate) fn do_named_set_special_power_countdown(
@@ -850,8 +833,12 @@ impl ScriptActionDispatcher {
             let ready_frame = base_frame.saturating_add_signed(frames);
             sp_module.set_ready_frame(ready_frame);
         });
+        if let Some(handler) = current_script_action_handler() {
+            let _ = handler.set_named_special_power_countdown(&unit_name, &special_power, countdown);
+        }
 
         Ok(ScriptActionResult::Success)
+
     }
 
     pub(crate) fn do_named_add_special_power_countdown(
@@ -873,8 +860,12 @@ impl ScriptActionDispatcher {
             let new_ready_frame = sp_module.get_ready_frame().saturating_add_signed(frames);
             sp_module.set_ready_frame(new_ready_frame);
         });
+        if let Some(handler) = current_script_action_handler() {
+            let _ = handler.add_named_special_power_countdown(&unit_name, &special_power, amount);
+        }
 
         Ok(ScriptActionResult::Success)
+
     }
 
     pub(crate) fn do_named_fire_special_power_at_waypoint(
@@ -1386,10 +1377,11 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let color_raw = self.get_int_param(action, 1)? as u32;
+        // C++ Color.h GameMakeColor: (a<<24)|(r<<16)|(g<<8)|b
         let color = crate::common::Color::new(
-            (color_raw & 0xFF) as u8,
-            ((color_raw >> 8) & 0xFF) as u8,
             ((color_raw >> 16) & 0xFF) as u8,
+            ((color_raw >> 8) & 0xFF) as u8,
+            (color_raw & 0xFF) as u8,
             ((color_raw >> 24) & 0xFF) as u8,
         );
         log::debug!(
@@ -1485,6 +1477,8 @@ impl ScriptActionDispatcher {
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
+                // C++ ScriptActions.cpp:6092-6095 clearWaypointQueue first.
+                ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params =
                     AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromScript);
@@ -1530,6 +1524,8 @@ impl ScriptActionDispatcher {
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
+                // C++ ScriptActions.cpp:6113-6116 clearWaypointQueue first.
+                ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params = AiCommandParams::new(
                     AiCommandType::FacePosition,

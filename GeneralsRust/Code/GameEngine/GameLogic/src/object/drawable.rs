@@ -1730,6 +1730,24 @@ impl Drawable {
         self.clear_drawable_status(TINT_COLOR_LOCKED);
     }
 
+    /// C++ `Drawable::setFlashColor`.
+    pub fn set_flash_color(&mut self, color: Color) {
+        self.flash_color = color;
+    }
+
+    /// C++ `Drawable::setFlashCount`.
+    pub fn set_flash_count(&mut self, count: i32) {
+        self.flash_count = count.max(0);
+    }
+
+    pub fn get_flash_color(&self) -> Color {
+        self.flash_color
+    }
+
+    pub fn get_flash_count(&self) -> i32 {
+        self.flash_count
+    }
+
     pub fn set_time_of_day(&mut self, time_of_day: TimeOfDay) {
         match time_of_day {
             TimeOfDay::Night => self.set_model_condition_state(ModelConditionFlags::NIGHT),

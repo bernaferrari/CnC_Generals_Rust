@@ -647,6 +647,64 @@ impl GameLogic {
         Some(index)
     }
 
+    /// Authored `NumRows × NumCols` stall count (C++ ParkingPlaceInfo length).
+    fn authored_parking_capacity(metadata: &crate::game_logic::ParkingPlaceMetadata) -> usize {
+        let rows = usize::try_from(metadata.num_rows).unwrap_or(0);
+        let cols = usize::try_from(metadata.num_cols).unwrap_or(0);
+        rows.saturating_mul(cols)
+    }
+
+    /// Free stalls that C++ `reserveSpace` / `DOOR_NONE_AVAILABLE` would accept.
+    pub(in super::super) fn count_free_airfield_parking_slots(
+        spaces: Option<&[AirfieldParkingSpace]>,
+        capacity: usize,
+    ) -> usize {
+        match spaces {
+            Some(spaces) if !spaces.is_empty() => spaces
+                .iter()
+                .filter(|space| space.object_id.is_none() && !space.reserved_for_exit)
+                .count(),
+            _ => capacity,
+        }
+    }
+
+    /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` hangar/parking bone pose.
+    pub(in super::super) fn place_produced_jet_at_parking_pose(
+        &mut self,
+        producer_id: ObjectId,
+        jet_id: ObjectId,
+    ) -> bool {
+        let Some(info) = self.calc_airfield_pp_info(producer_id, jet_id) else {
+            return false;
+        };
+        let Some(jet) = self.objects.get_mut(&jet_id) else {
+            return false;
+        };
+        jet.set_position(info.parking_space);
+        jet.set_orientation(info.parking_orientation);
+        jet.set_contained_by(Some(producer_id));
+        jet.set_ai_state(AIState::Docked);
+        jet.set_status_moving(false);
+        jet.status.airborne_target = false;
+        jet.movement.path.clear();
+        jet.movement.current_path_index = 0;
+        jet.movement.target_position = None;
+        if crate::gameworld_shadow::gameworld_movement_authority_live() {
+            crate::game_logic::host_move_log::record(
+                jet_id,
+                Some([
+                    info.parking_space.x,
+                    info.parking_space.y,
+                    info.parking_space.z,
+                ]),
+            );
+            jet.record_host_movement();
+        }
+        self.sync_airfield_hangar_doors(producer_id);
+        true
+    }
+
+
     /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` for a completed factory
     /// aircraft: its producer link is only a landing authority when the
     /// output was assigned one real authored parking space under the exact
@@ -937,35 +995,43 @@ impl GameLogic {
             return false;
         };
         let ppinfo = self.calc_airfield_pp_info(af_id, jet_id);
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
-            let prep = if let Some(info) = ppinfo {
-                let mut prep = info.runway_start;
-                prep.y = prep.y.max(info.runway_approach.y);
-                prep
-            } else {
-                let runway_count = metadata.runway_count().unwrap_or(1);
-                let mut prep = airfield_position;
-                prep.x += (runway_idx as f32 - (runway_count.saturating_sub(1) as f32 * 0.5))
-                    * PARKING_PLACE_RUNWAY_PREP_SPACING;
-                prep.y += metadata.landing_deck_height_offset + metadata.approach_height;
-                prep
-            };
-            jet.set_position(prep);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(jet_id, Some([prep.x, prep.y, prep.z]));
-                jet.record_host_movement();
-            }
-        }
+        let taxi = if let Some(info) = ppinfo {
+            vec![
+                info.runway_prep,
+                info.runway_start,
+                {
+                    let mut end = info.runway_end;
+                    end.y = end.y.max(info.runway_approach.y);
+                    end
+                },
+            ]
+        } else {
+            let runway_count = metadata.runway_count().unwrap_or(1);
+            let mut prep = airfield_position;
+            prep.x += (runway_idx as f32 - (runway_count.saturating_sub(1) as f32 * 0.5))
+                * PARKING_PLACE_RUNWAY_PREP_SPACING;
+            prep.y += metadata.landing_deck_height_offset + metadata.approach_height;
+            vec![prep]
+        };
+        let dest = *taxi.last().unwrap_or(&airfield_position);
+        let via: Vec<glam::Vec3> = taxi.iter().copied().take(taxi.len().saturating_sub(1)).collect();
         let ok = self.release_jet_from_airfield_parking(jet_id);
-        // Keep runway reserved until clear tick releases it.
         if !ok {
-            // If release failed, free runway.
             self.release_airfield_runway_for_jet(jet_id);
             return false;
         }
-        // Re-assert reservation after release (release shouldn't clear runway).
         let _ = self.reserve_airfield_runway(af_id, jet_id);
+        if !self.assign_unit_path(jet_id, dest, &via) {
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.movement.path = taxi.clone();
+                jet.movement.current_path_index = 0;
+                jet.movement.target_position = Some(dest);
+                jet.set_ai_state(AIState::Moving);
+                jet.set_status_moving(true);
+            }
+        }
         true
+
     }
 
     /// Release runway reservations once jets are clear of the airfield.
@@ -1254,23 +1320,48 @@ impl GameLogic {
         };
 
         let ppinfo = self.calc_airfield_pp_info(airfield_id, jet_id);
+        let pad = if let Some(info) = ppinfo {
+            info.parking_space
+        } else {
+            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
+            let mut pad = airfield_position;
+            if let Some(index) = runway_index {
+                let runway_count = metadata.runway_count().unwrap_or(1);
+                pad.x += (index as f32 - (runway_count.saturating_sub(1) as f32 * 0.5))
+                    * PARKING_PLACE_RUNWAY_PREP_SPACING;
+            }
+            pad.y += metadata.landing_deck_height_offset;
+            pad
+        };
+        let approach = ppinfo.map(|info| info.runway_approach).unwrap_or(pad);
+        let dxp = jet_position.x - pad.x;
+        let dyp = jet_position.y - pad.y;
+        let dzp = jet_position.z - pad.z;
+        const PAD_SNAP: f32 = 12.0;
+        if dxp * dxp + dyp * dyp + dzp * dzp > PAD_SNAP * PAD_SNAP {
+            let via = if (jet_position - approach).length_squared() > PAD_SNAP * PAD_SNAP {
+                vec![approach]
+            } else {
+                Vec::new()
+            };
+            if self.assign_unit_path(jet_id, pad, &via) {
+                return true;
+            }
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.target = None;
+                jet.set_status_attacking(false);
+                jet.set_ai_state(AIState::Moving);
+                jet.movement.path = via.into_iter().chain(std::iter::once(pad)).collect();
+                jet.movement.current_path_index = 0;
+                jet.movement.target_position = Some(pad);
+                jet.set_status_moving(true);
+            }
+            return true;
+        }
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
                 return false;
-            };
-            use crate::game_logic::host_dock_contain_exit_heal_residual::PARKING_PLACE_RUNWAY_PREP_SPACING;
-            let pad = if let Some(info) = ppinfo {
-                info.parking_space
-            } else {
-                let mut pad = airfield_position;
-                if let Some(index) = runway_index {
-                    let runway_count = metadata.runway_count().unwrap_or(1);
-                    pad.x += (index as f32 - (runway_count.saturating_sub(1) as f32 * 0.5))
-                        * PARKING_PLACE_RUNWAY_PREP_SPACING;
-                }
-                pad.y += metadata.landing_deck_height_offset;
-                pad
             };
             jet.set_contained_by(Some(airfield_id));
             jet.set_ai_state(AIState::Docked);
@@ -1294,6 +1385,7 @@ impl GameLogic {
                 }
             }
         }
+
 
         self.release_airfield_runway_for_jet(jet_id);
         self.sync_airfield_hangar_doors(airfield_id);

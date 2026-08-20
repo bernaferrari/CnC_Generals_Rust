@@ -102,6 +102,19 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
         "host_update_the_audio must call Common TheAudio::update"
     );
     assert!(
+        audio.contains("sync_audio_listener_from_main_camera")
+            && audio.contains("camera_position")
+            && audio.contains("camera_target")
+            && audio.contains("GameAudio.cpp:281"),
+        "host_update_the_audio must sync 3D listener/mic from Main camera"
+    );
+    assert!(
+        audio.contains("set_eva_host_frame")
+            && audio.contains("update_eva_system")
+            && audio.contains("Eva.cpp:264"),
+        "live audio tick must publish host frame and run Eva::update"
+    );
+    assert!(
         boot.contains("initialize_global_audio_manager()")
             && boot.contains("createAudioManager"),
         "live boot must construct Common THE_AUDIO like GameEngine::init"

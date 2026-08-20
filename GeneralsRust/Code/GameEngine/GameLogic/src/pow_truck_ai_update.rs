@@ -936,8 +936,18 @@ impl POWTruckAIUpdate {
                         .read()
                         .ok()
                         .and_then(|the_ai| the_ai.pathfinder())
-                        .and_then(|pf| pf.read().ok())
-                        .map(|pf| pf.client_safe_quick_does_path_exist(loco, &owner_pos, &dest))
+                        .map(|pf| {
+                            pf.read()
+                                .ok()
+                                .map(|guard| {
+                                    guard.client_safe_quick_does_path_exist(
+                                        loco,
+                                        &owner_pos,
+                                        &dest,
+                                    )
+                                })
+                                .unwrap_or(false)
+                        })
                         .unwrap_or(false)
                 });
                 if path_ok {

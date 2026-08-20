@@ -53,9 +53,11 @@ pub enum ParticleSystemError {
     LodSkipped(ParticlePriorityType),
 }
 
-/// Particle priority levels (matches C++ exactly)
+/// Particle priority levels (matches C++ ParticleSys.h exactly)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ParticlePriorityType {
+    /// C++ `INVALID_PRIORITY` / `ParticlePriorityNames[0] = "NONE"`.
+    None = 0,
     WeaponExplosion = 1,
     ScorchMark,
     DustTrail,
@@ -74,6 +76,7 @@ pub enum ParticlePriorityType {
 impl ParticlePriorityType {
     pub fn from_index(index: usize) -> Option<Self> {
         match index {
+            0 => Some(ParticlePriorityType::None),
             1 => Some(ParticlePriorityType::WeaponExplosion),
             2 => Some(ParticlePriorityType::ScorchMark),
             3 => Some(ParticlePriorityType::DustTrail),
@@ -1765,6 +1768,24 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
     }
 }
 
+/// C++ INIParticleSys.cpp — Common INI ParticleSystem blocks overlay this manager.
+fn overlay_common_particle_system(
+    name: &str,
+    properties: &HashMap<String, String>,
+    _load_type: game_engine::common::ini::INILoadType,
+) {
+    let Ok(mut guard) = get_particle_system_manager_mut() else {
+        return;
+    };
+    let Some(manager) = guard.as_mut() else {
+        return;
+    };
+    let parser = ParticleSystemINIParser::default();
+    if let Err(err) = parser.overlay_from_property_map(name, properties, manager) {
+        log::warn!("live ParticleSystem overlay '{name}' failed: {err}");
+    }
+}
+
 /// Initialize the global particle system manager
 pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
     let mut manager_guard = PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
@@ -1779,6 +1800,7 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
         log::warn!("Failed to load retail ParticleSystem.ini: {error}");
     }
     *manager_guard = Some(manager);
+    game_engine::common::ini::register_particle_system_live_overlay(overlay_common_particle_system);
     Ok(())
 }
 

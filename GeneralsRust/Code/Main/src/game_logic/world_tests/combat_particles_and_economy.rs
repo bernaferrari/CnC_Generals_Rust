@@ -130,7 +130,93 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX as u32,
         "one warehouse box must credit retail ValuePerSupplyBox 75"
     );
+    let warehouse = logic.host_object(source).expect("warehouse after");
+    assert_eq!(warehouse.drawable_supply_max_boxes, 10);
+    assert_eq!(
+        warehouse.drawable_supply_boxes, 9,
+        "C++ updateDrawableSupplyStatus must drop one crate visual"
+    );
+
 }
+
+#[test]
+fn allied_supply_center_deposit_credits_center_owner() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.resources.supplies = 100;
+    usa.alliance_team = 1;
+    logic.add_player(usa);
+    let mut china = Player::new(1, Team::China, "China", false);
+    china.resources.supplies = 50;
+    china.alliance_team = 1;
+    logic.add_player(china);
+
+    let mut truck = ThingTemplate::new("AmericaVehicleChinook");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+
+    let mut center = ThingTemplate::new("ChinaSupplyCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(100.0);
+    center.dock_kind = DockKind::SupplyCenter;
+    logic.templates.insert(center.name.clone(), center);
+
+    let center_id = logic
+        .create_object_for_player("ChinaSupplyCenter", 1, Vec3::ZERO)
+        .expect("ally center");
+    let collector_id = logic
+        .create_object_for_player("AmericaVehicleChinook", 0, Vec3::new(1.0, 0.0, 0.0))
+        .expect("collector");
+    {
+        let collector = logic.host_object_mut(collector_id).expect("collector mut");
+        collector.set_stored_supplies(75);
+        collector.set_ai_state(AIState::ReturningResources);
+        collector.supply_truck_state = SupplyTruckState::DockingCenter;
+        collector.supply_truck_next_dock_action_frame = 0;
+        collector.preferred_dock_id = Some(center_id);
+    }
+
+    logic.update_support_states(&[collector_id, center_id], 1.0 / 30.0);
+
+    assert_eq!(
+        logic.get_player(1).expect("china").resources.supplies,
+        125,
+        "C++ SupplyCenterDockUpdate deposits to the center owner"
+    );
+    assert_eq!(
+        logic.get_player(0).expect("usa").resources.supplies,
+        100,
+        "allied collector must not keep the vanished-or-self credit"
+    );
+}
+
+#[test]
+fn steal_cash_from_broke_victim_is_zero() {
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::USA, "Victim", true));
+    logic.players.insert(1, Player::new(1, Team::China, "Lotus", false));
+    if let Some(p) = logic.players.get_mut(&0) {
+        p.resources.supplies = 0;
+    }
+    let stolen = logic.steal_cash_from_team(Team::USA, Team::China, 1000);
+    assert_eq!(stolen, 0);
+    assert_eq!(
+        logic.get_player(1).expect("china").resources.supplies,
+        0,
+        "broke victim must not mint attacker cash"
+    );
+}
+
 
 
 /// Residual: AnthraxBomb (GLA SPECIAL_ANTHRAX_BOMB) queues delayed area damage

@@ -585,7 +585,7 @@ fn purchase_science_identity_matches_command_name_variants() {
 
     let purchase_command = GameCommand {
         command_type: CommandType::PurchaseScience {
-            science_name: "A10Strike1".to_string(),
+            science_name: "PaladinTank".to_string(),
         },
         player_id: 0,
         command_id: 40,
@@ -600,7 +600,7 @@ fn purchase_science_identity_matches_command_name_variants() {
 
     let variant_command = GameCommand {
         command_type: CommandType::PurchaseScience {
-            science_name: "a10_strike_1".to_string(),
+            science_name: "paladin_tank".to_string(),
         },
         player_id: 0,
         command_id: 41,
@@ -625,8 +625,8 @@ fn purchase_science_identity_matches_command_name_variants() {
         "one point spent residual"
     );
     assert!(
-        player.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"),
-        "canonical A10 science residual"
+        player.has_unlocked_science("SCIENCE_PaladinTank"),
+        "canonical Paladin science residual (Science.ini Rank1)"
     );
 }
 

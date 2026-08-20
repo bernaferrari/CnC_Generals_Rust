@@ -416,12 +416,13 @@ impl GameLogic {
                     != crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
                 {
                     if let Some(c) = self.objects.get_mut(&container_id) {
+                        let p = c.get_position();
+                        let contained = c.contained_units().len() as u32;
                         if let Some(ai) = c.chinook_ai.as_mut() {
-                            let p = c.get_position();
                             ai.pos = [p.x, p.z, p.y];
                             ai.wanting_enter_or_exit = true;
                             ai.parent_idle = true;
-                            ai.contained_count = c.contained_units().len() as u32;
+                            ai.contained_count = contained;
                             if and_exit {
                                 ai.command_evac([p.x, p.z, 0.0], true);
                             } else {
@@ -476,11 +477,11 @@ impl GameLogic {
         if let Some(c) = self.objects.get_mut(&container_id) {
             c.pending_evacuate_on_stop = false;
             c.pending_exit_after_evacuate = false;
+            let p = c.get_position();
             if let Some(ai) = c.chinook_ai.as_mut() {
                 ai.contained_count = 0;
                 ai.wanting_enter_or_exit = false;
                 if and_exit {
-                    let p = c.get_position();
                     ai.command_evac([p.x, p.z, 0.0], true);
                     return any;
                 }

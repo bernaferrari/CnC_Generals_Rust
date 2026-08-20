@@ -250,6 +250,16 @@ pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
             && down.skill_points == 0
             && down.science_purchase_points == RANK_SCIENCE_POINTS_DEFAULT
     };
+    let negative_delta = {
+        let mut mid = reset;
+        mid.skill_points = 100;
+        let (s, gained) = add_skill_points_residual(mid, -40, 1.0, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
+        s.skill_points == 60 && !gained && s.rank_level == 1
+    };
+    let modifier_applied = {
+        let (s, _) = add_skill_points_residual(reset, 50, 2.0, RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL);
+        s.skill_points == 100
+    };
     SKILL_POINTS_MODIFIER_DEFAULT_RESIDUAL == 1.0
         && RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL == 1000
         && skill_point_cap_residual(1000) == RANK5_SKILL_POINTS_NEEDED
@@ -268,6 +278,8 @@ pub fn honesty_rank_skill_points_application_residual_pack_wave89() -> bool {
         && modifier_ceil
         && progress
         && downgrade
+        && negative_delta
+        && modifier_applied
 }
 
 // ---------------------------------------------------------------------------

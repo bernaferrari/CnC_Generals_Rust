@@ -1,5 +1,40 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
+
+/// Last campaign/Challenge NewGame identity so Restart Mission can re-post
+/// PlayerTemplate + difficulty + rank (QuitMenu.cpp:197-216).
+#[derive(Clone, Debug)]
+pub(super) struct LastNewGameIdentity {
+    pub(super) dispatch: StartupNewGameDispatch,
+    pub(super) player_template: Option<crate::game_logic::PlayerTemplateIdentity>,
+    pub(super) faction: String,
+    pub(super) map: String,
+}
+
+static LAST_NEW_GAME_IDENTITY: std::sync::Mutex<Option<LastNewGameIdentity>> =
+    std::sync::Mutex::new(None);
+
+pub(super) fn record_last_new_game_identity(identity: LastNewGameIdentity) {
+    if let Ok(mut guard) = LAST_NEW_GAME_IDENTITY.lock() {
+        *guard = Some(identity);
+    }
+}
+
+pub(super) fn last_new_game_identity() -> Option<LastNewGameIdentity> {
+    LAST_NEW_GAME_IDENTITY
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+pub(super) fn update_last_new_game_dispatch(dispatch: StartupNewGameDispatch) {
+    if let Ok(mut guard) = LAST_NEW_GAME_IDENTITY.lock() {
+        if let Some(identity) = guard.as_mut() {
+            identity.dispatch = dispatch;
+        }
+    }
+}
+
 impl CnCGameEngine {
     pub(super) fn append_message_argument_to_common_stream(
         target: &mut game_engine::common::message_stream::GameMessage,
@@ -149,6 +184,9 @@ impl CnCGameEngine {
         let mut global = game_engine::common::global_data::write();
 
         gamelogic::helpers::TheScriptEngine::set_global_difficulty(dispatch.difficulty_code);
+        crate::game_logic::host_faction_skirmish_residual::set_live_host_session_difficulty(
+            dispatch.difficulty_code,
+        );
         gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(
             dispatch.rank_points,
         );
@@ -387,6 +425,54 @@ impl CnCGameEngine {
         true
     }
 
+    /// C++ `restartMissionMenu` (QuitMenu.cpp:175-226): re-apply MSG_NEW_GAME
+    /// mode/difficulty/rank and keep the last Challenge PlayerTemplate.
+    pub(super) fn host_restart_mission_from_dispatch(
+        &mut self,
+        dispatch: StartupNewGameDispatch,
+    ) {
+        update_last_new_game_dispatch(dispatch);
+        let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
+        let identity = last_new_game_identity();
+        let map = prepared_map
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| identity.as_ref().map(|id| id.map.clone()))
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| self.presentation_or_boot_map_name());
+        let faction = identity
+            .as_ref()
+            .map(|id| id.faction.clone())
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| {
+                self.ui_local_player_team_name()
+                    .unwrap_or_else(|| "USA".to_string())
+            });
+        let player_template = identity.and_then(|id| id.player_template);
+        let request = match player_template {
+            Some(player_template) => HostStartRequest::with_player_template(
+                dispatch.game_mode,
+                faction,
+                map,
+                None,
+                player_template,
+            ),
+            None => HostStartRequest::without_player_template(
+                dispatch.game_mode,
+                faction,
+                map,
+                None,
+            ),
+        };
+        record_last_new_game_identity(LastNewGameIdentity {
+            dispatch,
+            player_template: request.player_template.clone(),
+            faction: request.faction.clone(),
+            map: request.map.clone(),
+        });
+        self.start_game_from_ui(request);
+    }
+
+
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
     pub(super) fn build_start_request_from_pending_globals(
         &self,
@@ -489,12 +575,19 @@ impl CnCGameEngine {
             .or_else(|| self.ui_local_player_team_name())
             .unwrap_or_else(|| "USA".to_string());
 
-        Some(match player_template {
+        let request = match player_template {
             Some(player_template) => {
                 HostStartRequest::with_player_template(mode, faction, map, skirmish, player_template)
             }
             None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
-        })
+        };
+        record_last_new_game_identity(LastNewGameIdentity {
+            dispatch,
+            player_template: request.player_template.clone(),
+            faction: request.faction.clone(),
+            map: request.map.clone(),
+        });
+        Some(request)
     }
 
     /// Extract the Main-owned start fields from a matching typed campaign

@@ -861,14 +861,10 @@ impl GameLogic {
             .find(|p| p.team == from_team)
             .map(|p| p.resources.supplies)
             .unwrap_or(0);
-        let stolen = amount.min(available);
+        let stolen = crate::game_logic::host_supply_gather::steal_cash_clamped(available, amount);
         if stolen == 0 {
-            // No registered victim player cash — still grant residual steal for
-            // host tests / maps without economy slots (observable attacker gain).
-            if let Some(dest) = self.get_player_mut_by_team(to_team) {
-                dest.credit_supplies(amount);
-                return amount;
-            }
+            // C++ SabotageSupplyCenterCrateCollide: min(desired, victimMoney);
+            // a broke victim yields 0 — never mint attacker cash.
             return 0;
         }
         if let Some(src) = self.get_player_mut_by_team(from_team) {

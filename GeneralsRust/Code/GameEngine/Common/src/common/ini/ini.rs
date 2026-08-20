@@ -4,7 +4,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
@@ -109,6 +109,33 @@ static ARMOR_DEFINITION_REGISTRY: OnceLock<RwLock<HashMap<String, HashMap<String
     OnceLock::new();
 static OBJECT_CREATION_LIST_REGISTRY: OnceLock<RwLock<HashMap<String, Vec<String>>>> =
     OnceLock::new();
+
+/// C++ INIParticleSys.cpp overlays `TheParticleSystemManager`. Common's
+/// own registry is not the live GameClient manager; GameClient registers
+/// this hook so map.ini / INI::load ParticleSystem blocks reach the live path.
+pub type ParticleSystemLiveOverlay =
+    fn(name: &str, properties: &HashMap<String, String>, load_type: INILoadType);
+
+static PARTICLE_SYSTEM_LIVE_OVERLAY: LazyLock<RwLock<Option<ParticleSystemLiveOverlay>>> =
+    LazyLock::new(|| RwLock::new(None));
+
+fn particle_system_live_overlay_slot() -> &'static RwLock<Option<ParticleSystemLiveOverlay>> {
+    &PARTICLE_SYSTEM_LIVE_OVERLAY
+}
+
+pub fn register_particle_system_live_overlay(overlay: ParticleSystemLiveOverlay) {
+    if let Ok(mut guard) = particle_system_live_overlay_slot().write() {
+        *guard = Some(overlay);
+    }
+}
+
+fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
+    particle_system_live_overlay_slot()
+        .read()
+        .ok()
+        .and_then(|guard| *guard)
+}
+
 
 /// Register an additional INI block parser at runtime (used by client-side modules).
 pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool {
@@ -547,6 +574,10 @@ fn parse_eva_event_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_particle_system_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
+    // C++ INIParticleSys.cpp:24-32 — find-or-create on TheParticleSystemManager.
+    if let Some(overlay) = particle_system_live_overlay() {
+        overlay(&name, &properties, ini.get_load_type());
+    }
     let template = super::ini_particle_sys::IniParticleSys::parse_particle_system_block(
         AsciiString::from(name.as_str()),
         properties,
@@ -2317,5 +2348,30 @@ End
         .expect("read_line");
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn particle_system_block_invokes_live_overlay_hook() {
+        // C++ INIParticleSys.cpp:24-32 overlays TheParticleSystemManager.
+        use std::cell::RefCell;
+        thread_local! {
+            static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+        }
+        fn hook(name: &str, properties: &HashMap<String, String>, _load_type: INILoadType) {
+            assert_eq!(
+                properties.get("Priority").map(String::as_str),
+                Some("NONE")
+            );
+            SEEN.with(|seen| seen.borrow_mut().push(name.to_string()));
+        }
+        register_particle_system_live_overlay(hook);
+        SEEN.with(|seen| seen.borrow_mut().clear());
+        let src = "ParticleSystem MapOverrideSmoke\n  Priority = NONE\n  IsOneShot = No\nEnd\n";
+        let mut ini = INI::new();
+        ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("ParticleSystem NONE must parse");
+        SEEN.with(|seen| {
+            assert_eq!(seen.borrow().as_slice(), ["MapOverrideSmoke"]);
+        });
     }
 }

@@ -64,6 +64,23 @@ impl HostSuperweaponKind {
         }
     }
 
+    /// Representative command power used for ScriptEngine COMPLETED notify.
+    pub fn command_power_for_notify(self) -> Option<SpecialPowerType> {
+        Some(match self {
+            HostSuperweaponKind::DaisyCutter => SpecialPowerType::DaisyCutter,
+            HostSuperweaponKind::A10Strike => SpecialPowerType::Airstrike,
+            HostSuperweaponKind::ScudStorm => SpecialPowerType::ScudStorm,
+            HostSuperweaponKind::ParticleCannon => SpecialPowerType::ParticleCannon,
+            HostSuperweaponKind::NuclearMissile => SpecialPowerType::NuclearMissile,
+            HostSuperweaponKind::AnthraxBomb => SpecialPowerType::AnthraxBomb,
+            HostSuperweaponKind::SpectreGunship => SpecialPowerType::SpectreGunship,
+            HostSuperweaponKind::CarpetBomb => SpecialPowerType::CarpetBomb,
+            HostSuperweaponKind::ArtilleryBarrage => SpecialPowerType::Artillery,
+            HostSuperweaponKind::CruiseMissile => SpecialPowerType::CruiseMissile,
+        })
+    }
+
+
     /// Human-readable label for logs / honesty reports.
     pub fn label(self) -> &'static str {
         match self {
@@ -79,6 +96,23 @@ impl HostSuperweaponKind {
             HostSuperweaponKind::CruiseMissile => "CruiseMissile",
         }
     }
+
+    /// C++ `SpecialPowerTemplate::getViewObjectRange` residual (retail 250).
+    pub fn view_object_range(self) -> f32 {
+        250.0
+    }
+
+    /// C++ `SpecialPowerTemplate::getViewObjectDuration` frames residual.
+    /// Retail Superweapon INI is 30s (900f) or 40s (1200f).
+    pub fn view_object_duration_frames(self) -> u32 {
+        match self {
+            HostSuperweaponKind::NuclearMissile
+            | HostSuperweaponKind::CarpetBomb
+            | HostSuperweaponKind::ParticleCannon => 1_200,
+            _ => 900,
+        }
+    }
+
 
     /// Impact delay in logic frames before area damage applies.
     pub fn impact_delay_frames(self) -> u32 {

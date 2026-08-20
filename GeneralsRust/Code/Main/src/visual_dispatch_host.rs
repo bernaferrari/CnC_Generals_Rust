@@ -11,25 +11,78 @@ use crate::visual_dispatch::{
     PreparedVisualDrawModule, PreparedVisualDrawable, PreparedVisualFrame, PreparedVisualOwner,
     PreparedVisualVisibility, VisualDispatchPassToken,
 };
+use crate::game_logic::host_upgrades::HostCamoStealthLook;
+
 
 /// Map C++ `Drawable::draw` early-outs onto the frozen visibility enum.
 ///
-/// `scene_effectively_hidden` is `m_hidden || m_hiddenByStealth`. The sidecar
-/// does not split those two bits; Hidden is the honest combined reason.
+/// `scene_hidden` is C++ `m_hidden`. `hidden_by_stealth` is C++
+/// `m_hiddenByStealth`, which `Drawable::setStealthLook` sets **only** for
+/// `STEALTHLOOK_INVISIBLE`. Friendly cloak (`VISIBLE_FRIENDLY` /
+/// `VISIBLE_FRIENDLY_DETECTED`) keeps `m_hiddenByStealth = false` and
+/// reaches Draw modules with first-pass translucency
+/// (`m_stealthFriendlyOpacity`), not a binary hide.
 #[must_use]
 pub const fn visibility_from_direct_sidecar(
     outside_view: bool,
-    scene_effectively_hidden: bool,
+    scene_hidden: bool,
+    hidden_by_stealth: bool,
     fully_obscured: bool,
 ) -> PreparedVisualVisibility {
     if outside_view {
         PreparedVisualVisibility::OutsideView
-    } else if scene_effectively_hidden {
+    } else if scene_hidden {
         PreparedVisualVisibility::Hidden
+    } else if hidden_by_stealth {
+        PreparedVisualVisibility::HiddenByStealth
     } else if fully_obscured {
         PreparedVisualVisibility::FullyObscuredByShroud
     } else {
         PreparedVisualVisibility::Visible
+    }
+}
+
+/// Map a C++ `StealthLookType` (plus the non-stealth sidecar bits) to the
+/// frozen host visibility used by Draw-module dispatch.
+///
+/// Invisible is the only look that becomes `HiddenByStealth`. Friendly
+/// looks stay `Visible` so modules still run; first-pass opacity is
+/// [`stealth_look_first_pass_opacity`].
+#[must_use]
+pub const fn visibility_from_stealth_look(
+    outside_view: bool,
+    scene_hidden: bool,
+    fully_obscured: bool,
+    look: HostCamoStealthLook,
+) -> PreparedVisualVisibility {
+    visibility_from_direct_sidecar(
+        outside_view,
+        scene_hidden,
+        matches!(look, HostCamoStealthLook::Invisible),
+        fully_obscured,
+    )
+}
+
+/// C++ `Drawable::setStealthLook` first-pass opacity.
+///
+/// `VISIBLE_FRIENDLY` / `VISIBLE_FRIENDLY_DETECTED` use
+/// `TheGlobalData->m_stealthFriendlyOpacity` (or the StealthUpdate override).
+/// Invisible contributes no first pass. Detected-enemy / disguised / none
+/// stay opaque on the first pass (heat vision is the second material pass).
+pub fn stealth_look_first_pass_opacity(look: HostCamoStealthLook, friendly_opacity: f32) -> f32 {
+    match look {
+        HostCamoStealthLook::VisibleFriendly
+        | HostCamoStealthLook::VisibleFriendlyDetected => {
+            if !friendly_opacity.is_finite() {
+                0.5
+            } else {
+                friendly_opacity.clamp(0.0, 1.0)
+            }
+        }
+        HostCamoStealthLook::Invisible => 0.0,
+        HostCamoStealthLook::None
+        | HostCamoStealthLook::DisguisedEnemy
+        | HostCamoStealthLook::VisibleDetected => 1.0,
     }
 }
 
@@ -235,16 +288,64 @@ mod tests {
     #[test]
     fn sidecar_hidden_is_not_friendly_stealth_visible() {
         assert_eq!(
-            visibility_from_direct_sidecar(false, true, false),
+            visibility_from_direct_sidecar(false, true, false, false),
             PreparedVisualVisibility::Hidden
         );
         assert_eq!(
-            visibility_from_direct_sidecar(false, false, true),
+            visibility_from_direct_sidecar(false, false, true, false),
+            PreparedVisualVisibility::HiddenByStealth
+        );
+        assert_eq!(
+            visibility_from_direct_sidecar(false, false, false, true),
             PreparedVisualVisibility::FullyObscuredByShroud
         );
         assert_eq!(
-            visibility_from_direct_sidecar(true, false, false),
+            visibility_from_direct_sidecar(true, false, false, false),
             PreparedVisualVisibility::OutsideView
         );
+    }
+
+    #[test]
+    fn friendly_stealth_look_is_translucent_visible_not_hidden() {
+        for look in [
+            HostCamoStealthLook::VisibleFriendly,
+            HostCamoStealthLook::VisibleFriendlyDetected,
+        ] {
+            let visibility = visibility_from_stealth_look(false, false, false, look);
+            assert_eq!(visibility, PreparedVisualVisibility::Visible);
+            assert!(visibility.dispatches_modules());
+            assert_eq!(stealth_look_first_pass_opacity(look, 0.5), 0.5);
+            assert_eq!(stealth_look_first_pass_opacity(look, 0.3), 0.3);
+        }
+        let invisible = visibility_from_stealth_look(
+            false,
+            false,
+            false,
+            HostCamoStealthLook::Invisible,
+        );
+        assert_eq!(invisible, PreparedVisualVisibility::HiddenByStealth);
+        assert!(!invisible.dispatches_modules());
+        assert_eq!(
+            stealth_look_first_pass_opacity(HostCamoStealthLook::Invisible, 0.5),
+            0.0
+        );
+        assert_eq!(
+            stealth_look_first_pass_opacity(HostCamoStealthLook::VisibleDetected, 0.5),
+            1.0
+        );
+
+        let drawable = freeze_host_visual_drawable(
+            owner(),
+            visibility_from_stealth_look(
+                false,
+                false,
+                false,
+                HostCamoStealthLook::VisibleFriendly,
+            ),
+            &[model(0, "W3DModelDraw")],
+        )
+        .expect("friendly cloak still dispatches Draw modules");
+        assert_eq!(drawable.visibility, PreparedVisualVisibility::Visible);
+        assert_eq!(drawable.draw_modules.len(), 1);
     }
 }

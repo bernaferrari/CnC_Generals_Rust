@@ -691,8 +691,10 @@ impl TeamFactory {
 
         // C++ Team::~Team — notify scripts, then every Player::preTeamDestroy.
         if let Some(name) = &team_name {
-            if let Ok(mut engine) = get_script_engine().lock() {
-                engine.notify_of_team_destruction(name);
+            if let Ok(mut engine) = get_script_engine().write() {
+                if let Some(engine) = engine.as_mut() {
+                    engine.notify_of_team_destruction(name);
+                }
             }
         }
         if let Some(team_arc) = &team_arc {

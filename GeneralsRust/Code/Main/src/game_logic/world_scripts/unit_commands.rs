@@ -91,12 +91,19 @@ impl GameLogic {
         }
     }
 
+    /// C++ `HackInternetAIUpdate::aiDoCommand`: PACKING on any new command.
+    #[inline]
+    fn note_hacker_ai_command(&mut self, id: ObjectId) {
+        self.stop_hacker_internet_hack(id);
+    }
+
     /// Prepare move: stop attack then assign path (fallback set_destination).
     /// Wave 230/232: stop attack residual then path or set destination + Moving.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         if !self.unit_can_move(id) {
             return false;
         }
+        self.note_hacker_ai_command(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
         }
@@ -126,6 +133,7 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
+        self.note_hacker_ai_command(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
         }
@@ -137,6 +145,7 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
+        self.note_hacker_ai_command(id);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
         }
@@ -151,6 +160,7 @@ impl GameLogic {
 
     /// Wave 230/232: attack target (records host attack log).
     pub fn unit_command_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        self.note_hacker_ai_command(id);
         // This is the authority boundary for a player AttackObject order.
         // Do not merely stamp `target`: C++ WeaponSet validates the concrete
         // target relationship/status and every available Weapon.ini Anti*
@@ -181,6 +191,7 @@ impl GameLogic {
 
     /// Wave 230/232: force-attack target (records host attack log).
     pub fn unit_command_force_attack(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        self.note_hacker_ai_command(id);
         // C++ force attack still uses WeaponSet target legality: it changes
         // relationship/force handling, not UNATTACKABLE, MASKED, contained,
         // stealth, or exact Weapon.ini anti-mask rules.
@@ -210,6 +221,7 @@ impl GameLogic {
 
     /// Wave 230/232: full player stop (idle + clear guard/target/force + logs).
     pub fn unit_command_stop(&mut self, id: ObjectId) -> bool {
+        self.note_hacker_ai_command(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -226,6 +238,7 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_position(&mut self, id: ObjectId, pos: glam::Vec3) -> bool {
+        self.note_hacker_ai_command(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -235,6 +248,7 @@ impl GameLogic {
     }
 
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
+        self.note_hacker_ai_command(id);
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -255,6 +269,7 @@ impl GameLogic {
         destination: glam::Vec3,
         max_shots: i32,
     ) -> bool {
+        self.note_hacker_ai_command(id);
         let (can_move, can_attack) = match self.objects.get(&id) {
             Some(unit) => (
                 unit.is_alive() && unit.can_move(),
@@ -315,6 +330,7 @@ impl GameLogic {
 
     /// Wave 231: force-attack ground location.
     pub fn unit_command_attack_ground(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
+        self.note_hacker_ai_command(id);
         if !matches!(
             self.get_able_to_use_weapon_against_target(
                 id,
@@ -342,6 +358,7 @@ impl GameLogic {
         if !self.unit_can_move(id) {
             return false;
         }
+        self.note_hacker_ai_command(id);
         let path_ok = self.assign_unit_path(id, destination, &[]);
         if let Some(unit) = self.objects.get_mut(&id) {
             if !path_ok {
@@ -358,6 +375,7 @@ impl GameLogic {
         if self.objects.get(&id).is_none() {
             return false;
         }
+        self.note_hacker_ai_command(id);
         if !self.assign_unit_path(id, location, &[]) {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_destination(location);
@@ -365,11 +383,9 @@ impl GameLogic {
                 return false;
             }
         }
+        // C++ WorkerAIUpdate::newTask — drop preferred dock and leave supply mode.
+        self.worker_exit_supply_for_dozer_task(id);
         if let Some(unit) = self.objects.get_mut(&id) {
-            // C++ WorkerAIUpdate clears m_preferredDock as soon as a worker
-            // receives a dozer task, preventing a GLA worker from resuming
-            // its old supply route after construction.
-            unit.preferred_dock_id = None;
             unit.set_ai_state(AIState::Constructing);
             return true;
         }

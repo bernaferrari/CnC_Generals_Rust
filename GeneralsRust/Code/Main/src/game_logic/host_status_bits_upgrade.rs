@@ -97,6 +97,140 @@ pub fn apply_status_bits_upgrade(
     status_bits_clear(status_bits_set(bits, set_m), clear_m)
 }
 
+/// Owned StatusBitsUpgrade module parsed from INI `StatusToSet` / `StatusToClear`.
+///
+/// C++ `StatusBitsUpgradeModuleData::buildFieldParse` (StatusBitsUpgrade.cpp:58-59).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusBitsUpgradeIni {
+    pub triggered_by: String,
+    pub status_to_set: Vec<String>,
+    pub status_to_clear: Vec<String>,
+}
+
+/// Parse an ObjectStatusMaskType INI token list (`StatusToSet` / `StatusToClear`).
+///
+/// C++ `ObjectStatusMaskType::parseFromINI`: whitespace-separated bit names,
+/// optional `+` prefix. Unknown names fail-closed (dropped).
+pub fn parse_status_mask_tokens(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in text.split(|c: char| c.is_whitespace() || c == ',') {
+        let token = raw.trim().trim_start_matches('+');
+        if token.is_empty() || token == "=" {
+            continue;
+        }
+        if token.eq_ignore_ascii_case("NONE") {
+            continue;
+        }
+        let Some(idx) = object_status_bit_name_index(token) else {
+            continue;
+        };
+        let canonical = OBJECT_STATUS_BIT_NAME_LIST[idx];
+        if !out.iter().any(|existing| existing == canonical) {
+            out.push(canonical.to_string());
+        }
+    }
+    out
+}
+
+/// Build a parsed StatusBitsUpgrade module from INI field strings.
+pub fn parse_status_bits_upgrade_fields(
+    triggered_by: &str,
+    status_to_set: &str,
+    status_to_clear: &str,
+) -> StatusBitsUpgradeIni {
+    StatusBitsUpgradeIni {
+        triggered_by: triggered_by.trim().to_string(),
+        status_to_set: parse_status_mask_tokens(status_to_set),
+        status_to_clear: parse_status_mask_tokens(status_to_clear),
+    }
+}
+
+/// `TriggeredBy` lists the upgrades that must be complete (token match).
+pub fn triggered_by_lists_upgrade(triggered_by: &str, upgrade_name: &str) -> bool {
+    use crate::game_logic::host_upgrades::normalize_upgrade_identity;
+    let want = normalize_upgrade_identity(upgrade_name);
+    if want.is_empty() {
+        return false;
+    }
+    triggered_by.split_whitespace().any(|token| {
+        let have = normalize_upgrade_identity(token);
+        !have.is_empty() && have == want
+    })
+}
+
+/// Apply owned set/clear name lists (C++ set then clear).
+pub fn apply_status_bits_upgrade_names(
+    bits: ObjectStatusBits,
+    set_names: &[String],
+    clear_names: &[String],
+) -> ObjectStatusBits {
+    let set: Vec<&str> = set_names.iter().map(String::as_str).collect();
+    let clear: Vec<&str> = clear_names.iter().map(String::as_str).collect();
+    apply_status_bits_upgrade(bits, &set, &clear)
+}
+
+/// StatusBitsUpgrade modules authored on `template_name` that fire for `upgrade`.
+///
+/// Reads live Object INI `Behavior = StatusBitsUpgrade` `StatusToSet` /
+/// `StatusToClear`. Empty when the asset catalog is not loaded.
+pub fn status_bits_ini_modules_for_template(
+    template_name: &str,
+    upgrade_name: &str,
+) -> Vec<(Vec<String>, Vec<String>)> {
+    let Some(am) = crate::assets::get_asset_manager() else {
+        return Vec::new();
+    };
+    let Ok(mgr) = am.lock() else {
+        return Vec::new();
+    };
+    let Some(def) = mgr
+        .get_object_definition(template_name)
+        .or_else(|| mgr.resolve_object_definition(template_name, None))
+    else {
+        return Vec::new();
+    };
+    def.behavior_modules
+        .iter()
+        .filter(|module| module.class_name.eq_ignore_ascii_case("StatusBitsUpgrade"))
+        .filter_map(|module| {
+            let triggered = module.attribute("TriggeredBy")?;
+            if !triggered_by_lists_upgrade(triggered, upgrade_name) {
+                return None;
+            }
+            Some((
+                parse_status_mask_tokens(module.attribute("StatusToSet").unwrap_or("")),
+                parse_status_mask_tokens(module.attribute("StatusToClear").unwrap_or("")),
+            ))
+        })
+        .filter(|(set, clear)| !set.is_empty() || !clear.is_empty())
+        .collect()
+}
+
+/// INI modules when present, otherwise the residual name peels.
+pub fn collect_status_bits_for_upgrade(
+    upgrade_name: &str,
+    template_name: &str,
+) -> Vec<(Vec<String>, Vec<String>)> {
+    let ini = status_bits_ini_modules_for_template(template_name, upgrade_name);
+    if !ini.is_empty() {
+        return ini;
+    }
+    peels_for_upgrade(upgrade_name)
+        .into_iter()
+        .filter(|peel| peel_applies_to_template(peel, template_name))
+        .map(|peel| {
+            (
+                peel.status_to_set.iter().map(|s| (*s).to_string()).collect(),
+                peel.status_to_clear
+                    .iter()
+                    .map(|s| (*s).to_string())
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+
 /// Peels matching an upgrade name (case-insensitive contains/equality).
 pub fn peels_for_upgrade(upgrade_name: &str) -> Vec<&'static StatusBitsUpgradePeel> {
     let u = upgrade_name.to_ascii_lowercase();
@@ -192,5 +326,45 @@ mod tests {
         assert!(!peels.is_empty());
         assert!(peel_applies_to_template(peels[0], "GLADemoTrap"));
         assert!(!peel_applies_to_template(peels[0], "AmericaTankCrusader"));
+    }
+
+    #[test]
+    fn parses_ini_status_to_set_and_clear() {
+        // C++ StatusBitsUpgrade.cpp:58-59 ObjectStatusMaskType::parseFromINI
+        let parsed = parse_status_bits_upgrade_fields(
+            "Upgrade_GLABoobyTrap",
+            "BOOBY_TRAPPED CAN_STEALTH",
+            "+NO_ATTACK",
+        );
+        assert!(triggered_by_lists_upgrade(
+            &parsed.triggered_by,
+            "Upgrade_GLABoobyTrap"
+        ));
+        assert_eq!(
+            parsed.status_to_set,
+            vec!["BOOBY_TRAPPED".to_string(), "CAN_STEALTH".to_string()]
+        );
+        assert_eq!(parsed.status_to_clear, vec!["NO_ATTACK".to_string()]);
+        let bits =
+            apply_status_bits_upgrade_names(0, &parsed.status_to_set, &parsed.status_to_clear);
+        assert!(status_bits_has(bits, "BOOBY_TRAPPED"));
+        assert!(status_bits_has(bits, "CAN_STEALTH"));
+        assert!(!status_bits_has(bits, "NO_ATTACK"));
+    }
+
+    #[test]
+    fn non_peel_upgrade_honors_parsed_status_lists() {
+        // hq-kpm9g: upgrades outside the 3 hardcoded peels must still apply
+        // authored StatusToSet/StatusToClear.
+        assert!(peels_for_upgrade("Upgrade_DemoSuicideCarbomb").is_empty());
+        let parsed = parse_status_bits_upgrade_fields(
+            "Upgrade_DemoSuicideCarbomb",
+            "IS_CARBOMB",
+            "",
+        );
+        assert!(!parsed.status_to_set.is_empty());
+        let bits =
+            apply_status_bits_upgrade_names(0, &parsed.status_to_set, &parsed.status_to_clear);
+        assert!(status_bits_has(bits, "IS_CARBOMB"));
     }
 }

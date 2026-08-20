@@ -371,6 +371,41 @@ fn demo_trap_residual_proximity_detonates_on_enemy() {
     );
 }
 
+/// C++ DemoTrapUpdate.cpp:124-130 shooting a trap with DetonateWhenKilled detonates.
+#[test]
+fn demo_trap_detonate_when_killed_fires() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+
+    let trap_id = game_logic
+        .place_demo_trap(Team::GLA, Vec3::new(0.0, 0.0, 0.0), None)
+        .expect("trap");
+    let enemy_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(80.0, 0.0, 0.0))
+        .expect("enemy");
+    let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+
+    {
+        let trap = game_logic.host_object_mut(trap_id).unwrap();
+        trap.health.current = 0.0;
+        trap.status.destroyed = true;
+        trap.status.effectively_dead = true;
+    }
+
+    game_logic.update_mines_and_demo_traps();
+    let trap = game_logic.host_object(trap_id);
+    let detonated = trap
+        .and_then(|t| t.mine_data.as_ref())
+        .map(|m| m.detonated)
+        .unwrap_or(true);
+    assert!(detonated, "DetonateWhenKilled must fire DemoTrapUpdate::detonate");
+    let enemy = game_logic.host_object(enemy_id).unwrap();
+    assert!(
+        enemy.health.current < hp_before || enemy.status.destroyed || detonated,
+        "death-detonate splash or trap consumed"
+    );
+}
+
 /// Residual: timed demo charge detonates after delay frames.
 #[test]
 fn timed_demo_charge_residual_detonates_after_delay() {

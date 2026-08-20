@@ -193,6 +193,32 @@ pub enum KindOf {
     Crate,
     /// C++ `KINDOF_IGNORES_SELECT_ALL` — excluded from SELECT_ALL / matching.
     IgnoresSelectAll,
+    /// C++ `KINDOF_ALWAYS_SELECTABLE` (KindOf.h:86). Never unselectable,
+    /// even if effectively dead — UI feedback objects / rubble clicks.
+    AlwaysSelectable,
+    /// C++ `KINDOF_MP_COUNT_FOR_VICTORY` (KindOf.h:63). Radar/EVA/victory
+    /// count this bit, not an FS-kind union.
+    MpCountForVictory,
+    /// C++ `KINDOF_SCORE` (KindOf.h:65). Multiplayer score + short-game.
+    Score,
+    /// C++ `KINDOF_SCORE_CREATE` (KindOf.h:66).
+    ScoreCreate,
+    /// C++ `KINDOF_SCORE_DESTROY` (KindOf.h:67).
+    ScoreDestroy,
+}
+
+impl KindOf {
+    /// Map one C++ KindOf.h token onto the live host capability set.
+    pub fn from_ini_token(token: &str) -> Option<Self> {
+        match token.trim().to_ascii_uppercase().as_str() {
+            "ALWAYS_SELECTABLE" => Some(Self::AlwaysSelectable),
+            "MP_COUNT_FOR_VICTORY" => Some(Self::MpCountForVictory),
+            "SCORE" => Some(Self::Score),
+            "SCORE_CREATE" => Some(Self::ScoreCreate),
+            "SCORE_DESTROY" => Some(Self::ScoreDestroy),
+            _ => None,
+        }
+    }
 }
 
 /// Object status flags
@@ -599,7 +625,7 @@ impl Weapon {
 
 #[cfg(test)]
 mod tests {
-    use super::Weapon;
+    use super::{KindOf, Weapon};
 
     #[test]
     fn suspend_fx_frame_is_an_absolute_logic_frame_and_clone_preserves_it() {
@@ -608,5 +634,28 @@ mod tests {
         assert!(weapon.fire_fx_is_suspended_at(41));
         assert!(!weapon.fire_fx_is_suspended_at(42));
         assert_eq!(weapon.clone().suspend_fx_frame, 42);
+    }
+
+    #[test]
+    fn host_kindof_maps_cpp_always_selectable_and_mp_count_tokens() {
+        // C++ KindOf.h:63-67,86 — live host bits, not an FS-kind union.
+        assert_eq!(
+            KindOf::from_ini_token("ALWAYS_SELECTABLE"),
+            Some(KindOf::AlwaysSelectable)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("mp_count_for_victory"),
+            Some(KindOf::MpCountForVictory)
+        );
+        assert_eq!(KindOf::from_ini_token("SCORE"), Some(KindOf::Score));
+        assert_eq!(
+            KindOf::from_ini_token("SCORE_CREATE"),
+            Some(KindOf::ScoreCreate)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("SCORE_DESTROY"),
+            Some(KindOf::ScoreDestroy)
+        );
+        assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }
 }

@@ -1678,7 +1678,7 @@ fn selected_unit_template_names(
 }
 
 fn is_hijacker_unit_template(name: &str) -> bool {
-    crate::game_logic::host_squish_collide::template_has_hijacker_update(name)
+    name.to_ascii_lowercase().contains("hijacker")
 }
 
 fn target_is_hijackable_vehicle(hint: &PresentationTargetHint) -> bool {

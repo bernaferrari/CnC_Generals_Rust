@@ -4,8 +4,9 @@ impl Object {
     /// C++ applyGravitationalForces residual (host world Y up).
     pub fn apply_gravitational_forces(&mut self) {
         // C++ TheGlobalData->m_gravity residual ≈ -1.0 world units / frame²
-        // Host shock gravity is -1.0 on Y.
-        self.physics_accel.y += -1.0;
+        // Host shock gravity is -1.0 on Y. Called every tick_physics_motion_step
+        // so tossed units do not coast into orbit after stun expires.
+        self.physics_accel.y += Self::SHOCK_GRAVITY;
     }
 
     /// C++ AIUpdateInterface::privateMoveAwayFromUnit residual (fail-closed).
@@ -622,6 +623,22 @@ impl Object {
 
         self.ground_height = ground_y;
 
+        // C++ PhysicsUpdate.cpp:630 applyGravitationalForces every update.
+        // Stun tick already applies SHOCK_GRAVITY while IS_STUNNED.
+        if self.shock_stun_frames == 0 {
+            let flying_loco_aircraft = (self.is_kind_of(KindOf::Aircraft)
+                || self.object_type == ObjectType::Aircraft)
+                && self.status.airborne_target
+                && !self.allow_to_fall
+                && !self.shock_was_airborne;
+            if !flying_loco_aircraft {
+                self.apply_gravitational_forces();
+                self.movement.velocity.y += self.physics_accel.y;
+                self.physics_accel.y = 0.0;
+                self.invalidate_velocity_magnitude();
+            }
+        }
+
         let old_pos = self.get_position();
         let old_y = old_pos.y;
         let airborne_start = old_y > ground_y + 0.05;
@@ -666,6 +683,9 @@ impl Object {
             let dy = ground_y - new_pos.y;
             self.movement.velocity.y += dy;
             if self.movement.velocity.y > 0.0 {
+                self.movement.velocity.y = 0.0;
+            } else if dy.abs() < 1e-6 && self.movement.velocity.y < 0.0 {
+                // Marching / no Y integrate: do not accumulate gravity into vy.
                 self.movement.velocity.y = 0.0;
             }
             self.invalidate_velocity_magnitude();
@@ -850,6 +870,10 @@ impl Object {
             }
             return;
         }
+        // Capture before this frame's land so first ground contact keeps STUNNED
+        // one frame (C++ ≈1 frame grounded stun; FLAILING → STUNNED visible).
+        let already_on_ground = self.shock_grounded_once
+            || self.get_position().y <= self.ground_height + 0.05;
         if countdown {
             self.shock_stun_frames = self.shock_stun_frames.saturating_sub(1);
             self.record_host_shock_stun();
@@ -933,7 +957,25 @@ impl Object {
             // C++ killWhenRestingOnGround after settle.
             let _ = self.maybe_kill_when_resting_on_ground();
         }
+        // C++ PhysicsUpdate.cpp:672-682: clear stun when |vel|<0.5 or grounded.
+        self.maybe_clear_shock_stun_relief(already_on_ground);
         self.refresh_model_condition_bits();
+    }
+
+    /// C++ STUN_RELIEF_EPSILON / !isSignificantlyAboveTerrain residual.
+    fn maybe_clear_shock_stun_relief(&mut self, already_on_ground: bool) {
+        if self.shock_stun_frames == 0 {
+            return;
+        }
+        let v = self.movement.velocity;
+        const EPS: f32 = 0.5; // C++ STUN_RELIEF_EPSILON
+        let vel_settled = v.x.abs() < EPS && v.y.abs() < EPS && v.z.abs() < EPS;
+        let grounded = self.get_position().y <= self.ground_height + 0.05;
+        if vel_settled || (grounded && already_on_ground) {
+            self.shock_stun_frames = 0;
+            self.set_status_disabled_freefall(false);
+            self.record_host_shock_stun();
+        }
     }
 
     /// C++ PhysicsBehavior::getIsStunned residual.

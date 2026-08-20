@@ -610,9 +610,12 @@ mod tests {
     #[test]
     fn get_team_target_object_rejects_missing_object() {
         let mut team = Team::new(AsciiString::from("TargetTeam"), 1);
-        team.common_attack_target.set(999_999);
+        team.common_attack_target.store(999_999, Ordering::Relaxed);
         assert_eq!(team.get_team_target_object(), INVALID_ID);
-        assert_eq!(team.common_attack_target.get(), INVALID_ID);
+        assert_eq!(
+            team.common_attack_target.load(Ordering::Relaxed),
+            INVALID_ID
+        );
     }
 
     #[test]

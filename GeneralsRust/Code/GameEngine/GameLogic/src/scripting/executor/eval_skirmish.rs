@@ -14,6 +14,7 @@ impl ScriptConditionEvaluator {
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
+        // C++ ScriptConditions::evaluateSkirmishSpecialPowerIsReady (line 1878-1922)
         let player_name = self.get_condition_string_param(condition, 0)?;
         let power_name = self.get_condition_string_param(condition, 1)?;
         log::debug!(
@@ -32,22 +33,38 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let player_id = player.get_player_index() as crate::common::ObjectID;
-        let power_name_lower = power_name.to_ascii_lowercase();
+        let Some(store) = get_special_power_store() else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let Some(template) = store.find_special_power_template(&power_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        let template_name = template.get_name().to_string();
 
-        for power in crate::special_power_module::registry::get_player_powers(player_id) {
-            let Ok(power) = power.lock() else {
+        for object_id in player.get_all_objects() {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
                 continue;
             };
-            if power.get_data().name.to_string().to_ascii_lowercase() != power_name_lower {
+            let Ok(obj) = obj_arc.read() else {
+                continue;
+            };
+            if obj.is_destroyed()
+                || obj.is_effectively_dead()
+                || obj.is_disabled()
+                || obj
+                    .get_status_bits()
+                    .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+            {
                 continue;
             }
-
-            if power.is_ready() {
+            let ready = obj
+                .with_special_power_module_interface_by_name(&template_name, |module| {
+                    module.is_ready()
+                })
+                .unwrap_or(false);
+            if ready {
                 return Ok(ScriptConditionResult::True);
             }
-
-            return Ok(ScriptConditionResult::False);
         }
 
         Ok(ScriptConditionResult::False)
@@ -95,15 +112,13 @@ impl ScriptConditionEvaluator {
                 continue;
             };
 
-            // C++ excludes effectively-dead objects.
+            // C++ !KINDOF_INERT && isInside && !isEffectivelyDead
             if obj.is_effectively_dead() || obj.is_destroyed() {
                 continue;
             }
-            // C++ ignores inert/projectiles; we can at least ignore projectiles.
-            if obj.is_kind_of(crate::common::KindOf::Projectile) {
+            if obj.is_kind_of(crate::common::KindOf::Inert) {
                 continue;
             }
-
             let owner = obj
                 .get_controlling_player_id()
                 .map(|id| id as i32)

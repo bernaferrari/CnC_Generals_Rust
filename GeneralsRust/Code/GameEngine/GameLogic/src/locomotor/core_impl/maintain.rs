@@ -1,3 +1,20 @@
+/// Result of C++ `Locomotor::fixInvalidPosition` (Locomotor.cpp:1528-1560).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InvalidPositionFix {
+    pub correction: Coord3D,
+    pub extra_push: Option<Coord3D>,
+}
+
+/// Result of C++ `doLocomotor` NONE-goal settle + maintain (AIUpdate.cpp:2234-2265).
+#[derive(Debug, Clone, Copy)]
+pub struct GoalNoneUpdate {
+    pub pos: Coord3D,
+    pub angle: Real,
+    pub speed: Real,
+    pub requires_constant: bool,
+    pub do_final_position: bool,
+}
+
 impl Locomotor {
     // ========================================================================
     // MISSING METHODS — Ported from C++ Locomotor.cpp
@@ -325,36 +342,45 @@ impl Locomotor {
     }
 
     /// Fix units stuck in invalid terrain by applying a correction force.
-    /// Returns `true` if a correction was applied.
-    /// Matches C++ Locomotor::fixInvalidPosition (Locomotor.cpp:1500-1564)
+    /// Returns the motive correction (and optional extra push) if applied.
+    /// Matches C++ Locomotor::fixInvalidPosition (Locomotor.cpp:1500-1564).
     pub fn fix_invalid_position(
-        &mut self,
+        &self,
         current_pos: Coord3D,
-        _current_speed: Real,
-        _current_angle: Real,
+        velocity: Coord3D,
         mass: Real,
-    ) -> Option<Coord3D> {
+        is_dozer: bool,
+        layer: crate::common::PathfindLayerEnum,
+    ) -> Option<InvalidPositionFix> {
+        self.fix_invalid_position_with(is_dozer, current_pos, velocity, mass, |pos| {
+            self.valid_movement_terrain_at(layer, pos)
+        })
+    }
+
+    /// C++ `fixInvalidPosition` core (Locomotor.cpp:1502-1562) with injected cell validity.
+    pub fn fix_invalid_position_with(
+        &self,
+        is_dozer: bool,
+        current_pos: Coord3D,
+        velocity: Coord3D,
+        mass: Real,
+        is_valid: impl Fn(Coord3D) -> bool,
+    ) -> Option<InvalidPositionFix> {
+        // C++ Locomotor.cpp:1502-1504 — KINDOF_DOZER is never shoved.
+        if is_dozer {
+            return None;
+        }
+
         let mut dx_acc: Real = 0.0;
         let mut dy_acc: Real = 0.0;
-
         for j in -1i32..=1 {
             for i in -1i32..=1 {
-                let check_x = current_pos.x + (i as Real) * PATHFIND_CELL_SIZE_F;
-                let check_y = current_pos.y + (j as Real) * PATHFIND_CELL_SIZE_F;
-
-                let valid = TheTerrainLogic::get()
-                    .map(|terrain| {
-                        let ground_z = terrain.get_ground_height(check_x, check_y, None);
-                        let surface_z = terrain.get_layer_height(
-                            check_x,
-                            check_y,
-                            crate::common::PathfindLayerEnum::Ground,
-                        );
-                        (ground_z - surface_z).abs() < 100.0
-                    })
-                    .unwrap_or(true);
-
-                if !valid {
+                let check = Coord3D::new(
+                    current_pos.x + (i as Real) * PATHFIND_CELL_SIZE_F,
+                    current_pos.y + (j as Real) * PATHFIND_CELL_SIZE_F,
+                    current_pos.z,
+                );
+                if !is_valid(check) {
                     if i < 0 {
                         dx_acc += 1.0;
                     }
@@ -370,22 +396,139 @@ impl Locomotor {
                 }
             }
         }
-
-        if dx_acc.abs() < 0.001 && dy_acc.abs() < 0.001 {
+        if dx_acc == 0.0 && dy_acc == 0.0 {
             return None;
         }
 
         let correction = Coord3D::new(dx_acc * mass / 5.0, dy_acc * mass / 5.0, 0.0);
-        Some(correction)
+        let mut correction_normalized = correction;
+        let len = (correction_normalized.x * correction_normalized.x
+            + correction_normalized.y * correction_normalized.y)
+            .sqrt();
+        if len > 0.0001 {
+            correction_normalized.x /= len;
+            correction_normalized.y /= len;
+        }
+        let dot = velocity.x * correction_normalized.x + velocity.y * correction_normalized.y;
+        // C++ Locomotor.cpp:1542-1544 — already leaving the invalid cell.
+        if dot > 0.25 {
+            return None;
+        }
+        let extra_push = if dot < 0.0 {
+            let mag = (-dot).sqrt();
+            Some(Coord3D::new(
+                correction_normalized.x * mag * mass,
+                correction_normalized.y * mag * mass,
+                0.0,
+            ))
+        } else {
+            None
+        };
+        Some(InvalidPositionFix {
+            correction,
+            extra_push,
+        })
     }
 
-    /// Start a new move — reset donut timer, clear stuck state.
-    /// Matches C++ Locomotor::startMove (Locomotor.cpp:761-765)
+    /// C++ `Pathfinder::validMovementTerrain` for this locomotor's surfaces.
+    /// Missing pathfinder fail-opens (treat as valid) so tests without a map still move.
+    pub fn valid_movement_terrain_at(
+        &self,
+        layer: crate::common::PathfindLayerEnum,
+        pos: Coord3D,
+    ) -> bool {
+        let Some(ai) = crate::ai::THE_AI.read().ok() else {
+            return true;
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return true;
+        };
+        let Ok(pf) = pathfinder.read() else {
+            return true;
+        };
+        let set = LocomotorSet::from_surfaces(self.template.surfaces);
+        let astar_layer = crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+        pf.valid_movement_terrain(astar_layer, &set, &pos)
+    }
+
+    /// Start a new move — reset only the donut timer.
+    /// Matches C++ Locomotor::startMove (Locomotor.cpp:761-765).
     pub fn start_move(&mut self) {
         self.donut_timer = TheGameLogic::get_frame()
             + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
-        self.set_flag(FLAG_IS_BRAKING, false);
-        self.braking_factor = 1.0;
+    }
+
+    /// C++ `AIUpdate::doLocomotor` NONE-goal final-position settle (AIUpdate.cpp:2236-2262).
+    /// Returns `(new_pos, still_do_final_position)`.
+    pub fn settle_final_position(
+        current_pos: Coord3D,
+        final_position: Coord3D,
+        on_ground: bool,
+    ) -> (Coord3D, bool) {
+        const DARN_CLOSE: Real = 0.25;
+        let dx = final_position.x - current_pos.x;
+        let dy = final_position.y - current_pos.y;
+        let d_sqr = dx * dx + dy * dy;
+        if d_sqr < DARN_CLOSE {
+            let mut pos = final_position;
+            if on_ground {
+                pos.z = TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_ground_height(final_position.x, final_position.y, None))
+                    .unwrap_or(final_position.z);
+            } else {
+                pos.z = current_pos.z;
+            }
+            (pos, false)
+        } else {
+            let mut dist = d_sqr.sqrt();
+            if dist < 1.0 {
+                dist = 1.0;
+            }
+            let frames = LOGICFRAMES_PER_SECOND as Real;
+            let mut pos = current_pos;
+            pos.x += 2.0 * PATHFIND_CELL_SIZE_F * dx / (dist * frames);
+            pos.y += 2.0 * PATHFIND_CELL_SIZE_F * dy / (dist * frames);
+            if on_ground {
+                pos.z = TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
+                    .unwrap_or(pos.z);
+            }
+            (pos, true)
+        }
+    }
+
+    /// C++ NONE-goal update: optional final-position settle, then `locoUpdate_maintainCurrentPosition`.
+    /// AIUpdate.cpp:2234-2265.
+    pub fn loco_update_when_goal_none(
+        &mut self,
+        current_pos: Coord3D,
+        current_angle: Real,
+        current_speed: Real,
+        condition: BodyDamageType,
+        delta_time: Real,
+        do_final_position: bool,
+        final_position: Coord3D,
+        on_ground: bool,
+    ) -> GoalNoneUpdate {
+        let (pos, still_do_final) = if do_final_position {
+            Self::settle_final_position(current_pos, final_position, on_ground)
+        } else {
+            (current_pos, false)
+        };
+        let (pos, angle, speed, requires_constant) = self.loco_update_maintain_current_position(
+            pos,
+            current_angle,
+            current_speed,
+            condition,
+            delta_time,
+        );
+        GoalNoneUpdate {
+            pos,
+            angle,
+            speed,
+            requires_constant,
+            do_final_position: still_do_final,
+        }
     }
 
     /// Get terrain/water surface height at a 2D point.

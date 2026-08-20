@@ -230,6 +230,11 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         // save/load without occupying a presentation KindOf bit.
         KindOf::Crate => 54,
         KindOf::IgnoresSelectAll => 55,
+        KindOf::AlwaysSelectable => 56,
+        KindOf::MpCountForVictory => 57,
+        KindOf::Score => 58,
+        KindOf::ScoreCreate => 59,
+        KindOf::ScoreDestroy => 60,
     }
 }
 
@@ -291,6 +296,11 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         53 => Ok(KindOf::CannotBuildNearSupplies),
         54 => Ok(KindOf::Crate),
         55 => Ok(KindOf::IgnoresSelectAll),
+        56 => Ok(KindOf::AlwaysSelectable),
+        57 => Ok(KindOf::MpCountForVictory),
+        58 => Ok(KindOf::Score),
+        59 => Ok(KindOf::ScoreCreate),
+        60 => Ok(KindOf::ScoreDestroy),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),

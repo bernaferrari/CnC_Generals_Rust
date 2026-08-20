@@ -334,13 +334,19 @@ impl Object {
         if self.lifetime_update.is_some() {
             return;
         }
-        if let Some(msec) =
-            crate::game_logic::host_lifetime_update::lifetime_msec_for_template(&self.template_name)
+        if let Some((min_ms, max_ms)) =
+            crate::game_logic::host_lifetime_update::lifetime_msec_range_for_template(
+                &self.template_name,
+            )
         {
+            let is_hulk = self.template_name.to_ascii_lowercase().contains("hulk");
             self.lifetime_update = Some(
-                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_msec(
+                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_ini_range(
                     current_frame,
-                    msec,
+                    min_ms,
+                    max_ms,
+                    self.id.0,
+                    is_hulk,
                 ),
             );
         }

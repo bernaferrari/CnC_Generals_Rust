@@ -3,9 +3,9 @@
 use super::*;
 use crate::ai::AIDifficulty;
 use crate::game_logic::{
-    AIState, Experience, GameLogic, HostStrikePhase, HostSuperweaponKind, KindOf, Object, ObjectId,
-    Player, PlayerTemplateIdentity, Resources, Team, ThingTemplate, VeterancyLevel, Weapon,
-    WeaponLockType,
+    AIState, Experience, GameLogic, GuardMode, HostStrikePhase, HostSuperweaponKind, KindOf,
+    Object, ObjectId, Player, PlayerTemplateIdentity, Resources, Team, ThingTemplate,
+    VeterancyLevel, Weapon, WeaponLockType,
 };
 use glam::Vec3;
 
@@ -3080,4 +3080,252 @@ fn bincode_v9_migrates_without_player_rank_tail() {
     assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV10V9);
     assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
     assert!(restored.player_ranks.is_empty());
+}
+
+/// C++ `OpenContain::xfer` (`OpenContain.cpp:1590`) persists the contain
+/// list. Host HUD / `can_garrison` read `BuildingData.garrisoned_units`,
+/// which must be rebuilt from the restored occupant ids.
+#[test]
+fn snapshot_restore_rebuilds_garrisoned_units_from_occupants() {
+    let mut source = GameLogic::new();
+    let mut bunker = ThingTemplate::new("TestBunker");
+    bunker.add_kind_of(KindOf::Structure);
+    source.templates.insert("TestBunker".to_string(), bunker);
+    let mut ranger = ThingTemplate::new("TestRanger");
+    ranger.add_kind_of(KindOf::Infantry);
+    source.templates.insert("TestRanger".to_string(), ranger);
+
+    let bunker_id = source
+        .create_object("TestBunker", Team::USA, Vec3::ZERO)
+        .expect("bunker");
+    let ranger_id = source
+        .create_object("TestRanger", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("ranger");
+    {
+        let bunker = source.host_object_mut(bunker_id).expect("bunker obj");
+        bunker.occupants.push(ranger_id);
+        if let Some(data) = bunker.building_data.as_mut() {
+            data.garrisoned_units.push(ranger_id);
+        }
+    }
+    if let Some(ranger) = source.host_object_mut(ranger_id) {
+        ranger.contained_by = Some(bunker_id);
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+
+    let bunker = restored.host_object(bunker_id).expect("restored bunker");
+    assert_eq!(bunker.occupants, vec![ranger_id]);
+    let garrisoned = bunker
+        .building_data
+        .as_ref()
+        .map(|data| data.garrisoned_units.clone())
+        .unwrap_or_default();
+    assert_eq!(
+        garrisoned,
+        vec![ranger_id],
+        "BuildingData.garrisoned_units must mirror occupants after load"
+    );
+}
+
+/// C++ `Object::xfer` (`Object.cpp:4068`) persists `m_name` independently
+/// of the ThingTemplate. Restore must not overwrite the instance name with
+/// the template name or named script units stop matching.
+#[test]
+fn snapshot_round_trips_object_instance_name() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("USA_Ranger".to_string(), ThingTemplate::new("USA_Ranger"));
+    let id = source
+        .create_object("USA_Ranger", Team::USA, Vec3::ZERO)
+        .expect("create");
+    {
+        let object = source.host_object_mut(id).expect("object");
+        object.name = "ScriptNamedRanger".to_string();
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    assert!(
+        snapshot
+            .object_instance_guards
+            .iter()
+            .any(|entry| entry.object_id == id && entry.instance_name == "ScriptNamedRanger")
+    );
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let loaded = restored.host_object(id).expect("restored");
+    assert_eq!(loaded.template_name, "USA_Ranger");
+    assert_eq!(loaded.name, "ScriptNamedRanger");
+}
+
+/// C++ `AIUpdateInterface::xfer` (`AIUpdate.cpp:5015-5019`) persists guard
+/// target type, `m_locationToGuard`, `m_objectToGuard`, and `m_guardMode`.
+/// Host also stores the live guard radius. Restore must not re-anchor at
+/// the unit's current position.
+#[test]
+fn snapshot_round_trips_guard_anchors() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("TestTank".to_string(), ThingTemplate::new("TestTank"));
+    let tank_id = source
+        .create_object("TestTank", Team::USA, Vec3::new(1.0, 0.0, 2.0))
+        .expect("tank");
+    let target_id = source
+        .create_object("TestTank", Team::China, Vec3::new(40.0, 0.0, 40.0))
+        .expect("target");
+    {
+        let tank = source.host_object_mut(tank_id).expect("tank obj");
+        tank.guard_position = Some(Vec3::new(10.0, 0.0, 20.0));
+        tank.guard_target = Some(target_id);
+        tank.guard_radius = 150.0;
+        tank.guard_mode = GuardMode::WithoutPursuit;
+        tank.ai_state = AIState::GuardingArea;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+
+    let loaded = restored.host_object(tank_id).expect("restored tank");
+    assert_eq!(loaded.guard_position, Some(Vec3::new(10.0, 0.0, 20.0)));
+    assert_eq!(loaded.guard_target, Some(target_id));
+    assert!((loaded.guard_radius - 150.0).abs() < f32::EPSILON);
+    assert_eq!(loaded.guard_mode, GuardMode::WithoutPursuit);
+    assert_eq!(loaded.ai_state, AIState::GuardingArea);
+}
+
+/// Pre-v11 streams have no instance-name / guard tail. Restore must keep
+/// constructor defaults instead of inventing a template name or a guard
+/// anchor at the unit's current position.
+#[test]
+fn snapshot_pre_v11_defaults_instance_name_and_guard_anchors() {
+    let mut source = GameLogic::new();
+    source
+        .templates
+        .insert("USA_Ranger".to_string(), ThingTemplate::new("USA_Ranger"));
+    let id = source
+        .create_object("USA_Ranger", Team::USA, Vec3::new(8.0, 0.0, 4.0))
+        .expect("create");
+    {
+        let object = source.host_object_mut(id).expect("object");
+        object.name = "WouldBeLost".to_string();
+        object.guard_position = Some(Vec3::new(1.0, 0.0, 1.0));
+        object.guard_radius = 90.0;
+        object.guard_mode = GuardMode::FlyingUnitsOnly;
+    }
+
+    let builder = SnapshotBuilder::new();
+    let mut snapshot = builder
+        .create_world_snapshot(&source)
+        .expect("snapshot");
+    snapshot.version = WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION;
+    snapshot.object_instance_guards.clear();
+
+    let mut restored = GameLogic::new();
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("v10 predecessor defaults name/guard tail");
+    let loaded = restored.host_object(id).expect("legacy object");
+    assert!(loaded.name.is_empty());
+    assert_eq!(loaded.guard_position, None);
+    assert_eq!(loaded.guard_target, None);
+    assert_eq!(loaded.guard_radius, 0.0);
+    assert_eq!(loaded.guard_mode, GuardMode::Normal);
+}
+
+/// V11 appends the instance-name / guard tail after the v10 rank tail.
+/// The sentinel proves the new world-owned residual cannot steal bytes
+/// from a following direct-Xfer record.
+#[test]
+fn direct_xfer_v11_round_trips_instance_name_and_guard_tail() {
+    use crate::save_load::{Xfer, XferLoad, XferSave};
+    use std::io::Cursor;
+
+    let mut world = WorldSnapshot::default();
+    world.version = WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION;
+    world.object_instance_guards.push(ObjectInstanceGuardSnapshot {
+        object_id: ObjectId(42),
+        instance_name: "NamedGuard".to_string(),
+        guard_position: Some(Vec3::new(3.0, 0.0, 7.0)),
+        guard_target: Some(ObjectId(9)),
+        guard_radius: 120.0,
+        guard_mode: GuardMode::FlyingUnitsOnly,
+    });
+
+    let mut bytes = Cursor::new(Vec::new());
+    {
+        let mut writer = XferSave::new(&mut bytes);
+        world.xfer(&mut writer).expect("write direct v11 world");
+        let mut sentinel = 0xC0DE_F00Du32;
+        writer.xfer_u32(&mut sentinel).expect("write sentinel");
+    }
+
+    let mut restored = WorldSnapshot::default();
+    let mut sentinel = 0u32;
+    {
+        let mut reader = XferLoad::new(Cursor::new(bytes.into_inner()));
+        restored.xfer(&mut reader).expect("read direct v11 world");
+        reader.xfer_u32(&mut sentinel).expect("read sentinel");
+    }
+
+    assert_eq!(
+        restored.object_instance_guards,
+        vec![ObjectInstanceGuardSnapshot {
+            object_id: ObjectId(42),
+            instance_name: "NamedGuard".to_string(),
+            guard_position: Some(Vec3::new(3.0, 0.0, 7.0)),
+            guard_target: Some(ObjectId(9)),
+            guard_radius: 120.0,
+            guard_mode: GuardMode::FlyingUnitsOnly,
+        }]
+    );
+    assert_eq!(sentinel, 0xC0DE_F00D);
+}
+
+/// Bincode v10 had the rank tail but no instance-name / guard residual.
+/// Decode an exact predecessor record and verify migration produces the
+/// current schema with a fail-closed empty name/guard tail.
+#[test]
+fn bincode_v10_migrates_without_instance_name_and_guard_tail() {
+    let mut source = WorldSnapshot::default();
+    source.version = 10;
+    source.object_instance_guards.push(ObjectInstanceGuardSnapshot {
+        object_id: ObjectId(1),
+        instance_name: "ShouldDrop".to_string(),
+        guard_position: Some(Vec3::ZERO),
+        guard_target: None,
+        guard_radius: 50.0,
+        guard_mode: GuardMode::WithoutPursuit,
+    });
+
+    let payload = serialize_pre_v11_v10_fixture(source).expect("serialize exact v10 fixture");
+    let (restored, path) = decode_bincode_world_snapshot(&payload).expect("migrate v10 fixture");
+
+    assert_eq!(path, BincodeWorldSnapshotDecodePath::LegacyPreV11V10);
+    assert_eq!(restored.version, WORLD_SNAPSHOT_BINCODE_VERSION);
+    assert!(restored.object_instance_guards.is_empty());
 }

@@ -195,6 +195,11 @@ fn apply_host_contain_producer_fixup(tail: &LifecycleTail, game_logic: &mut Game
             if !obj.occupants.contains(&occupant) {
                 obj.occupants.push(occupant);
             }
+            if let Some(building) = obj.building_data.as_mut() {
+                if !building.garrisoned_units.contains(&occupant) {
+                    building.garrisoned_units.push(occupant);
+                }
+            }
         }
     }
     for link in &tail.producer_links {

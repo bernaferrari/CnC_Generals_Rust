@@ -15,7 +15,7 @@ impl GameLogic {
         target_position: Vec3,
         ai_state_override: Option<AIState>,
     ) {
-        let (start_pos, is_aircraft, surfaces) = match self.objects.get(&object_id) {
+        let (start_pos, is_aircraft, surfaces, is_crusher) = match self.objects.get(&object_id) {
             Some(obj) => {
                 let surfaces = if obj.locomotor_surfaces != 0 {
                     obj.locomotor_surfaces
@@ -27,6 +27,9 @@ impl GameLogic {
                     obj.is_kind_of(KindOf::Aircraft)
                         || obj.object_type == crate::game_logic::ObjectType::Aircraft,
                     surfaces,
+                    // C++ Pathfinder: `isCrusher = obj ? obj->getCrusherLevel() > 0 : false`
+                    // (AIPathfind.cpp:8170). Hardcoding false made tanks halt at fences/rubble.
+                    obj.crusher_level > 0,
                 )
             }
             None => return,
@@ -58,7 +61,7 @@ impl GameLogic {
             &self.objects,
             is_aircraft,
             loco,
-            false,
+            is_crusher,
         );
 
         let mut state_to_apply: Option<AIState> = None;
@@ -481,6 +484,56 @@ mod tests {
             "amphibious locomotor must path WATER cells (AIPathfind.cpp:4750)"
         );
         assert!(hover.movement.target_position.is_some());
+    }
+
+    /// C++ `validMovementPosition`: crushers enter CELL_RUBBLE without a RUBBLE
+    /// locomotor bit (AIPathfind.cpp:4840 / crate `is_passable`). Live host
+    /// used to hardcode `is_crusher=false`, so Overlords treated rubble like
+    /// infantry.
+    #[test]
+    fn crusher_paths_rubble_that_blocks_non_crusher() {
+        use crate::game_logic::LOCO_SURFACE_GROUND;
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        let mut logic = GameLogic::new();
+        let start = Vec3::new(10.0, 0.0, 10.0);
+        let goal = Vec3::new(80.0, 0.0, 10.0);
+        let start_cell = logic.pathfinding_system.grid.world_to_grid(start);
+        let goal_cell = logic.pathfinding_system.grid.world_to_grid(goal);
+        let wall_x = (start_cell.x + goal_cell.x) / 2;
+        for y in -8..80 {
+            logic
+                .pathfinding_system
+                .grid
+                .set_cell_type(GridPos::new(wall_x, y), PathfindCellType::Rubble);
+        }
+
+        let inf_id = ObjectId(9201);
+        let mut ranger = ranger_at(9201, start);
+        ranger.locomotor_surfaces = LOCO_SURFACE_GROUND;
+        ranger.crusher_level = 0;
+        logic.objects.insert(inf_id, ranger);
+        logic.move_object_with_pathfinding_for_test(inf_id, goal, None);
+        let inf = logic.objects.get(&inf_id).expect("ranger");
+        assert!(
+            inf.movement.path.is_empty(),
+            "non-crusher must not path CELL_RUBBLE without SURFACE_RUBBLE"
+        );
+
+        let tank_id = ObjectId(9202);
+        let mut tmpl = ThingTemplate::new("Overlord");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tmpl, tank_id, Team::USA);
+        tank.set_position(start);
+        tank.locomotor_surfaces = LOCO_SURFACE_GROUND;
+        tank.crusher_level = 1;
+        logic.objects.insert(tank_id, tank);
+        logic.move_object_with_pathfinding_for_test(tank_id, goal, None);
+        let tank = logic.objects.get(&tank_id).expect("overlord");
+        assert!(
+            tank.movement.path.len() >= 2,
+            "crusher_level>0 must path CELL_RUBBLE (AIPathfind.cpp:8170)"
+        );
+        assert!(tank.movement.target_position.is_some());
     }
 
     #[test]

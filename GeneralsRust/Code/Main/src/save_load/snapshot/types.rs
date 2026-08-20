@@ -32,8 +32,12 @@ use std::time::SystemTime;
 /// behavior runtime tail to each object. Version 9 appends the entity
 /// lifecycle envelope. Version 10 appends C++ `Player::xfer` rank/skill/
 /// science-purchase-point residuals as a world tail so nested
-/// `PlayerSnapshot` records stay aligned with v1-v9 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 10;
+/// `PlayerSnapshot` records stay aligned with v1-v9 streams. Version 11
+/// appends C++ `Object::m_name` plus `AIUpdateInterface` guard anchors
+/// (`m_locationToGuard` / `m_objectToGuard` / `m_guardMode` and the host
+/// guard radius) as a world tail so nested `ObjectSnapshot` records stay
+/// aligned with v1-v10 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 11;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -41,7 +45,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 10;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 10;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 11;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -50,6 +54,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V7_TAIL_VERSION: u32 = 7;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V8_TAIL_VERSION: u32 = 8;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V9_TAIL_VERSION: u32 = 9;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V10_TAIL_VERSION: u32 = 10;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION: u32 = 11;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -59,7 +64,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -150,7 +155,26 @@ pub struct WorldSnapshot {
     /// `PlayerSnapshot` records stay aligned.
     #[serde(default)]
     pub player_ranks: Vec<PlayerRankSnapshot>,
+
+    /// C++ `Object::xfer` instance name (`m_name`) and `AIUpdateInterface::xfer`
+    /// guard anchors. World tail so v1-v10 nested object records stay aligned.
+    #[serde(default)]
+    pub object_instance_guards: Vec<ObjectInstanceGuardSnapshot>,
 }
+
+/// C++ `Object::xfer` (`Object.cpp:4068`) `m_name` plus `AIUpdateInterface::xfer`
+/// (`AIUpdate.cpp:5015-5019`) guard anchors. Stored as a world tail so
+/// historical nested `ObjectSnapshot` records stay aligned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ObjectInstanceGuardSnapshot {
+    pub object_id: ObjectId,
+    pub instance_name: String,
+    pub guard_position: Option<Vec3>,
+    pub guard_target: Option<ObjectId>,
+    pub guard_radius: f32,
+    pub guard_mode: GuardMode,
+}
+
 
 pub const fn default_next_weapon_discharge_sequence() -> u64 {
     1
@@ -194,6 +218,7 @@ impl Default for WorldSnapshot {
             shroud: ShroudSnapshot::default(),
             lifecycle_tail: Vec::new(),
             player_ranks: Vec::new(),
+            object_instance_guards: Vec::new(),
         }
     }
 }

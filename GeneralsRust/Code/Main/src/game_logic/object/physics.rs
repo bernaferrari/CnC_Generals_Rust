@@ -18,8 +18,9 @@ impl Object {
 
     /// C++ PhysicsBehavior::applyShock residual (ground units only).
     ///
-    /// Adds lateral+up velocity impulse and a short stun residual. Airborne /
-    /// aircraft / projectiles are immune (C++ isAirborneTarget / KINDOF_PROJECTILE).
+    /// Adds lateral+up velocity impulse and a short stun residual. Airborne
+    /// targets and projectiles are immune (C++ Object.cpp:1808 isAirborneTarget
+    /// / KINDOF_PROJECTILE). Parked aircraft are *not* immune.
 
     /// C++ PhysicsBehavior defaults for shock random rotation residual.
     pub const SHOCK_MAX_YAW: f32 = 0.05;
@@ -60,7 +61,11 @@ impl Object {
         if !self.is_alive() {
             return false;
         }
-        if self.is_kind_of(KindOf::Aircraft) || self.status.airborne_target {
+        // C++ Object.cpp:1808: only airborne-target + projectiles skip toss.
+        if self.status.airborne_target {
+            return false;
+        }
+        if self.is_kind_of(KindOf::Projectile) || self.object_type == ObjectType::Projectile {
             return false;
         }
         if self.is_kind_of(KindOf::Structure) {

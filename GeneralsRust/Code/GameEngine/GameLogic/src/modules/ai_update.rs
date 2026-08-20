@@ -1025,5 +1025,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
 
     /// C++ parity: AIUpdateInterface::executeWaypointQueue() — start the first queued waypoint
     fn execute_waypoint_queue(&mut self) {}
+
+    /// C++ AIUpdateInterface::clearWaypointQueue — drop queued waypoints first.
+    fn clear_waypoint_queue(&mut self) {}
 }
 

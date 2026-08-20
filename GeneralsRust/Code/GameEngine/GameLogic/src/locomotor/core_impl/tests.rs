@@ -39,18 +39,13 @@ mod tests {
     #[test]
     fn test_terrain_speed_multipliers() {
         let table = TerrainSpeedTable::new();
-
-        // Wheeled gets road bonus
+        // C++ Locomotor.cpp has no appearance×terrain speed table.
         assert_eq!(
             table.get_multiplier(LocomotorAppearance::FourWheels, 5),
-            1.5
+            1.0
         );
-
-        // Aircraft ignore terrain
         assert_eq!(table.get_multiplier(LocomotorAppearance::Wings, 2), 1.0);
-
-        // Treads get road bonus
-        assert_eq!(table.get_multiplier(LocomotorAppearance::Treads, 5), 1.2);
+        assert_eq!(table.get_multiplier(LocomotorAppearance::Treads, 5), 1.0);
     }
 
     #[test]
@@ -463,6 +458,279 @@ mod tests {
         assert_eq!(
             pos.z, 0.0,
             "ground NoZMotiveForce must not climb via speed_limit_z"
+        );
+    }
+
+    /// C++ Locomotor.cpp:1502-1544 — dozers are exempt; already-leaving velocity is not shoved.
+    #[test]
+    fn fix_invalid_position_dozer_and_dot() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Truck".to_string()));
+        let loco = Locomotor::new(template);
+        let pos = Coord3D::new(0.0, 0.0, 0.0);
+        let is_valid = |p: Coord3D| p.x >= 0.0;
+        assert!(
+            loco.fix_invalid_position_with(true, pos, Coord3D::new(-1.0, 0.0, 0.0), 10.0, is_valid)
+                .is_none(),
+            "KINDOF_DOZER must not be corrected (Locomotor.cpp:1502-1504)"
+        );
+        let leaving = loco.fix_invalid_position_with(
+            false,
+            pos,
+            Coord3D::new(5.0, 0.0, 0.0),
+            10.0,
+            is_valid,
+        );
+        assert!(
+            leaving.is_none(),
+            "dot > 0.25 already-leaving must return false (Locomotor.cpp:1542-1544)"
+        );
+        let fix = loco
+            .fix_invalid_position_with(false, pos, Coord3D::new(-2.0, 0.0, 0.0), 10.0, is_valid)
+            .expect("invalid west neighbor should vote +x correction");
+        assert!(
+            fix.correction.x > 0.0,
+            "correction must push away from invalid -x cells"
+        );
+        assert!(
+            fix.extra_push.is_some(),
+            "opposing velocity (dot < 0) adds extra push (Locomotor.cpp:1551-1556)"
+        );
+    }
+
+    /// C++ Locomotor.cpp:2208-2221 — DISABLED_HELD skips SeaLevel snap.
+    #[test]
+    fn sea_level_respects_held_and_layer() {
+        let mut template = LocomotorTemplate::new_hover("Ship".to_string());
+        template.behavior_z = LocomotorBehaviorZ::SeaLevel;
+        let loco = Locomotor::new(Arc::new(template));
+        let pos = Coord3D::new(10.0, 20.0, 50.0);
+        let held = loco.handle_behavior_z_for(
+            pos,
+            pos,
+            BodyDamageType::Pristine,
+            -1.0,
+            0.0,
+            true,
+            crate::common::PathfindLayerEnum::Bridge1,
+        );
+        assert!(
+            held.snapped_z.is_none(),
+            "DISABLED_HELD must not snap z (Locomotor.cpp:2210)"
+        );
+        let free = loco.handle_behavior_z_for(
+            pos,
+            pos,
+            BodyDamageType::Pristine,
+            -1.0,
+            0.0,
+            false,
+            crate::common::PathfindLayerEnum::Bridge1,
+        );
+        assert!(
+            free.snapped_z.is_some(),
+            "unheld SeaLevel still snaps (Locomotor.cpp:2211-2219)"
+        );
+        assert!(free.requires_constant);
+    }
+
+    /// C++ Locomotor.cpp:761-765 — startMove resets only the donut timer.
+    #[test]
+    fn start_move_does_not_clear_braking() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Truck".to_string()));
+        let mut loco = Locomotor::new(template);
+        loco.set_flag(FLAG_IS_BRAKING, true);
+        loco.braking_factor = 3.0;
+        loco.start_move();
+        assert!(
+            loco.is_braking(),
+            "startMove must not clear IS_BRAKING (Locomotor.cpp:761-765)"
+        );
+        assert_eq!(
+            loco.braking_factor, 3.0,
+            "startMove must not reset braking_factor"
+        );
+    }
+
+    /// C++ Locomotor.cpp:1340-1389 — look-ahead rejects invalid terrain on sharp turns.
+    #[test]
+    fn wheels_look_ahead_rejects_invalid_terrain() {
+        let current = Coord3D::new(0.0, 0.0, 0.0);
+        let rel = std::f32::consts::PI / 6.0;
+        let blocked = Locomotor::wheels_look_ahead_blocked(
+            current,
+            0.0,
+            rel,
+            10.0,
+            10.0,
+            10.0,
+            0.2,
+            |pos| pos.x < 1.0,
+        );
+        assert!(
+            blocked,
+            "projected half/full point on invalid terrain must block motive (Locomotor.cpp:1378-1388)"
+        );
+        let clear = Locomotor::wheels_look_ahead_blocked(
+            current,
+            0.0,
+            rel,
+            10.0,
+            10.0,
+            10.0,
+            0.2,
+            |_| true,
+        );
+        assert!(!clear, "valid look-ahead must not block");
+        let shallow = Locomotor::wheels_look_ahead_blocked(
+            current,
+            0.0,
+            std::f32::consts::PI / 20.0,
+            10.0,
+            10.0,
+            10.0,
+            0.2,
+            |_| false,
+        );
+        assert!(
+            !shallow,
+            "|relAngle| <= PI/12 skips look-ahead (Locomotor.cpp:1342)"
+        );
+    }
+
+    /// C++ Locomotor.cpp:947-957 — stun blocks locomotor update.
+    #[test]
+    fn stun_model_condition_blocks_loco_update() {
+        assert!(
+            model_condition_is_stunned(crate::common::ModelConditionFlags::STUNNED),
+            "MODELCONDITION_STUNNED is C++ getIsStunned live signal"
+        );
+        assert!(model_condition_is_stunned(
+            crate::common::ModelConditionFlags::STUNNED_FLAILING
+        ));
+        assert!(!model_condition_is_stunned(
+            crate::common::ModelConditionFlags::empty()
+        ));
+    }
+
+    /// C++ Locomotor.cpp has no naval/jump/tunnel/wings invented speed taxes.
+    #[test]
+    fn no_fabricated_naval_jump_tunnel_wings_speed_constraints() {
+        let mut water = LocomotorTemplate::new_wheeled("Boat".to_string());
+        water.surfaces = SURFACE_WATER | SURFACE_GROUND;
+        let mut loco = Locomotor::new(Arc::new(water));
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let current = Coord3D::new(0.0, 0.0, 10.0);
+        let target = Coord3D::new(80.0, 0.0, 10.0);
+        let (pos, _, _) = loco.move_towards(
+            current,
+            0.0,
+            10.0,
+            target,
+            15.0,
+            BodyDamageType::Pristine,
+            dt,
+        );
+        assert!(
+            pos.x > current.x,
+            "WATER-bit loco must not hard-stop on land (no is_naval_blocked_at)"
+        );
+
+        let mut legs = LocomotorTemplate::new_infantry("Ranger".to_string());
+        legs.wander_about_point_radius = 50.0;
+        let mut near = Locomotor::new(Arc::new(legs.clone()));
+        let mut far = Locomotor::new(Arc::new(legs));
+        let near_goal = Coord3D::new(10.0, 0.0, 0.0);
+        let far_goal = Coord3D::new(200.0, 0.0, 0.0);
+        let start = Coord3D::new(0.0, 0.0, 0.0);
+        let (_, _, near_accel) = near.move_towards_position_legs_physics(
+            start,
+            0.0,
+            near_goal,
+            200.0,
+            10.0,
+            10.0,
+            BodyDamageType::Pristine,
+        );
+        let (_, _, far_accel) = far.move_towards_position_legs_physics(
+            start,
+            0.0,
+            far_goal,
+            200.0,
+            10.0,
+            10.0,
+            BodyDamageType::Pristine,
+        );
+        assert_eq!(
+            near_accel, far_accel,
+            "TwoLegs must not invent 0.5x jump slowdown near wander radius"
+        );
+
+        let mut wings = LocomotorTemplate::new_wings("Raptor".to_string());
+        wings.min_turn_speed = 20.0;
+        let mut wing_loco = Locomotor::new(Arc::new(wings));
+        let (_, _, wing_accel) = wing_loco.move_towards_position_other_physics(
+            start,
+            0.0,
+            far_goal,
+            200.0,
+            5.0,
+            5.0,
+            BodyDamageType::Pristine,
+        );
+        assert_eq!(
+            wing_accel, 0.0,
+            "Wings must not raise desiredSpeed to min_turn_speed (Locomotor.cpp:2326-2404)"
+        );
+    }
+
+    /// C++ AIUpdate.cpp:2236-2264 — NONE goal still settles then maintainCurrentPosition.
+    #[test]
+    fn loco_goal_none_settles_final_position() {
+        let template = Arc::new(LocomotorTemplate::new_wheeled("Truck".to_string()));
+        let mut loco = Locomotor::new(template);
+        let current = Coord3D::new(0.0, 0.0, 3.0);
+        let final_pos = Coord3D::new(20.0, 0.0, 9.0);
+        let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let update = loco.loco_update_when_goal_none(
+            current,
+            0.0,
+            4.0,
+            BodyDamageType::Pristine,
+            dt,
+            true,
+            final_pos,
+            false,
+        );
+        assert!(
+            update.do_final_position,
+            "far final position must keep settling (AIUpdate.cpp:2253-2261)"
+        );
+        assert!(
+            update.pos.x > current.x,
+            "settle steps toward m_finalPosition at 2*PATHFIND_CELL_SIZE_F / second"
+        );
+        assert_eq!(
+            update.pos.z, current.z,
+            "airborne settle keeps current z (AIUpdate.cpp:2259-2260)"
+        );
+
+        let close = loco.loco_update_when_goal_none(
+            Coord3D::new(20.0, 0.0, 3.0),
+            0.0,
+            0.0,
+            BodyDamageType::Pristine,
+            dt,
+            true,
+            Coord3D::new(20.1, 0.0, 9.0),
+            false,
+        );
+        assert!(
+            !close.do_final_position,
+            "dSqr < 0.25 snaps and clears do_final_position (AIUpdate.cpp:2243-2251)"
+        );
+        assert_eq!(
+            close.pos.z, 3.0,
+            "off-ground snap uses current z, not final.z"
         );
     }
 }

@@ -498,6 +498,37 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
+    /// C++ ScriptActions.cpp:4066 doNamedStop/StartSpecialPowerCountdown.
+    fn pause_named_special_power_countdown(
+        &self,
+        _unit_name: &str,
+        _power_name: &str,
+        _pause: bool,
+    ) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ ScriptActions.cpp:4085 doNamedSetSpecialPowerCountdown.
+    fn set_named_special_power_countdown(
+        &self,
+        _unit_name: &str,
+        _power_name: &str,
+        _seconds: i32,
+    ) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+    /// C++ ScriptActions.cpp:4103 doNamedAddSpecialPowerCountdown.
+    fn add_named_special_power_countdown(
+        &self,
+        _unit_name: &str,
+        _power_name: &str,
+        _seconds: i32,
+    ) -> GameLogicResult<()> {
+        Ok(())
+    }
+
+
     /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
     fn set_campaign_victorious(&self, _victorious: bool) -> GameLogicResult<()> {
         Ok(())

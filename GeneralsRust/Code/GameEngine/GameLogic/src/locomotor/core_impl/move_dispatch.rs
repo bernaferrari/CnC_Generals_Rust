@@ -32,9 +32,38 @@ impl Locomotor {
             }
         }
 
-        if let Some(physics) = physics.as_ref() {
-            if physics_is_stunned(*physics) {
-                return (current, current_angle, current_speed);
+        let (disabled_held, object_layer) = object_loco_z_context(object.as_deref());
+        if object_is_stunned(object.as_deref()) {
+            return (current, current_angle, current_speed);
+        }
+
+        // C++ Locomotor.cpp:968-977 — non-air invalid terrain runs fixInvalidPosition.
+        if (self.template.surfaces & SURFACE_AIR) == 0 && !self.allows_invalid_position() {
+            if !self.valid_movement_terrain_at(object_layer, current) {
+                let is_dozer = object
+                    .as_ref()
+                    .map(|obj| obj.is_kind_of(crate::common::KindOf::Dozer))
+                    .unwrap_or(false);
+                let mass = physics.as_ref().map(|p| p.get_mass()).unwrap_or(1.0);
+                let vel = physics
+                    .as_ref()
+                    .map(|p| p.get_velocity())
+                    .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+                if let Some(fix) = self.fix_invalid_position_with(
+                    is_dozer,
+                    current,
+                    vel,
+                    mass,
+                    |pos| self.valid_movement_terrain_at(object_layer, pos),
+                ) {
+                    if let Some(phys) = physics.as_mut() {
+                        if let Some(extra) = fix.extra_push {
+                            phys.apply_motive_force(&extra);
+                        }
+                        phys.apply_motive_force(&fix.correction);
+                    }
+                    return (current, current_angle, current_speed);
+                }
             }
         }
 
@@ -85,7 +114,15 @@ impl Locomotor {
                 .as_ref()
                 .map(|p| p.get_velocity().z)
                 .unwrap_or(0.0);
-            let z = self.handle_behavior_z_full(current, target, condition, loco_gravity(), vel_z);
+            let z = self.handle_behavior_z_for(
+                current,
+                target,
+                condition,
+                loco_gravity(),
+                vel_z,
+                disabled_held,
+                object_layer,
+            );
             let mut pos = current;
             if let Some(snapped) = z.snapped_z {
                 pos.z = snapped;
@@ -138,7 +175,15 @@ impl Locomotor {
             .as_ref()
             .map(|p| p.get_velocity().z)
             .unwrap_or(self.last_motive_accel.z * delta_time);
-        let z = self.handle_behavior_z_full(pos, target, condition, loco_gravity(), vel_z);
+        let z = self.handle_behavior_z_for(
+            pos,
+            target,
+            condition,
+            loco_gravity(),
+            vel_z,
+            disabled_held,
+            object_layer,
+        );
         if let Some(snapped) = z.snapped_z {
             pos.z = snapped;
         }
@@ -405,16 +450,10 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
     ) -> (Coord3D, Real, Real) {
-        let mut desired_speed = desired_speed;
-        if self.is_naval_blocked_at(current) {
-            desired_speed = 0.0;
-        }
-        desired_speed = self.apply_downhill_only(desired_speed, current, target);
-        desired_speed = self.apply_tunnel_depth_constraint(desired_speed, current, target);
-        desired_speed = self.apply_jump_slowdown(desired_speed, current, target);
-
+        // C++ only clamps desiredSpeed to maxSpeed and applies downhillOnly from the template.
+        let desired_speed = self.apply_downhill_only(desired_speed, current, target);
         let on_path = (target - current).length();
-        let (mut pos, angle, speed) = self.loco_update_move_towards_position(
+        self.loco_update_move_towards_position(
             current,
             current_angle,
             current_speed,
@@ -426,20 +465,39 @@ impl Locomotor {
             false,
             None,
             None,
-        );
-        if self.template.appearance == LocomotorAppearance::Other
-            && (self.template.surfaces & SURFACE_CLIFF) != 0
-        {
-            pos.z = current.z.min(pos.z);
-        }
-        (pos, angle, speed)
+        )
     }
 }
 
-fn physics_is_stunned(physics: &dyn crate::modules::PhysicsBehavior) -> bool {
-    let vel = physics.get_velocity();
-    let _ = vel;
-    false
+/// C++ `PhysicsBehavior::getIsStunned` live signal is MODELCONDITION_STUNNED(_FLAILING).
+pub fn model_condition_is_stunned(flags: crate::common::ModelConditionFlags) -> bool {
+    flags.contains(crate::common::ModelConditionFlags::STUNNED)
+        || flags.contains(crate::common::ModelConditionFlags::STUNNED_FLAILING)
+}
+
+fn object_is_stunned(object: Option<&crate::object::Object>) -> bool {
+    let Some(obj) = object else {
+        return false;
+    };
+    let Some(drawable) = obj.get_drawable() else {
+        return false;
+    };
+    let Ok(drawable) = drawable.read() else {
+        return false;
+    };
+    model_condition_is_stunned(drawable.get_model_conditions())
+}
+
+fn object_loco_z_context(
+    object: Option<&crate::object::Object>,
+) -> (bool, crate::common::PathfindLayerEnum) {
+    match object {
+        Some(obj) => (
+            obj.is_disabled_by_type(crate::common::DisabledType::Held),
+            obj.get_layer(),
+        ),
+        None => (false, crate::common::PathfindLayerEnum::Ground),
+    }
 }
 
 fn velocity_magnitude(vel: &Coord3D) -> Real {

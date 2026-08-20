@@ -608,6 +608,8 @@ impl GameLogic {
             };
             if let Some(o) = self.objects.get_mut(&mid) {
                 o.producer_id = Some(ObjectId(p.source_id));
+                // C++ Weapon.cpp:1109-1112 / ObjectCreationList.cpp:386-393 setCreator.
+                o.bind_special_power_completion_creator(p.source_id);
                 o.scud_storm_missile_flight = Some(HostScudStormMissileFlightData::start(
                     p.launch,
                     p.target,
@@ -615,6 +617,7 @@ impl GameLogic {
                     Some(p.source_id),
                 ));
             }
+
             n = n.saturating_add(1);
         }
         self.scud_storm_missile_flight_reg.record_launch(n);
@@ -676,7 +679,10 @@ impl GameLogic {
                     ) {
                         if let Some(o) = self.objects.get_mut(&id) {
                             o.producer_id = Some(caster_id);
+                            // C++ ObjectCreationList.cpp:386-393 setCreator on spawned object.
+                            o.bind_special_power_completion_creator(caster_id.0);
                         }
+
                         self.ocl_special_power_reg.record_create_object_spawn();
                         last = Some(id);
                     }
@@ -702,6 +708,8 @@ impl GameLogic {
         )?;
         if let Some(t) = self.objects.get_mut(&transport_id) {
             t.producer_id = Some(caster_id);
+            // C++ ObjectCreationList.cpp:386-393 setCreator on DeliverPayload transport.
+            t.bind_special_power_completion_creator(caster_id.0);
             let p = t.get_position();
             let yaw = (plan.target_coord.z - p.z).atan2(plan.target_coord.x - p.x);
             t.set_orientation(yaw);
@@ -711,6 +719,7 @@ impl GameLogic {
                 t.set_position(pos);
             }
         }
+
         self.ocl_special_power_reg.record_transport_spawn();
 
         if mode == OclExecuteMode::TransportOnly {
@@ -1403,6 +1412,7 @@ impl GameLogic {
         let mut ignite_targets: Vec<ObjectId> = Vec::new();
         let mut status_aflame: Vec<ObjectId> = Vec::new();
         let mut status_burned: Vec<ObjectId> = Vec::new();
+        let mut aflame_dots: Vec<(ObjectId, f32)> = Vec::new();
 
         for id in ids {
             let pos = match self.objects.get(&id) {
@@ -1421,6 +1431,9 @@ impl GameLogic {
                 status_burned.push(id);
             } else if fr.aflame {
                 status_aflame.push(id);
+            }
+            if fr.aflame_damage > 0.0 {
+                aflame_dots.push((id, fr.aflame_damage));
             }
             let sr = fs.tick_spread(frame);
             let range = fs.spread_try_range;
@@ -1464,6 +1477,17 @@ impl GameLogic {
                     self.fire_spread_reg.record_ignition();
                     let _ = t.apply_status_bits_upgrade_masks(&["AFLAME"], &[]);
                 }
+            }
+        }
+        // C++ FlammableUpdate.cpp:202-212 doAflameDamage DAMAGE_FLAME / DEATH_BURNED.
+        for (id, dmg) in aflame_dots {
+            if let Some(o) = self.objects.get_mut(&id) {
+                let _ = o.take_damage_from_typed_death(
+                    dmg,
+                    Some(id),
+                    crate::game_logic::combat::DamageType::Flame,
+                    crate::game_logic::host_usa_pilot::HostDeathType::Burned,
+                );
             }
         }
     }

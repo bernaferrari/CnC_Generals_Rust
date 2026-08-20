@@ -338,14 +338,29 @@ impl GameClient {
                 }
 
                 if overlay.veterancy_level > 0 {
-                    let pip = 4.0;
-                    let pip_x = bar_x + bar_w + 2.0;
-                    for i in 0..overlay.veterancy_level.min(3) {
-                        let _ = renderer.draw_rect_with_scissor(
-                            UIRect::new(pip_x, bar_y - (i as f32) * (pip + 1.0), pip, pip),
-                            [1.0, 0.85, 0.0, 1.0],
-                            None,
-                        );
+                    if let Some(name) = crate::drawable::drawable::BasicDrawable::veterancy_image_name(
+                        overlay.veterancy_level,
+                    ) {
+                        // C++ Drawable.cpp:3785-3818 — one SCVeter1/2/3 image
+                        // anchored at the health-box right edge + (1,1).
+                        // SCALE_ICONS_WITH_ZOOM_ML is off in retail ZH, so
+                        // objScale is 1.0 (native mapped-image size).
+                        let _ = with_window_manager_ref(|manager| {
+                            if let Some(image) = manager.win_find_image(name) {
+                                let w = image.width.max(1);
+                                let h = image.height.max(1);
+                                let x1 = (bar_x + bar_w).round() as i32 + 1;
+                                let y1 = bar_y.round() as i32 + 1;
+                                manager.win_draw_image(
+                                    &image,
+                                    x1,
+                                    y1,
+                                    x1 + w,
+                                    y1 + h,
+                                    crate::gui::WIN_COLOR_UNDEFINED,
+                                );
+                            }
+                        });
                     }
                 }
 

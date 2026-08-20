@@ -249,6 +249,55 @@ pub fn host_command_power_cpp_enum_name(
     }
 }
 
+/// Retail SpecialPower.ini template name used by ScriptEngine conditions.
+///
+/// C++ `SpecialPowerModule::aboutToDoSpecialPower` notifies
+/// `getSpecialPowerTemplate()->getName()` (the INI block name).
+pub fn special_power_ini_template_name(
+    power: &HostCommandSpecialPowerType,
+) -> &'static str {
+    use HostCommandSpecialPowerType as P;
+    match power {
+        P::Airstrike => "SuperweaponA10ThunderboltMissileStrike",
+        P::AirForceAirstrike => "AirF_SuperweaponA10ThunderboltMissileStrike",
+        P::Artillery | P::BattleshipBombardment => "SuperweaponArtilleryBarrage",
+        P::CarpetBomb => "SuperweaponCarpetBomb",
+        P::AirForceCarpetBomb => "AirF_SuperweaponCarpetBomb",
+        P::EarlyChinaCarpetBomb => "Early_SuperweaponChinaCarpetBomb",
+        P::NukeChinaCarpetBomb => "Nuke_SuperweaponChinaCarpetBomb",
+        P::DaisyCutter | P::FuelAirBomb => "SuperweaponDaisyCutter",
+        P::AirForceDaisyCutter => "AirF_SuperweaponDaisyCutter",
+        P::NuclearMissile | P::BaikonurRocket => "SuperweaponNeutronMissile",
+        P::NukeNeutronMissile => "Nuke_SuperweaponNeutronMissile",
+        P::SuperweaponNeutronMissile => "SupW_SuperweaponNeutronMissile",
+        P::ParticleCannon => "SuperweaponParticleUplinkCannon",
+        P::SuperweaponParticleCannon => "SupW_SuperweaponParticleUplinkCannon",
+        P::LaserCannon => "Lazr_LaserCannon",
+        P::ScudStorm => "SuperweaponScudStorm",
+        P::AnthraxBomb => "SuperweaponAnthraxBomb",
+        P::SpectreGunship => "SuperweaponSpectreGunship",
+        P::AirForceSpectreGunship => "AirF_SuperweaponSpectreGunship",
+        P::CruiseMissile => "SupW_CruiseMissile",
+        P::SpySatellite => "SpecialPowerSpySatellite",
+        P::RadarScan => "SpecialPowerRadarVanScan",
+        P::SpyDrone => "SpecialPowerSpyDrone",
+        P::CiaIntelligence => "SuperweaponCIAIntelligence",
+        P::ClusterMines => "SuperweaponClusterMines",
+        P::Paradrop => "SuperweaponParadropAmerica",
+        P::Ambush => "SuperweaponRebelAmbush",
+        P::EmpPulse => "SuperweaponEMPPulse",
+        P::Frenzy => "SuperweaponFrenzy",
+        P::EmergencyRepair => "SuperweaponEmergencyRepair",
+        P::GpsScrambler => "SuperweaponGPSScrambler",
+        P::LeafletDrop => "SuperweaponLeafletDrop",
+        P::SneakAttack => "SuperweaponSneakAttack",
+        P::CashHack => "SuperweaponCashHack",
+        P::CrateDrop => "SuperweaponCrateDrop",
+        _ => host_command_power_cpp_enum_name(power).unwrap_or("SPECIAL_INVALID"),
+    }
+}
+
+
 /// Lookup bit-name list index for a C++ SPECIAL_* residual string.
 pub fn special_power_bit_name_index(name: &str) -> Option<usize> {
     SPECIAL_POWER_BIT_NAME_LIST.iter().position(|&n| n == name)

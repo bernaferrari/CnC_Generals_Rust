@@ -246,7 +246,15 @@ impl GameLogic {
                         player_id,
                         creator_id
                     );
+                    let _ = gamelogic::scripting::engine::with_script_engine_mut(|engine| {
+                        engine.notify_of_completed_special_power(
+                            player_id as usize,
+                            special_power_name,
+                            creator_id,
+                        );
+                    });
                 }
+
                 ScriptEvent::AllianceStateChanged { player_id, state } => {
                     log::debug!(
                         "📜 Script event: alliance state {:?} for player {}",
@@ -1037,6 +1045,19 @@ impl GameLogic {
                 }
             }
         }
+
+        for mutation in self
+            .mission_scripts
+            .drain_named_special_power_countdown_mutations()
+        {
+            let _ = self.script_named_special_power_countdown(
+                &mutation.unit_name,
+                &mutation.power_name,
+                mutation.op,
+                mutation.seconds,
+            );
+        }
+
 
         if !self.mission_scripts.drain_music_stop_requests().is_empty() {
             self.pending_music_stop = true;

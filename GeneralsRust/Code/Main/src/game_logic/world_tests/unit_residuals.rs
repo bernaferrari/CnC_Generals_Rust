@@ -1521,6 +1521,61 @@ fn dam_die_enables_waveguides() {
 }
 
 #[test]
+fn wave_guide_starts_disabled_until_dam_die() {
+    // C++ WaveGuideUpdate.cpp:101 m_needDisable; update:739-743 setDisabled(DISABLED_DEFAULT).
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut dam = ThingTemplate::new("Dam");
+    dam.set_health(1000.0);
+    dam.add_kind_of(KindOf::Structure);
+    logic.templates.insert("Dam".into(), dam);
+    let mut wg = ThingTemplate::new("WaveGuide1");
+    wg.set_health(100.0);
+    wg.add_kind_of(KindOf::WaveGuide);
+    logic.templates.insert("WaveGuide1".into(), wg);
+    let mut tank = ThingTemplate::new("TestTank");
+    tank.set_health(200.0);
+    tank.add_kind_of(KindOf::Vehicle);
+    logic.templates.insert("TestTank".into(), tank);
+    let dam_id = logic
+        .create_object("Dam", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    let wg_id = logic
+        .create_object("WaveGuide1", Team::Neutral, glam::Vec3::new(0.0, 0.0, 0.0))
+        .unwrap();
+    logic.objects.get_mut(&wg_id).unwrap().set_orientation(0.0);
+    let tank_id = logic
+        .create_object("TestTank", Team::USA, glam::Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    logic.update_wave_guides();
+    assert!(
+        logic.objects.get(&wg_id).unwrap().status.disabled_default,
+        "waveguide first tick must set DISABLED_DEFAULT"
+    );
+    let start = logic.objects.get(&wg_id).unwrap().get_position();
+    for _ in 0..40 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_wave_guides();
+    }
+    let mid = logic.objects.get(&wg_id).unwrap().get_position();
+    assert!(
+        (mid.x - start.x).abs() < 0.01,
+        "disabled waveguide must not flood before dam death"
+    );
+    assert!(
+        logic
+            .objects
+            .get(&tank_id)
+            .map(|t| t.is_alive() && t.health.current > 199.0)
+            .unwrap_or(false),
+        "tank must not take flood damage before DamDie"
+    );
+    logic.mark_object_for_destruction(dam_id, None);
+    assert!(!logic.objects.get(&wg_id).unwrap().status.disabled_default);
+}
+
+
+#[test]
 fn jet_slow_death_defers_destroy() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

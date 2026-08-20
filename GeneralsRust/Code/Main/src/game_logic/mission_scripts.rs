@@ -297,6 +297,16 @@ pub enum SuperweaponObjectDisplayMutation {
     Show { object_id: u32 },
 }
 
+/// C++ ScriptActions NAMED_*_SPECIAL_POWER_COUNTDOWN residual.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedSpecialPowerCountdownMutation {
+    pub unit_name: String,
+    pub power_name: String,
+    pub op: crate::game_logic::NamedSpecialPowerCountdownOp,
+    pub seconds: i32,
+}
+
+
 fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
     // Generals Coord3D: (x,y) on the map plane, z = height.
     // Main renderer world: x/z on the map plane, y = height.
@@ -758,6 +768,8 @@ pub struct MissionScriptHooks {
     camera_slave_mode_disable_requests: Mutex<Vec<()>>,
     screen_shake_requests: Mutex<Vec<ScreenShakeRequest>>,
     camera_add_shaker_requests: Mutex<Vec<CameraAddShakerRequest>>,
+    named_special_power_countdown_mutations: Mutex<Vec<NamedSpecialPowerCountdownMutation>>,
+
     popup_message_requests: Mutex<Vec<ScriptPopupMessageRequest>>,
     view_guardband_requests: Mutex<Vec<ViewGuardbandRequest>>,
     camera_bw_mode_requests: Mutex<Vec<CameraBwModeRequest>>,
@@ -833,6 +845,8 @@ impl MissionScriptHooks {
             camera_slave_mode_disable_requests: Mutex::new(Vec::new()),
             screen_shake_requests: Mutex::new(Vec::new()),
             camera_add_shaker_requests: Mutex::new(Vec::new()),
+            named_special_power_countdown_mutations: Mutex::new(Vec::new()),
+
             popup_message_requests: Mutex::new(Vec::new()),
             view_guardband_requests: Mutex::new(Vec::new()),
             camera_bw_mode_requests: Mutex::new(Vec::new()),
@@ -1256,6 +1270,16 @@ impl MissionScriptHooks {
             queue.push(enabled);
         }
     }
+
+    pub fn push_named_special_power_countdown_mutation(
+        &self,
+        request: NamedSpecialPowerCountdownMutation,
+    ) {
+        if let Ok(mut queue) = self.named_special_power_countdown_mutations.lock() {
+            queue.push(request);
+        }
+    }
+
 
     pub fn push_superweapon_object_display_mutation(
         &self,
@@ -1744,6 +1768,16 @@ impl MissionScriptHooks {
             .map(|mut q| q.drain(..).collect())
             .unwrap_or_default()
     }
+
+    pub fn drain_named_special_power_countdown_mutations(
+        &self,
+    ) -> Vec<NamedSpecialPowerCountdownMutation> {
+        self.named_special_power_countdown_mutations
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
 
     pub fn drain_superweapon_object_display_mutations(
         &self,
@@ -2262,6 +2296,59 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         );
         Ok(())
     }
+
+    fn pause_named_special_power_countdown(
+        &self,
+        unit_name: &str,
+        power_name: &str,
+        pause: bool,
+    ) -> GameLogicResult<()> {
+        self.hooks
+            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+                unit_name: unit_name.to_string(),
+                power_name: power_name.to_string(),
+                op: if pause {
+                    crate::game_logic::NamedSpecialPowerCountdownOp::Stop
+                } else {
+                    crate::game_logic::NamedSpecialPowerCountdownOp::Start
+                },
+                seconds: 0,
+            });
+        Ok(())
+    }
+
+    fn set_named_special_power_countdown(
+        &self,
+        unit_name: &str,
+        power_name: &str,
+        seconds: i32,
+    ) -> GameLogicResult<()> {
+        self.hooks
+            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+                unit_name: unit_name.to_string(),
+                power_name: power_name.to_string(),
+                op: crate::game_logic::NamedSpecialPowerCountdownOp::Set,
+                seconds,
+            });
+        Ok(())
+    }
+
+    fn add_named_special_power_countdown(
+        &self,
+        unit_name: &str,
+        power_name: &str,
+        seconds: i32,
+    ) -> GameLogicResult<()> {
+        self.hooks
+            .push_named_special_power_countdown_mutation(NamedSpecialPowerCountdownMutation {
+                unit_name: unit_name.to_string(),
+                power_name: power_name.to_string(),
+                op: crate::game_logic::NamedSpecialPowerCountdownOp::Add,
+                seconds,
+            });
+        Ok(())
+    }
+
 
     fn setup_camera(
         &self,

@@ -2173,6 +2173,16 @@ fn cinematic_font_size(font: Option<&str>) -> f32 {
                 let _ = game_client::eva::simulate_eva_set_should_play_by_name(&token);
             }
         }
+
+        // C++ Eva::update is the sole SideSounds consumer. Publish the frozen
+        // host frame so the crate GameLogic clock cannot starve speech.
+        #[cfg(feature = "game_client")]
+        {
+            if pres.frame.0 != 0 {
+                game_client::eva::set_eva_host_frame(pres.frame.0);
+            }
+            game_client::eva::update_eva_system();
+        }
     }
 
     /// `EVA_LOWPOWER` / table token → chat line residual.

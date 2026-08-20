@@ -4,6 +4,10 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+
+/// C++ ParachuteContain default `KillWhenLandingInWaterSlop`.
+const PARACHUTE_KILL_WHEN_LANDING_IN_WATER_SLOP: f32 = 10.0;
+
 impl GameLogic {
     // -----------------------------------------------------------------------
     // GLA Hijack / ConvertToCarBomb residual
@@ -521,6 +525,11 @@ impl GameLogic {
                 obj.clear_eject_parachuting();
             }
         }
+        if landed && !is_chute {
+            // C++ ParachuteContain::onRemoving water/cliff/impassable/off-map.
+            self.apply_parachute_landing_legality_kill(pilot_id, land_pos);
+        }
+
 
         // Sync contained riders to chute while descending.
         if is_chute && !landed {
@@ -573,6 +582,10 @@ impl GameLogic {
                     r.target = None;
                 }
             }
+            for rid in &riders_to_release {
+                // C++ ParachuteContain::onRemoving after removeAllContained.
+                self.apply_parachute_landing_legality_kill(*rid, land_pos);
+            }
             // Kill AmericaParachute (SlowDeath residual → destroy).
             if let Some(chute) = self.objects.get_mut(&pilot_id) {
                 chute.clear_eject_parachuting();
@@ -612,6 +625,82 @@ impl GameLogic {
             );
         }
     }
+
+    /// C++ ParachuteContain::onRemoving landing-legality kills.
+    /// Water (within KillWhenLandingInWaterSlop) → DAMAGE_WATER / DEATH_FLOODED.
+    /// Off-map / CELL_CLIFF / CELL_WATER / CELL_IMPASSABLE → kill().
+    fn apply_parachute_landing_legality_kill(&mut self, rider_id: ObjectId, land_pos: Vec3) {
+        use crate::game_logic::host_partition_collision_physics_residual::PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+
+        let Some(rider) = self.objects.get(&rider_id) else {
+            return;
+        };
+        if !rider.is_alive() || rider.status.destroyed {
+            return;
+        }
+
+        let water_z = self.terrain.as_ref().and_then(|t| t.water_plane_y);
+        let underwater = self
+            .terrain
+            .as_ref()
+            .is_some_and(|t| t.is_underwater_at_world(land_pos));
+        let water_kill = water_z.is_some_and(|wz| {
+            underwater && land_pos.y <= wz + PARACHUTE_KILL_WHEN_LANDING_IN_WATER_SLOP
+        });
+
+        if water_kill {
+            if let Some(r) = self.objects.get_mut(&rider_id) {
+                let _ = r.take_damage_from_typed_death(
+                    PHYSICS_HUGE_DAMAGE_AMOUNT_RESIDUAL,
+                    None,
+                    crate::game_logic::combat::DamageType::Water,
+                    HostDeathType::Flooded,
+                );
+            }
+        }
+
+        let still_alive = self
+            .objects
+            .get(&rider_id)
+            .is_some_and(|r| r.is_alive() && !r.status.destroyed && r.health.current > 0.0);
+        if !still_alive {
+            self.mark_object_for_destruction(rider_id, None);
+            return;
+        }
+
+        let cell = self.pathfinding_system.grid.world_to_grid(land_pos);
+        let bad_cell = self.pathfinding_system.grid.is_valid_pos(cell)
+            && matches!(
+                self.pathfinding_system.grid.cell_type(cell),
+                PathfindCellType::Cliff | PathfindCellType::Water | PathfindCellType::Impassable
+            );
+        let cliff_terrain = self
+            .terrain
+            .as_ref()
+            .is_some_and(|t| t.is_cliff_at_world(land_pos));
+        let off_map = land_pos.x < self.world_min.x
+            || land_pos.x > self.world_max.x
+            || land_pos.z < self.world_min.z
+            || land_pos.z > self.world_max.z;
+
+        if !(off_map || bad_cell || cliff_terrain) {
+            return;
+        }
+
+        if let Some(r) = self.objects.get_mut(&rider_id) {
+            let hp = r.health.current.max(1.0);
+            if crate::gameworld_shadow::gameworld_damage_authority_live() {
+                crate::game_logic::host_damage_log::record(rider_id, hp, None, true);
+            } else {
+                r.health.current = 0.0;
+            }
+            r.status.destroyed = true;
+        }
+        self.mark_object_for_destruction(rider_id, None);
+    }
+
 
     /// AutoFindHealingUpdate residual: AI idle injured USA infantry auto-scan for HealPad.
     ///

@@ -1781,6 +1781,270 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
 }
 
 #[test]
+fn map_placed_create_modules_run_on_build_complete() {
+    // C++ GameLogic.cpp:1878-1885 every map object runs CreateModules
+    // onBuildComplete — SupplyCenterCreate, GrantUpgradeCreate, PreorderCreate.
+    use crate::game_logic::host_preorder_create::has_preorder_model_bit;
+    use crate::game_logic::{
+        GrantUpgradeCreateMetadata, KindOf, Player, Team, ThingTemplate, VeterancyLevel,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::USA, "USA", true);
+    player.did_preorder = true;
+    logic.players.insert(0, player);
+
+    let mut sc = ThingTemplate::new("AmericaSupplyCenter");
+    sc.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(2000.0);
+    sc.has_supply_center_create = true;
+    sc.has_preorder_create = true;
+    sc.grant_upgrade_creates.push(GrantUpgradeCreateMetadata {
+        upgrade_name: "Upgrade_AmericaRadar".into(),
+        exempt_under_construction: true,
+    });
+    logic.templates.insert("AmericaSupplyCenter".into(), sc);
+
+    let id = logic
+        .create_object("AmericaSupplyCenter", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("map sc");
+    let obj = logic.host_object(id).expect("obj");
+    assert!(
+        has_preorder_model_bit(obj.model_condition_bits),
+        "map-placed PreorderCreate must set MODELCONDITION_PREORDER"
+    );
+    assert!(
+        obj.has_upgrade_tag("Upgrade_AmericaRadar"),
+        "OBJECT GrantUpgradeCreate Upgrade_AmericaRadar is giveUpgrade on the object"
+    );
+    let player = logic.players.get(&0).expect("p0");
+    assert!(
+        player.resource_supply_centers.contains(&id),
+        "map-placed SupplyCenterCreate must register with gatherers"
+    );
+    assert!(
+        !player.completed_upgrades.contains("Upgrade_AmericaRadar"),
+        "OBJECT type must not addUpgrade on the player"
+    );
+    let _ = VeterancyLevel::Rookie;
+}
+
+#[test]
+fn grant_upgrade_create_branches_player_vs_object_type() {
+    // C++ GrantUpgradeCreate.cpp:108-117 UPGRADE_TYPE_PLAYER vs OBJECT.
+    use crate::game_logic::{GrantUpgradeCreateMetadata, KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
+
+    let mut obj_tpl = ThingTemplate::new("ObjectGrantBuilding");
+    obj_tpl
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0);
+    obj_tpl.grant_upgrade_creates.push(GrantUpgradeCreateMetadata {
+        upgrade_name: "Upgrade_AmericaRadar".into(),
+        exempt_under_construction: true,
+    });
+    logic.templates.insert("ObjectGrantBuilding".into(), obj_tpl);
+
+    let mut player_tpl = ThingTemplate::new("PlayerGrantBuilding");
+    player_tpl
+        .add_kind_of(KindOf::Structure)
+        .set_health(1000.0);
+    player_tpl.grant_upgrade_creates.push(GrantUpgradeCreateMetadata {
+        upgrade_name: "Upgrade_AmericaSupplyLines".into(),
+        exempt_under_construction: true,
+    });
+    logic
+        .templates
+        .insert("PlayerGrantBuilding".into(), player_tpl);
+
+    let oid = logic
+        .create_object("ObjectGrantBuilding", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("obj grant");
+    let pid = logic
+        .create_object("PlayerGrantBuilding", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("player grant");
+
+    let obj = logic.host_object(oid).expect("oid");
+    assert!(obj.has_upgrade_tag("Upgrade_AmericaRadar"));
+    assert!(!obj.has_upgrade_tag("Upgrade_AmericaSupplyLines"));
+    let player_bldg = logic.host_object(pid).expect("pid");
+    assert!(!player_bldg.has_upgrade_tag("Upgrade_AmericaSupplyLines"));
+    let player = logic.players.get(&0).expect("p");
+    assert!(player.completed_upgrades.contains("Upgrade_AmericaSupplyLines"));
+    assert!(!player.completed_upgrades.contains("Upgrade_AmericaRadar"));
+}
+
+#[test]
+fn special_power_create_starts_unit_recharge() {
+    // C++ ProductionUpdate.cpp:821-825 + SpecialPowerCreate.cpp:41-48
+    // startPowerRecharge — units must not spawn ready.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{
+        KindOf, Player, SpecialPowerModuleKind, SpecialPowerModuleMetadata, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::USA, "USA", true));
+
+    let mut tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    tpl.add_kind_of(KindOf::Infantry).set_health(200.0);
+    tpl.has_special_power_create = true;
+    tpl.special_power_modules.push(SpecialPowerModuleMetadata {
+        source_index: 0,
+        module_tag: Some("ModuleTag_TimedDemoCharge".into()),
+        module_kind: SpecialPowerModuleKind::SpecialAbility,
+        special_power_template: "SpecialAbilityColonelBurtonTimedCharges".into(),
+        special_power_template_id: 1,
+        command_power: Some(SpecialPowerType::BurtonTimedCharges),
+        reload_time_frames: 300,
+        required_science: None,
+        public_timer: false,
+        shared_n_sync: false,
+        shortcut_power: false,
+        update_module_starts_attack: false,
+        starts_paused: false,
+        scripted_special_power_only: false,
+    });
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), tpl);
+
+    let id = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    logic.notify_unit_production_complete(id, id, "AmericaInfantryColonelBurton");
+    let o = logic.host_object(id).expect("o");
+    assert!(
+        !o.is_special_power_ready(&SpecialPowerType::BurtonTimedCharges),
+        "SpecialPowerCreate must start ReloadTime, not spawn ready"
+    );
+    let remaining = o
+        .special_power_cooldowns
+        .get(&SpecialPowerType::BurtonTimedCharges)
+        .copied()
+        .unwrap_or(0.0);
+    assert!(
+        (remaining - 10.0).abs() < 0.01,
+        "ReloadTime 300 frames / 30 = 10s, got {remaining}"
+    );
+}
+
+#[test]
+fn veterancy_gain_create_uses_controlling_player_sciences_only() {
+    // C++ VeterancyGainCreate.cpp:61-73 controlling player only.
+    use crate::game_logic::{
+        Player, Team, ThingTemplate, VeterancyGainCreateMetadata, VeterancyLevel,
+    };
+
+    let mut logic = GameLogic::new();
+    let mut owner = Player::new(0, Team::USA, "Owner", true);
+    owner.is_alive = true;
+    let mut ally = Player::new(1, Team::USA, "Ally", false);
+    ally.is_alive = true;
+    ally.unlocked_sciences
+        .insert("SCIENCE_RedGuardTraining".into());
+    logic.players.insert(0, owner);
+    logic.players.insert(1, ally);
+
+    let mut tpl = ThingTemplate::new("ChinaInfantryRedguard");
+    tpl.add_kind_of(crate::game_logic::KindOf::Infantry)
+        .set_health(120.0);
+    tpl.is_trainable = true;
+    tpl.veterancy_gain_creates.push(VeterancyGainCreateMetadata {
+        starting_level: VeterancyLevel::Veteran,
+        science_required: Some("SCIENCE_RedGuardTraining".into()),
+    });
+    logic.templates.insert("ChinaInfantryRedguard".into(), tpl);
+
+    let owned = logic
+        .create_object_for_player("ChinaInfantryRedguard", 0, Vec3::new(0.0, 0.0, 0.0))
+        .expect("owned");
+    assert_eq!(
+        logic.host_object(owned).expect("o").experience.level,
+        VeterancyLevel::Rookie,
+        "ally training science must not veteran the controlling player's unit"
+    );
+
+    let allied = logic
+        .create_object_for_player("ChinaInfantryRedguard", 1, Vec3::new(20.0, 0.0, 0.0))
+        .expect("ally unit");
+    assert_eq!(
+        logic.host_object(allied).expect("a").experience.level,
+        VeterancyLevel::Veteran,
+        "controlling player with the science must grant StartingLevel"
+    );
+}
+
+#[test]
+fn pilot_veterancy_gain_uses_set_min_and_trainable_gate() {
+    // C++ VeterancyGainCreate.cpp:68-71 isTrainable + setMinVeterancyLevel
+    // (health/weapon onVeterancyLevelChanged). Direct level writes skip FX.
+    use crate::game_logic::{
+        Team, ThingTemplate, VeterancyCrateCollideMetadata, VeterancyLevel,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+
+    let mut pilot = ThingTemplate::new("AmericaInfantryPilot");
+    pilot
+        .add_kind_of(crate::game_logic::KindOf::Infantry)
+        .set_health(100.0);
+    pilot.is_trainable = true;
+    pilot.veterancy_crate_collide = Some(VeterancyCrateCollideMetadata {
+        is_pilot: true,
+        required_kind_of_vehicle: true,
+        forbidden_kind_of_dozer: true,
+        effect_range: Some(0.0),
+        adds_owner_veterancy: true,
+        starting_level: Some(VeterancyLevel::Veteran),
+    });
+    logic.templates.insert("AmericaInfantryPilot".into(), pilot);
+
+    let id = logic
+        .create_object("AmericaInfantryPilot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("pilot");
+    let o = logic.host_object(id).expect("p");
+    assert_eq!(o.experience.level, VeterancyLevel::Veteran);
+    assert!(
+        (o.health.maximum - 120.0).abs() < 0.01,
+        "setMinVeterancyLevel must apply +20% Veteran HP, got {}",
+        o.health.maximum
+    );
+
+    let mut locked = ThingTemplate::new("UntrainablePilot");
+    locked
+        .add_kind_of(crate::game_logic::KindOf::Infantry)
+        .set_health(100.0);
+    locked.is_trainable = false;
+    locked.veterancy_crate_collide = Some(VeterancyCrateCollideMetadata {
+        is_pilot: true,
+        required_kind_of_vehicle: true,
+        forbidden_kind_of_dozer: true,
+        effect_range: Some(0.0),
+        adds_owner_veterancy: true,
+        starting_level: Some(VeterancyLevel::Veteran),
+    });
+    logic.templates.insert("UntrainablePilot".into(), locked);
+    let uid = logic
+        .create_object("UntrainablePilot", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("locked");
+    let u = logic.host_object(uid).expect("u");
+    assert_eq!(
+        u.experience.level,
+        VeterancyLevel::Rookie,
+        "untrainable must skip setMinVeterancyLevel"
+    );
+}
+
+#[test]
 fn ocl_special_power_daisy_and_moab_upgrade() {
     use crate::game_logic::host_ocl_special_power::{
         honesty_ocl_special_power_residual_ok, OclCreateLocType,

@@ -78,6 +78,39 @@ impl ParticleSystemINIParser {
         Ok(())
     }
 
+    /// Overlay a Common-parsed ParticleSystem block onto the live manager.
+    /// C++ INIParticleSys.cpp:24-32 find-or-create + initFromINI.
+    pub fn overlay_from_property_map(
+        &self,
+        name: &str,
+        properties: &HashMap<String, String>,
+        manager: &mut ParticleSystemManager,
+    ) -> Result<(), INIError> {
+        let mut src = format!("ParticleSystem {name}\n");
+        for (key, value) in properties {
+            src.push_str(&format!("  {key} = {value}\n"));
+        }
+        src.push_str("End\n");
+        let mut ini = INI::new();
+        ini.with_inline_source(&src, |ini| {
+            self.parse_particle_system_source(ini, manager).map(|_| ())
+        })
+    }
+
+
+    /// Parse a source that contains only `ParticleSystem` blocks into `manager`.
+    pub fn overlay_mixed_source(
+        &self,
+        contents: &str,
+        manager: &mut ParticleSystemManager,
+    ) -> Result<usize, INIError> {
+        let mut ini = INI::new();
+        ini.with_inline_source(contents, |ini| {
+            self.parse_particle_system_source(ini, manager)
+        })
+    }
+
+
     /// Load C++ `ParticleSystem.ini` directly into the GameClient manager.
     ///
     /// The common INI loader also has a `ParticleSystem` block parser for its
@@ -712,7 +745,11 @@ impl ParticleSystemINIParser {
             .ok_or(INIError::InvalidValue)
     }
 
-    fn parse_priority(&self, value: &str) -> Result<ParticlePriorityType, INIError> {
+    pub fn parse_priority(&self, value: &str) -> Result<ParticlePriorityType, INIError> {
+        // C++ ParticleSys.h:251-253 scanIndexList — "NONE" is index 0.
+        if value.trim().eq_ignore_ascii_case("NONE") {
+            return Ok(ParticlePriorityType::None);
+        }
         self.priority_names
             .get(&value.trim().to_ascii_uppercase())
             .copied()
@@ -784,6 +821,8 @@ impl ParticleSystemINIParser {
     }
 
     fn init_priority_names(&mut self) {
+        self.priority_names
+            .insert("NONE".to_string(), ParticlePriorityType::None);
         self.priority_names.insert(
             "WEAPON_EXPLOSION".to_string(),
             ParticlePriorityType::WeaponExplosion,
@@ -884,6 +923,15 @@ mod tests {
             parser.parse_priority("CRITICAL").unwrap(),
             ParticlePriorityType::Critical
         );
+        // C++ ParticleSys.h:251-253 — scanIndexList maps NONE to INVALID_PRIORITY (0).
+        assert_eq!(
+            parser.parse_priority("NONE").unwrap(),
+            ParticlePriorityType::None
+        );
+        assert_eq!(
+            parser.parse_priority("none").unwrap(),
+            ParticlePriorityType::None
+        );
     }
 
     #[test]
@@ -980,5 +1028,42 @@ End
             .expect("retail NONE shader/drawable template");
         assert_eq!(drawable.info().shader_type, ParticleShaderType::Invalid);
         assert_eq!(drawable.info().particle_type, ParticleType::Drawable);
+    }
+
+    #[test]
+    fn priority_none_does_not_abort_remaining_templates() {
+        // C++ ParticleSys.h:251-253 — NONE is valid index 0, not a parse error.
+        let source = r#"
+ParticleSystem FirstWithNone
+  Priority = NONE
+  Shader = ALPHA
+  Type = PARTICLE
+End
+
+ParticleSystem SecondStillLoads
+  Priority = CRITICAL
+  Shader = ADDITIVE
+  Type = PARTICLE
+End
+"#;
+        let parser = ParticleSystemINIParser::default();
+        let mut manager = ParticleSystemManager::new();
+        let mut ini = INI::new();
+        let count = ini
+            .with_inline_source(source, |ini| {
+                parser.parse_particle_system_source(ini, &mut manager)
+            })
+            .expect("NONE must not abort the ParticleSystem load");
+        assert_eq!(count, 2);
+        assert_eq!(
+            manager
+                .find_template("FirstWithNone")
+                .expect("first")
+                .info()
+                .priority,
+            ParticlePriorityType::None
+        );
+        assert!(manager.find_template("SecondStillLoads").is_some());
+        assert_eq!(ParticlePriorityType::from_index(0), Some(ParticlePriorityType::None));
     }
 }

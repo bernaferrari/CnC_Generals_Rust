@@ -139,7 +139,31 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         let Ok(local_player) = local_player_arc.read() else {
             return Ok(false);
         };
-        Ok(local_player.is_defeated() || local_player.is_player_dead())
+        let local_defeat = local_player.is_defeated() || local_player.is_player_dead();
+        if !local_defeat || local_player.is_player_observer() {
+            return Ok(false);
+        }
+        // C++ isLocalDefeat() && !isLocalAlliedDefeat(): true only if an ally still lives.
+        let local_index = local_player.get_player_index();
+        drop(local_player);
+        let Some(local_again) = players.get_local_player().and_then(|p| p.read().ok()) else {
+            return Ok(false);
+        };
+        for player_arc in players.iter() {
+            let Ok(other) = player_arc.read() else {
+                continue;
+            };
+            if other.get_player_index() == local_index {
+                continue;
+            }
+            if local_again.is_allied_with_player(&other)
+                && !other.is_defeated()
+                && !other.is_player_dead()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn name(&self) -> &str {

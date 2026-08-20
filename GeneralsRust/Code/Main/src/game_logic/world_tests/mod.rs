@@ -130,6 +130,7 @@ fn victory_conditions_update_inside_each_logic_frame() {
     // GameLogic::update, not only PresentationFrame::build (hq-en3j).
     use crate::game_logic::VictoryCondition;
     let mut logic = GameLogic::new();
+    logic.start_new_game(GameMode::Skirmish);
     ensure_test_infantry_template(&mut logic);
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_player_for_team(&mut logic, Team::GLA);
@@ -210,4 +211,37 @@ fn skirmish_razing_last_enemy_building_defeats_player_with_units_left() {
         matches!(outcome, Some(VictoryCondition::Winner(_))),
         "razing the last enemy building must end the skirmish, got {outcome:?}"
     );
+    // C++ VictoryConditions.cpp:196 + Player::killPlayer — leftover army
+    // is destroyed and money is withdrawn to 0.
+    assert!(
+        logic.get_object(gla_unit).is_none()
+            || logic
+                .get_object(gla_unit)
+                .is_some_and(|obj| !obj.is_alive()),
+        "killPlayer must destroy leftover army"
+    );
+    let gla_player = logic.get_player(2).expect("gla player");
+    assert_eq!(gla_player.resources.supplies, 0, "killPlayer zeros money");
+    assert!(!gla_player.is_alive);
+}
+
+#[test]
+fn campaign_does_not_run_multiplayer_annihilation() {
+    // C++ VictoryConditions.cpp:125 early-return unless isMultiplayer.
+    use crate::game_logic::VictoryCondition;
+    let mut logic = GameLogic::new();
+    logic.start_new_game(GameMode::SinglePlayer);
+    logic.clear_all_players();
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    ensure_test_player_for_team(&mut logic, Team::GLA);
+    let _usa = logic
+        .create_object("TestInfantry", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("usa");
+    assert!(
+        logic.evaluate_victory_condition().is_none(),
+        "campaign must not hard-end via MP annihilation, got {:?}",
+        logic.evaluate_victory_condition()
+    );
+    let _ = VictoryCondition::Draw;
 }

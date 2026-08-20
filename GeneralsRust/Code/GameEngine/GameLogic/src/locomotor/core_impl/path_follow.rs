@@ -79,7 +79,7 @@ impl Locomotor {
         let desired_speed = desired_speed.min(max_speed);
         let _ = current_frame;
 
-        let (mut new_pos, new_angle, new_speed) = self.loco_update_move_towards_position(
+        let (new_pos, new_angle, new_speed) = self.loco_update_move_towards_position(
             current_pos,
             current_angle,
             current_speed,
@@ -92,11 +92,6 @@ impl Locomotor {
             None,
             None,
         );
-        if self.template.appearance == LocomotorAppearance::Other
-            && (self.template.surfaces & SURFACE_CLIFF) != 0
-        {
-            new_pos.z = current_pos.z.min(new_pos.z);
-        }
         Some((new_pos, new_angle, new_speed))
     }
 
@@ -312,18 +307,6 @@ impl Locomotor {
         Some(desired_z)
     }
 
-    fn is_naval_blocked_at(&self, pos: Coord3D) -> bool {
-        if (self.template.surfaces & SURFACE_WATER) == 0 {
-            return false;
-        }
-        if let Some(terrain) = TheTerrainLogic::get() {
-            let mut water_z = 0.0;
-            let mut terrain_z = 0.0;
-            return !terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), Some(&mut terrain_z));
-        }
-        false
-    }
-
     fn apply_downhill_only(&self, desired_speed: Real, current: Coord3D, target: Coord3D) -> Real {
         if self.template.downhill_only && target.z > current.z + 0.01 {
             0.0
@@ -332,63 +315,6 @@ impl Locomotor {
         }
     }
 
-    fn is_tunnel_too_shallow(&self, current: Coord3D, target: Coord3D) -> bool {
-        if (self.template.surfaces & SURFACE_CLIFF) == 0 {
-            return false;
-        }
-        if let Some(terrain) = TheTerrainLogic::get() {
-            let surface = terrain.get_ground_height(target.x, target.y, None);
-            return target.z > surface - 0.5 || current.z > surface - 0.5;
-        }
-        false
-    }
-
-    fn apply_tunnel_depth_constraint(
-        &self,
-        desired_speed: Real,
-        current: Coord3D,
-        target: Coord3D,
-    ) -> Real {
-        if self.is_tunnel_too_shallow(current, target) {
-            0.0
-        } else {
-            desired_speed
-        }
-    }
-
-    fn apply_jump_slowdown(&self, desired_speed: Real, current: Coord3D, target: Coord3D) -> Real {
-        // Jump slowdown applies to infantry-like appearances
-        if !matches!(
-            self.template.appearance,
-            LocomotorAppearance::TwoLegs | LocomotorAppearance::Climber
-        ) {
-            return desired_speed;
-        }
-        let dist = (target - current).length();
-        if dist < self.template.wander_about_point_radius.max(1.0) {
-            desired_speed * 0.5
-        } else {
-            desired_speed
-        }
-    }
-
-    fn apply_naval_turn_limit(
-        &self,
-        desired_speed: Real,
-        current_angle: Real,
-        desired_angle: Real,
-    ) -> Real {
-        if (self.template.surfaces & SURFACE_WATER) == 0 {
-            return desired_speed;
-        }
-        let rel = Self::std_angle_diff(desired_angle, current_angle).abs();
-        let limit = std::f32::consts::PI / 6.0;
-        if rel > limit {
-            desired_speed * 0.6
-        } else {
-            desired_speed
-        }
-    }
 
     fn apply_wings_circling(&self, current: Coord3D, target: Coord3D, desired_angle: Real) -> Real {
         if self.template.appearance != LocomotorAppearance::Wings {

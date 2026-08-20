@@ -105,6 +105,67 @@ pub fn update_context_ocl_timer(
     Some((text, progress, seconds))
 }
 
+/// C++ ControlBarOCLTimer.cpp:71-104 sell / rally / hide choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OclTimerButtonKind {
+    Sell,
+    RallyPoint,
+    Hidden,
+}
+
+/// C++ `populateOCLTimer`: !TECH_BUILDING → Sell; TECH+AUTO_RALLYPOINT → Rally; else hide.
+pub fn ocl_timer_button_kind(is_tech_building: bool, is_auto_rallypoint: bool) -> OclTimerButtonKind {
+    if !is_tech_building {
+        OclTimerButtonKind::Sell
+    } else if is_auto_rallypoint {
+        OclTimerButtonKind::RallyPoint
+    } else {
+        OclTimerButtonKind::Hidden
+    }
+}
+
+pub fn ocl_timer_kind_for_object(obj_id: u32) -> OclTimerButtonKind {
+    if let Some(obj_arc) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
+        if let Ok(obj) = obj_arc.read() {
+            return ocl_timer_button_kind(
+                obj.is_kind_of(gamelogic::common::types::KindOf::TechBuilding),
+                obj.is_kind_of(gamelogic::common::types::KindOf::AutoRallypoint),
+            );
+        }
+    }
+    if let Some(entry) =
+        crate::presentation_translator_residual::translator_catalog_entry(obj_id)
+    {
+        let is_tech = crate::presentation_translator_residual::translator_entry_has_kind(
+            &entry,
+            "TECH_BUILDING",
+        );
+        let is_rally = crate::presentation_translator_residual::translator_entry_has_kind(
+            &entry,
+            "AUTO_RALLYPOINT",
+        );
+        return ocl_timer_button_kind(is_tech, is_rally);
+    }
+    // Fail-closed: unknown creator is not assumed Sell.
+    OclTimerButtonKind::Hidden
+}
+
+fn ocl_timer_command_button(kind: OclTimerButtonKind) -> Option<super::CommandButton> {
+    match kind {
+        OclTimerButtonKind::Sell => Some(super::CommandButton {
+            command_name: "Command_Sell".to_string(),
+            command_type: gamelogic::commands::command::CommandType::Sell,
+            ..Default::default()
+        }),
+        OclTimerButtonKind::RallyPoint => Some(super::CommandButton {
+            command_name: "Command_SetRallyPoint".to_string(),
+            command_type: gamelogic::commands::command::CommandType::SetRallyPoint,
+            ..Default::default()
+        }),
+        OclTimerButtonKind::Hidden => None,
+    }
+}
+
 /// Populate OCL timer command buttons into the control bar context.
 ///
 /// C++ ControlBarOCLTimer.cpp:55 `populateOCLTimer`: adds a sell button
@@ -114,28 +175,61 @@ pub fn update_context_ocl_timer(
 pub fn populate_ocl_timer_commands(
     context: &mut ControlBarContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if context.selected_objects.is_empty() {
+    let Some(&obj_id) = context.selected_objects.first() else {
         return Ok(());
-    }
-
-    // C++ parity: the OCL timer context shows a sell or rally-point command
-    // depending on the creator object's kind-of flags. For now, add a default
-    // sell command as the most common case (non-tech buildings).
-    let sell_command = super::CommandButton {
-        command_name: "Command_Sell".to_string(),
-        ..Default::default()
     };
 
-    if !context
-        .available_commands
-        .iter()
-        .any(|c| c.command_name == "Command_Sell")
-    {
-        context.available_commands.push(sell_command);
+    context.available_commands.retain(|command| {
+        command.command_name != "Command_Sell" && command.command_name != "Command_SetRallyPoint"
+    });
+
+    if let Some(button) = ocl_timer_command_button(ocl_timer_kind_for_object(obj_id)) {
+        context.available_commands.push(button);
     }
 
     Ok(())
 }
+
+/// C++ ControlBarOCLTimer.cpp:23-49 updateOCLTimerTextDisplay + reveal CP_OCL_TIMER.
+pub fn apply_ocl_timer_windows(
+    text: &str,
+    progress_percent: f32,
+    button_kind: OclTimerButtonKind,
+) {
+    crate::gui::with_window_manager(|wm| {
+        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerWindow") {
+            let _ = win.borrow_mut().hide(false);
+        }
+        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerStaticText") {
+            let _ = win.borrow_mut().set_text(text);
+        }
+        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerProgressBar") {
+            if let Some(bar) = win.borrow_mut().progress_bar_mut() {
+                bar.set_progress(progress_percent.clamp(0.0, 100.0));
+            }
+        }
+        if let Some(win) = wm.find_window_by_name("ControlBar.wnd:OCLTimerSellButton") {
+            match button_kind {
+                OclTimerButtonKind::Hidden => {
+                    let _ = win.borrow_mut().hide(true);
+                }
+                OclTimerButtonKind::Sell => {
+                    win.borrow_mut()
+                        .set_user_data("Command_Sell".to_string());
+                    let _ = win.borrow_mut().hide(false);
+                    let _ = win.borrow_mut().enable(true);
+                }
+                OclTimerButtonKind::RallyPoint => {
+                    win.borrow_mut()
+                        .set_user_data("Command_SetRallyPoint".to_string());
+                    let _ = win.borrow_mut().hide(false);
+                    let _ = win.borrow_mut().enable(true);
+                }
+            }
+        }
+    });
+}
+
 
 /// Residual: last OCL timer action requested by residual peels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,5 +387,25 @@ mod tests {
         let (text, _progress, secs) = result.unwrap();
         assert_eq!(text, "0:29");
         assert_eq!(secs, 29);
+    }
+
+    #[test]
+    fn test_ocl_timer_button_kind_matches_cpp() {
+        assert_eq!(
+            ocl_timer_button_kind(false, false),
+            OclTimerButtonKind::Sell
+        );
+        assert_eq!(
+            ocl_timer_button_kind(false, true),
+            OclTimerButtonKind::Sell
+        );
+        assert_eq!(
+            ocl_timer_button_kind(true, true),
+            OclTimerButtonKind::RallyPoint
+        );
+        assert_eq!(
+            ocl_timer_button_kind(true, false),
+            OclTimerButtonKind::Hidden
+        );
     }
 }

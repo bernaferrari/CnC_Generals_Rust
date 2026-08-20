@@ -425,6 +425,11 @@ impl HostMineData {
     pub fn is_active(&self) -> bool {
         !self.detonated
     }
+
+    /// C++ DemoTrapUpdate.cpp:124-130: dead + DetonateWhenKilled → detonate().
+    pub fn detonate_when_killed(&self) -> bool {
+        matches!(self.kind, HostMineKind::DemoTrap) && !self.detonated
+    }
 }
 
 /// Damage plan for one victim under a residual detonation.
@@ -446,11 +451,13 @@ pub struct HostMineDetonationPlan {
     pub reason: HostMineDetonateReason,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostMineDetonateReason {
     Proximity,
     Timed,
     Manual,
+    /// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+    Killed,
 }
 
 /// Cluster-mine ring residual (not full OCL scatter density).
@@ -696,6 +703,21 @@ pub fn infer_mine_kind(template_name: &str) -> Option<HostMineKind> {
     } else {
         None
     }
+}
+
+/// C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+pub fn should_detonate_when_killed(
+    kind: HostMineKind,
+    detonate_when_killed: bool,
+    effectively_dead: bool,
+    detonated: bool,
+    under_construction_or_sold: bool,
+) -> bool {
+    detonate_when_killed
+        && effectively_dead
+        && !detonated
+        && !under_construction_or_sold
+        && matches!(kind, HostMineKind::DemoTrap)
 }
 
 /// Build residual mine data for a newly created host object (if template matches).
@@ -1187,5 +1209,47 @@ mod tests {
         assert_eq!(pts.len(), 8);
         let d0 = (pts[0].x * pts[0].x + pts[0].z * pts[0].z).sqrt();
         assert!((d0 - 40.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn demo_trap_detonate_when_killed_policy() {
+        // C++ DemoTrapUpdate.cpp:124-130 isEffectivelyDead + DetonateWhenKilled.
+        assert!(should_detonate_when_killed(
+            HostMineKind::DemoTrap,
+            DEMO_TRAP_DETONATE_WHEN_KILLED,
+            true,
+            false,
+            false,
+        ));
+        assert!(!should_detonate_when_killed(
+            HostMineKind::DemoTrap,
+            DEMO_TRAP_DETONATE_WHEN_KILLED,
+            false,
+            false,
+            false,
+        ));
+        assert!(!should_detonate_when_killed(
+            HostMineKind::LandMine,
+            DEMO_TRAP_DETONATE_WHEN_KILLED,
+            true,
+            false,
+            false,
+        ));
+        assert!(!should_detonate_when_killed(
+            HostMineKind::DemoTrap,
+            DEMO_TRAP_DETONATE_WHEN_KILLED,
+            true,
+            true,
+            false,
+        ));
+        assert!(!should_detonate_when_killed(
+            HostMineKind::DemoTrap,
+            DEMO_TRAP_DETONATE_WHEN_KILLED,
+            true,
+            false,
+            true,
+        ));
+        let d = HostMineData::demo_trap();
+        assert!(d.detonate_when_killed());
     }
 }

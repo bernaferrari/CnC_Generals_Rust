@@ -74,7 +74,10 @@ impl SnapshotBuilder {
             snapshot.team,
             game_logic.get_current_frame() as u32,
         );
-        object.name = snapshot.template_name.clone();
+        // C++ Object::xfer (`Object.cpp:4068`) persists `m_name` independently
+        // of the template. Constructor leaves it empty; the v11 world tail
+        // writes the instance name after every object exists.
+        object.name.clear();
 
         // Geometry / transform
         object.set_position(snapshot.geometry.position);
@@ -187,6 +190,8 @@ impl SnapshotBuilder {
 
         self.restore_object_type_data(&snapshot.object_type, &mut object)?;
         self.restore_object_modules(&snapshot.modules, &mut object, game_logic)?;
+        Self::rebuild_garrisoned_units_from_occupants(&mut object);
+
 
         // The generic pending-ability map is runtime-only.  Preserve the
         // source-side state now, but defer rebuilding that map until every
@@ -424,6 +429,7 @@ impl SnapshotBuilder {
                     if !container.occupants.contains(&snapshot.id) {
                         container.occupants.push(snapshot.id);
                     }
+                    Self::rebuild_garrisoned_units_from_occupants(container);
                 }
                 if let Some(occupant) = game_logic.host_object_mut(snapshot.id) {
                     occupant.contained_by = Some(container_id);
@@ -553,6 +559,7 @@ impl SnapshotBuilder {
                 rank_level: 1,
                 skill_points: 0,
                 science_purchase_points: 0,
+                skill_points_modifier: 1.0,
                 can_build_units: true,
                 can_build_base: true,
 
@@ -561,6 +568,7 @@ impl SnapshotBuilder {
                 completed_upgrades: std::collections::HashSet::new(),
                 resource_supply_centers: Vec::new(),
                 resource_supply_warehouses: Vec::new(),
+                map_side: crate::game_logic::PlayerMapSideState::default(),
             });
         }
 
@@ -1042,5 +1050,66 @@ impl SnapshotBuilder {
         }
 
         Ok(())
+    }
+
+    /// C++ `OpenContain::xfer` (`OpenContain.cpp:1590`) persist the contain
+    /// list. Host HUD / capacity use `BuildingData.garrisoned_units`, which
+    /// is a live mirror of `Object.occupants` and must be rebuilt on load.
+    pub(super) fn rebuild_garrisoned_units_from_occupants(object: &mut Object) {
+        if object.building_data.is_none() {
+            if object.object_type != ObjectType::Building {
+                return;
+            }
+            let building_type = BuildingType::from_template_name(&object.template_name);
+            object.building_data = Some(BuildingData::new(building_type));
+        }
+        if let Some(building) = object.building_data.as_mut() {
+            building.garrisoned_units = object.occupants.clone();
+        }
+    }
+
+    /// C++ `Object::xfer` (`Object.cpp:4068`) `m_name` and
+    /// `AIUpdateInterface::xfer` (`AIUpdate.cpp:5015-5019`) guard anchors.
+    pub(super) fn restore_object_instance_guards(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V11_TAIL_VERSION {
+            return Ok(());
+        }
+        let mut seen = HashSet::new();
+        for entry in &snapshot.object_instance_guards {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate ObjectInstanceGuard snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "ObjectInstanceGuard snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.name = entry.instance_name.clone();
+            // Direct field writes: `set_guard_position` / `set_guard_target`
+            // would overwrite independently restored AIState.
+            object.guard_position = entry.guard_position;
+            object.guard_target = entry.guard_target;
+            object.guard_radius = entry.guard_radius;
+            object.guard_mode = entry.guard_mode;
+        }
+        Ok(())
+    }
+
+    pub(super) fn sync_all_garrisoned_units_from_occupants(&self, game_logic: &mut GameLogic) {
+        let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        for id in ids {
+            if let Some(object) = game_logic.host_object_mut(id) {
+                Self::rebuild_garrisoned_units_from_occupants(object);
+            }
+        }
     }
 }

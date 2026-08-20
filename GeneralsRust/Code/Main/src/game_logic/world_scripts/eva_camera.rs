@@ -181,18 +181,10 @@ impl GameLogic {
             || name_l.contains("harvester")
             || name_l.contains("gatherer")
             || (name_l.contains("worker") && !name_l.contains("dozer"));
-        let is_mp_count = is_structure
-            && (obj.is_kind_of(KindOf::CommandCenter)
-                || obj.is_kind_of(KindOf::FSPower)
-                || obj.is_kind_of(KindOf::PowerPlant)
-                || obj.is_kind_of(KindOf::FSBarracks)
-                || obj.is_kind_of(KindOf::FSWarFactory)
-                || obj.is_kind_of(KindOf::FSAirfield)
-                || obj.is_kind_of(KindOf::FSSuperweapon)
-                || obj.is_kind_of(KindOf::FSStrategyCenter)
-                || obj.is_kind_of(KindOf::FSTechnology)
-                || obj.is_kind_of(KindOf::SupplyCenter)
-                || obj.is_kind_of(KindOf::FSSupplyCenter));
+        // C++ Radar.cpp:1194 / Object.cpp:4597 — STRUCTURE + MP_COUNT_FOR_VICTORY.
+        // Do not invent an FS-kind union; Black Market / Internet Center carry
+        // the authored bit without FS_FACTORY.
+        let is_mp_count = is_structure && obj.is_kind_of(KindOf::MpCountForVictory);
         let alliance = self
             .players
             .values()
@@ -333,6 +325,12 @@ impl GameLogic {
         if killer == Some(victim_team) {
             return;
         }
+        // C++ Object.cpp:4597 — STRUCTURE + KINDOF_MP_COUNT_FOR_VICTORY.
+        let is_mp_count_for_victory = self
+            .objects
+            .get(&_victim_id)
+            .map(|o| o.is_kind_of(KindOf::MpCountForVictory))
+            .unwrap_or(is_mp_count_for_victory);
         if is_structure && is_mp_count_for_victory {
             let _ = gamelogic::helpers::TheEva::set_should_play(
                 gamelogic::helpers::EvaEvent::BuildingLost,
@@ -1055,3 +1053,64 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::helpers::{EvaEvent, TheEva};
+
+    #[test]
+    fn black_market_with_mp_count_fires_base_under_attack() {
+        // C++ Radar.cpp:1194 — STRUCTURE + MP_COUNT_FOR_VICTORY, not FS union.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::GLA, "Local", true));
+        let mut st = ThingTemplate::new("GLABlackMarket");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .add_kind_of(KindOf::MpCountForVictory)
+            .set_health(500.0);
+        logic.templates.insert("GLABlackMarket".into(), st);
+        let id = logic
+            .create_object(
+                "GLABlackMarket",
+                Team::GLA,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .expect("market");
+        assert!(logic.try_under_attack_event(id));
+        assert!(logic.honesty_eva_base_under_attack_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BaseUnderAttack),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn structure_without_mp_count_does_not_fire_base_under_attack() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        let mut st = ThingTemplate::new("AmericaCommandCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), st);
+        let id = logic
+            .create_object(
+                "AmericaCommandCenter",
+                Team::USA,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .expect("cc");
+        assert!(logic.try_under_attack_event(id));
+        assert!(!logic.honesty_eva_base_under_attack_ok());
+    }
+}
+

@@ -457,7 +457,7 @@ impl ScriptCondition for TeamDiscoveredCondition {
         let player = player_arc
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_id() as u32;
+        let player_index = player.get_player_index();
         drop(player);
 
         let team_name = match parameters.get("team") {
@@ -484,8 +484,21 @@ impl ScriptCondition for TeamDiscoveredCondition {
         for &member_id in team.get_members() {
             let visible = OBJECT_REGISTRY
                 .with_object(member_id, |obj| {
-                    !obj.is_disabled_by_type(crate::common::DisabledType::Held)
-                        && obj.is_visible_to_player(player_index)
+                    if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
+                        return false;
+                    }
+                    let status = obj.get_status_bits();
+                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                    {
+                        return false;
+                    }
+                    matches!(
+                        obj.get_shrouded_status(player_index),
+                        crate::common::ObjectShroudStatus::Clear
+                            | crate::common::ObjectShroudStatus::PartialClear
+                    )
                 })
                 .unwrap_or(false);
             if visible {
@@ -598,6 +611,14 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
         let mut inside_count = 0u32;
 
         for &member_id in members {
+            let counts = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    !obj.is_effectively_dead() && !obj.is_kind_of(KindOf::Inert)
+                })
+                .unwrap_or(false);
+            if !counts {
+                continue;
+            }
             let area_tracker = get_area_tracker();
             let objects_in_area = area_tracker
                 .get_objects_in_area(&area_name)
@@ -665,15 +686,25 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
         }
 
         let area_tracker = get_area_tracker();
+        let mut considered = 0u32;
         for &member_id in members {
+            let counts = OBJECT_REGISTRY
+                .with_object(member_id, |obj| {
+                    !obj.is_effectively_dead() && !obj.is_kind_of(KindOf::Inert)
+                })
+                .unwrap_or(false);
+            if !counts {
+                continue;
+            }
             let objects_in_area = area_tracker
                 .get_objects_in_area(&area_name)
                 .unwrap_or_default();
             if !objects_in_area.contains(&member_id) {
                 return Ok(false);
             }
+            considered += 1;
         }
-        Ok(true)
+        Ok(considered > 0)
     }
 
     fn name(&self) -> &str {

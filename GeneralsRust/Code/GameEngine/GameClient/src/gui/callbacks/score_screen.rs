@@ -552,6 +552,87 @@ fn update_final_victory_movie_wait(state: &mut ScoreScreenState) {
     finalize_single_player_init(state);
 }
 
+/// C++ `GameState::missionSave` (GameState.cpp:616-618):
+/// `desc.format(TheGameText->fetch("GUI:MissionSave"), campaignLabel, missionNumber)`.
+fn format_mission_save_description(
+    format: &str,
+    campaign_label: &str,
+    mission_number: i32,
+) -> String {
+    let mut out = String::with_capacity(format.len() + campaign_label.len() + 8);
+    let mut chars = format.chars().peekable();
+    let mut used_s = false;
+    let mut used_d = false;
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek().copied() {
+            Some('%') => {
+                chars.next();
+                out.push('%');
+            }
+            Some('s') | Some('S') => {
+                chars.next();
+                out.push_str(campaign_label);
+                used_s = true;
+            }
+            Some('d') | Some('i') | Some('u') => {
+                chars.next();
+                out.push_str(&mission_number.to_string());
+                used_d = true;
+            }
+            Some('l') => {
+                chars.next();
+                if matches!(chars.peek().copied(), Some('s') | Some('S')) {
+                    chars.next();
+                    out.push_str(campaign_label);
+                    used_s = true;
+                } else {
+                    out.push('%');
+                    out.push('l');
+                }
+            }
+            Some(_) | None => out.push('%'),
+        }
+    }
+    if !used_s && !used_d {
+        if !campaign_label.is_empty() {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(campaign_label);
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&mission_number.to_string());
+    }
+    out
+}
+
+/// Localized between-mission save description (not `GUI:AutoSave`).
+fn current_mission_save_description() -> String {
+    let manager = get_campaign_manager();
+    let mission_number = manager.get_current_mission_number().unwrap_or(0) + 1;
+    let campaign_label = manager
+        .get_current_campaign()
+        .map(|campaign| {
+            let (text, exists) = GameText::fetch_with_exists(&campaign.campaign_name_label);
+            if exists && !text.is_empty() {
+                text
+            } else if !campaign.campaign_name_label.is_empty() {
+                campaign.campaign_name_label.clone()
+            } else {
+                campaign.name.clone()
+            }
+        })
+        .unwrap_or_default();
+    let (format, _) = GameText::fetch_with_exists("GUI:MissionSave");
+    format_mission_save_description(&format, &campaign_label, mission_number)
+}
+
 fn finish_single_player_init(state: &mut ScoreScreenState) {
     let victorious = {
         let manager = get_campaign_manager();
@@ -661,13 +742,12 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
             if let Some(button_continue) = state.button_continue.as_ref() {
                 set_text(button_continue, &GameText::fetch("GUI:SaveAndContinue"));
             }
-            // C++ ScoreScreen next-mission path: TheGameState->saveGame
-            // (GameState.cpp:518) — the 17-block named-chunk writer, not the
-            // host 3-chunk bincode container.
+            // C++ ScoreScreen.cpp:880 TheGameState->missionSave()
+            // GameState.cpp:616-618 GUI:MissionSave + campaignNameLabel + missionNumber+1.
             let mut game_state = game_engine::get_game_state();
             let _ = game_state.save_game(
                 String::new(),
-                GameText::fetch("GUI:AutoSave"),
+                current_mission_save_description(),
                 game_engine::SaveFileType::Mission,
                 game_engine::SnapshotType::SaveLoad,
             );
@@ -1525,6 +1605,25 @@ mod tests {
         campaign.final_movie_name = movie.to_string();
         campaign
     }
+
+    #[test]
+    fn mission_save_description_formats_campaign_and_number_like_cpp() {
+        // C++ GameState.cpp:616-618 UnicodeString::format(GUI:MissionSave, label, n).
+        assert_eq!(
+            format_mission_save_description("%s Mission %d", "USA Campaign", 2),
+            "USA Campaign Mission 2"
+        );
+        assert_eq!(
+            format_mission_save_description("GUI:AutoSave", "China", 1),
+            "GUI:AutoSave China 1"
+        );
+        let desc = current_mission_save_description();
+        assert!(
+            !desc.contains("GUI:AutoSave") || desc.contains('1'),
+            "between-mission save must not be bare GUI:AutoSave: {desc}"
+        );
+    }
+
 
     #[test]
     fn final_victory_movie_includes_challenge_campaigns_like_cpp() {

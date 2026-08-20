@@ -800,6 +800,70 @@ impl GameLogic {
         }
     }
 
+    /// C++ ActionManager.cpp:463-485 — builder still owns the BUILD task.
+    fn builder_is_actively_building(&self, builder_id: ObjectId, structure_id: ObjectId) -> bool {
+        self.objects.get(&builder_id).is_some_and(|builder| {
+            builder.is_alive()
+                && matches!(builder.ai_state, AIState::Constructing)
+                && builder.target == Some(structure_id)
+        })
+    }
+
+    /// Drop a recorded builder that is dead or no longer constructing this scaffold.
+    fn clear_stale_structure_builder(&mut self, structure_id: ObjectId) {
+        let Some(bid) = self.objects.get(&structure_id).and_then(|s| s.builder_id) else {
+            return;
+        };
+        if self.builder_is_actively_building(bid, structure_id) {
+            return;
+        }
+        if let Some(st) = self.objects.get_mut(&structure_id) {
+            st.builder_id = None;
+        }
+    }
+
+    /// C++ WorkerAIUpdate::newTask — leave supply-truck mode and drop dock claim.
+    ///
+    /// `m_preferredDock = INVALID_ID` plus `AS_DOZER` so other workers are not
+    /// queued behind a dock this unit will never finish.
+    pub fn worker_exit_supply_for_dozer_task(&mut self, worker_id: ObjectId) {
+        let (preferred, target) = match self.objects.get(&worker_id) {
+            Some(w) => (w.preferred_dock_id, w.target),
+            None => return,
+        };
+        let mut docks = Vec::new();
+        if let Some(id) = preferred {
+            docks.push(id);
+        }
+        if let Some(id) = target {
+            if Some(id) != preferred {
+                docks.push(id);
+            }
+        }
+        for (id, obj) in &self.objects {
+            if obj.dock_active_docker == Some(worker_id) && !docks.contains(id) {
+                docks.push(*id);
+            }
+        }
+        for dock_id in docks {
+            if let Some(dock) = self.objects.get_mut(&dock_id) {
+                if dock.dock_active_docker == Some(worker_id) {
+                    dock.dock_active_docker = None;
+                }
+                if dock.repair_dock_last_id == Some(worker_id) {
+                    dock.repair_dock_last_id = None;
+                    dock.repair_dock_health_per_sec = 0.0;
+                }
+            }
+        }
+        if let Some(w) = self.objects.get_mut(&worker_id) {
+            w.preferred_dock_id = None;
+            w.supply_truck_state = crate::game_logic::SupplyTruckState::Idle;
+            w.supply_truck_force_pending = false;
+            w.supply_truck_next_dock_action_frame = 0;
+        }
+    }
+
     /// C++ ActionManager::canResumeConstructionOf residual.
     pub fn can_resume_construction_of(&self, dozer_id: ObjectId, structure_id: ObjectId) -> bool {
         let Some(dozer) = self.objects.get(&dozer_id) else {
@@ -828,12 +892,13 @@ impl GameLogic {
         if !structure.status.under_construction || structure.status.sold {
             return false;
         }
-        // C++ DozerAIUpdate.cpp:305 — another dozer already owns this build.
-        if structure
-            .builder_id
-            .is_some_and(|bid| bid != dozer_id)
-        {
-            return false;
+        // C++ ActionManager.cpp:458-485 — reject only while the recorded
+        // builder is alive and currently DOZER_TASK_BUILD on this structure.
+        // A dead or re-tasked exclusive builder must not freeze the scaffold.
+        if let Some(bid) = structure.builder_id {
+            if bid != dozer_id && self.builder_is_actively_building(bid, structure_id) {
+                return false;
+            }
         }
         // Another dozer already actively building this structure.
         for (id, obj) in &self.objects {
@@ -853,11 +918,13 @@ impl GameLogic {
     /// C++ DozerAIUpdate::privateResumeConstruction residual.
     /// Returns true if a dozer was assigned.
     pub fn resume_construction(&mut self, dozer_ids: &[ObjectId], structure_id: ObjectId) -> bool {
+        self.clear_stale_structure_builder(structure_id);
         // Only one dozer resumes (C++ groupResumeConstruction — first that accepts).
         for &dozer_id in dozer_ids {
             if !self.can_resume_construction_of(dozer_id, structure_id) {
                 continue;
             }
+            self.worker_exit_supply_for_dozer_task(dozer_id);
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
                 dozer.target = Some(structure_id); // non-combat build association stays host
                 dozer.set_ai_state(AIState::Constructing);
@@ -1289,6 +1356,7 @@ impl GameLogic {
             under_construction,
             is_structure,
             is_hole,
+            script_name,
         ) = {
             let o = self.objects.get(&destroyed_id)?;
             (
@@ -1300,9 +1368,15 @@ impl GameLogic {
                 o.status.under_construction,
                 o.is_kind_of(KindOf::Structure),
                 o.is_rebuild_hole,
+                o.name.clone(),
             )
         };
         if is_hole || !is_structure || under_construction {
+            return None;
+        }
+        // C++ RebuildHoleExposeDie.cpp:108-110: controlling player != Neutral
+        // && isPlayerActive() && !UNDER_CONSTRUCTION.
+        if matches!(team, Team::Neutral) || owner_player_id.is_none() {
             return None;
         }
         if !matches!(team, Team::GLA) {
@@ -1364,6 +1438,11 @@ impl GameLogic {
                 .saturating_add(REBUILD_HOLE_WORKER_RESPAWN_FRAMES);
         }
         self.rebuild_hole_spawns = self.rebuild_hole_spawns.saturating_add(1);
+        // C++ RebuildHoleExposeDie.cpp:131 TheScriptEngine->transferObjectName.
+        if !script_name.is_empty() {
+            let _ = self.transfer_script_object_name(destroyed_id, hole_id);
+        }
+
         // C++ RebuildHoleExposeDie TransferAttackers residual (default true).
         let n = self.transfer_attack(destroyed_id, hole_id);
         if n > 0 {

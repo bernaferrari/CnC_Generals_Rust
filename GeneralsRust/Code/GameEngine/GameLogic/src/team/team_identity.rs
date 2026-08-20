@@ -30,7 +30,7 @@ impl Team {
             script_on_all_clear: String::new().into(),
             script_on_destroyed: String::new().into(),
             script_on_unit_destroyed: String::new().into(),
-            common_attack_target: Cell::new(INVALID_ID),
+            common_attack_target: AtomicU32::new(INVALID_ID),
             current_waypoint_id: None,
             should_attempt_generic_script: [true; MAX_GENERIC_SCRIPTS],
             team_relations: None,
@@ -140,7 +140,7 @@ impl Team {
     /// Set team target object
     pub fn set_team_target_object(&mut self, target: ObjectID) {
         if target == INVALID_ID {
-            self.common_attack_target.set(INVALID_ID);
+            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
             return;
         }
 
@@ -165,7 +165,7 @@ impl Team {
             return;
         }
 
-        self.common_attack_target.set(target);
+        self.common_attack_target.store(target, Ordering::Relaxed);
     }
 
     /// Get team target object
@@ -175,7 +175,7 @@ impl Team {
             return INVALID_ID;
         }
 
-        let target_id = self.common_attack_target.get();
+        let target_id = self.common_attack_target.load(Ordering::Relaxed);
         if target_id == INVALID_ID {
             return INVALID_ID;
         }
@@ -199,13 +199,13 @@ impl Team {
 
             true
         }) else {
-            self.common_attack_target.set(INVALID_ID);
+            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
             return INVALID_ID;
         };
         if valid {
             target_id
         } else {
-            self.common_attack_target.set(INVALID_ID);
+            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
             INVALID_ID
         }
     }
