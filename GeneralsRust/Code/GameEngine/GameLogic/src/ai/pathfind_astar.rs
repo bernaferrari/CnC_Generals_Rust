@@ -762,7 +762,9 @@ impl AStarPathfinder {
             let wy = (cell.y as f32 + 0.5) * PATHFIND_CELL_SIZE_F;
             layer_world_height(wx, wy, PathfindLayerEnum::Ground)
         };
-        let line_ok = |_cell: GridCoord| -> bool { true };
+        let line_ok = |cell: GridCoord| -> bool {
+            extra_cost.map(|f| f(cell) < u32::MAX / 8).unwrap_or(true)
+        };
         self.find_path_ex6(
             start,
             goal,
@@ -1002,7 +1004,7 @@ impl AStarPathfinder {
         )
     }
 
-    fn find_path_with_start_layer(
+    pub fn find_path_with_start_layer(
         &self,
         start: GridCoord,
         goal: GridCoord,
@@ -1299,7 +1301,11 @@ impl AStarPathfinder {
                 }
                 // C++ allyFixedCount > 0 → +3*COST_DIAGONAL (and setBlockedByAlly).
                 if let Some(extra) = extra_cost {
-                    movement_cost = movement_cost.saturating_add(extra(neighbor_coord));
+                    let e = extra(neighbor_coord);
+                    if e >= u32::MAX / 8 {
+                        continue; // C++ enemyFixed / clearCellForDiameter miss
+                    }
+                    movement_cost = movement_cost.saturating_add(e);
                 }
                 // C++ cliff: if !pinched && |dz| < PATHFIND_CELL_SIZE_F → already has
                 // base cliff cost in movement_cost; when |dz| >= cell size, remove the

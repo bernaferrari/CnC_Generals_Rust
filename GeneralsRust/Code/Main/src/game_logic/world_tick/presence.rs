@@ -180,7 +180,7 @@ impl GameLogic {
     }
 
     /// C++ `Player::killPlayer` after `VictoryConditions` marks a slot dead:
-    /// evacuate containers, destroy remaining army, zero money, mark dead.
+    /// evacuate containers, Neutral-transfer KINDOF_TECH_BUILDING, kill army, zero money.
     pub(in super::super) fn kill_player_for_victory(&mut self, player_id: u32) {
         let player_team = self.players.get(&player_id).map(|p| p.team);
         let unique_team = player_team.and_then(|team| {
@@ -215,6 +215,12 @@ impl GameLogic {
             player.is_alive = false;
         }
 
+        let neutral_owner = self.players.values().find(|p| {
+            p.team == Team::Neutral
+                && !p.is_observer
+                && !p.name.to_ascii_lowercase().contains("observer")
+        }).map(|p| p.id);
+
         let army: Vec<ObjectId> = self
             .objects
             .iter()
@@ -222,6 +228,17 @@ impl GameLogic {
             .map(|(id, _)| *id)
             .collect();
         for id in army {
+            let is_tech = self
+                .objects
+                .get(&id)
+                .is_some_and(|obj| obj.is_kind_of(KindOf::TechBuilding));
+            if is_tech {
+                // C++ Team::killTeam: KINDOF_TECH_BUILDING → Neutral default team.
+                if let Some(obj) = self.objects.get_mut(&id) {
+                    obj.set_team_and_owner(Team::Neutral, neutral_owner);
+                }
+                continue;
+            }
             self.destroy_object(id);
         }
 

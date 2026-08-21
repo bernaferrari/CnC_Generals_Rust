@@ -232,6 +232,14 @@ pub enum KindOf {
     /// C++ `KINDOF_BRIDGE_TOWER`. Water waves skip towers (hit the span).
     /// Gameplay-only: the compact presentation KindOf bank is full.
     BridgeTower,
+    /// C++ `KINDOF_STEALTH_GARRISON`. Ninja / stealth-garrison infantry hide
+    /// civilian buildings from non-allies and can be kicked by enemy Enter.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    StealthGarrison,
+    /// C++ `KINDOF_TECH_BUILDING`. Captured oil/tech reverts to Neutral on killPlayer.
+    /// Gameplay-only: the compact presentation KindOf bank is full.
+    TechBuilding,
+
 
 }
 
@@ -253,6 +261,8 @@ impl KindOf {
             "DEFENSIVE_WALL" | "DEFENSIVEWALL" => Some(Self::DefensiveWall),
             "BRIDGE" => Some(Self::Bridge),
             "BRIDGE_TOWER" | "BRIDGETOWER" => Some(Self::BridgeTower),
+            "STEALTH_GARRISON" | "STEALTHGARRISON" => Some(Self::StealthGarrison),
+            "TECH_BUILDING" | "TECHBUILDING" => Some(Self::TechBuilding),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -718,6 +728,10 @@ mod tests {
         assert_eq!(
             KindOf::from_ini_token("GARRISONABLE_UNTIL_DESTROYED"),
             Some(KindOf::GarrisonableUntilDestroyed)
+        );
+        assert_eq!(
+            KindOf::from_ini_token("STEALTH_GARRISON"),
+            Some(KindOf::StealthGarrison)
         );
         assert_eq!(KindOf::from_ini_token("FS_FACTORY"), None);
     }

@@ -37,6 +37,66 @@ fn garrison_evac_side_points(
     (start, end)
 }
 
+/// C++ GarrisonContain::exitObjectViaDoor cliff-bunker start walk.
+/// If the building origin is not standable, try front then back along facing.
+fn garrison_evac_cliff_start(
+    origin: glam::Vec3,
+    yaw: f32,
+    major: f32,
+    grid: &super::super::pathfinding::PathfindingGrid,
+) -> glam::Vec3 {
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    if grid.width() <= 0 || grid.height() <= 0 {
+        return origin;
+    }
+    let standable = |pos: glam::Vec3| {
+        let cell = grid.world_to_grid(pos);
+        grid.is_valid_pos(cell) && grid.cell_passable_for(cell, SURFACE_GROUND, false)
+    };
+    if standable(origin) {
+        return origin;
+    }
+    let (sin, cos) = yaw.sin_cos();
+    let mut front = origin;
+    front.x -= major * cos;
+    front.z -= major * sin;
+    if standable(front) {
+        return front;
+    }
+    let mut back = origin;
+    back.x += major * cos;
+    back.z += major * sin;
+    if standable(back) {
+        return back;
+    }
+    origin
+}
+
+/// C++ EVAC_BURST_FROM_CENTER: end starts at start, then
+/// `Pathfinder::adjustToPossibleDestination` so the occupant walks out.
+fn garrison_evac_burst_end(
+    start: glam::Vec3,
+    major: f32,
+    grid: &super::super::pathfinding::PathfindingGrid,
+) -> glam::Vec3 {
+    use gamelogic::ai::pathfind_complete::SURFACE_GROUND;
+    let cell_size = grid.grid_size().max(1.0);
+    if grid.width() > 0 && grid.height() > 0 {
+        let seed = grid.world_to_grid(start);
+        if let Some(adj) = grid.adjust_destination(seed, SURFACE_GROUND, false, 400) {
+            let world = grid.grid_to_world(adj);
+            let dx = world.x - start.x;
+            let dz = world.z - start.z;
+            if dx * dx + dz * dz > 0.25 {
+                return glam::Vec3::new(world.x, start.y, world.z);
+            }
+        }
+    }
+    // Empty / unstamped grid: first C++ spiral step is +X. Still leave the
+    // enclosing footprint so burst does not idle at the origin.
+    glam::Vec3::new(start.x + major.max(cell_size), start.y, start.z)
+}
+
 #[cfg(test)]
 pub(in super::super) fn garrison_evac_side_points_for_test(
     origin: glam::Vec3,
@@ -576,6 +636,58 @@ impl GameLogic {
             }
             return false;
         }
+        let uses_exit_busy = !is_garrison
+            && self
+                .objects
+                .get(&container_id)
+                .is_some_and(|c| c.uses_transport_contain_exit_busy());
+        if uses_exit_busy
+            && self
+                .objects
+                .get(&container_id)
+                .is_some_and(|c| c.is_transport_exit_busy(self.frame))
+        {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.pending_evacuate_on_stop = true;
+                c.pending_exit_after_evacuate = and_exit;
+            }
+            return false;
+        }
+        let stagger = uses_exit_busy
+            && self
+                .objects
+                .get(&container_id)
+                .is_some_and(|c| c.transport_exit_delay_frames() > 0);
+        let go_aggressive = uses_exit_busy
+            && self
+                .objects
+                .get(&container_id)
+                .is_some_and(|c| c.transport_go_aggressive_on_exit());
+        let more_remain = stagger && passengers.len() > 1;
+        if stagger && passengers.len() > 1 {
+            passengers.truncate(1);
+        }
+
+        // C++ burst start is cliff-adjusted building origin; dest is then
+        // adjustToPossibleDestination so occupants walk out (not Idle at center).
+        let (burst_start, burst_end) = if is_garrison && evac != 1 && evac != 2 {
+            let mut start = garrison_evac_cliff_start(
+                building_pos,
+                yaw,
+                major,
+                &self.pathfinding_system.grid,
+            );
+            if enclosing {
+                if let Some(gh) = self.terrain_height_at(start) {
+                    start.y = gh;
+                }
+            }
+            let end = garrison_evac_burst_end(start, major, &self.pathfinding_system.grid);
+            (Some(start), Some(end))
+        } else {
+            (None, None)
+        };
+
 
         let mut any = false;
         let mut packing_hackers: Vec<ObjectId> = Vec::new();
@@ -597,13 +709,19 @@ impl GameLogic {
                     p.set_ai_state(AIState::Moving);
                     p.status.moving = true;
                 } else if is_garrison {
-                    // C++ EVAC_BURST_FROM_CENTER: enclosing occupants snap to origin.
+                    // C++ EVAC_BURST_FROM_CENTER: enclosing occupants snap to
+                    // start (Y to ground), then aiFollowPath to adjusted dest.
                     if enclosing {
-                        p.set_position(building_pos);
+                        if let Some(start) = burst_start {
+                            p.set_position(start);
+                        }
                     }
-                    p.stop_moving();
-                    p.set_ai_state(AIState::Idle);
-                    p.status.moving = false;
+                    p.set_orientation(yaw);
+                    if let Some(end) = burst_end {
+                        p.set_destination(end);
+                    }
+                    p.set_ai_state(AIState::Moving);
+                    p.status.moving = true;
                 } else {
                     // Spread slightly so units don't stack.
                     let angle = (i as f32) * 0.9;
@@ -612,7 +730,13 @@ impl GameLogic {
                     p.stop_moving();
                     p.set_ai_state(AIState::Idle);
                     p.status.moving = false;
+                    if go_aggressive {
+                        p.set_ai_attitude(
+                            crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
+                        );
+                    }
                 }
+
                 // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
                 // PACKING on evacuate/exit. Riders are dropped Idle, so cash must
                 // stop immediately — idle outside must not keep depositing.
@@ -628,20 +752,29 @@ impl GameLogic {
         }
 
         if let Some(c) = self.objects.get_mut(&container_id) {
-            c.pending_evacuate_on_stop = false;
-            c.pending_exit_after_evacuate = false;
+            if uses_exit_busy {
+                let delay = c.transport_exit_delay_frames();
+                c.frame_exit_not_busy = self.frame.saturating_add(delay);
+            }
+            c.pending_evacuate_on_stop = more_remain;
+            c.pending_exit_after_evacuate = and_exit && !more_remain;
             let p = c.get_position();
+            let contained_count = if more_remain {
+                c.contained_units().len() as u32
+            } else {
+                0
+            };
             if let Some(ai) = c.chinook_ai.as_mut() {
-                ai.contained_count = 0;
-                ai.wanting_enter_or_exit = false;
-                if and_exit {
+                ai.contained_count = contained_count;
+                ai.wanting_enter_or_exit = more_remain;
+                if and_exit && !more_remain {
                     ai.command_evac([p.x, p.z, 0.0], true);
                     return any;
                 }
             }
         }
 
-        if and_exit {
+        if and_exit && !more_remain {
             // C++ evacuate-and-exit: transport returns/deletes itself.
             // Wave 747: under damage authority, do not zero host HP mid-frame
             // (dual with GW HP writeback). Project lethal via damage log + flags;
@@ -658,6 +791,7 @@ impl GameLogic {
             }
             any = true;
         }
+
         any
     }
 
@@ -1145,9 +1279,9 @@ impl GameLogic {
                     let mut names: Vec<String> = Vec::new();
                     if let Some(pid) = producer {
                         if let Some(o) = self.objects.get(&pid) {
-                            // Collect unlocked sciences for owner team players.
-                            for p in self.players.values() {
-                                if p.team == o.team {
+                            // C++ getControllingPlayer()->hasScience, not faction union.
+                            if let Some(owner) = self.player_owner_for_host_object(o) {
+                                if let Some(p) = self.get_player(owner) {
                                     names.extend(p.unlocked_sciences.iter().cloned());
                                 }
                             }

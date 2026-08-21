@@ -1827,7 +1827,7 @@ pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static s
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_PRIMARY_WEAPON)
     } else if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
-        Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN)
+        Some(crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon_name(template_name))
     } else {
         None
     }
@@ -2442,6 +2442,11 @@ mod tests {
             primary_weapon_name_for_defense("GLATunnelNetwork"),
             Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN)
         );
+        assert_eq!(
+            primary_weapon_name_for_defense("GLASneakAttackTunnelNetwork"),
+            Some(crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_DUMMY)
+        );
+
         assert_eq!(primary_weapon_name_for_defense("USA_Ranger"), None);
         assert!(is_dual_slot_base_defense("USA_Patriot"));
         assert!(is_dual_slot_base_defense("Lazr_AmericaPatriotBattery"));

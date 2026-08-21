@@ -7,6 +7,16 @@ pub struct HostJetAi {
     pub return_to_base_frame: u32,
     /// C++ `m_attackersMissExpireFrame`.
     pub attackers_miss_expire_frame: u32,
+    /// C++ `m_attackLocoExpireFrame`.
+    #[serde(default)]
+    pub attack_loco_expire_frame: u32,
+    /// C++ `AIUpdateInterface::getCurLocomotorSetType` residual for jets.
+    #[serde(default)]
+    pub cur_locomotor_set: Option<String>,
+    /// C++ `ALLOW_AIR_LOCO`. Ground taxi / hangar creation keeps this false.
+    #[serde(default)]
+    pub allow_air_loco: bool,
+
     /// C++ `m_untargetableExpireFrame`.
     pub untargetable_expire_frame: u32,
     /// C++ `m_targetedBy`.
@@ -305,6 +315,113 @@ impl Object {
         }
     }
 
+    /// Retail `AttackLocomotorType = SET_SUPERSONIC` jets (runway attack craft).
+    pub fn jet_uses_attack_locomotor(&self) -> bool {
+        self.is_runway_jet()
+    }
+
+    /// C++ `m_attackLocoPersistTime` in logic frames. Retail 100ms on Aurora /
+    /// Raptor / MIG / Stealth (`AttackLocomotorPersistTime`).
+    pub fn jet_attack_loco_persist_frames(&self) -> u32 {
+        if !self.jet_uses_attack_locomotor() {
+            return 0;
+        }
+        crate::game_logic::host_aurora_bomb::aurora_ms_to_frames(
+            crate::game_logic::host_aurora_bomb::AURORA_JET_ATTACK_LOCO_PERSIST_MS,
+        )
+    }
+
+    /// C++ `JetAIUpdate` `ALLOW_AIR_LOCO` residual.
+    pub(crate) fn jet_allows_air_loco(&self) -> bool {
+        if self.contained_by.is_some()
+            || matches!(self.ai_state, AIState::Docked | AIState::Docking)
+        {
+            return false;
+        }
+        if self.jet_ai.allow_air_loco {
+            return true;
+        }
+        // Map-placed airborne jets never taxied; they still use air loco.
+        self.status.airborne_target && !self.jet_ai.landing_in_progress
+    }
+
+    /// C++ `getCurLocomotorSetType` token (jets + RiderChange).
+    pub fn get_cur_locomotor_set_token(&self) -> Option<&str> {
+        if let Some(set) = self.jet_ai.cur_locomotor_set.as_deref() {
+            if !set.is_empty() {
+                return Some(set);
+            }
+        }
+        self.rider_change_locomotor_set.as_deref()
+    }
+
+    /// C++ `friend_setAllowAirLoco(false)` + `chooseLocomotorSet(TAXIING)`.
+    pub fn apply_taxiing_locomotor_set(&mut self) {
+        self.jet_ai.allow_air_loco = false;
+        self.choose_jet_locomotor_set("SET_TAXIING");
+    }
+
+    /// C++ takeoff/airborne `friend_setAllowAirLoco(true)` + NORMAL/SUPERSONIC.
+    pub fn apply_airborne_locomotor_set(&mut self) {
+        self.jet_ai.allow_air_loco = true;
+        if self.jet_ai.attack_loco_expire_frame != 0 {
+            self.choose_jet_locomotor_set("SET_SUPERSONIC");
+        } else {
+            self.choose_jet_locomotor_set("SET_NORMAL");
+        }
+    }
+
+    /// C++ `JetAIUpdate::chooseLocomotorSet`.
+    fn choose_jet_locomotor_set(&mut self, set: &str) {
+        use crate::game_logic::host_upgrade_module_residuals::{
+            apply_locomotor_set_kind, HostLocomotorSetKind,
+        };
+        let kind = if set.eq_ignore_ascii_case("SET_TAXIING") {
+            HostLocomotorSetKind::Taxiing
+        } else if set.eq_ignore_ascii_case("SET_SUPERSONIC") {
+            HostLocomotorSetKind::Supersonic
+        } else {
+            HostLocomotorSetKind::Normal
+        };
+        let already = self
+            .jet_ai
+            .cur_locomotor_set
+            .as_deref()
+            .is_some_and(|cur| cur.eq_ignore_ascii_case(set));
+        if already {
+            return;
+        }
+        let _ = apply_locomotor_set_kind(self, kind);
+    }
+
+    /// C++ `JetAIUpdate.cpp:1950-1981` persist + `chooseLocomotorSet(attackingLoco)`.
+    fn tick_jet_attack_locomotor(&mut self, now: u32) {
+        if !self.jet_uses_attack_locomotor() {
+            return;
+        }
+        if self.status.attacking {
+            self.jet_ai.attack_loco_expire_frame =
+                now.saturating_add(self.jet_attack_loco_persist_frames());
+        } else if self.jet_ai.attack_loco_expire_frame != 0
+            && now >= self.jet_ai.attack_loco_expire_frame
+        {
+            self.jet_ai.attack_loco_expire_frame = 0;
+        }
+        // `chooseLocomotorSet` remaps to TAXIING when `!ALLOW_AIR_LOCO`.
+        if !self.jet_allows_air_loco() {
+            self.choose_jet_locomotor_set("SET_TAXIING");
+            return;
+        }
+        if self.jet_ai.attack_loco_expire_frame != 0 {
+            self.choose_jet_locomotor_set("SET_SUPERSONIC");
+        } else if self.jet_ai.cur_locomotor_set.as_deref().is_some_and(|s| {
+            s.to_ascii_uppercase().contains("SUPERSONIC") || s.eq_ignore_ascii_case("SET_TAXIING")
+        }) {
+            self.choose_jet_locomotor_set("SET_NORMAL");
+        }
+    }
+
+
     pub fn jet_lockon_time_frames(&self) -> u32 {
         if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
         {
@@ -442,6 +559,7 @@ impl Object {
         self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.max_lift = 0.0;
+        self.apply_taxiing_locomotor_set();
         let _ = self.enable_jet_afterburners(true);
     }
 
@@ -454,11 +572,16 @@ impl Object {
             self.max_lift = 0.0;
             return false;
         }
+        if !self.jet_ai.allow_air_loco {
+            self.apply_airborne_locomotor_set();
+        }
         let Some(end) = self.jet_ai.takeoff_runway_end else {
             return true;
         };
         let end = Vec3::new(end[0], end[1], end[2]);
         let pos = self.get_position();
+
+
         let dist = (end - pos).length();
         let mut ratio = 1.0 - (dist / self.jet_ai.takeoff_runway_dist.max(1.0));
         ratio *= ratio;
@@ -481,6 +604,7 @@ impl Object {
         if self.jet_ai.takeoff_max_lift > 0.0 {
             self.max_lift = self.jet_ai.takeoff_max_lift;
         }
+        self.apply_airborne_locomotor_set();
         let _ = self.enable_jet_afterburners(false);
     }
 
@@ -499,6 +623,9 @@ impl Object {
         if !(self.is_kind_of(KindOf::Aircraft) || self.object_type == ObjectType::Aircraft) {
             return JetAiTickAction::None;
         }
+        if !self.jet_allows_air_loco() {
+            self.apply_taxiing_locomotor_set();
+        }
         if self.jet_ai.afterburners_on {
             let _ = self.enable_jet_afterburners(true);
         }
@@ -515,6 +642,7 @@ impl Object {
         {
             self.jet_ai.attackers_miss_expire_frame = 0;
         }
+        self.tick_jet_attack_locomotor(now);
 
         let airborne = self.status.airborne_target
             && self.contained_by.is_none()

@@ -227,6 +227,18 @@ pub const AC_ALL: u32 = 0x00000004;
 pub const AC_INTERRUPT: u32 = 0x00000010;
 /// C++ `ST_WORLD` — positional/world audio bit.
 pub const ST_WORLD: u32 = 0x00000002;
+/// C++ `ST_UI`.
+pub const ST_UI: u32 = 0x00000001;
+/// C++ `ST_SHROUDED` — positional events cull when the cell is not CLEAR.
+pub const ST_SHROUDED: u32 = 0x00000004;
+/// C++ `ST_PLAYER`.
+pub const ST_PLAYER: u32 = 0x00000020;
+/// C++ `ST_ALLIES`.
+pub const ST_ALLIES: u32 = 0x00000040;
+/// C++ `ST_ENEMIES`.
+pub const ST_ENEMIES: u32 = 0x00000080;
+/// C++ `ST_EVERYONE`.
+pub const ST_EVERYONE: u32 = 0x00000100;
 /// C++ `ST_GLOBAL` — uses audio-settings global min/max ranges.
 pub const ST_GLOBAL: u32 = 0x00000008;
 const ST_VOICE: u32 = 0x00000010;

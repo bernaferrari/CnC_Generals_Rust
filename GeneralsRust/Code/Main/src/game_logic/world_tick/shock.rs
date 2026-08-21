@@ -73,6 +73,10 @@ impl GameLogic {
             if !o.is_alive() || o.status.destroyed {
                 continue;
             }
+            // C++ unRegisterObject while ride-hidden (hijacker mesh + collide).
+            if o.drawable_hidden || o.hijacker_in_vehicle {
+                continue;
+            }
             let pos = o.get_position();
             let r = o.selection_radius.max(1.0);
             self.partition_manager

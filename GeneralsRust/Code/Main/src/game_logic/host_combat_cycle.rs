@@ -235,6 +235,23 @@ pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
     (delay_frames.max(1) as f32) / 30.0
 }
 
+/// C++ Weapon::transferNextShotStatsFrom residual (last_fire_time).
+pub fn transfer_next_shot_last_fire_time(from: f32, to: &mut Weapon) {
+    to.last_fire_time = from;
+}
+
+/// C++ TransportContain Kell+bike: HERO+SALVAGER on CLIFF_JUMPER hull.
+pub fn is_kell_snipe_transfer_rider(
+    is_hero: bool,
+    is_salvager: bool,
+    template_name: &str,
+) -> bool {
+    let n = template_name.to_ascii_lowercase();
+    (is_hero && is_salvager) || n.contains("jarmen") || n.contains("kell")
+}
+
+
+
 /// Build residual Weapon for a rider class (None when empty / non-combat rider).
 pub fn combat_cycle_weapon_for_rider(rider: CombatCycleRider) -> Option<Weapon> {
     match rider {
@@ -676,6 +693,22 @@ mod tests {
         assert!((suicide_bike_damage_at(30.0) - 100.0).abs() < 0.01);
         assert!((suicide_bike_damage_at(60.0)).abs() < 0.01);
     }
+
+    #[test]
+    fn kell_snipe_shot_stats_transfer() {
+        let mut w = combat_cycle_weapon_for_rider(CombatCycleRider::JarmenKell).expect("kell");
+        assert!((w.last_fire_time - 0.0).abs() < 0.01);
+        transfer_next_shot_last_fire_time(4.5, &mut w);
+        assert!((w.last_fire_time - 4.5).abs() < 0.01);
+        assert!(is_kell_snipe_transfer_rider(
+            true,
+            true,
+            "GLAInfantryJarmenKell"
+        ));
+        assert!(is_kell_snipe_transfer_rider(false, false, "JarmenKell"));
+        assert!(!is_kell_snipe_transfer_rider(false, false, "GLAInfantryRebel"));
+    }
+
 
     #[test]
     fn transport_slots() {

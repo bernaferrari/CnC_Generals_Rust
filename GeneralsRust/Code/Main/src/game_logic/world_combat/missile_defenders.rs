@@ -321,9 +321,33 @@ impl GameLogic {
         rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
     ) -> bool {
         use crate::game_logic::host_combat_cycle::{
-            combat_cycle_weapon_for_rider, is_combat_cycle_template,
+            combat_cycle_weapon_for_rider, is_combat_cycle_template, is_kell_snipe_transfer_rider,
+            transfer_next_shot_last_fire_time, CombatCycleRider,
         };
         use crate::game_logic::thing::ThingTemplate;
+
+        let occupant_fire = {
+            let Some(obj) = self.objects.get(&object_id) else {
+                return false;
+            };
+            obj.contained_units().first().and_then(|oid| {
+                self.objects.get(oid).and_then(|o| {
+                    let kell = matches!(rider, CombatCycleRider::JarmenKell)
+                        || is_kell_snipe_transfer_rider(
+                            o.is_kind_of(KindOf::Hero),
+                            o.is_kind_of(KindOf::Salvager),
+                            &o.template_name,
+                        );
+                    if !kell {
+                        return None;
+                    }
+                    o.secondary_weapon
+                        .as_ref()
+                        .or(o.weapon.as_ref())
+                        .map(|w| w.last_fire_time)
+                })
+            })
+        };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -348,7 +372,7 @@ impl GameLogic {
         {
             let mut weapon = ThingTemplate::weapon_from_store(name)
                 .or_else(|| combat_cycle_weapon_for_rider(rider));
-            if let Some(ref mut w) = weapon {
+            if let Some(w) = &mut weapon {
                 // Force residual stats from host residual table.
                 if let Some(stats) = combat_cycle_weapon_for_rider(rider) {
                     w.damage = stats.damage;
@@ -360,8 +384,17 @@ impl GameLogic {
                     w.projectile_speed = stats.projectile_speed;
                     w.ammo = stats.ammo;
                 }
+                if let Some(fire) = occupant_fire {
+                    transfer_next_shot_last_fire_time(fire, w);
+                }
             }
+
             let _ = obj.replace_weapon_set_slot(0, weapon);
+            if let Some(fire) = occupant_fire {
+                if let Some(sec) = obj.secondary_weapon.as_mut() {
+                    transfer_next_shot_last_fire_time(fire, sec);
+                }
+            }
             obj.record_host_weapon_stats();
         } else {
             let _ = obj.replace_weapon_set_slot(0, None);
@@ -374,6 +407,7 @@ impl GameLogic {
             self.combat_cycle_residual_rider_switches.saturating_add(1);
         true
     }
+
 
     /// Refresh Combat Cycle weapon from current occupant residual.
     ///
@@ -1822,7 +1856,7 @@ impl GameLogic {
             BUNKER_BUSTER_OCCUPANT_DAMAGE,
         };
 
-        let (mut occupants, is_bunker, target_pos, is_tunnel, target_team) = {
+        let (mut occupants, is_bunker, target_pos, is_tunnel, target_player) = {
             let Some(target) = self.objects.get(&target_id) else {
                 return (0, 0.0, false);
             };
@@ -1842,12 +1876,18 @@ impl GameLogic {
                 || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
                     &target.template_name,
                 );
-            (occ, bunker, target.get_position(), tunnel, target.team)
+            (
+                occ,
+                bunker,
+                target.get_position(),
+                tunnel,
+                target.tunnel_system_key(),
+            )
         };
         // C++ TunnelContain::getContainedItemsList / harmAndForceExitAllContained
         // (TunnelContain.cpp:95) iterates the shared TunnelTracker pool.
         if is_tunnel {
-            for uid in self.tunnel_network.contained_for_team(target_team) {
+            for uid in self.tunnel_network.contained_for_player(target_player) {
                 if !occupants.contains(&uid) {
                     occupants.push(uid);
                 }
@@ -1894,8 +1934,8 @@ impl GameLogic {
         for id in destroy_ids {
             // C++ TunnelContain::harmAndForceExitAllContained removeFromContain
             // then attemptDamage — pool must drop the occupant.
-            if let Some(team) = self.tunnel_network.team_holding_unit(id) {
-                if let Some(entry) = self.tunnel_network.record_exit(team, id, target_id) {
+            if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
+                if let Some(entry) = self.tunnel_network.record_exit(player_id, id, target_id) {
                     if entry != target_id {
                         if let Some(c) = self.objects.get_mut(&entry) {
                             c.remove_occupant(id);
@@ -2015,8 +2055,8 @@ impl GameLogic {
             }
         }
         for id in destroy_ids {
-            if let Some(team) = self.tunnel_network.team_holding_unit(id) {
-                let _ = self.tunnel_network.record_exit(team, id, target_id);
+            if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {
+                let _ = self.tunnel_network.record_exit(player_id, id, target_id);
             }
             self.mark_object_for_destruction(id, Some(attacker_team));
         }

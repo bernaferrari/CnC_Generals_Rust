@@ -310,6 +310,11 @@ impl PresentationFrame {
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
         for obj in logic.host_objects().values() {
+            // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
+            if obj.drawable_hidden {
+                continue;
+            }
+
             // Coupled GameWorld is truth for sit-through HP / pose / dest / target /
             // ammo / occupants. HashMap poke without commit must not win.
             let auth_health = logic
@@ -464,13 +469,20 @@ impl PresentationFrame {
                         ) && logic.is_special_power_ready_for(obj.id, power)
                     })
                 });
-            // C++ GarrisonContain::recalcApparentControllingPlayer: stealth
-            // occupants hide GARRISONED + capture color from non-allies.
+            // C++ GarrisonContain.cpp:1231-1236 — MODELCONDITION_GARRISONED if
+            // first occupant is DETECTED or local player is apparent controller.
+            let first_occupant_detected = obj
+                .contained_units()
+                .first()
+                .and_then(|id| logic.host_object(*id))
+                .is_some_and(|o| o.status.detected);
+            let local_is_apparent_controller = obj.team == local_team;
             let garrison_hide_from_local = obj
                 .building_data
                 .as_ref()
                 .is_some_and(|b| b.hide_garrisoned_state)
-                && obj.team != local_team;
+                && !first_occupant_detected
+                && !local_is_apparent_controller;
             let garrison_apparent_team = if garrison_hide_from_local {
                 obj.building_data
                     .as_ref()
@@ -518,6 +530,12 @@ impl PresentationFrame {
                 },
                 orientation: obj.get_orientation(),
                 topple_lean_radians: obj.presentation_topple_lean_radians(),
+                topple_dir_x: obj.presentation_topple_dir().0,
+                topple_dir_y: obj.presentation_topple_dir().1,
+                shadows_enabled: obj.presentation_shadows_enabled(),
+                terrain_decal_type: obj.terrain_decal_type,
+                terrain_decal_size: obj.terrain_decal_size,
+                terrain_decal_opacity: obj.terrain_decal_opacity,
                 move_destination: auth_dest,
                 target_location: obj.target_location,
                 guard_target: obj.guard_target,
@@ -592,8 +610,24 @@ impl PresentationFrame {
                 garrisoned_units: if garrison_hide_from_local {
                     Vec::new()
                 } else {
-                    obj.contained_units().into_iter().take(32).collect()
+                    logic
+                        .host_authoritative_contained_units(obj.id)
+                        .into_iter()
+                        .take(32)
+                        .collect()
                 },
+
+                stealth_garrison_occupant_count: obj
+                    .contained_units()
+                    .iter()
+                    .filter(|id| {
+                        logic
+                            .host_object(**id)
+                            .is_some_and(|occupant| occupant.is_kind_of(KindOf::StealthGarrison))
+                    })
+                    .count()
+                    .min(u16::MAX as usize) as u16,
+
                 max_garrison: obj
                     .building_data
                     .as_ref()
@@ -996,6 +1030,7 @@ impl PresentationFrame {
             });
             objects.push(renderable);
         }
+        sync_live_terrain_decals(&objects, local_team);
         #[cfg(feature = "game_client")]
         {
             let script_frozen = logic.is_script_time_frozen();
@@ -1013,6 +1048,9 @@ impl PresentationFrame {
             );
             let host_objects = logic.host_objects();
             for obj in host_objects.values() {
+                if obj.drawable_hidden {
+                    continue;
+                }
                 super::unit_render::physics_visual_host::freeze_for_object(
                     obj,
                     host_objects,
@@ -1021,6 +1059,7 @@ impl PresentationFrame {
                     logic,
                 );
             }
+
         }
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
@@ -2063,6 +2102,65 @@ impl PresentationFrame {
         self.dual_tick.builds.hash(&mut h);
         self.dual_tick.object_count.hash(&mut h);
         h.finish()
+    }
+}
+
+fn sync_live_terrain_decals(objects: &[RenderableObject], local_team: crate::game_logic::Team) {
+    #[cfg(feature = "game_client")]
+    {
+        use crate::game_logic::host_battlemaster::{
+            terrain_decal_texture_name, TERRAIN_DECAL_NONE, TERRAIN_DECAL_SHADOW_TEXTURE,
+        };
+        use game_client::radius_decal::{enqueue_delivery_decal, ShadowHandle};
+        use std::sync::Mutex;
+        static HANDLES: Mutex<Vec<ShadowHandle>> = Mutex::new(Vec::new());
+        let Ok(mut handles) = HANDLES.lock() else {
+            return;
+        };
+        for handle in handles.drain(..) {
+            handle.release();
+        }
+        for obj in objects {
+            if obj.terrain_decal_type == TERRAIN_DECAL_NONE || obj.terrain_decal_opacity <= 0.0 {
+                continue;
+            }
+            if obj.terrain_decal_type == TERRAIN_DECAL_SHADOW_TEXTURE
+                && obj.team != local_team
+                && obj.team != crate::game_logic::Team::Neutral
+            {
+                continue;
+            }
+            let texture = terrain_decal_texture_name(obj.terrain_decal_type);
+            if texture.is_empty() {
+                continue;
+            }
+            let size = if obj.terrain_decal_size > 0.0 {
+                obj.terrain_decal_size
+            } else {
+                40.0
+            };
+            let color = match obj.terrain_decal_type {
+                5 => [255, 210, 64],
+                7 => [64, 220, 96],
+                TERRAIN_DECAL_SHADOW_TEXTURE => [16, 16, 16],
+                _ => [255, 255, 255],
+            };
+            if let Some(handle) = enqueue_delivery_decal(
+                texture,
+                size * 0.5,
+                obj.position.x,
+                obj.position.y,
+                obj.position.z,
+                color,
+                obj.terrain_decal_opacity,
+            ) {
+                handles.push(handle);
+            }
+        }
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        let _ = (objects, local_team);
     }
 }
 

@@ -60,6 +60,7 @@ impl Object {
             self.team_color = team.get_color();
         }
         self.record_host_identity();
+        self.apply_fake_building_terrain_decal();
     }
 
     /// Set faction presentation and exact controlling-player identity together.
@@ -73,6 +74,7 @@ impl Object {
             crate::game_logic::host_owner_log::record_with_owner(self.id, team, owner_player_id);
         }
         self.record_host_identity();
+        self.apply_fake_building_terrain_decal();
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

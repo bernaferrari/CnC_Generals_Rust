@@ -192,6 +192,7 @@ pub fn command_type_from_button_name(name: &str) -> Option<CommandType> {
         "attackarea" => Some(CommandType::AttackArea {
             center: glam::Vec3::ZERO,
             radius: 150.0,
+            polygon_name: None,
         }),
         // Generic ControlBar SW button residual — power type resolved at arm time.
         "specialpower" | "dospecialpower" => Some(CommandType::DoSpecialPower {

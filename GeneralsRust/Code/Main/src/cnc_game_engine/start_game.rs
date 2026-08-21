@@ -931,13 +931,45 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn script_pitch_to_radians(pitch: f32) -> f32 {
-        // C++ W3DView.cpp:2520 pitchCamera animates m_FXPitch (look-target
-        // multiplier). Orbit pitch stays the default (~45°). Script 0.0 must
-        // not slam the camera to a 5° ground orbit.
-        let _ = pitch;
-        45.0_f32.to_radians()
+    /// C++ `W3DView::pitchCamera` writes `m_FXPitch`, not orbit pitch radians.
+    pub(super) fn script_pitch_is_fx_pitch(pitch: f32) -> f32 {
+        if pitch.is_finite() {
+            pitch
+        } else {
+            1.0
+        }
     }
+
+    /// C++ `TheTacticalView->getHeight() / TheDisplay->getHeight()`.
+    pub(super) fn tactical_view_height_frac(&self) -> f32 {
+        #[cfg(feature = "game_client")]
+        {
+            game_client::display::view::tactical_view_height_frac()
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            1.0
+        }
+    }
+
+    /// Live 3D tactical viewport in window pixels (top-left origin).
+    pub(super) fn tactical_viewport_size(&self) -> (f32, f32) {
+        let size = self.window.inner_size();
+        let width = size.width.max(1) as f32;
+        let height = size.height.max(1) as f32;
+        (width, (height * self.tactical_view_height_frac()).max(1.0))
+    }
+
+    pub(super) fn rebuild_tactical_projection(&mut self) {
+        let (width, height) = self.tactical_viewport_size();
+        self.projection_matrix = perspective_rh_from_horizontal_fov(
+            DEFAULT_VIEW_FOV_RADIANS,
+            width / height,
+            DEFAULT_VIEW_NEAR_CLIP,
+            DEFAULT_VIEW_FAR_CLIP,
+        );
+    }
+
 
     pub(super) fn parabolic_ease(param: f32, ease_in_time: f32, ease_out_time: f32) -> f32 {
         let param = param.clamp(0.0, 1.0);
@@ -973,20 +1005,24 @@ impl CnCGameEngine {
             .clamp(5.0_f32.to_radians(), 85.0_f32.to_radians());
         self.camera_orbit_distance = self.camera_orbit_distance.max(1.0);
         let offset = self.camera_orbit_offset();
-        self.camera_position = self.camera_target + offset + self.camera_shake_offset;
+        let (source, look) = self.camera_fx_adjusted_eye_and_look(
+            self.camera_target + offset + self.camera_shake_offset,
+            self.camera_target,
+        );
+        self.camera_position = source;
         let shake = self.camera_shake_rotation;
         if shake.length_squared() > 1.0e-8 {
-            let forward = (self.camera_target - self.camera_position)
+            let forward = (look - source)
                 .try_normalize()
                 .unwrap_or(Vec3::NEG_Z);
             let rot = glam::Quat::from_rotation_y(shake.y)
                 * glam::Quat::from_rotation_x(shake.x)
                 * glam::Quat::from_rotation_z(shake.z);
-            let look = self.camera_position + rot * forward;
+            let look = source + rot * forward;
             let up = rot * Vec3::Y;
-            self.view_matrix = Mat4::look_at_rh(self.camera_position, look, up);
+            self.view_matrix = Mat4::look_at_rh(source, look, up);
         } else {
-            self.view_matrix = Mat4::look_at_rh(self.camera_position, self.camera_target, Vec3::Y);
+            self.view_matrix = Mat4::look_at_rh(source, look, Vec3::Y);
         }
     }
 
@@ -1015,15 +1051,52 @@ impl CnCGameEngine {
         )
     }
 
+    /// C++ `W3DView::buildCameraTransform` FXPitch (W3DView.cpp:362-381).
+    /// Host Y-up: C++ height Z → Y, C++ ground XY → XZ.
+    pub(super) fn camera_fx_adjusted_eye_and_look(
+        &self,
+        source: Vec3,
+        look: Vec3,
+    ) -> (Vec3, Vec3) {
+        let fx = if self.camera_fx_pitch.is_finite() {
+            self.camera_fx_pitch
+        } else {
+            1.0
+        };
+        if (fx - 1.0).abs() < 1.0e-6 {
+            return (source, look);
+        }
+        if fx <= 1.0 {
+            let height = (source.y - look.y) * fx;
+            (source, Vec3::new(look.x, source.y - height, look.z))
+        } else {
+            (
+                Vec3::new(
+                    look.x + (source.x - look.x) / fx,
+                    source.y,
+                    look.z + (source.z - look.z) / fx,
+                ),
+                look,
+            )
+        }
+    }
+
+
     /// Catch camera mutations that arrived outside `update_camera` (minimap,
     /// selection hotkeys, script request drain).  They must not wait for an
     /// unrelated pan or screen shake before changing the displayed view.
     pub(super) fn camera_transform_needs_rebuild(&self) -> bool {
-        let expected = self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset;
+        let expected = self
+            .camera_fx_adjusted_eye_and_look(
+                self.camera_target + self.camera_orbit_offset() + self.camera_shake_offset,
+                self.camera_target,
+            )
+            .0;
         !expected.is_finite()
             || !self.camera_position.is_finite()
             || (self.camera_position - expected).length_squared() > 1.0e-6
     }
+
 
     pub(super) fn sync_orbit_from_camera_transform(&mut self) {
         let offset = self.camera_position - self.camera_target;
@@ -1056,11 +1129,12 @@ impl CnCGameEngine {
     }
 
     pub(super) fn apply_script_camera_pitch_request(&mut self, request: CameraPitchRequest) {
-        let target_pitch = Self::script_pitch_to_radians(request.pitch);
+        // C++ pitchCamera lerps m_FXPitch (W3DView.cpp:2520-2531 / 3049-3068).
+        let target = Self::script_pitch_is_fx_pitch(request.pitch);
         if request.duration_seconds <= 0.0 {
-            self.camera_pitch_radians = target_pitch;
+            self.camera_fx_pitch = target;
             self.camera_pitch_target = None;
-            self.camera_pitch_start = self.camera_pitch_radians;
+            self.camera_pitch_start = target;
             self.camera_pitch_duration = 0.0;
             self.camera_pitch_elapsed = 0.0;
             self.camera_pitch_ease_in = 0.0;
@@ -1069,13 +1143,14 @@ impl CnCGameEngine {
             return;
         }
 
-        self.camera_pitch_start = self.camera_pitch_radians;
-        self.camera_pitch_target = Some(target_pitch);
+        self.camera_pitch_start = self.camera_fx_pitch;
+        self.camera_pitch_target = Some(target);
         self.camera_pitch_duration = request.duration_seconds;
         self.camera_pitch_elapsed = 0.0;
         self.camera_pitch_ease_in = request.ease_in_seconds.max(0.0);
         self.camera_pitch_ease_out = request.ease_out_seconds.max(0.0);
     }
+
 
     pub(super) fn apply_script_camera_rotate_request(&mut self, request: CameraRotateRequest) {
         let target_yaw = self.camera_yaw_radians + request.rotations * TAU;
@@ -1311,7 +1386,10 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            game_client::display::view::with_tactical_view_ref(|view| {
+            // C++ W3DView::update: offset = intensity*(cos,sin), intensity *= 0.75,
+            // flip sign. Leftover GameClient::update is not on the live tick.
+            game_client::display::view::with_tactical_view(|view| {
+                view.tick_impulse_shake();
                 let impulse = view.impulse_shake_offset();
                 offset.x += impulse.x;
                 offset.z += impulse.y;
@@ -1886,6 +1964,7 @@ impl CnCGameEngine {
 
         self.camera_position = Vec3::new(0.0, 200.0, 200.0);
         self.camera_target = Vec3::new(0.0, 0.0, 0.0);
+        self.camera_fx_pitch = 1.0;
         self.camera_zoom = 1.0;
         self.camera_zoom_target = None;
         self.camera_zoom_start = self.camera_zoom;
@@ -1903,13 +1982,7 @@ impl CnCGameEngine {
         self.script_fps_limit_last_tick = None;
         self.camera_slave_mode = None;
         self.sync_orbit_from_camera_transform();
-        let aspect = size.width.max(1) as f32 / size.height.max(1) as f32;
-        self.projection_matrix = perspective_rh_from_horizontal_fov(
-            DEFAULT_VIEW_FOV_RADIANS,
-            aspect,
-            DEFAULT_VIEW_NEAR_CLIP,
-            DEFAULT_VIEW_FAR_CLIP,
-        );
+        self.rebuild_tactical_projection();
     }
 
     pub(super) fn return_to_main_menu_after_match(&mut self) {
@@ -2197,6 +2270,30 @@ End
         assert!(
             !body.contains("offset.x += phase_a.sin() * magnitude"),
             "script shakers must not translate the look-at"
+        );
+        assert!(
+            body.contains("tick_impulse_shake"),
+            "live host must damp leftover ViewShake each InGame frame"
+        );
+    }
+
+    #[test]
+    fn script_camera_pitch_writes_fx_pitch_not_orbit() {
+        let src = include_str!("start_game.rs");
+        assert!(
+            src.contains("camera_fx_adjusted_eye_and_look")
+                && src.contains("script_pitch_is_fx_pitch")
+                && src.contains("self.camera_fx_pitch = target"),
+            "CAMERA_PITCH must lerp FXPitch, not orbit radians"
+        );
+        assert!(
+            !src.contains("let _ = pitch;"),
+            "script pitch must not discard the authored FXPitch"
+        );
+        assert!(
+            src.contains("tactical_view_height_frac")
+                && src.contains("rebuild_tactical_projection"),
+            "default control bar must shrink the live 3D frustum"
         );
     }
 

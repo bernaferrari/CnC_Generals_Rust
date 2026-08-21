@@ -195,6 +195,7 @@ impl Object {
     /// Mark this object as detected until `expires_frame` (logic frame exclusive).
     /// C++ StealthUpdate::markAsDetected residual (`StealthUpdate.cpp:846-912`).
     /// Detection permanently starts disguise reveal (`disguiseAsObject(NULL)`).
+    /// Idle-enemy walk (`orderIdlesToAttack`) is `GameLogic::order_idle_enemies_to_attack_on_reveal`.
     pub fn mark_detected(&mut self, expires_frame: u32) {
         if self.status.disguised
             || self.disguise_as_template.is_some()
@@ -514,6 +515,67 @@ impl Object {
 
 }
 
+
+/// C++ `ThingTemplate::getSoundStealthOn` residual default.
+pub const SOUND_STEALTH_ON: &str = "StealthOn";
+/// C++ `ThingTemplate::getSoundStealthOff` residual default.
+pub const SOUND_STEALTH_OFF: &str = "StealthOff";
+
+/// C++ `StealthUpdate` `m_orderIdleEnemiesToAttackMeUponReveal` for retail units.
+pub fn order_idle_enemies_on_reveal(template_name: &str) -> bool {
+    use crate::game_logic::host_colonel_burton::{
+        is_colonel_burton_template, BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL,
+    };
+    use crate::game_logic::host_hero_abilities::{
+        is_black_lotus_template, LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL,
+    };
+    use crate::game_logic::host_jarmen_kell::{
+        is_jarmen_kell_template, JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL,
+    };
+    use crate::game_logic::host_listening_outpost::{
+        is_listening_outpost_template, LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL,
+    };
+    use crate::game_logic::host_pathfinder::{
+        is_pathfinder_template, PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL,
+    };
+    use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
+
+    if is_colonel_burton_template(template_name) {
+        return BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL;
+    }
+    if is_jarmen_kell_template(template_name) {
+        return JARMEN_ORDER_IDLE_ENEMIES_ON_REVEAL;
+    }
+    if is_black_lotus_template(template_name) {
+        return LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
+    }
+    if is_pathfinder_template(template_name) {
+        return PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
+    }
+    if is_listening_outpost_template(template_name) {
+        return LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL;
+    }
+    is_camo_netting_structure_template(template_name)
+}
+
+/// C++ `isBlackMarket` (`StealthUpdate.cpp:157-175`): live `KINDOF_FS_BLACK_MARKET`,
+/// skip dead / under construction / sold (and fake markets).
+pub fn is_live_stealth_black_market(
+    is_fs_black_market: bool,
+    is_fake: bool,
+    is_alive: bool,
+    under_construction: bool,
+    sold: bool,
+    destroyed: bool,
+) -> bool {
+    is_fs_black_market
+        && !is_fake
+        && is_alive
+        && !under_construction
+        && !sold
+        && !destroyed
+}
+
 /// C++ `Drawable` fade mode residual: none.
 pub const DRAWABLE_FADE_NONE: u8 = 0;
 /// C++ `FADING_IN`.
@@ -575,7 +637,10 @@ pub fn drawable_status_tint_rgb(
 
 #[cfg(test)]
 mod stealth_grant_tests {
-    use super::{Object, ObjectId, Team, ThingTemplate};
+    use super::{
+        is_live_stealth_black_market, order_idle_enemies_on_reveal, Object, Team, ThingTemplate,
+    };
+
 
 
     #[test]
@@ -657,4 +722,38 @@ mod stealth_grant_tests {
         assert!(!Object::firing_primary_breaks_stealth(true, 0, 1.0, false));
         assert!(Object::firing_primary_breaks_stealth(false, 1, 1.0, true));
     }
+
+    #[test]
+    fn order_idle_enemies_on_reveal_matches_retail_heroes() {
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryColonelBurton"));
+        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell"));
+        assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus"));
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder"));
+        assert!(order_idle_enemies_on_reveal("AmericaVehicleListeningOutpost"));
+        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork"));
+        assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger"));
+    }
+
+    #[test]
+    fn live_black_market_skips_sold_dead_and_fake() {
+        assert!(is_live_stealth_black_market(
+            true, false, true, false, false, false
+        ));
+        assert!(!is_live_stealth_black_market(
+            true, false, true, false, true, false
+        ));
+        assert!(!is_live_stealth_black_market(
+            true, false, true, true, false, false
+        ));
+        assert!(!is_live_stealth_black_market(
+            true, false, false, false, false, false
+        ));
+        assert!(!is_live_stealth_black_market(
+            true, true, true, false, false, false
+        ));
+        assert!(!is_live_stealth_black_market(
+            false, false, true, false, false, false
+        ));
+    }
+
 }

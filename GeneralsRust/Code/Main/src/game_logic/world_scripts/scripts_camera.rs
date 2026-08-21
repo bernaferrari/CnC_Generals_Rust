@@ -53,6 +53,7 @@ impl GameLogic {
     /// Also invoked after presentation `apply_events_to_audio` so same-frame
     /// presentation residual is not delayed one tick.
     pub(crate) fn process_audio_events(&mut self) {
+        self.refresh_live_audio_locality();
         for ev in crate::game_logic::host_voice_fear_log::drain() {
             self.queued_audio_events.push(
                 AudioEventRequest::new(&ev.event_name)
@@ -66,6 +67,9 @@ impl GameLogic {
             for name in names {
                 let mut event = event.clone();
                 event.event_type = name;
+                if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&event) {
+                    continue;
+                }
                 if let Some(obj_id) = event.object_id {
                     if let Some(pos) = event.position {
                         log::trace!(
@@ -89,6 +93,54 @@ impl GameLogic {
                 >(|audio| audio.queue_event(event.clone()));
             }
         }
+    }
+
+    fn refresh_live_audio_locality(&self) {
+        use crate::game_logic::audio_dispatch_impl::{
+            set_live_audio_locality, LiveAudioLocality, LiveAudioPlayer,
+        };
+        use game_engine::common::audio::AudioLocalityRelationship;
+        let Some(local_id) = self.local_player_id() else {
+            return;
+        };
+        let local_active = self
+            .players
+            .get(&local_id)
+            .map(|p| p.is_alive)
+            .unwrap_or(false);
+        let mut snap = LiveAudioLocality {
+            local_player_index: local_id as i32,
+            local_player_active: local_active,
+            observer_look_at: None,
+            players: std::collections::HashMap::new(),
+            object_owners: std::collections::HashMap::new(),
+        };
+        for p in self.players.values() {
+            let rel = if p.id == local_id {
+                AudioLocalityRelationship::Allies
+            } else {
+                match self.player_relationship(p.id, local_id) {
+                    gamelogic::common::Relationship::Allies => AudioLocalityRelationship::Allies,
+                    gamelogic::common::Relationship::Enemies => AudioLocalityRelationship::Enemies,
+                    _ => AudioLocalityRelationship::Neutral,
+                }
+            };
+            snap.players.insert(
+                p.id as i32,
+                LiveAudioPlayer {
+                    exists: true,
+                    active: p.is_alive,
+                    has_default_team: true,
+                    relationship_to_local: rel,
+                },
+            );
+        }
+        for (id, obj) in &self.objects {
+            if let Some(pid) = obj.owner_player_id {
+                snap.object_owners.insert(id.0, pid as i32);
+            }
+        }
+        set_live_audio_locality(snap);
     }
 
     /// C++ `Eva` is the sole consumer of `setShouldPlay` flags (`Eva.cpp:264-525`).
@@ -496,9 +548,27 @@ impl GameLogic {
             .drain_camera_move_to_selection_requests()
             .is_empty()
         {
-            if let Some(center) = self.selected_objects_center_for_local_player() {
-                self.camera_follow_target = None;
-                self.request_camera_focus(center);
+            // C++ doModCameraMoveToSelection → cameraModFinalMoveTo: path modifier,
+            // not a new lookAt. No-op during rotate; no-op if no path/move.
+            if self.pending_camera_rotate.is_none() {
+                if let Some(center) = self.selected_objects_center_for_local_player() {
+                    if let Some(path) = self.script_camera_path.as_mut() {
+                        path.camera_mod_final_move_to(center);
+                    }
+                    if let Some(move_to) = self.script_camera_move_to.as_mut() {
+                        move_to.camera_mod_final_move_to(center);
+                    }
+                    #[cfg(feature = "game_client")]
+                    {
+                        game_client::display::view::with_tactical_view(|view| {
+                            view.camera_mod_final_move_to(
+                                &game_client::display::view::Point3::new(
+                                    center.x, center.z, center.y,
+                                ),
+                            );
+                        });
+                    }
+                }
             }
         }
 
@@ -1250,6 +1320,11 @@ impl GameLogic {
             move_state.set_final_speed_multiplier(multiplier);
         }
         self.script_camera_move_to = Some(move_state);
+    }
+
+    #[cfg(test)]
+    pub fn script_camera_move_to_target(&self) -> Option<Vec3> {
+        self.script_camera_move_to.as_ref().map(|m| m.final_focus())
     }
 
     pub(in super::super) fn script_camera_remaining_seconds(&self) -> f32 {

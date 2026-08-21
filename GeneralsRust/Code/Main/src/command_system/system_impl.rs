@@ -1370,11 +1370,10 @@ impl CommandSystem {
             }
         }
         // C++ `CommandXlat::translateMouseButton`: normal Enter is evaluated
-        // before attack.  A non-owner *empty*, non-faction garrison remains a
-        // valid C++ `canEnterObject(..., CHECK_CAPACITY)` target, so this must
-        // not be gated by the presentation's enemy tint.  The frozen
-        // capability already rejects occupied non-owner targets; executor
-        // authority repeats the same condition when it consumes the order.
+        // before attack.  A non-owner empty *or stealth-garrison-only*
+        // non-faction garrison remains a valid C++ `canEnterObject` target.
+        // Arrival `onCollide` then ejects those STEALTH_GARRISON occupants.
+
         // Wave 1099: sold residual fail-closed on enter target.
         if hint.can_be_entered
             && !hint.sold

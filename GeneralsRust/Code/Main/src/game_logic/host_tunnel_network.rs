@@ -1,9 +1,9 @@
 //! Host GLA Tunnel Network residual.
 //!
 //! Residual slice (playability):
-//! - `TunnelContain` shared passenger pool per team (`GameData.ini MaxTunnelCapacity = 10`)
-//! - Enter any allied tunnel network structure
-//! - Exit / Evacuate at **any** allied tunnel (cross-tunnel residual path)
+//! - `TunnelContain` shared passenger pool per **Player** (`Player::m_tunnelSystem`,
+//!   `GameData.ini MaxTunnelCapacity = 10`). Faction `Team` is not a player.
+//! - Enter any of **this player's** tunnel network structures
 //! - C++ valid container: all units except aircraft (Kris 2002 / srj aircraft skip)
 //! - Structure PRIMARY `TunnelNetworkGun` residual auto-fire (dmg **15** /
 //!   range **175** / Delay **250**ms → 8 frames) via base-defense residual path
@@ -23,7 +23,7 @@
 //! Fail-closed honesty:
 //! - Not CaveSystem multi-index (player TunnelTracker last-tunnel cave-in IS live)
 //! - Not full ExitStart bone / multi-door exit interface
-//! - Not full SneakAttack TunnelNetworkGunDUMMY zero-damage matrix (real gun residual)
+//! - Sneak-attack PRIMARY is `TunnelNetworkGunDUMMY` (0.01 / 175 / 1000ms)
 //! - Not network tunnel-network replication (network deferred)
 
 use super::{ObjectId, Team, Weapon};
@@ -58,6 +58,17 @@ pub const TUNNEL_NETWORK_GUN_WEAPON_SPEED: f32 = 600.0;
 pub const TUNNEL_NETWORK_GUN_AUDIO: &str = "HumveeWeapon";
 /// Retail FireFX residual.
 pub const TUNNEL_NETWORK_GUN_FIRE_FX: &str = "WeaponFX_TechnicalGunFire";
+/// Retail sneak-attack PRIMARY `TunnelNetworkGunDUMMY`.
+pub const TUNNEL_NETWORK_GUN_DUMMY: &str = "TunnelNetworkGunDUMMY";
+/// Retail TunnelNetworkGunDUMMY PrimaryDamage (AI Guard acquire only).
+pub const TUNNEL_NETWORK_GUN_DUMMY_DAMAGE: f32 = 0.01;
+/// Retail TunnelNetworkGunDUMMY AttackRange.
+pub const TUNNEL_NETWORK_GUN_DUMMY_RANGE: f32 = 175.0;
+/// Retail TunnelNetworkGunDUMMY DelayBetweenShots residual (msec).
+pub const TUNNEL_NETWORK_GUN_DUMMY_DELAY_MS: u32 = 1000;
+/// Retail DelayBetweenShots 1000ms → 30 frames @ 30 FPS.
+pub const TUNNEL_NETWORK_GUN_DUMMY_DELAY_FRAMES: u32 = 30;
+
 
 /// Retail StructureBody MaxHealth residual.
 pub const TUNNEL_NETWORK_MAX_HEALTH: f32 = 1000.0;
@@ -112,10 +123,10 @@ pub fn tunnel_network_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) / (1000.0 / TUNNEL_NETWORK_LOGIC_FPS)).round() as u32
 }
 
-/// Host residual honesty counters + per-team shared contain state.
+/// Host residual honesty counters + per-player shared contain state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostTunnelNetworkRegistry {
-    /// Successful residual enters into any team tunnel.
+    /// Successful residual enters into any player tunnel.
     pub enters: u32,
     /// Successful residual exits (same or cross tunnel).
     pub exits: u32,
@@ -137,22 +148,24 @@ pub struct HostTunnelNetworkRegistry {
     pub cave_in_kills: u32,
     /// C++ `Object::m_containedByFrame` residual for HealContain + TunnelTracker.
     contained_by_frame: HashMap<u32, u32>,
-    /// Per-team shared passenger lists (C++ Player::TunnelTracker contain list).
-    networks: HashMap<Team, TeamTunnelNetwork>,
+    /// Per-player shared passenger lists (C++ `Player::m_tunnelSystem`).
+    networks: HashMap<u32, PlayerTunnelNetwork>,
     /// C++ SpawnBehavior OneShot latch (`m_oneShotCountdown` exhausted / stopSpawning).
     /// Keyed by tunnel ObjectId bits so dying children cannot re-arm OneShot.
     #[serde(default)]
     oneshot_spawn_fired: HashSet<u32>,
 }
 
-/// Shared contain state for one team's tunnel network.
+/// Shared contain state for one player's tunnel network.
+///
+/// C++ `Player::m_tunnelSystem` (`Player.cpp` init + `getTunnelSystem`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TeamTunnelNetwork {
+pub struct PlayerTunnelNetwork {
     /// Units currently inside the communal tunnel pool.
     pub contained: Vec<ObjectId>,
     /// Unit → tunnel they entered (scripts / cross-exit honesty).
     pub entry_tunnel: HashMap<u32, ObjectId>,
-    /// C++ `TunnelTracker::m_tunnelIDs` residual for this team.
+    /// C++ `TunnelTracker::m_tunnelIDs` residual for this player.
     pub tunnel_ids: Vec<ObjectId>,
     /// C++ `TunnelTracker::m_curNemesisID`.
     #[serde(default)]
@@ -160,6 +173,21 @@ pub struct TeamTunnelNetwork {
     /// C++ `TunnelTracker::m_nemesisTimestamp`.
     #[serde(default)]
     pub nemesis_timestamp: u32,
+}
+
+/// High bit so ownerless test objects never collide with live player ids.
+pub const TUNNEL_UNOWNED_TEAM_BASE: u32 = 0x8000_0000;
+
+/// C++ `Player::m_tunnelSystem` key: controlling player id.
+///
+/// Ownerless residuals (legacy tests / Neutral) fall back to a faction
+/// sentinel so they stay isolated from real player slots.
+#[inline]
+pub fn tunnel_system_key(owner_player_id: Option<u32>, team: Team) -> u32 {
+    match owner_player_id {
+        Some(id) => id,
+        None => TUNNEL_UNOWNED_TEAM_BASE | (team as u32),
+    }
 }
 
 /// C++ `TunnelTracker::onTunnelDestroyed` result.
@@ -193,40 +221,62 @@ impl HostTunnelNetworkRegistry {
         self.oneshot_spawn_fired.insert(tunnel_id.0);
     }
 
-    pub fn network(&self, team: Team) -> Option<&TeamTunnelNetwork> {
-        self.networks.get(&team)
+    pub fn network(&self, player_id: u32) -> Option<&PlayerTunnelNetwork> {
+        self.networks.get(&player_id)
     }
 
-    pub fn network_mut(&mut self, team: Team) -> &mut TeamTunnelNetwork {
-        self.networks.entry(team).or_default()
+    pub fn network_mut(&mut self, player_id: u32) -> &mut PlayerTunnelNetwork {
+        self.networks.entry(player_id).or_default()
     }
 
-    pub fn contain_count(&self, team: Team) -> usize {
+    pub fn contain_count(&self, player_id: u32) -> usize {
         self.networks
-            .get(&team)
+            .get(&player_id)
             .map(|n| n.contained.len())
             .unwrap_or(0)
     }
 
-    pub fn has_capacity(&self, team: Team) -> bool {
-        self.contain_count(team) < MAX_TUNNEL_CAPACITY
+    pub fn has_capacity(&self, player_id: u32) -> bool {
+        self.contain_count(player_id) < MAX_TUNNEL_CAPACITY
     }
 
-    pub fn is_in_network(&self, team: Team, unit_id: ObjectId) -> bool {
+    pub fn is_in_network(&self, player_id: u32, unit_id: ObjectId) -> bool {
         self.networks
-            .get(&team)
+            .get(&player_id)
             .map(|n| n.contained.contains(&unit_id))
             .unwrap_or(false)
     }
 
-    /// Find which team (if any) currently holds this unit in a tunnel pool.
-    pub fn team_holding_unit(&self, unit_id: ObjectId) -> Option<Team> {
-        for (team, net) in &self.networks {
+    /// Find which player's tracker currently holds this unit.
+    pub fn player_holding_unit(&self, unit_id: ObjectId) -> Option<u32> {
+        for (player_id, net) in &self.networks {
             if net.contained.contains(&unit_id) {
-                return Some(*team);
+                return Some(*player_id);
             }
         }
         None
+    }
+
+    /// Find which player's tracker currently lists this entrance.
+    pub fn player_holding_tunnel(&self, tunnel_id: ObjectId) -> Option<u32> {
+        for (player_id, net) in &self.networks {
+            if net.tunnel_ids.contains(&tunnel_id) {
+                return Some(*player_id);
+            }
+        }
+        None
+    }
+
+    /// Player ids whose communal pool is non-empty.
+    pub fn occupant_player_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .networks
+            .iter()
+            .filter(|(_, net)| !net.contained.is_empty())
+            .map(|(id, _)| *id)
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     pub fn entry_tunnel_of(&self, unit_id: ObjectId) -> Option<ObjectId> {
@@ -238,10 +288,10 @@ impl HostTunnelNetworkRegistry {
         None
     }
 
-    /// List all unit IDs currently in the team's shared tunnel pool.
-    pub fn contained_for_team(&self, team: Team) -> Vec<ObjectId> {
+    /// List all unit IDs currently in the player's shared tunnel pool.
+    pub fn contained_for_player(&self, player_id: u32) -> Vec<ObjectId> {
         self.networks
-            .get(&team)
+            .get(&player_id)
             .map(|n| n.contained.clone())
             .unwrap_or_default()
     }
@@ -249,17 +299,22 @@ impl HostTunnelNetworkRegistry {
     /// Record enter into shared pool at `entry_tunnel`.
     /// Returns false if capacity full. If already contained, keeps original
     /// entry tunnel (cross-exit honesty: enter A then leave via B).
-    pub fn record_enter(&mut self, team: Team, unit_id: ObjectId, entry_tunnel: ObjectId) -> bool {
-        if self.is_in_network(team, unit_id) {
+    pub fn record_enter(
+        &mut self,
+        player_id: u32,
+        unit_id: ObjectId,
+        entry_tunnel: ObjectId,
+    ) -> bool {
+        if self.is_in_network(player_id, unit_id) {
             // Already in shared pool (transfer residual between entrances).
             // Preserve original entry tunnel for cross-exit honesty.
             let _ = entry_tunnel;
             return true;
         }
-        if !self.has_capacity(team) {
+        if !self.has_capacity(player_id) {
             return false;
         }
-        let net = self.network_mut(team);
+        let net = self.network_mut(player_id);
         net.contained.push(unit_id);
         net.entry_tunnel.insert(unit_id.0, entry_tunnel);
         self.enters = self.enters.saturating_add(1);
@@ -269,11 +324,11 @@ impl HostTunnelNetworkRegistry {
     /// Remove unit from shared pool. Returns entry tunnel if it was contained.
     pub fn record_exit(
         &mut self,
-        team: Team,
+        player_id: u32,
         unit_id: ObjectId,
         exit_tunnel: ObjectId,
     ) -> Option<ObjectId> {
-        let net = self.networks.get_mut(&team)?;
+        let net = self.networks.get_mut(&player_id)?;
         let pos = net.contained.iter().position(|&id| id == unit_id)?;
         net.contained.remove(pos);
         let entry = net.entry_tunnel.remove(&unit_id.0);
@@ -288,41 +343,41 @@ impl HostTunnelNetworkRegistry {
     }
 
     /// C++ `TunnelTracker::onTunnelCreated`.
-    pub fn on_tunnel_created(&mut self, team: Team, tunnel: ObjectId) {
-        let net = self.network_mut(team);
+    pub fn on_tunnel_created(&mut self, player_id: u32, tunnel: ObjectId) {
+        let net = self.network_mut(player_id);
         if !net.tunnel_ids.contains(&tunnel) {
             net.tunnel_ids.push(tunnel);
         }
     }
 
     /// Live tunnel count residual (`TunnelTracker::m_tunnelCount` / `friend_getTunnelCount`).
-    pub fn tunnel_count(&self, team: Team) -> usize {
+    pub fn tunnel_count(&self, player_id: u32) -> usize {
         self.networks
-            .get(&team)
+            .get(&player_id)
             .map(|n| n.tunnel_ids.len())
             .unwrap_or(0)
     }
 
     /// C++ `TunnelTracker::onTunnelDestroyed`.
     ///
-    /// `remaining_other_tunnels` is the live team tunnel list after `dead_tunnel`
+    /// `remaining_other_tunnels` is the live player tunnel list after `dead_tunnel`
     /// is already gone (host scans objects). Last tunnel cave-in kills the
     /// shared pool via `record_exit` + returned IDs; otherwise occupants stay
     /// and entry tunnels that pointed at the dead entrance remap to `front()`.
     pub fn on_tunnel_destroyed(
         &mut self,
-        team: Team,
+        player_id: u32,
         dead_tunnel: ObjectId,
         remaining_other_tunnels: &[ObjectId],
     ) -> TunnelDestroyedOutcome {
         self.tunnels_destroyed = self.tunnels_destroyed.saturating_add(1);
-        if let Some(net) = self.networks.get_mut(&team) {
+        if let Some(net) = self.networks.get_mut(&player_id) {
             net.tunnel_ids.retain(|id| *id != dead_tunnel);
         }
         if remaining_other_tunnels.is_empty() {
-            let units = self.contained_for_team(team);
+            let units = self.contained_for_player(player_id);
             for &uid in &units {
-                let _ = self.record_exit(team, uid, dead_tunnel);
+                let _ = self.record_exit(player_id, uid, dead_tunnel);
             }
             self.cave_ins = self.cave_ins.saturating_add(1);
             self.cave_in_kills = self.cave_in_kills.saturating_add(units.len() as u32);
@@ -333,7 +388,7 @@ impl HostTunnelNetworkRegistry {
             }
         } else {
             let remapped_to = remaining_other_tunnels[0];
-            if let Some(net) = self.networks.get_mut(&team) {
+            if let Some(net) = self.networks.get_mut(&player_id) {
                 for entry in net.entry_tunnel.values_mut() {
                     if *entry == dead_tunnel {
                         *entry = remapped_to;
@@ -392,7 +447,7 @@ impl HostTunnelNetworkRegistry {
     /// Sets only when empty; refreshes timestamp when the same target is seen.
     pub fn update_nemesis(
         &mut self,
-        team: Team,
+        player_id: u32,
         target: ObjectId,
         is_vehicle: bool,
         is_structure: bool,
@@ -403,7 +458,7 @@ impl HostTunnelNetworkRegistry {
         if !(is_vehicle || is_structure || is_infantry || is_aircraft) {
             return;
         }
-        let net = self.network_mut(team);
+        let net = self.network_mut(player_id);
         match net.cur_nemesis {
             None => {
                 net.cur_nemesis = Some(target);
@@ -418,9 +473,9 @@ impl HostTunnelNetworkRegistry {
 
     /// C++ `TunnelTracker::getCurNemesis` timeout half (TunnelTracker.cpp:103-108).
     /// Caller must still reject stealthed-undetected / effectively-dead targets.
-    pub fn get_cur_nemesis_id(&mut self, team: Team, frame: u32) -> Option<ObjectId> {
+    pub fn get_cur_nemesis_id(&mut self, player_id: u32, frame: u32) -> Option<ObjectId> {
         const NEMESIS_TIMEOUT_FRAMES: u32 = 4 * 30;
-        let net = self.networks.get_mut(&team)?;
+        let net = self.networks.get_mut(&player_id)?;
         let id = net.cur_nemesis?;
         if net.nemesis_timestamp.saturating_add(NEMESIS_TIMEOUT_FRAMES) < frame {
             net.cur_nemesis = None;
@@ -430,8 +485,8 @@ impl HostTunnelNetworkRegistry {
     }
 
     /// Clear an expired / invalid nemesis (stealthed, dead, missing).
-    pub fn clear_nemesis(&mut self, team: Team) {
-        if let Some(net) = self.networks.get_mut(&team) {
+    pub fn clear_nemesis(&mut self, player_id: u32) {
+        if let Some(net) = self.networks.get_mut(&player_id) {
             net.cur_nemesis = None;
         }
     }
@@ -487,6 +542,50 @@ pub fn tunnel_network_gun_weapon() -> Weapon {
         pre_attack_delay: 0.0,
         splash_radius: 0.0,
         suspend_fx_frame: 0,
+    }
+}
+
+/// Build residual TunnelNetworkGunDUMMY (sneak-attack PRIMARY).
+pub fn tunnel_network_gun_dummy_weapon() -> Weapon {
+    Weapon {
+        damage: TUNNEL_NETWORK_GUN_DUMMY_DAMAGE,
+        range: TUNNEL_NETWORK_GUN_DUMMY_RANGE,
+        min_range: 0.0,
+        reload_time: TUNNEL_NETWORK_GUN_DUMMY_DELAY_FRAMES as f32 / TUNNEL_NETWORK_LOGIC_FPS,
+        last_fire_time: 0.0,
+        ammo: None,
+        clip_size: 0,
+        clip_reload_time: 0.0,
+        can_target_air: false,
+        can_target_ground: true,
+        projectile_speed: TUNNEL_NETWORK_GUN_WEAPON_SPEED,
+        pre_attack_delay: 0.0,
+        splash_radius: 0.0,
+        suspend_fx_frame: 0,
+    }
+}
+
+/// True when template is a sneak-attack Tunnel Network (not Start/Hole).
+pub fn is_sneak_attack_tunnel_template(template_name: &str) -> bool {
+    is_tunnel_network_template(template_name)
+        && template_name.to_ascii_lowercase().contains("sneak")
+}
+
+/// Retail PRIMARY weapon for this tunnel template.
+pub fn tunnel_network_primary_weapon(template_name: &str) -> Weapon {
+    if is_sneak_attack_tunnel_template(template_name) {
+        tunnel_network_gun_dummy_weapon()
+    } else {
+        tunnel_network_gun_weapon()
+    }
+}
+
+/// Retail PRIMARY weapon template name for this tunnel.
+pub fn tunnel_network_primary_weapon_name(template_name: &str) -> &'static str {
+    if is_sneak_attack_tunnel_template(template_name) {
+        TUNNEL_NETWORK_GUN_DUMMY
+    } else {
+        TUNNEL_NETWORK_GUN
     }
 }
 
@@ -631,6 +730,10 @@ pub fn heal_contain_done(contained_frames: u32, frames_for_full_heal: u32) -> bo
 
 #[cfg(test)]
 mod tests {
+    fn gla_key() -> u32 {
+        tunnel_system_key(None, Team::GLA)
+    }
+
     use super::*;
 
     #[test]
@@ -691,24 +794,24 @@ mod tests {
         let u1 = ObjectId(1);
         let u2 = ObjectId(2);
 
-        assert!(reg.has_capacity(Team::GLA));
-        assert!(reg.record_enter(Team::GLA, u1, t1));
-        assert_eq!(reg.contain_count(Team::GLA), 1);
+        assert!(reg.has_capacity(gla_key()));
+        assert!(reg.record_enter(gla_key(), u1, t1));
+        assert_eq!(reg.contain_count(gla_key()), 1);
         assert_eq!(reg.entry_tunnel_of(u1), Some(t1));
         assert!(reg.honesty_enter_exit_ok() == false); // no exit yet
 
         // Cross exit at t2.
-        assert_eq!(reg.record_exit(Team::GLA, u1, t2), Some(t1));
+        assert_eq!(reg.record_exit(gla_key(), u1, t2), Some(t1));
         assert!(reg.honesty_enter_exit_ok());
         assert!(reg.honesty_cross_exit_ok());
-        assert_eq!(reg.contain_count(Team::GLA), 0);
+        assert_eq!(reg.contain_count(gla_key()), 0);
 
         // Capacity fills to MAX.
         for i in 0..MAX_TUNNEL_CAPACITY {
-            assert!(reg.record_enter(Team::GLA, ObjectId(100 + i as u32), t1));
+            assert!(reg.record_enter(gla_key(), ObjectId(100 + i as u32), t1));
         }
-        assert!(!reg.has_capacity(Team::GLA));
-        assert!(!reg.record_enter(Team::GLA, u2, t1));
+        assert!(!reg.has_capacity(gla_key()));
+        assert!(!reg.record_enter(gla_key(), u2, t1));
     }
 
     #[test]
@@ -724,8 +827,8 @@ mod tests {
         let mut reg = HostTunnelNetworkRegistry::new();
         let t1 = ObjectId(10);
         let u1 = ObjectId(1);
-        reg.record_enter(Team::GLA, u1, t1);
-        reg.record_exit(Team::GLA, u1, t1);
+        reg.record_enter(gla_key(), u1, t1);
+        reg.record_exit(gla_key(), u1, t1);
         assert!(reg.honesty_enter_exit_ok());
         assert!(!reg.honesty_cross_exit_ok());
     }
@@ -776,13 +879,13 @@ mod tests {
         let t1 = ObjectId(10);
         let u1 = ObjectId(1);
         let u2 = ObjectId(2);
-        reg.on_tunnel_created(Team::GLA, t1);
-        assert!(reg.record_enter(Team::GLA, u1, t1));
-        assert!(reg.record_enter(Team::GLA, u2, t1));
-        let out = reg.on_tunnel_destroyed(Team::GLA, t1, &[]);
+        reg.on_tunnel_created(gla_key(), t1);
+        assert!(reg.record_enter(gla_key(), u1, t1));
+        assert!(reg.record_enter(gla_key(), u2, t1));
+        let out = reg.on_tunnel_destroyed(gla_key(), t1, &[]);
         assert!(out.cave_in);
         assert_eq!(out.cave_in_units, vec![u1, u2]);
-        assert_eq!(reg.contain_count(Team::GLA), 0);
+        assert_eq!(reg.contain_count(gla_key()), 0);
         assert!(reg.honesty_cave_in_ok());
         assert_eq!(reg.exits, 2);
     }
@@ -794,33 +897,84 @@ mod tests {
         let t1 = ObjectId(10);
         let t2 = ObjectId(20);
         let u1 = ObjectId(1);
-        reg.on_tunnel_created(Team::GLA, t1);
-        reg.on_tunnel_created(Team::GLA, t2);
-        assert!(reg.record_enter(Team::GLA, u1, t1));
-        let out = reg.on_tunnel_destroyed(Team::GLA, t1, &[t2]);
+        reg.on_tunnel_created(gla_key(), t1);
+        reg.on_tunnel_created(gla_key(), t2);
+        assert!(reg.record_enter(gla_key(), u1, t1));
+        let out = reg.on_tunnel_destroyed(gla_key(), t1, &[t2]);
         assert!(!out.cave_in);
         assert!(out.cave_in_units.is_empty());
         assert_eq!(out.remapped_to, Some(t2));
-        assert_eq!(reg.contain_count(Team::GLA), 1);
-        assert!(reg.is_in_network(Team::GLA, u1));
+        assert_eq!(reg.contain_count(gla_key()), 1);
+        assert!(reg.is_in_network(gla_key(), u1));
         assert_eq!(reg.entry_tunnel_of(u1), Some(t2));
         assert!(!reg.honesty_cave_in_ok());
     }
+
+    #[test]
+    fn sneak_attack_uses_dummy_gun_not_real_mg() {
+        assert!(is_sneak_attack_tunnel_template(
+            "GLASneakAttackTunnelNetwork"
+        ));
+        assert!(!is_sneak_attack_tunnel_template("GLATunnelNetwork"));
+        assert!(!is_sneak_attack_tunnel_template(
+            "GLASneakAttackTunnelNetworkStart"
+        ));
+        assert_eq!(
+            tunnel_network_primary_weapon_name("GLASneakAttackTunnelNetwork"),
+            TUNNEL_NETWORK_GUN_DUMMY
+        );
+        assert_eq!(
+            tunnel_network_primary_weapon_name("GLATunnelNetwork"),
+            TUNNEL_NETWORK_GUN
+        );
+        let dummy = tunnel_network_primary_weapon("GLASneakAttackTunnelNetwork");
+        assert!((dummy.damage - 0.01).abs() < 1e-6);
+        assert!((dummy.range - 175.0).abs() < 0.01);
+        assert!((dummy.reload_time - 1.0).abs() < 0.001);
+        let real = tunnel_network_primary_weapon("GLATunnelNetwork");
+        assert!((real.damage - 15.0).abs() < 0.01);
+        assert!((real.reload_time - (8.0 / 30.0)).abs() < 0.001);
+    }
+
 
     #[test]
     fn update_nemesis_sets_once_and_refreshes_same_target() {
         let mut reg = HostTunnelNetworkRegistry::new();
         let a = ObjectId(50);
         let b = ObjectId(51);
-        reg.update_nemesis(Team::GLA, a, true, false, false, false, 10);
-        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 10), Some(a));
+        reg.update_nemesis(gla_key(), a, true, false, false, false, 10);
+        assert_eq!(reg.get_cur_nemesis_id(gla_key(), 10), Some(a));
         // Different target while current is live does not replace (C++).
-        reg.update_nemesis(Team::GLA, b, false, false, true, false, 20);
-        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 20), Some(a));
-        reg.update_nemesis(Team::GLA, a, true, false, false, false, 30);
-        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 30), Some(a));
+        reg.update_nemesis(gla_key(), b, false, false, true, false, 20);
+        assert_eq!(reg.get_cur_nemesis_id(gla_key(), 20), Some(a));
+        reg.update_nemesis(gla_key(), a, true, false, false, false, 30);
+        assert_eq!(reg.get_cur_nemesis_id(gla_key(), 30), Some(a));
         // 4 seconds after last refresh expires.
-        assert_eq!(reg.get_cur_nemesis_id(Team::GLA, 30 + 4 * 30 + 1), None);
+        assert_eq!(reg.get_cur_nemesis_id(gla_key(), 30 + 4 * 30 + 1), None);
+    }
+
+    #[test]
+    fn two_gla_players_do_not_share_a_pool() {
+        // C++ Player.cpp m_tunnelSystem is per Player, not faction Team.
+        // Demo vs Chem (or two GLA skirmish slots) each have MaxTunnelCapacity.
+        let mut reg = HostTunnelNetworkRegistry::new();
+        let demo = tunnel_system_key(Some(2), Team::GLA);
+        let chem = tunnel_system_key(Some(3), Team::GLA);
+        assert_ne!(demo, chem);
+        let t_demo = ObjectId(10);
+        let t_chem = ObjectId(20);
+        reg.on_tunnel_created(demo, t_demo);
+        reg.on_tunnel_created(chem, t_chem);
+        for i in 0..MAX_TUNNEL_CAPACITY {
+            assert!(reg.record_enter(demo, ObjectId(100 + i as u32), t_demo));
+        }
+        assert!(!reg.has_capacity(demo));
+        assert!(reg.has_capacity(chem));
+        assert!(reg.record_enter(chem, ObjectId(1), t_chem));
+        assert_eq!(reg.contain_count(demo), MAX_TUNNEL_CAPACITY);
+        assert_eq!(reg.contain_count(chem), 1);
+        assert_eq!(reg.player_holding_unit(ObjectId(1)), Some(chem));
+        assert_eq!(reg.player_holding_tunnel(t_demo), Some(demo));
     }
 
 

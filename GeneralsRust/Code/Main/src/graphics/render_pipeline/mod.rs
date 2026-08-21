@@ -669,9 +669,12 @@ pub struct RenderPipeline {
     /// Last presentation world-anim CPU layout residual (execute path).
     debug_last_world_anims_packed: u32,
     debug_last_world_anim_pack_ok: bool,
-    /// Last presentation particle-system CPU layout residual (execute path).
     debug_last_particle_systems_packed: u32,
     debug_last_particle_pack_ok: bool,
+    /// C++ W3DView viewport height / display height (Default bar = 0.80).
+    tactical_view_height_frac: f32,
+    tactical_viewport_width: f32,
+    tactical_viewport_height: f32,
 }
 
 pub(super) const DEFAULT_SKYBOX_TEXTURES: [&str; 5] = [
@@ -790,6 +793,7 @@ pub struct ForwardPass {
     /// Per-frame C++ ghost light environment. Ghost meshes are always fogged
     /// and must not inherit the ordinary object/FOW light environment.
     ghost_lighting_environment: Option<Arc<LightEnvironmentClass>>,
+    tactical_view_height_frac: f32,
     /// Live SegLine vertex buffer (created on first laser upload).
     laser_vertex_buffer: Option<Arc<wgpu::Buffer>>,
     laser_vertex_capacity: usize,

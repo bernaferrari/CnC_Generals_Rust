@@ -5,11 +5,11 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 
 use gamelogic::ai::pathfind_astar::{
-    AStarPathfinder, GridCoord, PathfindCellType, COST_DIAGONAL,
+    AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
 };
 use gamelogic::ai::pathfind_complete::{
-    MAX_PATH_ITERATIONS, PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_CLIFF, SURFACE_GROUND,
-    SURFACE_RUBBLE, SURFACE_WATER,
+    LAYER_Z_CLOSE_ENOUGH_F, MAX_PATH_ITERATIONS, PATHFIND_QUEUE_LEN, SURFACE_AIR, SURFACE_CLIFF,
+    SURFACE_GROUND, SURFACE_RUBBLE, SURFACE_WATER,
 };
 
 
@@ -141,6 +141,18 @@ impl Ord for PathNode {
     }
 }
 
+/// C++ `PathfindLayer` slot 2..=14 — classified cells, not flattened onto `m_map`.
+#[derive(Debug, Clone)]
+struct HostBridgeLayer {
+    id: u8,
+    from_left: Vec3,
+    from_right: Vec3,
+    to_left: Vec3,
+    to_right: Vec3,
+    /// Non-IMPASSABLE layer cells: (x,y) → (type, connectLayer).
+    cells: HashMap<(i32, i32), (PathfindCellType, u8)>,
+}
+
 /// Pathfinding grid
 #[derive(Debug, Clone)]
 pub struct PathfindingGrid {
@@ -178,9 +190,18 @@ pub struct PathfindingGrid {
     /// Per-player ALLIES occupancy bits (bit j set if player i considers j an ally).
     /// C++ checkForMovement getRelationship == ALLIES (AIPathfind.cpp:5037).
     player_ally_masks: [u16; 16],
+    /// C++ `m_map[i][j].connectLayer` (0 = LAYER_INVALID).
+    ground_connect: Vec<u8>,
+    /// C++ `Pathfinder::m_layers[2..=14]`.
+    bridge_layers: Vec<HostBridgeLayer>,
 
     /// Bump when static cells change so crate A* can resync.
     terrain_gen: u64,
+    /// C++ `pathDiameter` for the active query (AIPathfind.cpp:6700). 1 = infantry.
+    query_path_diameter: i32,
+    /// Crusher flag paired with `query_path_diameter`.
+    query_is_crusher: bool,
+
 }
 
 impl PathfindingGrid {
@@ -217,8 +238,11 @@ impl PathfindingGrid {
             occ_fixed_max_crushable: vec![0u8; cells],
             path_zones: vec![0u16; cells],
             player_ally_masks: [0u16; 16],
-
+            ground_connect: vec![0u8; cells],
+            bridge_layers: Vec::new(),
             terrain_gen: 1,
+            query_path_diameter: 1,
+            query_is_crusher: false,
         }
     }
 
@@ -546,6 +570,8 @@ impl PathfindingGrid {
         self.path_zones.fill(0);
         self.fence_bits.fill(0);
         self.transparent_bits.fill(0);
+        self.ground_connect.fill(0);
+        self.bridge_layers.clear();
         self.terrain_gen = self.terrain_gen.wrapping_add(1);
     }
 
@@ -754,9 +780,11 @@ impl PathfindingGrid {
     }
 
     fn path_zone_passable(ty: PathfindCellType) -> bool {
+        // C++ getEffectiveZone for ground locos does not share a zone across CELL_WATER.
         !matches!(
             ty,
-            PathfindCellType::Impassable
+            PathfindCellType::Water
+                | PathfindCellType::Impassable
                 | PathfindCellType::Obstacle
                 | PathfindCellType::BridgeImpassable
                 | PathfindCellType::Cliff
@@ -817,6 +845,10 @@ impl PathfindingGrid {
         if self.cell_type(goal) == PathfindCellType::Cliff {
             return false;
         }
+        // C++ validMovementPosition rejects a water dest for a ground locomotor.
+        if self.cell_type(goal) == PathfindCellType::Water {
+            return false;
+        }
         if self.cell_type(goal) == PathfindCellType::Obstacle && !self.is_obstacle_fence(goal) {
             return false;
         }
@@ -845,8 +877,12 @@ impl PathfindingGrid {
     }
 
 
-    /// Stamp a bridge deck onto the single-layer host grid.
-    /// C++ PathfindLayer::classifyCells: deck CELL_CLEAR; destroyed BRIDGE_IMPASSABLE.
+    /// C++ `PathfindLayer::classifyCells` / `classifyLayerMapCell`.
+    /// Deck lives on its own layer (CLEAR); sides are BRIDGE_IMPASSABLE;
+    /// only end/entry cells connect to LAYER_GROUND. Does **not** flatten
+    /// the deck onto `m_map`. Low-clearance ground under the deck is stamped
+    /// BRIDGE_IMPASSABLE. Destroyed: layer cells become BRIDGE_IMPASSABLE and
+    /// ground connects are dropped — water/ground under the span stays.
     pub fn stamp_bridge_deck(
         &mut self,
         from_left: Vec3,
@@ -866,24 +902,203 @@ impl PathfindingGrid {
             min_z = min_z.min(c.z);
             max_z = max_z.max(c.z);
         }
-        let lo = self.world_to_grid(Vec3::new(min_x, 0.0, min_z));
-        let hi = self.world_to_grid(Vec3::new(max_x, 0.0, max_z));
-        let ty = if destroyed {
-            PathfindCellType::BridgeImpassable
-        } else {
-            PathfindCellType::Clear
-        };
+        // Entry/side lines sit up to ~1 cell outside the deck AABB.
+        let pad = self.grid_size;
+        let lo = self.world_to_grid(Vec3::new(min_x - pad, 0.0, min_z - pad));
+        let hi = self.world_to_grid(Vec3::new(max_x + pad, 0.0, max_z + pad));
+        let layer_id = self.alloc_or_find_bridge_layer(from_left, from_right, to_left, to_right);
+        self.disconnect_ground_from_layer(layer_id);
+
+        let mut cells: HashMap<(i32, i32), (PathfindCellType, u8)> = HashMap::new();
         for y in lo.y.min(hi.y)..=lo.y.max(hi.y) {
             for x in lo.x.min(hi.x)..=lo.x.max(hi.x) {
                 let pos = GridPos::new(x, y);
                 if !self.is_valid_pos(pos) {
                     continue;
                 }
-                let world = self.grid_to_world(pos);
-                if point_in_bridge_quad(world.x, world.z, &corners) {
-                    self.set_cell_type(pos, ty);
+                let Some((ty, connect)) = self.classify_layer_map_cell(
+                    pos,
+                    &corners,
+                    from_left,
+                    from_right,
+                    to_left,
+                    to_right,
+                ) else {
+                    continue;
+                };
+                if connect == PathfindLayerEnum::Ground as u8 {
+                    if let Some(idx) = self.bit_index(pos) {
+                        if let Some(slot) = self.ground_connect.get_mut(idx) {
+                            *slot = layer_id;
+                        }
+                    }
+                }
+                // C++ classifyLayerMapCell clearance (AIPathfind.cpp:3711-3721).
+                if connect != PathfindLayerEnum::Ground as u8 {
+                    let center = self.cell_center_xz(pos);
+                    let deck_h = bridge_deck_height(&corners, center.0, center.1);
+                    let ground_h = sample_host_ground_height(center.0, center.1);
+                    if ground_h + LAYER_Z_CLOSE_ENOUGH_F > deck_h
+                        && self.cell_type(pos) != PathfindCellType::Obstacle
+                    {
+                        self.set_cell_type(pos, PathfindCellType::BridgeImpassable);
+                    }
+                }
+                cells.insert((x, y), (ty, connect));
+            }
+        }
+
+        if destroyed {
+            // C++ classifyCells m_destroyed: every layer cell BRIDGE_IMPASSABLE,
+            // drop ground connect (AIPathfind.cpp:3504-3519).
+            self.disconnect_ground_from_layer(layer_id);
+            for value in cells.values_mut() {
+                *value = (PathfindCellType::BridgeImpassable, 0);
+            }
+        }
+
+        if let Some(layer) = self
+            .bridge_layers
+            .iter_mut()
+            .find(|layer| layer.id == layer_id)
+        {
+            layer.from_left = from_left;
+            layer.from_right = from_right;
+            layer.to_left = to_left;
+            layer.to_right = to_right;
+            layer.cells = cells;
+        }
+        self.terrain_gen = self.terrain_gen.wrapping_add(1);
+    }
+
+    /// C++ `PathfindLayer::getCell` type (NULL/IMPASSABLE → None).
+    pub fn layer_cell_type(&self, layer: u8, pos: GridPos) -> Option<PathfindCellType> {
+        self.bridge_layers
+            .iter()
+            .find(|l| l.id == layer)
+            .and_then(|l| l.cells.get(&(pos.x, pos.y)).map(|(ty, _)| *ty))
+    }
+
+    /// C++ `m_map[i][j].getConnectLayer()` (0 = LAYER_INVALID).
+    pub fn ground_connect_layer(&self, pos: GridPos) -> u8 {
+        self.bit_index(pos)
+            .and_then(|idx| self.ground_connect.get(idx).copied())
+            .unwrap_or(0)
+    }
+
+    pub fn first_bridge_layer_id(&self) -> Option<u8> {
+        self.bridge_layers.first().map(|l| l.id)
+    }
+
+    fn cell_center_xz(&self, pos: GridPos) -> (f32, f32) {
+        let tl = self.grid_to_world(pos);
+        (
+            tl.x + self.grid_size * 0.5,
+            tl.z + self.grid_size * 0.5,
+        )
+    }
+
+    fn alloc_or_find_bridge_layer(
+        &mut self,
+        from_left: Vec3,
+        from_right: Vec3,
+        to_left: Vec3,
+        to_right: Vec3,
+    ) -> u8 {
+        if let Some(existing) = self.bridge_layers.iter().find(|layer| {
+            span_xz_eq(layer.from_left, from_left)
+                && span_xz_eq(layer.from_right, from_right)
+                && span_xz_eq(layer.to_left, to_left)
+                && span_xz_eq(layer.to_right, to_right)
+        }) {
+            return existing.id;
+        }
+        let used: Vec<u8> = self.bridge_layers.iter().map(|l| l.id).collect();
+        let id = (2u8..=14).find(|id| !used.contains(id)).unwrap_or(2);
+        if used.contains(&id) {
+            self.disconnect_ground_from_layer(id);
+            if let Some(slot) = self.bridge_layers.iter_mut().find(|l| l.id == id) {
+                slot.from_left = from_left;
+                slot.from_right = from_right;
+                slot.to_left = to_left;
+                slot.to_right = to_right;
+                slot.cells.clear();
+                return id;
+            }
+        }
+        self.bridge_layers.push(HostBridgeLayer {
+            id,
+            from_left,
+            from_right,
+            to_left,
+            to_right,
+            cells: HashMap::new(),
+        });
+        id
+    }
+
+    fn disconnect_ground_from_layer(&mut self, layer_id: u8) {
+        for slot in &mut self.ground_connect {
+            if *slot == layer_id {
+                *slot = 0;
+            }
+        }
+    }
+
+    /// C++ `PathfindLayer::classifyLayerMapCell` (AIPathfind.cpp:3647-3724).
+    fn classify_layer_map_cell(
+        &self,
+        pos: GridPos,
+        corners: &[Vec3; 4],
+        from_left: Vec3,
+        from_right: Vec3,
+        to_left: Vec3,
+        to_right: Vec3,
+    ) -> Option<(PathfindCellType, u8)> {
+        let tl = self.grid_to_world(pos);
+        let s = self.grid_size;
+        let pts = [
+            (tl.x, tl.z),
+            (tl.x, tl.z + s),
+            (tl.x + s, tl.z + s),
+            (tl.x + s, tl.z),
+        ];
+        let mut count = 0u32;
+        for (px, pz) in pts {
+            if point_in_bridge_quad(px, pz, corners) {
+                count += 1;
+            }
+        }
+        let bounds = CellXz {
+            lo_x: tl.x,
+            lo_z: tl.z,
+            hi_x: tl.x + s,
+            hi_z: tl.z + s,
+        };
+        let mut ty = PathfindCellType::Impassable;
+        let mut connect = 0u8;
+        if count == 4 {
+            ty = PathfindCellType::Clear;
+        } else {
+            if count != 0 {
+                ty = PathfindCellType::BridgeImpassable;
+            }
+            if cell_on_bridge_side(&bounds, from_left, from_right, to_left, to_right, s) {
+                ty = PathfindCellType::BridgeImpassable;
+            } else {
+                if cell_on_bridge_end(&bounds, from_left, from_right, to_left, to_right, s) {
+                    ty = PathfindCellType::Clear;
+                }
+                if cell_is_bridge_entry(&bounds, from_left, from_right, to_left, to_right, s) {
+                    ty = PathfindCellType::Clear;
+                    connect = PathfindLayerEnum::Ground as u8;
                 }
             }
+        }
+        if ty == PathfindCellType::Impassable {
+            None
+        } else {
+            Some((ty, connect))
         }
     }
 
@@ -1078,6 +1293,9 @@ impl PathfindingGrid {
 
             for neighbor in current.pos.neighbors() {
                 if !self.is_valid_pos(neighbor) || self.is_static_blocked(neighbor) {
+                    continue;
+                }
+                if !self.diameter_allows(self.query_is_crusher, neighbor) {
                     continue;
                 }
                 if self
@@ -1321,6 +1539,9 @@ impl PathfindingGrid {
         if self.has_blocking_fixed_occupant(pos, crusher_level) {
             return false;
         }
+        if !self.diameter_allows(is_crusher, pos) {
+            return false;
+        }
         true
     }
 
@@ -1375,6 +1596,69 @@ impl PathfindingGrid {
             return true;
         }
         ty == PathfindCellType::Rubble && is_crusher
+    }
+
+    /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:9670-9696). MAX_RADIUS=2.
+    pub fn radius_and_center(unit_radius: f32, grid_size: f32) -> (i32, bool) {
+        let cell = grid_size.max(1.0);
+        let mut diameter = 2.0 * unit_radius;
+        if diameter > cell && diameter < 2.0 * cell {
+            diameter = 2.0 * cell;
+        }
+        let mut radius = (diameter / cell + 0.3).floor() as i32;
+        let mut center_in_cell = false;
+        if radius == 0 {
+            radius = 1;
+        }
+        if (radius & 1) != 0 {
+            center_in_cell = true;
+        }
+        radius /= 2;
+        const MAX_RADIUS: i32 = 2;
+        if radius > MAX_RADIUS {
+            radius = MAX_RADIUS;
+            center_in_cell = true;
+        }
+        (radius, center_in_cell)
+    }
+
+    /// Vehicle path width in cells. Infantry stay single-cell.
+    pub fn path_diameter_for_unit(unit_radius: f32, grid_size: f32, is_vehicle: bool) -> i32 {
+        if !is_vehicle {
+            return 1;
+        }
+        let (radius, _) = Self::radius_and_center(unit_radius, grid_size);
+        (2 * radius.max(1)).min(4)
+    }
+
+    pub fn set_query_footprint(&mut self, path_diameter: i32, is_crusher: bool) {
+        self.query_path_diameter = path_diameter.max(1);
+        self.query_is_crusher = is_crusher;
+    }
+
+    /// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
+    pub fn clear_cell_for_diameter(
+        &self,
+        crusher: bool,
+        cell: GridPos,
+        path_diameter: i32,
+    ) -> i32 {
+        clear_cell_for_diameter_impl(
+            self.width,
+            self.height,
+            &self.cell_types,
+            &self.fence_bits,
+            &self.occ_fixed_mask,
+            &self.occ_fixed_max_crushable,
+            crusher,
+            cell,
+            path_diameter,
+        )
+    }
+
+    fn diameter_allows(&self, crusher: bool, cell: GridPos) -> bool {
+        let d = self.query_path_diameter;
+        d < 2 || self.clear_cell_for_diameter(crusher, cell, d) == d
     }
 
     /// C++ `Pathfinder::adjustDestination` spiral (AIPathfind.cpp:5331-5407).
@@ -1473,6 +1757,9 @@ impl PathfindingGrid {
             return false;
         }
         if self.occupancy_blocks_line(cell, seeker_player, crusher_level) {
+            return false;
+        }
+        if !self.diameter_allows(is_crusher, cell) {
             return false;
         }
         if unpinched_cliff_passable
@@ -1674,6 +1961,186 @@ fn point_in_bridge_quad(px: f32, pz: f32, corners: &[Vec3; 4]) -> bool {
     true
 }
 
+struct CellXz {
+    lo_x: f32,
+    lo_z: f32,
+    hi_x: f32,
+    hi_z: f32,
+}
+
+fn span_xz_eq(a: Vec3, b: Vec3) -> bool {
+    (a.x - b.x).abs() < 0.5 && (a.z - b.z).abs() < 0.5
+}
+
+/// C++ `LineInRegion` on the host XZ ground plane.
+fn line_in_region_xz(x0: f32, z0: f32, x1: f32, z1: f32, cell: &CellXz) -> bool {
+    let dx = x1 - x0;
+    let dz = z1 - z0;
+    let mut t0 = 0.0f32;
+    let mut t1 = 1.0f32;
+    let clip = |p: f32, q: f32, t0: &mut f32, t1: &mut f32| -> bool {
+        if p.abs() <= f32::EPSILON {
+            return q >= 0.0;
+        }
+        let r = q / p;
+        if p < 0.0 {
+            if r > *t1 {
+                return false;
+            }
+            if r > *t0 {
+                *t0 = r;
+            }
+        } else {
+            if r < *t0 {
+                return false;
+            }
+            if r < *t1 {
+                *t1 = r;
+            }
+        }
+        true
+    };
+    if !clip(-dx, x0 - cell.lo_x, &mut t0, &mut t1) {
+        return false;
+    }
+    if !clip(dx, cell.hi_x - x0, &mut t0, &mut t1) {
+        return false;
+    }
+    if !clip(-dz, z0 - cell.lo_z, &mut t0, &mut t1) {
+        return false;
+    }
+    if !clip(dz, cell.hi_z - z0, &mut t0, &mut t1) {
+        return false;
+    }
+    t0 <= t1
+}
+
+fn xz_len(x: f32, z: f32) -> f32 {
+    (x * x + z * z).sqrt()
+}
+
+/// C++ `Bridge::isCellOnEnd` (TerrainLogic.cpp:624-671), host XZ.
+fn cell_on_bridge_end(
+    cell: &CellXz,
+    from_left: Vec3,
+    from_right: Vec3,
+    to_left: Vec3,
+    to_right: Vec3,
+    cell_size: f32,
+) -> bool {
+    let mut ex = from_right.x - from_left.x;
+    let mut ez = from_right.z - from_left.z;
+    let len = xz_len(ex, ez);
+    if len <= f32::EPSILON {
+        return false;
+    }
+    ex = ex / len * cell_size;
+    ez = ez / len * cell_size;
+    let from_l = (from_left.x + ex, from_left.z + ez);
+    let from_r = (from_right.x - ex, from_right.z - ez);
+    let to_l = (to_left.x + ex, to_left.z + ez);
+    let to_r = (to_right.x - ex, to_right.z - ez);
+    line_in_region_xz(from_l.0, from_l.1, from_r.0, from_r.1, cell)
+        || line_in_region_xz(to_l.0, to_l.1, to_r.0, to_r.1, cell)
+}
+
+/// C++ `Bridge::isCellOnSide` (TerrainLogic.cpp:676-745), host XZ.
+fn cell_on_bridge_side(
+    cell: &CellXz,
+    from_left: Vec3,
+    from_right: Vec3,
+    to_left: Vec3,
+    to_right: Vec3,
+    cell_size: f32,
+) -> bool {
+    let mut ex = from_right.x - from_left.x;
+    let mut ez = from_right.z - from_left.z;
+    let len = xz_len(ex, ez);
+    if len <= f32::EPSILON {
+        return false;
+    }
+    ex = ex / len * cell_size * 0.51;
+    ez = ez / len * cell_size * 0.51;
+    let mut from_l = (from_left.x - ex, from_left.z - ez);
+    let mut from_r = (from_right.x + ex, from_right.z + ez);
+    let mut to_l = (to_left.x - ex, to_left.z - ez);
+    let mut to_r = (to_right.x + ex, to_right.z + ez);
+    if line_in_region_xz(from_l.0, from_l.1, to_l.0, to_l.1, cell)
+        || line_in_region_xz(from_r.0, from_r.1, to_r.0, to_r.1, cell)
+    {
+        return true;
+    }
+    from_l = (from_l.0 - ex, from_l.1 - ez);
+    from_r = (from_r.0 + ex, from_r.1 + ez);
+    to_l = (to_l.0 - ex, to_l.1 - ez);
+    to_r = (to_r.0 + ex, to_r.1 + ez);
+    line_in_region_xz(from_l.0, from_l.1, to_l.0, to_l.1, cell)
+        || line_in_region_xz(from_r.0, from_r.1, to_r.0, to_r.1, cell)
+}
+
+/// C++ `Bridge::isCellEntryPoint` (TerrainLogic.cpp:750-814), host XZ.
+fn cell_is_bridge_entry(
+    cell: &CellXz,
+    from_left: Vec3,
+    from_right: Vec3,
+    to_left: Vec3,
+    to_right: Vec3,
+    cell_size: f32,
+) -> bool {
+    let mut ex = from_right.x - from_left.x;
+    let mut ez = from_right.z - from_left.z;
+    let elen = xz_len(ex, ez);
+    if elen <= f32::EPSILON {
+        return false;
+    }
+    ex = ex / elen * cell_size;
+    ez = ez / elen * cell_size;
+    let from = (
+        (from_left.x + from_right.x) * 0.5,
+        (from_left.z + from_right.z) * 0.5,
+    );
+    let to = (
+        (to_left.x + to_right.x) * 0.5,
+        (to_left.z + to_right.z) * 0.5,
+    );
+    let mut bx = to.0 - from.0;
+    let mut bz = to.1 - from.1;
+    let blen = xz_len(bx, bz);
+    if blen <= f32::EPSILON {
+        return false;
+    }
+    bx = bx / blen * (cell_size * 0.5);
+    bz = bz / blen * (cell_size * 0.5);
+    let from_l = (from_left.x - bx + ex, from_left.z - bz + ez);
+    let from_r = (from_right.x - bx - ex, from_right.z - bz - ez);
+    let to_l = (to_left.x + bx + ex, to_left.z + bz + ez);
+    let to_r = (to_right.x + bx - ex, to_right.z + bz - ez);
+    line_in_region_xz(from_l.0, from_l.1, from_r.0, from_r.1, cell)
+        || line_in_region_xz(to_l.0, to_l.1, to_r.0, to_r.1, cell)
+}
+
+/// Host-Y plane through fromLeft/fromRight/toLeft (C++ `Bridge::getBridgeHeight`).
+fn bridge_deck_height(corners: &[Vec3; 4], x: f32, z: f32) -> f32 {
+    let p1 = corners[0];
+    let p2 = corners[1];
+    let p3 = corners[3];
+    let v1 = p2 - p1;
+    let v2 = p3 - p1;
+    let n = v1.cross(v2);
+    if n.y.abs() <= f32::EPSILON {
+        return p1.y;
+    }
+    p1.y - (n.x * (x - p1.x) + n.z * (z - p1.z)) / n.y
+}
+
+fn sample_host_ground_height(x: f32, z: f32) -> f32 {
+    gamelogic::terrain::get_terrain_logic()
+        .read()
+        .ok()
+        .map(|t| t.get_ground_height(x, z, None))
+        .unwrap_or(0.0)
+}
+
 /// Flow field pathfinding for RTS-style unit movement
 #[derive(Debug, Clone)]
 pub struct FlowField {
@@ -1796,6 +2263,101 @@ impl FlowField {
     }
 }
 
+/// C++ `Pathfinder::clearCellForDiameter` (AIPathfind.cpp:6700-6759).
+fn clear_cell_for_diameter_impl(
+    width: i32,
+    height: i32,
+    cell_types: &[u8],
+    fence_bits: &[u64],
+    occ_fixed: &[u16],
+    occ_crush: &[u8],
+    crusher: bool,
+    cell: GridPos,
+    path_diameter: i32,
+) -> i32 {
+    if path_diameter <= 0 {
+        return 0;
+    }
+    let radius = path_diameter / 2;
+    let mut num_cells_above = radius;
+    if radius == 0 {
+        num_cells_above += 1;
+    }
+    let cut_corners = radius > 1;
+    let mut clear = true;
+    'outer: for i in (cell.x - radius)..(cell.x + num_cells_above) {
+        let x_min_or_max = i == cell.x - radius || i == cell.x + num_cells_above - 1;
+        for j in (cell.y - radius)..(cell.y + num_cells_above) {
+            let y_min_or_max = j == cell.y - radius || j == cell.y + num_cells_above - 1;
+            if x_min_or_max && y_min_or_max && cut_corners {
+                continue;
+            }
+            if i < 0 || j < 0 || i >= width || j >= height {
+                return 0;
+            }
+            let idx = j as usize * width as usize + i as usize;
+            let ty = match cell_types.get(idx).copied().unwrap_or(0) {
+                0x01 => PathfindCellType::Water,
+                0x02 => PathfindCellType::Cliff,
+                0x03 => PathfindCellType::Rubble,
+                0x04 => PathfindCellType::Obstacle,
+                0x05 => PathfindCellType::BridgeImpassable,
+                0x06 => PathfindCellType::Impassable,
+                _ => PathfindCellType::Clear,
+            };
+            if ty != PathfindCellType::Clear {
+                if ty == PathfindCellType::Obstacle {
+                    if PathfindingGrid::bit_test(fence_bits, idx) {
+                        if !crusher {
+                            clear = false;
+                        }
+                    } else {
+                        clear = false;
+                    }
+                } else {
+                    clear = false;
+                }
+            }
+            if path_diameter >= 2 {
+                let fixed = occ_fixed.get(idx).copied().unwrap_or(0);
+                if fixed != 0 {
+                    let crushable = occ_crush.get(idx).copied().unwrap_or(0);
+                    if crusher {
+                        if crushable > 1 {
+                            clear = false;
+                        }
+                    } else if crushable > 0 {
+                        clear = false;
+                    }
+                }
+            }
+            if !clear {
+                break 'outer;
+            }
+        }
+    }
+    if clear {
+        if radius == 0 {
+            return 1;
+        }
+        return 2 * radius;
+    }
+    if path_diameter < 2 {
+        return 0;
+    }
+    clear_cell_for_diameter_impl(
+        width,
+        height,
+        cell_types,
+        fence_bits,
+        occ_fixed,
+        occ_crush,
+        crusher,
+        cell,
+        path_diameter - 2,
+    )
+}
+
 /// Cell half-extent for structure path/LOS block from selection radius.
 fn structure_block_radius_cells(selection_radius: f32, grid_size: f32) -> i32 {
     let gs = grid_size.max(1.0);
@@ -1828,6 +2390,8 @@ pub struct PathfindingSystem {
     seeker_team: Option<Team>,
     /// Seeker CrusherLevel for canCrushOrSquish occupancy (AIPathfind.cpp:5063).
     seeker_crusher_level: u8,
+    /// C++ `pathDiameter` from getRadiusAndCenter (vehicles, MAX_RADIUS=2).
+    seeker_path_diameter: i32,
     /// C++ `m_ignoreObstacleID` for this path query (DozerAIUpdate.cpp:210).
     ignore_obstacle_id: Option<ObjectId>,
 
@@ -1854,6 +2418,7 @@ impl PathfindingSystem {
             seeker_id: None,
             seeker_team: None,
             seeker_crusher_level: 0,
+            seeker_path_diameter: 1,
             ignore_obstacle_id: None,
         }
     }
@@ -1933,6 +2498,27 @@ impl PathfindingSystem {
                         self.grid.is_obstacle_transparent(pos),
                     );
                 }
+                let connect = self.grid.ground_connect_layer(pos);
+                if connect != 0 {
+                    finder.set_cell_connect_layer(
+                        coord,
+                        PathfindLayerEnum::from_u32(connect as u32),
+                    );
+                }
+            }
+        }
+        for layer in &self.grid.bridge_layers {
+            let pf_layer = PathfindLayerEnum::from_u32(layer.id as u32);
+            for ((x, y), (ty, connect)) in &layer.cells {
+                let coord = GridCoord::new(*x, *y);
+                finder.set_cell_type_on_layer(coord, pf_layer, *ty);
+                if *connect != 0 {
+                    finder.set_cell_connect_layer_on_layer(
+                        coord,
+                        pf_layer,
+                        PathfindLayerEnum::from_u32(*connect as u32),
+                    );
+                }
             }
         }
         self.crate_astar = Some(HostCrateAStar { finder, stamp });
@@ -1960,6 +2546,8 @@ impl PathfindingSystem {
         is_crusher: bool,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
+        self.grid
+            .set_query_footprint(self.seeker_path_diameter, is_crusher);
         let crusher_level = if is_crusher {
             self.seeker_crusher_level.max(1)
         } else {
@@ -2033,9 +2621,30 @@ impl PathfindingSystem {
         let seeker = self.seeker_player;
         let seeker_inf = self.seeker_is_infantry;
         let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
+        let height = self.grid.height;
+        let path_diameter = self.seeker_path_diameter;
+        let cell_types = self.grid.cell_types.clone();
+        let fence_bits = self.grid.fence_bits.clone();
+        let diameter_crusher = is_crusher;
         let extra = move |c: GridCoord| {
             if c.x < 0 || c.y < 0 || c.x >= width {
                 return 0;
+            }
+            if path_diameter >= 2 {
+                let d = clear_cell_for_diameter_impl(
+                    width,
+                    height,
+                    &cell_types,
+                    &fence_bits,
+                    &occ_fixed,
+                    &occ_crush,
+                    diameter_crusher,
+                    GridPos::new(c.x, c.y),
+                    path_diameter,
+                );
+                if d != path_diameter {
+                    return u32::MAX / 8;
+                }
             }
             let idx = c.y as usize * width as usize + c.x as usize;
             let fixed = occ_fixed.get(idx).copied().unwrap_or(0);
@@ -2127,11 +2736,21 @@ impl PathfindingSystem {
 
 
     /// Queue a path request for next-frame resolve (C++ queueForPath).
-    pub fn queue_path(&mut self, req: PendingHostPath) {
+    /// Duplicate ObjectID updates dest in place. Full queue refuses the new request.
+    pub fn queue_path(&mut self, req: PendingHostPath) -> bool {
+        if let Some(existing) = self
+            .pending_paths
+            .iter_mut()
+            .find(|p| p.unit_id == req.unit_id)
+        {
+            *existing = req;
+            return true;
+        }
         if self.pending_paths.len() >= PATHFIND_QUEUE_LEN {
-            self.pending_paths.pop_front();
+            return false;
         }
         self.pending_paths.push_back(req);
+        true
     }
 
     pub fn take_pending_paths(&mut self) -> Vec<PendingHostPath> {
@@ -2617,6 +3236,11 @@ impl PathfindingSystem {
             self.seeker_id = Some(o.id);
             self.seeker_team = Some(o.team);
             self.seeker_crusher_level = o.crusher_level;
+            self.seeker_path_diameter = PathfindingGrid::path_diameter_for_unit(
+                o.selection_radius,
+                self.grid.grid_size(),
+                o.is_kind_of(KindOf::Vehicle),
+            );
         } else {
             self.seeker_player = None;
             self.seeker_is_infantry = false;
@@ -2624,12 +3248,15 @@ impl PathfindingSystem {
             self.seeker_id = None;
             self.seeker_team = None;
             self.seeker_crusher_level = 0;
+            self.seeker_path_diameter = 1;
         }
         // Live seeker CrusherLevel wins so find_path / find_path_ex still crush.
         let is_crusher = is_crusher || self.seeker_crusher_level > 0;
         if is_crusher && self.seeker_crusher_level == 0 {
             self.seeker_crusher_level = 1;
         }
+        self.grid
+            .set_query_footprint(self.seeker_path_diameter, is_crusher);
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
@@ -2976,6 +3603,7 @@ impl PathfindingSystem {
                     || obj.movement.velocity.length_squared() > 0.25
                     || obj.status.attacking
                     || obj.status.using_ability
+                    || obj.deploy_style.as_ref().is_some_and(|d| d.is_busy())
                 {
                     continue;
                 }
@@ -3541,11 +4169,52 @@ mod tests {
     }
 
     #[test]
-    fn bridge_deck_clears_water_and_destroy_impassable() {
+    fn bridge_deck_classifies_layer_not_flatten() {
+        // C++ PathfindLayer: deck CLEAR on its layer, river under stays Water,
+        // sides BRIDGE_IMPASSABLE, destroy closes the layer only.
         let mut g = open_grid(12, 12);
-        for x in 2..10 {
-            g.set_cell_type(GridPos::new(x, 5), PathfindCellType::Water);
+        for y in 4..=6 {
+            for x in 3..8 {
+                g.set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
         }
+        let from_l = Vec3::new(20.0, 20.0, 40.0);
+        let from_r = Vec3::new(20.0, 20.0, 60.0);
+        let to_l = Vec3::new(90.0, 20.0, 40.0);
+        let to_r = Vec3::new(90.0, 20.0, 60.0);
+        g.stamp_bridge_deck(from_l, from_r, to_l, to_r, false);
+        let layer = g.first_bridge_layer_id().expect("bridge layer");
+        let deck = GridPos::new(5, 5);
+        assert_eq!(
+            g.cell_type(deck),
+            PathfindCellType::Water,
+            "must not flatten deck onto ground"
+        );
+        assert_eq!(
+            g.layer_cell_type(layer, deck),
+            Some(PathfindCellType::Clear)
+        );
+        let side = GridPos::new(5, 3);
+        assert_eq!(
+            g.layer_cell_type(layer, side),
+            Some(PathfindCellType::BridgeImpassable)
+        );
+        g.stamp_bridge_deck(from_l, from_r, to_l, to_r, true);
+        assert_eq!(
+            g.cell_type(deck),
+            PathfindCellType::Water,
+            "destroyed deck must not slab the river"
+        );
+        assert_eq!(
+            g.layer_cell_type(layer, deck),
+            Some(PathfindCellType::BridgeImpassable)
+        );
+        assert_eq!(g.ground_connect_layer(deck), 0);
+    }
+
+    #[test]
+    fn low_overpass_stamps_ground_bridge_impassable() {
+        let mut g = open_grid(12, 12);
         g.stamp_bridge_deck(
             Vec3::new(20.0, 0.0, 40.0),
             Vec3::new(20.0, 0.0, 60.0),
@@ -3553,19 +4222,37 @@ mod tests {
             Vec3::new(90.0, 0.0, 60.0),
             false,
         );
-        assert_eq!(g.cell_type(GridPos::new(5, 5)), PathfindCellType::Clear);
-        g.stamp_bridge_deck(
-            Vec3::new(20.0, 0.0, 40.0),
-            Vec3::new(20.0, 0.0, 60.0),
-            Vec3::new(90.0, 0.0, 40.0),
-            Vec3::new(90.0, 0.0, 60.0),
-            true,
-        );
         assert_eq!(
             g.cell_type(GridPos::new(5, 5)),
             PathfindCellType::BridgeImpassable
         );
         assert!(g.is_static_blocked(GridPos::new(5, 5)));
+    }
+
+    #[test]
+    fn classified_bridge_layer_hops_across_river() {
+        let mut sys = PathfindingSystem::new(120.0, 120.0);
+        for y in 0..12 {
+            for x in 3..8 {
+                sys.grid
+                    .set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
+        }
+        sys.grid.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        let objects = HashMap::new();
+        let from = sys.grid.grid_to_world(GridPos::new(1, 5));
+        let to = sys.grid.grid_to_world(GridPos::new(10, 5));
+        let path = sys.find_path(from, to, &objects);
+        assert!(
+            path.as_ref().map(|p| p.len() >= 2).unwrap_or(false),
+            "crate A* must hop the classified deck across water"
+        );
     }
 
     #[test]
@@ -4050,6 +4737,184 @@ mod tests {
         );
     }
 
+    /// hq-985ts: leftover/C++ clearCellForDiameter on the live grid.
+    #[test]
+    fn clear_cell_for_diameter_open_and_blocked() {
+        let mut g = open_grid(16, 16);
+        assert_eq!(
+            g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2),
+            2
+        );
+        assert_eq!(
+            g.clear_cell_for_diameter(false, GridPos::new(8, 8), 1),
+            1
+        );
+        g.set_blocked(GridPos::new(7, 8), true);
+        assert_eq!(
+            g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2),
+            0,
+            "diameter 2 must fail when an adjacent cell is blocked"
+        );
+        let (r, _) = PathfindingGrid::radius_and_center(15.0, 10.0);
+        assert_eq!(r, 1);
+        assert_eq!(
+            PathfindingGrid::path_diameter_for_unit(15.0, 10.0, true),
+            2
+        );
+        assert_eq!(
+            PathfindingGrid::path_diameter_for_unit(8.0, 10.0, false),
+            1
+        );
+    }
 
+    /// hq-985ts: tanks cannot thread a one-cell infantry slot.
+    #[test]
+    fn vehicle_astar_rejects_infantry_width_gap() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        for y in 0..20 {
+            sys.grid.set_blocked(GridPos::new(8, y), true);
+            sys.grid.set_blocked(GridPos::new(10, y), true);
+        }
+        let start = Vec3::new(20.0, 0.0, 50.0);
+        let goal = Vec3::new(150.0, 0.0, 50.0);
+
+        let mut inf_t = ThingTemplate::new("Ranger");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
+        inf.set_position(start);
+        inf.selection_radius = 8.0;
+        let mut objects = HashMap::new();
+        objects.insert(inf.id, inf);
+        let infantry_path = sys
+            .find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false)
+            .expect("infantry can thread a one-cell corridor");
+        assert!(infantry_path.len() >= 2);
+
+        objects.clear();
+        let mut tank_t = ThingTemplate::new("Crusader");
+        tank_t.add_kind_of(KindOf::Vehicle);
+        let mut tank = Object::new(tank_t, ObjectId(2), Team::USA);
+        tank.set_position(start);
+        tank.selection_radius = 15.0;
+        objects.insert(tank.id, tank);
+        sys.note_logic_frame(1);
+        let tank_path =
+            sys.find_path_ex_surfaces(start, goal, &objects, false, SURFACE_GROUND, false);
+        let crossed = tank_path.as_ref().is_some_and(|path| {
+            path.iter().any(|p| {
+                let c = sys.grid.world_to_grid(*p);
+                c.x == 9
+            }) && path
+                .last()
+                .is_some_and(|p| sys.grid.world_to_grid(*p).x >= 12)
+        });
+        assert!(
+            !crossed,
+            "vehicle A* must not thread a one-cell infantry gap, got {tank_path:?}"
+        );
+    }
+
+    /// hq-asov5: structure-aware rally zones split on water.
+    #[test]
+    fn path_zones_reject_water_dest_and_split_river() {
+        let mut g = open_grid(8, 8);
+        for y in 0..8 {
+            g.set_cell_type(GridPos::new(4, y), PathfindCellType::Water);
+        }
+        g.rebuild_path_zones();
+        let from = g.grid_to_world(GridPos::new(1, 4));
+        let to = g.grid_to_world(GridPos::new(6, 4));
+        let wet = g.grid_to_world(GridPos::new(4, 4));
+        assert!(!g.quick_path_exists(from, to), "water must split path_zones");
+        assert!(
+            !g.quick_path_exists(from, wet),
+            "ground rally must reject a water dest"
+        );
+        assert_ne!(g.path_zone(GridPos::new(1, 4)), 0);
+        assert_ne!(
+            g.path_zone(GridPos::new(1, 4)),
+            g.path_zone(GridPos::new(6, 4))
+        );
+    }
+
+    /// hq-su78f: full queue refuses the newest, keeps the oldest.
+    #[test]
+    fn queue_overflow_refuses_newest() {
+        let mut sys = PathfindingSystem::new(100.0, 100.0);
+        let mk = |id: u32| PendingHostPath {
+            unit_id: ObjectId(id),
+            start: Vec3::ZERO,
+            destination: Vec3::new(id as f32, 0.0, 0.0),
+            waypoints: Vec::new(),
+            aircraft: false,
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            ignore_obstacle: None,
+        };
+        for i in 1..=PATHFIND_QUEUE_LEN as u32 {
+            assert!(sys.queue_path(mk(i)), "slot {i} must enqueue");
+        }
+        assert_eq!(sys.pending_path_count(), PATHFIND_QUEUE_LEN);
+        assert!(
+            !sys.queue_path(mk(9000)),
+            "C++ queueForPath refuses when nextSlot==head"
+        );
+        assert_eq!(sys.pending_path_count(), PATHFIND_QUEUE_LEN);
+        assert!(sys.queue_path(mk(1)), "duplicate ObjectID is a no-op success");
+        let drained = sys.take_pending_paths();
+        assert_eq!(drained.len(), PATHFIND_QUEUE_LEN);
+        assert_eq!(drained[0].unit_id, ObjectId(1), "oldest waiter stays");
+        assert!(
+            drained.iter().all(|p| p.unit_id != ObjectId(9000)),
+            "newest must not evict oldest"
+        );
+    }
+
+    /// hq-p1pwi: moveAllies leaves packing/unpacking units planted.
+    #[test]
+    fn move_allies_skips_deploy_style_busy() {
+        use crate::game_logic::host_deploy_style::{
+            HostDeployStyleData, HostDeployStyleState,
+        };
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let sys = PathfindingSystem::new(200.0, 200.0);
+        let mut objects = HashMap::new();
+        let mut mover_t = ThingTemplate::new("Ranger");
+        mover_t.add_kind_of(KindOf::Infantry);
+        let mut mover = Object::new(mover_t, ObjectId(1), Team::USA);
+        mover.set_position(Vec3::new(10.0, 0.0, 10.0));
+        objects.insert(mover.id, mover);
+
+        let mut idle_t = ThingTemplate::new("Humvee");
+        idle_t.add_kind_of(KindOf::Vehicle);
+        let mut idle = Object::new(idle_t, ObjectId(2), Team::USA);
+        idle.set_position(Vec3::new(50.0, 0.0, 10.0));
+        objects.insert(idle.id, idle);
+
+        let mut busy_t = ThingTemplate::new("NukeCannon");
+        busy_t.add_kind_of(KindOf::Vehicle);
+        let mut busy = Object::new(busy_t, ObjectId(3), Team::USA);
+        busy.set_position(Vec3::new(60.0, 0.0, 10.0));
+        let mut style = HostDeployStyleData::default();
+        style.state = HostDeployStyleState::Deploying;
+        busy.deploy_style = Some(style);
+        objects.insert(busy.id, busy);
+
+        let path = vec![
+            Vec3::new(10.0, 0.0, 10.0),
+            Vec3::new(50.0, 0.0, 10.0),
+            Vec3::new(60.0, 0.0, 10.0),
+        ];
+        let nudged = sys.allies_to_nudge_off_path(ObjectId(1), &path, &objects);
+        assert!(
+            nudged.contains(&ObjectId(2)),
+            "idle ally on the path must scoot"
+        );
+        assert!(
+            !nudged.contains(&ObjectId(3)),
+            "packing unit must stay planted"
+        );
+    }
 
 }

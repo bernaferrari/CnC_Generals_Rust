@@ -190,6 +190,10 @@ impl CnCGameEngine {
             self.center_camera_on(Vec3::new(focus[0], focus[1], focus[2]));
         }
 
+        // C++ ControlBar setDefault/setLow writes TheTacticalView->setHeight.
+        // Rebuild the live frustum so Default bar is the retail 80% rect.
+        self.rebuild_tactical_projection();
+
         // Wave 216: presentation-frozen follow only (no live camera_follow dual-read residual).
         // hq-1kgx8: player scroll breaks LOCK_FOLLOW; skip until the lock is released.
         if self.look_at_player_broke_camera_lock() {
@@ -2221,19 +2225,12 @@ impl CnCGameEngine {
             });
         }
 
-        let in_shell = self.presentation_or_boot_shell_bypass();
-        // Empty/load-frame worlds stamp match_over immediately. C++ scripts
-        // do not end a skirmish on the first frame with no combat.
-        let saw_combat = self.match_kills > 0 || self.match_damage_applied > 0.0;
-        if !self.match_over
-            && self.current_state == GameState::InGame
-            && !in_shell
-            && saw_combat
-        {
-            if let Some(winner) = self.presentation_or_boot_victory_winner() {
-                self.show_victory_screen(winner);
-            }
-        }
+        // C++ VictoryConditions.cpp:128-160 only sets m_endFrame +
+        // m_singleAllianceRemaining. Game continues as observer; MultiplayerScripts.scb
+        // MULTIPLAYER_ALLIED_VICTORY/DEFEAT drive movies/end timers. ScoreScreen comes
+        // from MSG_CLEAR_GAME_DATA (QuitMenu / ScriptEngine timer), not evaluate.
+        // Live leftover TheVictoryConditions is written by evaluate(); do not pause
+        // or request_state_change(Victory/Defeat) via presentation_or_boot_victory_winner.
     }
 
     /// Wave 598: InGame HUD presentation residual.

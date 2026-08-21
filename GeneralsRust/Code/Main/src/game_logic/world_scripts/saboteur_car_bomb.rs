@@ -460,12 +460,23 @@ impl GameLogic {
             None
         };
 
-        // C++ open chute → aiMoveToPosition(landingOverride) residual.
+        // C++ ParachuteContain::update open: findPositionAround(0, 100) unless override.
+        let mut resolved_override = landing_override;
+        if just_opened && resolved_override.is_none() {
+            use crate::game_logic::host_ocl_special_power::find_ocl_passable_around;
+            if let Some(found) = find_ocl_passable_around(pos, 100.0, |p| {
+                self.parachute_open_lz_clear(p)
+            }) {
+                resolved_override = Some(found);
+            }
+        }
+
+        // C++ open chute → aiMoveToPosition(landingOverride / found LZ).
         let mut nx = pos.x;
         let mut nz = pos.z;
         let mut did_override_step = false;
         if open && !landed {
-            if let Some(target) = landing_override {
+            if let Some(target) = resolved_override {
                 use crate::game_logic::host_usa_pilot::{
                     step_parachute_landing_override, PARACHUTE_LANDING_OVERRIDE_SPEED,
                 };
@@ -484,6 +495,7 @@ impl GameLogic {
             }
         }
 
+
         let land_pos = Vec3::new(nx, if landed { ground } else { new_y }, nz);
         let riders_to_release: Vec<ObjectId> = if is_chute && landed {
             self.objects
@@ -497,7 +509,11 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&pilot_id) {
             if just_opened {
                 obj.open_eject_parachute();
+                if let Some(lz) = resolved_override {
+                    obj.set_parachute_override_destination(lz);
+                }
             }
+
             let mut p = obj.get_position();
             p.x = land_pos.x;
             p.z = land_pos.z;
@@ -528,6 +544,8 @@ impl GameLogic {
         if landed && !is_chute {
             // C++ ParachuteContain::onRemoving water/cliff/impassable/off-map.
             self.apply_parachute_landing_legality_kill(pilot_id, land_pos);
+            self.apply_parachute_land_ai(pilot_id);
+
         }
 
 
@@ -586,6 +604,10 @@ impl GameLogic {
                 // C++ ParachuteContain::onRemoving after removeAllContained.
                 self.apply_parachute_landing_legality_kill(*rid, land_pos);
             }
+            for rid in &riders_to_release {
+                self.apply_parachute_land_ai(*rid);
+            }
+
             // Kill AmericaParachute (SlowDeath residual → destroy).
             if let Some(chute) = self.objects.get_mut(&pilot_id) {
                 chute.clear_eject_parachuting();
@@ -700,6 +722,49 @@ impl GameLogic {
         }
         self.mark_object_for_destruction(rider_id, None);
     }
+
+    /// C++ PartitionManager::findPositionAround clear-cell residual for chute open.
+    fn parachute_open_lz_clear(&self, pos: glam::Vec3) -> bool {
+        use gamelogic::ai::pathfind_astar::PathfindCellType;
+        if pos.x < self.world_min.x
+            || pos.x > self.world_max.x
+            || pos.z < self.world_min.z
+            || pos.z > self.world_max.z
+        {
+            return false;
+        }
+        if self.terrain.as_ref().is_some_and(|t| {
+            t.is_cliff_at_world(pos) || t.is_underwater_at_world(pos)
+        }) {
+            return false;
+        }
+        let cell = self.pathfinding_system.grid.world_to_grid(pos);
+        if !self.pathfinding_system.grid.is_valid_pos(cell) {
+            return false;
+        }
+        !matches!(
+            self.pathfinding_system.grid.cell_type(cell),
+            PathfindCellType::Cliff | PathfindCellType::Water | PathfindCellType::Impassable
+        )
+    }
+
+    /// C++ ParachuteContain::onRemoving: skirmish AI → aiHunt, else Idle.
+    fn apply_parachute_land_ai(&mut self, rider_id: ObjectId) {
+        let Some(rider) = self.objects.get(&rider_id) else {
+            return;
+        };
+        if !rider.is_alive() || rider.status.destroyed {
+            return;
+        }
+        let skirmish = self
+            .player_owner_for_host_object(rider)
+            .and_then(|pid| self.ai_manager.ai_difficulty(pid))
+            .is_some();
+        if skirmish {
+            let _ = self.unit_command_patrol(rider_id);
+        }
+    }
+
 
 
     /// AutoFindHealingUpdate residual: AI idle injured USA infantry auto-scan for HealPad.

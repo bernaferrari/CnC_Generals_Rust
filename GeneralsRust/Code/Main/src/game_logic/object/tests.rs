@@ -507,7 +507,7 @@ fn resolve_death_type_from_damage_class() {
 
 #[test]
 fn garrison_range_bonus_extends_is_within_attack_range() {
-    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+    use crate::game_logic::{AIState, KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
 
     let mut atk_t = ThingTemplate::new("GR_A");
@@ -528,10 +528,49 @@ fn garrison_range_bonus_extends_is_within_attack_range() {
     });
     assert!(!atk.is_within_attack_range(&vic));
     atk.contained_by = Some(ObjectId(99));
+    atk.set_ai_state(AIState::Docked);
+    assert!(
+        !atk.is_within_attack_range(&vic),
+        "transport / hospital contain must not grant garrison RANGE"
+    );
+    atk.set_ai_state(AIState::Garrisoned);
     assert!(
         atk.is_within_attack_range(&vic),
         "garrison RANGE 133% should cover 120 with base 100"
     );
+}
+
+#[test]
+fn fire_at_scales_secondary_damage_with_damage_bonus() {
+    use crate::game_logic::host_unit_training::VETERANCY_DAMAGE_BONUS_VETERAN;
+    use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
+
+    crate::game_logic::combat::clear_pending_projectile_queue_for_test();
+    let mut tmpl = ThingTemplate::new("Scorpion");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    tmpl.add_kind_of(KindOf::Attackable);
+    tmpl.set_health(100.0);
+    tmpl.primary_weapon_name = Some("ScorpionTankGun".into());
+    let mut atk = Object::new(tmpl, ObjectId(1), Team::GLA);
+    atk.weapon = Some(Weapon {
+        damage: 25.0,
+        range: 100.0,
+        ..Weapon::default()
+    });
+    atk.weapon_bonus_veteran = true;
+    assert!(atk.fire_at(ObjectId(2), 0.0));
+    let raw = crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name(
+        "ScorpionTankGun",
+    );
+    assert!(raw > 0.0, "ScorpionTankGun must have a secondary ring");
+    let stamped = crate::game_logic::combat::last_pending_projectile_secondary_damage_for_test()
+        .expect("queued splash");
+    let expected = raw * VETERANCY_DAMAGE_BONUS_VETERAN;
+    assert!(
+        (stamped - expected).abs() < 0.01,
+        "secondary ring must scale with DAMAGE bonus ({stamped} vs {expected})"
+    );
+    crate::game_logic::combat::clear_pending_projectile_queue_for_test();
 }
 
 #[test]
@@ -1388,6 +1427,53 @@ fn topple_residual_falls_and_dies() {
         tree.status.death_type,
         crate::game_logic::host_usa_pilot::HostDeathType::Toppled
     );
+}
+
+#[test]
+fn crate_and_chemsuit_set_terrain_decal_types() {
+    use crate::game_logic::host_battlemaster::{
+        TERRAIN_DECAL_CHEMSUIT, TERRAIN_DECAL_CRATE, TERRAIN_DECAL_SHADOW_TEXTURE,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut ct = ThingTemplate::new("SalvageCrate");
+    ct.add_kind_of(KindOf::Crate);
+    let mut crate_obj = Object::new(ct, ObjectId(1), Team::Neutral);
+    crate_obj.apply_crate_terrain_decal();
+    assert_eq!(crate_obj.terrain_decal_type, TERRAIN_DECAL_CRATE);
+    assert!(crate_obj.terrain_decal_size > 0.0);
+    assert!(crate_obj.terrain_decal_fade_rate > 0.0);
+    crate_obj.tick_terrain_decal_fade();
+    assert!(crate_obj.terrain_decal_opacity > 0.0);
+
+    let mut it = ThingTemplate::new("AmericaInfantryRanger");
+    it.add_kind_of(KindOf::Infantry);
+    let mut ranger = Object::new(it, ObjectId(2), Team::USA);
+    ranger.set_terrain_decal_chemsuit(true);
+    assert!(ranger.terrain_decal_chemsuit);
+    assert_eq!(ranger.terrain_decal_type, TERRAIN_DECAL_CHEMSUIT);
+
+    let mut ft = ThingTemplate::new("GLAFakeBarracks");
+    ft.add_kind_of(KindOf::Structure);
+    ft.add_kind_of(KindOf::FSFake);
+    let fake = Object::new(ft, ObjectId(3), Team::GLA);
+    assert_eq!(fake.terrain_decal_type, TERRAIN_DECAL_SHADOW_TEXTURE);
+}
+
+#[test]
+fn tree_topple_queues_stump_and_crush_direction() {
+    use crate::game_logic::host_topple::TOPPLE_OPTIONS_NONE;
+    use crate::game_logic::{Team, ThingTemplate};
+    let mut t = ThingTemplate::new("TreeOak");
+    t.set_health(50.0);
+    let mut tree = Object::new(t, ObjectId(4), Team::Neutral);
+    tree.health.current = 50.0;
+    assert!(!tree.apply_topple(0.0, 1.0, 2.0, TOPPLE_OPTIONS_NONE));
+    let td = tree.topple_data.as_ref().expect("topple");
+    assert!(!td.shadows_enabled);
+    assert!((td.dir_y - 1.0).abs() < 1e-5);
+    assert_eq!(td.pending_stump_name, "TreeOakStump");
+    assert_eq!(td.pending_topple_fx, "");
+    // FX already dispatched (pending cleared).
 }
 
 #[test]
@@ -3414,6 +3500,29 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     let _ = aurora.tick_jet_ai_update(50);
     let off = aurora.get_sneaky_targeting_offset(50).expect("sneaky");
     assert!((off.length() - 20.0).abs() < 0.01);
+    assert_eq!(
+        aurora.jet_ai.cur_locomotor_set.as_deref(),
+        Some("SET_SUPERSONIC")
+    );
+    assert!(crate::game_logic::host_countermeasures::victim_locomotor_is_supersonic(
+        aurora.get_cur_locomotor_set_token()
+    ));
+    assert!(
+        aurora.movement.max_speed > 200.0,
+        "SET_SUPERSONIC must dash faster than cruise, got {}",
+        aurora.movement.max_speed
+    );
+
+    aurora.status.attacking = false;
+    let persist_frames = aurora.jet_attack_loco_persist_frames();
+    let _ = aurora.tick_jet_ai_update(50 + persist_frames);
+    assert_eq!(aurora.jet_ai.attack_loco_expire_frame, 0);
+    assert_eq!(
+        aurora.jet_ai.cur_locomotor_set.as_deref(),
+        Some("SET_NORMAL")
+    );
+    aurora.status.attacking = true;
+    let _ = aurora.tick_jet_ai_update(50);
 
     let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
     sf_t.add_kind_of(KindOf::Aircraft);
@@ -3466,6 +3575,10 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
     let mut jet = Object::new(t, ObjectId(4), Team::USA);
     jet.max_lift = 8.0;
     jet.set_position(Vec3::new(0.0, 0.0, 0.0));
+    jet.apply_taxiing_locomotor_set();
+    assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+    assert!((jet.movement.max_speed - 25.0).abs() < 0.05);
+
     jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
     assert!(jet.jet_ai.afterburners_on);
     assert!(jet.jet_ai.takeoff_in_progress);

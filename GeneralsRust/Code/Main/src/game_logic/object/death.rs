@@ -689,8 +689,27 @@ impl Object {
         if self.topple_data.is_none()
             && crate::game_logic::host_topple::is_topple_capable_template(&self.template_name)
         {
-            self.topple_data = Some(crate::game_logic::host_topple::HostToppleData::default());
+            let mut td = crate::game_logic::host_topple::HostToppleData::default();
+            td.bind_authored_for_template(&self.template_name);
+            self.topple_data = Some(td);
         }
+        if let Some(td) = self.topple_data.as_mut() {
+            td.bind_authored_for_template(&self.template_name);
+        }
+    }
+
+    pub fn presentation_topple_dir(&self) -> (f32, f32) {
+        self.topple_data
+            .as_ref()
+            .map(|t| (t.dir_x, t.dir_y))
+            .unwrap_or((1.0, 0.0))
+    }
+
+    pub fn presentation_shadows_enabled(&self) -> bool {
+        self.topple_data
+            .as_ref()
+            .map(|t| t.shadows_enabled)
+            .unwrap_or(true)
     }
 
     /// C++ Object::topple residual.
@@ -706,6 +725,12 @@ impl Object {
             return false;
         }
         self.ensure_topple_data();
+        let burned = {
+            use crate::game_logic::host_enum_table_residual::burned_model_bit;
+            (self.model_condition_bits & (1u128 << burned_model_bit())) != 0
+                || self.has_object_status_bit("BURNED")
+        };
+        let pos = self.get_position();
         let kill_now = {
             let Some(td) = self.topple_data.as_mut() else {
                 return false;
@@ -713,8 +738,10 @@ impl Object {
             if !td.is_able_to_be_toppled() {
                 return false;
             }
+            td.burned_at_topple = burned;
             td.apply_toppling_force(dir_x, dir_y, topple_speed, options)
         };
+        self.dispatch_pending_topple_fx(pos);
         if kill_now {
             self.health.current = 0.0;
             self.status.destroyed = true;
@@ -723,12 +750,27 @@ impl Object {
         kill_now
     }
 
+    fn dispatch_pending_topple_fx(&mut self, pos: glam::Vec3) {
+        let Some(td) = self.topple_data.as_mut() else {
+            return;
+        };
+        if let Some(fx) = td.take_pending_topple_fx() {
+            let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
+        }
+        if let Some(fx) = td.take_pending_bounce_fx() {
+            let _ = crate::game_logic::dispatch_fx_list_at_pos(&fx, pos);
+        }
+    }
+
     /// C++ ToppleUpdate::update residual. Returns true if death-by-topple this frame.
     pub fn tick_topple(&mut self) -> bool {
         let Some(td) = self.topple_data.as_mut() else {
             return false;
         };
-        if !td.tick() {
+        let died = td.tick();
+        let pos = self.get_position();
+        self.dispatch_pending_topple_fx(pos);
+        if !died {
             return false;
         }
         // deathByToppling: UNRESISTABLE + DEATH_TOPPLED

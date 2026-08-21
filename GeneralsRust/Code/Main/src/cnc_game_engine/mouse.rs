@@ -1088,8 +1088,8 @@ impl CnCGameEngine {
             }
         }
 
-        let window_size = self.window.inner_size();
-        let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+        let (vw, vh) = self.tactical_viewport_size();
+        let viewport = glam::Vec2::new(vw, vh);
         let mut screen = Vec::new();
         for seed in &seeds {
             screen = union_object_ids(
@@ -1141,14 +1141,14 @@ impl CnCGameEngine {
             return;
         };
         let player_team = frame.local_team();
-        let window_size = self.window.inner_size();
+        let (vw, vh) = self.tactical_viewport_size();
         let similar_units = frame.similar_unit_ids_for_double_click(
             clicked_object_id,
             player_team,
             across_map,
             self.view_matrix,
             self.projection_matrix,
-            glam::Vec2::new(window_size.width as f32, window_size.height as f32),
+            glam::Vec2::new(vw, vh),
         );
         let template_label = frame
             .objects
@@ -1158,6 +1158,11 @@ impl CnCGameEngine {
             .unwrap_or_default();
 
         if similar_units.is_empty() {
+            // C++ InGameUI::selectMatchingAcrossScreen/Map: empty seed → GUI:NothingSelected.
+            self.game_hud.push_info_message("GUI:NothingSelected");
+            self.ui_manager
+                .game_hud_mut()
+                .push_info_message("GUI:NothingSelected");
             return;
         }
         let selection = if shift_down {
@@ -1165,13 +1170,21 @@ impl CnCGameEngine {
         } else {
             similar_units
         };
+        // C++ selectSingleDrawableWithoutSound + MSG_CREATE_SELECTED_GROUP_NO_SOUND.
         self.host_set_selection(self.current_player_id, selection);
-        self.play_sound_effect(SoundType::Select);
+        let msg = if across_map {
+            "GUI:SelectedAcrossMap"
+        } else {
+            "GUI:SelectedAcrossScreen"
+        };
+        self.game_hud.push_info_message(msg);
+        self.ui_manager.game_hud_mut().push_info_message(msg);
         info!(
             "Selected {} similar units ({})",
             self.selected_objects.len(),
             template_label
         );
+
     }
 
     /// C++ `isMassSelectable` + `isLocallyControlled` (`SelectionXlat.cpp:475-484`).
@@ -1325,8 +1338,8 @@ impl CnCGameEngine {
                     has_local_structure,
                 );
             let player_team = frame.local_team();
-            let window_size = self.window.inner_size();
-            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let (vw, vh) = self.tactical_viewport_size();
+            let viewport = glam::Vec2::new(vw, vh);
             let start_screen = selection_start_screen
                 .map(|start_screen| glam::Vec2::new(start_screen.0, start_screen.1));
             let garrison_target = if infantry_garrison_context_takes_region(
@@ -1833,9 +1846,7 @@ impl CnCGameEngine {
             && !self.diplomacy_panel.is_active();
         if edge_allowed {
             let (mx, my) = self.mouse_position;
-            let size = self.window.inner_size();
-            let win_w = size.width as f32;
-            let win_h = size.height as f32;
+            let (win_w, tac_h) = self.tactical_viewport_size();
             if mx < EDGE_SCROLL_SIZE {
                 edge_dx = -1.0;
             } else if mx >= win_w - EDGE_SCROLL_SIZE {
@@ -1843,7 +1854,7 @@ impl CnCGameEngine {
             }
             if my < EDGE_SCROLL_SIZE {
                 edge_dy = -1.0;
-            } else if my >= win_h - EDGE_SCROLL_SIZE {
+            } else if my >= tac_h - EDGE_SCROLL_SIZE {
                 edge_dy = 1.0;
             }
         }
@@ -1969,6 +1980,7 @@ impl CnCGameEngine {
         }
         let initial_zoom = self.camera_zoom;
         let initial_pitch = self.camera_pitch_radians;
+        let initial_fx_pitch = self.camera_fx_pitch;
         let initial_yaw = self.camera_yaw_radians;
         // C++ InGameUI.cpp:1836 TheGlobalData->m_keyboardCameraRotateSpeed per frame.
         let rotate_delta = lookat_keyboard_rotate_delta(
@@ -2050,7 +2062,7 @@ impl CnCGameEngine {
 
         if let Some(target) = self.camera_pitch_target {
             if self.camera_pitch_duration <= 0.0 {
-                self.camera_pitch_radians = target;
+                self.camera_fx_pitch = target;
                 self.camera_pitch_target = None;
                 camera_changed = true;
             } else {
@@ -2061,7 +2073,7 @@ impl CnCGameEngine {
                     self.camera_pitch_ease_in / self.camera_pitch_duration,
                     self.camera_pitch_ease_out / self.camera_pitch_duration,
                 );
-                self.camera_pitch_radians =
+                self.camera_fx_pitch =
                     self.camera_pitch_start + (target - self.camera_pitch_start) * eased;
                 camera_changed = true;
                 if t >= 1.0 {
@@ -2107,6 +2119,7 @@ impl CnCGameEngine {
         // flag, leaving a visually stale view (and consequently stale picks).
         camera_changed |= (self.camera_zoom - initial_zoom).abs() > f32::EPSILON
             || (self.camera_pitch_radians - initial_pitch).abs() > f32::EPSILON
+            || (self.camera_fx_pitch - initial_fx_pitch).abs() > f32::EPSILON
             || (self.camera_yaw_radians - initial_yaw).abs() > f32::EPSILON;
 
         // Several C++ camera entry points (minimap, selection hotkeys, and
@@ -2877,7 +2890,10 @@ impl CnCGameEngine {
         if self.camera_transform_needs_rebuild() {
             self.apply_camera_orbit_transform();
         }
-        let size = self.window.inner_size();
+        let (view_w, view_h) = self.tactical_viewport_size();
+        if self.mouse_position.1 > view_h {
+            return;
+        }
         let (world_min, world_max) = self.presentation_world_bounds();
         let picked = {
             let world_env = self
@@ -2889,8 +2905,8 @@ impl CnCGameEngine {
                 self.view_matrix,
                 self.projection_matrix,
                 self.mouse_position,
-                size.width.max(1) as f32,
-                size.height.max(1) as f32,
+                view_w,
+                view_h,
             )
             .and_then(|(near, far)| {
                 raycast_frozen_terrain(near, far, world_min, world_max, world_env).or_else(|| {

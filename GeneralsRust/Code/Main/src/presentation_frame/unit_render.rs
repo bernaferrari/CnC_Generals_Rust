@@ -100,6 +100,18 @@ pub struct UnitRenderInput {
     pub orientation: f32,
     /// C++ ToppleUpdate lean residual for mesh tilt.
     pub topple_lean_radians: f32,
+    /// C++ `m_toppleDirection.x` (host X).
+    pub topple_dir_x: f32,
+    /// C++ `m_toppleDirection.y` (host Z).
+    pub topple_dir_y: f32,
+    /// C++ `Drawable::setShadowsEnabled` residual (false while toppling).
+    pub shadows_enabled: bool,
+    /// C++ `Drawable::m_terrainDecalType` residual.
+    pub terrain_decal_type: u8,
+    /// C++ `Drawable::setTerrainDecalSize` residual (major axis).
+    pub terrain_decal_size: f32,
+    /// C++ `Drawable::m_decalOpacity` after fade LERP.
+    pub terrain_decal_opacity: f32,
     /// Frozen host primary-turret yaw (degrees). The active collector applies
     /// it only to an exact source-authored HLOD `Turret` pivot; this field
     /// must never alter the hull world matrix.
@@ -299,6 +311,12 @@ impl UnitRenderInput {
             position: ro.position,
             orientation: ro.orientation,
             topple_lean_radians: ro.topple_lean_radians,
+            topple_dir_x: ro.topple_dir_x,
+            topple_dir_y: ro.topple_dir_y,
+            shadows_enabled: ro.shadows_enabled,
+            terrain_decal_type: ro.terrain_decal_type,
+            terrain_decal_size: ro.terrain_decal_size,
+            terrain_decal_opacity: ro.terrain_decal_opacity,
             turret_angle_deg: ro.turret_angle_deg,
             turret_pitch_deg: ro.turret_pitch_deg,
             selected: ro.selected,
@@ -461,10 +479,34 @@ impl UnitRenderInput {
         // HTree bones after it has positioned the Drawable. Do not fold those
         // gameplay residuals into this hull matrix: a missing/unsupported
         // HLOD binding must keep the chassis orientation intact.
-        // C++ ToppleUpdate still tilts the whole mesh while falling.
+        // C++ ToppleUpdate::update In_Place_Pre_Rotate_X(-vel * dir.y) +
+        // In_Place_Pre_Rotate_Y(vel * dir.x). Host Y-up: C++ Y → host Z.
+        let mut dx = if self.topple_dir_x.is_finite() {
+            self.topple_dir_x
+        } else {
+            0.0
+        };
+        let mut dy = if self.topple_dir_y.is_finite() {
+            self.topple_dir_y
+        } else {
+            0.0
+        };
+        let dir_len = (dx * dx + dy * dy).sqrt();
+        if dir_len > 1e-6 {
+            dx /= dir_len;
+            dy /= dir_len;
+        } else {
+            dx = 1.0;
+            dy = 0.0;
+        }
+        let fall = if lean.abs() > 1e-8 {
+            glam::Mat4::from_rotation_x(-lean * dy) * glam::Mat4::from_rotation_z(lean * dx)
+        } else {
+            glam::Mat4::IDENTITY
+        };
         let base = glam::Mat4::from_translation(self.position)
             * glam::Mat4::from_rotation_y(self.orientation)
-            * glam::Mat4::from_rotation_x(lean)
+            * fall
             * glam::Mat4::from_scale(glam::Vec3::splat(scale));
         #[cfg(feature = "game_client")]
         {
@@ -1065,31 +1107,21 @@ impl UnitRenderInput {
             use crate::game_logic::host_enum_table_residual::{
                 aflame_model_bit, burned_model_bit, carrying_model_bit, special_cheering_model_bit,
             };
-            let death = self.death_type_name.to_ascii_lowercase();
-            let burn_b = burned_model_bit();
-            let flame_b = aflame_model_bit();
-            let smolder_b = {
+            // C++ FlammableUpdate owns AFLAME / SMOLDERING / BURNED on the live
+            // object. Host `refresh_model_condition_bits` already stamped them.
+            // Do not rewrite from death_type_name (alive burners have an empty
+            // name; death.contains("burn") is unrelated to tryToIgnite).
+            let _death = self.death_type_name.to_ascii_lowercase();
+            let _burn_b = burned_model_bit();
+            let _flame_b = aflame_model_bit();
+            let _smolder_b = {
                 use crate::game_logic::host_enum_table_residual::smoldering_model_bit;
                 smoldering_model_bit()
             };
-            bits &= !(1u128 << smolder_b);
-            if death.contains("burn") {
-                bits |= 1u128 << burn_b;
-            } else {
-                bits &= !(1u128 << burn_b);
-            }
-            if death.contains("flame") || death.contains("fire") {
-                bits |= 1u128 << flame_b;
-            } else {
-                bits &= !(1u128 << flame_b);
-            }
             // Wave 524: SMOLDERING when burned residual without active flame.
-            if (death.contains("burn") || death.contains("smolder"))
-                && !(death.contains("flame") || death.contains("fire"))
-                && self.destroyed
-            {
-                bits |= 1u128 << smolder_b;
-            }
+            // Host bits stay as-is; death.contains("smolder") is not a stamp.
+            let _ = _death;
+            let _ = (_burn_b, _flame_b, _smolder_b);
             // Wave 525: FRONTCRUSHED / BACKCRUSHED / PREORDER / USER_1 / USER_2 residual bits.
             {
                 use crate::game_logic::host_enum_table_residual::{

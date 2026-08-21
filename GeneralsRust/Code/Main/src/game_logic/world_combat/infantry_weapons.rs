@@ -822,18 +822,17 @@ impl GameLogic {
             default_map_extents, find_ocl_name, peel_for_special_power,
             plan_ocl_special_power_at_location,
         };
-        let source_pos = self.objects.get(&caster_id)?.get_position();
-        let team = self.objects.get(&caster_id)?.team;
-        let player_id = match team {
-            Team::USA => 0u32,
-            Team::China => 1,
-            Team::GLA => 2,
-            _ => 0,
+        let (source_pos, unlocked) = {
+            let caster = self.objects.get(&caster_id)?;
+            let source_pos = caster.get_position();
+            // C++ findOCL uses getControllingPlayer(), not a faction-wide slot.
+            let unlocked: Vec<String> = self
+                .player_owner_for_host_object(caster)
+                .and_then(|pid| self.get_player(pid))
+                .map(|p| p.unlocked_sciences.iter().cloned().collect())
+                .unwrap_or_default();
+            (source_pos, unlocked)
         };
-        let unlocked: Vec<String> = self
-            .get_player(player_id)
-            .map(|p| p.unlocked_sciences.iter().cloned().collect())
-            .unwrap_or_default();
         let used_upgrade = peel_for_special_power(power_template)
             .map(|p| {
                 let resolved =

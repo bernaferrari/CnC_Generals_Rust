@@ -34,8 +34,9 @@
 //!   SupW_AuroraFuelAirGas SlowDeath via host_fuel_air_gas_slow_death)
 //! - Not full HeightDieUpdate / debris CreateDebris matrix
 //! - Not full SlowDeath multi-stage timing / tree burn state / FX GPU
-//! - Not full JetAIUpdate SET_SUPERSONIC sneak offset / airfield RETURN_TO_BASE rearm path
-//!   (ClipSize/ClipReload/AutoReloadsClip residual honesty closed Wave 61)
+//! - JetAIUpdate SET_SUPERSONIC is live on HostJetAi attack persist
+//!   (airfield RETURN_TO_BASE rearm path remains residual)
+
 //! - SupW_FuelBombDetonationWeapon 900/r70 residual is host-testable via
 //!   `HostAuroraBombKind::FuelAirSupW` (AirF keeps 1000/r100)
 //! - Not multiplayer shared-synced bomb projectile (network deferred)

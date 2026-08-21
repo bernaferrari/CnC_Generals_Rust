@@ -224,9 +224,11 @@ impl Object {
                 )
             })
             .unwrap_or_default();
-        let secondary_damage = name
-            .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
-            .unwrap_or(0.0);
+        // C++ getSecondaryDamage(bonus) — WeaponBonus::DAMAGE at fire time.
+        let secondary_damage = self.effective_weapon_damage(
+            name.map(crate::game_logic::weapon_bootstrap::host_secondary_damage_for_weapon_name)
+                .unwrap_or(0.0),
+        );
         let secondary_damage_radius = name
             .map(crate::game_logic::weapon_bootstrap::host_secondary_damage_radius_for_weapon_name)
             .unwrap_or(0.0);

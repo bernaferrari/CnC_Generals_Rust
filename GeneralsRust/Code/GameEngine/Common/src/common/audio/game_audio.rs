@@ -166,11 +166,64 @@ where
 // Audio system constants
 const MAX_HW_PROVIDERS: usize = 4;
 const NUM_VOLUME_TYPES: usize = 4;
-const ST_UI: u32 = 0x0001;
-const ST_PLAYER: u32 = 0x0020;
-const ST_ALLIES: u32 = 0x0040;
-const ST_ENEMIES: u32 = 0x0080;
-const ST_EVERYONE: u32 = 0x0100;
+use super::audio_event_rts::{ST_ALLIES, ST_ENEMIES, ST_EVERYONE, ST_PLAYER, ST_UI, ST_WORLD};
+
+/// C++ `AudioManager::shouldPlayLocally` (GameAudio.cpp:988-1051).
+///
+/// Music and missing player-restriction bits default Everyone. `ST_PLAYER` +
+/// `ST_UI` with no owner plays. Else owning player must match / be ally / be enemy.
+pub fn should_play_locally_for_players(
+    type_field: u32,
+    is_music: bool,
+    owning_player_index: Int,
+    owning_player_exists: bool,
+    local_player_index: Option<Int>,
+    local_player_active: bool,
+    observer_look_at: Option<Int>,
+    local_exists_and_has_team: bool,
+    relationship_to_local: AudioLocalityRelationship,
+) -> Bool {
+    if is_music {
+        return true;
+    }
+    let player_restriction_mask = ST_PLAYER | ST_ALLIES | ST_ENEMIES | ST_EVERYONE;
+    if (type_field & player_restriction_mask) == 0 {
+        return true;
+    }
+    if (type_field & ST_EVERYONE) != 0 {
+        return true;
+    }
+    if (type_field & ST_PLAYER) != 0 && (type_field & ST_UI) != 0 && !owning_player_exists {
+        return true;
+    }
+    if !owning_player_exists {
+        return false;
+    }
+    let mut local = match local_player_index {
+        Some(index) => index,
+        None => return false,
+    };
+    if !local_player_active {
+        local = match observer_look_at {
+            Some(index) => index,
+            None => return false,
+        };
+    }
+    if !local_exists_and_has_team {
+        return false;
+    }
+    if (type_field & ST_PLAYER) != 0 {
+        return owning_player_index == local;
+    }
+    if (type_field & ST_ALLIES) != 0 {
+        return owning_player_index != local
+            && relationship_to_local == AudioLocalityRelationship::Allies;
+    }
+    if (type_field & ST_ENEMIES) != 0 {
+        return relationship_to_local == AudioLocalityRelationship::Enemies;
+    }
+    false
+}
 
 #[inline]
 fn affect_has(mask: AudioAffect, flag: AudioAffect) -> bool {
@@ -1839,7 +1892,7 @@ impl AudioManager {
         }
     }
 
-    fn should_play_locally(&self, audio_event: &AudioEventRts) -> Bool {
+    pub fn should_play_locally(&self, audio_event: &AudioEventRts) -> Bool {
         let Some(event_info) = audio_event.get_audio_event_info() else {
             return false;
         };
@@ -1857,7 +1910,7 @@ impl AudioManager {
             return true;
         }
 
-        // Preserve previous behavior until game logic resolver is registered.
+        // Live host registers a resolver; leftover PlayerList is not the player path.
         with_audio_locality_resolver(|resolver| {
             self.should_play_locally_with_resolver(audio_event, &event_info, resolver)
         })
@@ -1873,53 +1926,46 @@ impl AudioManager {
         let owning_player_index = audio_event.get_player_index();
         let owning_player_exists = resolver.player_exists(owning_player_index);
 
-        if (event_info.type_field & ST_PLAYER) != 0
-            && (event_info.type_field & ST_UI) != 0
-            && !owning_player_exists
-        {
-            return true;
-        }
-
-        if !owning_player_exists {
-            return false;
-        }
-
         let mut local_player_index = match resolver.get_local_player_index() {
             Some(index) => index,
-            None => return false,
+            None => {
+                return should_play_locally_for_players(
+                    event_info.type_field,
+                    event_info.sound_type == AudioType::Music,
+                    owning_player_index,
+                    owning_player_exists,
+                    None,
+                    false,
+                    resolver.get_observer_look_at_player_index(),
+                    false,
+                    AudioLocalityRelationship::Neutral,
+                );
+            }
         };
 
-        if !resolver.is_player_active(local_player_index) {
-            local_player_index = match resolver.get_observer_look_at_player_index() {
-                Some(index) => index,
-                None => return false,
-            };
+        let local_player_active = resolver.is_player_active(local_player_index);
+        if !local_player_active {
+            if let Some(observer) = resolver.get_observer_look_at_player_index() {
+                local_player_index = observer;
+            }
         }
 
-        if !resolver.player_exists(local_player_index)
-            || !resolver.has_default_team(local_player_index)
-        {
-            return false;
-        }
+        let local_exists_and_has_team = resolver.player_exists(local_player_index)
+            && resolver.has_default_team(local_player_index);
+        let relationship = resolver
+            .get_relationship_to_local_team(owning_player_index, local_player_index);
 
-        if (event_info.type_field & ST_PLAYER) != 0 {
-            return owning_player_index == local_player_index;
-        }
-
-        if (event_info.type_field & ST_ALLIES) != 0 {
-            return owning_player_index != local_player_index
-                && resolver
-                    .get_relationship_to_local_team(owning_player_index, local_player_index)
-                    == AudioLocalityRelationship::Allies;
-        }
-
-        if (event_info.type_field & ST_ENEMIES) != 0 {
-            return resolver
-                .get_relationship_to_local_team(owning_player_index, local_player_index)
-                == AudioLocalityRelationship::Enemies;
-        }
-
-        false
+        should_play_locally_for_players(
+            event_info.type_field,
+            event_info.sound_type == AudioType::Music,
+            owning_player_index,
+            owning_player_exists,
+            Some(local_player_index),
+            local_player_active,
+            resolver.get_observer_look_at_player_index(),
+            local_exists_and_has_team,
+            relationship,
+        )
     }
 
     // C++ parity methods used by SoundManager for audio culling
@@ -3808,6 +3854,7 @@ mod tests {
         manager.audio_settings.sample_count_3d = 1;
 
         let mut low_info = test_info("Ambient", AudioType::SoundEffect, 0, 0);
+
         low_info.type_field = ST_WORLD;
         low_info.priority = AudioPriority::Lowest;
         let mut low = event_with(low_info, 1.0);
@@ -3835,6 +3882,141 @@ mod tests {
             "lowest-priority 3D sample must be evicted for the new higher-priority play"
         );
     }
+    #[test]
+    fn should_play_locally_player_allies_enemies_match_cpp() {
+        // Missing restriction bits default Everyone.
+        assert!(should_play_locally_for_players(
+            0,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+        assert!(should_play_locally_for_players(
+            ST_EVERYONE,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+        assert!(should_play_locally_for_players(
+            ST_PLAYER,
+            true,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+
+        // ST_PLAYER: only the owning local player hears it.
+        assert!(should_play_locally_for_players(
+            ST_PLAYER,
+            false,
+            0,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+        assert!(!should_play_locally_for_players(
+            ST_PLAYER,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+
+        // ST_PLAYER+ST_UI with no owner still plays.
+        assert!(should_play_locally_for_players(
+            ST_PLAYER | ST_UI,
+            false,
+            -1,
+            false,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Neutral,
+        ));
+        // ST_PLAYER without owner (and without ST_UI) does not.
+        assert!(!should_play_locally_for_players(
+            ST_PLAYER,
+            false,
+            -1,
+            false,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Neutral,
+        ));
+
+        // ST_ALLIES: ally hears it, owner does not (PLAYER was not set).
+        assert!(should_play_locally_for_players(
+            ST_ALLIES,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+        assert!(!should_play_locally_for_players(
+            ST_ALLIES,
+            false,
+            0,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+
+        // ST_ENEMIES: only an enemy relationship plays.
+        assert!(should_play_locally_for_players(
+            ST_ENEMIES,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+        assert!(!should_play_locally_for_players(
+            ST_ENEMIES,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+    }
+
 
     #[test]
     fn set_listener_position_stores_orientation() {

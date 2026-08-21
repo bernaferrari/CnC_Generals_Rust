@@ -642,24 +642,30 @@ impl GameLogic {
                 .map(|o| o.get_position())
                 .or_else(|| self.host_object(picker_id).map(|o| o.get_position()))
                 .unwrap_or(Vec3::ZERO);
-            // C++ SalvageCrateCollide::executeCrateBehavior: armor/weapon play
-            // m_crateSalvage and never emit GUI:AddCash; money plays m_crateMoney.
+            // C++ SalvageCrateCollide::doMoney emits GUI:AddCash in player color.
+            // C++ MoneyCrateCollide never addFloatingText (audio + optional INI anim).
             let salvage_upgrade = matches!(salvage_kind, Some("armor" | "weapon"));
-            let money_feedback = salvage_kind.is_none() || matches!(salvage_kind, Some("money"));
-            if money_feedback {
-                // ExecuteAnimation MoneyPickUp residual presentation descriptor.
+            let salvage_money = matches!(salvage_kind, Some("money"));
+            let money_crate = salvage_kind.is_none();
+            if money_crate {
+                // ExecuteAnimation MoneyPickUp residual (INI-authored money crates).
                 let anim = HostMoneyCrateRegistry::money_pickup_anim(
                     crate_id, picker_id, pos, self.frame,
                 );
                 self.host_money_crates.record_money_pickup_anim(anim);
             }
-            if money_feedback && amount > 0 {
-                // Floating cash text residual presentation (`+$N` / GUI:AddCash).
-                let floating = HostMoneyCrateRegistry::money_floating_text(
-                    crate_id, picker_id, pos, amount, self.frame,
+            if salvage_money && amount > 0 {
+                let player_color = owner_player_id
+                    .and_then(|player_id| self.players.get(&player_id))
+                    .map(|player| player.color_rgb)
+                    .unwrap_or((200, 200, 200));
+                let floating = HostMoneyCrateRegistry::salvage_money_floating_text(
+                    crate_id, picker_id, pos, amount, self.frame, player_color,
                 );
                 self.host_money_crates.record_money_floating_text(floating);
             }
+            let money_feedback = money_crate || salvage_money;
+
             let audio_name = if salvage_upgrade {
                 "CrateSalvage"
             } else if money_feedback {

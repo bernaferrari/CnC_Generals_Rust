@@ -189,6 +189,9 @@ pub fn america_command_center_ocl_peels() -> Vec<OclSpecialPowerPeel> {
 }
 
 /// Resolve OCL name: first owned upgrade science, else default.
+///
+/// C++ `OCLSpecialPower::findOCL` uses `getControllingPlayer()->hasScience`.
+/// The callback must be that one player's sciences, never a faction union.
 pub fn find_ocl_name(
     peel: &OclSpecialPowerPeel,
     player_has_science: impl Fn(&str) -> bool,
@@ -700,6 +703,26 @@ mod tests {
         assert_eq!(
             find_ocl_name(a10, |_| false),
             "SUPERWEAPON_A10ThunderboltMissileStrike1"
+        );
+    }
+
+    #[test]
+    fn find_ocl_uses_controlling_player_sciences_only() {
+        // C++ findOCL: getControllingPlayer()->hasScience. Ally Strike3 is ignored.
+        let peels = america_command_center_ocl_peels();
+        let a10 = peels
+            .iter()
+            .find(|p| p.special_power_template.contains("A10"))
+            .unwrap();
+        let controller: &[&str] = &[];
+        let ally = ["SCIENCE_A10ThunderboltMissileStrike3"];
+        assert_eq!(
+            find_ocl_name(a10, |s| controller.iter().any(|c| c.eq_ignore_ascii_case(s))),
+            "SUPERWEAPON_A10ThunderboltMissileStrike1"
+        );
+        assert_eq!(
+            find_ocl_name(a10, |s| ally.iter().any(|c| c.eq_ignore_ascii_case(s))),
+            "SUPERWEAPON_A10ThunderboltMissileStrike3"
         );
     }
 

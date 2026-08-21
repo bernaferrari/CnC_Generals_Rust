@@ -132,15 +132,24 @@ impl PresentationFrame {
             return capacity.checked_sub(occupied);
         }
 
-        // C++ permits a neutral/non-owner garrison only while it is empty.
-        // The frozen host does not retain a ContainModule stealth count, so a
-        // missing/stale occupant stays conservative rather than creating the
-        // stealth-passenger exception.
-        if !same_controller
-            && (target.is_faction_structure || target.normal_enter_occupant_count() > 0)
-        {
-            return None;
+        // C++ ActionManager.cpp:656-675: non-owner may Enter a non-faction
+        // container that is empty *or* only STEALTH_GARRISON occupied.
+        // Frozen stealth count is independent of hide-from-nonallies.
+        if !same_controller {
+            if target.is_faction_structure {
+                return None;
+            }
+            let stealth = target.stealth_garrison_occupant_count as usize;
+            let contain_count = target.normal_enter_occupant_count().max(stealth);
+            let non_stealth = contain_count.saturating_sub(stealth);
+            if non_stealth > 0 {
+                return None;
+            }
+            if stealth > 0 && non_stealth == 0 {
+                return Some(usize::MAX);
+            }
         }
+
 
         if !target.normal_enter_uses_transport_slots() {
             return capacity.checked_sub(target.normal_enter_occupant_count());

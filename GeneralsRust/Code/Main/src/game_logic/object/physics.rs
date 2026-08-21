@@ -1278,10 +1278,14 @@ impl Object {
         self.contained_by.is_some() || self.status.disabled_held
     }
 
-    /// C++ deckTaxiing residual: OBJECT_STATUS_DECK_HEIGHT_OFFSET.
+    /// C++ deckTaxiing: DECK_HEIGHT_OFFSET && AI && curSet == LOCOMOTORSET_TAXIING.
     pub fn is_deck_taxiing(&self) -> bool {
         self.has_object_status_bit("DECK_HEIGHT_OFFSET")
+            && self
+                .get_cur_locomotor_set_token()
+                .is_some_and(|set| set.eq_ignore_ascii_case("SET_TAXIING"))
     }
+
 
     /// C++ PhysicsBehavior::applyFrictionalForces residual (host XZ ground).
     pub fn apply_frictional_forces(&mut self) {

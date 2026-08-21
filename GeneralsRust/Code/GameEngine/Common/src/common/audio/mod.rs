@@ -60,7 +60,7 @@ pub use audio_event_rts::{
     miles_get_effective_volume, miles_positional_gain, miles_positional_ranges, AudioEventInfo,
     AudioEventRts, AudioHandle, AudioPriority, AudioType, Coord3D, DynamicAudioEventRts,
     MilesVolumeSliders, OwnerType, PortionToPlay, TimeOfDay, AC_ALL, AC_INTERRUPT, AC_LOOP,
-    ST_GLOBAL, ST_WORLD,
+    ST_ALLIES, ST_ENEMIES, ST_EVERYONE, ST_GLOBAL, ST_PLAYER, ST_SHROUDED, ST_UI, ST_WORLD,
 };
 
 pub use audio_request::{AudioRequest, RequestData, RequestType};
@@ -71,10 +71,10 @@ pub use dynamic_audio_event_info::{BitFlags, DynamicAudioEventInfo, OverriddenFi
 
 pub use game_audio::{
     load_audio_event_inis, music_repeats_source_infinitely, register_animation_sound_library,
-    register_audio_locality_resolver, register_sound_playback_hook, sound_playback_hook_registered,
-    AudioAffect, AudioLocalityRelationship, AudioLocalityResolver, AudioManager, AudioSettings,
-    MiscAudio, MusicManager, SoundManager, SoundPlaybackHook, AHSV_STOP_THE_MUSIC,
-    AHSV_STOP_THE_MUSIC_FADE,
+    register_audio_locality_resolver, register_sound_playback_hook, should_play_locally_for_players,
+    sound_playback_hook_registered, AudioAffect, AudioLocalityRelationship, AudioLocalityResolver,
+    AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager, SoundPlaybackHook,
+    AHSV_STOP_THE_MUSIC, AHSV_STOP_THE_MUSIC_FADE,
 };
 
 pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};
@@ -84,8 +84,8 @@ pub use gameplay_audio_dispatch::{
 };
 
 pub use game_sounds::{
-    create_sound_manager, register_audio_shroud_resolver, AudioShroudResolver, PlayNowAudioQueries,
-    SoundManagerImpl,
+    create_sound_manager, register_audio_shroud_resolver, shrouded_positional_event_is_blocked,
+    AudioShroudResolver, PlayNowAudioQueries, SoundManagerImpl,
 };
 
 pub use game_speech::{

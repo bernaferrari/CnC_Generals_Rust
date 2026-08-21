@@ -256,16 +256,21 @@ impl GameLogic {
                             unit.set_status_attacking(false);
                             unit.status.destroyed = true;
                         }
-                        if let Some(team) = self.tunnel_network.team_holding_unit(contained_id) {
-                            let _ = self.tunnel_network.record_exit(team, contained_id, event.id);
+                        if let Some(player_id) = self.tunnel_network.player_holding_unit(contained_id)
+                        {
+                            let _ = self.tunnel_network.record_exit(
+                                player_id,
+                                contained_id,
+                                event.id,
+                            );
                         }
                         self.mark_object_for_destruction(contained_id, event.killer);
                     }
                 } else if chute_airborne {
                     let riders = obj.contained_units();
                     for rid in riders {
-                        if let Some(team) = self.tunnel_network.team_holding_unit(rid) {
-                            let _ = self.tunnel_network.record_exit(team, rid, event.id);
+                        if let Some(player_id) = self.tunnel_network.player_holding_unit(rid) {
+                            let _ = self.tunnel_network.record_exit(player_id, rid, event.id);
                         }
                         let _ = self.apply_rider_free_fall_damage(rid, eject_origin);
                     }
@@ -310,13 +315,14 @@ impl GameLogic {
                         }
                     }
                 } else if is_tunnel {
+                    let player_id = obj.tunnel_system_key();
                     // C++ TunnelTracker::onTunnelDestroyed (TunnelTracker.cpp:187).
                     let remaining: Vec<ObjectId> = self
                         .objects
                         .values()
                         .filter(|o| {
                             o.is_alive()
-                                && o.team == obj.team
+                                && o.tunnel_system_key() == player_id
                                 && !o.status.sold
                                 && (o.is_tunnel_network_style_container()
                                     || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
@@ -327,7 +333,7 @@ impl GameLogic {
                         .collect();
                     let outcome =
                         self.tunnel_network
-                            .on_tunnel_destroyed(obj.team, event.id, &remaining);
+                            .on_tunnel_destroyed(player_id, event.id, &remaining);
                     if outcome.cave_in {
                         for uid in outcome.cave_in_units {
                             if let Some(unit) = self.objects.get_mut(&uid) {
@@ -342,7 +348,7 @@ impl GameLogic {
                             self.mark_object_for_destruction(uid, event.killer);
                         }
                     } else if let Some(valid) = outcome.remapped_to {
-                        let pool = self.tunnel_network.contained_for_team(obj.team);
+                        let pool = self.tunnel_network.contained_for_player(player_id);
                         for uid in pool {
                             if let Some(unit) = self.objects.get_mut(&uid) {
                                 if unit.contained_by == Some(event.id) {
@@ -377,11 +383,11 @@ impl GameLogic {
                                 }
                                 if destroyed || flame_proof_kill || unit.status.destroyed {
                                     unit.status.destroyed = true;
-                                    if let Some(team) =
-                                        self.tunnel_network.team_holding_unit(contained_id)
+                                    if let Some(player_id) =
+                                        self.tunnel_network.player_holding_unit(contained_id)
                                     {
                                         let _ = self.tunnel_network.record_exit(
-                                            team,
+                                            player_id,
                                             contained_id,
                                             event.id,
                                         );
@@ -654,13 +660,19 @@ impl GameLogic {
                 _ => team != victim_team && team != Team::Neutral && victim_team != Team::Neutral,
             };
             let score_counts = self.score_the_kill_victim_counts(destroyed_object);
+            let counts_destroyed_building =
+                Self::live_score_counts_as_building_destroy(destroyed_object);
+            let counts_destroyed_unit = Self::live_score_counts_as_unit_destroy(destroyed_object);
+            let template_name = destroyed_object.template_name.clone();
             if let Some(player_id) = killer_owner_player_id {
                 let mut rank_skill = 0;
                 if let Some(player) = self.players.get_mut(&player_id) {
-                    if destroyed_is_structure {
-                        player.record_structure_destroyed();
-                    } else {
-                        player.record_unit_destroyed();
+                    if !under_construction {
+                        if counts_destroyed_building {
+                            player.record_structure_destroyed();
+                        } else if counts_destroyed_unit {
+                            player.record_unit_destroyed();
+                        }
                     }
 
                     // Cash bounty residual: award ceil(cost * percent) on enemy kill.
@@ -683,6 +695,16 @@ impl GameLogic {
                 if rank_skill != 0 {
                     let _ = self.add_player_skill_points(player_id, rank_skill);
                 }
+                if !under_construction && (counts_destroyed_building || counts_destroyed_unit) {
+                    if let Some(victim_id) = victim_owner_player_id {
+                        gamelogic::player::notify_live_object_destroyed(
+                            player_id,
+                            victim_id,
+                            &template_name,
+                            under_construction,
+                        );
+                    }
+                }
             }
         }
         if bounty_awarded > 0 {
@@ -703,11 +725,23 @@ impl GameLogic {
         }
 
         if let Some(player_id) = victim_owner_player_id {
-            if let Some(player) = self.players.get_mut(&player_id) {
-                if destroyed_is_structure {
-                    player.record_structure_lost();
-                } else {
-                    player.record_unit_lost();
+            if !under_construction {
+                let counts_lost_building =
+                    Self::live_score_counts_as_building_destroy(destroyed_object);
+                let counts_lost_unit = Self::live_score_counts_as_unit_destroy(destroyed_object);
+                if let Some(player) = self.players.get_mut(&player_id) {
+                    if counts_lost_building {
+                        player.record_structure_lost();
+                    } else if counts_lost_unit {
+                        player.record_unit_lost();
+                    }
+                }
+                if counts_lost_building || counts_lost_unit {
+                    gamelogic::player::notify_live_object_lost(
+                        player_id,
+                        &destroyed_object.template_name,
+                        under_construction,
+                    );
                 }
             }
         }
@@ -845,7 +879,11 @@ mod tests {
         if let Some(u) = logic.host_object_mut(uid) {
             u.set_contained_by(Some(t1));
         }
-        assert!(logic.tunnel_network.record_enter(Team::GLA, uid, t1));
+        assert!(logic.tunnel_network.record_enter(
+            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+            uid,
+            t1,
+        ));
         (logic, t1, t2, uid)
     }
 
@@ -860,7 +898,10 @@ mod tests {
         logic.mark_object_for_destruction(t1, None);
         logic.process_destroy_list();
         assert!(
-            logic.tunnel_network.is_in_network(Team::GLA, uid),
+            logic.tunnel_network.is_in_network(
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+                uid,
+            ),
             "occupant must stay in the shared pool"
         );
         let u = logic.host_object(uid).expect("rider lives");
@@ -876,7 +917,12 @@ mod tests {
             (p.x - origin.x).abs() < 0.01 && (p.z - origin.z).abs() < 0.01,
             "must not spill at rubble"
         );
-        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+        assert_eq!(
+            logic.tunnel_network.contain_count(
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+            ),
+            1,
+        );
     }
 
     #[test]
@@ -885,10 +931,18 @@ mod tests {
         let (mut logic, t1, t2, uid) = setup_two_tunnels_and_rider();
         logic.mark_object_for_destruction(t1, None);
         logic.process_destroy_list();
-        assert!(logic.tunnel_network.is_in_network(Team::GLA, uid));
+        assert!(logic.tunnel_network.is_in_network(
+            crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+            uid,
+        ));
         logic.mark_object_for_destruction(t2, None);
         logic.process_destroy_list();
-        assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
+        assert_eq!(
+            logic.tunnel_network.contain_count(
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+            ),
+            0,
+        );
         assert!(logic.tunnel_network.honesty_cave_in_ok());
         let dead = logic.host_object(uid);
         assert!(
@@ -904,7 +958,10 @@ mod tests {
         let (kills, _, _) = logic.apply_bunker_buster_to_target(t1, Team::USA, 100.0, None);
         assert!(kills >= 1);
         assert!(
-            !logic.tunnel_network.is_in_network(Team::GLA, uid),
+            !logic.tunnel_network.is_in_network(
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, Team::GLA),
+                uid,
+            ),
             "bunker-buster must record_exit the shared pool occupant"
         );
     }

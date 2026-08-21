@@ -4477,3 +4477,143 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
         .unwrap()
         .has_upgrade_tag("Upgrade_ChinaTacticalNukeMig"));
 }
+
+#[test]
+fn ocl_science_tiers_use_controlling_player_not_faction_union() {
+    // C++ OCLSpecialPower::findOCL — getControllingPlayer()->hasScience only.
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::special_power_strikes::{
+        A10StrikeScienceTier, ArtilleryBarrageScienceTier, ScudStormAnthraxTier, A10_SCIENCE_TIER3,
+        ARTILLERY_SCIENCE_TIER3, A10_TRANSPORT,
+    };
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA-A", true));
+    logic.add_player(Player::new(1, Team::USA, "USA-B", false));
+    logic.add_player(Player::new(2, Team::China, "China-A", false));
+    logic.add_player(Player::new(3, Team::China, "China-B", false));
+    logic.add_player(Player::new(4, Team::GLA, "GLA-A", false));
+    logic.add_player(Player::new(5, Team::GLA, "GLA-B", false));
+
+    logic
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .unlocked_sciences
+        .insert(A10_SCIENCE_TIER3.into());
+    logic
+        .players
+        .get_mut(&3)
+        .unwrap()
+        .unlocked_sciences
+        .insert(ARTILLERY_SCIENCE_TIER3.into());
+    logic
+        .players
+        .get_mut(&5)
+        .unwrap()
+        .unlocked_sciences
+        .insert("Upgrade_GLAAnthraxBeta".into());
+
+    let mut usa_cc = ThingTemplate::new("AmericaCommandCenter");
+    usa_cc
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    logic.templates.insert("AmericaCommandCenter".into(), usa_cc);
+    let mut china_cc = ThingTemplate::new("ChinaCommandCenter");
+    china_cc
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::CommandCenter)
+        .set_health(5000.0);
+    logic.templates.insert("ChinaCommandCenter".into(), china_cc);
+    let mut gla_cc = ThingTemplate::new("GLAScudStorm");
+    gla_cc.add_kind_of(KindOf::Structure).set_health(5000.0);
+    logic.templates.insert("GLAScudStorm".into(), gla_cc);
+
+    let usa_src = logic
+        .create_object_for_player("AmericaCommandCenter", 0, glam::Vec3::ZERO)
+        .unwrap();
+    let china_src = logic
+        .create_object_for_player(
+            "ChinaCommandCenter",
+            2,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let gla_src = logic
+        .create_object_for_player("GLAScudStorm", 4, glam::Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+
+    let a10 = logic
+        .queue_special_power_strike(
+            &SpecialPowerType::Airstrike,
+            usa_src,
+            glam::Vec3::new(100.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert_eq!(
+        logic.special_power_strike_a10_tier(a10),
+        Some(A10StrikeScienceTier::Level1)
+    );
+    let jets = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.a10_strike_transport.is_some())
+        .count();
+    assert_eq!(jets, 1, "ally A10-3 must not upgrade this player's strike");
+    assert!(logic
+        .host_objects()
+        .values()
+        .filter(|o| o.a10_strike_transport.is_some())
+        .all(|o| o.template_name == A10_TRANSPORT));
+
+    let arty = logic
+        .queue_special_power_strike(
+            &SpecialPowerType::Artillery,
+            china_src,
+            glam::Vec3::new(120.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert_eq!(
+        logic
+            .special_power_strikes()
+            .get(arty)
+            .map(|s| s.artillery_tier),
+        Some(ArtilleryBarrageScienceTier::Level1)
+    );
+
+    let scud = logic
+        .queue_special_power_strike(
+            &SpecialPowerType::ScudStorm,
+            gla_src,
+            glam::Vec3::new(140.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert_eq!(
+        logic
+            .special_power_strikes()
+            .get(scud)
+            .map(|s| s.scud_anthrax_tier),
+        Some(ScudStormAnthraxTier::Base)
+    );
+
+    let usa_up = logic
+        .create_object_for_player(
+            "AmericaCommandCenter",
+            1,
+            glam::Vec3::new(30.0, 0.0, 0.0),
+        )
+        .unwrap();
+    let a10_up = logic
+        .queue_special_power_strike(
+            &SpecialPowerType::Airstrike,
+            usa_up,
+            glam::Vec3::new(160.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert_eq!(
+        logic.special_power_strike_a10_tier(a10_up),
+        Some(A10StrikeScienceTier::Level3)
+    );
+}

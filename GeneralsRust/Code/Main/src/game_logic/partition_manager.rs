@@ -190,6 +190,11 @@ impl PartitionManager {
         self.object_cells.len()
     }
 
+    pub fn is_registered(&self, id: u32) -> bool {
+        self.object_cells.contains_key(&id)
+    }
+
+
     pub fn cell_count(&self) -> usize {
         self.cells.len()
     }

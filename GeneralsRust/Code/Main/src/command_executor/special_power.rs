@@ -473,6 +473,13 @@ impl<'a> CommandExecutor<'a> {
                         .spawn_cluster_mines_flight(unit_id, pos)
                         .is_none()
                     {
+                        // C++ createViewObject still fires when OCL create fails.
+                        let _ = self.game_logic.create_special_power_view_object_at(
+                            unit_id,
+                            pos,
+                            crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_RANGE,
+                            crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
+                        );
                         // Fail-open residual: place mines immediately if flight spawn fails.
                         let placed = self
                             .game_logic

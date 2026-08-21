@@ -76,6 +76,35 @@ impl Object {
         }
     }
 
+    /// Leftover `desired_locomotor_set` / Chinook landed install of SET_TAXIING.
+    fn apply_leftover_taxiing_locomotor_set(&mut self) {
+        let chinook_landed = self.chinook_ai.as_ref().is_some_and(|ai| {
+            ai.flight_status
+                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+        });
+        let jet_ground_taxi = (self.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            || self.object_type == ObjectType::Aircraft)
+            && !self.jet_allows_air_loco();
+        if !chinook_landed && !jet_ground_taxi {
+            return;
+        }
+        if self
+            .get_cur_locomotor_set_token()
+            .is_some_and(|set| set.eq_ignore_ascii_case("SET_TAXIING"))
+        {
+            return;
+        }
+        if chinook_landed {
+            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+                self,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Taxiing,
+            );
+        } else {
+            self.apply_taxiing_locomotor_set();
+        }
+    }
+
+
     /// Clear per-frame blocked residual at start of AI/physics tick.
     pub fn clear_blocked_frame_state(&mut self) {
         if self.is_blocked {
@@ -614,6 +643,8 @@ impl Object {
     ///
     /// `ground_y` is terrain height at object XZ. Returns true if a bounce force was applied.
     pub fn tick_physics_motion_step(&mut self, ground_y: f32) -> bool {
+        self.apply_leftover_taxiing_locomotor_set();
+
         self.ground_height = ground_y;
 
         // C++ PhysicsUpdate.cpp:626 — DISABLED_HELD skips gravity/friction/Euler.

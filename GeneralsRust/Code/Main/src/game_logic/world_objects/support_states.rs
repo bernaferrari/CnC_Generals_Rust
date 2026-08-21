@@ -922,19 +922,24 @@ impl GameLogic {
             .authored_rider_change_rider_for_template(&rider.template_name)?
             .clone();
         // Parse-time metadata can outlive a LocomotorStore reload or an old
-        // snapshot.  Re-resolve the complete exact authored SET_NORMAL row
-        // before any eject mutation; no generic template/default locomotor
-        // (nor a single arbitrarily chosen surface member) is a valid
-        // substitute for this RiderN locomotor set.
+        // snapshot.  Re-resolve the complete exact authored SET_NORMAL /
+        // SET_SLUGGISH row before any eject mutation; no generic
+        // template/default locomotor (nor a single arbitrarily chosen
+        // surface member) is a valid substitute for this RiderN set.
         let active_locomotor_name = rider_metadata.active_locomotor_name.clone()?;
-        if !rider_metadata
+        let set_ok = rider_metadata
             .locomotor_set
             .eq_ignore_ascii_case("SET_NORMAL")
+            || rider_metadata
+                .locomotor_set
+                .eq_ignore_ascii_case("SET_SLUGGISH");
+        if !set_ok
             || rider_metadata.active_locomotor_names.is_empty()
             || rider_metadata.active_locomotor_surfaces == 0
         {
             return None;
         }
+
         let active_locomotor =
             crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set(
                 &rider_metadata.active_locomotor_names,
@@ -1281,6 +1286,61 @@ impl GameLogic {
             }
         }
         true
+    }
+
+    /// C++ `OpenContain::onCollide` (`OpenContain.cpp:777-814`): when a unit
+    /// whose `getEnterTarget` is this container arrives, eject every rider
+    /// whose controlling player differs. `KINDOF_STEALTH_GARRISON` riders are
+    /// `markAsDetected` so they do not stay cloaked after the kick-out.
+    fn eject_foreign_occupants_on_enter(
+        &mut self,
+        container_id: ObjectId,
+        entering_id: ObjectId,
+    ) {
+        let Some(enterer) = self.objects.get(&entering_id) else {
+            return;
+        };
+        let enterer_owner = enterer.owner_player_id;
+        let enterer_team = enterer.team;
+        let Some((position, occupants)) = self.objects.get(&container_id).map(|container| {
+            (container.get_position(), container.contained_units())
+        }) else {
+            return;
+        };
+
+        let mut kicked = Vec::new();
+        for occupant_id in occupants {
+            let Some(occupant) = self.objects.get(&occupant_id) else {
+                continue;
+            };
+            let different_player = match (occupant.owner_player_id, enterer_owner) {
+                (Some(a), Some(b)) => a != b,
+                _ => occupant.team != enterer_team,
+            };
+            if !different_player {
+                continue;
+            }
+            let stealth_garrison = occupant.is_kind_of(KindOf::StealthGarrison);
+            kicked.push((occupant_id, stealth_garrison));
+        }
+        if kicked.is_empty() {
+            return;
+        }
+
+        if let Some(container) = self.objects.get_mut(&container_id) {
+            for (occupant_id, _) in &kicked {
+                let _ = container.remove_occupant(*occupant_id);
+            }
+        }
+        for (occupant_id, stealth_garrison) in kicked {
+            let _ = self.unit_command_exit_drop(occupant_id, position);
+            if stealth_garrison {
+                if let Some(occupant) = self.objects.get_mut(&occupant_id) {
+                    occupant.set_status_detected(true);
+                }
+            }
+        }
+        self.recalc_garrison_apparent_controller(container_id);
     }
 
     /// C++ `GarrisonContain::removeAllContained(TRUE)` on a capture trigger.
@@ -2145,6 +2205,15 @@ impl GameLogic {
                     }
 
                     if can_attack {
+                        if let Some(team_id) = self.host_team_common_target(object_id) {
+                            if !(without_pursuit && position.distance(anchor) > inner)
+                                && self.engage_target_decision_aware(object_id, team_id)
+                            {
+                                continue;
+                            }
+                        }
+                    }
+                    if can_attack {
                         let mut best: Option<(ObjectId, f32)> = None;
                         for (cand_id, cand) in self.objects.iter() {
                             if *cand_id == object_id || !cand.is_alive() {
@@ -2193,6 +2262,7 @@ impl GameLogic {
                             }
                         }
                         if let Some((enemy_id, _)) = best {
+                            self.set_host_team_common_target(object_id, Some(enemy_id));
                             if without_pursuit && position.distance(anchor) > inner {
                                 if can_move {
                                     self.path_approach_with_state(
@@ -2336,7 +2406,11 @@ impl GameLogic {
                                 },
                             );
                             if guard_is_tunnel {
-                                self.resolved_tunnel_nemesis(team)
+                                let key = self
+                                    .objects
+                                    .get(&guard_target_id)
+                                    .map(|g| g.tunnel_system_key());
+                                key.and_then(|k| self.resolved_tunnel_nemesis(k))
                             } else {
                                 None
                             }
@@ -2929,7 +3003,13 @@ impl GameLogic {
                     // ContainModule/owner/capacity authority at arrival.  Dock
                     // deliberately stays on its separate state machine below.
                     let normal_enter = state == AIState::Entering;
+                    // C++ OpenContain::onCollide ejects foreign riders first,
+                    // then isValidContainerFor + addToContain.
+                    if normal_enter {
+                        self.eject_foreign_occupants_on_enter(container_id, object_id);
+                    }
                     if normal_enter && !self.can_unit_enter_normal_target(object_id, container_id) {
+
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
                             obj.set_target(None);
@@ -2945,6 +3025,7 @@ impl GameLogic {
                         container_pos,
                         container_radius,
                         container_team,
+                        container_owner_player_id,
                         container_is_structure,
                         container_is_faction_structure,
                         container_is_overlord_bunker,
@@ -2967,6 +3048,7 @@ impl GameLogic {
                             container.get_position(),
                             container.selection_radius,
                             container.team,
+                            container.owner_player_id,
                             container.is_kind_of(KindOf::Structure),
                             container.is_faction_structure(),
                             container.is_overlord_style_container()
@@ -3054,7 +3136,7 @@ impl GameLogic {
                     // Tunnel network residual: units already in the shared pool may
                     // transfer to another allied tunnel without walking (can_move false).
                     let already_in_tunnel_network = (container_is_tunnel_network
-                        && self.tunnel_network.team_holding_unit(object_id).is_some())
+                        && self.tunnel_network.player_holding_unit(object_id).is_some())
                         || (container_is_cave
                             && self.cave_system.index_holding_unit(object_id).is_some());
 
@@ -3071,9 +3153,28 @@ impl GameLogic {
                     }
 
                     if !normal_enter
+                        && container_is_tunnel_network
+                        && matches!(
+                            (owner_player_id, container_owner_player_id),
+                            (Some(a), Some(b)) if a != b
+                        )
+                    {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_moving();
+                            obj.set_target(None);
+                        }
+                        continue;
+                    }
+                    if !normal_enter
                         && container_team != team
                         && container_team != Team::Neutral
-                        && (container_is_faction_structure || container_occupant_count > 0)
+                        && (container_is_faction_structure
+                            || self
+                                .objects
+                                .get(&container_id)
+                                .is_some_and(|c| {
+                                    self.stealth_garrison_occupant_counts(c).1 > 0
+                                }))
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
@@ -3113,9 +3214,13 @@ impl GameLogic {
                     }
 
                     // Tunnel shared capacity (MaxTunnelCapacity=10) overrides local space.
+                    let tunnel_player = crate::game_logic::host_tunnel_network::tunnel_system_key(
+                        container_owner_player_id,
+                        container_team,
+                    );
                     let tunnel_has_space = if container_is_tunnel_network {
-                        self.tunnel_network.is_in_network(team, object_id)
-                            || self.tunnel_network.has_capacity(team)
+                        self.tunnel_network.is_in_network(tunnel_player, object_id)
+                            || self.tunnel_network.has_capacity(tunnel_player)
                     } else if container_is_cave {
                         let idx = self
                             .objects
@@ -3127,9 +3232,23 @@ impl GameLogic {
                     } else {
                         true
                     };
+                    // C++ OpenContain::onCollide: eject other-player riders first.
+                    if !container_is_tunnel_network && !container_is_cave {
+                        self.kick_other_controller_occupants_for_enter(
+                            container_id,
+                            object_id,
+                        );
+                    }
+                    let space_after_kick = self
+                        .objects
+                        .get(&container_id)
+                        .is_some_and(|c| {
+                            c.has_capacity_for(1) || c.contained_units().contains(&object_id)
+                        });
                     let can_enter = container_has_unit
                         || (container_has_space && tunnel_has_space)
-                        || already_in_tunnel_network;
+                        || already_in_tunnel_network
+                        || space_after_kick;
                     if !can_enter {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
@@ -3173,10 +3292,11 @@ impl GameLogic {
 
                     // Shared pool bookkeeping for tunnel residual.
                     if container_is_tunnel_network {
-                        if !self
-                            .tunnel_network
-                            .record_enter(team, object_id, container_id)
-                        {
+                        if !self.tunnel_network.record_enter(
+                            tunnel_player,
+                            object_id,
+                            container_id,
+                        ) {
                             // Capacity race: undo local occupant add.
                             if let Some(container) = self.objects.get_mut(&container_id) {
                                 container.remove_occupant(object_id);
@@ -4019,9 +4139,9 @@ impl GameLogic {
                     match ability {
                         PendingSpecialAbility::Hijack { .. } => {
                             // C++ ConvertToHijackedVehicleCrateCollide residual:
-                            // walk → transfer team + OBJECT_STATUS_HIJACKED; hijacker
-                            // consumed (fail-closed vs hide-in-vehicle HijackerUpdate).
-                            // Endow MAX veterancy + cancel dozer tasks via apply_hijacked_from.
+                            // walk → transfer team + OBJECT_STATUS_HIJACKED;
+                            // ride-hide (drawable + partition unRegister) or consume.
+                            // Endow MAX veterancy + hijacker vision/shroud + cancel dozer tasks.
                             // C++ order: tryInfiltrationEvent → EVA_VehicleStolen → setTeam.
                             self.try_infiltration_event(special_target_id);
                             self.try_eva_vehicle_stolen(special_target_id);
@@ -4079,6 +4199,8 @@ impl GameLogic {
                                 if let Some(h) = self.objects.get_mut(&object_id) {
                                     h.begin_hijacker_in_vehicle(special_target_id);
                                 }
+                                // C++ ThePartitionManager->unRegisterObject(hijacker).
+                                self.partition_manager.unregister_object(object_id.0);
                             } else {
                                 self.mark_destroyed_authority_aware(object_id, None);
                                 // Suppress SlowDeath/jet/heli peels so consume sticks.
@@ -5520,7 +5642,7 @@ impl GameLogic {
             heal_contain_done, tunnel_tracker_heal_amount, TUNNEL_FULL_HEAL_FRAMES,
         };
 
-        let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>, glam::Vec3)> = Vec::new();
+        let mut heal_jobs: Vec<(ObjectId, u32, Vec<ObjectId>)> = Vec::new();
         for (&id, obj) in &self.objects {
             if !obj.thing.template.contain_module.kind.is_heal_contain() {
                 continue;
@@ -5538,10 +5660,10 @@ impl GameLogic {
             if occupants.is_empty() {
                 continue;
             }
-            heal_jobs.push((id, frames, occupants, obj.get_position()));
+            heal_jobs.push((id, frames, occupants));
         }
-        for (container_id, frames, occupants, origin) in heal_jobs {
-            for (i, unit_id) in occupants.into_iter().enumerate() {
+        for (container_id, frames, occupants) in heal_jobs {
+            for unit_id in occupants {
                 let enter_frame = self
                     .tunnel_network
                     .contained_by_frame(unit_id)
@@ -5569,24 +5691,15 @@ impl GameLogic {
                 if let Some(container) = self.objects.get_mut(&container_id) {
                     let _ = container.remove_occupant(unit_id);
                 }
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.set_contained_by(None);
-                    unit.target = None;
-                    let angle = (i as f32) * 0.9;
-                    let drop =
-                        origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
-                    unit.set_position(drop);
-                    unit.stop_moving();
-                    unit.set_ai_state(AIState::Idle);
-                    unit.status.moving = false;
-                }
+                // C++ HealContain::update → exitObjectViaDoor (ExitStart/End + path).
+                self.walk_unit_via_open_contain_exit(unit_id, container_id);
                 self.tunnel_network.clear_contained_by_frame(unit_id);
                 self.tunnel_network.record_heal_auto_exit();
             }
         }
 
         // Each living TunnelContain::update heals the shared tracker (C++ per-entrance).
-        let mut tunnel_ticks: Vec<(Team, u32)> = Vec::new();
+        let mut tunnel_ticks: Vec<(u32, u32)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
@@ -5602,10 +5715,10 @@ impl GameLogic {
                 .contain_module
                 .frames_for_full_heal
                 .unwrap_or(TUNNEL_FULL_HEAL_FRAMES);
-            tunnel_ticks.push((obj.team, frames));
+            tunnel_ticks.push((obj.tunnel_system_key(), frames));
         }
-        for (team, frames) in tunnel_ticks {
-            let passengers = self.tunnel_network.contained_for_team(team);
+        for (player_id, frames) in tunnel_ticks {
+            let passengers = self.tunnel_network.contained_for_player(player_id);
             for unit_id in passengers {
                 let enter_frame = self
                     .tunnel_network
@@ -5631,19 +5744,20 @@ impl GameLogic {
         }
     }
 
-
-
     /// C++ `TunnelTracker::getCurNemesis` object-validity half.
-    fn resolved_tunnel_nemesis(&mut self, team: Team) -> Option<ObjectId> {
-        let Some(id) = self.tunnel_network.get_cur_nemesis_id(team, self.frame) else {
+    fn resolved_tunnel_nemesis(&mut self, player_id: u32) -> Option<ObjectId> {
+        let Some(id) = self
+            .tunnel_network
+            .get_cur_nemesis_id(player_id, self.frame)
+        else {
             return None;
         };
         let Some(obj) = self.objects.get(&id) else {
-            self.tunnel_network.clear_nemesis(team);
+            self.tunnel_network.clear_nemesis(player_id);
             return None;
         };
         if !obj.is_alive() || obj.status.effectively_dead || obj.is_effectively_stealthed() {
-            self.tunnel_network.clear_nemesis(team);
+            self.tunnel_network.clear_nemesis(player_id);
             return None;
         }
         Some(id)
@@ -5654,7 +5768,7 @@ impl GameLogic {
         use crate::game_logic::KindOf;
         use gamelogic::common::Relationship;
 
-        let mut writes: Vec<(Team, ObjectId)> = Vec::new();
+        let mut writes: Vec<(u32, ObjectId)> = Vec::new();
         for obj in self.objects.values() {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
@@ -5675,9 +5789,9 @@ impl GameLogic {
             if ts.saturating_add(30) <= self.frame {
                 continue;
             }
-            writes.push((obj.team, src));
+            writes.push((obj.tunnel_system_key(), src));
         }
-        for (team, src) in writes {
+        for (player_id, src) in writes {
             let Some((v, s, inf, air, att_team, att_alive, att_owner, tunnel_rel_enemies)) = self
                 .objects
                 .get(&src)
@@ -5697,7 +5811,7 @@ impl GameLogic {
                         return None;
                     }
                     let tunnel = self.objects.values().find(|o| {
-                        o.team == team
+                        o.tunnel_system_key() == player_id
                             && o.is_alive()
                             && (o.is_tunnel_network_style_container()
                                 || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
@@ -5723,20 +5837,20 @@ impl GameLogic {
                 continue;
             }
             self.tunnel_network
-                .update_nemesis(team, src, v, s, inf, air, self.frame);
+                .update_nemesis(player_id, src, v, s, inf, air, self.frame);
         }
 
         // AITNGuard::lookForInnerTarget residual: pool units that are
         // GuardTunnelNetwork / tunnel-defender sally to the tracker nemesis.
-        let teams: Vec<Team> = self.tunnel_network_teams_with_occupants();
-        for team in teams {
-            let Some(nemesis) = self.resolved_tunnel_nemesis(team) else {
+        let players: Vec<u32> = self.tunnel_network.occupant_player_ids();
+        for player_id in players {
+            let Some(nemesis) = self.resolved_tunnel_nemesis(player_id) else {
                 continue;
             };
             let Some(nemesis_pos) = self.objects.get(&nemesis).map(|o| o.get_position()) else {
                 continue;
             };
-            let passengers = self.tunnel_network.contained_for_team(team);
+            let passengers = self.tunnel_network.contained_for_player(player_id);
             let mut sally: Vec<(ObjectId, ObjectId)> = Vec::new();
             for uid in passengers {
                 let Some(unit) = self.objects.get(&uid) else {
@@ -5762,14 +5876,16 @@ impl GameLogic {
                 let exit_tunnel = self
                     .tunnel_network
                     .entry_tunnel_of(uid)
-                    .or_else(|| self.first_living_tunnel_for_team(team));
+                    .or_else(|| self.first_living_tunnel_for_player(player_id));
                 let Some(exit_tunnel) = exit_tunnel else {
                     continue;
                 };
                 sally.push((uid, exit_tunnel));
             }
             for (uid, exit_tunnel) in sally {
-                let _ = self.tunnel_network.record_exit(team, uid, exit_tunnel);
+                let _ = self
+                    .tunnel_network
+                    .record_exit(player_id, uid, exit_tunnel);
                 let pos = self
                     .objects
                     .get(&exit_tunnel)
@@ -5791,16 +5907,9 @@ impl GameLogic {
         }
     }
 
-    fn tunnel_network_teams_with_occupants(&self) -> Vec<Team> {
-        [Team::USA, Team::China, Team::GLA]
-            .into_iter()
-            .filter(|team| self.tunnel_network.contain_count(*team) > 0)
-            .collect()
-    }
-
-    fn first_living_tunnel_for_team(&self, team: Team) -> Option<ObjectId> {
+    fn first_living_tunnel_for_player(&self, player_id: u32) -> Option<ObjectId> {
         self.objects.iter().find_map(|(id, o)| {
-            if o.team == team
+            if o.tunnel_system_key() == player_id
                 && o.is_alive()
                 && !o.status.sold
                 && (o.is_tunnel_network_style_container()

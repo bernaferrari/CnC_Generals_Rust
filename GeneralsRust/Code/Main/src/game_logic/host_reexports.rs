@@ -582,10 +582,13 @@ pub use super::host_bridge_behavior::{
     BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE,
 };
 pub use super::host_tunnel_network::{
-    is_tunnel_network_template, tunnel_network_gun_weapon, unit_can_use_tunnel,
-    HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
-    TUNNEL_NETWORK_GUN_DAMAGE, TUNNEL_NETWORK_GUN_RANGE,
+    is_sneak_attack_tunnel_template, is_tunnel_network_template, tunnel_network_gun_dummy_weapon,
+    tunnel_network_gun_weapon, tunnel_network_primary_weapon, tunnel_system_key,
+    unit_can_use_tunnel, HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES,
+    TUNNEL_NETWORK_GUN, TUNNEL_NETWORK_GUN_DAMAGE, TUNNEL_NETWORK_GUN_DUMMY,
+    TUNNEL_NETWORK_GUN_DUMMY_DAMAGE, TUNNEL_NETWORK_GUN_RANGE,
 };
+
 pub use super::host_ui_presentation_residual::{
     honesty_eva_residual_pack_wave91, honesty_help_box_residual_pack_wave91,
     honesty_message_residual_pack_wave91, honesty_mission_briefing_residual_pack_wave91,

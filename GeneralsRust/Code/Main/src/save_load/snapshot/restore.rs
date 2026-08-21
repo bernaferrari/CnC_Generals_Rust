@@ -559,6 +559,7 @@ impl SnapshotBuilder {
                 queued_upgrades,
                 is_local: snap.is_human,
                 is_alive: snap.is_active,
+                is_observer: false,
                 did_preorder: false,
                 statistics,
                 power_sabotaged_till_frame: 0,

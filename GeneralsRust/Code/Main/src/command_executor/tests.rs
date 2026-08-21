@@ -2042,11 +2042,18 @@ fn attack_area_engages_enemy_inside_radius() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0),
+            exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0, None),
             CommandResult::Success
         );
     }
     let unit = logic.host_object(u).unwrap();
+    assert!(
+        unit.attack_priority_set
+            .as_deref()
+            .is_some_and(|t| t.starts_with("AIGroup.AttackArea.")),
+        "AttackArea must persist AIAttackAreaState tag, got {:?}",
+        unit.attack_priority_set
+    );
     assert!(
         unit.target == Some(e)
             || matches!(

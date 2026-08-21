@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game_logic::host_mines::{
     CLUSTER_MINES_BOMB_TEMPLATE, CLUSTER_MINES_DELIVERY_DISTANCE, CLUSTER_MINES_OCL_TRANSPORT,
+    CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES, CLUSTER_MINES_VIEW_OBJECT_RANGE,
     CLUSTER_MINE_NUM_VIRTUAL,
 };
 
@@ -94,6 +95,8 @@ pub fn honesty_cluster_mines_flight_residual_ok() -> bool {
         && CLUSTER_MINES_BOMB_OBJECT == "ClusterMinesBomb"
         && (CLUSTER_MINES_DELIVERY_DISTANCE - 140.0).abs() < 0.1
         && CLUSTER_MINE_NUM_VIRTUAL == 8
+        && CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES == 900
+        && (CLUSTER_MINES_VIEW_OBJECT_RANGE - 250.0).abs() < 0.01
 }
 
 #[cfg(test)]

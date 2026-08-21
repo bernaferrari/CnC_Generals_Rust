@@ -500,6 +500,7 @@ impl GameLogic {
     pub fn add_ai_opponent(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
         self.ensure_ai_faction_templates(team);
         self.ai_manager.add_ai_player(player_id, team, difficulty);
+        crate::ai::AIManager::apply_ctor_can_build_units(self, player_id);
     }
 
     /// After `load_map` wipes world objects, rebind host AI rebuild soup and

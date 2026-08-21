@@ -674,6 +674,8 @@ pub enum DamageEvent {
         shooter_team: crate::game_logic::Team,
         /// Shooter template name residual (NOT_SIMILAR filter).
         shooter_template: String,
+        /// C++ `primaryVictim`: intended target skips RadiusDamageAffects.
+        primary_victim: Option<ObjectId>,
     },
 }
 
@@ -886,6 +888,15 @@ pub fn last_pending_projectile_damage_type_for_test() -> Option<DamageType> {
         .lock()
         .ok()
         .and_then(|q| q.last().map(|p| p.damage_type))
+}
+
+/// Test helper: last queued projectile secondary-ring amount.
+#[cfg(test)]
+pub fn last_pending_projectile_secondary_damage_for_test() -> Option<f32> {
+    PENDING_PROJECTILES
+        .lock()
+        .ok()
+        .and_then(|q| q.last().map(|p| p.secondary_damage))
 }
 
 /// Drain all pending projectiles and spawn them into the combat system.
@@ -1390,6 +1401,7 @@ impl CombatSystem {
                                     .get(&projectile.shooter_id)
                                     .map(|o| o.template_name.clone())
                                     .unwrap_or_default(),
+                                primary_victim: projectile.target_id,
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()
@@ -1519,6 +1531,7 @@ impl CombatSystem {
                                 .get(&projectile.shooter_id)
                                 .map(|o| o.template_name.clone())
                                 .unwrap_or_default(),
+                            primary_victim: projectile.target_id,
                         });
                     } else if !projectile.no_damage {
                         damage_events.push(DamageEvent::Direct {
@@ -1617,6 +1630,7 @@ impl CombatSystem {
                                         .get(&projectile.shooter_id)
                                         .map(|o| o.template_name.clone())
                                         .unwrap_or_default(),
+                                    primary_victim: projectile.target_id,
                                 });
                             } else if !projectile.no_damage {
                                 damage_events.push(DamageEvent::Direct {
@@ -1685,6 +1699,7 @@ impl CombatSystem {
                                     .get(&projectile.shooter_id)
                                     .map(|o| o.template_name.clone())
                                     .unwrap_or_default(),
+                                primary_victim: projectile.target_id,
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()
@@ -1757,11 +1772,13 @@ impl CombatSystem {
                     shooter_team,
                     shooter_template,
                     shooter_id,
+                    primary_victim,
                     ..
                 } => {
                     // C++ dealDamageInternal (Weapon.cpp:1438):
-                    //   dist <= primaryRadius → primaryDamage
+                    //   FROM_BOUNDINGSPHERE_3D dist <= primaryRadius → primaryDamage
                     //   else within max(primary, secondary) → secondaryDamage
+                    // Primary victim skips RadiusDamageAffects (Weapon.cpp:1316-1375).
                     // No distance falloff of the amount; only ShockWave tapers.
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
@@ -1777,29 +1794,42 @@ impl CombatSystem {
                     };
                     for (vid, obj) in objects.iter_mut() {
                         let op = obj.get_position();
-                        let dist = op.distance(*position);
+                        let dist = splash_from_bounding_sphere_3d(
+                            *position,
+                            op,
+                            victim_splash_sphere_radius(obj),
+                        );
                         if dist > push_outer {
                             continue;
                         }
-                        let airborne =
-                            obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
-                        let same_tmpl =
-                            !shooter_template.is_empty() && obj.template_name == *shooter_template;
-                        let allowed =
-                            crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
-                                *radius_damage_affects,
-                                *shooter_team,
-                                *shooter_id,
-                                *vid,
-                                obj.team,
-                                airborne,
-                                same_tmpl,
-                            );
-                        if !allowed {
-                            continue;
+                        let is_primary = *primary_victim == Some(*vid);
+                        let kills_self = (*radius_damage_affects
+                            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
+                            != 0
+                            && *vid == *shooter_id;
+                        if !is_primary && !kills_self {
+                            let airborne =
+                                obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                            let same_tmpl = !shooter_template.is_empty()
+                                && obj.template_name == *shooter_template;
+                            let allowed =
+                                crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
+                                    *radius_damage_affects,
+                                    *shooter_team,
+                                    *shooter_id,
+                                    *vid,
+                                    obj.team,
+                                    airborne,
+                                    same_tmpl,
+                                );
+                            if !allowed {
+                                continue;
+                            }
                         }
                         if dist <= outer {
-                            let area_damage = if dist <= primary_r {
+                            let area_damage = if kills_self && !is_primary {
+                                HUGE_DAMAGE_AMOUNT
+                            } else if dist <= primary_r {
                                 *damage
                             } else if secondary_r > 0.0 {
                                 *secondary_damage
@@ -1973,7 +2003,7 @@ fn apply_countermeasure_report_and_decoy(
                     let airborne = target.is_kind_of(KindOf::Aircraft)
                         || target.status.airborne_target;
                     let supersonic = victim_locomotor_is_supersonic(
-                        target.rider_change_locomotor_set.as_deref(),
+                        target.get_cur_locomotor_set_token(),
                     );
                     if has_cm && airborne && !supersonic {
                         let tmpl = target.template_name.clone();
@@ -2027,6 +2057,30 @@ fn apply_countermeasure_report_and_decoy(
             }
         }
     }
+}
+
+/// C++ `HUGE_DAMAGE_AMOUNT` (Damage.h) for `WEAPON_KILLS_SELF`.
+const HUGE_DAMAGE_AMOUNT: f32 = 999_999.0;
+
+/// C++ `DAMAGE_RANGE_CALC_TYPE = FROM_BOUNDINGSPHERE_3D` (Weapon.cpp:70):
+/// center-to-center minus victim bounding-sphere radius, clamped at 0.
+fn splash_from_bounding_sphere_3d(center: Vec3, victim_pos: Vec3, victim_sphere: f32) -> f32 {
+    let center_dist = victim_pos.distance(center);
+    let sphere = victim_sphere.max(0.0);
+    if center_dist <= sphere {
+        0.0
+    } else {
+        center_dist - sphere
+    }
+}
+
+fn victim_splash_sphere_radius(obj: &Object) -> f32 {
+    let geom = &obj.thing.template.geometry_info;
+    crate::game_logic::host_battlemaster::leftover_horde_bounding_sphere_radius(
+        geom.authored,
+        geom.bounding_sphere_radius(),
+        obj.selection_radius,
+    )
 }
 
 
@@ -2895,6 +2949,9 @@ mod tests {
             .get_mut(&far)
             .unwrap()
             .set_position(Vec3::new(18.0, 0.0, 0.0));
+        // Pin pick-radius so this case tests ring amounts, not hull slack.
+        objects.get_mut(&near).unwrap().selection_radius = 0.0;
+        objects.get_mut(&far).unwrap().selection_radius = 0.0;
         let near0 = objects.get(&near).unwrap().health.current;
         let far0 = objects.get(&far).unwrap().health.current;
 
@@ -3051,6 +3108,187 @@ mod tests {
         let enemy1 = objects.get(&enemy).unwrap().health.current;
         assert_eq!(ally1, ally0, "default affects must skip allies");
         assert!(enemy1 < enemy0 - 1.0, "enemies must take splash");
+    }
+
+    #[test]
+    fn splash_uses_from_bounding_sphere_3d() {
+        ensure_unit_test_direct_damage();
+        let mut objects = HashMap::new();
+        let atk = ObjectId(80);
+        let building = ObjectId(81);
+        let mut bldg = make_obj(
+            "ChinaWarFactory",
+            building,
+            Team::GLA,
+            Vec3::new(15.0, 0.0, 0.0),
+            &[KindOf::Structure, KindOf::Attackable],
+            1.0,
+        );
+        bldg.thing.template.geometry_info.authored = true;
+        bldg.thing.template.geometry_info.geom_type =
+            crate::game_logic::HostGeometryType::Sphere;
+        bldg.thing.template.geometry_info.major_radius = 8.0;
+        objects.insert(building, bldg);
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 50.0,
+            splash_radius: 10.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(15.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(building),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 10.0;
+        }
+        let hp0 = objects.get(&building).unwrap().health.current;
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let hp1 = objects.get(&building).unwrap().health.current;
+        assert!(
+            hp1 <= hp0 - 49.0,
+            "hull inside ring must take splash ({hp0}->{hp1})"
+        );
+    }
+
+    #[test]
+    fn splash_primary_victim_skips_radius_damage_affects() {
+        ensure_unit_test_direct_damage();
+        let mut objects = HashMap::new();
+        let atk = ObjectId(90);
+        let ally = ObjectId(91);
+        let bystander = ObjectId(92);
+        objects.insert(
+            atk,
+            make_obj(
+                "USA_Ranger",
+                atk,
+                Team::USA,
+                Vec3::ZERO,
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            ally,
+            make_obj(
+                "USA_Ranger",
+                ally,
+                Team::USA,
+                Vec3::new(3.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            bystander,
+            make_obj(
+                "USA_MissileDefender",
+                bystander,
+                Team::USA,
+                Vec3::new(4.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let ally0 = objects.get(&ally).unwrap().health.current;
+        let by0 = objects.get(&bystander).unwrap().health.current;
+
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 40.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(3.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(ally),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.radius_damage_affects =
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let ally1 = objects.get(&ally).unwrap().health.current;
+        let by1 = objects.get(&bystander).unwrap().health.current;
+        assert!(
+            ally1 < ally0 - 1.0,
+            "intended ally must take splash ({ally0}->{ally1})"
+        );
+        assert_eq!(by1, by0, "bystander ally must still be skipped");
+    }
+
+    #[test]
+    fn splash_kills_self_deals_huge_damage() {
+        ensure_unit_test_direct_damage();
+        let mut objects = HashMap::new();
+        let atk = ObjectId(100);
+        let enemy = ObjectId(101);
+        objects.insert(
+            atk,
+            make_obj(
+                "GLADemoTruck",
+                atk,
+                Team::GLA,
+                Vec3::ZERO,
+                &[KindOf::Vehicle, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        objects.insert(
+            enemy,
+            make_obj(
+                "USA_Ranger",
+                enemy,
+                Team::USA,
+                Vec3::new(3.0, 0.0, 0.0),
+                &[KindOf::Infantry, KindOf::Attackable],
+                5.0,
+            ),
+        );
+        let mut combat = CombatSystem::new();
+        let w = Weapon {
+            damage: 10.0,
+            splash_radius: 20.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        };
+        let pid = combat.fire_projectile_ex(
+            Vec3::ZERO,
+            Vec3::new(3.0, 0.0, 0.0),
+            &w,
+            atk,
+            Some(enemy),
+            0.0,
+            false,
+        );
+        if let Some(p) = combat.projectile_mut(pid) {
+            p.explosion_radius = 20.0;
+            p.radius_damage_affects =
+                crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS
+                    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF;
+        }
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        assert!(
+            !objects.get(&atk).unwrap().is_alive(),
+            "WEAPON_KILLS_SELF must destroy the shooter"
+        );
     }
 
     #[test]

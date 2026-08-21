@@ -980,8 +980,13 @@ impl SelectionTranslator {
             }
 
             if !added.is_empty() {
-                messages.push(GameMessageType::CreateSelectedGroup(!add_to_group, added));
+                // C++ selectMatchingAcrossRegion posts MSG_CREATE_SELECTED_GROUP_NO_SOUND.
+                messages.push(GameMessageType::CreateSelectedGroupNoSound(
+                    !add_to_group,
+                    added,
+                ));
             }
+
         }
 
         messages

@@ -81,6 +81,9 @@ impl RenderPipeline {
             debug_last_world_anim_pack_ok: false,
             debug_last_particle_systems_packed: 0,
             debug_last_particle_pack_ok: false,
+            tactical_view_height_frac: 1.0,
+            tactical_viewport_width: 1.0,
+            tactical_viewport_height: 1.0,
         })
     }
 
@@ -105,6 +108,19 @@ impl RenderPipeline {
             self.prepare_pending_client_drawable_restore_for_frame(frame);
         }
         self.presentation_frame = frame;
+    }
+
+    /// C++ `W3DView::setHeight` — 3D viewport is the top `frac` of the window.
+    pub fn set_tactical_3d_viewport(&mut self, width: f32, height: f32, frac: f32) {
+        let frac = if frac.is_finite() {
+            frac.clamp(0.05, 1.0)
+        } else {
+            1.0
+        };
+        self.tactical_view_height_frac = frac;
+        self.tactical_viewport_width = width.max(1.0);
+        self.tactical_viewport_height = height.max(1.0);
+        self.forward_pass.tactical_view_height_frac = frac;
     }
 
     /// Install the immutable direct-host shroud sidecar for the frame just

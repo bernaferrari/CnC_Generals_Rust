@@ -383,7 +383,7 @@ impl GameLogic {
         if !crate::game_logic::host_topple::crusher_can_topple(level) {
             return false;
         }
-        let (kill_now, handled) = {
+        let (kill_now, handled, stump, pos, ori) = {
             let Some(prop) = self.objects.get_mut(&prop_id) else {
                 return false;
             };
@@ -399,12 +399,49 @@ impl GameLogic {
                 })
                 .unwrap_or(false)
                 || kill_now;
-            (kill_now, handled)
+            let stump = prop
+                .topple_data
+                .as_mut()
+                .and_then(|t| t.take_pending_stump_name().map(|n| (n, t.burned_at_topple)));
+            let (pos, ori) = (prop.get_position(), prop.get_orientation());
+            (kill_now, handled, stump, pos, ori)
         };
+        if let Some((name, burned)) = stump {
+            self.spawn_topple_stump(&name, pos, ori, burned);
+        }
         if kill_now {
             self.mark_object_for_destruction(prop_id, None);
         }
         handled
+    }
+
+    /// C++ ToppleUpdate::applyTopplingForce stump spawn at the tree pose.
+    pub(in super::super) fn spawn_topple_stump(
+        &mut self,
+        stump_name: &str,
+        pos: glam::Vec3,
+        orientation: f32,
+        burned: bool,
+    ) {
+        if stump_name.is_empty() {
+            return;
+        }
+        if !self.templates.contains_key(stump_name) {
+            let mut t = crate::game_logic::ThingTemplate::new(stump_name);
+            t.set_health(1.0);
+            self.templates.insert(stump_name.to_string(), t);
+        }
+        let Some(id) = self.create_object(stump_name, crate::game_logic::Team::Neutral, pos) else {
+            return;
+        };
+        if let Some(stump) = self.objects.get_mut(&id) {
+            stump.set_orientation(orientation);
+            if burned {
+                use crate::game_logic::host_enum_table_residual::burned_model_bit;
+                stump.model_condition_bits |= 1u128 << burned_model_bit();
+                let _ = stump.apply_status_bits_upgrade_masks(&["BURNED"], &[]);
+            }
+        }
     }
 
     /// C++ `Object::getRelationship(other) == ALLIES` for crush gates

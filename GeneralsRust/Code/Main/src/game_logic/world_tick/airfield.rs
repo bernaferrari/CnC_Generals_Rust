@@ -1458,9 +1458,8 @@ impl GameLogic {
         jet.set_ai_state(AIState::Docked);
         jet.set_status_moving(false);
         jet.status.airborne_target = false;
+        jet.apply_taxiing_locomotor_set();
         jet.movement.path.clear();
-        jet.movement.current_path_index = 0;
-        jet.movement.target_position = None;
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
             crate::game_logic::host_move_log::record(
                 jet_id,
@@ -1841,6 +1840,10 @@ impl GameLogic {
                 .with_position(pos),
             );
 
+        }
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            // C++ JetOrHeliTaxiState::onEnter — !ALLOW_AIR_LOCO + SET_TAXIING.
+            jet.apply_taxiing_locomotor_set();
         }
         if !self.assign_unit_path(jet_id, dest, &via) {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
@@ -2249,6 +2252,9 @@ impl GameLogic {
             } else {
                 Vec::new()
             };
+            if let Some(jet) = self.objects.get_mut(&jet_id) {
+                jet.apply_taxiing_locomotor_set();
+            }
             if self.assign_unit_path(jet_id, pad, &via) {
                 return true;
             }
@@ -2272,6 +2278,7 @@ impl GameLogic {
             jet.set_ai_state(AIState::Docked);
             jet.set_status_moving(false);
             jet.status.airborne_target = false;
+            jet.apply_taxiing_locomotor_set();
             jet.target = None;
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;

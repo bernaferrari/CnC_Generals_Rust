@@ -2461,6 +2461,14 @@ fn cluster_mines_flight_places_field() {
         .cluster_mines_transport
         .is_some());
     assert!(logic.cluster_mines_flight_reg.transports_spawned >= 1);
+    assert!(
+        logic.special_power_strikes().view_object_count() >= 1,
+        "Cluster Mines must spawn SpecialPowerViewObject at the drop"
+    );
+    let vo = &logic.special_power_strikes().view_objects()[0];
+    assert!((vo.range - 250.0).abs() < 0.1);
+    assert_eq!(vo.duration_frames(), 900);
+    assert_eq!(vo.source_object, cc_id);
     let mines_before = logic
         .host_objects()
         .values()
@@ -3407,7 +3415,124 @@ fn china_barracks_quantity_modifier_spawns_two_redguards_residual() {
         moving >= 1,
         "at least one Redguard should be on exit path residual, moving={moving}"
     );
+    assert!(
+        logic.host_objects().values().any(|o| {
+            o.template_name.contains("Redguard") && o.is_alive() && o.can_path_through_units
+        }),
+        "Queue exit must aiFollowExitProductionPath (can_path_through_units)"
+    );
     let _ = VeterancyLevel::Rookie;
+}
+
+#[test]
+fn queue_factory_exit_follows_snapped_production_path() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
+
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(100.0, 15.0, 100.0),
+        )
+        .expect("barracks");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.thing.set_orientation(0.0);
+    }
+    let uid = logic
+        .create_object(
+            "ChinaInfantryRedguard",
+            Team::China,
+            glam::Vec3::new(100.0, 15.0, 75.0),
+        )
+        .expect("redguard");
+
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [100.0, 15.0, 75.0],
+        None,
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+
+    let (can_path, ai_state, dest, path) = {
+        let unit = logic.host_object(uid).expect("unit after exit");
+        (
+            unit.can_path_through_units,
+            unit.ai_state.clone(),
+            unit.movement.target_position,
+            unit.movement.path.clone(),
+        )
+    };
+    assert!(
+        can_path,
+        "FollowExitProductionPath sets can_path_through_units"
+    );
+    assert!(
+        matches!(ai_state, AIState::Moving),
+        "exit must start AIFollowExitProductionPath / Moving, got {:?}",
+        ai_state
+    );
+    let dest = dest.expect("exit destination");
+    let (producer_pos, forward, exit) = {
+        let producer = logic.host_object(bid).expect("producer");
+        (
+            producer.get_position(),
+            producer.thing.get_direction_vector(),
+            producer
+                .thing
+                .template
+                .production_exit_metadata
+                .expect("queue metadata"),
+        )
+    };
+    let raw_point = exit.natural_rally_point_with_path_offset(
+        crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+    );
+    let raw = crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
+        producer_pos,
+        forward,
+        (raw_point[0], raw_point[1], raw_point[2]),
+    );
+    assert!(
+        dest.distance(raw) > 0.5,
+        "Queue snapPosition must move the natural rally off the raw model point, dest={dest:?} raw={raw:?}"
+    );
+    assert!(
+        path.len() >= 2,
+        "Queue with no custom rally doubles the snapped natural, path={path:?}"
+    );
+    let last = *path.last().expect("path last");
+    let prev = path[path.len() - 2];
+    assert!(
+        last.distance(prev) < 1.0,
+        "doubled Queue natural must repeat the snapped point, prev={prev:?} last={last:?}"
+    );
 }
 
 #[test]

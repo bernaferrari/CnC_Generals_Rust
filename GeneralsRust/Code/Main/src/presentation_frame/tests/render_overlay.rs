@@ -14,6 +14,12 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         position: Vec3::new(10.0, 0.0, 20.0),
         orientation: 0.0,
         topple_lean_radians: 0.0,
+        topple_dir_x: 1.0,
+        topple_dir_y: 0.0,
+        shadows_enabled: true,
+        terrain_decal_type: 8,
+        terrain_decal_size: 0.0,
+        terrain_decal_opacity: 0.0,
         turret_angle_deg: 0.0,
         turret_pitch_deg: 0.0,
         selected: false,
@@ -106,6 +112,146 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
     u.mesh_scale = 0.0; // invalid → treat as 1.0
     let m1 = u.world_matrix();
     assert!((m1.x_axis.truncate().length() - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn aflame_bits_come_from_host_not_death_type_name() {
+    use crate::game_logic::host_enum_table_residual::{aflame_model_bit, burned_model_bit};
+    let flame = 1u128 << aflame_model_bit();
+    let burn = 1u128 << burned_model_bit();
+    let mut u = unit_render_input_fixture();
+    u.model_condition_bits = flame;
+    u.death_type_name.clear();
+    u.destroyed = false;
+    let bits = u.model_condition_bits_with_combat_flags();
+    assert_ne!(bits & flame, 0, "live AFLAME must survive empty death_type_name");
+    assert_eq!(bits & burn, 0, "death name must not invent BURNED");
+
+    u.model_condition_bits = 0;
+    u.death_type_name = "DEATH_BURNED".into();
+    u.destroyed = true;
+    let bits = u.model_condition_bits_with_combat_flags();
+    assert_eq!(bits & flame, 0, "death type name must not stamp AFLAME");
+}
+
+#[test]
+fn topple_world_matrix_falls_along_crush_direction() {
+    let mut u = unit_render_input_fixture();
+    u.mesh_scale = 1.0;
+    u.orientation = 0.0;
+    u.topple_lean_radians = 0.4;
+    u.topple_dir_x = 0.0;
+    u.topple_dir_y = 1.0;
+    let along_z = u.world_matrix();
+    u.topple_dir_x = 1.0;
+    u.topple_dir_y = 0.0;
+    let along_x = u.world_matrix();
+    assert!(
+        (along_z.x_axis - along_x.x_axis).length() > 0.05
+            || (along_z.z_axis - along_x.z_axis).length() > 0.05,
+        "crush direction must change the fall axis"
+    );
+}
+
+fn unit_render_input_fixture() -> UnitRenderInput {
+    UnitRenderInput {
+        id: ObjectId(1),
+        template_name: "T".into(),
+        model_key: "M".into(),
+        draw_models: Vec::new(),
+        projectile_clip_statuses: [None; 3],
+        mesh_scale: 1.0,
+        team: Team::USA,
+        team_color: [1.0, 1.0, 1.0, 1.0],
+        position: glam::Vec3::ZERO,
+        orientation: 0.0,
+        topple_lean_radians: 0.0,
+        topple_dir_x: 1.0,
+        topple_dir_y: 0.0,
+        shadows_enabled: true,
+        terrain_decal_type: 8,
+        terrain_decal_size: 0.0,
+        terrain_decal_opacity: 0.0,
+        turret_angle_deg: 0.0,
+        turret_pitch_deg: 0.0,
+        selected: false,
+        selection_radius: 5.0,
+        selection_flash_remaining: 0,
+        model_condition_bits: 0,
+        production_door_phase: 0,
+        is_structure: false,
+        is_unit: true,
+        moving: false,
+        attacking: false,
+        is_firing_weapon: false,
+        active_weapon_slot: 0,
+        weapon_fire_status: 0,
+        is_panicking: false,
+        moving_backwards: false,
+        weapon_set_player_upgrade: false,
+        second_life: false,
+        front_crushed: false,
+        back_crushed: false,
+        user_1: false,
+        user_2: false,
+        weapon_crate_upgrade: 0,
+        armor_crate_upgrade: 0,
+        enemy_near: false,
+        armed: false,
+        shock_was_airborne: false,
+        shock_allow_bounce: false,
+        shock_grounded_once: false,
+        shock_stun_frames: 0,
+        power_plant_rods_extended: false,
+        power_plant_rods_done_frame: 0,
+        jet_slow_death_active: false,
+        anim_steer_turn: 0,
+        body_damage_state: 0,
+        poison_tinted: false,
+        defector_flash: false,
+        is_deployed: false,
+        radar_active: false,
+        radar_extend_complete: false,
+        effectively_stealthed: false,
+        under_construction: false,
+        construction_percent: 0.0,
+        disguised: false,
+        disguise_as_template: None,
+        occupant_count: 0,
+        ai_state_ordinal: 0,
+        combat_cycle_rider: 0,
+        contained_by: None,
+        parachuting: false,
+        using_ability: false,
+        airborne_target: false,
+        object_type: PresentationObjectType::Neutral,
+        velocity: glam::Vec3::ZERO,
+        veterancy: PresentationVeterancy::Rookie,
+        over_water: false,
+        cell_is_cliff: false,
+        cell_is_underwater: false,
+        disabled: false,
+        parachute_open: false,
+        world_is_snow: false,
+        object_weather: 0,
+        world_is_night: false,
+        captured: false,
+        overcharge_enabled: false,
+        death_type_name: String::new(),
+        continuous_fire_level: 0,
+        prone: false,
+        jammed: false,
+        destroyed: false,
+        continuous_fire_coast_until_frame: 0,
+        logic_frame: 0,
+        is_surrendered: false,
+        engine_bridged: false,
+        fow_visibility: ObjectVisibility::FULLY_VISIBLE,
+        presentation_opacity: 1.0,
+        status_tint: [0.0; 3],
+        stored_supplies: 0,
+        drawable_shroud: PresentationDrawableShroudFacts::default(),
+    }
 }
 
 #[test]

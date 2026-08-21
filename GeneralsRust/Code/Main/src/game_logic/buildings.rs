@@ -66,6 +66,18 @@ pub struct BuildingData {
     /// C++ GarrisonContain::m_garrisonPointsInitialized.
     #[serde(default)]
     pub garrison_points_initialized: bool,
+    /// C++ m_garrisonPoint[GARRISON_POINT_DAMAGED].
+    #[serde(default)]
+    pub garrison_fire_points_damaged: Vec<glam::Vec3>,
+    /// C++ m_garrisonPoint[GARRISON_POINT_REALLY_DAMAGED].
+    #[serde(default)]
+    pub garrison_fire_points_really_damaged: Vec<glam::Vec3>,
+    /// Last `findConditionIndex` applied to occupant FIREPOINT picks.
+    #[serde(default)]
+    pub garrison_points_condition: u8,
+    /// C++ OpenContain::m_whichExitPath (1-based ExitStart/End cycle).
+    #[serde(default)]
+    pub which_exit_path: u8,
 }
 
 /// Live residual of C++ `GarrisonGun` fire-point drawables.
@@ -290,6 +302,10 @@ impl BuildingData {
             garrison_station_points: Vec::new(),
             garrison_point_occupant: Vec::new(),
             garrison_points_initialized: false,
+            garrison_fire_points_damaged: Vec::new(),
+            garrison_fire_points_really_damaged: Vec::new(),
+            garrison_points_condition: 0,
+            which_exit_path: 0,
         }
     }
 
@@ -1049,7 +1065,7 @@ impl BuildingBehavior {
             (
                 unit.team,
                 unit.owner_player_id,
-                unit.status.stealthed,
+                unit.is_kind_of(KindOf::StealthGarrison),
                 unit.status.detected,
             )
         });
@@ -1095,9 +1111,9 @@ impl BuildingBehavior {
             return false;
         }
 
-        if let Some((team, owner, stealthed, detected)) = occupant_snap {
+        if let Some((team, owner, stealth_garrison, detected)) = occupant_snap {
             if let Some(building) = objects.get_mut(&building_id) {
-                building.note_garrison_occupant_entered(team, owner, stealthed, detected);
+                building.note_garrison_occupant_entered(team, owner, stealth_garrison, detected);
             }
         }
         true

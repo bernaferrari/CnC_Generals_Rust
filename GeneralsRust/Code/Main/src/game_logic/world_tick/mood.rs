@@ -254,6 +254,79 @@ impl GameLogic {
         }
     }
 
+    pub(crate) fn host_team_instance_key(object: &crate::game_logic::Object) -> String {
+        if !object.team_instance_name.is_empty() {
+            object.team_instance_name.clone()
+        } else {
+            format!("team{}", object.team.get_name())
+        }
+    }
+
+    /// C++ `TeamPrototype::m_attackCommonTarget` (default true when proto missing).
+    pub(crate) fn team_wants_common_attack(&self, object_id: ObjectId) -> bool {
+        let Some(object) = self.objects.get(&object_id) else {
+            return false;
+        };
+        let name = Self::host_team_instance_key(object);
+        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(&name) {
+                return proto.attack_common_target();
+            }
+            if let Some(team) = factory.find_team_instances(&name).into_iter().next() {
+                drop(factory);
+                if let Ok(tg) = team.read() {
+                    return tg.attack_common_target();
+                }
+            }
+        }
+        !object.team_instance_name.is_empty()
+    }
+
+    pub(crate) fn host_team_common_target(&self, object_id: ObjectId) -> Option<ObjectId> {
+        if !self.team_wants_common_attack(object_id) {
+            return None;
+        }
+        let object = self.objects.get(&object_id)?;
+        let name = Self::host_team_instance_key(object);
+        let target_id = *self.team_common_attack_targets.get(&name)?;
+        let target = self.objects.get(&target_id)?;
+        if !target.is_alive() {
+            return None;
+        }
+        if target.status.stealthed && !target.status.detected && !target.status.disguised {
+            return None;
+        }
+        let ok = matches!(
+            self.get_able_to_attack_specific_object(
+                object_id,
+                target_id,
+                AbleToAttackType::NewTarget,
+                false,
+            ),
+            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+        );
+        ok.then_some(target_id)
+    }
+
+    pub(crate) fn set_host_team_common_target(&mut self, object_id: ObjectId, target: Option<ObjectId>) {
+        if !self.team_wants_common_attack(object_id) {
+            return;
+        }
+        let Some(object) = self.objects.get(&object_id) else {
+            return;
+        };
+        let name = Self::host_team_instance_key(object);
+        match target {
+            Some(id) => {
+                self.team_common_attack_targets.insert(name, id);
+            }
+            None => {
+                self.team_common_attack_targets.remove(&name);
+            }
+        }
+    }
+
+
     pub fn get_next_mood_target(
         &mut self,
         unit_id: ObjectId,
@@ -331,6 +404,12 @@ impl GameLogic {
             return None;
         }
 
+        // C++ AIUpdate.cpp:4520-4535 — team common victim before mood scan rate.
+        if called_by_ai && attitude >= 0 {
+            if let Some(team_victim) = self.host_team_common_target(unit_id) {
+                return Some(team_victim);
+            }
+        }
         if called_by_ai {
             if now < next_check && next_check != 0 {
                 return None;

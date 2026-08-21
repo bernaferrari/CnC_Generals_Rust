@@ -998,16 +998,19 @@ fn process_ai_behavior_idle_defers_to_mood_auto_acquire() {
         });
     }
 
-    let attacker = game_logic
-        .host_object(attacker_id)
-        .expect("attacker should exist");
+    let (pos, team, can_attack) = {
+        let attacker = game_logic
+            .host_object(attacker_id)
+            .expect("attacker should exist");
+        (attacker.get_position(), attacker.team, attacker.can_attack())
+    };
     let command = game_logic.process_ai_behavior(
         attacker_id,
         AIState::Idle,
         None,
-        attacker.get_position(),
-        attacker.team,
-        attacker.can_attack(),
+        pos,
+        team,
+        can_attack,
         30,
         1.0 / 60.0,
     );
@@ -1026,17 +1029,20 @@ fn process_ai_behavior_attacking_fallback_stops_without_target() {
     let attacker_id = game_logic
         .create_object("TestTank", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("attacker should be created");
-    let attacker = game_logic
-        .host_object(attacker_id)
-        .expect("attacker should exist");
+    let (pos, team, can_attack) = {
+        let attacker = game_logic
+            .host_object(attacker_id)
+            .expect("attacker should exist");
+        (attacker.get_position(), attacker.team, attacker.can_attack())
+    };
 
     let command = game_logic.process_ai_behavior(
         attacker_id,
         AIState::Attacking,
         None,
-        attacker.get_position(),
-        attacker.team,
-        attacker.can_attack(),
+        pos,
+        team,
+        can_attack,
         0,
         1.0 / 60.0,
     );
@@ -1065,16 +1071,18 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
             ..Weapon::default()
         });
     }
-    let unit = game_logic.host_object(unit_id).expect("unit should exist");
-    let start = unit.get_position();
+    let (start, team, can_attack) = {
+        let unit = game_logic.host_object(unit_id).expect("unit should exist");
+        (unit.get_position(), unit.team, unit.can_attack())
+    };
 
     let command = game_logic.process_ai_behavior(
         unit_id,
         AIState::Patrolling,
         None,
         start,
-        unit.team,
-        unit.can_attack(),
+        team,
+        can_attack,
         30,
         1.0 / 60.0,
     );

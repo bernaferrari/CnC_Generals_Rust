@@ -576,8 +576,13 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         assert!(is_helix_template(&h.template_name));
         assert!(h.is_helix_transport);
         assert_eq!(h.transport_capacity(), HELIX_TRANSPORT_SLOTS);
+        assert!(
+            !h.passengers_allowed_to_fire,
+            "stock Helix fire is gated on Battle Bunker"
+        );
     }
 }
+
 
 // -----------------------------------------------------------------------
 // China Nuke Cannon primary residual (area + medium radiation)
@@ -4204,6 +4209,7 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
         tunnel.contained_units().contains(&infantry_id),
         "entry tunnel must list occupant"
     );
+    let pool_key = tunnel.tunnel_system_key();
     let infantry = game_logic.host_object(infantry_id).expect("infantry after");
     assert_eq!(infantry.ai_state, AIState::Garrisoned);
     assert_eq!(infantry.contained_by, Some(tunnel_id));
@@ -4211,8 +4217,44 @@ fn tunnel_network_residual_enter_sets_garrisoned_and_shared_pool() {
     assert_eq!(game_logic.tunnel_network_residual_enters(), 1);
     assert!(game_logic
         .tunnel_network_residual()
-        .is_in_network(Team::GLA, infantry_id));
+        .is_in_network(pool_key, infantry_id));
+
 }
+
+/// C++ TunnelContain::getContainCount / getContainedItemsList redirect to
+/// the player's TunnelTracker — every entrance shows the same pool.
+#[test]
+fn tunnel_control_bar_inventory_is_shared_player_pool() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
+    let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(50.0, 0.0, 0.0));
+    let infantry_id = game_logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("infantry");
+    let key = game_logic
+        .host_object(tunnel_a)
+        .expect("a")
+        .tunnel_system_key();
+    game_logic.tunnel_network.on_tunnel_created(key, tunnel_a);
+    game_logic.tunnel_network.on_tunnel_created(key, tunnel_b);
+    assert!(game_logic
+        .tunnel_network
+        .record_enter(key, infantry_id, tunnel_a));
+    assert_eq!(
+        game_logic.host_authoritative_occupant_count(tunnel_a),
+        Some(1)
+    );
+    assert_eq!(
+        game_logic.host_authoritative_occupant_count(tunnel_b),
+        Some(1)
+    );
+    assert_eq!(
+        game_logic.host_authoritative_contained_units(tunnel_b),
+        vec![infantry_id]
+    );
+}
+
 
 /// Residual: enter tunnel A, Evacuate tunnel B → unit exits at B (cross-tunnel).
 #[test]
@@ -4327,7 +4369,12 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
         game_logic.update_ai(&[id, tunnel_a, tunnel_b], 1.0 / 30.0);
     }
     assert_eq!(game_logic.tunnel_network_residual_enters() as usize, cap);
-    assert!(!game_logic.tunnel_network_residual().has_capacity(Team::GLA));
+    let pool_key = game_logic
+        .host_object(tunnel_a)
+        .expect("tunnel a")
+        .tunnel_system_key();
+    assert!(!game_logic.tunnel_network_residual().has_capacity(pool_key));
+
 
     let overflow = game_logic
         .create_object("TestInfantry", Team::GLA, Vec3::new(3.0, 0.0, 0.0))

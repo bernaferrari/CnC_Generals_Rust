@@ -515,6 +515,11 @@ impl AudioManagerSubsystem {
                     if !self._sounds_on {
                         continue;
                     }
+                    if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(
+                        &event,
+                    ) {
+                        continue;
+                    }
 
                     // Track looping FireSound residual from presentation.
                     if event.is_looping {
@@ -530,7 +535,6 @@ impl AudioManagerSubsystem {
                     if volume_scale <= 0.0 {
                         continue;
                     }
-
                     let Some(table) = self.sound_effects_table.as_ref() else {
                         continue;
                     };

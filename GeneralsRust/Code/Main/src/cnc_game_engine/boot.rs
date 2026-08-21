@@ -467,6 +467,7 @@ impl CnCGameEngine {
             camera_pitch_elapsed: 0.0,
             camera_pitch_ease_in: 0.0,
             camera_pitch_ease_out: 0.0,
+            camera_fx_pitch: 1.0,
             camera_yaw_radians,
             camera_yaw_target: None,
             camera_yaw_start: camera_yaw_radians,

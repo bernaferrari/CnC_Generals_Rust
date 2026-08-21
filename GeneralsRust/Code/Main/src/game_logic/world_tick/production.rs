@@ -285,8 +285,8 @@ impl GameLogic {
                 // C++ DozerAIUpdate.cpp:627-635 aiMoveToPosition(END).
                 self.path_approach_with_state(oid, end, AIState::Moving);
             }
-            if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
-                self.record_structure_completion(team);
+            if self.objects.contains_key(&completed_id) {
+                self.record_structure_completion(completed_id);
             }
             // C++ onStructureConstructionComplete feedback residual.
             self.notify_structure_construction_complete(completed_id);
@@ -398,8 +398,8 @@ impl GameLogic {
             for (oid, end) in end_moves {
                 self.path_approach_with_state(oid, end, AIState::Moving);
             }
-            if let Some(team) = self.objects.get(&completed_id).map(|o| o.team) {
-                self.record_structure_completion(team);
+            if self.objects.contains_key(&completed_id) {
+                self.record_structure_completion(completed_id);
             }
             self.notify_structure_construction_complete(completed_id);
             self.maybe_start_radar_extend(completed_id);
@@ -1234,6 +1234,131 @@ impl GameLogic {
         }
     }
 
+    /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:5026-5054).
+    fn factory_exit_radius_and_center(unit_radius: f32) -> (i32, bool) {
+        let cell = crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F;
+        let mut diameter = 2.0 * unit_radius;
+        if diameter > cell && diameter < 2.0 * cell {
+            diameter = 2.0 * cell;
+        }
+        let mut radius = (diameter / cell + 0.3).floor() as i32;
+        let mut center_in_cell = false;
+        if radius == 0 {
+            radius = 1;
+        }
+        if (radius & 1) != 0 {
+            center_in_cell = true;
+        }
+        radius /= 2;
+        if radius > 2 {
+            radius = 2;
+            center_in_cell = true;
+        }
+        (radius, center_in_cell)
+    }
+
+    /// C++ `Pathfinder::adjustCoordToCell` on the host XZ ground plane.
+    fn factory_exit_coord_to_cell(
+        &self,
+        cell: crate::game_logic::pathfinding::GridPos,
+        center_in_cell: bool,
+        y: f32,
+    ) -> Vec3 {
+        let grid = &self.pathfinding_system.grid;
+        let size = grid.grid_size();
+        let origin = grid.origin();
+        let bias = if center_in_cell { 0.5 } else { 0.05 };
+        let mut pos = Vec3::new(
+            origin.x + (cell.x as f32 + bias) * size,
+            y,
+            origin.z + (cell.y as f32 + bias) * size,
+        );
+        if let Some(h) = self.terrain_height_at(pos) {
+            pos.y = h;
+        }
+        pos
+    }
+
+    /// C++ `Pathfinder::snapPosition` (AIPathfind.cpp:5082-5095).
+    fn snap_factory_exit_position(&self, pos: Vec3, unit_radius: f32) -> Vec3 {
+        let cell_size = self.pathfinding_system.grid.grid_size();
+        let (_, center_in_cell) = Self::factory_exit_radius_and_center(unit_radius);
+        let mut adjust = pos;
+        if !center_in_cell {
+            adjust.x += cell_size * 0.5;
+            adjust.z += cell_size * 0.5;
+        }
+        let cell = self.pathfinding_system.grid.world_to_grid(adjust);
+        self.factory_exit_coord_to_cell(cell, center_in_cell, pos.y)
+    }
+
+    /// C++ `Pathfinder::adjustDestination` spiral, then `adjustCoordToCell`.
+    fn adjust_factory_exit_destination(
+        &self,
+        dest: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        unit_radius: f32,
+    ) -> Option<Vec3> {
+        let cell = self.pathfinding_system.grid.world_to_grid(dest);
+        let adj = self.pathfinding_system.grid.adjust_destination_ex(
+            cell,
+            surfaces,
+            is_crusher,
+            400,
+            seeker_player,
+            crusher_level,
+        )?;
+        let (_, center_in_cell) = Self::factory_exit_radius_and_center(unit_radius);
+        Some(self.factory_exit_coord_to_cell(adj, center_in_cell, dest.y))
+    }
+
+    /// C++ `AIUpdateInterface::aiFollowExitProductionPath`.
+    /// Ignore the producer, walk the authored points, and path through units.
+    fn follow_exit_production_path(
+        &mut self,
+        unit_id: ObjectId,
+        path: &[Vec3],
+        ignore_producer: ObjectId,
+    ) {
+        if path.is_empty() {
+            return;
+        }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.can_path_through_units = true;
+        }
+        self.path_approach_with_state_ignoring(
+            unit_id,
+            path[0],
+            AIState::Moving,
+            Some(ignore_producer),
+        );
+        for &wp in path.iter().skip(1) {
+            let already_at = self.objects.get(&unit_id).is_some_and(|unit| {
+                unit.movement
+                    .path
+                    .last()
+                    .is_some_and(|last| last.distance(wp) < 0.1)
+                    || unit
+                        .movement
+                        .target_position
+                        .is_some_and(|dest| dest.distance(wp) < 0.1)
+            });
+            if already_at {
+                // C++ Queue pushes the snapped natural twice so Red Guards
+                // do not stack. A* append would collapse the duplicate.
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.movement.path.push(wp);
+                    unit.movement.target_position = Some(wp);
+                }
+            } else {
+                let _ = self.append_unit_waypoint(unit_id, wp);
+            }
+        }
+    }
+
     /// Wave 679: drain production-spawn ready log and apply host presentation residual
     /// (notify/door/exit/path) for the newly allocated host ObjectId.
     /// Still host ObjectId authority — not full GameWorld spawn-ID ownership.
@@ -1360,6 +1485,15 @@ impl GameLogic {
                     let selection_radius = unit.selection_radius.max(4.0);
                     spawn_pos += jitter_dir * selection_radius;
                 }
+                // C++ Default/SupplyCenter snap spawn Z to terrain. Queue keeps
+                // transformed Z only when AllowAirborneCreation is set.
+                let snap_spawn_z = !producer_exit_metadata
+                    .is_some_and(|exit| exit.is_queue() && exit.allow_airborne_creation);
+                if snap_spawn_z {
+                    if let Some(h) = self.terrain_height_at(spawn_pos) {
+                        spawn_pos.y = h;
+                    }
+                }
                 if let Some(unit) = self.objects.get_mut(&new_id) {
                     if crate::gameworld_shadow::gameworld_movement_authority_live() {
                         crate::game_logic::host_move_log::record(
@@ -1374,15 +1508,50 @@ impl GameLogic {
                     }
                 }
             }
-            // C++ Queue/DefaultProductionExitUpdate route from the frozen
-            // module points.  Queue repeats its natural point when no custom
+            // C++ ExitInterface::exitObjectViaDoor → aiFollowExitProductionPath.
+            // Queue snaps the natural rally and doubles it when no custom rally
+            // is set so Red Guards do not stack. Custom rallies go through
+            // adjustDestination. The producer is ignoreObstacle.
             if !parked_jet {
-                let (natural, forward) = if let Some(prod) = self.objects.get(&producer_id) {
+                let unit_radius = self
+                    .objects
+                    .get(&new_id)
+                    .map(|unit| unit.selection_radius)
+                    .unwrap_or(8.0);
+                let (surfaces, is_crusher, seeker_player, crusher_level, ground_move) =
+                    self.objects
+                        .get(&new_id)
+                        .map(|unit| {
+                            let surfaces = if unit.locomotor_surfaces != 0 {
+                                unit.locomotor_surfaces
+                            } else {
+                                crate::game_logic::LOCO_SURFACE_GROUND
+                            };
+                            (
+                                surfaces,
+                                unit.crusher_level > 0,
+                                unit.owner_player_id,
+                                unit.crusher_level,
+                                (surfaces & crate::game_logic::LOCO_SURFACE_GROUND) != 0,
+                            )
+                        })
+                        .unwrap_or((
+                            crate::game_logic::LOCO_SURFACE_GROUND,
+                            false,
+                            None,
+                            0,
+                            true,
+                        ));
+                let mut natural = if let Some(prod) = self.objects.get(&producer_id) {
                     let f = prod.thing.get_direction_vector();
-                    let natural = if let Some(exit) = producer_exit_metadata {
-                        let point = exit.natural_rally_point_with_path_offset(
-                            crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
-                        );
+                    if let Some(exit) = producer_exit_metadata {
+                        let point = if exit.is_supply_center() {
+                            exit.natural_rally_point
+                        } else {
+                            exit.natural_rally_point_with_path_offset(
+                                crate::game_logic::host_ai_path_combat_residual_wave105::PATHFIND_CELL_SIZE_F,
+                            )
+                        };
                         crate::game_logic::host_production_buildable_command_residual::transform_model_exit_offset(
                             prod.get_position(),
                             f,
@@ -1390,20 +1559,34 @@ impl GameLogic {
                         )
                     } else {
                         prod.get_position() + f * prod.selection_radius.max(10.0)
-                    };
-                    (natural, f)
+                    }
                 } else {
-                    (spawn_pos, glam::Vec3::new(0.0, 0.0, -1.0))
+                    spawn_pos
                 };
-                self.path_approach_with_state(new_id, natural, AIState::Moving);
-                if let Some(rally_point) = rally {
-                    let _ = self.append_unit_waypoint(new_id, rally_point);
-                } else if producer_exit_metadata.is_some_and(|exit| exit.is_queue()) {
-                    let _ = self.append_unit_waypoint(new_id, natural);
-                } else if producer_exit_metadata.is_none() {
-                    let doubled = natural + forward.normalize_or_zero() * 5.0;
-                    let _ = self.append_unit_waypoint(new_id, doubled);
+                let is_queue = producer_exit_metadata.is_some_and(|exit| exit.is_queue());
+                if is_queue {
+                    natural = self.snap_factory_exit_position(natural, unit_radius);
                 }
+                let mut exit_path = vec![natural];
+                if let Some(rally_point) = rally {
+                    if producer_exit_metadata.is_some_and(|exit| exit.is_supply_center()) {
+                        exit_path.push(rally_point);
+                    } else if ground_move {
+                        if let Some(adj) = self.adjust_factory_exit_destination(
+                            rally_point,
+                            surfaces,
+                            is_crusher,
+                            seeker_player,
+                            crusher_level,
+                            unit_radius,
+                        ) {
+                            exit_path.push(adj);
+                        }
+                    }
+                } else if is_queue {
+                    exit_path.push(natural);
+                }
+                self.follow_exit_production_path(new_id, &exit_path, producer_id);
             }
 
 

@@ -14,8 +14,9 @@
 //!   (BuildingPickup may still collect — C++ validBuildingAttempt exception).
 //! - ExecuteAnimation residual: `MoneyPickUp` Anim2D presentation descriptor
 //!   (display 4.0s, ZRise 15, fades Yes) — presentation state, not GPU.
-//! - Floating cash text residual: host `+$N` presentation at crate pos + Z offset
-//!   (green RGBA) — presentation state, not full InGameUI draw / GameText fetch.
+//! - Floating cash text residual: salvage `doMoney` only (player color +10z).
+//!   Money crates do not emit `+$N` (C++ MoneyCrateCollide has no addFloatingText).
+
 //!
 //! Wave 64 residual pack (retail Crate.ini / ObjectCreationList.ini honesty):
 //! - SupplyDropZoneCrate: Money **250**, BuildingPickup **Yes**, SupplyLines **+25**,
@@ -75,14 +76,21 @@ pub const MONEY_PICKUP_ANIM_FADES: bool = true;
 /// ForbiddenKindOf residual label honesty (SupplyDropZoneCrate = PROJECTILE).
 pub const MONEY_CRATE_FORBIDDEN_KIND_OF: &str = "PROJECTILE";
 
-/// Residual floating cash text Z lift above unit/crate (retail sabotage uses +20).
+/// Residual floating cash text Z lift for inject/MoneyPickUp tests (sabotage +20).
 pub const MONEY_FLOATING_TEXT_Z_OFFSET: f32 = 20.0;
 
-/// Residual floating cash text color (green, retail GameMakeColor(0,255,0,255)).
+/// Residual floating cash text color for inject tests (GameMakeColor(0,255,0,255)).
 pub const MONEY_FLOATING_TEXT_COLOR_RGBA: (u8, u8, u8, u8) = (0, 255, 0, 255);
 
 /// Residual GameText key honesty for cash gain caption.
 pub const MONEY_FLOATING_TEXT_ADD_CASH_KEY: &str = "GUI:AddCash";
+
+/// C++ SalvageCrateCollide::doMoney crate pos.z += 10.
+pub const SALVAGE_MONEY_FLOATING_TEXT_Z_OFFSET: f32 = 10.0;
+
+/// C++ GameMakeColor(0,0,0,230) OR'd onto player->getPlayerColor().
+pub const SALVAGE_MONEY_FLOATING_TEXT_ALPHA: u8 = 230;
+
 
 /// Retail 1000DollarCrate MoneyProvided residual.
 pub const DOLLAR_CRATE_1000_MONEY: u32 = 1000;
@@ -733,6 +741,38 @@ impl HostMoneyCrateRegistry {
         }
     }
 
+    /// C++ SalvageCrateCollide::doMoney: GUI:AddCash at crate pos +10z,
+    /// player color | GameMakeColor(0,0,0,230).
+    pub fn salvage_money_floating_text(
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+        position: Vec3,
+        amount: u32,
+        spawn_frame: u32,
+        player_color_rgb: (u8, u8, u8),
+    ) -> HostMoneyFloatingText {
+        HostMoneyFloatingText {
+            text: format!("+${amount}"),
+            text_key: MONEY_FLOATING_TEXT_ADD_CASH_KEY.to_string(),
+            position: Vec3::new(
+                position.x,
+                position.y + SALVAGE_MONEY_FLOATING_TEXT_Z_OFFSET,
+                position.z,
+            ),
+            color_rgba: (
+                player_color_rgb.0,
+                player_color_rgb.1,
+                player_color_rgb.2,
+                SALVAGE_MONEY_FLOATING_TEXT_ALPHA,
+            ),
+            amount,
+            spawn_frame,
+            crate_id,
+            picker_id,
+        }
+    }
+
+
     /// Apply a successful residual pickup: remove crate entry and update honesty.
     pub fn record_pickup(
         &mut self,
@@ -1031,6 +1071,19 @@ mod tests {
         assert_eq!(ft.text_key, "GUI:AddCash");
         assert!((ft.position.y - 20.0).abs() < 0.01);
         assert_eq!(ft.color_rgba, (0, 255, 0, 255));
+        let salvage_ft = HostMoneyCrateRegistry::salvage_money_floating_text(
+            ObjectId(1),
+            ObjectId(2),
+            Vec3::new(1.0, 0.0, 1.0),
+            40,
+            10,
+            (67, 104, 254),
+        );
+        assert_eq!(salvage_ft.text, "+$40");
+        assert_eq!(salvage_ft.text_key, "GUI:AddCash");
+        assert!((salvage_ft.position.y - 10.0).abs() < 0.01);
+        assert_eq!(salvage_ft.color_rgba, (67, 104, 254, 230));
+
         let _ = Team::USA;
     }
 

@@ -107,6 +107,8 @@ pub struct Player {
     pub queued_upgrades: HashSet<String>,
     pub is_local: bool,
     pub is_alive: bool,
+    /// C++ `Player::m_observer` / `isPlayerObserver`.
+    pub is_observer: bool,
     /// C++ Player::didPlayerPreorder residual (shell/skirmish preorder bonus).
     pub did_preorder: bool,
     pub statistics: PlayerStatistics,
@@ -323,6 +325,7 @@ impl PlayerTemplateIdentity {
             "usa" | "us" | "america" | "factionamerica" => Some(Team::USA),
             "china" | "factionchina" => Some(Team::China),
             "gla" | "factiongla" => Some(Team::GLA),
+            "observer" | "factionobserver" => Some(Team::Neutral),
             _ => None,
         }
     }
@@ -357,6 +360,7 @@ impl Player {
             is_local,
             did_preorder: false,
             is_alive: true,
+            is_observer: false,
             statistics: PlayerStatistics::default(),
             power_sabotaged_till_frame: 0,
             color_rgb: (200, 200, 200),
@@ -1082,8 +1086,8 @@ impl Player {
             ((color >> 8) & 0xff) as u8,
             (color & 0xff) as u8,
         );
-        self.is_alive = !template.is_observer();
-
+        self.is_observer = template.is_observer();
+        self.is_alive = !self.is_observer;
         self.rank_level = 1;
         self.skill_points = 0;
         self.unlocked_sciences.clear();
@@ -1187,6 +1191,17 @@ impl Player {
 
     pub fn record_structure_lost(&mut self) {
         self.statistics.structures_lost = self.statistics.structures_lost.saturating_add(1);
+    }
+
+    /// C++ `ScoreKeeper::calculateScore`.
+    pub fn calculate_score(&self) -> i32 {
+        let s = &self.statistics;
+        (s.units_built as i32)
+            .saturating_mul(100)
+            .saturating_add(s.money_earned as i32)
+            .saturating_add((s.structures_built as i32).saturating_mul(100))
+            .saturating_add((s.units_destroyed as i32).saturating_mul(100))
+            .saturating_add((s.structures_destroyed as i32).saturating_mul(100))
     }
 
     pub fn record_resources_spent(&mut self, amount: u32) {

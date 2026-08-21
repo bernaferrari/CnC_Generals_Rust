@@ -44,12 +44,15 @@ impl GameLogic {
             .map(|o| o.team)
             .unwrap_or(Team::Neutral);
         let frame = self.frame;
+        // C++ OCLSpecialPower::findOCL: getObject()->getControllingPlayer()->hasScience.
+        // Never union same-faction allies or USA-vs-USA opponents.
         let sciences: Vec<String> = self
-            .players
-            .values()
-            .filter(|p| p.team == source_team)
-            .flat_map(|p| p.unlocked_sciences.iter().cloned())
-            .collect();
+            .objects
+            .get(&source_object)
+            .and_then(|obj| self.player_owner_for_host_object(obj))
+            .and_then(|pid| self.get_player(pid))
+            .map(|p| p.unlocked_sciences.iter().cloned().collect())
+            .unwrap_or_default();
         // ArtilleryBarrage FormationSize residual from unlocked SCIENCE_ArtilleryBarrage1/2/3.
         let artillery_tier = if kind == HostSuperweaponKind::ArtilleryBarrage {
             ArtilleryBarrageScienceTier::highest_from_sciences(sciences.iter().map(|s| s.as_str()))
@@ -242,14 +245,29 @@ impl GameLogic {
         target_position: Vec3,
         kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
     ) -> bool {
+        self.create_special_power_view_object_at(
+            source_object,
+            target_position,
+            kind.view_object_range(),
+            kind.view_object_duration_frames(),
+        )
+    }
+
+    /// C++ `SpecialPowerModule::createViewObject` with explicit range/duration.
+    /// Cluster Mines inherits this via `OCLSpecialPower::doSpecialPowerAtLocation`.
+    pub fn create_special_power_view_object_at(
+        &mut self,
+        source_object: ObjectId,
+        target_position: Vec3,
+        range: f32,
+        duration: u32,
+    ) -> bool {
         use crate::game_logic::special_power_strikes::HostViewObjectReveal;
         use crate::game_logic::{KindOf, ThingTemplate};
         use gamelogic::common::Coord3D;
 
 
         const VIEW_OBJECT_TEMPLATE: &str = "SpecialPowerViewObject";
-        let range = kind.view_object_range();
-        let duration = kind.view_object_duration_frames();
         if range <= 0.0 || duration == 0 {
             return false;
         }

@@ -13,6 +13,8 @@ use super::HostHeliTakeoffOrLanding;
 pub struct GameLogic {
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
+    /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
+    pub team_common_attack_targets: std::collections::HashMap<String, ObjectId>,
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,
     /// C++ TAiData::m_retaliateFriendsRadius residual (default 120).

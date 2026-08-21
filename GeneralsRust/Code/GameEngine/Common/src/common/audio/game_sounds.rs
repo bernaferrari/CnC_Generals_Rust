@@ -22,13 +22,28 @@ pub type Int = i32;
 pub type UnsignedInt = u32;
 
 // Constants for audio control
-const ST_WORLD: u32 = 0x00000002;
-const ST_SHROUDED: u32 = 0x00000004;
-const ST_GLOBAL: u32 = 0x00000008;
+use super::audio_event_rts::{ST_GLOBAL, ST_SHROUDED, ST_WORLD};
 const ST_VOICE: u32 = 0x00000010;
 const AC_INTERRUPT: u32 = 0x00000010;
 const AP_CRITICAL: AudioPriority = AudioPriority::Critical;
 const INVALID_OBJECT_ID: ObjectId = 0xFFFF_FFFF;
+
+/// C++ `SoundManager::canPlayNow` ST_SHROUDED cull (GameSounds.cpp:188-211).
+/// Positional, non-ST_GLOBAL, non-AP_CRITICAL events in a non-CLEAR cell are blocked.
+pub fn shrouded_positional_event_is_blocked(
+    type_field: u32,
+    is_positional: bool,
+    is_critical: bool,
+    position_is_clear: bool,
+) -> bool {
+    if !is_positional || (type_field & ST_GLOBAL) != 0 || is_critical {
+        return false;
+    }
+    if (type_field & ST_SHROUDED) == 0 {
+        return false;
+    }
+    !position_is_clear
+}
 
 // Shroud status enumeration
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -244,14 +259,16 @@ impl SoundManagerImpl {
                     return false;
                 }
 
-                if (event_info.type_field & ST_SHROUDED) != 0 {
-                    let is_visible = with_audio_shroud_resolver(|resolver| {
+                if shrouded_positional_event_is_blocked(
+                    event_info.type_field,
+                    true,
+                    event_info.priority == AP_CRITICAL,
+                    with_audio_shroud_resolver(|resolver| {
                         resolver.is_position_visible_to_local_player(pos)
                     })
-                    .unwrap_or(true);
-                    if !is_visible {
-                        return false;
-                    }
+                    .unwrap_or(true),
+                ) {
+                    return false;
                 }
             }
         }

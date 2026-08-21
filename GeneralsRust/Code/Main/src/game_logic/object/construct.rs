@@ -148,6 +148,7 @@ impl Object {
         let vision_range = template.sight_range.max(0.0);
         let shroud_clearing_range = template.resolved_shroud_clearing_range().max(0.0);
         let turret = turret_spawn_for_template(&template_name);
+        let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
 
 
@@ -641,6 +642,8 @@ impl Object {
             hijacker_update_active: false,
             hijacker_was_airborne: false,
             hijacker_eject_pos: None,
+            drawable_hidden: false,
+
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
@@ -669,10 +672,19 @@ impl Object {
             weapon_bonus_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
-            terrain_decal_type: 8,
+            terrain_decal_type: if is_fs_fake {
+                crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE
+            } else {
+                8
+            },
             terrain_decal_size: 0.0,
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
+            terrain_decal_opacity: if is_fs_fake {
+                1.0
+            } else {
+                0.0
+            },
             sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
                 &template_name,
             ),
@@ -743,6 +755,8 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            frame_exit_not_busy: 0,
+
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown,
@@ -920,6 +934,7 @@ impl Object {
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let crusher_level = template.crusher_level;
         let crushable_level = template.crushable_level;
+        let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         Self {
             thing: Thing::new(template),
@@ -1411,6 +1426,8 @@ impl Object {
             hijacker_update_active: false,
             hijacker_was_airborne: false,
             hijacker_eject_pos: None,
+            drawable_hidden: false,
+
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
             guard_target: None,
@@ -1439,10 +1456,19 @@ impl Object {
             weapon_bonus_hero: false,
             locomotor_upgrade: false,
             terrain_decal_chemsuit: false,
-            terrain_decal_type: 8,
+            terrain_decal_type: if is_fs_fake {
+                crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE
+            } else {
+                8
+            },
             terrain_decal_size: 0.0,
             terrain_decal_fade_target: 0.0,
             terrain_decal_fade_rate: 0.0,
+            terrain_decal_opacity: if is_fs_fake {
+                1.0
+            } else {
+                0.0
+            },
             sub_object_visibility: crate::game_logic::host_battlemaster::leftover_horde_flag_visibility_for_template(
                 &template_name,
             ),
@@ -1513,6 +1539,8 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            frame_exit_not_busy: 0,
+
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
             special_power_cooldown: 10.0,

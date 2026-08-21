@@ -366,6 +366,14 @@ fn default_friendly_stealth_opacity_max() -> f32 {
     1.0
 }
 
+fn default_shadows_enabled() -> bool {
+    true
+}
+
+fn default_terrain_decal_none() -> u8 {
+    8
+}
+
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
@@ -382,6 +390,22 @@ pub struct RenderableObject {
     /// C++ ToppleUpdate lean residual (radians fallen about fall axis).
     #[serde(default)]
     pub topple_lean_radians: f32,
+    /// C++ `m_toppleDirection.x` (host X).
+    #[serde(default)]
+    pub topple_dir_x: f32,
+    /// C++ `m_toppleDirection.y` (host Z).
+    #[serde(default)]
+    pub topple_dir_y: f32,
+    /// C++ `Drawable::setShadowsEnabled` residual.
+    #[serde(default = "default_shadows_enabled")]
+    pub shadows_enabled: bool,
+    /// C++ `Drawable` terrain-decal type residual.
+    #[serde(default = "default_terrain_decal_none")]
+    pub terrain_decal_type: u8,
+    #[serde(default)]
+    pub terrain_decal_size: f32,
+    #[serde(default)]
+    pub terrain_decal_opacity: f32,
     /// Current movement order destination (host Movement::target_position).
     pub move_destination: Option<Vec3>,
     /// Host Object::target_location residual (script/order point).
@@ -459,6 +483,11 @@ pub struct RenderableObject {
     pub guard_position: Option<Vec3>,
     /// Contained unit ids (garrison / transport residual, capped).
     pub garrisoned_units: Vec<ObjectId>,
+    /// C++ `getStealthUnitsContained` frozen independently of hide-from-nonallies
+    /// so RMB `canEnterObject` can allow a stealth-only civilian garrison.
+    #[serde(default)]
+    pub stealth_garrison_occupant_count: u16,
+
     /// Max garrison slots (0 = not a container).
     pub max_garrison: usize,
     /// Structure/unit power provided residual.

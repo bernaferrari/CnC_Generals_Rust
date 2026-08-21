@@ -684,6 +684,13 @@ impl GameLogic {
                 if let Some(r) = self.objects.get_mut(&rider_id) {
                     r.end_hijacker_in_vehicle(epos, air);
                 }
+                // C++ HijackerUpdate: ThePartitionManager->registerObject(obj).
+                if let Some(r) = self.objects.get(&rider_id) {
+                    let p = r.get_position();
+                    self.partition_manager
+                        .register_object_footprint(rider_id.0, p.x, p.z, r.selection_radius.max(1.0));
+                }
+
                 // C++ HijackerUpdate: if m_wasTargetAirborne → PutInContainer
                 // AmericaParachute (m_parachuteName) at m_ejectPos.
                 if air {
@@ -1048,6 +1055,9 @@ impl GameLogic {
                 if let Some(crate_obj) = self.objects.get_mut(&crate_id) {
                     crate_obj.owner_player_id = victim_owner;
                 }
+            }
+            if let Some(crate_obj) = self.objects.get_mut(&crate_id) {
+                crate_obj.apply_crate_terrain_decal();
             }
 
             if req.is_shroud_crate {

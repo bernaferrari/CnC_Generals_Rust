@@ -1528,13 +1528,40 @@ impl GameLogic {
     }
 
     /// Authoritative occupant/garrison count (GameWorld when coupled).
+    /// TunnelContain redirects to the controlling player's TunnelTracker.
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
         if let Some(n) = crate::gameworld_shadow::coupled_entity_occupant_count(id) {
             return Some(n);
         }
-        self.host_object(id)
-            .map(|o| o.occupants.len().min(u16::MAX as usize) as u16)
+        let o = self.host_object(id)?;
+        if o.is_tunnel_network_style_container()
+            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
+        {
+            return Some(
+                self.tunnel_network
+                    .contain_count(o.tunnel_system_key())
+                    .min(u16::MAX as usize) as u16,
+            );
+        }
+        Some(o.occupants.len().min(u16::MAX as usize) as u16)
     }
+
+    /// Authoritative contained-unit list. Tunnels export the shared player pool
+    /// so every entrance shows the same ControlBar inventory.
+    pub fn host_authoritative_contained_units(&self, id: ObjectId) -> Vec<ObjectId> {
+        let Some(o) = self.host_object(id) else {
+            return Vec::new();
+        };
+        if o.is_tunnel_network_style_container()
+            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
+        {
+            return self
+                .tunnel_network
+                .contained_for_player(o.tunnel_system_key());
+        }
+        o.contained_units()
+    }
+
 
     /// Authoritative move destination (GameWorld when coupled).
     ///
@@ -1787,14 +1814,16 @@ impl GameLogic {
         }
     }
 
-    /// C++ `pickAndPlayUnitVoiceResponse` — one authored Voice.ini event.
+    /// C++ `pickAndPlayUnitVoiceResponse` — authored Voice.ini plus carbomb extra.
     pub fn queue_picked_unit_voice(
         &mut self,
         unit_ids: &[ObjectId],
         slot: crate::game_logic::audio_dispatch_impl::UnitVoiceSlot,
     ) {
-        use crate::game_logic::audio_dispatch_impl::resolve_unit_voice_event;
-        let mut chosen: Option<(String, ObjectId, glam::Vec3)> = None;
+        use crate::game_logic::audio_dispatch_impl::{
+            resolve_terrorist_in_car_voice, resolve_unit_voice_event,
+        };
+        let mut chosen: Option<(String, ObjectId, glam::Vec3, bool)> = None;
         for &id in unit_ids {
             let Some(obj) = self.objects.get(&id) else {
                 continue;
@@ -1805,18 +1834,29 @@ impl GameLogic {
             let Some(event) = resolve_unit_voice_event(&obj.template_name, slot) else {
                 continue;
             };
-            chosen = Some((event, id, obj.get_position()));
+            chosen = Some((event, id, obj.get_position(), obj.status.is_carbomb));
             if slot.first_unit_wins() {
                 break;
             }
         }
-        if let Some((event, id, pos)) = chosen {
+        if let Some((event, id, pos, is_carbomb)) = chosen {
             self.queue_audio_event(
                 AudioEventRequest::new(&event)
                     .with_object(id)
                     .with_position(pos)
                     .with_priority(100),
             );
+            // C++ CommandXlat.cpp:690-728 — IS_CARBOMB layers MiscAudio TerroristInCar*.
+            if is_carbomb {
+                if let Some(extra) = resolve_terrorist_in_car_voice(slot) {
+                    self.queue_audio_event(
+                        AudioEventRequest::new(&extra)
+                            .with_object(id)
+                            .with_position(pos)
+                            .with_priority(100),
+                    );
+                }
+            }
         }
     }
 }

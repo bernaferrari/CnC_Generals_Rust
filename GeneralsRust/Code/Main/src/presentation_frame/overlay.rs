@@ -1412,6 +1412,12 @@ impl PresentationFrame {
             orientation: ent.transform.orientation,
             // Wave 498: filled by overlay_host_fx_residual when host is available.
             topple_lean_radians: ent.topple_lean_radians,
+            topple_dir_x: 1.0,
+            topple_dir_y: 0.0,
+            shadows_enabled: true,
+            terrain_decal_type: 8,
+            terrain_decal_size: 0.0,
+            terrain_decal_opacity: 0.0,
             move_destination,
             // Wave 489: order/path/production presentation from GW entity.
             target_location: ent
@@ -1481,6 +1487,8 @@ impl PresentationFrame {
                 .filter(|&id| id != 0)
                 .map(crate::game_logic::ObjectId)
                 .collect(),
+            stealth_garrison_occupant_count: 0,
+
             max_garrison: ent.max_garrison as usize,
             power_provided: ent.power_provided,
             power_consumed: ent.power_consumed,
@@ -2100,6 +2108,26 @@ impl PresentationFrame {
             let topple = obj.presentation_topple_lean_radians();
             if (ro.topple_lean_radians - topple).abs() > 1e-5 {
                 ro.topple_lean_radians = topple;
+                dirty = true;
+            }
+            let (tdx, tdy) = obj.presentation_topple_dir();
+            if (ro.topple_dir_x - tdx).abs() > 1e-5 || (ro.topple_dir_y - tdy).abs() > 1e-5 {
+                ro.topple_dir_x = tdx;
+                ro.topple_dir_y = tdy;
+                dirty = true;
+            }
+            let shadows = obj.presentation_shadows_enabled();
+            if ro.shadows_enabled != shadows {
+                ro.shadows_enabled = shadows;
+                dirty = true;
+            }
+            if ro.terrain_decal_type != obj.terrain_decal_type
+                || (ro.terrain_decal_size - obj.terrain_decal_size).abs() > 1e-5
+                || (ro.terrain_decal_opacity - obj.terrain_decal_opacity).abs() > 1e-5
+            {
+                ro.terrain_decal_type = obj.terrain_decal_type;
+                ro.terrain_decal_size = obj.terrain_decal_size;
+                ro.terrain_decal_opacity = obj.terrain_decal_opacity;
                 dirty = true;
             }
             let damage_fx = obj

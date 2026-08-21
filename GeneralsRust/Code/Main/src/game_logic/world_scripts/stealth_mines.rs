@@ -14,16 +14,31 @@ impl GameLogic {
     /// - Stealth Fighter + mines innate cloak; contained detectors do not scan
     pub fn update_stealth_and_detection(&mut self) {
         let frame = self.frame;
+        // C++ StealthUpdate.cpp:725-780 cloak/destalth/detect SoundStealthOn/Off.
+        let stealth_snap: Vec<(ObjectId, bool, bool)> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.is_alive())
+            .map(|(id, o)| (*id, o.status.stealthed, o.status.detected))
+            .collect();
+
 
         // Expire timed detections (unit may remain stealthed).
+        // C++ StealthUpdate.cpp:768-801 — DETECTED clear on a garrison rider
+        // refreshes the container's apparent controller / hide flag.
+        let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for obj in self.objects.values_mut() {
             if obj.status.detected
                 && obj.detection_expires_frame > 0
                 && frame >= obj.detection_expires_frame
             {
                 obj.clear_detected();
+                if let Some(cid) = obj.contained_by {
+                    garrison_detect_recalc.push(cid);
+                }
             }
         }
+        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
 
         // C++ StealthUpdate.cpp:365-373 — occupants of non-garrison transports destalth.
         {
@@ -326,18 +341,38 @@ impl GameLogic {
         }
 
         // GLA CamoNetting structure residual: StealthForbiddenConditions =
-        // ATTACKING + USING_ABILITY + TAKING_DAMAGE, StealthDelay 2500ms re-cloak,
+        // ATTACKING + USING_ABILITY + TAKING_DAMAGE + NO_BLACK_MARKET,
+        // StealthDelay 2500ms re-cloak,
         // OrderIdleEnemiesToAttackMeUponReveal residual on uncloak,
         // FriendlyOpacity residual (min cloaked / max revealed + pulse while cloaked),
         // StealthLook / heat-vision second-pass residual (Drawable::setStealthLook).
         {
+            use crate::game_logic::host_black_market::is_black_market_template;
             use crate::game_logic::host_upgrades::{
                 camo_netting_heat_vision_opacity, camo_netting_order_idle_enemy_in_range,
                 camo_netting_pulse_opacity, camo_netting_stealth_allowed_frame,
                 camo_netting_stealth_look, camo_netting_structure_stealth_desired,
-                is_camo_netting_structure_template, CAMO_NETTING_FRIENDLY_OPACITY_MAX,
-                CAMO_NETTING_FRIENDLY_OPACITY_MIN, UPGRADE_GLA_CAMO_NETTING,
+                is_camo_netting_structure_template, stealth_same_controlling_player,
+                CAMO_NETTING_FRIENDLY_OPACITY_MAX, CAMO_NETTING_FRIENDLY_OPACITY_MIN,
+                UPGRADE_GLA_CAMO_NETTING,
             };
+            // C++ StealthUpdate.cpp:287 iterateObjects(isBlackMarket).
+            let live_markets: Vec<(Team, Option<u32>)> = self
+                .objects
+                .values()
+                .filter(|o| {
+                    crate::game_logic::object::is_live_stealth_black_market(
+                        o.is_kind_of(KindOf::FSBlackMarket)
+                            || is_black_market_template(&o.template_name),
+                        o.is_kind_of(KindOf::FSFake),
+                        o.is_alive(),
+                        o.status.under_construction,
+                        o.status.sold,
+                        o.status.destroyed,
+                    )
+                })
+                .map(|o| (o.team, o.owner_player_id))
+                .collect();
             let struct_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
@@ -374,6 +409,14 @@ impl GameLogic {
                 // C++ OBJECT_STATUS_IS_USING_ABILITY residual.
                 let using_ability =
                     obj.status.using_ability || matches!(obj.ai_state, AIState::SpecialAbility);
+                let has_live_black_market = live_markets.iter().any(|(team, player)| {
+                    stealth_same_controlling_player(
+                        obj.team,
+                        obj.owner_player_id,
+                        *team,
+                        *player,
+                    )
+                });
                 let Some(desired) = camo_netting_structure_stealth_desired(
                     obj.innate_stealth,
                     obj.is_alive(),
@@ -381,6 +424,7 @@ impl GameLogic {
                     using_ability,
                     frame,
                     obj.stealth_allowed_frame,
+                    has_live_black_market,
                 ) else {
                     continue;
                 };
@@ -889,7 +933,8 @@ impl GameLogic {
             if !(o.is_detector
                 && o.is_alive()
                 && !o.status.under_construction
-                && !o.status.destroyed)
+                && !o.status.destroyed
+                && !o.status.sold)
             {
                 continue;
             }
@@ -974,8 +1019,10 @@ impl GameLogic {
         }
 
         if detectors.is_empty() {
+            self.play_stealth_transition_sounds(&stealth_snap);
             return;
         }
+
 
         // Collect stealthed targets first to avoid borrow conflicts.
         let stealthed_ids: Vec<ObjectId> = self
@@ -1048,6 +1095,8 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&sid) {
                     obj.mark_detected(best_expires);
                 }
+                // C++ StealthUpdate::markAsDetected orderIdlesToAttack walk.
+                self.order_idle_enemies_to_attack_on_reveal(sid);
                 // Honesty: first residual reveal by residual detector kinds this tick.
                 if !already_detected {
                     if detected_by_sentry {
@@ -1075,7 +1124,130 @@ impl GameLogic {
                 }
             }
         }
+
+        // C++ StealthUpdate.cpp:786-801 — occupant DETECTED flip refreshes
+        // GarrisonContain hide / capture so enemies see GARRISONED.
+        let garrison_detect_recalc: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(_, o)| {
+                if o.status.detected {
+                    o.contained_by
+                } else {
+                    None
+                }
+            })
+            .collect();
+        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
+
+        // C++ PartitionFilterStealthedOrStealthGarrisoned + occupant
+        // markAsDetected(updateRate+2) (StealthDetectorUpdate.cpp:105-117, :311-333).
+        {
+            use crate::game_logic::host_radar_stealth_vision_residual::spotter_mark_detected_garrison_rider_frames_residual;
+            let buildings: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| o.is_alive() && o.is_garrison_contain())
+                .map(|(id, _)| *id)
+                .collect();
+            let mut touched: Vec<ObjectId> = Vec::new();
+            for bid in buildings {
+                let Some((b_pos, occupants)) = self
+                    .objects
+                    .get(&bid)
+                    .map(|b| (b.get_position(), b.contained_units()))
+                else {
+                    continue;
+                };
+                let stealth_riders: Vec<ObjectId> = occupants
+                    .into_iter()
+                    .filter(|id| {
+                        self.objects
+                            .get(id)
+                            .is_some_and(|o| o.is_alive() && o.status.stealthed)
+                    })
+                    .collect();
+                if stealth_riders.is_empty() {
+                    continue;
+                }
+                for (_id, det_team, det_owner, det_pos, range, _flags, rate) in &detectors {
+                    if det_pos.distance(b_pos) > *range {
+                        continue;
+                    }
+                    let hold = spotter_mark_detected_garrison_rider_frames_residual(*rate);
+                    let expires = frame.saturating_add(hold);
+                    let mut marked = false;
+                    for rid in &stealth_riders {
+                        let Some((r_team, r_owner)) = self
+                            .objects
+                            .get(rid)
+                            .map(|o| (o.team, o.owner_player_id))
+                        else {
+                            continue;
+                        };
+                        let rel_ok = match (*det_owner, r_owner) {
+                            (Some(a), Some(b)) => {
+                                use gamelogic::common::Relationship;
+                                matches!(
+                                    self.player_relationship(a, b),
+                                    Relationship::Enemies | Relationship::Neutral
+                                )
+                            }
+                            _ => *det_team != r_team,
+                        };
+                        if !rel_ok {
+                            continue;
+                        }
+                        if let Some(obj) = self.objects.get_mut(rid) {
+                            obj.mark_detected(expires);
+                            marked = true;
+                        }
+                        self.order_idle_enemies_to_attack_on_reveal(*rid);
+                    }
+                    if marked {
+                        touched.push(bid);
+                    }
+                }
+            }
+            self.recalc_garrisons_after_occupant_detect_change(&touched);
+        }
+        self.play_stealth_transition_sounds(&stealth_snap);
     }
+
+    /// C++ StealthUpdate.cpp:725-780 SoundStealthOn / SoundStealthOff.
+    fn play_stealth_transition_sounds(&mut self, before: &[(ObjectId, bool, bool)]) {
+        use crate::game_logic::object::{SOUND_STEALTH_OFF, SOUND_STEALTH_ON};
+        let local = self.local_player_id();
+        let mut events: Vec<(ObjectId, Vec3, &'static str)> = Vec::new();
+        for &(id, was_stealthed, was_detected) in before {
+            let Some(obj) = self.objects.get(&id) else {
+                continue;
+            };
+            let pos = obj.get_position();
+            let local_ok = crate::game_logic::source_is_locally_controlled(
+                obj.owner_player_id,
+                local,
+            );
+            if obj.status.stealthed != was_stealthed {
+                // Cloak and destalth both play StealthOn in retail.
+                events.push((id, pos, SOUND_STEALTH_ON));
+            }
+            if obj.status.detected && !was_detected {
+                events.push((id, pos, SOUND_STEALTH_OFF));
+            } else if !obj.status.detected && was_detected && local_ok {
+                events.push((id, pos, SOUND_STEALTH_ON));
+            }
+        }
+        for (id, pos, name) in events {
+            self.queue_audio_event(
+                AudioEventRequest::new(name)
+                    .with_object(id)
+                    .with_position(pos)
+                    .with_priority(140),
+            );
+        }
+    }
+
 
     /// C++ StealthDetectorUpdate.cpp:199-260 first-detect radar/audio/UI.
     fn fire_stealth_discover_feedback(&mut self, target_id: ObjectId, detector_ids: &[ObjectId]) {
@@ -2680,4 +2852,93 @@ impl GameLogic {
         };
         !demo_trap_proximity_requires_enemies(rel == Relationship::Enemies)
     }
+
+    /// C++ `StealthUpdate::markAsDetected` (`StealthUpdate.cpp:892-910`) +
+    /// `setWakeupIfInRange` / `wakeUpAndAttemptToTarget`.
+    ///
+    /// Object has no world access, so the idle-enemy walk lives here. Retail
+    /// Burton / Kell / Lotus / Pathfinder / Listening Outpost / CamoNetting
+    /// author `OrderIdleEnemiesToAttackMeUponReveal`. Idle enemy AI in vision
+    /// gets `m_nextMoodCheckTime = now` so same-frame mood acquire can fire.
+    pub(crate) fn order_idle_enemies_to_attack_on_reveal(&mut self, victim_id: ObjectId) {
+        let Some(victim) = self.objects.get(&victim_id) else {
+            return;
+        };
+        if !crate::game_logic::object::order_idle_enemies_on_reveal(&victim.template_name) {
+            return;
+        }
+        let v_team = victim.team;
+        let v_owner = victim.owner_player_id;
+        let v_pos = victim.get_position();
+        let now = self.frame;
+
+        let idle_in_vision: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(&id, o)| {
+                if id == victim_id || !o.is_alive() {
+                    return None;
+                }
+                // C++ `setWakeupIfInRange` requires `getAI()`.
+                if matches!(o.object_type, ObjectType::Projectile) {
+                    return None;
+                }
+                let enemy = match (o.owner_player_id, v_owner) {
+                    (Some(a), Some(b)) => {
+                        self.player_relationship(a, b)
+                            == gamelogic::common::Relationship::Enemies
+                    }
+                    _ => {
+                        o.team != v_team
+                            && o.team != Team::Neutral
+                            && v_team != Team::Neutral
+                    }
+                };
+                if !enemy {
+                    return None;
+                }
+                let vision = if o.vision_range > 0.0 {
+                    o.vision_range
+                } else {
+                    o.get_template().sight_range.max(0.0)
+                };
+                if vision <= 0.0 || o.get_position().distance(v_pos) > vision {
+                    return None;
+                }
+                // C++ `wakeUpAndAttemptToTarget` no-ops unless idle.
+                let idle = matches!(o.ai_state, AIState::Idle) && o.target.is_none();
+                idle.then_some(id)
+            })
+            .collect();
+
+        for eid in idle_in_vision {
+            if let Some(enemy) = self.objects.get_mut(&eid) {
+                enemy.next_mood_check_time = now;
+                let can_attack = enemy.weapon.is_some()
+                    || enemy.is_kind_of(KindOf::Attackable)
+                    || enemy.can_attack()
+                    || matches!(
+                        enemy.object_type,
+                        ObjectType::Infantry | ObjectType::Vehicle | ObjectType::Aircraft
+                    );
+                if !can_attack
+                    || enemy.is_kind_of(KindOf::Structure)
+                    || enemy.is_kind_of(KindOf::Worker)
+                    || enemy.is_worker()
+                {
+                    continue;
+                }
+                enemy.set_target(Some(victim_id));
+                enemy.set_ai_state(AIState::Attacking);
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_attack(eid, victim_id);
+                    crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
+                }
+                self.camo_netting_order_idle_enemies_count =
+                    self.camo_netting_order_idle_enemies_count.saturating_add(1);
+            }
+        }
+    }
 }
+
+

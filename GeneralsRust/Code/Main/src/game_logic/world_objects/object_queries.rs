@@ -735,12 +735,28 @@ impl GameLogic {
         }
     }
 
+    /// C++ `ContainModuleInterface::getStealthUnitsContained` recount:
+    /// occupants with `KINDOF_STEALTH_GARRISON` vs everyone else.
+
+    pub fn stealth_garrison_occupant_counts(&self, target: &Object) -> (usize, usize) {
+        let occupants = target.contained_units();
+        let stealth = occupants
+            .iter()
+            .filter(|id| {
+                self.host_object(**id)
+                    .is_some_and(|occupant| occupant.is_kind_of(KindOf::StealthGarrison))
+            })
+            .count();
+        (stealth, occupants.len().saturating_sub(stealth))
+    }
+
     /// Remaining normal-Enter capacity before adding `unit_id`.
     ///
     /// `TransportContain`/`RailedTransportContain` consume each rider's
     /// authored `TransportSlotCount`; garrisons and the shared tunnel network
     /// intentionally remain body-count containers.  A missing contained
     /// object or missing slot metadata is not silently treated as one slot.
+
     pub fn normal_enter_available_capacity_for(
         &self,
         unit_id: ObjectId,
@@ -773,10 +789,10 @@ impl GameLogic {
         }
 
         if target.is_tunnel_network_style_container() {
-            let team = unit.team;
+            let player_id = target.tunnel_system_key();
             return Some(
-                if self.tunnel_network.is_in_network(team, unit_id)
-                    || self.tunnel_network.has_capacity(team)
+                if self.tunnel_network.is_in_network(player_id, unit_id)
+                    || self.tunnel_network.has_capacity(player_id)
                 {
                     1
                 } else {
@@ -853,7 +869,7 @@ impl GameLogic {
             return false;
         }
 
-        let unit_in_tunnel = self.tunnel_network.team_holding_unit(unit_id).is_some();
+        let unit_in_tunnel = self.tunnel_network.player_holding_unit(unit_id).is_some();
         if !unit.can_move() && !unit_in_tunnel {
             return false;
         }
@@ -866,11 +882,17 @@ impl GameLogic {
         if target.normal_enter_requires_exact_controller() && !same_controller {
             return false;
         }
+        let mut skip_capacity_for_stealth_garrison = false;
+
 
         if target.is_tunnel_network_style_container() {
-            if unit.is_kind_of(KindOf::Aircraft)
-                || (target.team != unit.team && target.team != Team::Neutral)
-            {
+            if unit.is_kind_of(KindOf::Aircraft) {
+                return false;
+            }
+            // C++ ActionManager.cpp:662-670 — faction structure rejects a
+            // different controlling player. Same-faction allies/enemies cannot
+            // board another player's Tunnel Network.
+            if !same_controller {
                 return false;
             }
         } else {
@@ -881,6 +903,7 @@ impl GameLogic {
                         return false;
                     }
                 }
+
                 crate::game_logic::ContainAdmission::InfantryOrVehicle => {
                     if unit.is_kind_of(KindOf::Aircraft) {
                         return false;
@@ -894,15 +917,22 @@ impl GameLogic {
                 crate::game_logic::ContainAdmission::Unsupported => return false,
             }
 
-            // C++ lets a non-owner Enter an empty civilian/non-faction
-            // garrison, but not an occupied target or a faction structure.
-            // Use exact controllers here: same-faction skirmish slots are not
-            // implicitly the same owner.
-            if !same_controller
-                && (target.is_faction_structure() || !target.contained_units().is_empty())
-            {
-                return false;
+            // C++ ActionManager.cpp:656-675: a different player may Enter a
+            // non-faction container when every occupant is KINDOF_STEALTH_GARRISON.
+            // Mixed / regular occupants and faction structures still reject.
+            // Stealth-only also skips CHECK_CAPACITY (kick-out happens on arrive).
+            skip_capacity_for_stealth_garrison = false;
+
+            if !same_controller {
+                let (stealth, non_stealth) = self.stealth_garrison_occupant_counts(target);
+                if non_stealth > 0 || target.is_faction_structure() {
+                    return false;
+                }
+                if stealth > 0 && non_stealth == 0 {
+                    skip_capacity_for_stealth_garrison = true;
+                }
             }
+
 
             // Repeat the exact parsed roster lookup in authority even when
             // presentation already filtered it.  Do not turn a Combat Cycle
@@ -915,6 +945,10 @@ impl GameLogic {
                 return false;
             }
         }
+        if skip_capacity_for_stealth_garrison {
+            return true;
+        }
+
 
         let Some(available) = self.normal_enter_available_capacity_for(unit_id, target_id) else {
             return false;

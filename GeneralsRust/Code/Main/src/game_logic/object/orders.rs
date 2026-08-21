@@ -151,7 +151,26 @@ impl Object {
 
     /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
     pub fn set_terrain_decal_chemsuit(&mut self, enabled: bool) {
+        use crate::game_logic::host_battlemaster::{
+            TERRAIN_DECAL_CHEMSUIT, TERRAIN_DECAL_NONE,
+        };
         self.terrain_decal_chemsuit = enabled;
+        if enabled {
+            self.set_terrain_decal(TERRAIN_DECAL_CHEMSUIT);
+            if self.terrain_decal_size <= 0.0 {
+                let major = if self.thing.template.geometry_info.authored {
+                    self.thing.template.geometry_info.major_radius
+                } else {
+                    self.selection_radius.max(8.0)
+                };
+                self.set_terrain_decal_size(major * 2.0, major * 2.0);
+            }
+            self.terrain_decal_opacity = 1.0;
+            self.terrain_decal_fade_rate = 0.0;
+        } else if self.terrain_decal_type == TERRAIN_DECAL_CHEMSUIT {
+            self.set_terrain_decal(TERRAIN_DECAL_NONE);
+            self.terrain_decal_opacity = 0.0;
+        }
     }
 
     /// C++ Drawable::setTerrainDecal residual (HordeUpdate rings).
@@ -176,6 +195,60 @@ impl Object {
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
         self.terrain_decal_fade_target = target;
         self.terrain_decal_fade_rate = rate;
+    }
+
+    /// C++ `Drawable::update` LERP `m_decalOpacity` by fade rate; clear at 0.
+    pub fn tick_terrain_decal_fade(&mut self) {
+        use crate::game_logic::host_battlemaster::TERRAIN_DECAL_NONE;
+        if self.terrain_decal_type == TERRAIN_DECAL_NONE || self.terrain_decal_fade_rate == 0.0 {
+            return;
+        }
+        self.terrain_decal_opacity += self.terrain_decal_fade_rate;
+        if self.terrain_decal_fade_rate < 0.0 && self.terrain_decal_opacity <= 0.0 {
+            self.terrain_decal_opacity = 0.0;
+            self.terrain_decal_fade_rate = 0.0;
+            self.set_terrain_decal(TERRAIN_DECAL_NONE);
+        } else if self.terrain_decal_fade_rate > 0.0 && self.terrain_decal_opacity >= 1.0 {
+            self.terrain_decal_opacity = 1.0;
+            self.terrain_decal_fade_rate = 0.0;
+        }
+    }
+
+    /// C++ CreateCrateDie.cpp:219-223 crate glow.
+    pub fn apply_crate_terrain_decal(&mut self) {
+        use crate::game_logic::host_battlemaster::{
+            CRATE_DECAL_FADE_IN_RATE, CRATE_DECAL_SIZE_MULT, TERRAIN_DECAL_CRATE,
+        };
+        let major = if self.thing.template.geometry_info.authored {
+            self.thing.template.geometry_info.major_radius
+        } else {
+            self.selection_radius.max(4.0)
+        };
+        let size = CRATE_DECAL_SIZE_MULT * major.max(1.0);
+        self.set_terrain_decal(TERRAIN_DECAL_CRATE);
+        self.set_terrain_decal_size(size, size);
+        self.terrain_decal_opacity = 0.0;
+        self.set_terrain_decal_fade_target(1.0, CRATE_DECAL_FADE_IN_RATE);
+    }
+
+    /// C++ `Drawable::friend_bindToObject` / `changedTeam` for `KINDOF_FS_FAKE`.
+    pub fn apply_fake_building_terrain_decal(&mut self) {
+        use crate::game_logic::host_battlemaster::TERRAIN_DECAL_SHADOW_TEXTURE;
+        use crate::game_logic::KindOf;
+        if !self.is_kind_of(KindOf::FSFake) {
+            return;
+        }
+        self.set_terrain_decal(TERRAIN_DECAL_SHADOW_TEXTURE);
+        if self.terrain_decal_size <= 0.0 {
+            let major = if self.thing.template.geometry_info.authored {
+                self.thing.template.geometry_info.major_radius
+            } else {
+                self.selection_radius.max(20.0)
+            };
+            self.set_terrain_decal_size(major * 2.0, major * 2.0);
+        }
+        self.terrain_decal_opacity = 1.0;
+        self.terrain_decal_fade_rate = 0.0;
     }
 
     /// C++ HordeUpdate terrain-decal type / size / fade matrix.
@@ -721,18 +794,19 @@ impl Object {
     }
 
     /// C++ GarrisonContain::onContaining setTeam + hide-from-nonallies seed.
+    /// Hide uses `KINDOF_STEALTH_GARRISON`, not the current STEALTHED bit.
     pub fn note_garrison_occupant_entered(
         &mut self,
         occupant_team: Team,
         occupant_owner: Option<u32>,
-        occupant_stealthed: bool,
+        occupant_stealth_garrison: bool,
         occupant_detected: bool,
     ) {
         if let Some(bd) = self.building_data.as_mut() {
             if bd.original_team.is_none() {
                 bd.original_team = Some(self.team);
             }
-            bd.hide_garrisoned_state = occupant_stealthed && !occupant_detected;
+            bd.hide_garrisoned_state = occupant_stealth_garrison && !occupant_detected;
         }
         self.set_team_and_owner(occupant_team, occupant_owner);
     }
@@ -1049,18 +1123,20 @@ impl Object {
     }
 
     /// Install residual HelixContain transport (Slots=5).
-    /// C++ HelixContain lets infantry fire (`isPassengerAllowedToFire`) and
-    /// applies WEAPONBONUSCONDITION_GARRISONED on enter.
+    /// C++ OpenContain default `m_passengersAllowedToFire = FALSE`.
+    /// `PassengersFireUpgrade` (Battle Bunker) sets the flag later.
+    /// HelixContain still applies WEAPONBONUSCONDITION_GARRISONED on enter.
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
-        self.passengers_allowed_to_fire = true;
+        self.passengers_allowed_to_fire = false;
         // Helix can hold infantry / vehicle / portable structure residual.
         // Fail-closed: allow_inside matrix simplified to transport capacity.
         self.record_host_contain_capacity();
         self.record_host_overlord();
         self.record_host_stealth_flags();
     }
+
 
     /// True when portable gattling residual is active on this host.
     pub fn has_overlord_gattling_residual(&self) -> bool {
@@ -1226,7 +1302,7 @@ impl Object {
     pub fn install_tunnel_network_residual(&mut self) {
         self.is_tunnel_network = true;
         if let Some(bd) = self.building_data.as_mut() {
-            // Local max is the shared pool cap; GameLogic enforces team-shared count.
+            // Local max is the shared pool cap; GameLogic enforces per-player count.
             bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
         } else {
             let mut bd = BuildingData::new(BuildingType::Bunker);
@@ -1236,6 +1312,12 @@ impl Object {
         }
         self.record_host_contain_capacity();
         self.record_host_stealth_flags();
+    }
+
+    /// C++ `getControllingPlayer()->getTunnelSystem()` key.
+    #[inline]
+    pub fn tunnel_system_key(&self) -> u32 {
+        crate::game_logic::host_tunnel_network::tunnel_system_key(self.owner_player_id, self.team)
     }
 
     /// True when this structure is a GLA Tunnel Network residual entrance.
@@ -1436,6 +1518,77 @@ impl Object {
     pub fn is_listening_outpost_style_container(&self) -> bool {
         self.is_listening_outpost_transport
     }
+
+    /// C++ TransportContain ExitDelay frames for this hull.
+    pub fn transport_exit_delay_frames(&self) -> u32 {
+        if self.is_humvee_style_container() {
+            crate::game_logic::host_humvee::HUMVEE_EXIT_DELAY_FRAMES
+        } else if self.is_battle_bus_style_container() {
+            crate::game_logic::host_battle_bus::BATTLE_BUS_EXIT_DELAY_FRAMES
+        } else if self.is_troop_crawler_style_container() {
+            crate::game_logic::host_troop_crawler::TROOP_CRAWLER_EXIT_DELAY_FRAMES
+        } else if self.is_combat_chinook_style_container()
+            || self.template_name.to_ascii_lowercase().contains("chinook")
+        {
+            crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_EXIT_DELAY_FRAMES
+        } else if self.is_listening_outpost_style_container() {
+            crate::game_logic::host_listening_outpost::LISTENING_OUTPOST_EXIT_DELAY_FRAMES
+        } else {
+            0
+        }
+    }
+
+    /// C++ TransportContain `DelayExitInAir` — Battle Bus only.
+    pub fn transport_delay_exit_in_air(&self) -> bool {
+        self.is_battle_bus_style_container()
+    }
+
+    /// C++ TransportContain `GoAggressiveOnExit`.
+    pub fn transport_go_aggressive_on_exit(&self) -> bool {
+        self.is_humvee_style_container()
+            || self.is_battle_bus_style_container()
+            || self.is_troop_crawler_style_container()
+            || self.is_combat_chinook_style_container()
+            || self.is_listening_outpost_style_container()
+            || self.is_technical_style_container()
+            || self.template_name.to_ascii_lowercase().contains("chinook")
+    }
+
+    /// C++ `Object::isAboveTerrain` residual for DelayExitInAir.
+    pub fn is_above_terrain_for_exit(&self) -> bool {
+        self.status.airborne_target
+            || (self.ground_height_from_terrain
+                && self.get_position().y > self.ground_height + 0.01)
+            || self.get_position().y > 0.5
+    }
+
+    /// C++ TransportContain::isExitBusy.
+    pub fn is_transport_exit_busy(&self, frame: u32) -> bool {
+        if self.transport_delay_exit_in_air() && self.is_above_terrain_for_exit() {
+            return true;
+        }
+        frame < self.frame_exit_not_busy
+    }
+
+    /// TransportContain-style vehicles that honor ExitDelay / DelayExitInAir.
+    pub fn uses_transport_contain_exit_busy(&self) -> bool {
+        if self.is_garrison_contain()
+            || self.is_tunnel_network_style_container()
+            || self.is_cave_style_container()
+            || self.is_kind_of(KindOf::Structure)
+        {
+            return false;
+        }
+        self.can_contain()
+            || self.is_humvee_style_container()
+            || self.is_battle_bus_style_container()
+            || self.is_troop_crawler_style_container()
+            || self.is_combat_chinook_style_container()
+            || self.is_listening_outpost_style_container()
+            || self.is_technical_style_container()
+            || self.is_helix_transport
+    }
+
 
     /// Retained transport capacity.  Capacity comes only from an authored
     /// Contain module or an explicit specialized host transport installation;

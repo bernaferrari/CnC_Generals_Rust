@@ -1360,22 +1360,31 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
     let uid = logic
         .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
         .expect("rebel");
-    assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tnl));
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+    let gla_key = logic
+        .host_object(tnl)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    logic.tunnel_network.on_tunnel_created(gla_key, tnl);
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, tnl));
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
 
     // Flip ownership then onCapture residual.
     if let Some(o) = logic.host_object_mut(tnl) {
-        o.set_team(Team::USA);
+        o.set_team_and_owner(Team::USA, Some(0));
     }
     logic.on_capture_object_residual(tnl, Team::GLA, Team::USA);
 
     assert!(logic.capture_tunnel_transfers > 0);
     assert!(logic.capture_tunnel_last_ejects > 0);
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 0);
     // C++ last-tunnel capture → TunnelTracker::destroyObject (cave-in).
     let unit = logic.host_object(uid).expect("rebel queued for destroy");
     assert!(unit.status.destroyed || unit.health.current <= 0.0);
-    assert_eq!(logic.tunnel_network.tunnel_count(Team::USA), 1);
+    let usa_key = crate::game_logic::host_tunnel_network::tunnel_system_key(
+        logic.unique_player_id_for_team(Team::USA),
+        Team::USA,
+    );
+    assert_eq!(logic.tunnel_network.tunnel_count(usa_key), 1);
 }
 
 #[test]
@@ -1413,17 +1422,23 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
     let uid = logic
         .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
         .expect("rebel");
-    assert!(logic.tunnel_network.record_enter(Team::GLA, uid, t1));
+    let gla_key = logic
+        .host_object(t1)
+        .map(|o| o.tunnel_system_key())
+        .expect("t1 key");
+    logic.tunnel_network.on_tunnel_created(gla_key, t1);
+    logic.tunnel_network.on_tunnel_created(gla_key, t2);
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, t1));
 
     if let Some(o) = logic.host_object_mut(t1) {
-        o.set_team(Team::USA);
+        o.set_team_and_owner(Team::USA, Some(0));
     }
     logic.on_capture_object_residual(t1, Team::GLA, Team::USA);
 
     assert!(logic.capture_tunnel_transfers > 0);
     assert_eq!(logic.capture_tunnel_last_ejects, 0);
     // Pool stays with GLA (second entrance remains).
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
     let _ = t2;
 }
 
@@ -1531,10 +1546,16 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     }
     logic.on_capture_kick_passengers(tid, Team::USA, Team::GLA);
     assert!(logic.capture_kick_outs > 0);
+    assert!(
+        logic
+            .host_object(tid)
+            .is_some_and(|t| t.pending_evacuate_on_stop),
+        "manned transport capture walk-exits via pending evacuate"
+    );
     let r = logic.host_object(rid).expect("ranger");
-    assert!(r.contained_by.is_none());
-    assert_eq!(r.ai_state, AIState::Idle);
+    assert_eq!(r.contained_by, Some(tid));
     assert_eq!(r.team, Team::USA); // passenger keeps team
+
 
     // Tunnel does not kick shared pool.
     let tnl = logic
@@ -1547,11 +1568,15 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
     let uid = logic
         .create_object("GLARebel", Team::GLA, glam::Vec3::new(51.0, 0.0, 0.0))
         .expect("rebel");
-    assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tnl));
+    let gla_key = logic
+        .host_object(tnl)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, tnl));
     let before = logic.capture_kick_outs;
     logic.on_capture_kick_passengers(tnl, Team::GLA, Team::USA);
     assert_eq!(logic.capture_kick_outs, before);
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
 }
 
 #[test]
@@ -1582,11 +1607,15 @@ fn sell_last_tunnel_ejects_shared_pool() {
     let uid = logic
         .create_object("GLARebel", Team::GLA, glam::Vec3::new(1.0, 0.0, 0.0))
         .expect("unit");
-    assert!(logic.tunnel_network.record_enter(Team::GLA, uid, tid));
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 1);
+    let gla_key = logic
+        .host_object(tid)
+        .map(|o| o.tunnel_system_key())
+        .expect("tn key");
+    assert!(logic.tunnel_network.record_enter(gla_key, uid, tid));
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 1);
     assert!(logic.start_sell_object(tid));
     assert!(logic.sell_tunnel_last_ejects > 0);
-    assert_eq!(logic.tunnel_network.contain_count(Team::GLA), 0);
+    assert_eq!(logic.tunnel_network.contain_count(gla_key), 0);
     let u = logic.host_object(uid).expect("ejected");
     assert!(u.contained_by.is_none());
     assert_eq!(u.ai_state, AIState::Idle);
@@ -4359,6 +4388,47 @@ fn salvage_crate_only_salvager_picks_up() {
         "expected weapon upgrade or money residual"
     );
 }
+
+#[test]
+fn salvage_money_floating_text_uses_player_color() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel};
+    let mut logic = GameLogic::new();
+    let mut player = Player::new(0, Team::GLA, "G", true);
+    player.color_rgb = (255, 0, 0);
+    player.unlocked_sciences.insert("SCIENCE_GLA".into());
+    logic.players.insert(0, player);
+
+    let mut st = ThingTemplate::new("Tech");
+    st.add_kind_of(KindOf::Vehicle);
+    st.add_kind_of(KindOf::Salvager);
+    let sid = ObjectId(4821);
+    logic.objects.insert(sid, {
+        let mut o = Object::new(st, sid, Team::GLA);
+        o.set_position(glam::Vec3::ZERO);
+        o.owner_player_id = Some(0);
+        o.experience.level = VeterancyLevel::Heroic;
+        o
+    });
+
+    let cid = ObjectId(4822);
+    let ct = ThingTemplate::new("SalvageCrate");
+    logic.templates.insert("SalvageCrate".into(), ct.clone());
+    logic.objects.insert(cid, {
+        let mut o = Object::new(ct, cid, Team::Neutral);
+        o.set_position(glam::Vec3::new(2.0, 0.0, 0.0));
+        o
+    });
+    logic.host_money_crates.register_salvage_crate(cid, 50);
+    logic.update_money_crate_collides();
+
+    let texts = &logic.host_money_crates().money_floating_texts;
+    assert_eq!(texts.len(), 1, "salvage doMoney emits one GUI:AddCash");
+    assert_eq!(texts[0].amount, 50);
+    assert_eq!(texts[0].text_key, "GUI:AddCash");
+    assert_eq!(texts[0].color_rgba, (255, 0, 0, 230));
+    assert!((texts[0].position.y - 10.0).abs() < 0.01);
+}
+
 
 #[test]
 fn execute_salvage_weapon_then_money() {

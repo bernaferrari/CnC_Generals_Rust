@@ -490,15 +490,7 @@ pub fn notify_skirmish_starting_object(
     if template_name.is_empty() {
         return;
     }
-    let Ok(list) = ThePlayerList().read() else {
-        return;
-    };
-    let named = format!("player{player_id}");
-    let player = list
-        .find_player_by_name(&named)
-        .or_else(|| list.get_player(player_id as PlayerIndex).cloned());
-    drop(list);
-    let Some(player) = player else {
+    let Some(player) = leftover_player_for_host_id(player_id) else {
         return;
     };
     let Ok(mut guard) = player.write() else {
@@ -508,5 +500,87 @@ pub fn notify_skirmish_starting_object(
         guard.score_starting_structure_complete(template_name);
     } else {
         guard.score_starting_unit_created(template_name);
+    }
+}
+
+fn leftover_player_for_host_id(
+    player_id: u32,
+) -> Option<std::sync::Arc<std::sync::RwLock<Player>>> {
+    let Ok(list) = ThePlayerList().read() else {
+        return None;
+    };
+    let named = format!("player{player_id}");
+    list.find_player_by_name(&named)
+        .or_else(|| list.get_player(player_id as PlayerIndex).cloned())
+}
+
+/// Live mid-game create → leftover `ScoreKeeper::addObjectBuilt` (KindOf filter).
+pub fn notify_live_object_built(player_id: u32, template_name: &str) {
+    if template_name.is_empty() {
+        return;
+    }
+    let Some(player) = leftover_player_for_host_id(player_id) else {
+        return;
+    };
+    let Ok(mut guard) = player.write() else {
+        return;
+    };
+    let bits = retail_kindof_bits_for_template(template_name);
+    guard.score_keeper.add_object_built_template(template_name, bits);
+}
+
+/// Live mid-game kill → leftover `ScoreKeeper::addObjectDestroyed`.
+pub fn notify_live_object_destroyed(
+    killer_player_id: u32,
+    victim_player_id: u32,
+    template_name: &str,
+    under_construction: bool,
+) {
+    if template_name.is_empty() {
+        return;
+    }
+    let Some(player) = leftover_player_for_host_id(killer_player_id) else {
+        return;
+    };
+    let Ok(mut guard) = player.write() else {
+        return;
+    };
+    let bits = retail_kindof_bits_for_template(template_name);
+    guard.score_keeper.add_object_destroyed_template(
+        template_name,
+        bits,
+        victim_player_id as Int,
+        under_construction,
+    );
+}
+
+/// Live mid-game loss → leftover `ScoreKeeper::addObjectLost`.
+pub fn notify_live_object_lost(
+    player_id: u32,
+    template_name: &str,
+    under_construction: bool,
+) {
+    if template_name.is_empty() {
+        return;
+    }
+    let Some(player) = leftover_player_for_host_id(player_id) else {
+        return;
+    };
+    let Ok(mut guard) = player.write() else {
+        return;
+    };
+    let bits = retail_kindof_bits_for_template(template_name);
+    guard
+        .score_keeper
+        .add_object_lost_template(template_name, bits, under_construction);
+}
+
+/// C++ GameLogic.cpp:1720-1723 occupied observer slot.
+pub fn notify_live_observer_slot(player_id: u32) {
+    let Some(player) = leftover_player_for_host_id(player_id) else {
+        return;
+    };
+    if let Ok(mut guard) = player.write() {
+        guard.set_observer(true);
     }
 }

@@ -112,25 +112,75 @@ impl GameLogic {
         self.sim_time_seconds > 0.0 || self.frame > 0
     }
 
-    pub(in super::super) fn record_unit_production(&mut self, team: Team) {
+    pub(in super::super) fn live_score_counts_as_unit_create(obj: &Object) -> bool {
+        !obj.is_kind_of(KindOf::Structure)
+            && (obj.is_kind_of(KindOf::Infantry) || obj.is_kind_of(KindOf::Vehicle))
+            && (obj.is_kind_of(KindOf::Score) || obj.is_kind_of(KindOf::ScoreCreate))
+    }
+
+    pub(in super::super) fn live_score_counts_as_building_create(obj: &Object) -> bool {
+        obj.is_kind_of(KindOf::Structure)
+            && (obj.is_kind_of(KindOf::Score) || obj.is_kind_of(KindOf::ScoreCreate))
+    }
+
+    pub(in super::super) fn live_score_counts_as_unit_destroy(obj: &Object) -> bool {
+        !obj.is_kind_of(KindOf::Structure)
+            && (obj.is_kind_of(KindOf::Infantry) || obj.is_kind_of(KindOf::Vehicle))
+            && (obj.is_kind_of(KindOf::Score) || obj.is_kind_of(KindOf::ScoreDestroy))
+    }
+
+    pub(in super::super) fn live_score_counts_as_building_destroy(obj: &Object) -> bool {
+        obj.is_kind_of(KindOf::Structure)
+            && (obj.is_kind_of(KindOf::Score) || obj.is_kind_of(KindOf::ScoreDestroy))
+    }
+
+    pub(in super::super) fn record_unit_production(&mut self, object_id: ObjectId) {
         if !self.should_track_player_stats() {
             return;
         }
-        if let Some(player_id) = self.player_id_for_team(team) {
+        if !gamelogic::helpers::TheGameLogic::is_scoring_enabled() {
+            return;
+        }
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if !Self::live_score_counts_as_unit_create(obj) {
+            return;
+        }
+        let template = obj.template_name.clone();
+        let player_id = obj
+            .owner_player_id
+            .or_else(|| self.player_id_for_team(obj.team));
+        if let Some(player_id) = player_id {
             if let Some(player) = self.players.get_mut(&player_id) {
                 player.record_unit_produced();
             }
+            gamelogic::player::notify_live_object_built(player_id, &template);
         }
     }
 
-    pub(in super::super) fn record_structure_completion(&mut self, team: Team) {
+    pub(in super::super) fn record_structure_completion(&mut self, object_id: ObjectId) {
         if !self.should_track_player_stats() {
             return;
         }
-        if let Some(player_id) = self.player_id_for_team(team) {
+        if !gamelogic::helpers::TheGameLogic::is_scoring_enabled() {
+            return;
+        }
+        let Some(obj) = self.objects.get(&object_id) else {
+            return;
+        };
+        if !Self::live_score_counts_as_building_create(obj) {
+            return;
+        }
+        let template = obj.template_name.clone();
+        let player_id = obj
+            .owner_player_id
+            .or_else(|| self.player_id_for_team(obj.team));
+        if let Some(player_id) = player_id {
             if let Some(player) = self.players.get_mut(&player_id) {
                 player.record_structure_built();
             }
+            gamelogic::player::notify_live_object_built(player_id, &template);
         }
     }
 
@@ -746,9 +796,16 @@ impl GameLogic {
         if has_kind("no_garrison") {
             template.add_kind_of(KindOf::NoGarrison);
         }
+        if has_kind("stealth_garrison") {
+            template.add_kind_of(KindOf::StealthGarrison);
+        }
+        if has_kind("tech_building") {
+            template.add_kind_of(KindOf::TechBuilding);
+        }
         if has_kind("garrisonable_until_destroyed") {
             template.add_kind_of(KindOf::GarrisonableUntilDestroyed);
         }
+
         if has_kind("drone") {
             template.add_kind_of(KindOf::Drone);
         }
@@ -902,6 +959,7 @@ impl GameLogic {
         /// complete record are available.
         fn parse_rider_change(
             module: &crate::assets::BehaviorModuleDefinition,
+            definition: &ObjectDefinition,
             rider_change_normal_locomotors: Option<&[String]>,
         ) -> (Vec<RiderChangeRiderMetadata>, Option<u32>, String, u128) {
             let mut riders = Vec::new();
@@ -913,6 +971,11 @@ impl GameLogic {
             let normal_locomotor_binding = rider_change_normal_locomotors.and_then(
                 crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set,
             );
+            let sluggish_names = unambiguous_locomotors_for_set(definition, "SET_SLUGGISH");
+            let sluggish_locomotor_binding = sluggish_names.as_deref().and_then(
+                crate::game_logic::locomotor_bootstrap::resolve_uniform_host_locomotor_set,
+            );
+
             for slot in 1u8..=8 {
                 let key = format!("Rider{slot}");
                 let Some(raw) = module.attribute(&key) else {
@@ -951,21 +1014,23 @@ impl GameLogic {
                 let expected_weapon_set = format!("WEAPON_RIDER{slot}");
                 let expected_model_condition = format!("RIDER{slot}");
                 let expected_object_status = format!("STATUS_RIDER{slot}");
+                let set_binding = if locomotor_set.eq_ignore_ascii_case("SET_NORMAL") {
+                    normal_locomotor_binding.as_ref()
+                } else if locomotor_set.eq_ignore_ascii_case("SET_SLUGGISH") {
+                    sluggish_locomotor_binding.as_ref()
+                } else {
+                    None
+                };
                 let (active_locomotor_name, active_locomotor_names, active_locomotor_surfaces) =
-                    if locomotor_set.eq_ignore_ascii_case("SET_NORMAL") {
-                        normal_locomotor_binding
-                            .as_ref()
-                            .map(|binding| {
-                                (
-                                    Some(binding.representative_name.clone()),
-                                    binding.locomotor_names.clone(),
-                                    binding.locomotor_surfaces,
-                                )
-                            })
-                            .unwrap_or((None, Vec::new(), 0))
-                    } else {
-                        (None, Vec::new(), 0)
-                    };
+                    set_binding
+                        .map(|binding| {
+                            (
+                                Some(binding.representative_name.clone()),
+                                binding.locomotor_names.clone(),
+                                binding.locomotor_surfaces,
+                            )
+                        })
+                        .unwrap_or((None, Vec::new(), 0));
                 let physical_enter_supported = slot <= 7
                     && model_condition_mask != 0
                     && object_status_mask != 0
@@ -973,17 +1038,8 @@ impl GameLogic {
                     && weapon_set.eq_ignore_ascii_case(&expected_weapon_set)
                     && object_status.eq_ignore_ascii_case(&expected_object_status)
                     && !command_set.is_empty()
-                    // Retail's Terrorist row uses `SET_SLUGGISH`, which
-                    // selects a separate multi-surface locomotor table.  The
-                    // active Rust ThingTemplate retains one resolved
-                    // locomotor, not that table, so admitting it would leave
-                    // the bike on the previous/default movement behavior.
-                    // Keep the exact record for presentation/diagnostics but
-                    // fail this row closed until all set-specific locomotors
-                    // are representable.  `SET_NORMAL` is the only set the
-                    // live movement path can apply without approximation.
-                    && locomotor_set.eq_ignore_ascii_case("SET_NORMAL")
-                    && normal_locomotor_binding.is_some();
+                    && set_binding.is_some();
+
                 riders.push(RiderChangeRiderMetadata {
                     slot,
                     template_name: fields[0].to_string(),
@@ -1133,10 +1189,11 @@ impl GameLogic {
                     rider_change_scuttle_status,
                     rider_change_scuttle_status_mask,
                 ) = if kind == ContainModuleKind::RiderChange {
-                    parse_rider_change(module, rider_change_normal_locomotors)
+                    parse_rider_change(module, definition, rider_change_normal_locomotors)
                 } else {
                     (Vec::new(), None, String::new(), 0)
                 };
+
                 let frames_for_full_heal = match module.attribute("TimeForFullHeal") {
                     Some(value) => parse_duration_frames(value),
                     None if kind == ContainModuleKind::Heal => Some(0),
@@ -3992,6 +4049,7 @@ impl GameLogic {
                 structures_lost: player.statistics.structures_lost,
                 resources_collected: player.statistics.resources_collected,
                 resources_spent: player.statistics.resources_spent,
+                score: player.calculate_score().max(0) as u32,
                 outcome,
             });
         }
@@ -6805,7 +6863,11 @@ End
             obj.health.current = 30.0;
             obj.health.maximum = 80.0;
         }
-        assert!(logic.tunnel_network.record_enter(Team::USA, rider, tunnel_id));
+        assert!(logic.tunnel_network.record_enter(
+            crate::game_logic::host_tunnel_network::tunnel_system_key(Some(1), Team::USA),
+            rider,
+            tunnel_id,
+        ));
         logic.tunnel_network.stamp_contained_by_frame(rider, logic.frame);
         let before_tunnel = logic
             .host_object(rider)

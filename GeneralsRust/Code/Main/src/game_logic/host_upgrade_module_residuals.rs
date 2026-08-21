@@ -327,6 +327,21 @@ pub enum HostLocomotorSetKind {
     NormalUpgraded,
     Panic,
     Wander,
+    Taxiing,
+    Supersonic,
+    Sluggish,
+}
+
+/// C++ `TheLocomotorSetNames` token for `getCurLocomotorSetType`.
+pub fn locomotor_set_kind_token(kind: HostLocomotorSetKind) -> &'static str {
+    match kind {
+        HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => "SET_NORMAL",
+        HostLocomotorSetKind::Panic => "SET_PANIC",
+        HostLocomotorSetKind::Wander => "SET_WANDER",
+        HostLocomotorSetKind::Taxiing => "SET_TAXIING",
+        HostLocomotorSetKind::Supersonic => "SET_SUPERSONIC",
+        HostLocomotorSetKind::Sluggish => "SET_SLUGGISH",
+    }
 }
 
 /// Whole-template swap C++ `chooseLocomotorSetExplicit` installs
@@ -347,18 +362,105 @@ pub struct LocomotorSetSwap {
 const LOCO_BIGNUM_BRAKE: f32 = 99999.0;
 const DEG_TO_RAD: f32 = std::f32::consts::PI / 180.0;
 
-/// Retail SET_NORMAL / SET_NORMAL_UPGRADED / SET_PANIC names for known templates.
+/// Retail SET_NORMAL / SET_NORMAL_UPGRADED / SET_PANIC / SET_TAXIING /
+/// SET_SUPERSONIC / SET_SLUGGISH names for known templates.
 pub fn locomotor_name_for_set_kind(
     template_name: &str,
     kind: HostLocomotorSetKind,
 ) -> Option<&'static str> {
     let t = template_name.to_ascii_lowercase();
+    if t.contains("combatbike") {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_GROUND_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Sluggish => {
+                crate::game_logic::locomotor_bootstrap::COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
+    if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(template_name) {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::locomotor_name_for_unit(template_name)
+                    .unwrap_or(crate::game_logic::locomotor_bootstrap::RAPTOR_JET_LOCOMOTOR)
+            }
+            HostLocomotorSetKind::Taxiing => {
+                crate::game_logic::locomotor_bootstrap::RAPTOR_TAXIING_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Supersonic => {
+                crate::game_logic::locomotor_bootstrap::AURORA_SUPERSONIC_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
+    if t.contains("raptor") || t.contains("stealthfighter") || t.contains("stealth_fighter") {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::RAPTOR_JET_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Taxiing => {
+                crate::game_logic::locomotor_bootstrap::RAPTOR_TAXIING_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Supersonic => {
+                crate::game_logic::locomotor_bootstrap::RAPTOR_SUPERSONIC_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
+    if t.contains("mig") {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::MIG_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Taxiing => {
+                crate::game_logic::locomotor_bootstrap::AIRPLANE_TAXIING_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Supersonic => {
+                crate::game_logic::locomotor_bootstrap::MIG_SUPERSONIC_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
+    if t.contains("chinook")
+        || t.contains("a10")
+        || t.contains("thunderbolt")
+        || t.contains("b52")
+    {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::locomotor_name_for_unit(template_name)
+                    .unwrap_or(crate::game_logic::locomotor_bootstrap::CHINOOK_LOCOMOTOR)
+            }
+            HostLocomotorSetKind::Taxiing => {
+                crate::game_logic::locomotor_bootstrap::AIRPLANE_TAXIING_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
+    if t.contains("jet") {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                crate::game_logic::locomotor_bootstrap::locomotor_name_for_unit(template_name)
+                    .unwrap_or(crate::game_logic::locomotor_bootstrap::RAPTOR_JET_LOCOMOTOR)
+            }
+            HostLocomotorSetKind::Taxiing => {
+                crate::game_logic::locomotor_bootstrap::AIRPLANE_TAXIING_LOCOMOTOR
+            }
+            HostLocomotorSetKind::Supersonic => {
+                crate::game_logic::locomotor_bootstrap::RAPTOR_SUPERSONIC_LOCOMOTOR
+            }
+            _ => return None,
+        });
+    }
     if t.contains("worker") {
         return Some(match kind {
             HostLocomotorSetKind::Normal => "FastHumanLocomotor",
             HostLocomotorSetKind::NormalUpgraded => "WorkerShoesLocomotor",
             HostLocomotorSetKind::Panic => "PanicHumanLocomotor",
             HostLocomotorSetKind::Wander => "WanderHumanLocomotor",
+            _ => return None,
         });
     }
     if crate::game_logic::host_nuclear_tanks::is_overlord_chassis_for_nuclear_speed(template_name) {
@@ -366,6 +468,7 @@ pub fn locomotor_name_for_set_kind(
             HostLocomotorSetKind::Normal => "OverlordLocomotor",
             HostLocomotorSetKind::NormalUpgraded => "NuclearOverlordLocomotor",
             HostLocomotorSetKind::Panic | HostLocomotorSetKind::Wander => "OverlordLocomotor",
+            _ => return None,
         });
     }
     if crate::game_logic::host_nuclear_tanks::is_nuclear_tanks_eligible(template_name)
@@ -375,6 +478,7 @@ pub fn locomotor_name_for_set_kind(
             HostLocomotorSetKind::Normal => "BattleMasterLocomotor",
             HostLocomotorSetKind::NormalUpgraded => "NuclearBattleMasterLocomotor",
             HostLocomotorSetKind::Panic | HostLocomotorSetKind::Wander => "BattleMasterLocomotor",
+            _ => return None,
         });
     }
     // Civilian / infantry / angry-mob members share C++ PanicHuman / WanderHuman sets.
@@ -385,6 +489,7 @@ pub fn locomotor_name_for_set_kind(
             }
             HostLocomotorSetKind::Panic => "PanicHumanLocomotor",
             HostLocomotorSetKind::Wander => "WanderHumanLocomotor",
+            _ => return None,
         });
     }
     None
@@ -429,6 +534,9 @@ fn seed_set_switch_locomotor(name: &str) {
         "WanderHumanLocomotor" => ("20", "80", "400", "12", "40", None, "TWO_LEGS"),
         "NuclearOverlordLocomotor" => ("30", "15", "60", "30", "15", None, "TREADS"),
         "NuclearBattleMasterLocomotor" => ("35", "1000", "180", "32", "1000", None, "TREADS"),
+        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => {
+            ("25", "40", "90", "25", "40", Some("50"), "WHEELS")
+        }
         _ => return,
     };
     let mut props = std::collections::HashMap::new();
@@ -458,9 +566,21 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         "NuclearBattleMasterLocomotor" => (35.0, 1000.0, 180.0, 32.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "BattleMasterLocomotor" => (25.0, 1000.0, 180.0, 25.0, 1000.0, LOCO_BIGNUM_BRAKE),
         "OverlordLocomotor" => (20.0, 15.0, 60.0, 20.0, 15.0, LOCO_BIGNUM_BRAKE),
+        "AirplaneTaxiingLocomotor" | "RaptorTaxiingLocomotor" => (25.0, 40.0, 90.0, 25.0, 40.0, 50.0),
+        "RaptorSupersonicLocomotor" => (250.0, 180.0, 90.0, 250.0, 180.0, LOCO_BIGNUM_BRAKE),
+        "AuroraSupersonicLocomotor" => (320.0, 200.0, 80.0, 320.0, 200.0, LOCO_BIGNUM_BRAKE),
+        "MIGSupersonicLocomotor" => (230.0, 160.0, 90.0, 230.0, 160.0, LOCO_BIGNUM_BRAKE),
+        "CombatBikeTerroristGroundLocomotor" | "CombatBikeTerroristCliffLocomotor" => {
+            (40.0, 40.0, 90.0, 30.0, 35.0, 40.0)
+        }
         _ => return None,
     };
     let turn = turn_deg * DEG_TO_RAD;
+    let locomotor_surfaces = if name.contains("Supersonic") {
+        crate::game_logic::object::LOCO_SURFACE_AIR
+    } else {
+        crate::game_logic::object::LOCO_SURFACE_GROUND
+    };
     Some(LocomotorSetSwap {
         locomotor_name: name,
         max_speed: speed,
@@ -470,8 +590,9 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         turn_rate: turn,
         turn_rate_damaged: turn,
         braking,
-        locomotor_surfaces: crate::game_logic::object::LOCO_SURFACE_GROUND,
+        locomotor_surfaces,
     })
+
 }
 
 fn binding_to_swap(
@@ -557,12 +678,18 @@ pub fn apply_locomotor_set_kind(
     obj: &mut crate::game_logic::object::Object,
     kind: HostLocomotorSetKind,
 ) -> bool {
+    obj.jet_ai.cur_locomotor_set = Some(locomotor_set_kind_token(kind).to_string());
     let swap = locomotor_set_swap_for_kind(&obj.template_name, kind).or_else(|| {
         if obj.is_kind_of(crate::game_logic::KindOf::Infantry)
             || obj.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed)
             || obj.angry_mob_member
         {
             locomotor_set_swap_for_kind("CivilianInfantry", kind)
+        } else if kind == HostLocomotorSetKind::Taxiing
+            && (obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                || obj.object_type == crate::game_logic::ObjectType::Aircraft)
+        {
+            locomotor_set_swap_for_kind("AmericaJetRaptor", kind)
         } else {
             None
         }
@@ -790,4 +917,62 @@ mod tests {
             "panic must swap accel or brake, not speed only"
         );
     }
+
+    #[test]
+    fn taxiing_supersonic_sluggish_sets_swap_whole_template() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let taxi = locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Taxiing)
+            .expect("SET_TAXIING");
+        let cruise = locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Normal)
+            .expect("SET_NORMAL");
+        let dash =
+            locomotor_set_swap_for_kind("AmericaJetRaptor", HostLocomotorSetKind::Supersonic)
+                .expect("SET_SUPERSONIC");
+        assert_eq!(taxi.locomotor_name, "RaptorTaxiingLocomotor");
+        assert!((taxi.max_speed - 25.0).abs() < 0.05);
+        assert!(
+            (taxi.max_speed - cruise.max_speed).abs() > 1.0,
+            "taxi must be slower than cruise"
+        );
+        assert!(
+            (dash.max_speed - cruise.max_speed).abs() > 1.0,
+            "supersonic must be faster than cruise"
+        );
+        assert_eq!(locomotor_set_kind_token(HostLocomotorSetKind::Taxiing), "SET_TAXIING");
+        assert_eq!(
+            locomotor_set_kind_token(HostLocomotorSetKind::Supersonic),
+            "SET_SUPERSONIC"
+        );
+        assert_eq!(
+            locomotor_set_kind_token(HostLocomotorSetKind::Sluggish),
+            "SET_SLUGGISH"
+        );
+
+        let mut t = ThingTemplate::new("AmericaJetRaptor");
+        t.add_kind_of(KindOf::Aircraft);
+        let mut jet = Object::new(t, ObjectId(3), Team::USA);
+        jet.movement.max_speed = 175.0;
+        assert!(apply_locomotor_set_kind(
+            &mut jet,
+            HostLocomotorSetKind::Taxiing
+        ));
+        assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+        assert!((jet.movement.max_speed - 25.0).abs() < 0.05);
+        assert!(apply_locomotor_set_kind(
+            &mut jet,
+            HostLocomotorSetKind::Supersonic
+        ));
+        assert_eq!(
+            jet.jet_ai.cur_locomotor_set.as_deref(),
+            Some("SET_SUPERSONIC")
+        );
+        assert!(jet.movement.max_speed > 200.0);
+
+        let sluggish =
+            locomotor_set_swap_for_kind("GLAVehicleCombatBike", HostLocomotorSetKind::Sluggish)
+                .expect("SET_SLUGGISH");
+        assert_eq!(sluggish.locomotor_name, "CombatBikeTerroristGroundLocomotor");
+        assert!((sluggish.max_speed - 40.0).abs() < 0.05);
+    }
+
 }

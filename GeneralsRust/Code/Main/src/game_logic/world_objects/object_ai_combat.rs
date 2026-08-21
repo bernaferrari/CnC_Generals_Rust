@@ -734,14 +734,10 @@ impl GameLogic {
             units_affected
         );
 
-        // C++ ProductionUpdate: TheEva->setShouldPlay(EVA_UpgradeComplete) residual
-        // when no custom researchCompleteSound (generic EVA path).
+        // C++ ProductionUpdate: TheEva->setShouldPlay(EVA_UpgradeComplete).
+        // Eva::update SideSounds is the sole consumer — do not queue generic EVA_*.
         self.try_eva_upgrade_complete(player_id);
-        if self.is_local_player(player_id) {
-            self.queue_audio_event(
-                AudioEventRequest::new("EVA_UpgradeComplete").with_priority(140),
-            );
-        }
+
         // C++ TheRadar->createEvent(pos, RADAR_EVENT_UPGRADE) residual.
         self.try_radar_upgrade_complete(player_id, team, upgrade_name, source);
     }

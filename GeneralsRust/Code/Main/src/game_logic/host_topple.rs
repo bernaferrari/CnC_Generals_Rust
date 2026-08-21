@@ -8,9 +8,8 @@
 //! - Collide residual: crusher_level > 1 applies topple force away from crusher
 //!
 //! Fail-closed:
-//! - Not full drawable sway stop / shadow disable / stump OCL spawn
-//! - Not full script adjustToppleDirection / left-or-right constraint
-//! - Not full matrix pre-rotate drawable presentation (presentation may sample pose later)
+//! - Not full drawable sway stop / left-or-right fence constraint
+//! - Script `adjustToppleDirection` is not applied
 
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +32,13 @@ pub const TOPPLE_BOUNCE_VELOCITY_PERCENT: f32 = 0.3;
 /// C++ VELOCITY_BOUNCE_LIMIT
 pub const TOPPLE_VELOCITY_BOUNCE_LIMIT: f32 = 0.01;
 
+
+fn default_topple_shadows_enabled() -> bool {
+    true
+}
+
+/// C++ `VELOCITY_BOUNCE_SOUND_LIMIT` — skip BounceFX below this.
+pub const TOPPLE_VELOCITY_BOUNCE_SOUND_LIMIT: f32 = 0.03;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum HostToppleState {
     #[default]
@@ -55,6 +61,27 @@ pub struct HostToppleData {
     pub kill_when_start_toppled: bool,
     /// Presentation residual: accumulated lean radians about fall axis.
     pub lean_radians: f32,
+    /// C++ `ToppleUpdateModuleData::m_stumpName`.
+    #[serde(default)]
+    pub stump_name: String,
+    /// C++ `ToppleUpdateModuleData::m_toppleFX`.
+    #[serde(default)]
+    pub topple_fx: String,
+    /// C++ `ToppleUpdateModuleData::m_bounceFX`.
+    #[serde(default)]
+    pub bounce_fx: String,
+    /// C++ `Drawable::setShadowsEnabled(false)` while falling / down.
+    #[serde(default = "default_topple_shadows_enabled")]
+    pub shadows_enabled: bool,
+    /// Source had MODELCONDITION_BURNED when topple started (copied onto stump).
+    #[serde(default)]
+    pub burned_at_topple: bool,
+    #[serde(default)]
+    pub pending_stump_name: String,
+    #[serde(default)]
+    pub pending_topple_fx: String,
+    #[serde(default)]
+    pub pending_bounce_fx: String,
 }
 
 impl Default for HostToppleData {
@@ -70,6 +97,14 @@ impl Default for HostToppleData {
             kill_when_toppled: true,
             kill_when_start_toppled: false,
             lean_radians: 0.0,
+            stump_name: String::new(),
+            topple_fx: String::new(),
+            bounce_fx: String::new(),
+            shadows_enabled: true,
+            burned_at_topple: false,
+            pending_stump_name: String::new(),
+            pending_topple_fx: String::new(),
+            pending_bounce_fx: String::new(),
         }
     }
 }
@@ -93,6 +128,7 @@ impl HostToppleData {
         }
         if self.kill_when_start_toppled {
             self.state = HostToppleState::Down;
+            self.shadows_enabled = false;
             return true;
         }
         let mut dx = dir_x;
@@ -114,15 +150,61 @@ impl HostToppleData {
         self.lean_radians = 0.0;
         self.options = options;
         self.state = HostToppleState::Falling;
+        self.shadows_enabled = false;
+        let no_fx = (options & TOPPLE_OPTIONS_NO_FX) != 0;
+        if !no_fx && !self.topple_fx.is_empty() {
+            self.pending_topple_fx = self.topple_fx.clone();
+        }
+        if !self.stump_name.is_empty() {
+            self.pending_stump_name = self.stump_name.clone();
+        }
         false
     }
 
+    /// Bind NatureProp ToppleUpdate peel when the object first gains the module.
+    pub fn bind_authored_for_template(&mut self, template_name: &str) {
+        let authored = authored_topple_for_template(template_name);
+        if self.stump_name.is_empty() {
+            self.stump_name = authored.stump_name;
+        }
+        if self.topple_fx.is_empty() {
+            self.topple_fx = authored.topple_fx;
+        }
+        if self.bounce_fx.is_empty() {
+            self.bounce_fx = authored.bounce_fx;
+        }
+    }
+
+    pub fn take_pending_topple_fx(&mut self) -> Option<String> {
+        if self.pending_topple_fx.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.pending_topple_fx))
+        }
+    }
+
+    pub fn take_pending_bounce_fx(&mut self) -> Option<String> {
+        if self.pending_bounce_fx.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.pending_bounce_fx))
+        }
+    }
+
+    pub fn take_pending_stump_name(&mut self) -> Option<String> {
+        if self.pending_stump_name.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.pending_stump_name))
+        }
+    }
     /// C++ ToppleUpdate::update one logic frame.
     /// Returns true when the object should die via DEATH_TOPPLED this frame.
     pub fn tick(&mut self) -> bool {
         if self.state != HostToppleState::Falling {
             return false;
         }
+        self.shadows_enabled = false;
         let mut cur_vel = self.angular_velocity;
         if self.angular_accumulation + cur_vel > TOPPLE_ANGULAR_LIMIT {
             cur_vel = TOPPLE_ANGULAR_LIMIT - self.angular_accumulation;
@@ -137,7 +219,15 @@ impl HostToppleData {
             if no_bounce || self.angular_velocity.abs() < TOPPLE_VELOCITY_BOUNCE_LIMIT {
                 self.angular_velocity = 0.0;
                 self.state = HostToppleState::Down;
+                self.shadows_enabled = false;
                 return self.kill_when_toppled;
+            }
+            let no_fx = (self.options & TOPPLE_OPTIONS_NO_FX) != 0;
+            if !no_fx
+                && self.angular_velocity.abs() >= TOPPLE_VELOCITY_BOUNCE_SOUND_LIMIT
+                && !self.bounce_fx.is_empty()
+            {
+                self.pending_bounce_fx = self.bounce_fx.clone();
             }
         } else {
             self.angular_velocity += self.angular_acceleration;
@@ -160,6 +250,42 @@ pub fn is_topple_capable_template(name: &str) -> bool {
         || n.contains("streetlight")
         || n.contains("sign")
         || n.contains("fence")
+}
+
+/// Authored ToppleUpdate peel for a live-host template.
+#[derive(Debug, Clone, Default)]
+pub struct AuthoredTopplePeel {
+    pub stump_name: String,
+    pub topple_fx: String,
+    pub bounce_fx: String,
+}
+
+/// NatureProp ToppleUpdate residual: trees leave a `{Name}Stump` and play tree FX.
+pub fn authored_topple_for_template(name: &str) -> AuthoredTopplePeel {
+    if !is_topple_capable_template(name) {
+        return AuthoredTopplePeel::default();
+    }
+    let n = name.to_ascii_lowercase();
+    let is_tree = n.contains("tree")
+        || n.contains("oak")
+        || n.contains("pine")
+        || n.contains("palm")
+        || n.contains("birch")
+        || n.contains("shrub")
+        || n.contains("bush");
+    AuthoredTopplePeel {
+        stump_name: if is_tree {
+            format!("{name}Stump")
+        } else {
+            String::new()
+        },
+        topple_fx: "FX_ToppleTree".to_string(),
+        bounce_fx: if is_tree {
+            "FX_TreeBounce".to_string()
+        } else {
+            String::new()
+        },
+    }
 }
 
 /// C++ onCollide residual: crusher_level > 1 can topple.
@@ -197,5 +323,28 @@ mod tests {
         };
         assert!(t.apply_toppling_force(0.0, 1.0, 2.0, TOPPLE_OPTIONS_NONE));
         assert_eq!(t.state, HostToppleState::Down);
+    }
+
+    #[test]
+    fn apply_queues_stump_and_topple_fx() {
+        let mut t = HostToppleData::default();
+        t.bind_authored_for_template("TreeOak");
+        assert_eq!(t.stump_name, "TreeOakStump");
+        assert_eq!(t.topple_fx, "FX_ToppleTree");
+        assert!(!t.apply_toppling_force(0.0, 1.0, 1.0, TOPPLE_OPTIONS_NONE));
+        assert!(!t.shadows_enabled);
+        assert_eq!(t.take_pending_stump_name().as_deref(), Some("TreeOakStump"));
+        assert_eq!(t.take_pending_topple_fx().as_deref(), Some("FX_ToppleTree"));
+        assert!(t.dir_x.abs() < 1e-5);
+        assert!((t.dir_y - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn no_fx_option_skips_topple_fx() {
+        let mut t = HostToppleData::default();
+        t.bind_authored_for_template("TreeOak");
+        t.apply_toppling_force(1.0, 0.0, 1.0, TOPPLE_OPTIONS_NO_FX);
+        assert!(t.take_pending_topple_fx().is_none());
+        assert_eq!(t.take_pending_stump_name().as_deref(), Some("TreeOakStump"));
     }
 }

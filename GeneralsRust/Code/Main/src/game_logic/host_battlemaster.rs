@@ -122,7 +122,29 @@ pub const TERRAIN_DECAL_HORDE: u8 = 1;
 pub const TERRAIN_DECAL_HORDE_WITH_NATIONALISM: u8 = 2;
 pub const TERRAIN_DECAL_HORDE_VEHICLE: u8 = 3;
 pub const TERRAIN_DECAL_HORDE_WITH_FANATICISM: u8 = 6;
+pub const TERRAIN_DECAL_CRATE: u8 = 5;
+pub const TERRAIN_DECAL_CHEMSUIT: u8 = 7;
 pub const TERRAIN_DECAL_NONE: u8 = 8;
+pub const TERRAIN_DECAL_SHADOW_TEXTURE: u8 = 9;
+
+/// C++ `TerrainDecalTextureName` table (W3DModelDraw.cpp).
+pub fn terrain_decal_texture_name(decal_type: u8) -> &'static str {
+    match decal_type {
+        1 => "EXHorde",
+        2 => "EXHorde_UP",
+        3 => "EXHordeB",
+        TERRAIN_DECAL_CRATE => "EXJunkCrate",
+        6 => "EXHordeC_UP",
+        TERRAIN_DECAL_CHEMSUIT => "EXChemSuit",
+        TERRAIN_DECAL_SHADOW_TEXTURE => "shadow",
+        _ => "",
+    }
+}
+
+/// C++ CreateCrateDie crate glow: `2.5 * majorRadius`.
+pub const CRATE_DECAL_SIZE_MULT: f32 = 2.5;
+/// C++ CreateCrateDie fade-in `(1.0, 0.03)`.
+pub const CRATE_DECAL_FADE_IN_RATE: f32 = 0.03;
 
 /// Residual fire audio.
 pub const BATTLE_MASTER_FIRE_AUDIO: &str = "BattlemasterTankWeapon";
