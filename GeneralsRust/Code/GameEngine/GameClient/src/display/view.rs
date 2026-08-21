@@ -60,6 +60,8 @@ pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
 thread_local! {
     static DISPLAY_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
+    /// C++ `TheTacticalView->getHeight() / TheDisplay->getHeight()`.
+    static TACTICAL_VIEW_HEIGHT_FRAC: Cell<f32> = const { Cell::new(1.0) };
 }
 
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
@@ -70,6 +72,21 @@ pub fn set_display_letter_boxed(enabled: bool) {
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
     DISPLAY_LETTER_BOXED.with(|flag| flag.get())
+}
+
+/// Live 3D viewport height as a fraction of the display (C++ `setHeight`).
+pub fn set_tactical_view_height_frac(frac: f32) {
+    let frac = if frac.is_finite() {
+        frac.clamp(0.05, 1.0)
+    } else {
+        1.0
+    };
+    TACTICAL_VIEW_HEIGHT_FRAC.with(|cell| cell.set(frac));
+}
+
+/// C++ tactical view height / display height. Default control bar is 0.80.
+pub fn tactical_view_height_frac() -> f32 {
+    TACTICAL_VIEW_HEIGHT_FRAC.with(|cell| cell.get())
 }
 
 fn ground_height_at(x: f32, y: f32) -> f32 {
@@ -1065,9 +1082,12 @@ impl View {
     pub fn is_real_zoom_cam(&self) -> bool {
         self.use_real_zoom_cam
     }
-
     pub fn fx_pitch(&self) -> f32 {
         self.fx_pitch
+    }
+
+    pub fn set_fx_pitch(&mut self, pitch: f32) {
+        self.fx_pitch = if pitch.is_finite() { pitch } else { 1.0 };
     }
 
     pub fn ground_level(&self) -> f32 {
@@ -1877,11 +1897,11 @@ impl View {
             }
         }
 
-        // Apply pitch transition
+        // Apply pitch transition — C++ pitchCameraOneFrame writes m_FXPitch.
         if let Some(mut transition) = self.camera_pitch.take() {
             let finished = transition.update();
             let pitch = transition.get_current_pitch();
-            self.set_pitch(pitch);
+            self.fx_pitch = pitch;
             if !finished {
                 self.camera_pitch = Some(transition);
             }
@@ -2210,7 +2230,6 @@ impl View {
             && self.rotate_camera_toward.is_none()
     }
 
-    /// Move camera to location and restore default orientation/zoom.
     pub fn reset_camera(
         &mut self,
         location: &Point3,
@@ -2221,6 +2240,7 @@ impl View {
         if milliseconds <= 0 {
             self.look_at(location);
             self.set_angle_and_pitch_to_default();
+            self.fx_pitch = 1.0;
             self.set_zoom(self.max_zoom);
             self.camera_rotate = None;
             self.camera_zoom = None;
@@ -2246,13 +2266,13 @@ impl View {
             ease_out,
             self.zoom,
         ));
-        self.camera_pitch = Some(CameraPitchTransition::new(
-            // C++ W3D resetCamera drives pitch endpoint to 1.0f.
+        self.camera_pitch = Some(CameraPitchTransition::new_fx(
+            // C++ W3D resetCamera drives FXPitch endpoint to 1.0f.
             1.0,
             frames,
             ease_in,
             ease_out,
-            self.pitch_angle,
+            self.fx_pitch,
         ));
     }
 
@@ -2295,7 +2315,7 @@ impl View {
         ));
     }
 
-    /// Pitch camera to a specific angle.
+    /// C++ `W3DView::pitchCamera` — animates `m_FXPitch`, not orbit pitch.
     pub fn pitch_camera(
         &mut self,
         final_pitch: f32,
@@ -2304,19 +2324,19 @@ impl View {
         ease_out: f32,
     ) {
         if milliseconds <= 0 {
-            self.set_pitch(final_pitch);
+            self.fx_pitch = final_pitch;
             self.camera_pitch = None;
             return;
         }
 
         let frames = ms_to_frames(milliseconds);
         let (ease_in, ease_out) = ease_ratios(milliseconds, ease_in, ease_out);
-        self.camera_pitch = Some(CameraPitchTransition::new(
+        self.camera_pitch = Some(CameraPitchTransition::new_fx(
             final_pitch,
             frames,
             ease_in,
             ease_out,
-            self.pitch_angle,
+            self.fx_pitch,
         ));
     }
 
@@ -3004,7 +3024,7 @@ mod tests {
 
         view.pitch_camera(10.0, 0, 0.0, 0.0);
         assert!(view.camera_pitch.is_none());
-        assert!(view.pitch() <= PI / 5.0 + 0.001);
+        assert!((view.fx_pitch() - 10.0).abs() < 0.001);
 
         view.reset_camera(&Point3::new(0.0, 0.0, 0.0), 0, 0.0, 0.0);
         assert!(view.is_camera_movement_finished());
@@ -3125,7 +3145,7 @@ mod tests {
         for _ in 0..40 {
             view.update_view();
         }
-        assert!((view.pitch() - 0.4).abs() < 0.001);
+        assert!((view.fx_pitch() - 0.4).abs() < 0.001);
     }
 
     #[test]
@@ -3211,7 +3231,7 @@ mod tests {
     fn test_reset_camera_animated_targets_w3d_pitch_endpoint() {
         let mut view = View::new();
         view.init();
-        view.set_pitch(0.0);
+        view.set_fx_pitch(0.25);
 
         view.reset_camera(&Point3::new(300.0, 300.0, 0.0), 1000, 0.0, 0.0);
         assert!(view.camera_pitch.is_some());
@@ -3220,8 +3240,8 @@ mod tests {
             view.update_view();
         }
 
-        // W3D resetCamera uses pitchCamera(1.0f, ...). Rust pitch is clamped at PI/5.
-        assert!((view.pitch() - (PI / 5.0)).abs() < 0.001);
+        // C++ resetCamera / pitchCamera(1.0f) restores FXPitch, not orbit pitch.
+        assert!((view.fx_pitch() - 1.0).abs() < 0.001);
     }
 
     #[test]

@@ -81,11 +81,12 @@ impl GameLogic {
                 let target = capture
                     .target_pos
                     .map(|p| Vec3::new(p[0], p[1], p[2]));
+                let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
                 let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
                     &capture.selected_fx_name,
                     pos,
                     target,
-                    0.0,
+                    speed,
                     0.0,
                 );
             }
@@ -170,6 +171,7 @@ impl GameLogic {
         } else {
             source_pos
         };
+        let speed = fire_fx_weapon_speed(self.objects.get(&source), capture.weapon_slot);
         let _ = self.combat_particles.spawn_weapon_fire_fx_named_ocl(
             where_pos,
             Some(target_pos),
@@ -180,6 +182,7 @@ impl GameLogic {
             "",
             "",
             "",
+            speed,
         );
     }
 
@@ -187,6 +190,27 @@ impl GameLogic {
         &self,
     ) -> Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
         self.weapon_discharge_log.take_for_presentation()
+    }
+}
+
+/// C++ `Weapon::getWeaponSpeed()` for FireFX / TracerFXNugget primarySpeed.
+fn fire_fx_weapon_speed(object: Option<&Object>, slot: u8) -> f32 {
+    let Some(object) = object else {
+        return 0.0;
+    };
+    if let Some(weapon) = object.weapon_slot(slot).or(object.weapon.as_ref()) {
+        if weapon.projectile_speed > 0.0 && weapon.projectile_speed < 999_000.0 {
+            return weapon.projectile_speed;
+        }
+    }
+    let Some(name) = object.weapon_name_for_slot(slot) else {
+        return 0.0;
+    };
+    let peel = crate::game_logic::weapon_bootstrap::host_weapon_speed_peel_for_weapon_name(name);
+    if peel.weapon_speed > 0.0 && peel.weapon_speed < 999_000.0 {
+        peel.weapon_speed
+    } else {
+        0.0
     }
 }
 

@@ -228,10 +228,11 @@ pub enum CommandType {
         /// Duration in logic frames.
         duration_frames: i32,
     },
-    /// C++ AIGroup::groupAttackArea residual — attack enemies inside radius around point.
+    /// C++ AIGroup::groupAttackArea — polygon AIAttackAreaState or circle residual.
     AttackArea {
         center: glam::Vec3,
         radius: f32,
+        polygon_name: Option<String>,
     },
     Dock {
         target_id: ObjectId,

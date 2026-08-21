@@ -144,7 +144,7 @@ pub fn honesty_host_match_outcome_helper_source_markers_residual_wave599() -> bo
         && body.contains("presentation_or_boot_victory_winner")
         && body.contains("notify_presentation_ui_message")
         && body.contains("notify_boot_ui_message")
-        && body.contains("show_victory_screen")
+        && body.contains("MSG_CLEAR_GAME_DATA")
         && body.contains("ScriptEvent::PlayerDefeated");
     let call_ok = eng.contains("self.host_broadcast_match_outcome_residuals()")
         && eng.contains("Wave 599: defeat/alliance/victory broadcast residual via host helper");

@@ -1691,8 +1691,8 @@ impl CnCGameEngine {
                 })
             });
             let candidates = frame.alive_select_all_unit_ids(team, aircraft_only);
-            let window_size = self.window.inner_size();
-            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let (vw, vh) = self.tactical_viewport_size();
+            let viewport = glam::Vec2::new(vw, vh);
             let on_screen = frame.filter_ids_on_screen(
                 &candidates,
                 self.view_matrix,
@@ -1782,8 +1782,8 @@ impl CnCGameEngine {
                     }
                 }
             }
-            let window_size = self.window.inner_size();
-            let viewport = glam::Vec2::new(window_size.width as f32, window_size.height as f32);
+            let (vw, vh) = self.tactical_viewport_size();
+            let viewport = glam::Vec2::new(vw, vh);
             let screen_matches = frame.filter_ids_on_screen(
                 &map_matches,
                 self.view_matrix,

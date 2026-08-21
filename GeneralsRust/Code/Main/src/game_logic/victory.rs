@@ -23,6 +23,8 @@ pub struct PlayerResult {
     pub structures_lost: u32,
     pub resources_collected: u32,
     pub resources_spent: u32,
+    /// C++ `ScoreKeeper::calculateScore`.
+    pub score: u32,
     pub outcome: PlayerOutcome,
 }
 

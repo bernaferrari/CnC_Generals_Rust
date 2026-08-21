@@ -671,9 +671,11 @@ impl CameraPath {
             return;
         };
         let delta = target - last;
-        for waypoint in &mut self.waypoints {
+        // C++ W3DView.cpp:2648 shifts waypoints `[2..num]` so the pad stays put.
+        for waypoint in self.waypoints.iter_mut().skip(2) {
             waypoint.position += delta;
         }
+        self.calculate_segments();
     }
 
     pub fn freeze_angles_to_start(&mut self) {
@@ -850,8 +852,24 @@ pub struct CameraPitchTransition {
 }
 
 impl CameraPitchTransition {
-    /// Create a new pitch transition
     pub fn new(
+        target_pitch: f32,
+        frames: i32,
+        ease_in: f32,
+        ease_out: f32,
+        current_pitch: f32,
+    ) -> Self {
+        Self::new_fx(
+            target_pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT),
+            frames,
+            ease_in,
+            ease_out,
+            current_pitch,
+        )
+    }
+
+    /// C++ `W3DView::pitchCamera` lerps `m_FXPitch` with no orbit-angle clamp.
+    pub fn new_fx(
         target_pitch: f32,
         frames: i32,
         ease_in: f32,
@@ -862,7 +880,7 @@ impl CameraPitchTransition {
             num_frames: frames,
             current_frame: 0,
             start_pitch: current_pitch,
-            end_pitch: target_pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT),
+            end_pitch: target_pitch,
             ease: ParabolicEase::new(ease_in, ease_out),
         }
     }

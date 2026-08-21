@@ -736,7 +736,7 @@ fn set_fps_limit_request_is_forwarded_to_engine() {
 }
 
 #[test]
-fn move_camera_to_selection_uses_local_player_selection_center() {
+fn move_camera_to_selection_without_path_is_not_lookat() {
     let mut game_logic = GameLogic::new();
     game_logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut game_logic, Team::USA);
@@ -753,10 +753,49 @@ fn move_camera_to_selection_uses_local_player_selection_center() {
     game_logic.mission_scripts.push_camera_move_to_selection();
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let focus = game_logic
-        .take_camera_focus_request()
-        .expect("move camera to selection should produce focus request");
-    assert_eq!(focus, Vec3::new(130.0, 0.0, 230.0));
+    assert!(
+        game_logic.take_camera_focus_request().is_none(),
+        "C++ cameraModFinalMoveTo is a no-op without an in-flight path"
+    );
+}
+
+#[test]
+fn move_camera_to_selection_retargets_in_flight_move() {
+    let mut game_logic = GameLogic::new();
+    game_logic.scripts_loaded = true;
+    ensure_test_player_for_team(&mut game_logic, Team::USA);
+    ensure_test_tank_template(&mut game_logic);
+
+    let first = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(100.0, 0.0, 200.0))
+        .expect("first selected object should exist");
+    let second = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(160.0, 0.0, 260.0))
+        .expect("second selected object should exist");
+    game_logic.select_objects(0, vec![first, second]);
+
+    game_logic.request_camera_focus(Vec3::new(0.0, 10.0, 0.0));
+    let _ = game_logic.take_camera_focus_request();
+    game_logic.start_camera_move_to(CameraMoveToRequest {
+        position: Vec3::new(400.0, 10.0, 400.0),
+        seconds: 10.0,
+        camera_stutter_seconds: 0.0,
+        ease_in_seconds: 0.0,
+        ease_out_seconds: 0.0,
+    });
+
+    game_logic.mission_scripts.push_camera_move_to_selection();
+    game_logic.evaluate_and_execute_scripts(0.0);
+
+    assert!(
+        game_logic.take_camera_focus_request().is_none(),
+        "retarget must not start a new lookAt"
+    );
+    let target = game_logic
+        .script_camera_move_to_target()
+        .expect("in-flight move should remain");
+    assert!((target.x - 130.0).abs() < 0.001);
+    assert!((target.z - 230.0).abs() < 0.001);
 }
 
 #[test]
@@ -4101,4 +4140,304 @@ fn detector_scan_uses_player_relationship_not_team_enum() {
         "enemy stealthed unit must be marked detected"
     );
 }
+
+fn spawn_live_black_market(logic: &mut GameLogic, team: Team, pos: Vec3) -> ObjectId {
+    if !logic.templates.contains_key("GLABlackMarket") {
+        let mut market = ThingTemplate::new("GLABlackMarket");
+        market
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .set_health(1000.0);
+        logic.templates.insert("GLABlackMarket".into(), market);
+    }
+    logic
+        .create_object("GLABlackMarket", team, pos)
+        .expect("black market")
+}
+
+#[test]
+fn detected_hero_wakes_idle_enemies() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_tank_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+
+    let mut burton_tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
+
+    let burton = logic
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::ZERO)
+        .expect("burton");
+    {
+        let b = logic.host_object_mut(burton).unwrap();
+        b.innate_stealth = true;
+        b.set_status_stealthed(true);
+        b.set_status_detected(false);
+        b.stealth_allowed_frame = 0;
+    }
+
+    let detector = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(8.0, 0.0, 0.0))
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+
+    let tank = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("idle tank");
+    {
+        let t = logic.host_object_mut(tank).unwrap();
+        t.set_ai_state(AIState::Idle);
+        t.target = None;
+        t.vision_range = 150.0;
+        t.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 200.0,
+            reload_time: 1.0,
+            last_fire_time: -10.0,
+            ..Weapon::default()
+        });
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        logic.host_object(burton).unwrap().status.detected,
+        "detector must mark Burton DETECTED"
+    );
+    let tank = logic.host_object(tank).unwrap();
+    assert_eq!(tank.target, Some(burton), "idle tank must acquire revealed hero");
+    assert_eq!(tank.ai_state, AIState::Attacking);
+}
+
+#[test]
+fn detected_stealth_garrison_unhides_building() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_garrison_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+
+    let mut burton_tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::StealthGarrison)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
+
+    let bunker = logic
+        .create_object("TestBunker", Team::Neutral, Vec3::ZERO)
+        .expect("bunker");
+    let burton = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::USA,
+            Vec3::new(2.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    {
+        let b = logic.host_object_mut(burton).unwrap();
+        b.innate_stealth = true;
+        b.set_status_stealthed(true);
+        b.set_status_detected(false);
+        b.set_contained_by(Some(bunker));
+    }
+    assert!(logic.host_object_mut(bunker).unwrap().add_occupant(burton));
+    if let Some(bd) = logic
+        .host_object_mut(bunker)
+        .and_then(|b| b.building_data.as_mut())
+    {
+        bd.hide_garrisoned_state = true;
+    }
+    assert!(
+        logic
+            .host_object(bunker)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .is_some_and(|bd| bd.hide_garrisoned_state),
+        "stealthed garrison starts hidden"
+    );
+
+
+    let detector = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(5.0, 0.0, 0.0))
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(burton).unwrap().status.detected);
+    assert!(
+        !logic
+            .host_object(bunker)
+            .unwrap()
+            .building_data
+            .as_ref()
+            .is_some_and(|bd| bd.hide_garrisoned_state),
+        "detected occupant must unhide garrison"
+    );
+}
+
+#[test]
+fn camo_netting_destalths_without_black_market() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(2, Team::GLA, "GLA", true));
+    let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    tunnel
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("GLATunnelNetwork".into(), tunnel);
+
+    let tunnel_id = logic
+        .create_object("GLATunnelNetwork", Team::GLA, Vec3::ZERO)
+        .expect("tunnel");
+    {
+        let t = logic.host_object_mut(tunnel_id).unwrap();
+        t.innate_stealth = true;
+        t.stealth_breaks_on_damage = true;
+        t.set_status_stealthed(true);
+        t.set_status_attacking(false);
+        t.stealth_allowed_frame = 0;
+    }
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(tunnel_id).unwrap().status.stealthed,
+        "CamoNetting must destalth without a live Black Market"
+    );
+
+    let market = spawn_live_black_market(&mut logic, Team::GLA, Vec3::new(-80.0, 0.0, 0.0));
+    {
+        let t = logic.host_object_mut(tunnel_id).unwrap();
+        t.stealth_allowed_frame = 0;
+        t.stealth_delay_pending = false;
+        t.stealth_delay_frames = 0;
+    }
+
+    logic.frame = 2;
+    logic.update_stealth_and_detection();
+    assert!(
+        logic.host_object(tunnel_id).unwrap().status.stealthed,
+        "CamoNetting recloaks when a live Black Market exists"
+    );
+
+    if let Some(m) = logic.host_object_mut(market) {
+        m.set_status_sold(true);
+    }
+    logic.frame = 3;
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(tunnel_id).unwrap().status.stealthed,
+        "selling the Black Market must destalth CamoNetting"
+    );
+}
+
+#[test]
+fn cloak_and_detect_play_stealth_on_off() {
+    use crate::game_logic::object::{SOUND_STEALTH_OFF, SOUND_STEALTH_ON};
+    use crate::game_logic::host_colonel_burton::BURTON_STEALTH_DELAY_FRAMES;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+
+    let mut burton_tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
+
+    let burton = logic
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::ZERO)
+        .expect("burton");
+    logic.queued_audio_events.clear();
+    logic.frame = BURTON_STEALTH_DELAY_FRAMES;
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(burton).unwrap().status.stealthed);
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == SOUND_STEALTH_ON && e.object_id == Some(burton)),
+        "cloak must play StealthOn"
+    );
+
+    let detector = logic
+        .create_object("TestInfantry", Team::GLA, Vec3::new(6.0, 0.0, 0.0))
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+    logic.queued_audio_events.clear();
+    logic.frame = BURTON_STEALTH_DELAY_FRAMES.saturating_add(1);
+    logic.update_stealth_and_detection();
+    assert!(logic.host_object(burton).unwrap().status.detected);
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == SOUND_STEALTH_OFF && e.object_id == Some(burton)),
+        "first DETECTED must play StealthOff"
+    );
+}
+
+#[test]
+fn sold_detector_stops_scanning() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+
+    let detector = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+        o.set_status_sold(true);
+    }
+
+    let stealth = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("stealthed");
+    {
+        let s = logic.host_object_mut(stealth).unwrap();
+        s.apply_grant_stealth();
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(stealth).unwrap().status.detected,
+        "sold detector must not destalth nearby units"
+    );
+}
+
 

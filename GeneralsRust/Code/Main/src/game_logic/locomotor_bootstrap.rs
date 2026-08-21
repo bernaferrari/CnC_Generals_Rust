@@ -96,6 +96,21 @@ pub const B52_LOCOMOTOR: &str = "B52Locomotor";
 pub const COMBAT_BIKE_GROUND_LOCOMOTOR: &str = "CombatBikeGroundLocomotor";
 /// Retail cliff member of GLAVehicleCombatBike's SET_NORMAL row.
 pub const COMBAT_BIKE_CLIFF_LOCOMOTOR: &str = "CombatBikeCliffLocomotor";
+/// Retail SET_SLUGGISH ground member of GLAVehicleCombatBike.
+pub const COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR: &str = "CombatBikeTerroristGroundLocomotor";
+/// Retail SET_SLUGGISH cliff member of GLAVehicleCombatBike.
+pub const COMBAT_BIKE_TERRORIST_CLIFF_LOCOMOTOR: &str = "CombatBikeTerroristCliffLocomotor";
+/// Retail SET_TAXIING residual for jets / chinooks on the ground.
+pub const AIRPLANE_TAXIING_LOCOMOTOR: &str = "AirplaneTaxiingLocomotor";
+/// Retail Raptor / Stealth taxiing template.
+pub const RAPTOR_TAXIING_LOCOMOTOR: &str = "RaptorTaxiingLocomotor";
+/// Retail SET_SUPERSONIC residual for Raptor / Stealth attack dash.
+pub const RAPTOR_SUPERSONIC_LOCOMOTOR: &str = "RaptorSupersonicLocomotor";
+/// Retail SET_SUPERSONIC residual for Aurora attack dash.
+pub const AURORA_SUPERSONIC_LOCOMOTOR: &str = "AuroraSupersonicLocomotor";
+/// Retail SET_SUPERSONIC residual for MIG attack dash.
+pub const MIG_SUPERSONIC_LOCOMOTOR: &str = "MIGSupersonicLocomotor";
+
 /// Retail AmericaVehiclePOWTruck residual.
 pub const POW_TRUCK_LOCOMOTOR: &str = "POWTruckLocomotor";
 /// Retail Nuke_ChinaTankBattleMaster residual.
@@ -281,11 +296,14 @@ pub fn ensure_host_locomotor_store() -> usize {
         added += try_load_locomotor_ini_from_disk();
     }
 
-    // RiderChange must validate the complete SET_NORMAL surface row even in
-    // headless tests where the extracted Locomotor.ini is unavailable.  Seed
-    // both retail Combat Bike members with every currently-live physics field
-    // before the older speed-only generic table fills the ground member.
+    // RiderChange must validate the complete SET_NORMAL / SET_SLUGGISH
+    // surface rows even in headless tests where the extracted Locomotor.ini
+    // is unavailable.  Seed both retail Combat Bike members with every
+    // currently-live physics field before the older speed-only generic
+    // table fills the ground member.
     added += seed_exact_combat_bike_normal_locomotors();
+    added += seed_exact_combat_bike_sluggish_locomotors();
+    added += seed_exact_aircraft_set_switch_locomotors();
 
     // Always fill missing golden / Wave 81 common-unit locomotors.
     // (INI load may have BasicHuman but omit some residual names.)
@@ -1055,6 +1073,131 @@ fn seed_exact_combat_bike_normal_locomotors() -> usize {
     }
     added
 }
+
+fn seed_exact_combat_bike_sluggish_locomotors() -> usize {
+    let mut added = 0usize;
+    for (name, surfaces) in [
+        (COMBAT_BIKE_TERRORIST_GROUND_LOCOMOTOR, "GROUND RUBBLE"),
+        (COMBAT_BIKE_TERRORIST_CLIFF_LOCOMOTOR, "CLIFF"),
+    ] {
+        if store_has(name) {
+            continue;
+        }
+        let mut props = HashMap::new();
+        props.insert("Surfaces".to_string(), surfaces.to_string());
+        // Retail SET_SLUGGISH is the slow multi-surface Combat Bike table.
+        props.insert("Speed".to_string(), "40".to_string());
+        props.insert("SpeedDamaged".to_string(), "30".to_string());
+        props.insert("TurnRate".to_string(), "90".to_string());
+        props.insert("TurnRateDamaged".to_string(), "90".to_string());
+        props.insert("Acceleration".to_string(), "40".to_string());
+        props.insert("AccelerationDamaged".to_string(), "35".to_string());
+        props.insert("Braking".to_string(), "40".to_string());
+        props.insert("MinTurnSpeed".to_string(), "15".to_string());
+        props.insert("TurnPivotOffset".to_string(), "-0.60".to_string());
+        props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+        props.insert("Appearance".to_string(), "MOTORCYCLE".to_string());
+        props.insert("UniformAxialDamping".to_string(), "0.9".to_string());
+        props.insert("CanMoveBackwards".to_string(), "No".to_string());
+        props.insert("HasSuspension".to_string(), "Yes".to_string());
+        match parse_locomotor_template_definition(name, &props) {
+            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                Ok(()) => added += 1,
+                Err(error) => log::warn!(
+                    "Host LocomotorStore: cannot seed sluggish Combat Bike locomotor {name}: {error}"
+                ),
+            },
+            Err(error) => log::warn!(
+                "Host LocomotorStore: cannot parse sluggish Combat Bike locomotor {name}: {error}"
+            ),
+        }
+    }
+    added
+}
+
+fn seed_exact_aircraft_set_switch_locomotors() -> usize {
+    let mut added = 0usize;
+    for (name, surfaces, appearance, speed, accel, turn, braking) in [
+        (
+            AIRPLANE_TAXIING_LOCOMOTOR,
+            "GROUND",
+            "WHEELS",
+            "25",
+            "40",
+            "90",
+            Some("50"),
+        ),
+        (
+            RAPTOR_TAXIING_LOCOMOTOR,
+            "GROUND",
+            "WHEELS",
+            "25",
+            "40",
+            "90",
+            Some("50"),
+        ),
+        (
+            RAPTOR_SUPERSONIC_LOCOMOTOR,
+            "AIR",
+            "WINGS",
+            "250",
+            "180",
+            "90",
+            None,
+        ),
+        (
+            AURORA_SUPERSONIC_LOCOMOTOR,
+            "AIR",
+            "WINGS",
+            "320",
+            "200",
+            "80",
+            None,
+        ),
+        (
+            MIG_SUPERSONIC_LOCOMOTOR,
+            "AIR",
+            "WINGS",
+            "230",
+            "160",
+            "90",
+            None,
+        ),
+    ] {
+        if store_has(name) {
+            continue;
+        }
+        let mut props = HashMap::new();
+        props.insert("Surfaces".to_string(), surfaces.to_string());
+        props.insert("Appearance".to_string(), appearance.to_string());
+        props.insert("Speed".to_string(), speed.to_string());
+        props.insert("SpeedDamaged".to_string(), speed.to_string());
+        props.insert("Acceleration".to_string(), accel.to_string());
+        props.insert("AccelerationDamaged".to_string(), accel.to_string());
+        props.insert("TurnRate".to_string(), turn.to_string());
+        props.insert("TurnRateDamaged".to_string(), turn.to_string());
+        if let Some(brake) = braking {
+            props.insert("Braking".to_string(), brake.to_string());
+        }
+        if surfaces == "GROUND" {
+            props.insert("MinSpeed".to_string(), "0".to_string());
+            props.insert("ZAxisBehavior".to_string(), "NO_Z_MOTIVE_FORCE".to_string());
+        }
+        match parse_locomotor_template_definition(name, &props) {
+            Ok(template) => match get_locomotor_store_mut().add_template(template) {
+                Ok(()) => added += 1,
+                Err(error) => log::warn!(
+                    "Host LocomotorStore: cannot seed aircraft set locomotor {name}: {error}"
+                ),
+            },
+            Err(error) => log::warn!(
+                "Host LocomotorStore: cannot parse aircraft set locomotor {name}: {error}"
+            ),
+        }
+    }
+    added
+}
+
 
 /// Test helper: force re-bootstrap attempt (does not clear existing templates).
 #[cfg(test)]

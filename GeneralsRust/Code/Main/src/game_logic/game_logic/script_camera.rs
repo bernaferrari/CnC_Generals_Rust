@@ -182,6 +182,15 @@ impl ScriptCameraMoveTo {
         self.speed_ramp_final_multiplier = multiplier.max(0.0);
     }
 
+    /// C++ `cameraModFinalMoveTo` on a `moveCameraTo` 2-waypoint path: retarget dest.
+    pub(super) fn camera_mod_final_move_to(&mut self, target: Vec3) {
+        self.target = if target.y.abs() <= f32::EPSILON {
+            Vec3::new(target.x, self.target.y, target.z)
+        } else {
+            target
+        };
+    }
+
     pub(super) fn advance(&mut self, dt: f32) -> Option<Vec3> {
         let prev_ease = self.last_ease;
         let progress = (self.elapsed_seconds / self.total_time_seconds).clamp(0.0, 1.0);
@@ -428,6 +437,52 @@ impl ScriptCameraPathMove {
         self.speed_ramp_start_multiplier = self.current_speed_multiplier(progress);
         self.speed_ramp_start_t = progress;
         self.speed_ramp_final_multiplier = multiplier.max(0.0);
+    }
+
+    fn rebuild_segments(&mut self) {
+        let last_meaningful = self.points.len().saturating_sub(2);
+        self.segment_length = vec![0.0f32; self.points.len()];
+        self.total_distance = 0.0;
+        for i in 1..last_meaningful {
+            let a = self.points[i];
+            let b = self.points[i + 1];
+            let len = Vec2::new(b.x - a.x, b.z - a.z).length();
+            self.segment_length[i] = len;
+            self.total_distance += len;
+        }
+        if self.total_distance < 1.0 && last_meaningful >= 2 {
+            let idx = last_meaningful - 1;
+            self.segment_length[idx] += 1.0 - self.total_distance;
+            self.total_distance = 1.0;
+        }
+        if last_meaningful >= 2 {
+            self.segment_length[last_meaningful] = self.segment_length[last_meaningful - 1];
+        }
+    }
+
+    /// C++ `W3DView::cameraModFinalMoveTo` — shift waypoints `[2..num]`.
+    pub(super) fn camera_mod_final_move_to(&mut self, target: Vec3) {
+        let last_meaningful = self.points.len().saturating_sub(2);
+        if last_meaningful < 2 {
+            return;
+        }
+        let start = self.points[last_meaningful];
+        let dx = target.x - start.x;
+        let dz = target.z - start.z;
+        for i in 2..=last_meaningful {
+            self.points[i].x += dx;
+            self.points[i].z += dz;
+        }
+        let last = self.points[last_meaningful];
+        let prev = self.points[last_meaningful - 1];
+        if self.points.len() > last_meaningful + 1 {
+            self.points[last_meaningful + 1] = Vec3::new(
+                last.x + (last.x - prev.x),
+                0.0,
+                last.z + (last.z - prev.z),
+            );
+        }
+        self.rebuild_segments();
     }
 
     pub(super) fn advance(&mut self, dt: f32) -> Option<Vec3> {

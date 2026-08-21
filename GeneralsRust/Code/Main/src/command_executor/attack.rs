@@ -590,54 +590,49 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    /// C++ AIGroup::groupAttackArea residual — engage nearest enemy inside radius.
+    /// C++ `AIGroup::groupAttackArea` + `AIAttackAreaState` — stay in the area
+    /// machine and rescan with polygon / AttackPriorityInfo.
     pub(crate) fn execute_attack_area(
         &mut self,
         units: &[ObjectId],
         center: Vec3,
         radius: f32,
+        polygon_name: Option<&str>,
     ) -> CommandResult {
-        let radius = radius.max(1.0);
+        let (center, radius, tag) = resolve_attack_area(center, radius, polygon_name);
         if !center.x.is_finite() || !center.z.is_finite() {
             return CommandResult::InvalidLocation;
         }
+        let radius = radius.max(1.0);
         let mut any = false;
         for &unit_id in units {
-            let Some(unit) = self.game_logic.host_object(unit_id) else {
-                continue;
+            let (alive, can_attack, can_move) = {
+                let Some(unit) = self.game_logic.host_object(unit_id) else {
+                    continue;
+                };
+                (unit.is_alive(), unit.can_attack(), unit.can_move())
             };
-            if !unit.is_alive() || !unit.can_attack() {
+            if !alive || !can_attack {
                 continue;
             }
-            let team = unit.team;
-            // Find nearest enemy of this unit inside area.
-            let mut best: Option<(ObjectId, f32)> = None;
-            for (cid, cand) in self.game_logic.host_objects().iter() {
-                if !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
-                    continue;
-                }
-                let d = center.distance(cand.get_position());
-                if d > radius {
-                    continue;
-                }
-                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-                    best = Some((*cid, d));
-                }
+            if let Some(u) = self.game_logic.host_object_mut(unit_id) {
+                u.auto_acquire_when_idle = true;
+                u.attack_priority_set = Some(tag.clone());
             }
-            if let Some((enemy_id, _)) = best {
-                // Reuse attack path.
-                if matches!(
-                    self.execute_attack_object(&[unit_id], enemy_id),
-                    CommandResult::Success
-                ) {
-                    any = true;
+            any = true;
+            if let Some(enemy_id) =
+                self.game_logic
+                    .find_attack_area_victim(unit_id, center, radius, polygon_name)
+            {
+                let _ = self.execute_attack_object(&[unit_id], enemy_id);
+                if let Some(u) = self.game_logic.host_object_mut(unit_id) {
+                    u.attack_priority_set = Some(tag.clone());
+                    u.auto_acquire_when_idle = true;
                 }
-            } else {
-                // No target: move to area center (C++ attack-area still enters state).
-                if unit.can_move()
-                    && self.path_to_goal_with_state(unit_id, center, AIState::AttackMoving)
-                {
-                    any = true;
+            } else if can_move {
+                let _ = self.path_to_goal_with_state(unit_id, center, AIState::AttackMoving);
+                if let Some(u) = self.game_logic.host_object_mut(unit_id) {
+                    u.attack_priority_set = Some(tag.clone());
                 }
             }
         }
@@ -650,6 +645,57 @@ impl<'a> CommandExecutor<'a> {
 }
 
 const ATTACK_TEAM_PERSIST_PREFIX: &str = "AIGroup.AttackTeam.";
+const ATTACK_AREA_PERSIST_PREFIX: &str = "AIGroup.AttackArea.";
+
+fn attack_area_persist_tag(center: Vec3, radius: f32, polygon_name: Option<&str>) -> String {
+    if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
+        format!("{ATTACK_AREA_PERSIST_PREFIX}poly:{name}")
+    } else {
+        format!(
+            "{ATTACK_AREA_PERSIST_PREFIX}circle:{:.1},{:.1},{:.1}",
+            center.x, center.z, radius
+        )
+    }
+}
+
+fn parse_attack_area_persist(tag: Option<&str>) -> Option<(Vec3, f32, Option<String>)> {
+    let tag = tag?.strip_prefix(ATTACK_AREA_PERSIST_PREFIX)?;
+    if let Some(name) = tag.strip_prefix("poly:") {
+        return Some((Vec3::ZERO, 1.0, Some(name.to_string())));
+    }
+    let rest = tag.strip_prefix("circle:")?;
+    let mut parts = rest.split(',');
+    let x: f32 = parts.next()?.parse().ok()?;
+    let z: f32 = parts.next()?.parse().ok()?;
+    let r: f32 = parts.next()?.parse().ok()?;
+    Some((Vec3::new(x, 0.0, z), r, None))
+}
+
+fn resolve_attack_area(
+    mut center: Vec3,
+    mut radius: f32,
+    polygon_name: Option<&str>,
+) -> (Vec3, f32, String) {
+    if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
+        if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+            if let Some(trigger) = terrain.get_trigger_area_by_name(name) {
+                let c = trigger.get_center_point();
+                center = Vec3::new(c.x, c.z, c.y);
+                let min = trigger.get_bounds_min();
+                let max = trigger.get_bounds_max();
+                let dx = (max.x - min.x).abs() as f32;
+                let dy = (max.y - min.y).abs() as f32;
+                radius = (dx.max(dy) * 0.5).max(1.0);
+            }
+        }
+    }
+    (
+        center,
+        radius,
+        attack_area_persist_tag(center, radius, polygon_name),
+    )
+}
+
 
 fn attack_team_persist_tag(team: crate::game_logic::Team) -> String {
     format!("{ATTACK_TEAM_PERSIST_PREFIX}{}", team.get_name())
@@ -712,6 +758,115 @@ impl crate::game_logic::GameLogic {
             let _ = self.unit_command_attack_soft(id, tid);
             if let Some(unit) = self.host_object_mut(id) {
                 unit.set_max_shots_to_fire(shots);
+                unit.auto_acquire_when_idle = true;
+                unit.attack_priority_set = Some(tag);
+            }
+        }
+    }
+
+    pub(crate) fn find_attack_area_victim(
+        &self,
+        unit_id: ObjectId,
+        center: Vec3,
+        radius: f32,
+        polygon_name: Option<&str>,
+    ) -> Option<ObjectId> {
+        let Some(me) = self.host_object(unit_id) else {
+            return None;
+        };
+        if !me.is_alive() || !me.can_attack() {
+            return None;
+        }
+        let team = me.team;
+        let polygon = polygon_name
+            .filter(|n| !n.is_empty())
+            .and_then(|name| {
+                gamelogic::terrain::get_terrain_logic()
+                    .read()
+                    .ok()
+                    .and_then(|terrain| terrain.get_trigger_area_by_name(name).cloned())
+            });
+        let prio = self.attack_priority_info_for(unit_id);
+        let mut best_dist: Option<(ObjectId, f32)> = None;
+        let mut best_prio: Option<(ObjectId, i32)> = None;
+        for (cid, cand) in self.host_objects().iter() {
+            if *cid == unit_id || !cand.is_alive() || !cand.is_targetable_by_enemy_of(team) {
+                continue;
+            }
+            let pos = cand.get_position();
+            let inside = if let Some(trigger) = &polygon {
+                trigger.point_in_trigger(&gamelogic::common::Coord2D::new(pos.x, pos.z))
+            } else {
+                center.distance(pos) <= radius
+            };
+            if !inside {
+                continue;
+            }
+            if let Some(info) = prio {
+                let pri = self.attack_priority_for_target(info, cand);
+                if pri == 0 {
+                    continue;
+                }
+                match best_prio {
+                    Some((_, bp)) if pri > bp => best_prio = Some((*cid, pri)),
+                    None => best_prio = Some((*cid, pri)),
+                    _ => {}
+                }
+            } else {
+                let d = center.distance(pos);
+                match best_dist {
+                    Some((_, bd)) if d < bd => best_dist = Some((*cid, d)),
+                    None => best_dist = Some((*cid, d)),
+                    _ => {}
+                }
+            }
+        }
+        if prio.is_some() {
+            best_prio.map(|(id, _)| id)
+        } else {
+            best_dist.map(|(id, _)| id)
+        }
+    }
+
+    /// C++ `AIAttackAreaState::update` — rescan the polygon / circle each second.
+    pub fn tick_attack_area_persist(&mut self, object_ids: &[ObjectId]) {
+        let mut jobs: Vec<(ObjectId, ObjectId, String)> = Vec::new();
+        for &id in object_ids {
+            let Some(o) = self.host_object(id) else {
+                continue;
+            };
+            if !o.is_alive() {
+                continue;
+            }
+            let Some((center, radius, poly)) =
+                parse_attack_area_persist(o.attack_priority_set.as_deref())
+            else {
+                continue;
+            };
+            if !matches!(
+                o.ai_state,
+                AIState::Attacking | AIState::AttackMoving | AIState::Idle
+            ) {
+                continue;
+            }
+            let current_ok = o
+                .target
+                .and_then(|t| self.host_object(t))
+                .map(|t| t.is_alive())
+                .unwrap_or(false);
+            if current_ok {
+                continue;
+            }
+            let tag = o.attack_priority_set.clone().unwrap_or_default();
+            if let Some(tid) =
+                self.find_attack_area_victim(id, center, radius, poly.as_deref())
+            {
+                jobs.push((id, tid, tag));
+            }
+        }
+        for (id, tid, tag) in jobs {
+            let _ = self.unit_command_attack_soft(id, tid);
+            if let Some(unit) = self.host_object_mut(id) {
                 unit.auto_acquire_when_idle = true;
                 unit.attack_priority_set = Some(tag);
             }

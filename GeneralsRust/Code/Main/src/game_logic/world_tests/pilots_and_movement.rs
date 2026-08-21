@@ -2218,20 +2218,13 @@ fn money_crate_collide_unit_pickup_residual() {
         "MoneyPickUp residual presentation descriptor constants"
     );
     assert!(
-        game_logic.honesty_money_floating_text_ok(),
-        "floating cash text residual must record on unit pickup"
-    );
-    assert!(
         game_logic
             .host_money_crates()
             .money_floating_texts
-            .iter()
-            .any(|t| t.text == "+$250"
-                && t.text_key == "GUI:AddCash"
-                && t.color_rgba == (0, 255, 0, 255)
-                && t.amount == 250),
-        "floating cash text residual presentation constants"
+            .is_empty(),
+        "C++ MoneyCrateCollide never emits GUI:AddCash floating text"
     );
+
     assert!(!game_logic.host_money_crates().contains(crate_id));
     assert!(
         game_logic
@@ -2377,7 +2370,14 @@ fn money_crate_above_terrain_and_forbidden_kindof_residual() {
         .unwrap_or(0);
     assert!(cash_land > cash_before, "landed crate unit pickup residual");
     assert!(game_logic.honesty_money_pickup_anim_ok());
-    assert!(game_logic.honesty_money_floating_text_ok());
+    assert!(
+        game_logic
+            .host_money_crates()
+            .money_floating_texts
+            .is_empty(),
+        "landed MoneyCrateCollide still has no +$N floater"
+    );
+
 
     // ForbiddenKindOf PROJECTILE residual: projectile near ground crate rejected.
     let crate2 = game_logic

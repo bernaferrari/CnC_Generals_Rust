@@ -72,7 +72,8 @@ pub enum AICommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingSpecialAbility {
-    /// GLA Hijacker residual: transfer vehicle team + HIJACKED; hijacker consumed.
+    /// GLA Hijacker: transfer team + HIJACKED; ride-hide (drawable+partition)
+    /// when the vehicle can eject, else consume the hijacker.
     Hijack {
         target_id: ObjectId,
     },

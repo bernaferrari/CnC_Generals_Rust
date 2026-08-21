@@ -197,8 +197,13 @@ impl Object {
         if self.weapon_bonus_drone_spotting {
             range *= crate::game_logic::host_slave_drones::DRONE_SPOTTING_RANGE_MULT;
         }
-        // C++ WEAPONBONUSCONDITION_GARRISONED residual (GameData RANGE 133%).
-        if self.contained_by.is_some() {
+        // C++ WEAPONBONUSCONDITION_GARRISONED (GameData RANGE 133%).
+        // GarrisonContain / HelixContain onContaining set the flag; OpenContain
+        // (Humvee, Chinook, hospital, tunnel, prison) does not.
+        if self.contained_by.is_some()
+            && self.is_kind_of(KindOf::Infantry)
+            && matches!(self.ai_state, AIState::Garrisoned)
+        {
             range *= 1.33;
         }
         // C++ CONTINUOUS_FIRE_MEAN / FAST WeaponBonus ROF residual
@@ -476,7 +481,8 @@ impl Object {
         self.stop_moving();
         self.target = None;
         self.set_ai_state(AIState::Idle);
-        // Soft-hide: not destroyed, not selectable.
+        // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
+        self.drawable_hidden = true;
     }
 
     /// C++ HijackerUpdate exit when vehicle dies residual.
@@ -495,7 +501,8 @@ impl Object {
         self.hijacker_eject_pos = Some(eject_pos);
         self.record_host_hijacker();
         self.set_position(eject_pos);
-        self.set_ai_state(AIState::Idle);
+        // C++ HijackerUpdate eject: setDrawableHidden(false) + registerObject.
+        self.drawable_hidden = false;
         self.stop_moving();
         self.target = None;
     }
@@ -559,7 +566,9 @@ impl Object {
     /// - OBJECT_STATUS_HIJACKED
     /// - aiIdle after brief move-to-self
     /// - cancel dozer tasks
+    /// - setVisionRange / setShroudClearingRange from hijacker
     /// - MAX(target, jacker) veterancy on both (jacker may be destroyed after)
+
     pub fn apply_hijacked_from(&mut self, donor: Option<&Object>) {
         self.set_status_hijacked(true);
         self.set_status_disabled_unmanned(false);
@@ -583,6 +592,12 @@ impl Object {
             self.target = None;
         }
         if let Some(d) = donor {
+            // C++ other->setVisionRange / setShroudClearingRange from hijacker
+            // ("since we are driving"). Exact copy, not MAX.
+            self.vision_range = d.vision_range;
+            self.shroud_clearing_range = d.shroud_clearing_range;
+            self.record_host_crush_vision();
+
             use crate::game_logic::VeterancyLevel;
             // MAX of target and jacker veterancy residual.
             let rank = |l: VeterancyLevel| -> u8 {

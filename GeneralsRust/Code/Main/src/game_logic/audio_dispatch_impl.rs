@@ -251,6 +251,206 @@ pub fn is_invented_unit_voice_name(name: &str) -> bool {
     )
 }
 
+use game_engine::common::audio::{
+    should_play_locally_for_players, shrouded_positional_event_is_blocked, AudioEventInfo,
+    AudioLocalityRelationship, AudioPriority, AudioType, ST_SHROUDED, ST_WORLD,
+};
+
+/// Live-host snapshot for C++ shouldPlayLocally / canPlayNow (player path).
+#[derive(Clone, Debug, Default)]
+pub struct LiveAudioLocality {
+    pub local_player_index: i32,
+    pub local_player_active: bool,
+    pub observer_look_at: Option<i32>,
+    pub players: HashMap<i32, LiveAudioPlayer>,
+    pub object_owners: HashMap<u32, i32>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct LiveAudioPlayer {
+    pub exists: bool,
+    pub active: bool,
+    pub has_default_team: bool,
+    pub relationship_to_local: AudioLocalityRelationship,
+}
+
+static LIVE_AUDIO_LOCALITY: Mutex<Option<LiveAudioLocality>> = Mutex::new(None);
+
+pub fn set_live_audio_locality(snap: LiveAudioLocality) {
+    *LIVE_AUDIO_LOCALITY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(snap);
+}
+
+pub fn live_audio_locality() -> Option<LiveAudioLocality> {
+    LIVE_AUDIO_LOCALITY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+fn lookup_audio_event_info(event_name: &str) -> Option<AudioEventInfo> {
+    let manager = game_engine::common::audio::game_audio::get_global_audio_manager()?;
+    let guard = manager.lock().ok()?;
+    guard.find_audio_event_info(event_name).map(|info| (*info).clone())
+}
+
+fn live_position_is_cellshroud_clear(local_player: i32, host_pos: glam::Vec3) -> bool {
+    // Host AudioEventRequest is Y-up (x, height, z_ground). Leftover partition is Z-up
+    // (x, y_ground) on the 40wu grid.
+    let cell = 40.0_f32;
+    let cx = (host_pos.x / cell).floor() as i32;
+    let cy = (host_pos.z / cell).floor() as i32;
+    matches!(
+        gamelogic::object::partition_cell_shroud_status(local_player, cx, cy),
+        game_engine::common::system::radar::CellShroudStatus::Clear
+    )
+}
+
+/// C++ `shouldPlayLocally` + `canPlayNow` ST_SHROUDED for the live SFX drain.
+///
+/// Missing AudioEventInfo type bits default Everyone (C++ GameAudio.cpp:1005-1007).
+/// Missing locality snapshot fails open so boot/tests without a host still hear
+/// unrestricted events; restricted bits still require a snapshot to pass.
+pub fn should_dispatch_live_audio(
+    event_name: &str,
+    owning_player_index: Option<i32>,
+    position: Option<glam::Vec3>,
+) -> bool {
+    if is_invented_unit_voice_name(event_name) || is_generic_eva_sfx_name(event_name) {
+        return false;
+    }
+
+    let info = lookup_audio_event_info(event_name);
+    let type_field = info.as_ref().map(|i| i.type_field).unwrap_or(0);
+    let is_music = info
+        .as_ref()
+        .is_some_and(|i| i.sound_type == AudioType::Music);
+    let is_critical = info
+        .as_ref()
+        .is_some_and(|i| i.priority == AudioPriority::Critical);
+    let is_positional = position.is_some()
+        && info
+            .as_ref()
+            .map(|i| (i.type_field & ST_WORLD) != 0)
+            .unwrap_or(position.is_some());
+
+    let snap = live_audio_locality();
+    let owning = owning_player_index.or_else(|| None);
+    let owning_exists = owning
+        .and_then(|idx| snap.as_ref().and_then(|s| s.players.get(&idx).map(|p| p.exists)))
+        .unwrap_or(owning.is_some());
+
+    let (local_idx, local_active, observer, local_has_team, relationship) = if let Some(s) = snap.as_ref()
+    {
+        let mut local = s.local_player_index;
+        let active = s
+            .players
+            .get(&local)
+            .map(|p| p.active)
+            .unwrap_or(s.local_player_active);
+        if !active {
+            if let Some(obs) = s.observer_look_at {
+                local = obs;
+            }
+        }
+        let local_rec = s.players.get(&local);
+        let rel = owning
+            .and_then(|idx| s.players.get(&idx).map(|p| p.relationship_to_local))
+            .unwrap_or(AudioLocalityRelationship::Neutral);
+        (
+            Some(local),
+            active,
+            s.observer_look_at,
+            local_rec
+                .map(|p| p.exists && p.has_default_team)
+                .unwrap_or(true),
+            rel,
+        )
+    } else {
+        (None, false, None, false, AudioLocalityRelationship::Neutral)
+    };
+
+    if !should_play_locally_for_players(
+        type_field,
+        is_music,
+        owning.unwrap_or(-1),
+        owning_exists,
+        local_idx,
+        local_active,
+        observer,
+        local_has_team,
+        relationship,
+    ) {
+        return false;
+    }
+
+    if let (Some(pos), Some(local)) = (position, local_idx) {
+        let clear = live_position_is_cellshroud_clear(local, pos);
+        if shrouded_positional_event_is_blocked(type_field, is_positional, is_critical, clear) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Generic `EVA_*` SFX names invented by the presentation drain. C++ Eva.ini
+/// SideSounds (`EvaUSA_BuildingLost`, …) are the only EVA playback path.
+pub fn is_generic_eva_sfx_name(name: &str) -> bool {
+    name.starts_with("EVA_")
+}
+
+/// C++ MiscAudio `TerroristInCar*Voice` (CommandXlat.cpp:690-728).
+pub fn terrorist_in_car_voice_event(slot: UnitVoiceSlot) -> Option<String> {
+    let misc = game_engine::common::ini::ini_misc_audio::get_misc_audio()?;
+    let misc = misc.read();
+    let event = match slot {
+        UnitVoiceSlot::Select => &misc.terrorist_in_car_select_voice,
+        UnitVoiceSlot::Move | UnitVoiceSlot::Crush | UnitVoiceSlot::Repair => {
+            &misc.terrorist_in_car_move_voice
+        }
+        UnitVoiceSlot::Attack | UnitVoiceSlot::AttackAir => &misc.terrorist_in_car_attack_voice,
+        _ => return None,
+    };
+    let name = event.playable_event_name();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// Fallback INI token when MiscAudio.ini has not been parsed yet.
+pub fn terrorist_in_car_voice_token(slot: UnitVoiceSlot) -> Option<&'static str> {
+    match slot {
+        UnitVoiceSlot::Select => Some("TerroristInCarSelectVoice"),
+        UnitVoiceSlot::Move | UnitVoiceSlot::Crush | UnitVoiceSlot::Repair => {
+            Some("TerroristInCarMoveVoice")
+        }
+        UnitVoiceSlot::Attack | UnitVoiceSlot::AttackAir => Some("TerroristInCarAttackVoice"),
+        _ => None,
+    }
+}
+
+pub fn resolve_terrorist_in_car_voice(slot: UnitVoiceSlot) -> Option<String> {
+    terrorist_in_car_voice_event(slot).or_else(|| {
+        terrorist_in_car_voice_token(slot).map(str::to_string)
+    })
+}
+
+pub fn owning_player_for_audio_object(object_id: Option<crate::game_logic::ObjectId>) -> Option<i32> {
+    let id = object_id?.0;
+    live_audio_locality()?.object_owners.get(&id).copied()
+}
+
+/// True when this request may enter the live SFX drain.
+pub fn should_dispatch_audio_request(event: &crate::game_logic::AudioEventRequest) -> bool {
+    let owner = owning_player_for_audio_object(event.object_id);
+    should_dispatch_live_audio(event.event_type.as_str(), owner, event.position)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,4 +524,136 @@ mod tests {
         ));
         clear_test_template_voices();
     }
+
+    #[test]
+    fn invented_unit_move_and_generic_eva_never_dispatch() {
+        assert!(is_invented_unit_voice_name("UnitMove"));
+        assert!(is_generic_eva_sfx_name("EVA_LowPower"));
+        assert!(is_generic_eva_sfx_name("EVA_UpgradeComplete"));
+        assert!(!is_generic_eva_sfx_name("EvaUSA_BuildingLost"));
+        assert!(!should_dispatch_live_audio("UnitMove", Some(0), None));
+        assert!(!should_dispatch_live_audio("EVA_LowPower", Some(0), None));
+    }
+
+    #[test]
+    fn should_dispatch_honors_st_player_allies_enemies() {
+        use game_engine::common::audio::{ST_ALLIES, ST_ENEMIES, ST_PLAYER};
+        let mut snap = LiveAudioLocality {
+            local_player_index: 0,
+            local_player_active: true,
+            observer_look_at: None,
+            players: HashMap::new(),
+            object_owners: HashMap::new(),
+        };
+        snap.players.insert(
+            0,
+            LiveAudioPlayer {
+                exists: true,
+                active: true,
+                has_default_team: true,
+                relationship_to_local: AudioLocalityRelationship::Allies,
+            },
+        );
+        snap.players.insert(
+            1,
+            LiveAudioPlayer {
+                exists: true,
+                active: true,
+                has_default_team: true,
+                relationship_to_local: AudioLocalityRelationship::Enemies,
+            },
+        );
+        set_live_audio_locality(snap);
+
+        // No AudioEventInfo → missing bits default Everyone.
+        assert!(should_dispatch_live_audio("SomeWorldBoom", Some(1), None));
+
+        assert!(should_play_locally_for_players(
+            ST_PLAYER,
+            false,
+            0,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+        assert!(!should_play_locally_for_players(
+            ST_PLAYER,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+        assert!(should_play_locally_for_players(
+            ST_ALLIES,
+            false,
+            2,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Allies,
+        ));
+        assert!(should_play_locally_for_players(
+            ST_ENEMIES,
+            false,
+            1,
+            true,
+            Some(0),
+            true,
+            None,
+            true,
+            AudioLocalityRelationship::Enemies,
+        ));
+        set_live_audio_locality(LiveAudioLocality::default());
+    }
+
+    #[test]
+    fn shrouded_world_event_blocked_when_cell_not_clear() {
+        assert!(shrouded_positional_event_is_blocked(
+            ST_SHROUDED | ST_WORLD,
+            true,
+            false,
+            false,
+        ));
+        assert!(!shrouded_positional_event_is_blocked(
+            ST_SHROUDED | ST_WORLD,
+            true,
+            false,
+            true,
+        ));
+        assert!(!shrouded_positional_event_is_blocked(
+            ST_WORLD,
+            true,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn carbomb_slots_resolve_terrorist_in_car_tokens() {
+        assert_eq!(
+            terrorist_in_car_voice_token(UnitVoiceSlot::Select),
+            Some("TerroristInCarSelectVoice")
+        );
+        assert_eq!(
+            terrorist_in_car_voice_token(UnitVoiceSlot::Move),
+            Some("TerroristInCarMoveVoice")
+        );
+        assert_eq!(
+            terrorist_in_car_voice_token(UnitVoiceSlot::Attack),
+            Some("TerroristInCarAttackVoice")
+        );
+        assert!(terrorist_in_car_voice_token(UnitVoiceSlot::Guard).is_none());
+        let name = resolve_terrorist_in_car_voice(UnitVoiceSlot::Select).unwrap();
+        assert!(!is_invented_unit_voice_name(&name));
+    }
+
 }

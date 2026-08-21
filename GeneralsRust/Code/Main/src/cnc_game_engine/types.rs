@@ -1136,6 +1136,8 @@ pub struct CnCGameEngine {
     pub(crate) camera_pitch_elapsed: f32,
     pub(crate) camera_pitch_ease_in: f32,
     pub(crate) camera_pitch_ease_out: f32,
+    /// C++ `W3DView::m_FXPitch`. 0 = look flat, 1 = normal, >1 = look down.
+    pub(crate) camera_fx_pitch: f32,
     pub(crate) camera_yaw_radians: f32,
     pub(crate) camera_yaw_target: Option<f32>,
     pub(crate) camera_yaw_start: f32,

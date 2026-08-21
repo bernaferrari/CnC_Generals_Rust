@@ -204,6 +204,15 @@ impl AITeamQueue {
     }
 }
 
+/// Host residual of C++ OnCreate script first action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnCreateIntent {
+    None,
+    Hunt,
+    Guard,
+    AttackMove,
+}
+
 
 /// AI building info for base construction
 #[derive(Debug, Clone)]
@@ -386,7 +395,14 @@ impl AIPlayer {
     /// Create new AI player
     pub fn new(player_id: u32, team: Team, difficulty: AIDifficulty) -> Self {
         let personality = AIPersonality::for_team(team);
-
+        // C++ AIPlayer.cpp:71 p->setCanBuildUnits(false) on leftover PlayerList.
+        if let Ok(list) = gamelogic::player::player_list().read() {
+            if let Some(player_arc) = list.get_player(player_id as i32).cloned() {
+                if let Ok(mut player) = player_arc.write() {
+                    player.set_can_build_units(false);
+                }
+            }
+        }
         Self {
             player_id,
             team,
@@ -478,7 +494,7 @@ impl AIPlayer {
         // checkReadyTeams — activate ready-queue teams (AIPlayer.cpp:2729-2803)
         self.check_ready_teams(game_logic, current_time);
         // checkQueuedTeams — expire / disband / promote (AIPlayer.cpp:2810-2870)
-        self.check_queued_teams(current_time);
+        self.check_queued_teams(game_logic, current_time);
         // doTeamBuilding
         self.update_military_management(game_logic, current_time);
         self.do_upgrades_and_skills(game_logic);
@@ -862,6 +878,7 @@ impl AIPlayer {
     }
 
     /// C++ `AIData.ini` `SideInfo` name for the live host team.
+    /// Base-team fallback when no PlayerTemplate Side is bound.
     fn side_info_name(&self) -> Option<&'static str> {
         use crate::game_logic::host_faction_skirmish_residual::{
             SIDE_AMERICA, SIDE_CHINA, SIDE_GLA,
@@ -872,6 +889,146 @@ impl AIPlayer {
             Team::GLA => Some(SIDE_GLA),
             _ => None,
         }
+    }
+
+    /// C++ `Player::getSide()` — PlayerTemplate Side (`AmericaAirForceGeneral`),
+    /// not the three-value host `Team` enum.
+    fn live_player_side(&self, game_logic: &GameLogic) -> Option<String> {
+        use crate::game_logic::host_faction_skirmish_residual::find_player_template_residual;
+        // Residual Side matches C++ PlayerTemplate.ini (`AmericaAirForceGeneral`).
+        // Prefer the bound identity so a leftover store that only copied
+        // BaseSide=America cannot collapse ZH generals back to Paladin.
+        if let Some(identity) = game_logic.player_template_identity(self.player_id) {
+            if let Some(residual) = find_player_template_residual(&identity.template_name) {
+                return Some(residual.side.to_string());
+            }
+        }
+        if let Some(template) = game_logic.resolved_player_template(self.player_id) {
+            let side = template.get_side();
+            if !side.is_empty() {
+                return Some(side.to_string());
+            }
+        }
+        self.side_info_name().map(str::to_string)
+    }
+
+    fn science_names_from_skill_ids(num_skills: i32, skills: &[i32]) -> Vec<String> {
+        use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
+        let Some(store) = get_science_store() else {
+            return Vec::new();
+        };
+        let n = (num_skills.max(0) as usize).min(skills.len());
+        (0..n)
+            .filter_map(|i| {
+                let sci = skills[i];
+                if sci == SCIENCE_INVALID {
+                    return None;
+                }
+                let name = store.get_internal_name_for_science(sci);
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                }
+            })
+            .collect()
+    }
+
+    /// Leftover parsed `AIData` `SideInfo` SkillSet1–5 (C++ AIPlayer.cpp:2919-2961).
+    fn aidata_side_skillsets(side: &str) -> Option<[Vec<String>; 5]> {
+        {
+            let store = game_engine::common::ini::get_ai_data_store();
+            if let Some(data) = store.get_active() {
+                if let Some(info) = data
+                    .side_info
+                    .iter()
+                    .find(|info| info.side.eq_ignore_ascii_case(side))
+                {
+                    let sets = [
+                        Self::science_names_from_skill_ids(
+                            info.skill_set_1.num_skills,
+                            &info.skill_set_1.skills,
+                        ),
+                        Self::science_names_from_skill_ids(
+                            info.skill_set_2.num_skills,
+                            &info.skill_set_2.skills,
+                        ),
+                        Self::science_names_from_skill_ids(
+                            info.skill_set_3.num_skills,
+                            &info.skill_set_3.skills,
+                        ),
+                        Self::science_names_from_skill_ids(
+                            info.skill_set_4.num_skills,
+                            &info.skill_set_4.skills,
+                        ),
+                        Self::science_names_from_skill_ids(
+                            info.skill_set_5.num_skills,
+                            &info.skill_set_5.skills,
+                        ),
+                    ];
+                    if sets.iter().any(|set| !set.is_empty()) {
+                        return Some(sets);
+                    }
+                }
+            }
+        }
+        let ai = gamelogic::ai::THE_AI.read().ok()?;
+        let ai_data = ai.get_ai_data();
+        let data = ai_data.read().ok()?;
+        let info = data
+            .side_info
+            .iter()
+            .find(|info| info.side.eq_ignore_ascii_case(side))?;
+        let sets = [
+            Self::science_names_from_skill_ids(info.skill_set_1.num_skills, &info.skill_set_1.skills),
+            Self::science_names_from_skill_ids(info.skill_set_2.num_skills, &info.skill_set_2.skills),
+            Self::science_names_from_skill_ids(info.skill_set_3.num_skills, &info.skill_set_3.skills),
+            Self::science_names_from_skill_ids(info.skill_set_4.num_skills, &info.skill_set_4.skills),
+            Self::science_names_from_skill_ids(info.skill_set_5.num_skills, &info.skill_set_5.skills),
+        ];
+        sets.iter().any(|set| !set.is_empty()).then_some(sets)
+    }
+
+    /// ZH general residual first sciences when parsed AIData is not loaded.
+    fn residual_general_skillsets(side: &str) -> Option<[Vec<String>; 5]> {
+        use crate::game_logic::host_faction_skirmish_residual::{
+            SKIRMISH_AI_SIDE_INFO_RESIDUAL, SIDE_AMERICA, SIDE_CHINA, SIDE_GLA,
+        };
+        if side.eq_ignore_ascii_case(SIDE_AMERICA)
+            || side.eq_ignore_ascii_case(SIDE_CHINA)
+            || side.eq_ignore_ascii_case(SIDE_GLA)
+        {
+            return None;
+        }
+        let info = SKIRMISH_AI_SIDE_INFO_RESIDUAL
+            .iter()
+            .find(|info| info.side.eq_ignore_ascii_case(side))?;
+        let mut sets = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        if !info.skill_set1_first.is_empty() {
+            sets[0].push(info.skill_set1_first.to_string());
+        }
+        if !info.skill_set2_first.is_empty() {
+            sets[1].push(info.skill_set2_first.to_string());
+        }
+        sets.iter().any(|set| !set.is_empty()).then_some(sets)
+    }
+
+    /// C++ `doUpgradesAndSkills` SideInfo walk: leftover AIData, then residual
+    /// general skillsets, then the three-faction hardcoded tables.
+    fn live_side_skillsets(&self, game_logic: &GameLogic) -> [Vec<String>; 5] {
+        let side = self
+            .live_player_side(game_logic)
+            .or_else(|| self.side_info_name().map(str::to_string));
+        if let Some(side) = side.as_deref() {
+            if let Some(sets) = Self::aidata_side_skillsets(side) {
+                return sets;
+            }
+            if let Some(sets) = Self::residual_general_skillsets(side) {
+                return sets;
+            }
+        }
+        self.side_skillsets()
+            .map(|set| set.iter().map(|name| (*name).to_string()).collect())
     }
 
     /// C++ `AISideInfo::m_baseDefenseStructure1` for this host team.
@@ -1316,17 +1473,22 @@ impl AIPlayer {
 
     /// Pick a real, available construction unit as C++ `AIPlayer::findDozer`
     /// does before `AISkirmishPlayer::processBaseBuilding` starts a structure.
-    ///
-    /// A builder already constructing, repairing, or ferrying supplies is not
-    /// available.  Prefer an idle dozer, then the nearest other eligible one;
-    /// the ObjectId tiebreak keeps host AI choices deterministic despite the
-    /// object store being a hash map.
-    fn find_available_dozer(game_logic: &GameLogic, team: Team, target: Vec3) -> Option<ObjectId> {
+    /// Prefer an idle dozer, then the nearest other eligible one. Never steal
+    /// `m_repairDozer`.
+    fn find_available_dozer(
+        game_logic: &GameLogic,
+        team: Team,
+        target: Vec3,
+        skip: Option<ObjectId>,
+    ) -> Option<ObjectId> {
         game_logic
             .host_objects()
             .values()
             .filter(|object| {
                 if object.team != team || !object.is_alive() || !object.can_construct() {
+                    return false;
+                }
+                if skip == Some(object.id) {
                     return false;
                 }
                 !matches!(
@@ -1411,7 +1573,9 @@ impl AIPlayer {
         preexisting.sort_by_key(|id| id.0);
 
         let mut order = AIWorkOrder::new(template_name.to_string(), 1, 100);
-        let queued = game_logic.enqueue_production(factory_id, template_name.to_string());
+        let queued = Self::with_can_build_units(game_logic, self.player_id, true, |gl| {
+            gl.enqueue_production(factory_id, template_name.to_string())
+        });
         if queued {
             order.factory_id = Some(factory_id);
             order.queued_count = 1;
@@ -1460,7 +1624,9 @@ impl AIPlayer {
                 continue;
             }
 
-            if let Some(dozer_id) = Self::find_available_dozer(game_logic, self.team, position) {
+            if let Some(dozer_id) =
+                Self::find_available_dozer(game_logic, self.team, position, self.repair_dozer)
+            {
                 if game_logic.resume_construction(&[dozer_id], structure_id) {
                     // `resume_construction` creates the authoritative dock;
                     // this command restores the corresponding movement/path.
@@ -1506,7 +1672,12 @@ impl AIPlayer {
                         })
                 })
             {
-                let started = Self::find_available_dozer(game_logic, self.team, position)
+                let started = Self::find_available_dozer(
+                    game_logic,
+                    self.team,
+                    position,
+                    self.repair_dozer,
+                )
                     .filter(|&dozer_id| {
                         game_logic.is_location_legal_to_build_for_builder(
                             self.team,
@@ -2241,8 +2412,14 @@ impl AIPlayer {
         // TeamInQueue work orders.  Its priority order therefore gets an idle
         // SupplyCenter and pays through ordinary ProductionUpdate immediately.
         self.queue_supply_truck(game_logic, current_time);
-        // C++ queueUnits: tryToRecruit existing map units before startTraining.
-        self.recruit_waiting_work_orders(game_logic);
+        let can_build_units = game_logic
+            .get_player(self.player_id)
+            .map(|p| p.can_build_units)
+            .unwrap_or(true);
+        if can_build_units {
+            // C++ queueUnits: tryToRecruit existing map units before startTraining.
+            self.recruit_waiting_work_orders(game_logic);
+        }
 
         // Collect all factory assignments needed
         let mut factory_assignments = Vec::new();
@@ -2254,7 +2431,11 @@ impl AIPlayer {
             for (order_index, work_order) in team.work_orders.iter().enumerate() {
                 if work_order.num_completed < work_order.num_required {
                     // Try to queue more units
-                    if work_order.factory_id.is_none() {
+                    if work_order.factory_id.is_none()
+                        && (can_build_units
+                            || Self::is_dozer_work_order_template(&work_order.template_name)
+                            || work_order.is_resource_gatherer)
+                    {
                         factory_assignments.push((
                             team_index,
                             order_index,
@@ -2430,8 +2611,8 @@ impl AIPlayer {
             team.sent_to_start_location = true;
             team.activated = true;
             team.completed = true;
-            // C++ Team::setActive() → m_created; OnCreate AttackMove/Hunt
-            // runs for this team's members only (not the whole army).
+            // C++ Team::setActive() → m_created; OnCreate Hunt/Guard/AttackMove
+            // scripts run for this team's members only (not the whole army).
             self.activate_ready_team(game_logic, &team, current_time);
             log::debug!(
                 "AI Player {} activated ready team: {}",
@@ -2442,7 +2623,7 @@ impl AIPlayer {
     }
 
     /// C++ `Team::setActive` + OnCreate + `joinTeam` / `clearTeamFlags`.
-    /// AttackMove this team's observed members only.
+    /// Host orders come from the OnCreate script, never a forced AttackMove.
     fn activate_ready_team(
         &mut self,
         game_logic: &mut GameLogic,
@@ -2490,7 +2671,7 @@ impl AIPlayer {
 
         if team.reinforcement {
             if let Some(obj_id) = team.reinforcement_id {
-                self.attack_move_units(game_logic, &[obj_id], current_time);
+                self.join_team_reinforcement_host(game_logic, obj_id, &members);
             }
         } else {
             if let Ok(mut eng) = gamelogic::scripting::engine::get_script_engine().write() {
@@ -2498,15 +2679,164 @@ impl AIPlayer {
                     e.clear_team_flags();
                 }
             }
-            if !members.is_empty() {
-                self.attack_move_units(game_logic, &members, current_time);
-            }
+            self.apply_on_create_host_orders(game_logic, &members, &on_create, current_time);
         }
         self.activity_count = self.activity_count.saturating_add(1);
     }
 
+    /// C++ `AIUpdateInterface::joinTeam` (`AIUpdate.cpp:2516`) — copy a
+    /// teammate's current order. Reinforcements never invent AttackMove.
+    fn join_team_reinforcement_host(
+        &mut self,
+        game_logic: &mut GameLogic,
+        obj_id: ObjectId,
+        members: &[ObjectId],
+    ) {
+        let mobile = game_logic
+            .host_object(obj_id)
+            .map(|o| o.is_alive() && o.is_mobile())
+            .unwrap_or(false);
+        if !mobile {
+            return;
+        }
+        let other_id = members.iter().copied().find(|&id| {
+            id != obj_id
+                && game_logic
+                    .host_object(id)
+                    .map(|o| o.is_alive() && !o.is_kind_of(crate::game_logic::KindOf::Immobile))
+                    .unwrap_or(false)
+        });
+        let Some(other_id) = other_id else {
+            return;
+        };
+        let (other_idle, other_pos, other_state, other_target) =
+            match game_logic.host_object(other_id) {
+                Some(other) => (
+                    other.ai_state == AIState::Idle,
+                    other.get_position(),
+                    other.ai_state.clone(),
+                    other.target,
+                ),
+                None => return,
+            };
+        if other_idle {
+            if game_logic.assign_unit_path(obj_id, other_pos, &[]) {
+                game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
+            } else if let Some(unit) = game_logic.host_object_mut(obj_id) {
+                unit.move_to(other_pos);
+                game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
+            }
+            return;
+        }
+        if let Some(unit) = game_logic.host_object_mut(obj_id) {
+            unit.target = other_target;
+        }
+        game_logic.set_ai_state_decision_aware_for_ai(obj_id, other_state);
+    }
+
+    /// Apply leftover OnCreate script intent to live host members.
+    /// C++ `checkReadyTeams` only `setActive`; Hunt/Guard/AttackMove come
+    /// from the team's OnCreate script actions.
+    fn apply_on_create_host_orders(
+        &mut self,
+        game_logic: &mut GameLogic,
+        members: &[ObjectId],
+        on_create: &str,
+        current_time: f32,
+    ) {
+        if members.is_empty() {
+            return;
+        }
+        match Self::classify_on_create_script(on_create) {
+            OnCreateIntent::Hunt => self.hunt_units(game_logic, members),
+            OnCreateIntent::Guard => self.guard_units(game_logic, members),
+            OnCreateIntent::AttackMove => {
+                self.attack_move_units(game_logic, members, current_time)
+            }
+            OnCreateIntent::None => {}
+        }
+    }
+
+    fn classify_on_create_script(on_create: &str) -> OnCreateIntent {
+        if on_create.is_empty() || on_create == "<none>" {
+            return OnCreateIntent::None;
+        }
+        use gamelogic::scripting::core::ScriptActionType;
+        if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
+            if let Some(e) = eng.as_ref() {
+                if let Some(script) = e.find_script_clone_by_name(on_create) {
+                    let mut act = script.get_action();
+                    while let Some(a) = act {
+                        match a.get_action_type() {
+                            ScriptActionType::TeamHunt
+                            | ScriptActionType::NamedHunt
+                            | ScriptActionType::PlayerHunt
+                            | ScriptActionType::TeamHuntWithCommandButton => {
+                                return OnCreateIntent::Hunt;
+                            }
+                            ScriptActionType::TeamGuard
+                            | ScriptActionType::NamedGuard
+                            | ScriptActionType::TeamGuardArea
+                            | ScriptActionType::TeamGuardPosition
+                            | ScriptActionType::TeamGuardObject
+                            | ScriptActionType::TeamGuardSupplyCenter
+                            | ScriptActionType::TeamGuardInTunnelNetwork => {
+                                return OnCreateIntent::Guard;
+                            }
+                            ScriptActionType::TeamAttackArea
+                            | ScriptActionType::TeamAttackTeam
+                            | ScriptActionType::TeamAttackNamed => {
+                                return OnCreateIntent::AttackMove;
+                            }
+                            _ => {}
+                        }
+                        act = a.get_next();
+                    }
+                }
+            }
+        }
+        let n = on_create.to_ascii_lowercase();
+        if n.contains("guard") {
+            OnCreateIntent::Guard
+        } else if n.contains("attackmove")
+            || n.contains("attack_move")
+            || n.contains("team_attack")
+        {
+            OnCreateIntent::AttackMove
+        } else if n.contains("hunt") {
+            OnCreateIntent::Hunt
+        } else {
+            OnCreateIntent::None
+        }
+    }
+
+    /// C++ `AIGroup::groupHunt` residual (`ScriptActions::doTeamHunt`).
+    fn hunt_units(&mut self, game_logic: &mut GameLogic, units: &[ObjectId]) {
+        for &unit_id in units {
+            let mobile = game_logic
+                .host_object(unit_id)
+                .map(|u| u.is_mobile() && u.is_alive())
+                .unwrap_or(false);
+            if mobile {
+                let _ = game_logic.unit_command_patrol(unit_id);
+            }
+        }
+    }
+
+    /// C++ `ScriptActions::doTeamGuard` — guard at current positions.
+    fn guard_units(&mut self, game_logic: &mut GameLogic, units: &[ObjectId]) {
+        for &unit_id in units {
+            let pos = game_logic.host_object(unit_id).and_then(|u| {
+                (u.is_alive() && u.is_mobile()).then_some(u.get_position())
+            });
+            if let Some(pos) = pos {
+                let _ = game_logic.unit_command_guard_position(unit_id, pos);
+            }
+        }
+    }
+
     /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
-    fn check_queued_teams(&mut self, current_time: f32) {
+    fn check_queued_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
         let mut i = 0;
         while i < self.team_queue.len() {
             if !self.team_queue[i].is_build_time_expired(current_time) {
@@ -2538,8 +2868,116 @@ impl AIPlayer {
                 }
                 continue;
             }
+            let member_ids: Vec<ObjectId> = self.team_queue[i]
+                .work_orders
+                .iter()
+                .flat_map(|order| order.observed_unit_ids.iter().copied())
+                .collect();
+            let any_idle = member_ids.iter().any(|id| {
+                game_logic
+                    .host_object(*id)
+                    .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                    .unwrap_or(false)
+            });
+            if any_idle {
+                let team_name = self.team_queue[i].name.clone();
+                let execute = self.team_queue[i].execute_actions
+                    || Self::prototype_execute_actions_on_create(&team_name);
+                if execute {
+                    self.execute_production_condition_actions(
+                        game_logic,
+                        &team_name,
+                        &member_ids,
+                        current_time,
+                    );
+                }
+            }
             i += 1;
         }
+    }
+
+    fn prototype_execute_actions_on_create(team_name: &str) -> bool {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(team_name)
+                    .map(|proto| proto.get_execute_actions_on_create())
+            })
+            .unwrap_or(false)
+    }
+
+    fn prototype_production_condition(team_name: &str) -> String {
+        gamelogic::team::get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|factory| {
+                factory
+                    .find_team_prototype(team_name)
+                    .map(|proto| proto.get_production_condition().to_string())
+            })
+            .unwrap_or_default()
+    }
+
+    fn execute_production_condition_actions(
+        &mut self,
+        game_logic: &mut GameLogic,
+        team_name: &str,
+        members: &[ObjectId],
+        current_time: f32,
+    ) {
+        let cond = Self::prototype_production_condition(team_name);
+        if cond.is_empty() {
+            return;
+        }
+        if let Ok(eng) = gamelogic::scripting::engine::get_script_engine().read() {
+            if let Some(e) = eng.as_ref() {
+                if let Some(script) = e.find_script_clone_by_name(&cond) {
+                    if let Some(action) = script.get_action().cloned() {
+                        drop(eng);
+                        if let Ok(mut writer) =
+                            gamelogic::scripting::engine::get_script_engine().write()
+                        {
+                            if let Some(engine) = writer.as_mut() {
+                                engine.friend_execute_action(&action, Some(team_name));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let idle: Vec<ObjectId> = members
+            .iter()
+            .copied()
+            .filter(|id| {
+                game_logic
+                    .host_object(*id)
+                    .map(|o| o.is_alive() && o.ai_state == AIState::Idle)
+                    .unwrap_or(false)
+            })
+            .collect();
+        self.apply_on_create_host_orders(game_logic, &idle, &cond, current_time);
+    }
+
+    fn with_can_build_units<R>(
+        game_logic: &mut GameLogic,
+        player_id: u32,
+        force: bool,
+        f: impl FnOnce(&mut GameLogic) -> R,
+    ) -> R {
+        let prev = game_logic
+            .get_player(player_id)
+            .map(|p| p.can_build_units)
+            .unwrap_or(true);
+        if let Some(player) = game_logic.get_player_mut(player_id) {
+            player.set_can_build_units(force);
+        }
+        let result = f(game_logic);
+        if let Some(player) = game_logic.get_player_mut(player_id) {
+            player.set_can_build_units(prev);
+        }
+        result
     }
 
     /// C++ `AIPlayer::doUpgradesAndSkills` (AIPlayer.cpp:2908) spends science
@@ -2711,7 +3149,7 @@ impl AIPlayer {
         if points <= 0 {
             return;
         }
-        let sets = self.side_skillsets();
+        let sets = self.live_side_skillsets(game_logic);
         if self.skillset_selector == INVALID_SKILLSET_SELECTION {
             let mut limit = 0i32;
             if !sets[1].is_empty() {
@@ -2730,13 +3168,13 @@ impl AIPlayer {
             self.skillset_selector = self.placement_rng.next_int(0, limit);
         }
         let idx = self.skillset_selector.clamp(0, 4) as usize;
-        let candidates = sets[idx];
+        let candidates = sets[idx].clone();
         let Some(player) = game_logic.get_player_mut(self.player_id) else {
             return;
         };
         for name in candidates {
-            if player.is_capable_of_purchasing_science(name)
-                && player.attempt_to_purchase_science(name)
+            if player.is_capable_of_purchasing_science(&name)
+                && player.attempt_to_purchase_science(&name)
             {
                 log::debug!(
                     "AI Player {} purchases from SkillSet{} {}",
@@ -2902,6 +3340,13 @@ impl AIPlayer {
 
     /// Check if AI should build a new team
     fn should_build_new_team(&self, game_logic: &GameLogic) -> bool {
+        if !game_logic
+            .get_player(self.player_id)
+            .map(|p| p.can_build_units)
+            .unwrap_or(true)
+        {
+            return false;
+        }
         if self.team_queue.len() >= 3 {
             return false;
         }
@@ -3390,13 +3835,14 @@ impl AIPlayer {
     /// Create team production queue
     fn create_team_queue(&self, team_name: &str, current_time: f32) -> AITeamQueue {
         let work_orders = self.create_work_orders_for_team(team_name);
-
-        AITeamQueue::new(
+        let mut team = AITeamQueue::new(
             team_name.to_string(),
             work_orders,
             false,
             (current_time * LOGIC_FRAMES_PER_SECOND) as u32,
-        )
+        );
+        team.execute_actions = Self::prototype_execute_actions_on_create(team_name);
+        team
     }
 
     /// Create work orders for a specific team type.
@@ -3748,8 +4194,8 @@ impl AIPlayer {
     }
 
     fn evaluate_attack_opportunities(&mut self, game_logic: &mut GameLogic, _current_time: f32) {
-        // C++ AIPlayer has no all-army raid latch. Teams AttackMove via
-        // checkReadyTeams → Team::setActive OnCreate. Keep the host
+        // C++ AIPlayer has no all-army raid latch. Teams only AttackMove when
+        // OnCreate scripts say so (checkReadyTeams → setActive). Keep the host
         // attack_in_progress flag only so a finished raid can clear.
         self.clear_finished_attack(game_logic);
     }
@@ -4333,7 +4779,9 @@ impl AIPlayer {
             if self.dozer_queued_for_repair {
                 return;
             }
-            if let Some(dozer_id) = Self::find_available_dozer(game_logic, self.team, bridge_pos) {
+            if let Some(dozer_id) =
+                Self::find_available_dozer(game_logic, self.team, bridge_pos, None)
+            {
                 self.repair_dozer = Some(dozer_id);
                 if let Some(dozer) = game_logic.host_object(dozer_id) {
                     self.repair_dozer_origin = dozer.get_position();
@@ -4614,6 +5062,13 @@ impl AIManager {
                 AIDifficulty::Brutal => "Brutal",
             }
         );
+    }
+
+    /// C++ `AIPlayer` ctor `p->setCanBuildUnits(false)`.
+    pub fn apply_ctor_can_build_units(game_logic: &mut GameLogic, player_id: u32) {
+        if let Some(player) = game_logic.get_player_mut(player_id) {
+            player.set_can_build_units(false);
+        }
     }
 
     /// Update all AI players
@@ -5630,7 +6085,7 @@ mod cpp_parity_tests {
             ai.team_queue.front().is_some_and(|t| t.is_all_built()),
             "team becomes complete only after its live factory output is observed"
         );
-        ai.check_queued_teams(1.0);
+        ai.check_queued_teams(&mut logic, 1.0);
         assert!(
             ai.team_queue.is_empty(),
             "all-built teams leave the build queue"
@@ -6928,8 +7383,8 @@ mod cpp_parity_tests {
 
     #[test]
     fn second_attack_starts_after_first_raid_finishes() {
-        // C++ checkReadyTeams setActive runs OnCreate AttackMove for that
-        // team only. evaluate_attack_opportunities must not dump the army.
+        // C++ checkReadyTeams only setActive. OnCreate Hunt/Guard/AttackMove
+        // come from scripts. evaluate_attack_opportunities must not dump the army.
         use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, Weapon};
 
         let mut logic = GameLogic::new();
@@ -6970,34 +7425,51 @@ mod cpp_parity_tests {
             "ready team must activate via setActive"
         );
         assert!(
-            ai.attack_in_progress,
-            "OnCreate AttackMove sets the current-raid latch"
+            !ai.attack_in_progress,
+            "empty OnCreate must not invent AttackMove"
+        );
+        assert_eq!(
+            logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+            Some(AIState::Idle),
+            "setActive without OnCreate leaves members idle at rally"
         );
         let first_count = ai.activity_count;
 
         ai.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
         assert!(
-            ai.attack_in_progress,
-            "latch must hold while units are still AttackMoving"
+            !ai.attack_in_progress,
+            "evaluate_attack_opportunities must not dump the army"
         );
         assert_eq!(ai.activity_count, first_count);
 
-        if let Some(o) = logic.host_object_mut(usa_unit) {
-            o.set_ai_state(AIState::Idle);
-            o.target = None;
-            o.movement.path.clear();
-            o.movement.target_position = None;
-        }
-
-        ai.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
-        assert!(
-            !ai.attack_in_progress,
-            "evaluate_attack_opportunities only clears a finished raid"
+        assert_eq!(
+            AIPlayer::classify_on_create_script("TeamHunt"),
+            OnCreateIntent::Hunt
         );
         assert_eq!(
-            ai.activity_count, first_count,
-            "must not dump the whole army after the raid idles"
+            AIPlayer::classify_on_create_script("TeamGuard"),
+            OnCreateIntent::Guard
         );
+        assert_eq!(
+            AIPlayer::classify_on_create_script("TeamAttackMove"),
+            OnCreateIntent::AttackMove
+        );
+
+        ai.apply_on_create_host_orders(&mut logic, &[usa_unit], "TeamHunt", 1.0);
+        assert_eq!(
+            logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+            Some(AIState::Patrolling),
+            "OnCreate Hunt must hunt, not AttackMove"
+        );
+        assert!(!ai.attack_in_progress);
+
+        ai.apply_on_create_host_orders(&mut logic, &[usa_unit], "TeamGuard", 1.0);
+        assert_eq!(
+            logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
+            Some(AIState::GuardingArea),
+            "OnCreate Guard must guard, not AttackMove"
+        );
+        assert!(!ai.attack_in_progress);
 
         let mut order2 = AIWorkOrder::new("Ai2Infantry".into(), 1, 100);
         order2.num_completed = 1;
@@ -7007,12 +7479,12 @@ mod cpp_parity_tests {
         ai.check_ready_teams(&mut logic, 2.0);
         assert!(
             ai.activity_count > first_count,
-            "second ready team setActive must AttackMove again"
+            "second ready team setActive still counts as activity"
         );
         assert_eq!(
             logic.host_object(usa_unit).map(|o| o.ai_state.clone()),
-            Some(AIState::AttackMoving),
-            "second setActive must re-issue AttackMoving"
+            Some(AIState::GuardingArea),
+            "second setActive without OnCreate must not overwrite Guard with AttackMove"
         );
     }
 
@@ -7329,12 +7801,66 @@ mod cpp_parity_tests {
             false,
             0,
         ));
-        ai.check_queued_teams(TEAM_BUILD_TIME_SECONDS + 1.0);
+        let mut logic = crate::game_logic::GameLogic::new();
+        ai.check_queued_teams(&mut logic, TEAM_BUILD_TIME_SECONDS + 1.0);
         assert!(
             ai.team_queue.is_empty() && ai.team_ready_queue.is_empty(),
             "expired team below minimum must disband"
         );
     }
+
+    #[test]
+    fn air_force_side_uses_a10_skillset_not_paladin() {
+        let residual = AIPlayer::residual_general_skillsets("AmericaAirForceGeneral")
+            .expect("Air Force SideInfo residual");
+        assert_eq!(
+            residual[0][0],
+            "AirF_SCIENCE_A10ThunderboltMissileStrike1"
+        );
+        assert_ne!(residual[0][0], "SCIENCE_PaladinTank");
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AirF", false));
+        if let Some(identity) = crate::game_logic::PlayerTemplateIdentity::from_exact_name(
+            "FactionAmericaAirForceGeneral",
+        ) {
+            let _ = logic.bind_player_template_identity(1, identity);
+            let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+            let sets = ai.live_side_skillsets(&logic);
+            let first = sets[0].first().map(String::as_str).unwrap_or("");
+            assert_ne!(first, "SCIENCE_PaladinTank");
+        }
+    }
+
+    #[test]
+    fn find_dozer_skips_assigned_bridge_repair_dozer() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        let mut dozer_t = crate::game_logic::ThingTemplate::new("AmericaVehicleDozer");
+        dozer_t
+            .add_kind_of(crate::game_logic::KindOf::Dozer)
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(200.0);
+        logic.templates.insert("AmericaVehicleDozer".into(), dozer_t);
+        let repair = logic
+            .create_object("AmericaVehicleDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("repair dozer");
+        let free = logic
+            .create_object("AmericaVehicleDozer", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("free dozer");
+        let found = AIPlayer::find_available_dozer(&logic, Team::USA, Vec3::ZERO, Some(repair));
+        assert_eq!(found, Some(free));
+    }
+
+    #[test]
+    fn ctor_helper_disables_unit_construction() {
+        let mut logic = crate::game_logic::GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+        assert!(logic.get_player(1).unwrap().can_build_units);
+        AIManager::apply_ctor_can_build_units(&mut logic, 1);
+        assert!(!logic.get_player(1).unwrap().can_build_units);
+    }
+
 
     #[test]
     fn acquire_enemy_keeps_healthy_current_target() {
@@ -7432,6 +7958,31 @@ mod cpp_parity_tests {
             ai.side_skillsets()[ai.skillset_selector as usize][0],
             "SCIENCE_NukeLauncher"
         );
+    }
+
+    #[test]
+    fn air_force_side_info_skillset_is_a10_not_paladin() {
+        let residual = AIPlayer::residual_general_skillsets("AmericaAirForceGeneral")
+            .expect("Air Force residual SideInfo");
+        assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
+        assert_eq!(residual[1][0], "SCIENCE_SpectreGunship1");
+
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut player = crate::game_logic::Player::new(1, Team::USA, "Air Force AI", false);
+        player.science_purchase_points = 5;
+        logic.add_player(player);
+        let identity = crate::game_logic::PlayerTemplateIdentity::from_exact_name(
+            "FactionAmericaAirForceGeneral",
+        )
+        .expect("retail Air Force PlayerTemplate");
+        assert!(logic.bind_player_template_identity(1, identity));
+
+        let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+        assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_PaladinTank");
+        ai.select_skillset(0);
+        let first = ai.live_side_skillsets(&logic)[0][0].clone();
+        assert_eq!(first, "AirF_SCIENCE_A10ThunderboltMissileStrike1");
+        assert_ne!(first, "SCIENCE_PaladinTank");
     }
     #[test]
     fn check_bridges_queues_damaged_span_and_assigns_dozer() {

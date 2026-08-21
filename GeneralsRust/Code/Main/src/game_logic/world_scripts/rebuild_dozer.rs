@@ -54,9 +54,6 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
     ) {
-        if old_team == new_team {
-            return;
-        }
         let is_tunnel = self
             .objects
             .get(&tunnel_id)
@@ -71,12 +68,41 @@ impl GameLogic {
             return;
         }
 
+        let registered = self.tunnel_network.player_holding_tunnel(tunnel_id);
+        let mut new_key = self
+            .objects
+            .get(&tunnel_id)
+            .map(|o| o.tunnel_system_key())
+            .unwrap_or_else(|| {
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, new_team)
+            });
+        let old_key = registered
+            .or_else(|| self.unique_player_id_for_team(old_team))
+            .unwrap_or_else(|| {
+                crate::game_logic::host_tunnel_network::tunnel_system_key(None, old_team)
+            });
+        if old_key == new_key {
+            if old_team == new_team {
+                return;
+            }
+            // `set_team` without owner flip (tests / stale writeback): still
+            // rematch onto the new faction's controlling player.
+            new_key = self
+                .unique_player_id_for_team(new_team)
+                .unwrap_or_else(|| {
+                    crate::game_logic::host_tunnel_network::tunnel_system_key(None, new_team)
+                });
+            if old_key == new_key {
+                return;
+            }
+        }
+
         let remaining_old: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(id, o)| {
                 **id != tunnel_id
-                    && o.team == old_team
+                    && o.tunnel_system_key() == old_key
                     && o.is_alive()
                     && !o.status.sold
                     && (o.is_tunnel_network_style_container()
@@ -89,7 +115,7 @@ impl GameLogic {
 
         let outcome =
             self.tunnel_network
-                .on_tunnel_destroyed(old_team, tunnel_id, &remaining_old);
+                .on_tunnel_destroyed(old_key, tunnel_id, &remaining_old);
         if outcome.cave_in {
             for uid in outcome.cave_in_units {
                 if let Some(unit) = self.objects.get_mut(&uid) {
@@ -106,7 +132,7 @@ impl GameLogic {
                     self.capture_tunnel_last_ejects.saturating_add(1);
             }
         } else if let Some(valid) = outcome.remapped_to {
-            let pool = self.tunnel_network.contained_for_team(old_team);
+            let pool = self.tunnel_network.contained_for_player(old_key);
             for uid in pool {
                 if let Some(unit) = self.objects.get_mut(&uid) {
                     if unit.contained_by == Some(tunnel_id) {
@@ -116,9 +142,10 @@ impl GameLogic {
             }
         }
 
-        self.tunnel_network.on_tunnel_created(new_team, tunnel_id);
+        self.tunnel_network.on_tunnel_created(new_key, tunnel_id);
         self.capture_tunnel_transfers = self.capture_tunnel_transfers.saturating_add(1);
     }
+
 
     /// C++ Object::onCapture residual (after ownership flip).
     ///
@@ -132,6 +159,9 @@ impl GameLogic {
         old_team: Team,
         new_team: Team,
     ) {
+        // TunnelContain::onCapture remeshes Player::m_tunnelSystem even when
+        // two same-faction players trade an entrance.
+        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
         if old_team == new_team {
             return;
         }
@@ -144,8 +174,7 @@ impl GameLogic {
             .and_then(|object| self.player_owner_for_host_object(object));
         // Contain kick residual.
         self.on_capture_kick_passengers(object_id, old_team, new_team);
-        // TunnelContain::onCapture entrance transfer / last-entrance eject residual.
-        self.on_capture_tunnel_network_residual(object_id, old_team, new_team);
+
 
         // Deselect from all players (C++ TheGameLogic->deselectObject residual).
         for player in self.players.values_mut() {
@@ -259,8 +288,32 @@ impl GameLogic {
         }
         let pos = container.get_position();
         let unmanned = container.status.disabled_unmanned;
+        let walk_exit = !unmanned
+            && !container.is_garrison_contain()
+            && (container.uses_transport_contain_exit_busy()
+                || container.can_contain()
+                || {
+                    let n = container.template_name.to_ascii_lowercase();
+                    n.contains("humvee")
+                        || n.contains("chinook")
+                        || n.contains("crawler")
+                        || n.contains("battlebus")
+                        || n.contains("technical")
+                        || n.contains("outpost")
+                        || n.contains("helix")
+                });
         let occupants: Vec<ObjectId> = container.contained_units();
         if occupants.is_empty() {
+            return;
+        }
+        // C++ TransportContain::onCapture: unmanned → removeAllContained;
+        // otherwise orderAllPassengersToExit (walk + ExitDelay).
+        if walk_exit {
+            let n = occupants.len() as u32;
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.pending_evacuate_on_stop = true;
+            }
+            self.capture_kick_outs = self.capture_kick_outs.saturating_add(n);
             return;
         }
         for (i, uid) in occupants.into_iter().enumerate() {
@@ -285,14 +338,13 @@ impl GameLogic {
                 }
                 unit.set_status_moving(false);
                 unit.set_status_attacking(false);
-                // Occupants keep their own team residual (don't flip with container).
             }
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant(uid);
             }
             self.capture_kick_outs = self.capture_kick_outs.saturating_add(1);
         }
-        let _ = unmanned;
+
     }
 
     /// C++ OpenContain::onSelling + ParkingPlaceBehavior::killAllParkedUnits residual.
@@ -377,14 +429,17 @@ impl GameLogic {
             })
             .unwrap_or(false);
         if is_tunnel {
-            let team = self.objects.get(&structure_id).map(|o| o.team);
-            if let Some(team) = team {
+            let player_id = self
+                .objects
+                .get(&structure_id)
+                .map(|o| o.tunnel_system_key());
+            if let Some(player_id) = player_id {
                 let tunnel_count = self
                     .objects
                     .values()
                     .filter(|o| {
                         o.is_alive()
-                            && o.team == team
+                            && o.tunnel_system_key() == player_id
                             && o.id != structure_id
                             && !o.status.sold
                             && (o.is_tunnel_network_style_container()
@@ -396,9 +451,12 @@ impl GameLogic {
                 // friend_getTunnelCount()==1 means this is the last (others already gone).
                 // Count other live tunnels; if 0, we are last.
                 if tunnel_count == 0 {
-                    let units = self.tunnel_network.contained_for_team(team);
+                    let units = self.tunnel_network.contained_for_player(player_id);
                     for (i, uid) in units.into_iter().enumerate() {
-                        let _ = self.tunnel_network.record_exit(team, uid, structure_id);
+                        let _ = self
+                            .tunnel_network
+                            .record_exit(player_id, uid, structure_id);
+
                         if let Some(unit) = self.objects.get_mut(&uid) {
                             let angle = (uid.0 as f32 + i as f32 * 1.11) * 0.7;
                             let offset = glam::Vec3::new(angle.cos(), 0.0, angle.sin()) * 10.0;

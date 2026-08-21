@@ -33,6 +33,7 @@ impl GameLogic {
             let mut topple_kill = false;
             let mut lifetime_kill = false;
             let mut poison_kill = false;
+            let mut pending_stump: Option<(String, glam::Vec3, f32, bool)> = None;
             let mut defector_audio: Vec<String> = Vec::new();
             let height_die_terrain = {
                 let (pos, ground) = match self.objects.get(&object_id) {
@@ -43,6 +44,19 @@ impl GameLogic {
                 self.terrain_height_at(pos).unwrap_or(ground)
             };
             if let Some(obj) = self.objects.get_mut(&object_id) {
+                obj.tick_terrain_decal_fade();
+                let stump_pos = obj.get_position();
+                let stump_ori = obj.get_orientation();
+                if let Some(td) = obj.topple_data.as_mut() {
+                    if let Some(name) = td.take_pending_stump_name() {
+                        pending_stump = Some((
+                            name,
+                            stump_pos,
+                            stump_ori,
+                            td.burned_at_topple,
+                        ));
+                    }
+                }
                 // Wave 761: under coupled GameWorld shadow, status timer expire
                 // (faerie/repulsor/disable/frenzy/continuous-fire/selection flash)
                 // is owned by `tick_status_timer_expirations` + writeback. Host must
@@ -181,9 +195,21 @@ impl GameLogic {
                 if !(crate::gameworld_shadow::gameworld_shadow_enabled()
                     && crate::gameworld_shadow::shadow_coupled_tick_active())
                 {
-                    // C++ ToppleUpdate::update residual (trees / crushable props).
                     topple_kill = obj.tick_topple();
+                    let stump_pos = obj.get_position();
+                    let stump_ori = obj.get_orientation();
+                    if let Some(td) = obj.topple_data.as_mut() {
+                        if let Some(name) = td.take_pending_stump_name() {
+                            pending_stump = Some((
+                                name,
+                                stump_pos,
+                                stump_ori,
+                                td.burned_at_topple,
+                            ));
+                        }
+                    }
                 }
+                obj.tick_terrain_decal_fade();
                 // C++ StructureToppleUpdate::update residual (buildings).
                 // C++ HeightDieUpdate residual (bombs/missiles).
                 // Wave 771: under coupled shadow, HeightDieUpdate is owned by
@@ -260,6 +286,9 @@ impl GameLogic {
                         topple_kill = obj.tick_structure_topple(self.frame);
                     }
                 }
+            }
+            if let Some((name, pos, ori, burned)) = pending_stump {
+                self.spawn_topple_stump(&name, pos, ori, burned);
             }
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 obj.poll_slow_death_phase_fx(self.frame);

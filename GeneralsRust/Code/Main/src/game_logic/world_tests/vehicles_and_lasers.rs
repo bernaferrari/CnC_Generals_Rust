@@ -989,6 +989,20 @@ fn camo_netting_upgrade_stealths_gla_structures() {
             game_logic.templates.insert(name.to_string(), t);
         }
     }
+    if !game_logic.templates.contains_key("GLABlackMarket") {
+        let mut market = crate::game_logic::ThingTemplate::new("GLABlackMarket");
+        market
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLABlackMarket".to_string(), market);
+    }
+    let _market_id = game_logic
+        .create_object("GLABlackMarket", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
+        .expect("black market");
+
 
     assert!(is_camo_netting_structure_template("Slth_GLACommandCenter"));
     assert!(is_camo_netting_structure_template("GLATunnelNetwork"));
@@ -3586,6 +3600,8 @@ fn hijack_hides_in_eject_capable_vehicle() {
         let mut o = Object::new(ht, hid, Team::GLA);
         o.name = "Jack".into();
         o.record_host_identity();
+        o.vision_range = 100.0;
+        o.shroud_clearing_range = 80.0;
         o
     });
     let mut vt = ThingTemplate::new("AmericaTankCrusader");
@@ -3595,6 +3611,8 @@ fn hijack_hides_in_eject_capable_vehicle() {
     logic.objects.insert(vid, {
         let mut o = Object::new(vt, vid, Team::USA);
         o.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
+        o.vision_range = 200.0;
+        o.shroud_clearing_range = 250.0;
         o
     });
     assert!(logic.vehicle_supports_hijacker_ride(vid));
@@ -3604,13 +3622,21 @@ fn hijack_hides_in_eject_capable_vehicle() {
         v.apply_hijacked_from(donor.as_ref());
         v.set_team(Team::GLA);
     }
+    logic.partition_manager.register_object_at(hid.0, 10.0, 0.0);
     {
         let h = logic.objects.get_mut(&hid).unwrap();
         h.begin_hijacker_in_vehicle(vid);
     }
+    logic.partition_manager.unregister_object(hid.0);
     assert!(logic.objects[&hid].hijacker_in_vehicle);
     assert!(logic.objects[&hid].status.masked);
+    assert!(logic.objects[&hid].drawable_hidden);
     assert!(!logic.objects[&hid].is_selectable());
+    assert!(!logic.partition_manager.is_registered(hid.0));
+    let stolen = &logic.objects[&vid];
+    assert!((stolen.vision_range - 100.0).abs() < 0.01);
+    assert!((stolen.shroud_clearing_range - 80.0).abs() < 0.01);
+
     // Move vehicle → rider follows
     {
         let v = logic.objects.get_mut(&vid).unwrap();
@@ -3637,7 +3663,9 @@ fn hijack_hides_in_eject_capable_vehicle() {
     let h = &logic.objects[&hid];
     assert!(!h.hijacker_in_vehicle);
     assert!(!h.status.masked);
+    assert!(!h.drawable_hidden);
     assert!(h.is_alive());
+
 }
 
 #[test]

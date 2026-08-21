@@ -320,9 +320,16 @@ impl<'a> CommandExecutor<'a> {
                 name,
                 duration_frames,
             } => self.execute_set_emoticon(&command.selected_units, name, *duration_frames),
-            CommandType::AttackArea { center, radius } => {
-                self.execute_attack_area(&command.selected_units, *center, *radius)
-            }
+            CommandType::AttackArea {
+                center,
+                radius,
+                polygon_name,
+            } => self.execute_attack_area(
+                &command.selected_units,
+                *center,
+                *radius,
+                polygon_name.as_deref(),
+            ),
             CommandType::Dock { target_id } => {
                 self.execute_dock(&command.selected_units, *target_id)
             }

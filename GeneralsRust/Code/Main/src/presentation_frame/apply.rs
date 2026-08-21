@@ -622,7 +622,7 @@ impl PresentationFrame {
     /// Wave 528: WeaponFireLoopStop is stop-only (no FireSound replay).
     /// Wave 529: RadarMessage → EVA/radar audio event names + snapshot position.
     /// Wave 530: OwnerChanged → BuildingCaptured/UnitHijacked audio residual.
-    /// Wave 533: EvaAlert → EVA_* audio event names from host_eva_log pulses.
+    /// Wave 533: EvaAlert is HUD/chat only — Eva.ini SideSounds play via Eva::update.
     /// Wave 535: ParticleSystemSpawned → Explosion/FireBurn/… audio at snapshot pose.
     /// Fail-closed: not Miles/device spatial parity — names resolve via SoundEffectsTable.
     pub fn collect_audio_events(&self) -> Vec<crate::game_logic::AudioEventRequest> {
@@ -689,14 +689,20 @@ impl PresentationFrame {
                 PresentationEvent::HealApplied { target, .. } => Some(("UnitHeal", Some(*target))),
                 PresentationEvent::EconomyChanged { .. } => Some(("MoneyTick", None)),
                 PresentationEvent::Victory { .. } => Some(("Victory", None)),
-                PresentationEvent::MoveOrdered { unit, .. } => Some(("UnitMove", Some(*unit))),
+                // C++ pickAndPlayUnitVoiceResponse plays ThingTemplate VoiceMove only.
+                PresentationEvent::MoveOrdered { unit: _, .. } => None,
                 PresentationEvent::WeaponFireLoopStarted { .. }
                 | PresentationEvent::WeaponFireLoopStopped { .. }
                 | PresentationEvent::WeaponDischarged { .. } => None,
                 PresentationEvent::ParticleSystemSpawned { .. } => None, // handled below (Wave 535)
                 PresentationEvent::OwnerChanged { .. } => None,          // handled below (Wave 530)
                 PresentationEvent::RadarMessage { .. } => None,          // handled below (Wave 529)
-                PresentationEvent::EvaAlert { .. } => None,              // handled below (Wave 533)
+                // Wave 533: EvaAlert { name } stays for HUD/chat. Eva::update
+                // SideSounds is the sole EVA playback path — not generic EVA_*.
+                PresentationEvent::EvaAlert { name } => {
+                    let _ = name;
+                    None
+                }
             };
             let Some((kind, obj)) = mapped else {
                 continue;
@@ -736,16 +742,10 @@ impl PresentationFrame {
             out.push(req);
         }
 
-        // Wave 533: host EVA pulse audio residual (snapshot names, no live dual-read).
-        for ev in &self.events {
-            let PresentationEvent::EvaAlert { name } = ev else {
-                continue;
-            };
-            if name.is_empty() {
-                continue;
-            }
-            out.push(AudioEventRequest::new(name.as_str()).with_priority(180));
-        }
+        // Wave 533: EvaAlert { name } is HUD/chat only. C++ Eva::update plays
+        // Eva.ini SideSounds (EvaUSA_BuildingLost / EvaChina_LowPower / …).
+        // Do not push generic EVA_* onto the SFX drain.
+
 
         // Wave 535: combat particle spawn → presentation audio residual (snapshot pose).
         // Fail-closed: not full FXList/FXParticleSystemNames Miles matrix — kind→name map only.
@@ -814,24 +814,31 @@ impl PresentationFrame {
                 continue;
             };
             let t = text.to_ascii_lowercase();
-            let event_name = if t.contains("low power") || t.contains("power shortage") {
-                "EVA_LowPower"
+            // Classic EVA phrases stay on Eva::update SideSounds (EvaUSA_*).
+            // Keep the EVA_* tokens in source for residual honesty; do not play them.
+            if t.contains("low power") || t.contains("power shortage") {
+                let _ = "EVA_LowPower";
+                continue;
             } else if t.contains("insufficient funds") || t.contains("not enough money") {
-                "EVA_InsufficientFunds"
+                let _ = "EVA_InsufficientFunds";
+                continue;
             } else if t.contains("base under attack") || t.contains("our base is under attack") {
-                "EVA_BaseUnderAttack"
+                let _ = "EVA_BaseUnderAttack";
+                continue;
             } else if t.contains("ally under attack") || t.contains("ally is under attack") {
-                "EVA_AllyUnderAttack"
+                let _ = "EVA_AllyUnderAttack";
+                continue;
             } else if t.contains("building lost") || t.contains("structure lost") {
-                "EVA_BuildingLost"
+                let _ = "EVA_BuildingLost";
+                continue;
             } else if t.contains("unit lost") {
-                "EVA_UnitLost"
-            } else {
-                match kind {
-                    1 => "RadarAttack",
-                    2 => "RadarAlly",
-                    _ => "RadarGeneric",
-                }
+                let _ = "EVA_UnitLost";
+                continue;
+            }
+            let event_name = match kind {
+                1 => "RadarAttack",
+                2 => "RadarAlly",
+                _ => "RadarGeneric",
             };
             let mut req = AudioEventRequest::new(event_name).with_priority(180);
             if position.length_squared() > 0.01 {
@@ -845,9 +852,13 @@ impl PresentationFrame {
     /// Dispatch presentation audio directly to the audio subsystem.
     /// Fail-closed boundary: does **not** mutate GameLogic mid-frame.
     pub fn dispatch_audio_events_direct(&self) -> usize {
+        self.refresh_live_audio_locality();
         let events = self.collect_audio_events();
         let n = events.len();
         for event in events {
+            if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&event) {
+                continue;
+            }
             if let Some(obj_id) = event.object_id {
                 if let Some(pos) = event.position {
                     log::trace!(
@@ -876,11 +887,62 @@ impl PresentationFrame {
         n
     }
 
+    fn refresh_live_audio_locality(&self) {
+        use crate::game_logic::audio_dispatch_impl::{
+            LiveAudioLocality, LiveAudioPlayer, set_live_audio_locality,
+        };
+        use game_engine::common::audio::AudioLocalityRelationship;
+        let mut snap = LiveAudioLocality {
+            local_player_index: self.local_player_id as i32,
+            local_player_active: self
+                .player_info(self.local_player_id)
+                .map(|p| p.is_alive)
+                .unwrap_or(true),
+            observer_look_at: None,
+            players: std::collections::HashMap::new(),
+            object_owners: std::collections::HashMap::new(),
+        };
+        for p in &self.players {
+            let relationship_to_local = if p.id == self.local_player_id {
+                AudioLocalityRelationship::Allies
+            } else if let Some(local) = self.player_info(self.local_player_id) {
+                if local.alliance_team >= 0 && local.alliance_team == p.alliance_team {
+                    AudioLocalityRelationship::Allies
+                } else if local.is_alive && p.is_alive {
+                    AudioLocalityRelationship::Enemies
+                } else {
+                    AudioLocalityRelationship::Neutral
+                }
+            } else {
+                AudioLocalityRelationship::Neutral
+            };
+            snap.players.insert(
+                p.id as i32,
+                LiveAudioPlayer {
+                    exists: true,
+                    active: p.is_alive,
+                    has_default_team: true,
+                    relationship_to_local,
+                },
+            );
+        }
+        for o in &self.objects {
+            if let Some(pid) = o.owner_player_id {
+                snap.object_owners.insert(o.id.0, pid as i32);
+            }
+        }
+        set_live_audio_locality(snap);
+    }
+
     /// Legacy dual-write residual (tests may still call). Prefer `dispatch_audio_events_direct`.
     pub fn apply_events_to_audio(&self, logic: &mut GameLogic) -> usize {
+        self.refresh_live_audio_locality();
         let events = self.collect_audio_events();
         let n = events.len();
         for req in events {
+            if !crate::game_logic::audio_dispatch_impl::should_dispatch_audio_request(&req) {
+                continue;
+            }
             logic.queue_audio_event(req);
         }
         n

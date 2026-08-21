@@ -680,7 +680,7 @@ pub fn collect_blob_shadows_from_presentation(
     frame
         .unit_render_inputs()
         .iter()
-        .filter(|u| !u.destroyed)
+        .filter(|u| !u.destroyed && u.shadows_enabled)
         .map(|u| {
             let radius = u
                 .selection_radius

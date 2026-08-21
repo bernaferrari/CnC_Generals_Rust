@@ -21,8 +21,12 @@ fn rotate_yaw_host(origin: glam::Vec3, yaw: f32, local: glam::Vec3) -> glam::Vec
     )
 }
 
-fn load_prefix_bones_world(container: &Object, prefix: &str, max: usize) -> Vec<glam::Vec3> {
-    let model = container.thing.template.get_model_name();
+fn load_prefix_bones_for_model(
+    container: &Object,
+    model: &str,
+    prefix: &str,
+    max: usize,
+) -> Vec<glam::Vec3> {
     let scale = container.thing.template.asset_scale;
     let pos = container.get_position();
     let yaw = container.get_orientation();
@@ -37,6 +41,122 @@ fn load_prefix_bones_world(container: &Object, prefix: &str, max: usize) -> Vec<
         out.push(rotate_yaw_host(pos, yaw, cpp_bone_to_host_local(local)));
     }
     out
+}
+
+fn load_prefix_bones_world(container: &Object, prefix: &str, max: usize) -> Vec<glam::Vec3> {
+    load_prefix_bones_for_model(
+        container,
+        container.thing.template.get_model_name(),
+        prefix,
+        max,
+    )
+}
+
+fn named_bone_world(container: &Object, name: &str) -> Option<glam::Vec3> {
+    let model = container.thing.template.get_model_name();
+    let scale = container.thing.template.asset_scale;
+    let pos = container.get_position();
+    let yaw = container.get_orientation();
+    let local = gamelogic::object::draw::lookup_pristine_bone_translation(model, scale, name)?;
+    Some(rotate_yaw_host(pos, yaw, cpp_bone_to_host_local(local)))
+}
+
+fn garrison_condition_index(
+    state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+) -> u8 {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    match state {
+        HostBodyDamageType::Damaged => 1,
+        HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => 2,
+        _ => 0,
+    }
+}
+
+fn garrison_points_for_condition<'a>(
+    bd: &'a crate::game_logic::BuildingData,
+    idx: u8,
+) -> &'a [glam::Vec3] {
+    match idx {
+        1 if !bd.garrison_fire_points_damaged.is_empty() => &bd.garrison_fire_points_damaged,
+        2 if !bd.garrison_fire_points_really_damaged.is_empty() => {
+            &bd.garrison_fire_points_really_damaged
+        }
+        _ => &bd.garrison_fire_points,
+    }
+}
+
+fn load_garrison_condition_bone_sets(
+    container: &Object,
+) -> (Vec<glam::Vec3>, Vec<glam::Vec3>, Vec<glam::Vec3>) {
+    let base = container.thing.template.get_model_name();
+    let pristine = load_prefix_bones_for_model(container, base, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
+    let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 1, false);
+    let rd_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(base, 2, false);
+    let damaged = if dmg_key != base {
+        load_prefix_bones_for_model(container, &dmg_key, "FIREPOINT", MAX_GARRISON_FIRE_POINTS)
+    } else {
+        Vec::new()
+    };
+    let really = if rd_key != base && rd_key != dmg_key {
+        load_prefix_bones_for_model(container, &rd_key, "FIREPOINT", MAX_GARRISON_FIRE_POINTS)
+    } else {
+        Vec::new()
+    };
+    (pristine, damaged, really)
+}
+
+fn transport_passenger_fire_origin(container: &Object, passenger_index: usize) -> glam::Vec3 {
+    let bones = load_prefix_bones_world(container, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
+    if bones.is_empty() {
+        container.get_position()
+    } else {
+        bones[passenger_index % bones.len()]
+    }
+}
+
+fn open_contain_exit_path(container: &Object, which_path: u8) -> (glam::Vec3, glam::Vec3, u8) {
+    let origin = container.get_position();
+    let yaw = container.get_orientation();
+    let geom = container.thing.template.geometry_info;
+    let major = if geom.authored {
+        geom.major_radius.max(8.0)
+    } else {
+        20.0
+    };
+    let fallback_end = {
+        let (sin, cos) = yaw.sin_cos();
+        glam::Vec3::new(origin.x + major * cos, origin.y, origin.z + major * sin)
+    };
+    if let (Some(start), Some(end)) = (
+        named_bone_world(container, "ExitStart"),
+        named_bone_world(container, "ExitEnd"),
+    ) {
+        return (start, end, 1);
+    }
+    let mut n = 0u8;
+    for i in 1..=16 {
+        if named_bone_world(container, &format!("ExitStart{i:02}")).is_none() {
+            break;
+        }
+        n = i;
+    }
+    if n == 0 {
+        let rally = container
+            .building_data
+            .as_ref()
+            .and_then(|b| b.rally_point);
+        return (origin, rally.unwrap_or(fallback_end), 1);
+    }
+    let idx = if which_path == 0 {
+        1
+    } else {
+        ((which_path - 1) % n) + 1
+    };
+    let start =
+        named_bone_world(container, &format!("ExitStart{idx:02}")).unwrap_or(origin);
+    let end = named_bone_world(container, &format!("ExitEnd{idx:02}")).unwrap_or(fallback_end);
+    let next = (idx % n) + 1;
+    (start, end, next)
 }
 
 fn closest_free_garrison_point(
@@ -67,7 +187,6 @@ fn closest_free_garrison_point(
     (best_i, best)
 }
 
-/// C++ GarrisonContain::calcBestGarrisonPosition — FIREPOINT bones, not a ring.
 fn garrison_occupant_fire_point(
     container: &Object,
     occupant_id: ObjectId,
@@ -77,8 +196,9 @@ fn garrison_occupant_fire_point(
     let Some(bd) = container.building_data.as_ref() else {
         return (0, fallback);
     };
+    let idx = garrison_condition_index(container.body_damage_state);
     closest_free_garrison_point(
-        &bd.garrison_fire_points,
+        garrison_points_for_condition(bd, idx),
         &bd.garrison_point_occupant,
         occupant_id,
         target_pos,
@@ -338,7 +458,7 @@ impl GameLogic {
                         &obj.template_name,
                     );
                 if is_tunnel {
-                    for uid in self.tunnel_network.contained_for_team(obj.team) {
+                    for uid in self.tunnel_network.contained_for_player(obj.tunnel_system_key()) {
                         if !occupants.contains(&uid) {
                             occupants.push(uid);
                         }
@@ -478,10 +598,8 @@ impl GameLogic {
     }
 
     /// Residual fire-from-transport: docked passengers auto-engage nearest
-    /// enemy in weapon range from the **container position** when the container
-    /// has `passengers_allowed_to_fire` (Battle Bus / Combat Chinook / Humvee residual)
-    /// or an installed Overlord BattleBunker (`OverlordContain.cpp:553`).
-    /// Fail-closed: not C++ transport weapon bone positions / multi-slot matrix.
+    /// enemy in weapon range from sequential `FIREPOINT` bones
+    /// (`OpenContain::putObjAtNextFirePoint`). Hull center only if no bones.
     pub(in super::super) fn try_transport_passenger_residual_fire(
         &mut self,
         passenger_id: ObjectId,
@@ -536,7 +654,12 @@ impl GameLogic {
         let team = attacker.team;
         let range = weapon.range;
         let damage = weapon.damage;
-        let fire_pos = container.get_position();
+        let passenger_index = container
+            .contained_units()
+            .iter()
+            .position(|&id| id == passenger_id)
+            .unwrap_or(0);
+        let fire_pos = transport_passenger_fire_origin(container, passenger_index);
         if bunker_may {
             if let Some(c) = self.objects.get_mut(&cid) {
                 if !c.passengers_allowed_to_fire {
@@ -903,38 +1026,59 @@ impl GameLogic {
             .building_data
             .as_ref()
             .is_some_and(|b| b.garrison_points_initialized);
-        if already {
-            return;
+        if !already {
+            let (pristine, damaged, really) = if enclosing {
+                load_garrison_condition_bone_sets(container)
+            } else {
+                (Vec::new(), Vec::new(), Vec::new())
+            };
+            let stations = if enclosing {
+                Vec::new()
+            } else {
+                let max = container
+                    .thing
+                    .template
+                    .contain_module
+                    .slots
+                    .unwrap_or(MAX_GARRISON_FIRE_POINTS)
+                    .min(MAX_GARRISON_FIRE_POINTS);
+                load_prefix_bones_world(container, "STATION", max)
+            };
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                if let Some(bd) = container.building_data.as_mut() {
+                    if enclosing {
+                        bd.garrison_fire_points = pristine;
+                        bd.garrison_fire_points_damaged = damaged;
+                        bd.garrison_fire_points_really_damaged = really;
+                        bd.garrison_point_occupant
+                            .resize(bd.garrison_fire_points.len(), None);
+                    } else {
+                        bd.garrison_station_points = stations;
+                        bd.garrison_point_occupant
+                            .resize(bd.garrison_station_points.len(), None);
+                    }
+                    bd.garrison_points_initialized = true;
+                }
+            }
         }
-        let fire = if enclosing {
-            load_prefix_bones_world(container, "FIREPOINT", MAX_GARRISON_FIRE_POINTS)
-        } else {
-            Vec::new()
-        };
-        let stations = if enclosing {
-            Vec::new()
-        } else {
-            let max = container
-                .thing
-                .template
-                .contain_module
-                .slots
-                .unwrap_or(MAX_GARRISON_FIRE_POINTS)
-                .min(MAX_GARRISON_FIRE_POINTS);
-            load_prefix_bones_world(container, "STATION", max)
-        };
+        // C++ findConditionIndex + redeployOccupants on body-state change.
+        let idx = self
+            .objects
+            .get(&container_id)
+            .map(|c| garrison_condition_index(c.body_damage_state))
+            .unwrap_or(0);
         if let Some(container) = self.objects.get_mut(&container_id) {
             if let Some(bd) = container.building_data.as_mut() {
-                if enclosing {
-                    bd.garrison_fire_points = fire;
-                    bd.garrison_point_occupant
-                        .resize(bd.garrison_fire_points.len(), None);
-                } else {
-                    bd.garrison_station_points = stations;
-                    bd.garrison_point_occupant
-                        .resize(bd.garrison_station_points.len(), None);
+                if bd.garrison_points_condition != idx {
+                    bd.garrison_points_condition = idx;
+                    for slot in &mut bd.garrison_point_occupant {
+                        *slot = None;
+                    }
+                    let n = garrison_points_for_condition(bd, idx).len();
+                    if n > 0 {
+                        bd.garrison_point_occupant.resize(n, None);
+                    }
                 }
-                bd.garrison_points_initialized = true;
             }
         }
     }
@@ -1005,12 +1149,15 @@ impl GameLogic {
         let Some((first_team, first_owner, first_detected)) = first else {
             return;
         };
-        let all_stealth = occupants.iter().all(|id| {
-            self.objects
-                .get(id)
-                .is_some_and(|o| o.status.stealthed && !o.status.detected)
-        });
-        let hide = !first_detected && all_stealth;
+        let stealth_kind_count = occupants
+            .iter()
+            .filter(|id| {
+                self.objects
+                    .get(id)
+                    .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison))
+            })
+            .count();
+        let hide = !first_detected && stealth_kind_count == occupants.len();
         if let Some(container) = self.objects.get_mut(&container_id) {
             if let Some(bd) = container.building_data.as_mut() {
                 if bd.original_team.is_none() {
@@ -1021,6 +1168,146 @@ impl GameLogic {
             container.set_team_and_owner(first_team, first_owner);
         }
     }
+
+    /// C++ `StealthUpdate.cpp:786-801` — DETECTED flip on a contained rider
+    /// calls `GarrisonContain::recalcApparentControllingPlayer`.
+    pub(in super::super) fn recalc_garrisons_after_occupant_detect_change(
+        &mut self,
+        container_ids: &[ObjectId],
+    ) {
+        let mut seen: Vec<ObjectId> = Vec::new();
+        for &cid in container_ids {
+            if seen.contains(&cid) {
+                continue;
+            }
+            seen.push(cid);
+            if self
+                .objects
+                .get(&cid)
+                .is_some_and(|c| c.is_garrison_contain())
+            {
+                self.recalc_garrison_apparent_controller(cid);
+            }
+        }
+    }
+
+    /// C++ OpenContain::onCollide: eject other-player riders (STEALTH_GARRISON
+    /// markAsDetected + aiExit) before the arriver boards.
+    pub(in super::super) fn kick_other_controller_occupants_for_enter(
+        &mut self,
+        container_id: ObjectId,
+        arriver_id: ObjectId,
+    ) {
+        let arriver_owner = self.objects.get(&arriver_id).and_then(|o| o.owner_player_id);
+        let arriver_team = self.objects.get(&arriver_id).map(|o| o.team);
+        let occupants = self
+            .objects
+            .get(&container_id)
+            .map(|c| c.contained_units())
+            .unwrap_or_default();
+        let mut kick: Vec<ObjectId> = Vec::new();
+        for pid in occupants {
+            if pid == arriver_id {
+                continue;
+            }
+            let Some(occ) = self.objects.get(&pid) else {
+                continue;
+            };
+            let same = match (arriver_owner, occ.owner_player_id) {
+                (Some(a), Some(b)) => a == b,
+                _ => arriver_team == Some(occ.team),
+            };
+            if !same {
+                kick.push(pid);
+            }
+        }
+        if kick.is_empty() {
+            return;
+        }
+        let now = self.frame;
+        for pid in kick {
+            let stealth_garrison = self
+                .objects
+                .get(&pid)
+                .is_some_and(|o| o.is_kind_of(KindOf::StealthGarrison));
+            let delay = self
+                .objects
+                .get(&pid)
+                .map(|o| o.stealth_delay_frames)
+                .unwrap_or(0)
+                .max(60);
+            if stealth_garrison {
+                if let Some(occ) = self.objects.get_mut(&pid) {
+                    occ.mark_detected(now.saturating_add(delay));
+                }
+            }
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                let _ = c.remove_occupant(pid);
+            }
+            self.walk_unit_via_open_contain_exit(pid, container_id);
+        }
+        if self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_garrison_contain())
+        {
+            self.recalc_garrison_apparent_controller(container_id);
+        }
+    }
+
+    /// C++ OpenContain::exitObjectViaDoor — ExitStart/End + follow-path.
+    pub(in super::super) fn walk_unit_via_open_contain_exit(
+        &mut self,
+        unit_id: ObjectId,
+        container_id: ObjectId,
+    ) {
+        let unit_pos = self.objects.get(&unit_id).map(|u| u.get_position());
+        let Some(container) = self.objects.get(&container_id) else {
+            return;
+        };
+        let (start, end, next) = if container.is_garrison_contain() {
+            let origin = container.get_position();
+            let yaw = container.get_orientation();
+            let geom = container.thing.template.geometry_info;
+            let major = if geom.authored {
+                geom.major_radius.max(8.0)
+            } else {
+                20.0
+            };
+            let enclosing = container.is_enclosing_garrison_container();
+            let (sin, cos) = yaw.sin_cos();
+            let dest = glam::Vec3::new(origin.x + major * cos, origin.y, origin.z + major * sin);
+            let start = if enclosing {
+                origin
+            } else {
+                unit_pos.unwrap_or(origin)
+            };
+            (start, dest, 0u8)
+        } else {
+            let which = container
+                .building_data
+                .as_ref()
+                .map(|b| b.which_exit_path)
+                .unwrap_or(0);
+            open_contain_exit_path(container, which)
+        };
+        if next > 0 {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                if let Some(bd) = c.building_data.as_mut() {
+                    bd.which_exit_path = next;
+                }
+            }
+        }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.set_contained_by(None);
+            unit.target = None;
+            unit.set_position(start);
+            unit.set_destination(end);
+            unit.set_ai_state(AIState::Moving);
+            unit.status.moving = true;
+        }
+    }
+
 
     /// C++ putObjectAtGarrisonPoint + updateEffects GarrisonGun / FIRING_A.
     fn ensure_garrison_gun_effect(
@@ -2948,6 +3235,255 @@ mod tests {
         assert!(!r.selected);
         assert!(!logic.selected_objects.contains(&ranger_id));
     }
+
+    fn infantry_template(name: &str) -> ThingTemplate {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(120.0);
+        t.transport_slot_count = Some(1);
+        t
+    }
+
+    #[test]
+    fn hide_uses_stealth_garrison_kind_not_stealthed_bits() {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        let mut ranger = infantry_template("AmericaRanger");
+        ranger.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("AmericaRanger".into(), ranger);
+        let mut ninja = infantry_template("JapanNinja");
+        ninja.add_kind_of(KindOf::StealthGarrison);
+        logic.templates.insert("JapanNinja".into(), ninja);
+
+        let bunker = logic
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.status.stealthed = true;
+            r.status.detected = false;
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        logic.recalc_garrison_apparent_controller(bunker);
+        assert!(
+            !logic
+                .host_object(bunker)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .hide_garrisoned_state,
+            "ordinary stealthed infantry must not hide the building"
+        );
+
+        assert!(logic.host_object_mut(bunker).unwrap().remove_occupant(ranger_id));
+        let ninja_id = logic
+            .create_object("JapanNinja", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.status.stealthed = false;
+            n.status.detected = false;
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ninja_id));
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.set_contained_by(Some(bunker));
+        }
+        logic.recalc_garrison_apparent_controller(bunker);
+        assert!(
+            logic
+                .host_object(bunker)
+                .unwrap()
+                .building_data
+                .as_ref()
+                .unwrap()
+                .hide_garrisoned_state,
+            "STEALTH_GARRISON kind hides even while destalthed and not DETECTED"
+        );
+    }
+
+    #[test]
+    fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", false));
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        let mut ninja = infantry_template("JapanNinja");
+        ninja.add_kind_of(KindOf::StealthGarrison);
+        logic.templates.insert("JapanNinja".into(), ninja);
+        logic
+            .templates
+            .insert("ChinaRedguard".into(), infantry_template("ChinaRedguard"));
+
+        let bunker = logic
+            .create_object("CivBunker", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        if let Some(b) = logic.host_object_mut(bunker) {
+            b.owner_player_id = None;
+        }
+        let ninja_id = logic
+            .create_object("JapanNinja", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.owner_player_id = Some(0);
+            n.status.detected = false;
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ninja_id));
+        if let Some(n) = logic.host_object_mut(ninja_id) {
+            n.set_contained_by(Some(bunker));
+        }
+        let enemy = logic
+            .create_object("ChinaRedguard", Team::China, Vec3::new(3.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(e) = logic.host_object_mut(enemy) {
+            e.owner_player_id = Some(1);
+        }
+        assert!(
+            logic.can_unit_enter_normal_target(enemy, bunker),
+            "C++ lets a non-owner Enter a stealth-garrison-only civilian"
+        );
+        logic.kick_other_controller_occupants_for_enter(bunker, enemy);
+        let ninja = logic.host_object(ninja_id).unwrap();
+        assert!(ninja.status.detected, "STEALTH_GARRISON kick markAsDetected");
+        assert!(ninja.contained_by.is_none());
+        assert!(
+            matches!(ninja.ai_state, AIState::Moving),
+            "kicked occupant must walk out, not idle"
+        );
+        assert!(logic.host_object(bunker).unwrap().contained_units().is_empty());
+    }
+
+    #[test]
+    fn evac_burst_walks_out_instead_of_idling_at_origin() {
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(12.0, 0.0, 20.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+        }
+        assert!(logic.evacuate_container_now(bunker, false));
+        let r = logic.host_object(ranger_id).unwrap();
+        assert!(matches!(r.ai_state, AIState::Moving));
+        assert!(r.status.moving);
+        let dest = r.movement.target_position.unwrap_or(r.get_position());
+        assert!(
+            (dest - Vec3::new(10.0, 0.0, 20.0)).length() > 1.0,
+            "burst dest must leave the building origin"
+        );
+    }
+
+    #[test]
+    fn garrison_fire_points_switch_with_body_damage() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let t = garrison_template("CivBunker", false, true);
+        let mut obj = crate::game_logic::Object::new(t, crate::game_logic::ObjectId(1), Team::USA);
+        obj.set_position(Vec3::new(10.0, 0.0, 20.0));
+        let mut bd = crate::game_logic::BuildingData::new(crate::game_logic::BuildingType::Bunker);
+        bd.garrison_fire_points = vec![Vec3::new(11.0, 0.0, 20.0)];
+        bd.garrison_fire_points_damaged = vec![Vec3::new(30.0, 0.0, 20.0)];
+        bd.garrison_fire_points_really_damaged = vec![Vec3::new(50.0, 0.0, 20.0)];
+        bd.garrison_point_occupant = vec![None];
+        obj.building_data = Some(bd);
+        obj.body_damage_state = HostBodyDamageType::Pristine;
+        let (_, p0) = garrison_occupant_fire_point(&obj, crate::game_logic::ObjectId(2), Vec3::new(100.0, 0.0, 20.0));
+        assert!((p0 - Vec3::new(11.0, 0.0, 20.0)).length() < 0.01);
+        obj.body_damage_state = HostBodyDamageType::Damaged;
+        let (_, p1) = garrison_occupant_fire_point(&obj, crate::game_logic::ObjectId(2), Vec3::new(100.0, 0.0, 20.0));
+        assert!((p1 - Vec3::new(30.0, 0.0, 20.0)).length() < 0.01);
+        obj.body_damage_state = HostBodyDamageType::ReallyDamaged;
+        let (_, p2) = garrison_occupant_fire_point(&obj, crate::game_logic::ObjectId(2), Vec3::new(100.0, 0.0, 20.0));
+        assert!((p2 - Vec3::new(50.0, 0.0, 20.0)).length() < 0.01);
+    }
+
+    #[test]
+    fn transport_fire_origin_uses_firepoint_or_hull() {
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .set_health(240.0);
+        humvee.model_name = Some("nosuchmodel".into());
+        let mut obj = crate::game_logic::Object::new(humvee, crate::game_logic::ObjectId(9), Team::USA);
+        obj.set_position(Vec3::new(7.0, 0.0, 3.0));
+        let origin = transport_passenger_fire_origin(&obj, 0);
+        assert!(
+            (origin - obj.get_position()).length() < 0.01,
+            "no FIREPOINT bones → hull center (C++ m_noFirePointsInArt)"
+        );
+    }
+
+    #[test]
+    fn heal_contain_auto_exit_walks_exit_path() {
+        use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "USA", true));
+        let mut pad = ThingTemplate::new("AmericaBarracks");
+        pad.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::HealPad)
+            .set_health(800.0);
+        pad.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Heal,
+            slots: Some(10),
+            admission: ContainAdmission::InfantryOnly,
+            frames_for_full_heal: Some(0),
+            ..ContainModuleMetadata::default()
+        };
+        logic.templates.insert("AmericaBarracks".into(), pad);
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let barracks = logic
+            .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.health.current = 20.0;
+            r.owner_player_id = Some(0);
+        }
+        assert!(logic.host_object_mut(barracks).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(barracks));
+        }
+        logic.tunnel_network.stamp_contained_by_frame(ranger_id, 0);
+        logic.frame = 1;
+        logic.update_support_states(&[ranger_id], 1.0 / 30.0);
+        let r = logic.host_object(ranger_id).unwrap();
+        assert!(r.contained_by.is_none());
+        assert!(
+            matches!(r.ai_state, AIState::Moving),
+            "HealContain auto-exit must follow ExitStart/End, not Idle on an 8-unit circle"
+        );
+        assert!(r.status.moving);
+    }
+
 
     /// C++ ActionManager.cpp:1696-1710 + Object.cpp:6111-6132.
     #[test]

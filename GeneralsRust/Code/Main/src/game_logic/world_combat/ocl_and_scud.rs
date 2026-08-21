@@ -279,6 +279,7 @@ impl GameLogic {
                     "",
                     &fire.fire_ocl_name,
                     "",
+                    0.0,
                 );
             }
             if !fire.fire_ocl_name.trim().is_empty()
@@ -331,6 +332,7 @@ impl GameLogic {
                 &impact.detonation_fx_name,
                 "",
                 &impact.detonation_ocl_name,
+                0.0,
             );
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact.detonation_fx_name.trim().eq_ignore_ascii_case("None")

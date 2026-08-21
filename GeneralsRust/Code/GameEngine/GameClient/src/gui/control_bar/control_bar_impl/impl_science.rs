@@ -170,6 +170,13 @@ fn leftover_display_size() -> (i32, i32) {
 }
 
 fn leftover_set_tactical_view_height(height: i32) {
+    let (_sw, sh) = leftover_display_size();
+    let frac = if sh > 0 {
+        (height as f32 / sh as f32).clamp(0.05, 1.0)
+    } else {
+        1.0
+    };
+    crate::display::view::set_tactical_view_height_frac(frac);
     crate::display::view::with_tactical_view(|view| {
         view.set_height(height);
     });

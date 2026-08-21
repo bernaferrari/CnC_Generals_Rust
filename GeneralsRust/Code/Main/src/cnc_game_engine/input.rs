@@ -52,14 +52,8 @@ impl CnCGameEngine {
                 warn!("WW3D resize failed: {err:?}");
             }
 
-            // C++ W3DView 50° is horizontal; convert to vertical for glam.
-            let aspect = new_size.width as f32 / new_size.height as f32;
-            self.projection_matrix = perspective_rh_from_horizontal_fov(
-                DEFAULT_VIEW_FOV_RADIANS,
-                aspect,
-                DEFAULT_VIEW_NEAR_CLIP,
-                DEFAULT_VIEW_FAR_CLIP,
-            );
+            // C++ W3DView setHeight: aspect uses the tactical viewport, not the full window.
+            self.rebuild_tactical_projection();
             self.ui_manager.resize(new_size.width, new_size.height);
         }
     }
@@ -1621,6 +1615,15 @@ impl CnCGameEngine {
         }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        {
+            let size = self.window.inner_size();
+            self.render_pipeline.set_tactical_3d_viewport(
+                size.width.max(1) as f32,
+                size.height.max(1) as f32,
+                self.tactical_view_height_frac(),
+            );
+            self.rebuild_tactical_projection();
+        }
         #[cfg(feature = "game_client")]
         self.render_pipeline
             .set_presentation_direct_shroud_states(frozen_direct_shroud_states);

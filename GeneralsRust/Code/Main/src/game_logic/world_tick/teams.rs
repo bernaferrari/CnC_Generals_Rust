@@ -639,6 +639,7 @@ impl GameLogic {
             "panic" => (HostLocomotorSetKind::Panic, true),
             "wander" => (HostLocomotorSetKind::Wander, false),
             "normal" => (HostLocomotorSetKind::Normal, false),
+            "taxiing" | "set_taxiing" => (HostLocomotorSetKind::Taxiing, false),
             _ => return false,
         };
         apply_choose_locomotor_set(u, kind, panicking)

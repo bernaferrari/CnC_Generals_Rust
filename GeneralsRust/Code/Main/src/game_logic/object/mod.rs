@@ -914,6 +914,10 @@ pub struct Object {
     /// C++ HijackerUpdate::m_ejectPos residual.
     #[serde(default)]
     pub hijacker_eject_pos: Option<glam::Vec3>,
+    /// C++ Drawable::setDrawableHidden residual (hijack ride-hide / contain).
+    #[serde(default)]
+    pub drawable_hidden: bool,
+
     /// C++ WEAPONSET_CRATEUPGRADE_ONE/TWO residual (0/1/2).
     #[serde(default)]
     pub weapon_crate_upgrade: u8,
@@ -1028,6 +1032,9 @@ pub struct Object {
     pub terrain_decal_fade_target: f32,
     #[serde(default)]
     pub terrain_decal_fade_rate: f32,
+    /// C++ `Drawable::m_decalOpacity` residual.
+    #[serde(default)]
+    pub terrain_decal_opacity: f32,
 
     /// C++ SubObjectsUpgrade show/hide residual (Bombload / BombWing peels).
     #[serde(default)]
@@ -1252,6 +1259,10 @@ pub struct Object {
     /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT residual — destroy transport after unload.
     #[serde(default)]
     pub pending_exit_after_evacuate: bool,
+    /// C++ TransportContain::m_frameExitNotBusy — next logic frame a rider may exit.
+    #[serde(default)]
+    pub frame_exit_not_busy: u32,
+
 
     /// Applied upgrades keyed by upgrade template/tag name.
     pub applied_upgrades: HashSet<String>,
@@ -2775,7 +2786,8 @@ pub use barrels::WeaponBarrelState;
 pub use visual::ObjectVisualInfo;
 pub use stealth::{
     drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,
-    DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
+    is_live_stealth_black_market, order_idle_enemies_on_reveal, DRAWABLE_FADE_IN,
+    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
 };
 pub use jets::{
     HostJetAi, HostJetPendingResume, JetAiTickAction, JET_AFTERBURNER_SOUND, JET_LOCKON_TICK_SOUND,

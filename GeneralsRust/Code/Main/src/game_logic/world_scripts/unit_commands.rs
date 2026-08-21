@@ -1095,6 +1095,8 @@ impl GameLogic {
         container_id: ObjectId,
         occupant_id: ObjectId,
     ) -> bool {
+        // C++ TransportContain onRemoving: bike secondary → Kell secondary.
+        self.transfer_kell_snipe_reload_from_bike(container_id, occupant_id);
         let is_rider_change = self.objects.get(&container_id).is_some_and(|container| {
             container.thing.template.contain_module.kind
                 == crate::game_logic::ContainModuleKind::RiderChange
@@ -1112,8 +1114,55 @@ impl GameLogic {
         true
     }
 
+    /// C++ TransportContain patch 1.01: CLIFF_JUMPER + HERO/SALVAGER shot-stat copy.
+    fn transfer_kell_snipe_reload_from_bike(
+        &mut self,
+        container_id: ObjectId,
+        occupant_id: ObjectId,
+    ) {
+        use crate::game_logic::host_combat_cycle::{
+            is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
+        };
+        let Some(bike_fire) = self.objects.get(&container_id).and_then(|c| {
+            if !c.is_combat_cycle_style_container()
+                && !crate::game_logic::host_combat_cycle::is_combat_cycle_template(
+                    &c.template_name,
+                )
+            {
+                return None;
+            }
+            c.secondary_weapon
+                .as_ref()
+                .or(c.weapon.as_ref())
+                .map(|w| w.last_fire_time)
+        }) else {
+            return;
+        };
+        let Some(occupant) = self.objects.get_mut(&occupant_id) else {
+            return;
+        };
+        if !is_kell_snipe_transfer_rider(
+            occupant.is_kind_of(KindOf::Hero),
+            occupant.is_kind_of(KindOf::Salvager),
+            &occupant.template_name,
+        ) {
+            return;
+        }
+        if let Some(w) = occupant.secondary_weapon.as_mut() {
+            transfer_next_shot_last_fire_time(bike_fire, w);
+        } else if let Some(w) = occupant.weapon.as_mut() {
+            transfer_next_shot_last_fire_time(bike_fire, w);
+        }
+    }
+
+
     /// Wave 233: exit-unit drop residual (position/contain/target/ai).
+    /// C++ TransportContain::onRemoving `GoAggressiveOnExit` sets AI_AGGRESSIVE.
     pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
+        let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
+        let go_aggressive = container_id
+            .and_then(|cid| self.objects.get(&cid))
+            .is_some_and(|c| c.transport_go_aggressive_on_exit());
         let Some(unit) = self.objects.get_mut(&id) else {
             return false;
         };
@@ -1122,10 +1171,16 @@ impl GameLogic {
         unit.set_contained_by(None);
         unit.set_target(None);
         unit.set_ai_state(AIState::Idle);
+        if go_aggressive {
+            unit.set_ai_attitude(
+                crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
+            );
+        }
         unit.set_status_moving(false);
         unit.set_status_attacking(false);
         true
     }
+
 
     /// Wave 233: mine-clearing weapon-set detail residual.
     pub fn unit_command_set_mine_clearing_detail(&mut self, id: ObjectId, enabled: bool) -> bool {

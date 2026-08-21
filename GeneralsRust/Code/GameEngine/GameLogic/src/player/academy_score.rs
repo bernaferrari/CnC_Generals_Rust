@@ -547,6 +547,48 @@ impl ScoreKeeper {
         }
     }
 
+    /// C++ addObjectDestroyed when only a ThingTemplate name is available.
+    pub fn add_object_destroyed_template(
+        &mut self,
+        template_name: &str,
+        retail_kindof_bits: u64,
+        owner_player_index: Int,
+        under_construction: bool,
+    ) {
+        if !Self::scoring_enabled() || under_construction {
+            return;
+        }
+        let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
+        let slot = Self::player_slot(Some(owner_player_index));
+        if Self::counts_as_score_building_destroy(mask) {
+            self.add_building_destroyed_for_player(Some(owner_player_index));
+            Self::increment_object_count(&mut self.objects_destroyed[slot], template_name);
+        } else if Self::counts_as_score_unit_destroy(mask) {
+            self.add_unit_destroyed_for_player(Some(owner_player_index));
+            Self::increment_object_count(&mut self.objects_destroyed[slot], template_name);
+        }
+    }
+
+    /// C++ addObjectLost when only a ThingTemplate name is available.
+    pub fn add_object_lost_template(
+        &mut self,
+        template_name: &str,
+        retail_kindof_bits: u64,
+        under_construction: bool,
+    ) {
+        if !Self::scoring_enabled() || under_construction {
+            return;
+        }
+        let mask = Self::score_mask_from_retail_bits(retail_kindof_bits);
+        if Self::counts_as_score_building_destroy(mask) {
+            self.buildings_lost += 1;
+            Self::increment_object_count(&mut self.objects_lost, template_name);
+        } else if Self::counts_as_score_unit_destroy(mask) {
+            self.units_lost += 1;
+            Self::increment_object_count(&mut self.objects_lost, template_name);
+        }
+    }
+
 
     pub fn get_total_money_earned(&self) -> Int {
         self.supplies_collected

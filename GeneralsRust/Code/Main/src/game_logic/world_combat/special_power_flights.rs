@@ -193,6 +193,14 @@ impl GameLogic {
             o.set_orientation(dz.atan2(dx));
         }
         self.cluster_mines_flight_reg.record_transport();
+        // C++ OCLSpecialPower::doSpecialPowerAtLocation → base createViewObject.
+        // Retail SuperweaponClusterMines ViewObjectRange 250 / Duration 30000ms.
+        let _ = self.create_special_power_view_object_at(
+            source_id,
+            target,
+            crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_RANGE,
+            crate::game_logic::host_mines::CLUSTER_MINES_VIEW_OBJECT_DURATION_FRAMES,
+        );
         Some(tid)
     }
 
@@ -983,11 +991,18 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
+        let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for sid in stealthed {
+            let contained_by = self.objects.get(&sid).and_then(|o| o.contained_by);
             if let Some(o) = self.objects.get_mut(&sid) {
                 o.mark_detected(expires);
             }
+            self.order_idle_enemies_to_attack_on_reveal(sid);
+            if let Some(cid) = contained_by {
+                garrison_detect_recalc.push(cid);
+            }
         }
+        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
         self.radar_scans.record_ping_spawn();
         Some(pid)
     }
@@ -1098,11 +1113,18 @@ impl GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
+        let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for sid in stealthed {
+            let contained_by = self.objects.get(&sid).and_then(|o| o.contained_by);
             if let Some(obj) = self.objects.get_mut(&sid) {
                 obj.mark_detected(expires);
             }
+            self.order_idle_enemies_to_attack_on_reveal(sid);
+            if let Some(cid) = contained_by {
+                garrison_detect_recalc.push(cid);
+            }
         }
+        self.recalc_garrisons_after_occupant_detect_change(&garrison_detect_recalc);
         self.spy_satellites.record_ping_spawn();
         Some(pid)
     }
@@ -1307,14 +1329,16 @@ impl GameLogic {
         &self.tunnel_network
     }
 
-    /// Exit one unit from the team's tunnel network at `exit_tunnel`.
+    /// Exit one unit from the player's tunnel network at `exit_tunnel`.
     /// Removes local occupant bookkeeping from the entry tunnel if different.
     /// Returns true when the unit was in the shared pool and was released.
     pub fn exit_tunnel_network_unit(&mut self, unit_id: ObjectId, exit_tunnel: ObjectId) -> bool {
-        let Some(team) = self.tunnel_network.team_holding_unit(unit_id) else {
+        let Some(player_id) = self.tunnel_network.player_holding_unit(unit_id) else {
             return false;
         };
-        let entry = self.tunnel_network.record_exit(team, unit_id, exit_tunnel);
+        let entry = self
+            .tunnel_network
+            .record_exit(player_id, unit_id, exit_tunnel);
         // Remove from entry tunnel local list (and exit tunnel if mirrored).
         if let Some(entry_id) = entry {
             if let Some(container) = self.objects.get_mut(&entry_id) {
@@ -1329,9 +1353,9 @@ impl GameLogic {
         true
     }
 
-    /// List all units in a team's shared tunnel pool (for Evacuate residual).
-    pub fn tunnel_network_contained_for_team(&self, team: Team) -> Vec<ObjectId> {
-        self.tunnel_network.contained_for_team(team)
+    /// List all units in a player's shared tunnel pool (for Evacuate residual).
+    pub fn tunnel_network_contained_for_player(&self, player_id: u32) -> Vec<ObjectId> {
+        self.tunnel_network.contained_for_player(player_id)
     }
 
     /// C++ CaveContain.cpp:254-336 changeTeamOnAllConnectedCaves.
@@ -1617,6 +1641,10 @@ impl GameLogic {
             ai.wanting_enter_or_exit = wanting;
             ai.contained_count = contained;
             ai.tick(step);
+            let landed = matches!(
+                ai.flight_status,
+                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+            );
             let new_pos = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
             let preferred = if matches!(
                 ai.flight_status,
@@ -1631,6 +1659,17 @@ impl GameLogic {
             drop(ai);
             obj.set_position(new_pos);
             obj.loco_preferred_height = preferred;
+            if landed {
+                // C++ ChinookAIUpdate::chooseLocomotorSet — CHINOOK_LANDED → TAXIING.
+                obj.apply_taxiing_locomotor_set();
+            } else if obj
+                .jet_ai
+                .cur_locomotor_set
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case("SET_TAXIING"))
+            {
+                obj.apply_airborne_locomotor_set();
+            }
             if destroyed {
                 obj.status.destroyed = true;
             }

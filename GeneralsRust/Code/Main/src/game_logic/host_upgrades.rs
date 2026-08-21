@@ -16,7 +16,8 @@
 //! - Live ControlBar research uses the parsed Upgrade.ini BuildTime; the
 //!   built-in table remains the no-archive fallback
 //! - StealthForbiddenConditions residual: Camouflage Rebel = ATTACKING
-//!   USING_ABILITY; CamoNetting structures = ATTACKING USING_ABILITY TAKING_DAMAGE
+//!   USING_ABILITY; CamoNetting structures = ATTACKING USING_ABILITY
+//!   TAKING_DAMAGE NO_BLACK_MARKET
 //!
 //! Fail-closed: not full science tree / prerequisite matrix,
 //! WeaponSetUpgrade module matrix, full per-unit INI `UpgradedSupplyBoost`
@@ -1228,7 +1229,8 @@ pub const CAMOUFLAGE_STEALTH_DELAY_FRAMES: u32 = 75; // 2500ms @ 30 FPS
 /// Retail Rebel Camouflage StealthForbiddenConditions residual tokens.
 pub const CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY";
 /// Retail CamoNetting structure StealthForbiddenConditions residual tokens.
-pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str = "ATTACKING USING_ABILITY TAKING_DAMAGE";
+pub const CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS: &str =
+    "ATTACKING USING_ABILITY TAKING_DAMAGE NO_BLACK_MARKET";
 
 /// Host residual of Camouflage infantry StealthUpdate::allowedToStealth.
 ///
@@ -1693,6 +1695,7 @@ pub fn camo_netting_sub_object_observer_visible(state: &HostCamoNetSubObject) ->
 /// - forbidden while attacking (ATTACKING / FIRING_PRIMARY residual)
 /// - forbidden while using ability (USING_ABILITY residual)
 /// - forbidden until StealthDelay after reveal (TAKING_DAMAGE / attack break)
+/// - forbidden without a live owner `KINDOF_FS_BLACK_MARKET` (NO_BLACK_MARKET)
 /// - re-cloak when idle and delay elapsed (InnateStealth after StealthUpgrade)
 ///
 /// Fail-closed: not full W3D sub-object net mesh GPU (host sub-object state closed).
@@ -1703,6 +1706,7 @@ pub fn camo_netting_structure_stealth_desired(
     is_using_ability: bool,
     current_frame: u32,
     stealth_allowed_frame: u32,
+    has_live_black_market: bool,
 ) -> Option<bool> {
     if !innate_stealth || !is_alive {
         return None;
@@ -1713,7 +1717,39 @@ pub fn camo_netting_structure_stealth_desired(
     if stealth_allowed_frame > 0 && current_frame < stealth_allowed_frame {
         return Some(false);
     }
+    // C++ StealthUpdate.cpp:280-292 STEALTH_ONLY_WITH_BLACK_MARKET.
+    if stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "NO_BLACK_MARKET")
+        && !has_live_black_market
+    {
+        return Some(false);
+    }
     Some(true)
+}
+
+/// C++ `isBlackMarket` (StealthUpdate.cpp:157-175).
+///
+/// A `KINDOF_FS_BLACK_MARKET` counts only when it is not effectively dead,
+/// not under construction, and not sold.
+pub fn is_black_market_for_stealth(
+    is_kind_of_fs_black_market: bool,
+    is_alive: bool,
+    under_construction: bool,
+    sold: bool,
+) -> bool {
+    is_kind_of_fs_black_market && is_alive && !under_construction && !sold
+}
+
+/// C++ `self->getControllingPlayer()` owner match for the black-market iterate.
+pub fn stealth_same_controlling_player(
+    owner_team: Team,
+    owner_player: Option<u32>,
+    other_team: Team,
+    other_player: Option<u32>,
+) -> bool {
+    match (owner_player, other_player) {
+        (Some(a), Some(b)) => a == b,
+        _ => owner_team == other_team,
+    }
 }
 
 /// Absolute frame when CamoNetting residual may re-cloak after a reveal.
@@ -1839,8 +1875,9 @@ pub fn honesty_upgrades_stealth_forbidden_residual_ok() -> bool {
         && stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "USING_ABILITY")
         && !stealth_forbidden_contains(CAMOUFLAGE_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
         && CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS
-            == "ATTACKING USING_ABILITY TAKING_DAMAGE"
+            == "ATTACKING USING_ABILITY TAKING_DAMAGE NO_BLACK_MARKET"
         && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "TAKING_DAMAGE")
+        && stealth_forbidden_contains(CAMO_NETTING_STEALTH_FORBIDDEN_CONDITIONS, "NO_BLACK_MARKET")
         && CAMOUFLAGE_STEALTH_DELAY_FRAMES == 75
         && CAMO_NETTING_STEALTH_DELAY_FRAMES == 75
         && camouflage_unit_stealth_desired(true, true, false, false, 100, 0) == Some(true)
@@ -1849,8 +1886,17 @@ pub fn honesty_upgrades_stealth_forbidden_residual_ok() -> bool {
         && camouflage_unit_stealth_desired(true, true, false, false, 50, 85) == Some(false)
         && camouflage_stealth_allowed_frame(10) == 85
         // CamoNetting structure forbidden residual already host-wired.
-        && camo_netting_structure_stealth_desired(true, true, true, false, 100, 0) == Some(false)
-        && camo_netting_structure_stealth_desired(true, true, false, true, 100, 0) == Some(false)
+        && camo_netting_structure_stealth_desired(true, true, true, false, 100, 0, true)
+            == Some(false)
+        && camo_netting_structure_stealth_desired(true, true, false, true, 100, 0, true)
+            == Some(false)
+        && camo_netting_structure_stealth_desired(true, true, false, false, 100, 0, false)
+            == Some(false)
+        && is_black_market_for_stealth(true, true, false, false)
+        && !is_black_market_for_stealth(true, false, false, false)
+        && !is_black_market_for_stealth(true, true, true, false)
+        && !is_black_market_for_stealth(true, true, false, true)
+        && !is_black_market_for_stealth(false, true, false, false)
 }
 
 /// Combined Wave 62 upgrades residual honesty pack.
@@ -1921,36 +1967,58 @@ mod camo_netting_and_gamma_tests {
         assert_eq!(CAMO_NETTING_STEALTH_DELAY_FRAMES, 75);
         assert_eq!(camo_netting_stealth_allowed_frame(10), 85);
 
-        // Idle + delay elapsed → recloak.
+        // Idle + delay elapsed + live Black Market → recloak.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85),
+            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85, true),
             Some(true)
         );
         // Attacking residual forbids stealth.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, true, false, 100, 0),
+            camo_netting_structure_stealth_desired(true, true, true, false, 100, 0, true),
             Some(false)
         );
         // USING_ABILITY residual forbids stealth.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, true, 100, 0),
+            camo_netting_structure_stealth_desired(true, true, false, true, 100, 0, true),
             Some(false)
         );
         // Still inside StealthDelay after reveal.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, true, false, false, 50, 85),
+            camo_netting_structure_stealth_desired(true, true, false, false, 50, 85, true),
             Some(false)
         );
         // No CamoNetting residual (not innate).
         assert_eq!(
-            camo_netting_structure_stealth_desired(false, true, false, false, 100, 0),
+            camo_netting_structure_stealth_desired(false, true, false, false, 100, 0, true),
             None
         );
         // Dead structure.
         assert_eq!(
-            camo_netting_structure_stealth_desired(true, false, false, false, 100, 0),
+            camo_netting_structure_stealth_desired(true, false, false, false, 100, 0, true),
             None
         );
+        // C++ isBlackMarket: destalth without a live market.
+        assert_eq!(
+            camo_netting_structure_stealth_desired(true, true, false, false, 100, 85, false),
+            Some(false)
+        );
+        assert!(is_black_market_for_stealth(true, true, false, false));
+        assert!(!is_black_market_for_stealth(true, false, false, false));
+        assert!(!is_black_market_for_stealth(true, true, true, false));
+        assert!(!is_black_market_for_stealth(true, true, false, true));
+        assert!(!is_black_market_for_stealth(false, true, false, false));
+        assert!(stealth_same_controlling_player(
+            Team::GLA,
+            Some(2),
+            Team::GLA,
+            Some(2)
+        ));
+        assert!(!stealth_same_controlling_player(
+            Team::GLA,
+            Some(2),
+            Team::GLA,
+            Some(3)
+        ));
         // OrderIdleEnemies residual range gate.
         assert!(camo_netting_order_idle_enemy_in_range(
             true, true, true, 100.0, 150.0

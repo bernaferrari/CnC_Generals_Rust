@@ -73,7 +73,7 @@ impl<'a> CommandExecutor<'a> {
         let unit_in_tunnel = self
             .game_logic
             .tunnel_network_residual()
-            .team_holding_unit(unit_id)
+            .player_holding_unit(unit_id)
             .is_some();
         if unit.is_kind_of(KindOf::Structure) || unit.is_kind_of(KindOf::Immobile) {
             return false;

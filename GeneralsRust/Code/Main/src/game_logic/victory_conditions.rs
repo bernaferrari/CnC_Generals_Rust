@@ -115,11 +115,28 @@ fn object_belongs_to_player(
 }
 
 fn is_playable_victory_player(player: &Player) -> bool {
-    if player.team == Team::Neutral {
+    if player.team == Team::Neutral || player.is_observer {
         return false;
     }
     let name = player.name.to_ascii_lowercase();
-    !name.contains("observer") && !name.contains("civilian")
+    if name.contains("observer") || name.contains("civilian") {
+        return false;
+    }
+    !leftover_player_is_observer(player.id)
+}
+
+fn leftover_player_is_observer(player_id: u32) -> bool {
+    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+        return false;
+    };
+    let named = format!("player{player_id}");
+    let player = list
+        .find_player_by_name(&named)
+        .or_else(|| list.get_player(player_id as gamelogic::player::PlayerIndex).cloned());
+    drop(list);
+    player
+        .and_then(|p| p.read().ok().map(|g| g.is_player_observer()))
+        .unwrap_or(false)
 }
 
 /// C++ `Team::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)` — STRUCTURE is
@@ -226,6 +243,8 @@ impl VictoryConditions {
         self.alliance_events.clear();
         self.winning_alliance = None;
         self.pending_kills.clear();
+        // C++ VictoryConditions::reset clears m_singleAllianceRemaining.
+        gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(false);
     }
 
     pub fn set_victory_conditions(&mut self, config: VictoryType) {
@@ -288,6 +307,7 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
             self.refresh_alliance_states(players);
+            self.sync_leftover_local_allied_victory(players);
             return Some(VictoryCondition::Draw);
         }
 
@@ -300,6 +320,7 @@ impl VictoryConditions {
             self.end_frame.get_or_insert(frame);
             self.winning_alliance = None;
             self.refresh_alliance_states(players);
+            self.sync_leftover_local_allied_victory(players);
             return Some(VictoryCondition::Draw);
         }
         let winning_entry = if non_neutral_alliances.len() == 1 {
@@ -309,6 +330,7 @@ impl VictoryConditions {
         };
         self.winning_alliance = winning_entry.as_ref().map(|(key, _)| *key);
         self.refresh_alliance_states(players);
+        self.sync_leftover_local_allied_victory(players);
 
         if let Some((_, members)) = winning_entry {
             if let Some(winner_id) = members.first().copied() {
@@ -318,6 +340,26 @@ impl VictoryConditions {
         }
 
         None
+    }
+
+    /// C++ `VictoryConditions::isLocalAlliedVictory`: live-computed from
+    /// `m_singleAllianceRemaining` + local player still allied with a living
+    /// member. Leftover MultiplayerScripts.scb reads a single atomic.
+    pub fn is_local_allied_victory(&self, players: &HashMap<u32, Player>) -> bool {
+        let Some(key) = self.winning_alliance else {
+            return false;
+        };
+        players.values().any(|player| {
+            player.is_local
+                && is_playable_victory_player(player)
+                && alliance_key(player) == key
+        })
+    }
+
+    fn sync_leftover_local_allied_victory(&self, players: &HashMap<u32, Player>) {
+        gamelogic::helpers::TheVictoryConditions::set_local_allied_victory(
+            self.is_local_allied_victory(players),
+        );
     }
 
     fn is_defeated(&self, state: PlayerArmyState) -> bool {
@@ -643,6 +685,12 @@ mod tests {
             matches!(outcome, Some(VictoryCondition::Winner(_))),
             "mixed-faction 2v1 with shared alliance_team must end, got {outcome:?}"
         );
+        assert!(
+            vc.is_local_allied_victory(&mixed),
+            "C++ isLocalAlliedVictory is true for the living local alliance"
+        );
+        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        vc.reset();
     }
 
     #[test]
@@ -686,5 +734,7 @@ mod tests {
             "wall-only STRUCTURE without MP_COUNT must not stall, got {outcome:?}"
         );
         assert!(vc.take_pending_kills().contains(&1));
+        assert!(gamelogic::helpers::TheVictoryConditions::is_local_allied_victory());
+        vc.reset();
     }
 }

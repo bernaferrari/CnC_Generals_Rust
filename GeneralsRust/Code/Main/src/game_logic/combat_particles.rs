@@ -462,6 +462,7 @@ impl CombatParticleRegistry {
             detonation_fx_name,
             "",
             "",
+            0.0,
         )
     }
 
@@ -482,6 +483,7 @@ impl CombatParticleRegistry {
         detonation_fx_name: &str,
         fire_ocl_name: &str,
         detonation_ocl_name: &str,
+        primary_speed: f32,
     ) -> Vec<u32> {
         self.note_muzzle_flash_unhide(shooter, frame);
         let mut ids = Vec::new();
@@ -525,7 +527,7 @@ impl CombatParticleRegistry {
                 fx,
                 muzzle_pos,
                 impact_pos,
-                0.0,
+                primary_speed,
                 0.0,
             );
         } else {
@@ -1705,6 +1707,7 @@ mod tests {
             "FX_Detonate",
             "OCL_FireFieldSmall",
             "OCL_PoisonFieldMedium",
+            0.0,
         );
         assert_eq!(ids.len(), 2);
         let muzzle = reg.systems.get(&ids[0]).expect("muzzle");
@@ -1712,6 +1715,24 @@ mod tests {
         let impact = reg.systems.get(&ids[1]).expect("impact");
         assert_eq!(impact.fx_list_name, "FX_Detonate");
         assert_eq!(impact.ocl_list_name, "OCL_PoisonFieldMedium");
+    }
+
+    #[test]
+    fn fire_fx_dispatch_accepts_weapon_speed() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named_ocl(
+            Vec3::ZERO,
+            Some(Vec3::new(30.0, 0.0, 0.0)),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "WeaponFX_HumveeMachineGun",
+            "",
+            "",
+            "",
+            600.0,
+        );
+        assert!(!ids.is_empty());
     }
 
     #[test]

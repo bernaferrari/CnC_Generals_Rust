@@ -1183,12 +1183,15 @@ impl GameLogic {
             }
 
             // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
-            // + PRIMARY TunnelNetworkGun residual (base-defense auto-fire path).
+            // + PRIMARY TunnelNetworkGun / sneak TunnelNetworkGunDUMMY.
             // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
             if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
                 object.install_tunnel_network_residual();
-                object.weapon =
-                    Some(crate::game_logic::host_tunnel_network::tunnel_network_gun_weapon());
+                object.weapon = Some(
+                    crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon(
+                        template_name,
+                    ),
+                );
             }
 
             if crate::game_logic::host_cave_system::is_cave_template(template_name)
@@ -1915,9 +1918,9 @@ impl GameLogic {
             }
 
             if counts_as_unit {
-                self.record_unit_production(team);
+                self.record_unit_production(id);
             } else if is_structure && !starts_under_construction {
-                self.record_structure_completion(team);
+                self.record_structure_completion(id);
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
             }
@@ -3177,8 +3180,8 @@ impl GameLogic {
                     &obj.template_name,
                 )
             {
-                let team = obj.team;
-                self.tunnel_network.on_tunnel_created(team, object_id);
+                let player_id = obj.tunnel_system_key();
+                self.tunnel_network.on_tunnel_created(player_id, object_id);
             }
             if obj.is_cave_style_container() {
                 let idx = obj.cave_index;

@@ -95,8 +95,9 @@ fn play_sound_effect_prefers_presentation_audio_queue() {
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(
-        pf.contains("UnitMove") && pf.contains("MoveOrdered { unit"),
-        "MoveOrdered must map to UnitMove audio residual"
+        pf.contains("MoveOrdered { unit")
+            && !pf.contains("Some((\"UnitMove\", Some(*unit)))"),
+        "MoveOrdered must not invent a UnitMove SFX; VoiceMove is pickAndPlay"
     );
 }
 

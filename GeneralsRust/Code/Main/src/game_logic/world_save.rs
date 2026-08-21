@@ -628,18 +628,19 @@ impl GameLogic {
                 let info = bridge.get_bridge_info();
                 let destroyed = info.cur_damage_state
                     == gamelogic::common::BodyDamageType::Rubble;
-                // C++ Coord3D ground is XY; host path grid is XZ.
+                // C++ Coord3D ground is XY / height Z; host path grid is XZ / height Y.
                 self.pathfinding_system.grid.stamp_bridge_deck(
-                    Vec3::new(info.from_left.x, 0.0, info.from_left.y),
-                    Vec3::new(info.from_right.x, 0.0, info.from_right.y),
-                    Vec3::new(info.to_left.x, 0.0, info.to_left.y),
-                    Vec3::new(info.to_right.x, 0.0, info.to_right.y),
+                    Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
+                    Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
+                    Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
+                    Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
                     destroyed,
                 );
             });
         }
         self.sync_host_bridge_rubble_and_scaffolds();
         self.pathfinding_system.grid.rebuild_terrain_zones();
+        self.pathfinding_system.grid.rebuild_path_zones();
     }
 
     pub(crate) fn ensure_generic_bridge_objects(&mut self) {
@@ -670,10 +671,10 @@ impl GameLogic {
             }
             self.bridge_behavior.register_span(
                 id,
-                Vec3::new(info.from_left.x, 0.0, info.from_left.y),
-                Vec3::new(info.from_right.x, 0.0, info.from_right.y),
-                Vec3::new(info.to_left.x, 0.0, info.to_left.y),
-                Vec3::new(info.to_right.x, 0.0, info.to_right.y),
+                Vec3::new(info.from_left.x, info.from_left.z, info.from_left.y),
+                Vec3::new(info.from_right.x, info.from_right.z, info.from_right.y),
+                Vec3::new(info.to_left.x, info.to_left.z, info.to_left.y),
+                Vec3::new(info.to_right.x, info.to_right.z, info.to_right.y),
             );
             if let Ok(mut tl) = gamelogic::terrain::get_terrain_logic().write() {
                 tl.bind_bridge_object_id_at(info.from_left, id.0);
@@ -835,6 +836,22 @@ impl GameLogic {
         // (AI.cpp:332-339, AIPathfind.h:418). Mapless / test compute now.
         let defer = self.map_loaded && !compute_now;
         if defer {
+            let queued = self.pathfinding_system.queue_path(
+                super::pathfinding::PendingHostPath {
+                    unit_id,
+                    start,
+                    destination,
+                    waypoints: waypoints.to_vec(),
+                    aircraft: is_aircraft,
+                    surfaces,
+                    is_crusher,
+                    ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
+                },
+            );
+            if !queued {
+                // C++ queueForPath full: refuse the newest, keep oldest waiters.
+                return false;
+            }
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.waiting_for_path = true;
                 // C++ queueForPath: sit still until processPathfindQueue installs Path.
@@ -844,17 +861,6 @@ impl GameLogic {
                 unit.set_status_moving(true);
                 unit.record_host_movement();
             }
-            self.pathfinding_system
-                .queue_path(super::pathfinding::PendingHostPath {
-                    unit_id,
-                    start,
-                    destination,
-                    waypoints: waypoints.to_vec(),
-                    aircraft: is_aircraft,
-                    surfaces,
-                    is_crusher,
-                    ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
-                });
             crate::game_logic::host_move_log::record(
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),

@@ -186,6 +186,9 @@ pub trait PlayerObjectWorld: Send + Sync + std::fmt::Debug {
     fn set_disabled_underpowered(&self, id: ObjectID, disable: bool);
     fn set_script_disabled(&self, id: ObjectID, disabled: bool);
     fn set_team(&self, id: ObjectID, team_id: TeamID);
+    fn get_neutral_default_team(&self) -> Option<TeamID> {
+        None
+    }
     fn evacuate_container(&self, id: ObjectID);
     fn kill_object(&self, id: ObjectID);
     fn sell_object(&self, id: ObjectID);
@@ -2126,9 +2129,19 @@ impl Player {
         // Mark dead so OCLs don't spawn useful units
         self.is_player_dead = true;
 
-        // C++ second pass: killTeam
+        // C++ second pass: killTeam — TECH_BUILDING → Neutral, else kill.
         if let Some(world) = world.as_ref() {
+            let neutral_team = world.get_neutral_default_team();
             for id in &ids {
+                let is_tech = world
+                    .snapshot(*id)
+                    .is_some_and(|snap| snap.is_kind(KindOfMask::TECH_BUILDING));
+                if is_tech {
+                    if let Some(team_id) = neutral_team {
+                        world.set_team(*id, team_id);
+                    }
+                    continue;
+                }
                 world.kill_object(*id);
             }
         }

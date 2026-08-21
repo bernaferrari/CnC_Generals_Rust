@@ -142,7 +142,7 @@ impl<'a> CommandExecutor<'a> {
             let unit_in_tunnel = self
                 .game_logic
                 .tunnel_network_residual()
-                .team_holding_unit(unit_id)
+                .player_holding_unit(unit_id)
                 .is_some();
             let previous_container = self.game_logic.host_object(unit_id).and_then(|unit| {
                 if matches!(unit.ai_state, AIState::Docked | AIState::Garrisoned) || unit_in_tunnel
@@ -207,7 +207,7 @@ impl<'a> CommandExecutor<'a> {
         let in_tunnel = self
             .game_logic
             .tunnel_network_residual()
-            .team_holding_unit(id)
+            .player_holding_unit(id)
             .is_some();
         is_contained || in_tunnel || obj.container_id().is_some() || obj.contained_by.is_some()
     }
@@ -239,11 +239,11 @@ impl<'a> CommandExecutor<'a> {
                     .and_then(|b| b.rally_point)
                     .unwrap_or_else(|| selected_obj.get_position());
 
-                // Tunnel Network residual: Evacuate/Exit on ANY team tunnel dumps the
+                // Tunnel Network residual: Evacuate/Exit on THIS player's tunnel dumps the
                 // shared MaxTunnelCapacity pool at THIS tunnel (cross-tunnel path).
                 if selected_obj.is_tunnel_network_style_container() {
-                    let team = selected_obj.team;
-                    let shared = self.game_logic.tunnel_network_contained_for_team(team);
+                    let player_id = selected_obj.tunnel_system_key();
+                    let shared = self.game_logic.tunnel_network_contained_for_player(player_id);
                     for contained in shared {
                         if seen_units.insert(contained) {
                             to_unload.push((contained, Some(selected_id), origin));
@@ -276,7 +276,7 @@ impl<'a> CommandExecutor<'a> {
             let in_tunnel = self
                 .game_logic
                 .tunnel_network_residual()
-                .team_holding_unit(selected_id)
+                .player_holding_unit(selected_id)
                 .is_some();
             if !is_contained && !in_tunnel {
                 continue;
@@ -316,13 +316,43 @@ impl<'a> CommandExecutor<'a> {
             return CommandResult::InvalidCommand;
         }
 
+        let frame = self.game_logic.frame;
+        let mut dropped_from: HashSet<ObjectId> = HashSet::new();
+        let mut pending_containers: HashSet<ObjectId> = HashSet::new();
+
         for (i, (unit_id, container_id, origin)) in to_unload.into_iter().enumerate() {
+            let tunnel_exit = tunnel_exit_for.get(&unit_id).copied();
+            let is_tunnel_unit = tunnel_exit.is_some()
+                || container_id.is_some_and(|cid| {
+                    self.game_logic
+                        .tunnel_network_residual()
+                        .player_holding_unit(unit_id)
+                        .is_some()
+                        && self
+                            .game_logic
+                            .host_object(cid)
+                            .is_some_and(|c| c.is_tunnel_network_style_container())
+                });
+
+            // C++ TransportContain::isExitBusy / reserveDoorForExit.
+            if !is_tunnel_unit {
+                if let Some(cid) = container_id {
+                    if let Some(c) = self.game_logic.host_object(cid) {
+                        if c.uses_transport_contain_exit_busy()
+                            && (c.is_transport_exit_busy(frame) || dropped_from.contains(&cid))
+                        {
+                            pending_containers.insert(cid);
+                            continue;
+                        }
+                    }
+                }
+            }
+
             // Stagger exits deterministically to avoid clumping on the same point.
             let angle = (unit_id.0 as f32 + i as f32 * 1.37).sin().atan2(1.0) + i as f32 * 0.7;
             let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 6.0;
             let drop_position = origin + offset;
 
-            let tunnel_exit = tunnel_exit_for.get(&unit_id).copied();
             let was_tunnel = if let Some(exit_tid) = tunnel_exit {
                 self.game_logic.exit_tunnel_network_unit(unit_id, exit_tid)
             } else if let Some(cid) = container_id {
@@ -330,7 +360,7 @@ impl<'a> CommandExecutor<'a> {
                 if self
                     .game_logic
                     .tunnel_network_residual()
-                    .team_holding_unit(unit_id)
+                    .player_holding_unit(unit_id)
                     .is_some()
                 {
                     self.game_logic.exit_tunnel_network_unit(unit_id, cid)
@@ -414,8 +444,6 @@ impl<'a> CommandExecutor<'a> {
                         (true, false, false, false, false, false, false, false)
                     } else if is_overlord {
                         (false, true, false, false, false, false, false, false)
-                    } else if is_battle_bus {
-                        (false, false, true, false, false, false, false, false)
                     } else if is_technical {
                         (false, false, false, true, false, false, false, false)
                     } else if is_combat_chinook {
@@ -424,6 +452,8 @@ impl<'a> CommandExecutor<'a> {
                         (false, false, false, false, false, true, false, false)
                     } else if is_troop_crawler {
                         (false, false, false, false, false, false, true, false)
+                    } else if is_battle_bus {
+                        (false, false, true, false, false, false, false, false)
                     } else {
                         (false, false, false, false, false, false, false, false)
                     }
@@ -468,8 +498,26 @@ impl<'a> CommandExecutor<'a> {
                     self.game_logic
                         .refresh_battle_bus_armed_riders_weapon_set(cid);
                 }
+                if !was_tunnel {
+                    if let Some(c) = self.game_logic.host_object_mut(cid) {
+                        if c.uses_transport_contain_exit_busy() {
+                            let delay = c.transport_exit_delay_frames();
+                            c.frame_exit_not_busy = frame.saturating_add(delay);
+                            if delay > 0 || c.transport_delay_exit_in_air() {
+                                dropped_from.insert(cid);
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        for cid in pending_containers {
+            if let Some(c) = self.game_logic.host_object_mut(cid) {
+                c.pending_evacuate_on_stop = true;
+            }
+        }
+
 
         CommandResult::Success
     }
@@ -916,5 +964,97 @@ mod tests {
             crate::game_logic::host_combat_chinook::HostChinookFreeToExit::FreeToExit
         );
     }
+
+    #[test]
+    fn execute_exit_staggers_humvee_occupants_and_goes_aggressive() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EXIT_HV");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("EXIT_HV".to_string(), t);
+        for name in ["EXIT_HA", "EXIT_HB"] {
+            let mut p = ThingTemplate::new(name);
+            p.add_kind_of(KindOf::Infantry);
+            p.add_kind_of(KindOf::Selectable);
+            p.set_health(100.0);
+            logic.templates.insert(name.to_string(), p);
+        }
+        let transport = logic
+            .create_object("EXIT_HV", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.install_humvee_transport();
+        }
+        let a = logic
+            .create_object("EXIT_HA", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("EXIT_HB", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, a);
+        contain_pair(&mut logic, transport, b);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        }
+        let remaining = logic.host_object(transport).unwrap().contained_units();
+        assert_eq!(remaining.len(), 1, "ExitDelay must dump one occupant");
+        assert!(logic.host_object(transport).unwrap().pending_evacuate_on_stop);
+        assert!(logic.host_object(transport).unwrap().frame_exit_not_busy > 0);
+        let out = if remaining[0] == a { b } else { a };
+        assert!(logic.host_object(out).unwrap().contained_by.is_none());
+        assert_eq!(
+            logic.host_object(out).unwrap().ai_attitude(),
+            crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive
+        );
+    }
+
+    #[test]
+    fn execute_exit_holds_battle_bus_in_air() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EXIT_BB");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(8),
+            ..Default::default()
+        };
+        logic.templates.insert("EXIT_BB".to_string(), t);
+        let mut p = ThingTemplate::new("EXIT_BP");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("EXIT_BP".to_string(), p);
+        let transport = logic
+            .create_object("EXIT_BB", Team::USA, Vec3::new(0.0, 12.0, 0.0))
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.install_battle_bus_transport();
+            h.status.airborne_target = true;
+        }
+        let pax = logic
+            .create_object("EXIT_BP", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        }
+        assert_eq!(
+            logic.host_object(pax).unwrap().contained_by,
+            Some(transport),
+            "DelayExitInAir must hold the door until the bus lands"
+        );
+        assert!(logic.host_object(transport).unwrap().pending_evacuate_on_stop);
+    }
+
 }
 

@@ -1686,6 +1686,20 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
             game_logic.templates.insert(name.to_string(), t);
         }
     }
+    if !game_logic.templates.contains_key("GLABlackMarket") {
+        let mut market = crate::game_logic::ThingTemplate::new("GLABlackMarket");
+        market
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBlackMarket)
+            .set_health(1000.0);
+        game_logic
+            .templates
+            .insert("GLABlackMarket".to_string(), market);
+    }
+    let _market_id = game_logic
+        .create_object("GLABlackMarket", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
+        .expect("black market");
+
 
     let barracks_id = game_logic
         .create_object("TestBarracks", Team::GLA, Vec3::new(-80.0, 0.0, 0.0))

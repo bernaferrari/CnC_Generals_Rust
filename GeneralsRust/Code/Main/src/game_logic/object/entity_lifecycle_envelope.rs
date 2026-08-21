@@ -141,6 +141,7 @@ mod tests {
             kill_when_toppled: true,
             kill_when_start_toppled: false,
             lean_radians: 0.3,
+            ..Default::default()
         });
         src.capture_channel = Some(CaptureChannelState::new(CaptureChannelPhase::Preparing, 1500));
         src.hacker_disable_channel = Some(HackerDisableChannelState::new(

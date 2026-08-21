@@ -7,7 +7,7 @@ impl GameLogic {
     /// Process AI behavior for a single object
     /// Enhanced with proper enemy detection, attack decisions, and movement
     pub(in super::super) fn process_ai_behavior(
-        &self,
+        &mut self,
         object_id: ObjectId,
         ai_state: AIState,
         target_id: Option<ObjectId>,
@@ -19,6 +19,49 @@ impl GameLogic {
     ) -> Option<AICommand> {
         let should_scan =
             |interval: u32| -> bool { interval > 0 && frame.is_multiple_of(interval) };
+        let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(team);
+
+        if matches!(ai_state, AIState::AttackMoving) {
+            // C++ AIAttackMoveToState uses getNextMoodTarget, not a 200wu nearest scan.
+            if can_attack && !ai_auto_engage_paused && should_scan(20) {
+                let is_player = self
+                    .objects
+                    .get(&object_id)
+                    .and_then(|o| o.owner_player_id)
+                    .and_then(|pid| self.players.get(&pid).map(|p| p.is_local))
+                    .unwrap_or(false);
+                if let Some(enemy_id) =
+                    self.get_next_mood_target(object_id, true, false, is_player)
+                {
+                    use crate::ai_decisions::{AIDecisionSystem, AttackDecision};
+                    return match AIDecisionSystem::should_attack(self, object_id, enemy_id) {
+                        AttackDecision::Attack | AttackDecision::Retreat => {
+                            Some(AICommand::AttackTarget {
+                                object_id,
+                                target_id: enemy_id,
+                            })
+                        }
+                        AttackDecision::FindNewTarget => AIDecisionSystem::find_best_target(
+                            self,
+                            object_id,
+                            position,
+                            team,
+                            9999.9,
+                            true,
+                            true,
+                            false,
+                        )
+                        .map(|better_target| AICommand::AttackTarget {
+                            object_id,
+                            target_id: better_target,
+                        }),
+                        AttackDecision::Hold => None,
+                    };
+                }
+            }
+            return None;
+        }
+
         // C++ AIAttackState / AIIdleState never auto-retreat on low HP.
         // Mood targeting (getNextMoodTarget) only issues aiAttackObject.
         let evaluate_enemy = |enemy_id: ObjectId, search_radius: f32| -> Option<AICommand> {
@@ -47,11 +90,6 @@ impl GameLogic {
             }
         };
 
-        // When skirmish AI is paused for a player (non-local), do not open new
-        // auto-engage / patrol scans. Existing explicit AttackObject orders still
-        // fire via update_combat. Used by golden clear so paused AI does not
-        // counterfire production rangers mid-march.
-        let ai_auto_engage_paused = self.skirmish_ai_auto_engage_paused(team);
 
         match ai_state {
             AIState::Idle => {
@@ -98,43 +136,29 @@ impl GameLogic {
                 }
             }
 
-            AIState::AttackMoving => {
-                if can_attack && !ai_auto_engage_paused && should_scan(20) {
-                    let search_radius = 200.0;
-                    if let Some((enemy_id, _)) =
-                        crate::ai_decisions::AIDecisionSystem::find_nearest_enemy_for_attacker(
-                            self,
-                            object_id,
-                            position,
-                            team,
-                            search_radius,
-                        )
-                    {
-                        return evaluate_enemy(enemy_id, search_radius);
-                    }
-                }
-                None
-            }
+            AIState::AttackMoving => None,
 
             AIState::Moving => {
                 None
             }
 
             AIState::Patrolling => {
-                // C++ AIHuntState::update — map-wide seek-and-destroy.
-                // ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND (~30).
+                // C++ AIHuntState::update — stay in Hunt and rescan map-wide.
+                // Leave Hunt only when neither player Hunt nor unitsShouldHunt.
                 if can_attack && !ai_auto_engage_paused && should_scan(30) {
-                    if let Some(enemy_id) = self.find_closest_enemy(
-                        object_id,
-                        9999.9,
-                        crate::game_logic::find_enemy_flags::CAN_ATTACK,
-                    ) {
+                    let team_victim = self.host_team_common_target(object_id);
+                    let enemy_id = if let Some(tid) = team_victim {
+                        Some(tid)
+                    } else {
+                        self.find_closest_enemy(
+                            object_id,
+                            9999.9,
+                            crate::game_logic::find_enemy_flags::CAN_ATTACK,
+                        )
+                    };
+                    if let Some(enemy_id) = enemy_id {
                         return evaluate_enemy(enemy_id, 9999.9);
                     }
-                    return Some(AICommand::SetAIState {
-                        object_id,
-                        state: AIState::Idle,
-                    });
                 }
                 None
             }
@@ -655,8 +679,8 @@ impl GameLogic {
                 object_id,
                 target_id,
             } => {
-                // Prefer engagement helper (sets target even without weapon residual).
                 let _ = self.apply_engagement_decision_aware(object_id, target_id);
+                self.set_host_team_common_target(object_id, Some(target_id));
             }
             AICommand::StopAttack { object_id } => {
                 // stop_attack_decision_aware clears host + logs.
@@ -673,13 +697,8 @@ impl GameLogic {
                 self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
-                if matches!(state, AIState::Idle) {
-                    if let Some(o) = self.objects.get_mut(&object_id) {
-                        if o.hunting && matches!(o.ai_state, AIState::Patrolling) {
-                            o.hunting = false;
-                        }
-                    }
-                }
+                // Player Hunt (`hunting`) must survive transient Idle so the
+                // parent Hunt machine can rescan. Stop/Guard clear the flag.
                 self.set_ai_state_decision_aware(object_id, state);
             }
         }
@@ -700,7 +719,7 @@ mod hq_m6gcj_tests {
     /// Pre-fix: `frame % 300 == object_id % 300` flipped Idle → Patrolling.
     #[test]
     fn idle_units_hold_position_without_hunt_flip() {
-        let logic = GameLogic::new();
+        let mut logic = GameLogic::new();
         let object_id = ObjectId(300);
         let command = logic.process_ai_behavior(
             object_id,
@@ -731,7 +750,7 @@ mod hq_m6gcj_tests {
     /// C++ `AIAttackState` never auto-retreats at 30% HP.
     #[test]
     fn attacking_does_not_auto_retreat_without_target_change() {
-        let logic = GameLogic::new();
+        let mut logic = GameLogic::new();
         let object_id = ObjectId(1);
         let target_id = ObjectId(2);
         let command = logic.process_ai_behavior(
@@ -747,6 +766,31 @@ mod hq_m6gcj_tests {
         assert!(
             !matches!(command, Some(AICommand::MoveTo { .. })),
             "AIAttackState must not emit retreat MoveTo; got {command:?}"
+        );
+    }
+
+    #[test]
+    fn hunt_without_victim_stays_in_hunt() {
+        let mut logic = GameLogic::new();
+        let command = logic.process_ai_behavior(
+            ObjectId(1),
+            AIState::Patrolling,
+            None,
+            Vec3::ZERO,
+            Team::USA,
+            true,
+            30,
+            1.0 / 30.0,
+        );
+        assert!(
+            !matches!(
+                command,
+                Some(AICommand::SetAIState {
+                    state: AIState::Idle,
+                    ..
+                })
+            ),
+            "Hunt must not drop to Idle when no victim is visible; got {command:?}"
         );
     }
 }

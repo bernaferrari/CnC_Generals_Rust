@@ -1348,13 +1348,13 @@ End
             "SET_SLUGGISH"
         );
         assert!(
-            !rider_change
+            rider_change
                 .rider_change_riders
                 .iter()
                 .find(|rider| rider.slot == 5)
                 .expect("retail Terrorist row retained")
                 .physical_enter_supported,
-            "the unsupported multi-locomotor row is retained but must fail closed"
+            "SET_SLUGGISH Terrorist row is now a live RiderChange enter"
         );
 
         fn rider_template(name: &str) -> ThingTemplate {
@@ -1423,11 +1423,10 @@ End
             .selected_objects
             .push(incoming_rider_id);
 
-        // Both physical input and live authority visibly reject the parsed
-        // SET_SLUGGISH row; it must never get fallback normal locomotion.
+        // SET_SLUGGISH is representable: Terrorist can physically enter.
         assert!(
-            !game_logic.can_unit_enter_normal_target(slow_rider_id, bike_id),
-            "unsupported parsed RiderN effect must be rejected by authority"
+            game_logic.can_unit_enter_normal_target(slow_rider_id, bike_id),
+            "SET_SLUGGISH Terrorist row must be physically enterable"
         );
         let frame = PresentationFrame::build_from_logic(&game_logic, 0);
         let processor = InputCommandProcessor::new();
@@ -1441,12 +1440,13 @@ End
             .iter()
             .any(|template| template.eq_ignore_ascii_case("GLAInfantryRebel")));
         assert!(
-            !target
+            target
                 .rider_change_allowed_templates
                 .iter()
                 .any(|template| template.eq_ignore_ascii_case("GLAInfantryTerrorist")),
-            "presentation exposes only records whose full effects are modeled"
+            "presentation exposes the modeled SET_SLUGGISH Terrorist row"
         );
+
         let slow_selected = processor.presentation_selected_unit_hints(&frame, &[slow_rider_id]);
         let context = MouseCommandContext {
             world_position: bike_position,
@@ -1470,11 +1470,12 @@ End
         let mut commands = CommandSystem::new();
         let slow_command = commands
             .process_mouse_input(&context, &[slow_rider_id], 0, None)
-            .expect("RMB still has a non-enter fallback");
+            .expect("SET_SLUGGISH Terrorist reaches frozen physical RMB Enter");
         assert!(
-            !matches!(slow_command.command_type, CommandType::Enter { .. }),
-            "frozen physical RMB must reject the retained-but-unsupported rider row"
+            matches!(slow_command.command_type, CommandType::Enter { target_id } if target_id == bike_id),
+            "frozen physical RMB must admit the modeled SET_SLUGGISH row"
         );
+
 
         // Run a real RMB -> frozen command -> executor -> arrival sequence.
         // The target has an existing valid worker rider, so the final arrival
@@ -1571,6 +1572,49 @@ End
             bike_after_refresh.rider_change_weapon_set.as_deref(),
             Some("WEAPON_RIDER2")
         );
+
+        // C++ RiderChangeContain::onContaining chooseLocomotorSet(SET_SLUGGISH).
+        if let Some(terrorist) = game_logic.host_object_mut(slow_rider_id) {
+            terrorist.set_position(bike_position);
+        }
+        let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+        let target = processor
+            .presentation_target_hint(&frame, bike_id)
+            .expect("bike still a RiderChange target");
+        context.target_presentation = Some(target);
+        context.selected_presentation =
+            processor.presentation_selected_unit_hints(&frame, &[slow_rider_id]);
+        let terror_command = commands
+            .process_mouse_input(&context, &[slow_rider_id], 0, None)
+            .expect("Terrorist Enter after Rebel");
+
+        assert!(matches!(
+            terror_command.command_type,
+            CommandType::Enter { target_id } if target_id == bike_id
+        ));
+        assert_eq!(
+            commands.execute_command(&terror_command, &mut game_logic),
+            CommandResult::Success
+        );
+        game_logic.update();
+        let bike_sluggish = game_logic
+            .host_object(bike_id)
+            .expect("bike after SET_SLUGGISH enter");
+        assert_eq!(bike_sluggish.contained_units(), vec![slow_rider_id]);
+        assert_eq!(
+            bike_sluggish.rider_change_locomotor_set.as_deref(),
+            Some("SET_SLUGGISH")
+        );
+        assert_eq!(
+            bike_sluggish.rider_change_locomotor_name.as_deref(),
+            Some("CombatBikeTerroristGroundLocomotor")
+        );
+        assert!(
+            (bike_sluggish.movement.max_speed - 40.0).abs() < 0.05,
+            "SET_SLUGGISH must install the slow bike table, got {}",
+            bike_sluggish.movement.max_speed
+        );
+
     }
 
     #[test]

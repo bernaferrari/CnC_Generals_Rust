@@ -247,6 +247,9 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::DefensiveWall => 67,
         KindOf::Bridge => 68,
         KindOf::BridgeTower => 69,
+        KindOf::StealthGarrison => 70,
+        KindOf::TechBuilding => 71,
+
     }
 }
 
@@ -322,6 +325,9 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         67 => Ok(KindOf::DefensiveWall),
         68 => Ok(KindOf::Bridge),
         69 => Ok(KindOf::BridgeTower),
+        70 => Ok(KindOf::StealthGarrison),
+        71 => Ok(KindOf::TechBuilding),
+
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),
