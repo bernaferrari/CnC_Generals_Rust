@@ -130,6 +130,12 @@ pub fn is_black_market_template(name: &str) -> bool {
     n.contains("blackmarket") || n.contains("black_market") || n == "testblackmarket"
 }
 
+/// C++ `ActualMoney=No` fake GLA Black Market — still AutoDeposits floaters.
+pub fn is_fake_black_market_template(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("fake") && (n.contains("blackmarket") || n.contains("black_market"))
+}
+
 /// Alias for template detection (name residual).
 pub fn is_black_market_structure(name: &str) -> bool {
     is_black_market_template(name)
@@ -379,6 +385,10 @@ mod tests {
         assert!(!is_black_market_template("Demo_FakeGLABlackMarket"));
         assert!(!is_black_market_template("GLASupplyStash"));
         assert!(!is_black_market_template("AmericaSupplyCenter"));
+        assert!(is_fake_black_market_template("FakeGLABlackMarket"));
+        assert!(is_fake_black_market_template("Demo_FakeGLABlackMarket"));
+        assert!(!is_fake_black_market_template("GLABlackMarket"));
+        assert!(!is_fake_black_market_template("FakeSupplyStash"));
     }
 
     #[test]
