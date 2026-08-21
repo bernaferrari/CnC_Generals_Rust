@@ -199,6 +199,20 @@ mod tests {
     }
 
     #[test]
+    fn presentation_warehouse_tooltip_appends_dollar_value() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("TOOLTIP:SupplyWarehouse", " ($%d)");
+        let mut tip = "Supply Dock".to_string();
+        InGameUI::append_presentation_warehouse_tooltip(&mut tip, Some(12));
+        assert_eq!(tip, "Supply Dock ($1200)");
+        let mut empty = "Supply Dock".to_string();
+        InGameUI::append_presentation_warehouse_tooltip(&mut empty, None);
+        assert_eq!(empty, "Supply Dock");
+        Language::clear_localized_strings();
+    }
+
+
+    #[test]
     fn mouseover_tooltip_suppresses_props() {
         Language::clear_localized_strings();
         Language::register_localized_string("OBJECT:Prop", "Prop");

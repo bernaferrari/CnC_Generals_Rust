@@ -33,14 +33,21 @@ const SAVE_HEADER_SIZE: usize = std::mem::size_of::<SaveFileHeader>();
 /// is the C++ v2 header (`GameState.cpp:1539-1642`). `CHUNK_GameLogic` is still
 /// host `bincode` `WorldSnapshot` on write. A C++ `GameLogic::xfer` payload
 /// cannot be restored into the live host world; load fails closed instead of
-/// reporting success with an empty snapshot. Other registered blocks are
-/// NullSnapshot version-1 placeholders so Popup and host share one container.
+/// reporting success with an empty snapshot. `CHUNK_InGameUI`,
+/// `CHUNK_TacticalView`, `CHUNK_ScriptEngine`, `CHUNK_TerrainLogic`, and
+/// `CHUNK_Radar` write live persist_v18 state in C++ xfer layout. Remaining
+/// registered blocks are NullSnapshot version-1 placeholders.
 /// `CHUNK_GameStateMap` embeds the `.map` when the file is on disk
 /// (`GameStateMap.cpp:55-156`).
 const CHUNK_GAME_STATE: &str = "CHUNK_GameState";
 const CHUNK_GAME_LOGIC: &str = "CHUNK_GameLogic";
 const CHUNK_GAME_STATE_MAP: &str = "CHUNK_GameStateMap";
 const CHUNK_CAMPAIGN: &str = "CHUNK_Campaign";
+const CHUNK_INGAME_UI: &str = "CHUNK_InGameUI";
+const CHUNK_TACTICAL_VIEW: &str = "CHUNK_TacticalView";
+const CHUNK_SCRIPT_ENGINE: &str = "CHUNK_ScriptEngine";
+const CHUNK_TERRAIN_LOGIC: &str = "CHUNK_TerrainLogic";
+const CHUNK_RADAR: &str = "CHUNK_Radar";
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const CPP_GAME_STATE_XFER_VERSION: u8 = 2;
 const CPP_SAVE_FILE_TYPE_NORMAL: i32 = 0;
@@ -425,6 +432,76 @@ fn write_null_snapshot_version<W: Write + Seek>(
     let mut version = 1u8;
     xfer.xfer_version(&mut version, 1)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))
+}
+
+fn apply_persist_chunks(
+    snapshot: &mut WorldSnapshot,
+    ingame_ui: Option<&[u8]>,
+    tactical_view: Option<&[u8]>,
+    script_engine: Option<&[u8]>,
+    terrain_logic: Option<&[u8]>,
+    radar: Option<&[u8]>,
+) {
+    use crate::save_load::snapshot::persist_v18;
+    if let Some(payload) = ingame_ui {
+        if payload.len() > 1 {
+            if let Ok(chunk) = persist_v18::parse_ingame_ui_block(payload) {
+                persist_v18::merge_chunk_persist(&mut snapshot.persist_v18, chunk);
+            }
+        }
+    }
+    if let Some(payload) = tactical_view {
+        if payload.len() > 1 {
+            if let Ok(camera) = persist_v18::parse_tactical_view_block(payload) {
+                snapshot.persist_v18.camera_valid = true;
+                snapshot.persist_v18.camera_angle = camera.angle;
+                snapshot.persist_v18.camera_position = camera.position;
+                snapshot.persist_v18.camera_target = camera.target;
+                snapshot.persist_v18.camera_zoom = camera.zoom;
+                persist_v18::set_pending_camera(camera);
+            }
+        }
+    }
+    if let Some(payload) = script_engine {
+        if payload.len() > 1 {
+            if let Ok((counters, flags, actives)) = persist_v18::parse_script_engine_block(payload)
+            {
+                if !counters.is_empty() {
+                    snapshot.persist_v18.script_counters = counters;
+                }
+                if !flags.is_empty() {
+                    snapshot.persist_v18.script_flags = flags;
+                }
+                if !actives.is_empty() {
+                    snapshot.persist_v18.script_actives = actives;
+                }
+            }
+        }
+    }
+    if let Some(payload) = terrain_logic {
+        if payload.len() > 1 {
+            if let Ok((boundary, water)) = persist_v18::parse_terrain_logic_block(payload) {
+                snapshot.persist_v18.terrain_active_boundary = boundary;
+                if !water.is_empty() {
+                    snapshot.persist_v18.water_updates = water;
+                }
+            }
+        }
+    }
+    if let Some(payload) = radar {
+        if payload.len() > 1 {
+            if let Ok((hidden, forced, events, next, last)) = persist_v18::parse_radar_block(payload)
+            {
+                snapshot.persist_v18.radar_hidden = hidden;
+                snapshot.persist_v18.radar_forced = forced;
+                if !events.is_empty() {
+                    snapshot.persist_v18.radar_events = events;
+                }
+                snapshot.persist_v18.radar_next_event = next;
+                snapshot.persist_v18.radar_last_event = last;
+            }
+        }
+    }
 }
 
 /// C++ `GameStateMap::xfer` v2 map embed (`GameStateMap.cpp:224-394`).
@@ -1028,7 +1105,7 @@ impl SaveFileManager {
     /// the outer C++ chunk table is independent of the positional
     /// WorldSnapshot schema and historical fixtures still migrate.
     fn write_common_sav_chunks_with_payload(
-        _world_snapshot: &WorldSnapshot,
+        world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
     ) -> SaveLoadResult<Vec<u8>> {
@@ -1070,6 +1147,34 @@ impl SaveFileManager {
                         Ok(())
                     }
                     CHUNK_CAMPAIGN => write_campaign_block(xfer),
+                    CHUNK_INGAME_UI => {
+                        crate::save_load::snapshot::persist_v18::write_ingame_ui_block(
+                            xfer,
+                            &world_snapshot.persist_v18,
+                        )
+                    }
+                    CHUNK_TACTICAL_VIEW => {
+                        crate::save_load::snapshot::persist_v18::write_tactical_view_block(
+                            xfer,
+                            &world_snapshot.persist_v18,
+                        )
+                    }
+                    CHUNK_SCRIPT_ENGINE => {
+                        crate::save_load::snapshot::persist_v18::write_script_engine_block(
+                            xfer,
+                            &world_snapshot.persist_v18,
+                        )
+                    }
+                    CHUNK_TERRAIN_LOGIC => {
+                        crate::save_load::snapshot::persist_v18::write_terrain_logic_block(
+                            xfer,
+                            &world_snapshot.persist_v18,
+                        )
+                    }
+                    CHUNK_RADAR => crate::save_load::snapshot::persist_v18::write_radar_block(
+                        xfer,
+                        &world_snapshot.persist_v18,
+                    ),
                     _ => write_null_snapshot_version(xfer),
                 })?;
             }
@@ -1141,6 +1246,11 @@ impl SaveFileManager {
         };
         let mut logic_data: Option<Vec<u8>> = None;
         let mut saw_game_state = false;
+        let mut ingame_ui_payload: Option<Vec<u8>> = None;
+        let mut tactical_view_payload: Option<Vec<u8>> = None;
+        let mut script_engine_payload: Option<Vec<u8>> = None;
+        let mut terrain_logic_payload: Option<Vec<u8>> = None;
+        let mut radar_payload: Option<Vec<u8>> = None;
         for (token, payload) in blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
                 save_info = parse_chunk_game_state(&payload)?;
@@ -1174,6 +1284,16 @@ impl SaveFileManager {
                         save_info.map_name = extracted.to_string_lossy().into_owned();
                     }
                 }
+            } else if token.eq_ignore_ascii_case(CHUNK_INGAME_UI) {
+                ingame_ui_payload = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_TACTICAL_VIEW) {
+                tactical_view_payload = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_SCRIPT_ENGINE) {
+                script_engine_payload = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_TERRAIN_LOGIC) {
+                terrain_logic_payload = Some(payload);
+            } else if token.eq_ignore_ascii_case(CHUNK_RADAR) {
+                radar_payload = Some(payload);
             }
         }
         if !saw_game_state {
@@ -1181,7 +1301,7 @@ impl SaveFileManager {
                 "CHUNK_GameState missing from named-chunk save".to_string(),
             ));
         }
-        let world_snapshot = match logic_data {
+        let mut world_snapshot = match logic_data {
             Some(payload) => Self::decode_chunk_game_logic_for_host(&payload)?,
             None if save_info.save_type == SaveFileType::Mission => WorldSnapshot::default(),
             None => {
@@ -1191,6 +1311,14 @@ impl SaveFileManager {
                 ));
             }
         };
+        apply_persist_chunks(
+            &mut world_snapshot,
+            ingame_ui_payload.as_deref(),
+            tactical_view_payload.as_deref(),
+            script_engine_payload.as_deref(),
+            terrain_logic_payload.as_deref(),
+            radar_payload.as_deref(),
+        );
         Ok((world_snapshot, save_info))
     }
 
@@ -1226,7 +1354,8 @@ impl SaveFileManager {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
         match path {
             BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV17V16
+            BincodeWorldSnapshotDecodePath::LegacyPreV18V17
+            | BincodeWorldSnapshotDecodePath::LegacyPreV17V16
             | BincodeWorldSnapshotDecodePath::LegacyPreV16V15
             | BincodeWorldSnapshotDecodePath::LegacyPreV15V14
             | BincodeWorldSnapshotDecodePath::LegacyPreV14V13

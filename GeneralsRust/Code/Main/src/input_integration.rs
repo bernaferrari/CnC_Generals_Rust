@@ -598,15 +598,10 @@ impl InputProcessor {
         };
 
         // Wave 954: control-group filter presentation-only (fail-closed without freeze).
+        // C++ SELECT_TEAM: getLiveObjects / isSelectable — not CanSelectDrawable.
         let mut selection = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
-            for &object_id in group {
-                if let Some(o) = frame.objects.iter().find(|o| o.id == object_id) {
-                    if frame.is_owned_by_local(o) && Self::presentation_is_selectable(o) {
-                        selection.push(object_id);
-                    }
-                }
-            }
+            selection = frame.filter_live_squad_ids(group, true);
         }
 
         if selection.is_empty() {

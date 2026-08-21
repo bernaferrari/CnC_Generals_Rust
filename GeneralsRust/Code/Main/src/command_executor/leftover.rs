@@ -604,6 +604,11 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            // C++ CommandXlat.cpp:336-339 MSG_DO_REPAIR → PerUnitSound VoiceRepair.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Repair,
+            );
             self.game_logic.record_structure_repair_residual_command();
             CommandResult::Success
         } else {
@@ -703,6 +708,11 @@ impl<'a> CommandExecutor<'a> {
 
         }
         if any {
+            // C++ CommandXlat.cpp:384-412 MSG_GET_REPAIRED shares VoiceMove.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand
@@ -767,6 +777,11 @@ impl<'a> CommandExecutor<'a> {
             }
         }
         if any {
+            // C++ CommandXlat.cpp:384-412 MSG_GET_HEALED shares VoiceMove.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

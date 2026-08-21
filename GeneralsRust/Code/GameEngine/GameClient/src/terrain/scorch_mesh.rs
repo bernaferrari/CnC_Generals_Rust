@@ -301,6 +301,14 @@ pub fn terrain_scorch_count() -> usize {
         .len()
 }
 
+/// C++ `m_scorchesInBuffer`. `0` after `addScorch` forces `updateScorches`.
+pub fn terrain_scorches_in_buffer() -> i32 {
+    global_scorch_buffer()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .scorches_in_buffer
+}
+
 /// Bake the live FX/GameClient scorch buffer against a height source.
 pub fn bake_terrain_scorch_gpu_mesh(
     height: &dyn ScorchHeightSource,

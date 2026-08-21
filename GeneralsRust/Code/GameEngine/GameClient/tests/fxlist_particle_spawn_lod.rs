@@ -350,6 +350,48 @@ fn fxlist_terrain_scorch_nugget_calls_add_scorch_with_type_and_radius() {
 }
 
 #[test]
+fn fxlist_terrain_scorch_nugget_does_not_invent_decal_quad() {
+    use game_client_rust::effects::decals::DecalManager;
+    use game_client_rust::effects::fxlist_integration::{
+        FXContext, FXNugget, ScorchType, TerrainScorchFXNugget,
+    };
+    use game_client_rust::terrain::scorch_mesh::{clear_terrain_scorches, terrain_scorch_marks};
+
+    clear_terrain_scorches();
+    let nugget = TerrainScorchFXNugget {
+        scorch_type: ScorchType::Scorch1,
+        radius: 12.0,
+    };
+    let mut manager = ParticleSystemManager::new();
+    let mut decals = DecalManager::new();
+    let mut ctx = FXContext {
+        particle_manager: &mut manager,
+        ray_effect_manager: None,
+        decal_manager: Some(&mut decals),
+        bone_query: None,
+        current_frame: 1,
+        local_player_index: 0,
+    };
+    FXNugget::do_fx_pos(
+        &nugget,
+        Point3::new(8.0, 9.0, 1.0),
+        None,
+        0.0,
+        None,
+        0.0,
+        &mut ctx,
+    );
+    assert_eq!(terrain_scorch_marks().len(), 1);
+    assert_eq!(
+        decals.active_decal_count(),
+        0,
+        "C++ TerrainScorchFXNugget never creates a timed decal quad"
+    );
+    clear_terrain_scorches();
+}
+
+
+#[test]
 fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
     use game_client_rust::effects::fxlist_integration::{FXContext, FXNugget, TracerFXNugget};
     use game_client_rust::effects::tracer_fx::{

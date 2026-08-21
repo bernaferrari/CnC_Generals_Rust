@@ -699,8 +699,13 @@ impl ScriptEngine {
             let object_arc = (object_id != INVALID_ID)
                 .then(|| TheGameLogic::find_object_by_id(object_id))
                 .flatten();
+            let host_obj = if object_arc.is_none() && object_id != INVALID_ID {
+                crate::scripting::host_script_query_object_by_id(object_id)
+            } else {
+                None
+            };
 
-            if object_arc.is_none() && team_arc.is_none() {
+            if object_arc.is_none() && team_arc.is_none() && host_obj.is_none() {
                 if self
                     .cleanup_sequential_script_by_token(token, false)
                     .is_none()
@@ -716,10 +721,17 @@ impl ScriptEngine {
                     self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
             }
 
-            let (obj_has_ai, obj_idle, _) = object_arc
-                .as_ref()
-                .map(Self::object_ai_status)
-                .unwrap_or((false, false, false));
+            let (obj_has_ai, obj_idle, _) = if let Some(arc) = &object_arc {
+                Self::object_ai_status(arc)
+            } else if let Some(host) = &host_obj {
+                // C++ getAIUpdateInterface on a live sequential unit. Host
+                // snapshot has no leftover AI pointer; treat as having AI so
+                // the node can progress. Dead counts as idle (AIGroup::isIdle).
+                let dead = host.effectively_dead || !host.alive;
+                (true, host.idle || dead, dead)
+            } else {
+                (false, false, false)
+            };
             let (team_has_group, team_idle, _) = team_arc
                 .as_ref()
                 .map(|team| {
@@ -810,16 +822,31 @@ impl ScriptEngine {
                             continue;
                         }
 
+                        // Host snapshot is frozen until the next inject. Do not
+                        // treat stale idle as C++ ai->isIdle() after executeActions
+                        // (a MOVE would still look idle and blast the chain).
                         let obj_idle_now = object_arc
                             .as_ref()
                             .map(|object| Self::object_ai_status(object).1)
                             .unwrap_or(false);
-                        let team_idle_now = team_arc
-                            .as_ref()
-                            .map(|team| Self::team_ai_status(team).0)
-                            .unwrap_or(false);
+                        let team_idle_now = if dual_world_registry_unavailable() {
+                            false
+                        } else {
+                            team_arc
+                                .as_ref()
+                                .map(|team| Self::team_ai_status(team).0)
+                                .unwrap_or(false)
+                        };
                         if (obj_has_ai && obj_idle_now) || (team_has_group && team_idle_now) {
                             it_advanced = true;
+                        }
+
+                        if host_obj
+                            .as_ref()
+                            .is_some_and(|host| host.effectively_dead || !host.alive)
+                        {
+                            let _ = self.cleanup_sequential_script_by_token(token, true);
+                            continue;
                         }
 
                         if it_advanced {
@@ -893,9 +920,13 @@ impl ScriptEngine {
     }
 
     fn team_ai_status(team_arc: &Arc<RwLock<crate::team::Team>>) -> (bool, bool) {
-        // Wave 348: empty dual-world → (false, true).
         if dual_world_registry_unavailable() {
-            return (false, true);
+            let name = team_arc
+                .read()
+                .ok()
+                .map(|team| team.get_name().to_string())
+                .unwrap_or_default();
+            return crate::scripting::host_team_sequential_status(&name);
         }
 
         let Ok(team) = team_arc.read() else {

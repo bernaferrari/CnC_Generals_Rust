@@ -134,6 +134,10 @@ impl SmudgeManager {
         set
     }
 
+    pub fn last_used_set(&self) -> Option<SmudgeSetHandle> {
+        self.used_sets.last().cloned()
+    }
+
     pub fn remove_smudge_set(&mut self, set: &SmudgeSetHandle) {
         if let Some(pos) = self
             .used_sets

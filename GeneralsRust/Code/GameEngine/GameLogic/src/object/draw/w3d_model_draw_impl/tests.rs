@@ -655,5 +655,53 @@ mod tests {
         );
         register_pristine_bone_lookup_hook(None);
     }
+
+    #[test]
+    fn get_current_bone_positions_uses_w3d_hook_not_empty_skeleton() {
+        // C++ W3DModelDraw.cpp:3545-3621 queries the live HTree, not Drawable.skeleton.
+        register_pristine_bone_lookup_hook(Some(std::sync::Arc::new(
+            |model, _scale, _frame, bone| {
+                if model == "unit" && bone.eq_ignore_ascii_case("WeaponFireFXBone") {
+                    Some((7, Matrix3D::from_translation(Coord3D::new(3.0, 4.0, 5.0))))
+                } else if model == "unit" && bone.eq_ignore_ascii_case("WeaponFireFXBone01") {
+                    Some((8, Matrix3D::from_translation(Coord3D::new(6.0, 7.0, 8.0))))
+                } else {
+                    None
+                }
+            },
+        )));
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.model_name = AsciiString::from("unit");
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let mut positions = [Coord3D::ZERO; 4];
+        let mut transforms = [Matrix3D::IDENTITY; 4];
+        let count = ObjectDrawInterface::get_current_bone_positions(
+            &draw,
+            "WeaponFireFXBone",
+            0,
+            &mut positions,
+            &mut transforms,
+            4,
+        );
+        assert_eq!(count, 1);
+        assert!((positions[0] - Coord3D::new(3.0, 4.0, 5.0)).length() < 1e-4);
+
+        let count = ObjectDrawInterface::get_current_bone_positions(
+            &draw,
+            "WeaponFireFXBone",
+            1,
+            &mut positions,
+            &mut transforms,
+            4,
+        );
+        assert_eq!(count, 1);
+        assert!((positions[0] - Coord3D::new(6.0, 7.0, 8.0)).length() < 1e-4);
+
+        register_pristine_bone_lookup_hook(None);
+    }
 }
 

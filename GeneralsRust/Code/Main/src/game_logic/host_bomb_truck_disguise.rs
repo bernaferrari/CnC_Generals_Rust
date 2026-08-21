@@ -62,6 +62,13 @@ pub const BOMB_TRUCK_DISGUISE_AUDIO: &str = "BombTruckVoiceDisguise";
 
 /// Audio residual when disguise is revealed (FX_BombTruckDisguiseReveal residual cue).
 pub const BOMB_TRUCK_DISGUISE_REVEAL_AUDIO: &str = "BombTruckVoiceModeDisguise";
+/// C++ per-unit sound at disguise halfpoint (`changeVisualDisguise`).
+pub const BOMB_TRUCK_DISGUISE_STARTED_AUDIO: &str = "DisguiseStarted";
+/// C++ reveal halfpoint when `getCurrentVictim` exists.
+pub const BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO: &str = "DisguiseRevealedSuccess";
+/// C++ reveal halfpoint when there is no current victim.
+pub const BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO: &str = "DisguiseRevealedFailure";
+
 
 // --- Body residual (GLAVehicleBombTruck) ---
 
@@ -319,6 +326,9 @@ pub fn honesty_bomb_truck_disguise_ability_residual_ok() -> bool {
         && BOMB_TRUCK_DISGUISE_FX == "FX_BombTruckDisguise"
         && BOMB_TRUCK_DISGUISE_REVEAL_FX == "FX_BombTruckDisguiseReveal"
         && BOMB_TRUCK_DISGUISE_AUDIO == "BombTruckVoiceDisguise"
+        && BOMB_TRUCK_DISGUISE_STARTED_AUDIO == "DisguiseStarted"
+        && BOMB_TRUCK_DISGUISE_REVEALED_SUCCESS_AUDIO == "DisguiseRevealedSuccess"
+        && BOMB_TRUCK_DISGUISE_REVEALED_FAILURE_AUDIO == "DisguiseRevealedFailure"
         && should_reveal_disguise_by_distance(100.0)
         && !should_reveal_disguise_by_distance(100.1)
 }

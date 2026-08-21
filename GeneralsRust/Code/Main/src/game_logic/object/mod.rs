@@ -352,6 +352,10 @@ pub struct Object {
     /// C++ `OBJECT_STATUS_SCRIPT_UNSELLABLE` / `Object::isScriptUnsellable`.
     #[serde(default)]
     pub script_unsellable: bool,
+    /// C++ ActiveBody::m_indestructible (map objectIndestructible / UNIT INDESTRUCTIBLE).
+    #[serde(default)]
+    pub indestructible: bool,
+
     /// Wave 754: EjectPilotDie onDie already fired (death-start residual).
     #[serde(default)]
     pub eject_pilot_die_applied: bool,
@@ -584,6 +588,15 @@ pub struct Object {
     /// C++ AIUpdate getNumFramesBlocked residual.
     #[serde(default)]
     pub num_frames_blocked: u32,
+    /// C++ AIUpdate m_bumpSpeedLimit residual (host dist/sec, FAST_AS_POSSIBLE = MAX).
+    #[serde(default = "default_max_f32")]
+    pub bump_speed_limit: f32,
+    /// C++ LocomotorSet member names for the current SET_* (surface-switched).
+    #[serde(default)]
+    pub locomotor_set_names: Vec<String>,
+    /// C++ AIUpdate m_curLocomotor template name.
+    #[serde(default)]
+    pub cur_locomotor_name: Option<String>,
     /// C++ AI panic state residual (AI_PANIC → bounce force allowed).
     #[serde(default)]
     pub is_panicking: bool,
@@ -800,6 +813,13 @@ pub struct Object {
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    /// C++ `AIInternalMoveToState::m_ambientPlayingHandle` event name.
+    #[serde(default)]
+    pub move_loop_audio: Option<String>,
+    /// C++ `Drawable::m_ambientSound` event name currently playing.
+    #[serde(default)]
+    pub ambient_audio: Option<String>,
+
 
     /// Health system
     pub health: Health,
@@ -1264,9 +1284,18 @@ pub struct Object {
     /// C++ AICMD_MOVE_TO_POSITION_AND_EVACUATE_AND_EXIT residual — destroy transport after unload.
     #[serde(default)]
     pub pending_exit_after_evacuate: bool,
+    /// C++ AIExitState::update — riders already ordered out stream one per
+    /// ExitDelay with no hull-stop requirement (hq-ksb4t). Distinct from
+    /// move-to-and-evacuate, which waits for arrival.
+    #[serde(default)]
+    pub pending_stream_exit: bool,
+
     /// C++ TransportContain::m_frameExitNotBusy — next logic frame a rider may exit.
     #[serde(default)]
     pub frame_exit_not_busy: u32,
+    /// C++ OpenContain::m_whichExitPath (1-based ExitStart/End cycle).
+    #[serde(default)]
+    pub which_exit_path: u8,
 
 
     /// Applied upgrades keyed by upgrade template/tag name.
@@ -2801,9 +2830,10 @@ pub use visual::ObjectVisualInfo;
 pub use stealth::{
     drawable_disabled_dark_tint, drawable_explicit_fade_opacity, drawable_status_tint_rgb,
     friendly_stealth_pulse_opacity, is_live_stealth_black_market, order_idle_enemies_on_reveal,
-    sample_drawable_status_tint, DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT,
-    SOUND_STEALTH_OFF, SOUND_STEALTH_ON, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
-    TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
+    sample_drawable_status_tint, stealth_second_material_pass_opacity, DRAWABLE_FADE_IN,
+    DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
+    TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR, TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY,
+    TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
 };
 #[cfg(test)]
 pub use stealth::reset_drawable_tint_envelopes;

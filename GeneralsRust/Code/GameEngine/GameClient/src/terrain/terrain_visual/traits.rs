@@ -159,6 +159,14 @@ impl SubsystemInterface for TerrainVisualImpl {
         let road_meshes_started = std::time::Instant::now();
         self.update_road_meshes()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        // C++ drawScorches calls updateScorches every frame; addScorch only
+        // zeros m_scorchesInBuffer. Do not wait for overlay_gpu_meshes_dirty
+        // (that rebuilds all roads).
+        if self.scorches_need_gpu_rebuild() {
+            if let Some(device) = self.device.clone() {
+                self.update_scorch_meshes(&device);
+            }
+        }
         self.update_tree_meshes();
         let road_meshes_elapsed = road_meshes_started.elapsed();
 

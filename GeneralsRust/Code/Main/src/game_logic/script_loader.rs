@@ -587,6 +587,9 @@ pub struct PlacedObject {
     pub enabled: Option<bool>,
     /// C++ Dict `objectPowered` / OBJECT_STATUS_SCRIPT_UNPOWERED when false.
     pub powered: Option<bool>,
+    /// C++ Dict `objectIndestructible` / ActiveBody::setIndestructible.
+    pub indestructible: Option<bool>,
+
     /// C++ Dict `objectWeather` (`Object.cpp:3595-3605`): 0 follow map, 1 force
     /// `MODELCONDITION_SNOW` clear, 2 force set. Missing key is follow.
     pub object_weather: Option<i32>,
@@ -2292,6 +2295,8 @@ fn parse_map_object_chunk(
     let mut unsellable = None;
     let mut enabled = None;
     let mut powered = None;
+    let mut indestructible = None;
+
     let mut object_weather = None;
 
     if version >= 2 && reader.remaining() > 0 {
@@ -2357,6 +2362,17 @@ fn parse_map_object_chunk(
         )
         .map(|value| parse_ini_boolish(&value));
 
+        indestructible = dict_lookup_ci(
+            &dict,
+            &[
+                "objectIndestructible",
+                "indestructible",
+                "object_indestructible",
+            ],
+        )
+        .map(|value| parse_ini_boolish(&value));
+
+
         object_weather = dict_lookup_ci(&dict, &["objectWeather", "object_weather"])
             .and_then(|value| parse_object_weather_value(&value));
     }
@@ -2372,6 +2388,8 @@ fn parse_map_object_chunk(
         unsellable,
         enabled,
         powered,
+        indestructible,
+
         object_weather,
     }))
 
@@ -2702,6 +2720,8 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         unsellable: None,
         enabled: None,
         powered: None,
+        indestructible: None,
+
         object_weather: None,
     }))
 

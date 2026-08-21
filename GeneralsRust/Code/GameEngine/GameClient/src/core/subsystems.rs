@@ -1615,6 +1615,19 @@ impl InGameUISubsystem {
         &self.presentation_unit_catalog
     }
 
+    /// C++ HintSpy.cpp:26-35 — live host hover tooltip from presentation catalog.
+    pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
+        if self.tooltips_disabled_until > TheGameLogic::get_frame() {
+            return;
+        }
+        let _ = crate::gui::ingame_ui::InGameUI::apply_catalog_mouseover_tooltip(
+            &self.presentation_unit_catalog,
+            drawable_id,
+            is_location_hint,
+        );
+    }
+
+
     fn disable_tooltips_until(&mut self, frame_num: u32) {
         if frame_num > self.tooltips_disabled_until {
             self.tooltips_disabled_until = frame_num;

@@ -291,6 +291,18 @@ impl GameLogic {
                     }
                 }
             }
+            // C++ MSG_DO_ATTACKMOVETO VoiceMove (`CommandXlat.cpp:384-412`).
+            let local = self
+                .players
+                .get(&player_id)
+                .map(|p| p.is_local)
+                .unwrap_or(false);
+            if local {
+                self.queue_picked_unit_voice(
+                    &selected,
+                    crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::Move,
+                );
+            }
         }
     }
 
@@ -638,6 +650,12 @@ impl GameLogic {
             if let Some(lname) = super::super::locomotor_bootstrap::locomotor_name_for_unit(name) {
                 t.set_locomotor_name(lname);
             }
+            let set_names =
+                super::super::locomotor_bootstrap::locomotor_set_names_for_unit(name);
+            if set_names.len() >= 2 {
+                t.set_locomotor_set_names(&set_names);
+            }
+
             t
         }
         fn collector(

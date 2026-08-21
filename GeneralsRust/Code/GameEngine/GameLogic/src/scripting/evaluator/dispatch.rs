@@ -121,6 +121,7 @@ impl ScriptEvaluator {
                 | ConditionType::NamedDestroyed
                 | ConditionType::NamedNotDestroyed
                 | ConditionType::NamedCreated
+                | ConditionType::NamedTotallyDead
                 | ConditionType::NamedInsideArea
                 | ConditionType::NamedOutsideArea
                 | ConditionType::NamedEnteredArea

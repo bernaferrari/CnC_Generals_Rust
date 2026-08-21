@@ -1523,8 +1523,39 @@ impl CnCGameEngine {
                         }
                     }
 
-                    // C++ parity: GameEngine.cpp:480 — AIData.ini loaded after Upgrade, before Crate.
-                    Self::preload_startup_ai_data_inis();
+                    // C++ parity: GameEngine.cpp:480 — AIData.ini after Upgrade, before Crate.
+                    {
+                        let mut loaded_any = false;
+                        for ai_path in Self::startup_ai_data_ini_paths() {
+                            if let Some(content) = extract_ini_text_from_archives(ai_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file())
+                                {
+                                    Ok(()) => {
+                                        info!("Loaded AIData from {}", ai_path);
+                                        loaded_any = true;
+                                    }
+                                    Err(err) => warn!(
+                                        "Failed parsing AIData.ini '{}': {}",
+                                        ai_path, err
+                                    ),
+                                }
+                            }
+                        }
+                        if loaded_any {
+                            Self::apply_startup_ai_data_enable_repulsors();
+                        } else {
+                            Self::preload_startup_ai_data_inis();
+                        }
+                        // EnableRepulsors is parsed before SideInfo; apply leftover even if
+                        // a later nested field warned.
+                        if game_engine::common::ini::get_ai_data_store()
+                            .get_active()
+                            .is_some()
+                        {
+                            Self::apply_startup_ai_data_enable_repulsors();
+                        }
+                    }
 
                     // C++ parity: GameEngine.cpp:483 — load Crate.ini (Default + override) into ParsedCrateSystem.
                     {

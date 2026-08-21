@@ -184,6 +184,12 @@ impl Object {
         if self.try_hive_structure_body_damage(damage, source, damage_type) {
             return false;
         }
+        // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330) bails before
+        // type switch / armor / HP when m_indestructible.
+        if self.indestructible {
+            return false;
+        }
+
         // C++ DAMAGE_DISARM residual: destroy mine without detonation splash.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Disarm) {
             let _ = (source, death_type, damage);
@@ -437,11 +443,50 @@ impl Object {
         }
 
 
+        // C++ UndeadBody.cpp:58-68 / HighlanderBody.cpp:30-36 clamp
+        // DamageInfo.in.m_amount PRE-armor, then ActiveBody applies armor
+        // to the (possibly clamped) raw amount.
+        let mut incoming = damage;
+        let mut battle_bus_start_second = false;
+        if self.battle_bus_should_intercept_lethal(damage_type, incoming) {
+            incoming = incoming.min((self.health.current - 1.0).max(0.0));
+            battle_bus_start_second = true;
+        }
+        let mut _highlander_clamped = false;
+        if self.highlander_body && !battle_bus_start_second {
+            // C++ HighlanderBody.cpp compares exactly against
+            // DAMAGE_UNRESISTABLE.  DAMAGE_PENALTY is still ordinary damage
+            // here, so it must leave the one-HP Highlander floor intact.
+            let unres = matches!(
+                damage_type,
+                crate::game_logic::combat::DamageType::Unresistable
+            );
+            let (clamped, did) = crate::game_logic::host_highlander_body::highlander_clamp_damage(
+                self.health.current,
+                incoming,
+                unres,
+            );
+            if did {
+                incoming = clamped;
+                _highlander_clamped = true;
+            }
+        }
+
+        // C++ ActiveBody::attemptDamage (ActiveBody.cpp:329-330): after
+        // subclass raw clamp, bail before armor / lastDamage / FX.
+        if self.indestructible {
+            if battle_bus_start_second {
+                self.start_battle_bus_second_life();
+            }
+            return false;
+        }
+
         // C++ ActiveBody::attemptDamage: ArmorTemplate::adjustDamage, then
         // m_damageScalar only for non-UNRESISTABLE (ActiveBody.cpp:351, 490-497).
         // No invented armor/(armor+100) extra mitigation.
-        let typed =
-            crate::game_logic::host_armor_residual::apply_residual_armor(self, damage_type, damage);
+        let typed = crate::game_logic::host_armor_residual::apply_residual_armor(
+            self, damage_type, incoming,
+        );
         let battle_plan_armor = self.battle_plan_armor_damage_scalar();
         let mut actual_damage = if matches!(
             damage_type,
@@ -467,35 +512,6 @@ impl Object {
             }
         }
 
-        // C++ UndeadBody::attemptDamage residual (Battle Bus first life).
-        // Clamp lethal non-UNRESISTABLE damage to leave 1 HP, then startSecondLife.
-        let mut battle_bus_start_second = false;
-        if self.battle_bus_should_intercept_lethal(damage_type, actual_damage) {
-            actual_damage = (self.health.current - 1.0).max(0.0);
-            battle_bus_start_second = true;
-        }
-
-        // C++ HighlanderBody::attemptDamage residual.
-        let mut _highlander_clamped = false;
-        if self.highlander_body && !battle_bus_start_second {
-            // C++ HighlanderBody.cpp compares exactly against
-            // DAMAGE_UNRESISTABLE.  DAMAGE_PENALTY is still ordinary damage
-            // here, so it must leave the one-HP Highlander floor intact.
-            let unres = matches!(
-                damage_type,
-                crate::game_logic::combat::DamageType::Unresistable
-            );
-            let (clamped, did) = crate::game_logic::host_highlander_body::highlander_clamp_damage(
-                self.health.current,
-                actual_damage,
-                unres,
-            );
-            if did {
-                actual_damage = clamped;
-                _highlander_clamped = true;
-            }
-        }
-
         // C++ ImmortalBody::internalChangeHealth (ImmortalBody.cpp:31-37):
         // delta = max(delta, -getHealth()+1) — never below 1, never dead.
         // SupplyWarehouse / FireWallSegment / TrailRemnant / GPS marker
@@ -517,8 +533,13 @@ impl Object {
         if let Some(md) = self.mine_data.as_mut() {
             md.last_synced_health = None;
         }
-
-        let destroyed = if !self.health.is_alive() {
+        // C++ onDamage chain-detonates remaining virtuals before destroyObject.
+        // A >=100 hit must not mark the pad destroyed here or the tick skips it.
+        let defer_mine_death = self
+            .mine_data
+            .as_ref()
+            .is_some_and(|md| md.defers_lethal_body_destroy());
+        let destroyed = if !self.health.is_alive() && !defer_mine_death {
             if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
@@ -1423,5 +1444,108 @@ mod tests {
         let pos = tank.get_health_box_position();
         assert!((pos.y - 20.0).abs() < 1e-3, "y = 0 + height 10 + 10, got {}", pos.y);
     }
+
+    #[test]
+    fn undead_body_intercepts_on_raw_amount_not_post_armor() {
+        // C++ UndeadBody.cpp:58-64 compares damageInfo->in.m_amount PRE-armor.
+        // Flame 0.1 vs 50 HP: raw 200 intercepts even though 20 post-armor would not kill.
+        register_coeff_armor("BusFlameArmor", gamelogic::damage::DamageType::Flame, 0.1);
+        let mut bus = vehicle("GLAVehicleBattleBus", 91, 50.0);
+        bus.install_battle_bus_transport();
+        bus.health.maximum = 50.0;
+        bus.health.current = 50.0;
+        bus.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("BusFlameArmor".into()),
+            damage_fx: None,
+        });
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame));
+        assert!(
+            bus.armor_set_second_life,
+            "raw 200 >= 50 must start second life despite 0.1 flame armor"
+        );
+        assert!(bus.is_alive());
+    }
+
+    #[test]
+    fn undead_body_does_not_intercept_when_raw_below_health() {
+        // >100% coefficient: raw 40 < 50, post-armor 80 would kill — C++ does not intercept.
+        register_coeff_armor(
+            "BusVulnArmor",
+            gamelogic::damage::DamageType::Explosion,
+            2.0,
+        );
+        let mut bus = vehicle("GLAVehicleBattleBus", 92, 50.0);
+        bus.install_battle_bus_transport();
+        bus.health.maximum = 50.0;
+        bus.health.current = 50.0;
+        bus.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("BusVulnArmor".into()),
+            damage_fx: None,
+        });
+        let killed = bus.take_damage_from_typed(40.0, None, DamageType::Explosive);
+        assert!(
+            killed,
+            "raw 40 < health must not intercept; 2.0 armor should kill"
+        );
+        assert!(!bus.armor_set_second_life);
+    }
+
+    #[test]
+    fn highlander_clamps_raw_then_applies_armor() {
+        // C++ HighlanderBody.cpp:33-36: min(raw, health-1) then ActiveBody armor.
+        // 999 raw → 49, * 0.25 flame = 12.25, HP 37.75. Post-armor clamp would leave 1.
+        register_coeff_armor("TreeFlameArmor", gamelogic::damage::DamageType::Flame, 0.25);
+        let mut tree = vehicle("Tree01", 93, 50.0);
+        tree.install_highlander_body();
+        tree.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("TreeFlameArmor".into()),
+            damage_fx: None,
+        });
+        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame));
+        assert!(
+            (tree.health.current - 37.75).abs() < 0.05,
+            "raw clamp then 0.25 armor must leave 37.75, got {}",
+            tree.health.current
+        );
+        assert!(!tree.status.destroyed);
+    }
+
+    #[test]
+    fn highlander_over100_coeff_can_die_from_non_unresistable() {
+        // C++ clamps raw only: 40 < 49 so no clamp, *2.0 = 80 kills.
+        register_coeff_armor(
+            "TreeVulnArmor",
+            gamelogic::damage::DamageType::Explosion,
+            2.0,
+        );
+        let mut tree = vehicle("Tree01", 94, 50.0);
+        tree.install_highlander_body();
+        tree.thing.template.armor_sets.push(crate::game_logic::HostArmorSet {
+            conditions: 0,
+            armor: Some("TreeVulnArmor".into()),
+            damage_fx: None,
+        });
+        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive));
+        assert!(tree.status.destroyed);
+    }
+
+    #[test]
+    fn indestructible_bails_before_hp() {
+        // C++ ActiveBody.cpp:329-330: m_indestructible returns before armor/HP.
+        let mut o = vehicle("ScriptProp", 95, 100.0);
+        o.set_indestructible(true);
+        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive));
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+        assert!(!o.take_damage_from_typed(999.0, None, DamageType::Unresistable));
+        assert!((o.health.current - 100.0).abs() < 1e-3);
+        assert!(!o.status.destroyed);
+        o.set_indestructible(false);
+        assert!(!o.take_damage_from_typed(10.0, None, DamageType::Unresistable));
+        assert!((o.health.current - 90.0).abs() < 1e-3);
+    }
+
 
 }

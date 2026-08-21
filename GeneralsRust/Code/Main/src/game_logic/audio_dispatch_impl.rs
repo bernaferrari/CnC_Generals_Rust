@@ -106,6 +106,8 @@ pub enum UnitVoiceSlot {
     Repair,
     /// Per-unit `VoiceBuildResponse`.
     BuildResponse,
+    /// Per-unit `VoiceSnipePilot` (MSG_DO_WEAPON_AT_OBJECT DAMAGE_KILLPILOT).
+    SnipePilot,
     /// ThingTemplate `VoiceCreated`.
     Created,
     /// Per-unit `VoiceCreate` (first of a production batch).
@@ -130,6 +132,7 @@ impl UnitVoiceSlot {
             Self::Supply => "VoiceSupply",
             Self::Repair => "VoiceRepair",
             Self::BuildResponse => "VoiceBuildResponse",
+            Self::SnipePilot => "VoiceSnipePilot",
             Self::Created => "VoiceCreated",
             Self::Create => "VoiceCreate",
         }
@@ -144,6 +147,10 @@ impl UnitVoiceSlot {
 thread_local! {
     static TEMPLATE_VOICE_OVERRIDE: RefCell<HashMap<(String, UnitVoiceSlot), String>> =
         RefCell::new(HashMap::new());
+    static PER_UNIT_SOUND_OVERRIDE: RefCell<HashMap<(String, String), String>> =
+        RefCell::new(HashMap::new());
+    static INITIATE_SOUND_OVERRIDE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    static BUILDING_LOOPS: RefCell<HashMap<u32, String>> = RefCell::new(HashMap::new());
 }
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
@@ -165,6 +172,95 @@ pub fn set_test_template_voice(template_name: &str, slot: UnitVoiceSlot, event_n
 
 pub fn clear_test_template_voices() {
     TEMPLATE_VOICE_OVERRIDE.with(|m| m.borrow_mut().clear());
+    PER_UNIT_SOUND_OVERRIDE.with(|m| m.borrow_mut().clear());
+    INITIATE_SOUND_OVERRIDE.with(|m| m.borrow_mut().clear());
+}
+
+/// Test hook: ThingTemplate `UnitSpecificSounds` key without loading Object.ini.
+pub fn set_test_per_unit_sound(
+    template_name: &str,
+    key: &str,
+    event_name: impl Into<String>,
+) {
+    PER_UNIT_SOUND_OVERRIDE.with(|m| {
+        m.borrow_mut()
+            .insert((template_name.to_string(), key.to_string()), event_name.into());
+    });
+}
+
+/// C++ `ThingTemplate::getPerUnitSound(key)` — building UnderConstruction, etc.
+pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> {
+    if let Some(over) = PER_UNIT_SOUND_OVERRIDE.with(|m| {
+        m.borrow()
+            .get(&(template_name.to_string(), key.to_string()))
+            .cloned()
+    }) {
+        if over.is_empty() {
+            return None;
+        }
+        return Some(over);
+    }
+    if let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() {
+        if let Some(factory) = guard.as_ref() {
+            if let Some(tmpl) = factory.find_template(template_name, false) {
+                let key = key.to_string();
+                if let Some(name) = tmpl.get_per_unit_sound(&key).and_then(nonempty_event_name) {
+                    return Some(name);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Test hook: SpecialPower / SpecialAbility `InitiateSound`.
+pub fn set_test_initiate_sound(power_key: &str, event_name: impl Into<String>) {
+    INITIATE_SOUND_OVERRIDE.with(|m| {
+        m.borrow_mut()
+            .insert(power_key.to_string(), event_name.into());
+    });
+}
+
+/// C++ `spmInterface->getInitiateSound()` (CommandXlat.cpp:637-651).
+pub fn resolve_special_power_initiate_sound(
+    power_key: &str,
+    module_template: Option<&str>,
+    retail_fallback: Option<&str>,
+) -> Option<String> {
+    if let Some(over) = INITIATE_SOUND_OVERRIDE.with(|m| m.borrow().get(power_key).cloned()) {
+        if over.is_empty() {
+            return None;
+        }
+        return Some(over);
+    }
+    if let Some(name) = module_template {
+        let store = game_engine::common::rts::special_power::get_special_power_store();
+        if let Some(tmpl) = store.find_template(name) {
+            if !tmpl.initiate_sound.is_empty() {
+                return Some(tmpl.initiate_sound.clone());
+            }
+        }
+    }
+    retail_fallback
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Remember a live UnderConstruction loop on the construction site.
+pub fn note_building_loop(site_id: u32, event: &str) -> Option<String> {
+    BUILDING_LOOPS.with(|m| m.borrow_mut().insert(site_id, event.to_string()))
+}
+
+pub fn building_loop_event(site_id: u32) -> Option<String> {
+    BUILDING_LOOPS.with(|m| m.borrow().get(&site_id).cloned())
+}
+
+pub fn take_building_loop(site_id: u32) -> Option<String> {
+    BUILDING_LOOPS.with(|m| m.borrow_mut().remove(&site_id))
+}
+
+pub fn clear_building_loops() {
+    BUILDING_LOOPS.with(|m| m.borrow_mut().clear());
 }
 
 fn named_template_voice(
@@ -489,6 +585,7 @@ mod tests {
         set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Enter, "RangerVoiceEnter");
         set_test_template_voice("AmericaInfantryMissileDefender", UnitVoiceSlot::AttackAir, "MissileDefenderVoiceAttackAir");
         set_test_template_voice("AmericaInfantryRanger", UnitVoiceSlot::Guard, "RangerVoiceGuard");
+        set_test_template_voice("GLAInfantryJarmenKell", UnitVoiceSlot::SnipePilot, "JarmenKellVoiceSnipe");
         assert_eq!(
             resolve_unit_voice_event("AmericaVehicleHumvee", UnitVoiceSlot::Crush).as_deref(),
             Some("HumveeVoiceCrush")
@@ -514,6 +611,11 @@ mod tests {
             resolve_unit_voice_event("AmericaInfantryRanger", UnitVoiceSlot::Guard).as_deref(),
             Some("RangerVoiceGuard")
         );
+        assert_eq!(
+            resolve_unit_voice_event("GLAInfantryJarmenKell", UnitVoiceSlot::SnipePilot).as_deref(),
+            Some("JarmenKellVoiceSnipe")
+        );
+        assert_eq!(UnitVoiceSlot::SnipePilot.ini_key(), "VoiceSnipePilot");
         assert!(matches!(
             enter_voice_slot(false, true, false, true),
             UnitVoiceSlot::Garrison
@@ -523,6 +625,27 @@ mod tests {
             UnitVoiceSlot::GetHealed
         ));
         clear_test_template_voices();
+    }
+
+    #[test]
+    fn per_unit_under_construction_and_initiate_sound_resolve() {
+        clear_test_template_voices();
+        set_test_per_unit_sound(
+            "AmericaPowerPlant",
+            "UnderConstruction",
+            "BuildingConstructionLoop",
+        );
+        set_test_initiate_sound("SpySatellite", "TestSpySatInitiate");
+        assert_eq!(
+            resolve_per_unit_sound("AmericaPowerPlant", "UnderConstruction").as_deref(),
+            Some("BuildingConstructionLoop")
+        );
+        assert_eq!(
+            resolve_special_power_initiate_sound("SpySatellite", None, None).as_deref(),
+            Some("TestSpySatInitiate")
+        );
+        clear_test_template_voices();
+        clear_building_loops();
     }
 
     #[test]

@@ -27,9 +27,12 @@ pub struct HostScriptQuerySnapshot {
     pub supply_center_cash: HashMap<String, i32>,
     /// isLocationSafe of that warehouse.
     pub supply_center_location_safe: HashMap<String, bool>,
+    /// Live host Player money/power/object census keyed by lowercase SIDE name.
+    pub player_census: HashMap<String, HostScriptPlayerCensus>,
+
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HostScriptQueryObject {
     pub id: u32,
     pub name: String,
@@ -37,7 +40,94 @@ pub struct HostScriptQueryObject {
     pub x: f32,
     pub z: f32,
     pub alive: bool,
+    /// C++ Object::isEffectivelyDead while the pointer still exists.
+    pub effectively_dead: bool,
+    pub health: f32,
+    pub initial_health: f32,
+    pub owner_player: String,
+    pub template_name: String,
+    pub has_contain: bool,
+    pub contain_count: u32,
+    pub contain_max: u32,
+    pub last_damage_source_id: u32,
+    pub last_damage_template: String,
+    pub last_damage_player: String,
+    pub kind_structure: bool,
+    pub kind_projectile: bool,
+    pub kind_inert: bool,
+    pub kind_mine: bool,
+    pub held: bool,
+    pub stealthed_hidden: bool,
+    pub discovered_by: Vec<String>,
+    pub waypoint_labels: Vec<String>,
+    /// C++ Drawable selected / Object::isSelected for NAMED_SELECTED.
+    pub selected: bool,
+    /// C++ AIUpdateInterface::isIdle for sequential UNIT/TEAM progress.
+    pub idle: bool,
+    /// C++ Object::getVisionRange for ENEMY/TYPE_SIGHTED.
+    pub vision_range: f32,
+    /// Host KindOf Debug names (Infantry, Vehicle, Structure, …).
+    pub kind_names: Vec<String>,
 }
+
+/// Live host Player::getMoney / getEnergy / hasAnyObjects census.
+/// C++ ScriptConditions player conditions read these from the same Player.
+#[derive(Debug, Clone, Default)]
+pub struct HostScriptPlayerCensus {
+    /// C++ Player::getMoney()->countMoney().
+    pub money: i32,
+    /// C++ Energy production (0 while sabotaged).
+    pub energy_production: i32,
+    /// C++ Energy consumption.
+    pub energy_consumption: i32,
+    /// C++ Energy::m_powerSabotagedTillFrame still active.
+    pub power_sabotaged: bool,
+    /// C++ Player::hasAnyObjects().
+    pub has_any_objects: bool,
+    /// C++ Player::hasAnyBuildFacility().
+    pub has_any_build_facility: bool,
+    /// C++ Player::countBuildings().
+    pub building_count: i32,
+    /// C++ Player::countObjects(STRUCTURE|MP_COUNT_FOR_VICTORY).
+    pub faction_building_count: i32,
+    /// C++ Player::getSciencePurchasePoints().
+    pub science_purchase_points: i32,
+    /// C++ Player science vec names (SCIENCE_RankN / purchased).
+    pub unlocked_sciences: Vec<String>,
+}
+
+impl HostScriptPlayerCensus {
+    /// C++ Energy::hasSufficientPower.
+    pub fn has_sufficient_power(&self) -> bool {
+        if self.power_sabotaged {
+            false
+        } else {
+            self.energy_production >= self.energy_consumption
+        }
+    }
+
+    /// C++ Energy::getEnergySupplyRatio.
+    pub fn supply_ratio(&self) -> f32 {
+        if self.power_sabotaged {
+            return 0.0;
+        }
+        if self.energy_consumption <= 0 {
+            self.energy_production as f32
+        } else {
+            self.energy_production as f32 / self.energy_consumption as f32
+        }
+    }
+
+    /// C++ production - consumption (sabotage zeros production).
+    pub fn excess_power(&self) -> i32 {
+        if self.power_sabotaged {
+            -self.energy_consumption
+        } else {
+            self.energy_production - self.energy_consumption
+        }
+    }
+}
+
 
 thread_local! {
     static HOST_SCRIPT_QUERY: RefCell<HostScriptQuerySnapshot> =
@@ -89,6 +179,114 @@ pub fn host_script_named_unit_alive(name: &str) -> Option<bool> {
     })
 }
 
+/// True when the host snapshot lists this named unit (alive or dying).
+pub fn host_script_named_unit_present(name: &str) -> bool {
+    host_script_named_unit_alive(name).is_some() || host_script_named_unit_id(name).is_some()
+}
+
+/// C++ evaluateNamedSelected: Object::getName() match on selected drawables.
+pub fn host_script_named_unit_selected(name: &str) -> Option<bool> {
+    if name.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .find(|o| o.name == name)
+            .map(|o| o.selected)
+    })
+}
+
+/// C++ AIGroup::isIdle / isGroupAiDead over host snapshot members.
+/// Empty group is idle and dead (vacuous C++ loops).
+pub fn host_team_sequential_status(team_name: &str) -> (bool, bool) {
+    let ids = host_script_team_member_ids(team_name);
+    if ids.is_empty() {
+        return (true, true);
+    }
+    let mut idle = true;
+    let mut all_dead = true;
+    HOST_SCRIPT_QUERY.with(|slot| {
+        let snap = slot.borrow();
+        for id in ids {
+            let Some(obj) = snap.objects.iter().find(|o| o.id == id) else {
+                continue;
+            };
+            let dead = obj.effectively_dead || !obj.alive;
+            if !dead {
+                all_dead = false;
+            }
+            if !(obj.idle || dead) {
+                idle = false;
+            }
+        }
+    });
+    (idle, all_dead)
+}
+
+pub fn host_script_query_object(name: &str) -> Option<HostScriptQueryObject> {
+    if name.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .find(|o| o.name == name)
+            .cloned()
+    })
+}
+
+pub fn host_script_query_object_by_id(id: u32) -> Option<HostScriptQueryObject> {
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .find(|o| o.id == id)
+            .cloned()
+    })
+}
+
+/// C++ Team::hasAnyObjects over host snapshot members.
+pub fn host_team_has_any_live_objects(team_name: &str) -> bool {
+    let ids: HashSet<u32> = host_script_team_member_ids(team_name).into_iter().collect();
+    if ids.is_empty() {
+        return false;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|o| {
+            ids.contains(&o.id)
+                && o.alive
+                && !o.kind_projectile
+                && !o.kind_inert
+                && !o.kind_mine
+        })
+    })
+}
+
+/// C++ Team::hasAnyUnits over host snapshot members.
+pub fn host_team_has_any_live_units(team_name: &str) -> bool {
+    let ids: HashSet<u32> = host_script_team_member_ids(team_name).into_iter().collect();
+    if ids.is_empty() {
+        return false;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|o| {
+            ids.contains(&o.id)
+                && o.alive
+                && !o.kind_structure
+                && !o.kind_projectile
+                && !o.kind_mine
+        })
+    })
+}
+
+/// True when the host snapshot lists any member ids for this team instance.
+pub fn host_team_was_fielded(team_name: &str) -> bool {
+    !host_script_team_member_ids(team_name).is_empty()
+}
+
 pub fn host_script_team_unit_ids(team: u32) -> Vec<u32> {
     HOST_SCRIPT_QUERY.with(|slot| {
         slot.borrow()
@@ -132,6 +330,253 @@ pub fn host_query_supply_source_safe(player_name: &str, min_supplies: i32) -> Op
         )
     })
 }
+
+/// Live host Player census for leftover/live script player conditions.
+pub fn host_query_player_census(player_name: &str) -> Option<HostScriptPlayerCensus> {
+    let key = host_player_query_key(player_name);
+    if key.is_empty() {
+        return None;
+    }
+    HOST_SCRIPT_QUERY.with(|slot| slot.borrow().player_census.get(&key).cloned())
+}
+
+/// C++ Player::getSciencePurchasePoints from the live host census.
+pub fn host_query_player_science_purchase_points(player_name: &str) -> Option<i32> {
+    host_query_player_census(player_name).map(|c| c.science_purchase_points)
+}
+
+/// C++ Player::hasScience against host unlocked names.
+pub fn host_query_player_has_science(player_name: &str, science_name: &str) -> Option<bool> {
+    let census = host_query_player_census(player_name)?;
+    let want = science_name.trim();
+    if want.is_empty() {
+        return Some(false);
+    }
+    Some(
+        census.unlocked_sciences.iter().any(|owned| {
+            owned.eq_ignore_ascii_case(want)
+                || owned.eq_ignore_ascii_case(&format!("SCIENCE_{want}"))
+                || format!("SCIENCE_{owned}").eq_ignore_ascii_case(want)
+        }),
+    )
+}
+
+fn host_kind_token(name: &str) -> String {
+    name.trim()
+        .trim_start_matches("KINDOF_")
+        .trim_start_matches("KindOf_")
+        .replace('_', "")
+        .to_ascii_lowercase()
+}
+
+/// Match a leftover KindOf against host KindOf Debug names.
+pub fn host_object_has_kind(obj: &HostScriptQueryObject, kind: crate::common::KindOf) -> bool {
+    let want = host_kind_token(&format!("{kind:?}"));
+    obj.kind_names
+        .iter()
+        .any(|n| host_kind_token(n) == want)
+        || match kind {
+            crate::common::KindOf::Structure => obj.kind_structure,
+            crate::common::KindOf::Projectile => obj.kind_projectile,
+            crate::common::KindOf::Inert => obj.kind_inert,
+            crate::common::KindOf::Mine => obj.kind_mine,
+            crate::common::KindOf::Crate => obj
+                .kind_names
+                .iter()
+                .any(|n| host_kind_token(n) == "crate"),
+            _ => false,
+        }
+}
+
+fn host_owner_matches(obj: &HostScriptQueryObject, player_name: &str) -> bool {
+    let want = player_name.trim();
+    if want.is_empty() || obj.owner_player.is_empty() {
+        return false;
+    }
+    obj.owner_player.eq_ignore_ascii_case(want)
+}
+
+fn host_object_in_named_area(obj: &HostScriptQueryObject, area_name: &str) -> bool {
+    if let Some(trigger) = host_script_lookup_polygon_trigger(area_name) {
+        return trigger.point_in_trigger_int(&host_xz_to_trigger_point(obj.x, obj.z));
+    }
+    if let Some((min_x, min_z, max_x, max_z)) = host_script_area_bounds(area_name) {
+        return obj.x >= min_x && obj.x <= max_x && obj.z >= min_z && obj.z <= max_z;
+    }
+    false
+}
+
+fn host_unit_counts_in_area(obj: &HostScriptQueryObject, include_crate: bool) -> bool {
+    let dead_or_inert = obj.effectively_dead || !obj.alive || obj.kind_inert;
+    if include_crate && host_object_has_kind(obj, crate::common::KindOf::Crate) {
+        return true;
+    }
+    !dead_or_inert
+}
+
+/// C++ evaluatePlayerHasUnitTypeInArea count over host objects.
+pub fn host_count_player_type_in_area(
+    player_name: &str,
+    area_name: &str,
+    type_names: &[String],
+) -> Option<i32> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if area_name.is_empty()
+        && host_script_lookup_polygon_trigger(area_name).is_none()
+        && host_script_area_bounds(area_name).is_none()
+    {
+        return None;
+    }
+    if host_script_lookup_polygon_trigger(area_name).is_none()
+        && host_script_area_bounds(area_name).is_none()
+    {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|o| {
+                host_owner_matches(o, player_name)
+                    && type_names.iter().any(|t| o.template_name.eq_ignore_ascii_case(t))
+                    && host_object_in_named_area(o, area_name)
+                    && host_unit_counts_in_area(o, true)
+            })
+            .count() as i32
+    }))
+}
+
+/// C++ evaluatePlayerHasUnitKindInArea count over host objects.
+pub fn host_count_player_kind_in_area(
+    player_name: &str,
+    area_name: &str,
+    kind: crate::common::KindOf,
+) -> Option<i32> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    if host_script_lookup_polygon_trigger(area_name).is_none()
+        && host_script_area_bounds(area_name).is_none()
+    {
+        return None;
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow()
+            .objects
+            .iter()
+            .filter(|o| {
+                host_owner_matches(o, player_name)
+                    && host_object_has_kind(o, kind)
+                    && host_object_in_named_area(o, area_name)
+                    && host_unit_counts_in_area(o, false)
+            })
+            .count() as i32
+    }))
+}
+
+fn host_relationship(
+    looker: &HostScriptQueryObject,
+    candidate: &HostScriptQueryObject,
+) -> crate::common::Relationship {
+    if let (Ok(players), true, true) = (
+        player_list().read(),
+        !looker.owner_player.is_empty(),
+        !candidate.owner_player.is_empty(),
+    ) {
+        if let (Some(a), Some(b)) = (
+            players.find_player_by_name(&looker.owner_player),
+            players.find_player_by_name(&candidate.owner_player),
+        ) {
+            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+                return look.get_relationship(&them);
+            }
+        }
+    }
+    if looker.owner_player.eq_ignore_ascii_case(&candidate.owner_player)
+        && !looker.owner_player.is_empty()
+    {
+        return crate::common::Relationship::Allies;
+    }
+    const HOST_NEUTRAL_TEAM: u32 = 3;
+    if looker.team == HOST_NEUTRAL_TEAM || candidate.team == HOST_NEUTRAL_TEAM {
+        return crate::common::Relationship::Neutral;
+    }
+    if looker.team == candidate.team {
+        crate::common::Relationship::Allies
+    } else {
+        crate::common::Relationship::Enemies
+    }
+}
+
+fn host_sighted_candidate_ok(
+    looker: &HostScriptQueryObject,
+    candidate: &HostScriptQueryObject,
+) -> bool {
+    if candidate.id == looker.id {
+        return false;
+    }
+    if !candidate.alive || candidate.effectively_dead {
+        return false;
+    }
+    if candidate.stealthed_hidden {
+        return false;
+    }
+    let dx = candidate.x - looker.x;
+    let dz = candidate.z - looker.z;
+    dx * dx + dz * dz <= looker.vision_range * looker.vision_range
+}
+
+/// C++ evaluateEnemySighted over host snapshot objects.
+pub fn host_enemy_sighted(unit_name: &str, alliance: i32, player_name: &str) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    let looker = host_script_query_object(unit_name)?;
+    if !looker.alive || looker.effectively_dead {
+        return Some(false);
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|cand| {
+            if !host_sighted_candidate_ok(&looker, cand) {
+                return false;
+            }
+            if !host_owner_matches(cand, player_name) {
+                return false;
+            }
+            let rel = host_relationship(&looker, cand);
+            match alliance {
+                0 => rel == crate::common::Relationship::Enemies,
+                1 => rel == crate::common::Relationship::Neutral,
+                2 => rel == crate::common::Relationship::Allies,
+                _ => false,
+            }
+        })
+    }))
+}
+
+/// C++ evaluateTypeSighted over host snapshot objects.
+pub fn host_type_sighted(unit_name: &str, type_names: &[String], player_name: &str) -> Option<bool> {
+    if !host_script_query_has_any() {
+        return None;
+    }
+    let looker = host_script_query_object(unit_name)?;
+    if !looker.alive || looker.effectively_dead {
+        return Some(false);
+    }
+    Some(HOST_SCRIPT_QUERY.with(|slot| {
+        slot.borrow().objects.iter().any(|cand| {
+            host_sighted_candidate_ok(&looker, cand)
+                && host_owner_matches(cand, player_name)
+                && type_names
+                    .iter()
+                    .any(|t| cand.template_name.eq_ignore_ascii_case(t))
+        })
+    }))
+}
+
+
 
 
 pub fn host_script_area_unit_ids(min_x: f32, min_z: f32, max_x: f32, max_z: f32) -> Vec<u32> {

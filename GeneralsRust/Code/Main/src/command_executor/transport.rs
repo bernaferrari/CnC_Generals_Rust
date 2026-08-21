@@ -231,6 +231,11 @@ impl<'a> CommandExecutor<'a> {
                 if occupant_selected {
                     continue;
                 }
+                // C++ AIUpdateInterface::privateEvacuate — DISABLED_SUBDUED
+                // solders the doors shut (Microwave Tank).
+                if selected_obj.is_subdued_disabled() {
+                    continue;
+                }
                 // Prefer get_position() (authoritative Thing pos). The pub `position`
                 // field is often left at default ZERO after create_object set_position.
                 let origin = selected_obj
@@ -296,6 +301,12 @@ impl<'a> CommandExecutor<'a> {
             } else {
                 (selected_obj.get_position(), None)
             };
+            if container_id
+                .and_then(|cid| self.game_logic.host_object(cid))
+                .is_some_and(|c| c.is_subdued_disabled())
+            {
+                continue;
+            }
 
             if seen_units.insert(selected_id) {
                 to_unload.push((selected_id, container_id, origin));
@@ -418,10 +429,12 @@ impl<'a> CommandExecutor<'a> {
                 let is_troop_crawler = container
                     .map(|c| c.is_troop_crawler_style_container())
                     .unwrap_or(false);
-                let is_structure = container
-                    .map(|c| c.is_kind_of(KindOf::Structure))
+                let is_garrison = container
+                    .map(|c| c.is_garrison_contain())
                     .unwrap_or(false);
-                if garrisoned {
+                // C++ GarrisonContain::exitObjectViaDoor — burst/left/right walk.
+                // Do not treat every KINDOF_STRUCTURE as garrison (HealContain).
+                if garrisoned || is_garrison {
                     (true, false, false, false, false, false, false, false)
                 } else if docked {
                     if is_overlord {
@@ -440,9 +453,7 @@ impl<'a> CommandExecutor<'a> {
                         (false, false, false, false, false, false, false, false)
                     }
                 } else if unit.contained_by.is_some() || container_id.is_some() {
-                    if is_structure {
-                        (true, false, false, false, false, false, false, false)
-                    } else if is_overlord {
+                    if is_overlord {
                         (false, true, false, false, false, false, false, false)
                     } else if is_technical {
                         (false, false, false, true, false, false, false, false)
@@ -464,10 +475,36 @@ impl<'a> CommandExecutor<'a> {
                 (false, false, false, false, false, false, false, false)
             };
 
-            // Wave 233: exit drop via GameLogic authority API.
-            let _ = self
-                .game_logic
-                .unit_command_exit_drop(unit_id, drop_position);
+            // C++ GarrisonContain::exitObjectViaDoor: burst / left / right walk.
+            // Do not teleport to the 6-unit Idle ring used for generic dumps.
+            if was_garrisoned {
+                if let Some(cid) = container_id {
+                    let _ = self.game_logic.garrison_exit_occupant_via_door(unit_id, cid);
+                } else {
+                    let _ = self
+                        .game_logic
+                        .unit_command_exit_drop(unit_id, drop_position);
+                }
+            } else if !was_tunnel {
+                // C++ OpenContain::exitObjectViaDoor — ExitStart/End walk.
+                // Do not Idle-teleport a 6-unit ring around the hull.
+                if let Some(cid) = container_id {
+                    if !self.game_logic.unit_command_exit_via_open_contain(unit_id, cid) {
+                        let _ = self
+                            .game_logic
+                            .unit_command_exit_drop(unit_id, drop_position);
+                    }
+                } else {
+                    let _ = self
+                        .game_logic
+                        .unit_command_exit_drop(unit_id, drop_position);
+                }
+            } else {
+                // Wave 233: tunnel exit drop via GameLogic authority API.
+                let _ = self
+                    .game_logic
+                    .unit_command_exit_drop(unit_id, drop_position);
+            }
             if was_tunnel {
                 // Counters already recorded in exit_tunnel_network_unit.
             } else if was_garrisoned {
@@ -515,8 +552,11 @@ impl<'a> CommandExecutor<'a> {
         for cid in pending_containers {
             if let Some(c) = self.game_logic.host_object_mut(cid) {
                 c.pending_evacuate_on_stop = true;
+                // C++ orderAllPassengersToExit → AIExitState, no stop required.
+                c.pending_stream_exit = true;
             }
         }
+
 
 
         CommandResult::Success
@@ -534,6 +574,10 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             if !obj.is_alive() {
+                continue;
+            }
+            // C++ AIUpdateInterface::privateEvacuate — DISABLED_SUBDUED.
+            if obj.is_subdued_disabled() {
                 continue;
             }
             let is_container =
@@ -603,6 +647,7 @@ impl<'a> CommandExecutor<'a> {
             let can = match self.game_logic.host_object(unit_id) {
                 Some(obj)
                     if obj.is_alive()
+                        && !obj.is_subdued_disabled()
                         && obj.can_move()
                         && (obj.can_contain()
                             || obj.is_kind_of(crate::game_logic::KindOf::Aircraft)
@@ -1361,6 +1406,299 @@ mod tests {
     }
 
     #[test]
+    fn execute_exit_keeps_dumping_while_humvee_moves() {
+        // C++ AIExitState::update has no stop/motion requirement.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EXIT_HV_MOVE");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("EXIT_HV_MOVE".to_string(), t);
+        for name in ["EXIT_HMA", "EXIT_HMB"] {
+            let mut p = ThingTemplate::new(name);
+            p.add_kind_of(KindOf::Infantry);
+            p.add_kind_of(KindOf::Selectable);
+            p.set_health(100.0);
+            logic.templates.insert(name.to_string(), p);
+        }
+        let transport = logic
+            .create_object("EXIT_HV_MOVE", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.install_humvee_transport();
+        }
+        let a = logic
+            .create_object("EXIT_HMA", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("EXIT_HMB", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, a);
+        contain_pair(&mut logic, transport, b);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        }
+        assert_eq!(
+            logic.host_object(transport).unwrap().contained_units().len(),
+            1,
+            "ExitDelay dumps one occupant immediately"
+        );
+        assert!(
+            logic.host_object(transport).unwrap().pending_stream_exit,
+            "remaining riders must be marked to stream without a hull stop"
+        );
+
+        {
+            let t = logic.host_object_mut(transport).unwrap();
+            t.status.moving = true;
+            t.movement.path = vec![Vec3::new(400.0, 0.0, 0.0)];
+            t.movement.current_path_index = 0;
+            t.movement.target_position = Some(Vec3::new(400.0, 0.0, 0.0));
+        }
+        let delay = crate::game_logic::host_humvee::HUMVEE_EXIT_DELAY_FRAMES;
+        logic.set_current_frame(u64::from(logic.frame.saturating_add(delay)));
+        logic.update_movement_for_test(&[transport], 1.0 / 30.0);
+        let hull = logic.host_object(transport).unwrap();
+        assert!(
+            hull.contained_units().is_empty(),
+            "remaining riders must stream out while the hull is still driving"
+        );
+        assert!(
+            hull.status.moving || !hull.movement.path.is_empty(),
+            "hull must still be mid-move after the stagger dump"
+        );
+    }
+
+    #[test]
+    fn execute_exit_and_evacuate_ignored_while_subdued() {
+        // C++ privateExit / privateEvacuate return when DISABLED_SUBDUED.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("EXIT_HV_SUB");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("EXIT_HV_SUB".to_string(), t);
+        let mut p = ThingTemplate::new("EXIT_HSP");
+        p.add_kind_of(KindOf::Infantry);
+        p.add_kind_of(KindOf::Selectable);
+        p.set_health(100.0);
+        logic.templates.insert("EXIT_HSP".to_string(), p);
+        let transport = logic
+            .create_object("EXIT_HV_SUB", Team::USA, Vec3::ZERO)
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.install_humvee_transport();
+        }
+        let pax = logic
+            .create_object("EXIT_HSP", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.set_disabled_subdued(true);
+        }
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(
+                exec.execute_exit(&[transport]),
+                CommandResult::InvalidCommand
+            );
+            assert_eq!(
+                exec.execute_evacuate(&[transport]),
+                CommandResult::InvalidCommand
+            );
+        }
+        assert_eq!(
+            logic.host_object(pax).unwrap().contained_by,
+            Some(transport),
+            "Microwave-subdued transport must keep its doors shut"
+        );
+        assert!(!logic.evacuate_container_now(transport, false));
+        assert_eq!(
+            logic.host_object(pax).unwrap().contained_by,
+            Some(transport)
+        );
+    }
+
+    #[test]
+    fn execute_exit_walks_exit_path_not_idle_ring() {
+        // C++ OpenContain::exitObjectViaDoor places at ExitStart and
+        // aiFollowPath to ExitEnd. Live must not Idle-teleport a 6-unit ring.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("WALK_T");
+        t.add_kind_of(KindOf::Vehicle);
+        t.add_kind_of(KindOf::Selectable);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("WALK_T".to_string(), t);
+        let mut p = ThingTemplate::new("WALK_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.add_kind_of(KindOf::Selectable);
+        p.set_health(100.0);
+        logic.templates.insert("WALK_P".to_string(), p);
+        let transport = logic
+            .create_object("WALK_T", Team::USA, Vec3::new(10.0, 0.0, 4.0))
+            .unwrap();
+        let pax = logic
+            .create_object("WALK_P", Team::USA, Vec3::new(11.0, 0.0, 4.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        }
+        let hull = logic.host_object(transport).unwrap().get_position();
+        let rider = logic.host_object(pax).unwrap();
+        assert!(rider.contained_by.is_none());
+        assert_eq!(rider.ai_state, AIState::Moving, "must walk ExitStart/End");
+        assert!(rider.status.moving);
+        let pos = rider.get_position();
+        assert!(
+            (pos - hull).length() < 1.0,
+            "start at ExitStart/hull, not a 6-unit ring: pos={pos:?} hull={hull:?}"
+        );
+        let dest = rider.movement.target_position.expect("exit dest");
+        assert!(
+            (dest - hull).length() > 8.0,
+            "dest must be ExitEnd/forward, not a 6-unit ring: dest={dest:?}"
+        );
+    }
+
+    #[test]
+    fn evacuate_container_now_walks_transport_not_idle_ring() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("WALK_EV_T");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("WALK_EV_T".to_string(), t);
+        let mut p = ThingTemplate::new("WALK_EV_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("WALK_EV_P".to_string(), p);
+        let transport = logic
+            .create_object("WALK_EV_T", Team::USA, Vec3::new(3.0, 0.0, 8.0))
+            .unwrap();
+        let pax = logic
+            .create_object("WALK_EV_P", Team::USA, Vec3::new(4.0, 0.0, 8.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        assert!(logic.evacuate_container_now(transport, false));
+        let hull = logic.host_object(transport).unwrap().get_position();
+        let rider = logic.host_object(pax).unwrap();
+        assert!(rider.contained_by.is_none());
+        assert_eq!(rider.ai_state, AIState::Moving);
+        assert!(rider.status.moving);
+        assert!((rider.get_position() - hull).length() < 1.0);
+        let dest = rider.movement.target_position.expect("exit dest");
+        assert!((dest - hull).length() > 8.0);
+    }
+
+    #[test]
+    fn execute_exit_airborne_allows_fall_and_keeps_hull_velocity() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("WALK_AIR_T");
+        t.add_kind_of(KindOf::Aircraft);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(8),
+            ..Default::default()
+        };
+        logic.templates.insert("WALK_AIR_T".to_string(), t);
+        let mut p = ThingTemplate::new("WALK_AIR_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("WALK_AIR_P".to_string(), p);
+        let transport = logic
+            .create_object("WALK_AIR_T", Team::USA, Vec3::new(0.0, 20.0, 0.0))
+            .unwrap();
+        {
+            let h = logic.host_object_mut(transport).unwrap();
+            h.status.airborne_target = true;
+            h.movement.velocity = Vec3::new(12.0, 0.0, 0.0);
+        }
+        let pax = logic
+            .create_object("WALK_AIR_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        }
+        let rider = logic.host_object(pax).unwrap();
+        assert!(rider.contained_by.is_none());
+        assert_eq!(rider.ai_state, AIState::Moving);
+        assert!(
+            rider.allow_to_fall,
+            "C++ onRemoving setAllowToFall when hull is above terrain"
+        );
+    }
+
+    #[test]
+    fn execute_exit_walks_after_occupant_list_cleared() {
+        // execute_exit remove_occupant then walks by container id.
+        // Must not require contained_by to still be set, and must not Idle-ring.
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("WALK_CLR_T");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("WALK_CLR_T".to_string(), t);
+        let mut p = ThingTemplate::new("WALK_CLR_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("WALK_CLR_P".to_string(), p);
+        let transport = logic
+            .create_object("WALK_CLR_T", Team::USA, Vec3::new(6.0, 0.0, 2.0))
+            .unwrap();
+        let pax = logic
+            .create_object("WALK_CLR_P", Team::USA, Vec3::new(7.0, 0.0, 2.0))
+            .unwrap();
+        contain_pair(&mut logic, transport, pax);
+        let _ = logic.unit_command_remove_occupant(transport, pax);
+        {
+            let rider = logic.host_object_mut(pax).unwrap();
+            rider.set_contained_by(None);
+        }
+        assert!(logic.unit_command_exit_via_open_contain(pax, transport));
+        let hull = logic.host_object(transport).unwrap().get_position();
+        let rider = logic.host_object(pax).unwrap();
+        assert_eq!(rider.ai_state, AIState::Moving);
+        assert!(rider.status.moving);
+        assert!((rider.get_position() - hull).length() < 1.0);
+        let dest = rider.movement.target_position.expect("exit dest");
+        assert!((dest - hull).length() > 8.0);
+    }
+
+
+
+    #[test]
     fn combat_drop_into_rejects_faction_structure() {
         let mut logic = GameLogic::new();
         let mut t = ThingTemplate::new("CD_T6");
@@ -1537,6 +1875,195 @@ mod tests {
             crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Flying
         );
     }
+
+    fn garrison_bunker(
+        logic: &mut GameLogic,
+        bunker_name: &str,
+        ranger_name: &str,
+        origin: Vec3,
+        evac: Option<u8>,
+    ) -> (ObjectId, ObjectId) {
+        let mut bunker_t = ThingTemplate::new(bunker_name);
+        bunker_t
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1000.0);
+        bunker_t.contain_module = ContainModuleMetadata {
+            kind: ContainModuleKind::Garrison,
+            slots: Some(5),
+            admission: ContainAdmission::InfantryOnly,
+            is_enclosing_container: true,
+            ..Default::default()
+        };
+        bunker_t.geometry_info.authored = true;
+        bunker_t.geometry_info.major_radius = 20.0;
+        bunker_t.geometry_info.minor_radius = 10.0;
+        logic.templates.insert(bunker_name.to_string(), bunker_t);
+        let mut ranger_t = ThingTemplate::new(ranger_name);
+        ranger_t
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(120.0);
+        ranger_t.transport_slot_count = Some(1);
+        logic.templates.insert(ranger_name.to_string(), ranger_t);
+        let bunker = logic.create_object(bunker_name, Team::USA, origin).unwrap();
+        if let Some(disp) = evac {
+            logic
+                .host_object_mut(bunker)
+                .unwrap()
+                .set_garrison_evac_disposition(disp);
+        }
+        let ranger = logic
+            .create_object(ranger_name, Team::USA, origin + Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let t = logic.host_object_mut(bunker).unwrap();
+            assert!(t.add_occupant(ranger));
+        }
+        {
+            let p = logic.host_object_mut(ranger).unwrap();
+            p.set_contained_by(Some(bunker));
+            p.set_ai_state(AIState::Garrisoned);
+        }
+        (bunker, ranger)
+    }
+
+    #[test]
+    fn execute_exit_garrison_walks_burst_not_six_unit_ring() {
+        let mut logic = GameLogic::new();
+        let origin = Vec3::new(10.0, 0.0, 20.0);
+        let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GB", "EXIT_GR", origin, None);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert!(r.contained_by.is_none());
+        assert!(
+            matches!(r.ai_state, AIState::Moving),
+            "Evacuate/Exit on a garrison must walk, not Idle on a 6-unit ring"
+        );
+        assert!(r.status.moving);
+        let dest = r.movement.target_position.expect("burst dest");
+        assert!(
+            (dest - origin).length() > 8.0,
+            "burst dest must leave the building, not a 6-unit ring: dest={dest:?}"
+        );
+        let drop_ring = (r.get_position() - origin).length();
+        assert!(
+            drop_ring < 2.0,
+            "enclosing burst snaps to building origin, not a 6-unit teleport: pos={:?}",
+            r.get_position()
+        );
+    }
+
+    #[test]
+    fn execute_evacuate_garrison_walks_burst_not_six_unit_ring() {
+        let mut logic = GameLogic::new();
+        let origin = Vec3::new(4.0, 0.0, 8.0);
+        let (bunker, ranger) = garrison_bunker(&mut logic, "EVAC_GB", "EVAC_GR", origin, None);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_evacuate(&[bunker]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert!(r.contained_by.is_none());
+        assert_eq!(r.ai_state, AIState::Moving);
+        let dest = r.movement.target_position.expect("evac dest");
+        assert!(
+            (dest - origin).length() > 8.0,
+            "Evacuate button must burst-walk, not a 6-unit ring: dest={dest:?}"
+        );
+        assert!((r.get_position() - origin).length() < 2.0);
+    }
+
+    #[test]
+    fn execute_exit_garrison_occupant_inventory_walks_burst() {
+        // C++ MSG_EXIT / Command_StructureExit: occupant argument, not the bunker.
+        let mut logic = GameLogic::new();
+        let origin = Vec3::new(30.0, 0.0, 12.0);
+        let (_bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GO", "EXIT_GOR", origin, None);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[ranger]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert!(r.contained_by.is_none());
+        assert_eq!(r.ai_state, AIState::Moving);
+        let dest = r.movement.target_position.expect("inventory dest");
+        assert!(
+            (dest - origin).length() > 8.0,
+            "inventory Exit must burst-walk: dest={dest:?}"
+        );
+    }
+
+    #[test]
+    fn execute_exit_garrison_respects_evac_left() {
+        let mut logic = GameLogic::new();
+        let (bunker, ranger) =
+            garrison_bunker(&mut logic, "EXIT_GL", "EXIT_GLR", Vec3::ZERO, Some(1));
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert!(matches!(r.ai_state, AIState::Moving));
+        let dest = r.movement.target_position.expect("left dest");
+        assert!(
+            dest.z.abs() >= 50.0,
+            "EVAC_TO_LEFT must spread along the side (minor*10), not a 6-unit ring: dest={dest:?}"
+        );
+        assert!(
+            dest.z > 0.0,
+            "EVAC_TO_LEFT walk-to is +minor*10 in local Y: dest={dest:?}"
+        );
+    }
+
+    #[test]
+    fn execute_exit_garrison_respects_evac_right() {
+        let mut logic = GameLogic::new();
+        let (bunker, ranger) =
+            garrison_bunker(&mut logic, "EXIT_GRT", "EXIT_GRTR", Vec3::ZERO, Some(2));
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert!(matches!(r.ai_state, AIState::Moving));
+        let dest = r.movement.target_position.expect("right dest");
+        assert!(
+            dest.z.abs() >= 50.0,
+            "EVAC_TO_RIGHT must spread along the side (minor*10): dest={dest:?}"
+        );
+        assert!(
+            dest.z < 0.0,
+            "EVAC_TO_RIGHT walk-to is -minor*10 in local Y: dest={dest:?}"
+        );
+    }
+
+    #[test]
+    fn execute_exit_garrison_walks_without_garrisoned_ai_state() {
+        // Contain-module classification, not only AIState::Garrisoned.
+        let mut logic = GameLogic::new();
+        let origin = Vec3::new(1.0, 0.0, 1.0);
+        let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GI", "EXIT_GIR", origin, None);
+        logic
+            .host_object_mut(ranger)
+            .unwrap()
+            .set_ai_state(AIState::Idle);
+        {
+            let mut exec = CommandExecutor::new(&mut logic, 0);
+            assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        }
+        let r = logic.host_object(ranger).unwrap();
+        assert_eq!(r.ai_state, AIState::Moving);
+        let dest = r.movement.target_position.expect("idle-ai dest");
+        assert!(
+            (dest - origin).length() > 8.0,
+            "is_garrison_contain must still burst-walk: dest={dest:?}"
+        );
+    }
+
 
 }
 

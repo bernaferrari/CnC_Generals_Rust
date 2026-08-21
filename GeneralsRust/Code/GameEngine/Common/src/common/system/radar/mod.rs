@@ -1529,6 +1529,41 @@ impl RadarSystem {
         self.radar_force_on
     }
 
+    /// C++ `Radar::xfer` hidden/force-on + event ring.
+    pub fn snapshot_persist_state(
+        &self,
+    ) -> (
+        bool,
+        bool,
+        [RadarEvent; MAX_RADAR_EVENTS],
+        usize,
+        Option<usize>,
+    ) {
+        (
+            self.radar_hidden,
+            self.radar_force_on,
+            self.events.clone(),
+            self.next_free_event,
+            self.last_event,
+        )
+    }
+
+    pub fn restore_persist_state(
+        &mut self,
+        hidden: bool,
+        forced: bool,
+        events: [RadarEvent; MAX_RADAR_EVENTS],
+        next_free: usize,
+        last: Option<usize>,
+    ) {
+        self.radar_hidden = hidden;
+        self.radar_force_on = forced;
+        self.events = events;
+        self.next_free_event = next_free.min(MAX_RADAR_EVENTS.saturating_sub(1));
+        self.last_event = last.filter(|idx| *idx < MAX_RADAR_EVENTS);
+    }
+
+
     /// Get drawable active events (C++ `drawEvents` skips `RADAR_EVENT_FAKE`).
     pub fn get_active_events(&self) -> Vec<&RadarEvent> {
         self.drawable_events()

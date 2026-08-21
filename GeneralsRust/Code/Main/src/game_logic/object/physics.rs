@@ -260,6 +260,14 @@ impl Object {
         max_speed
     }
 
+    /// C++ `AIUpdateInterface::isMoving` (AIUpdate.cpp:3169-3180).
+    pub fn host_ai_is_moving(&self) -> bool {
+        self.status.moving
+            || self.movement.target_position.is_some()
+            || !self.movement.path.is_empty()
+            || self.movement.velocity.length_squared() > 0.01
+    }
+
     /// C++ AIUpdateInterface::processCollision residual (force-apply gate + blocked).
     ///
     /// Returns true if physics should apply bounce force. Sets is_blocked /
@@ -289,7 +297,7 @@ impl Object {
             return false;
         }
 
-        let self_moving = self.movement.velocity.length_squared() > 0.01;
+        let self_moving = self.host_ai_is_moving();
         if self_moving {
             let blocked = self.ai_blocked_by(other, is_ally);
             if blocked {
@@ -298,9 +306,20 @@ impl Object {
                     return true;
                 }
                 self.is_blocked = true;
+                if self.num_frames_blocked == 0 {
+                    self.num_frames_blocked = 1;
+                }
                 let max_speed = self.calculate_max_blocked_speed(other);
                 if max_speed < self.cur_max_blocked_speed {
                     self.cur_max_blocked_speed = max_speed;
+                }
+                // C++ processCollision: rotate resets blockedFrames; stopped other → stuck.
+                if !self.need_to_rotate() {
+                    if !other.host_ai_is_moving() {
+                        self.is_blocked_and_stuck = true;
+                    }
+                } else {
+                    self.num_frames_blocked = 1;
                 }
                 // Vehicle into infantry: request move-away residual.
                 if other.is_kind_of(crate::game_logic::KindOf::Infantry)
@@ -316,6 +335,7 @@ impl Object {
         }
         false
     }
+
 
     /// Apply cur_max_blocked_speed cap residual (2D XZ).
     pub fn apply_blocked_speed_cap(&mut self) {
@@ -581,10 +601,10 @@ impl Object {
         }
     }
 
-    /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual (ground units).
+    /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual.
     ///
     /// Stops horizontal motion for legs/treads/wheels; hover/wings need constant Z.
-    pub fn loco_maintain_current_position(&mut self, ground_y: f32) -> bool {
+    pub fn loco_maintain_current_position(&mut self, ground_y: f32, dt: f32) -> bool {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
             self.record_host_combat_attack();
@@ -597,14 +617,14 @@ impl Object {
         // Appearance-specific maintain residual.
         match self.loco_appearance {
             LocomotorAppearance::Wings => {
-                // Circling maintain — needs dt; use 1/30 frame residual.
-                self.maintain_position_wings(1.0 / 30.0);
+                self.motive_frames_remaining = MOTIVE_FRAMES_RESIDUAL.max(1);
+                self.maintain_position_wings(dt.max(1.0 / 30.0));
                 return true;
             }
             LocomotorAppearance::Thrust => {
                 if let Some(m) = self.maintain_pos {
                     let spd = self.min_speed.max(1.0);
-                    self.move_towards_thrust(m, 0.0, spd, 1.0 / 30.0);
+                    self.move_towards_thrust(m, 0.0, spd, dt.max(1.0 / 30.0));
                 }
                 return true;
             }
@@ -636,6 +656,154 @@ impl Object {
         let needs_z = self.handle_behavior_z(ground_y, maintain_y);
         // Hover/air need constant calling; ground settled does not.
         airborne_loco || needs_z
+    }
+
+    /// C++ `AIUpdateInterface::chooseGoodLocomotorFromCurrentSet` (AIUpdate.cpp:833-872).
+    pub fn choose_good_locomotor_from_current_set(
+        &mut self,
+        cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
+    ) {
+        if self.locomotor_set_names.len() < 2 {
+            let fallback =
+                crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(
+                    &self.thing.template.name,
+                );
+            if fallback.len() >= 2 {
+                self.locomotor_set_names = fallback;
+            }
+        }
+        if self.locomotor_set_names.len() < 2 {
+            return;
+        }
+        let acceptable =
+            crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+                cell_type,
+            );
+        let chosen = crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            &self.locomotor_set_names,
+            acceptable,
+        )
+        .or_else(|| self.cur_locomotor_name.clone())
+        .or_else(|| {
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                &self.locomotor_set_names,
+                crate::game_logic::object::LOCO_SURFACE_GROUND,
+            )
+        });
+        let Some(name) = chosen else {
+            return;
+        };
+        if self
+            .cur_locomotor_name
+            .as_deref()
+            .is_some_and(|cur| cur.eq_ignore_ascii_case(&name))
+        {
+            return;
+        }
+        let Some(binding) =
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name)
+        else {
+            return;
+        };
+        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(self, &binding);
+        self.cur_locomotor_name = Some(name);
+        self.precise_z_pos = false;
+        self.no_slow_down_as_approaching_dest = false;
+        self.ultra_accurate = false;
+    }
+
+
+    /// C++ `Locomotor::moveTowardsPositionHover` OVER_WATER (Locomotor.cpp:1868-1886).
+    pub fn apply_hover_over_water(&mut self, underwater: bool) {
+        if !matches!(self.loco_appearance, LocomotorAppearance::Hover) {
+            if self.over_water {
+                self.over_water = false;
+                self.refresh_model_condition_bits();
+                self.record_host_locomotor();
+            }
+            return;
+        }
+        if self.over_water == underwater {
+            return;
+        }
+        self.over_water = underwater;
+        self.refresh_model_condition_bits();
+        self.record_host_locomotor();
+    }
+
+
+    /// C++ `AIUpdateInterface::needToRotate` (AIUpdate.cpp:1380-1403).
+    pub fn need_to_rotate(&self) -> bool {
+        if self.waiting_for_path {
+            return true;
+        }
+        if self.wander_width_factor > 0.0 {
+            return false;
+        }
+        let Some(tgt) = self.movement.target_position else {
+            return false;
+        };
+        let us = self.get_position();
+        let dx = tgt.x - us.x;
+        let dz = tgt.z - us.z;
+        if dx * dx + dz * dz < 1.0e-6 {
+            return false;
+        }
+        let desired = (-dz).atan2(dx);
+        let mut delta = desired - self.get_orientation();
+        while delta > std::f32::consts::PI {
+            delta -= std::f32::consts::TAU;
+        }
+        while delta < -std::f32::consts::PI {
+            delta += std::f32::consts::TAU;
+        }
+        delta.abs() > std::f32::consts::PI / 30.0
+    }
+
+    /// C++ doLocomotor blocked-frame bookkeeping (AIUpdate.cpp:2116-2127).
+    pub fn tick_do_locomotor_blocked_frames(&mut self) {
+        if self.is_blocked {
+            if self.need_to_rotate() {
+                self.num_frames_blocked = 1;
+            } else {
+                self.num_frames_blocked = self.num_frames_blocked.saturating_add(1);
+            }
+        } else {
+            self.num_frames_blocked = 0;
+        }
+        self.is_blocked = false;
+    }
+
+    /// C++ doLocomotor bumpSpeedLimit cap before moveTowardsPosition (AIUpdate.cpp:2197-2217).
+    pub fn apply_do_locomotor_blocked_speed(&mut self, mut speed: f32) -> f32 {
+        let blocked = self.num_frames_blocked > 0;
+        if blocked && speed > self.cur_max_blocked_speed {
+            speed = self.cur_max_blocked_speed;
+            if self.bump_speed_limit > speed {
+                self.bump_speed_limit = speed;
+            }
+            self.bump_speed_limit *= 0.95;
+            speed = self.bump_speed_limit;
+        } else if self.bump_speed_limit < f32::MAX {
+            // C++ only eases while bump < FAST_AS_POSSIBLE (AIUpdate.cpp:2209-2217).
+            if self.bump_speed_limit < speed * 0.2 {
+                self.bump_speed_limit = speed * 0.2;
+            }
+            self.bump_speed_limit *= 1.05;
+            if speed > self.bump_speed_limit {
+                speed = self.bump_speed_limit;
+            }
+        }
+        speed.max(0.0)
+    }
+
+
+    /// Wings/thrust hold the last waypoint by circling instead of `stop_moving`.
+    pub fn holds_air_position_when_idle(&self) -> bool {
+        matches!(
+            self.loco_appearance,
+            LocomotorAppearance::Wings | LocomotorAppearance::Thrust
+        )
     }
 
     /// C++ Locomotor::setPhysicsOptions residual.
@@ -1059,7 +1227,8 @@ impl Object {
     /// C++ maintainCurrentPositionWings residual — circle around maintain pos.
     pub fn maintain_position_wings(&mut self, dt: f32) {
         self.physics_turning = PhysicsTurningType::TurnNone;
-        if !self.is_motive() && !self.status.airborne_target {
+        // C++ maintainCurrentPositionWings: isMotive() && isAboveTerrain().
+        if !self.is_motive() || !self.is_above_terrain() {
             return;
         }
         let Some(maintain) = self.maintain_pos else {
@@ -1089,19 +1258,18 @@ impl Object {
             maintain.y,
             maintain.z + (-angle.sin()) * turn_radius, // match host dir xz from angle
         );
-        // Drive toward opposite side of circle at min_speed.
-        let spd = self.min_speed.max(self.movement.max_speed * 0.25).max(1.0);
+        // C++ moveTowardsPositionWings(..., m_template->m_minSpeed).
+        let spd = self.min_speed.max(0.0);
         self.movement.target_position = Some(desired);
-        // One sub-step of other-like move without recursion into maintain.
         let (_t, _rel) = self.rotate_towards_position(desired, dt);
         self.apply_forward_speed_force(spd, dt);
         let p = self.get_position() + self.movement.velocity * dt;
         self.set_position(p);
-        // Restore no-order state.
         self.movement.target_position = None;
         let gy = p.y;
         let _ = self.handle_behavior_z(gy, Some(maintain.y));
     }
+
 
     /// C++ moveTowardsPositionThrust residual (simplified 3D force toward goal).
     pub fn move_towards_thrust(

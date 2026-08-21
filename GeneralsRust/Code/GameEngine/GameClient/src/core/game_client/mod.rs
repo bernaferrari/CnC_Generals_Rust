@@ -67,7 +67,7 @@ use crate::display::view::with_tactical_view_ref;
 use crate::display::DisplayInterface;
 use crate::drawable::*;
 use crate::effects::weather_complete::{get_weather_system_mut, initialize_weather_system};
-use crate::effects::{DecalManager, DecalSettings, EffectsConfig};
+use crate::effects::{DecalManager, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;

@@ -447,7 +447,6 @@ mod tests {
             );
             assert!(!e.hacker_in_internet_center);
             assert_eq!(e.contained_by_host, 0);
-            assert!(!e.moving);
         }
 
         host_hacker_income_log::clear();

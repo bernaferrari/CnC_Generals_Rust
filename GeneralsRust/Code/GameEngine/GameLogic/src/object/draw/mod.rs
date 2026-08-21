@@ -41,8 +41,8 @@ pub use w3d_default_draw::{W3DDefaultDraw, W3DDefaultDrawModuleData};
 pub use w3d_dependency_model_draw::{W3DDependencyModelDraw, W3DDependencyModelDrawModuleData};
 pub use w3d_laser_draw::{W3DLaserDraw, W3DLaserDrawModuleData};
 pub use w3d_model_draw::{
-    lookup_pristine_bone_translation, register_pristine_bone_lookup_hook, W3DModelDraw,
-    W3DModelDrawModuleData,
+    lookup_pristine_bone_pose, lookup_pristine_bone_translation, register_pristine_bone_lookup_hook,
+    W3DModelDraw, W3DModelDrawModuleData,
 };
 pub use w3d_overlord_aircraft_draw::{W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData};
 pub use w3d_overlord_tank_draw::{W3DOverlordTankDraw, W3DOverlordTankDrawModuleData};

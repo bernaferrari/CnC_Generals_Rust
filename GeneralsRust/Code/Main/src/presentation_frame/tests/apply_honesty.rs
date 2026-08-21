@@ -1646,3 +1646,35 @@ fn burton_detonate_button_gray_without_remote_charges() {
     );
 }
 
+#[test]
+fn complete_events_do_not_invent_unit_ready_upgrade_building_sfx() {
+    let mut snap = PresentationFrame::build_from_logic(&GameLogic::new(), 0);
+    snap.events.push(PresentationEvent::ConstructionComplete {
+        id: ObjectId(1),
+        template: "AmericaBarracks".into(),
+    });
+    snap.events.push(PresentationEvent::UpgradeComplete {
+        name: "Upgrade_AmericaRangerCaptureBuilding".into(),
+        player_id: 0,
+        team: Team::USA,
+        units_affected: 1,
+    });
+    snap.events.push(PresentationEvent::ProductionComplete {
+        producer: ObjectId(1),
+        template: "AmericaInfantryRanger".into(),
+        spawned: ObjectId(2),
+    });
+    let names: Vec<String> = snap
+        .collect_audio_events()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    assert!(
+        names.iter().all(|n| n != "BuildingComplete"
+            && n != "UnitReady"
+            && n != "UpgradeComplete"),
+        "invented complete SFX: {names:?}"
+    );
+}
+
+

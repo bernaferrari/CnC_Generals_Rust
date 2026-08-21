@@ -437,7 +437,13 @@ impl Object {
     pub fn can_fire(&self, current_time: f32) -> bool {
         // C++ Object::canFireWeapon: DISABLED_SUBDUED / weapons_jammed residual.
         // Shock stun residual blocks weapon fire while flailing/stunned.
-        if self.status.weapons_jammed || self.is_disabled() || self.is_shock_stunned() {
+        // C++ Object::isAbleToAttack: UNDER_CONSTRUCTION / SOLD cannot fire.
+        if self.status.weapons_jammed
+            || self.is_disabled()
+            || self.is_shock_stunned()
+            || self.status.under_construction
+            || self.status.sold
+        {
             return false;
         }
         let primary_name = self.primary_weapon_name().map(str::to_owned);

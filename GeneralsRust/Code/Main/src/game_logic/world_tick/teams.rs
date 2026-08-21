@@ -295,6 +295,62 @@ impl GameLogic {
         }
     }
 
+    /// C++ default team name is `"team" + playerName` (Player.cpp).
+    pub fn default_host_team_instance_name(
+        &self,
+        owner_player_id: Option<u32>,
+        team: crate::game_logic::Team,
+    ) -> String {
+        if let Some(pid) = owner_player_id {
+            if let Some(player) = self.players.get(&pid) {
+                let name = player.name.trim();
+                if !name.is_empty() {
+                    return format!("team{name}");
+                }
+            }
+        }
+        format!("team{}", team.get_name())
+    }
+
+    /// C++ GameLogic.cpp:1888 `team->setActive()` when the team first has members.
+    pub fn activate_leftover_team_for_host_object(&self, id: ObjectId) {
+        let Some(obj) = self.objects.get(&id) else {
+            return;
+        };
+        let team_name = obj.team_instance_name.trim();
+        if team_name.is_empty() {
+            return;
+        }
+        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+            return;
+        };
+        let Some(team) = factory.find_team(team_name) else {
+            return;
+        };
+        if let Ok(mut guard) = team.write() {
+            guard.set_active();
+        }
+    }
+
+    /// Live Team member ids for leftover TEAM_* census (includes dead, no faction bleed).
+    pub fn host_script_team_census_member_ids(&self, team_name: &str) -> Vec<u32> {
+        let needle = team_name.trim();
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        self.host_objects()
+            .values()
+            .filter(|obj| {
+                if !obj.team_instance_name.is_empty() {
+                    return obj.team_instance_name.eq_ignore_ascii_case(needle);
+                }
+                self.default_host_team_instance_name(obj.owner_player_id, obj.team)
+                    .eq_ignore_ascii_case(needle)
+            })
+            .map(|obj| obj.id.0)
+            .collect()
+    }
+
     /// C++ ScriptActions::updateTeamSetAttitude / AIGroup::setAttitude residual.
     /// Applies attitude to every living member of the host team.
     pub fn set_team_attitude(&mut self, team: crate::game_logic::Team, attitude_i8: i8) -> usize {
@@ -365,6 +421,13 @@ impl GameLogic {
     pub fn set_enable_repulsors(&mut self, enabled: bool) {
         self.enable_repulsors = enabled;
         crate::game_logic::host_repulsor_gate::set_enabled(enabled);
+    }
+
+    /// C++ GameEngine.cpp:480 TheAI init after AIData.ini — live player path.
+    /// `GameLogic::new` stays false (TAiData ctor); start_new_game applies this.
+    pub fn apply_aidata_enable_repulsors(&mut self) {
+        self.enable_repulsors =
+            crate::game_logic::host_repulsor_gate::apply_resolved_to_leftover_and_gate();
     }
 
     /// C++ Object::setStatus(OBJECT_STATUS_REPULSOR) residual.

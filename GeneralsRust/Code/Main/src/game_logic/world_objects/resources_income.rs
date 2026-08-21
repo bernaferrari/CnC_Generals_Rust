@@ -113,11 +113,11 @@ impl GameLogic {
         ev: crate::game_logic::host_auto_deposit_log::AutoDepositEvent,
     ) {
         use crate::game_logic::host_auto_deposit_log::AutoDepositKind;
-        use crate::game_logic::host_black_market::BLACK_MARKET_DEPOSIT_AUDIO;
         use crate::game_logic::host_oil_derrick::{
             oil_derrick_deposit_amount, should_display_stealthed_floating_cash,
-            HostAutoDepositFloatingText, OIL_DERRICK_DEPOSIT_AUDIO,
+            HostAutoDepositFloatingText,
         };
+
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         if ev.amount == 0 {
@@ -125,13 +125,13 @@ impl GameLogic {
         }
         let frame = self.frame;
         let owner_player_id = self.player_owner_for_event(ev.owner_player_id, ev.team);
-        let (deposited, audio) = match ev.kind {
+        let deposited = match ev.kind {
             AutoDepositKind::BlackMarket => {
                 // GW already advanced next_deposit_frame; keep registry schedule in lockstep.
                 self.black_markets
                     .set_next_deposit(ev.id, ev.next_deposit_frame);
-                let d = self.black_markets.force_record_deposit(ev.id, ev.amount);
-                (d, BLACK_MARKET_DEPOSIT_AUDIO)
+                self.black_markets.force_record_deposit(ev.id, ev.amount)
+
             }
             AutoDepositKind::OilDerrick => {
                 let has_supply_lines = owner_player_id
@@ -149,7 +149,8 @@ impl GameLogic {
                         .supply_lines_boost_cash_total
                         .saturating_add(boost);
                 }
-                (d, OIL_DERRICK_DEPOSIT_AUDIO)
+                d
+
             }
         };
         if deposited == 0 {
@@ -202,19 +203,16 @@ impl GameLogic {
                 }
             }
         }
-        self.queue_audio_event(
-            AudioEventRequest::new(audio)
-                .with_object(ev.id)
-                .with_position(ev.pos)
-                .with_priority(120),
-        );
+        // Money::deposit audio is queued by credit_supplies (MoneyDepositSound).
+
     }
 
     pub(in super::super) fn update_black_market_deposits(&mut self) {
         use crate::game_logic::host_black_market::{
             is_black_market_template, is_legal_black_market_income_source,
-            BLACK_MARKET_DEPOSIT_AMOUNT, BLACK_MARKET_DEPOSIT_AUDIO,
+            BLACK_MARKET_DEPOSIT_AMOUNT,
         };
+
         use crate::game_logic::host_oil_derrick::HostAutoDepositFloatingText;
 
         let frame = self.frame;
@@ -315,12 +313,7 @@ impl GameLogic {
             } else {
                 self.black_markets.record_floating_text_suppressed();
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(BLACK_MARKET_DEPOSIT_AUDIO)
-                    .with_object(market_id)
-                    .with_position(pos)
-                    .with_priority(120),
-            );
+
         }
     }
 
@@ -335,9 +328,9 @@ impl GameLogic {
         use crate::game_logic::host_oil_derrick::{
             is_legal_oil_derrick_income_source, is_oil_derrick_template,
             oil_derrick_deposit_amount, HostAutoDepositFloatingText,
-            OIL_DERRICK_CAPTURE_BONUS_AUDIO, OIL_DERRICK_DEPOSIT_AUDIO,
             OIL_DERRICK_INITIAL_CAPTURE_BONUS,
         };
+
         use crate::game_logic::host_upgrades::UPGRADE_AMERICA_SUPPLY_LINES;
 
         let frame = self.frame;
@@ -438,12 +431,7 @@ impl GameLogic {
                         frame,
                         true,
                     ));
-                self.queue_audio_event(
-                    AudioEventRequest::new(OIL_DERRICK_CAPTURE_BONUS_AUDIO)
-                        .with_object(derrick_id)
-                        .with_position(pos)
-                        .with_priority(130),
-                );
+
             }
 
             let (amount, boost) = oil_derrick_deposit_amount(has_supply_lines);
@@ -490,12 +478,7 @@ impl GameLogic {
             } else {
                 self.oil_derricks.record_floating_text_suppressed();
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(OIL_DERRICK_DEPOSIT_AUDIO)
-                    .with_object(derrick_id)
-                    .with_position(pos)
-                    .with_priority(120),
-            );
+
         }
     }
 
@@ -512,8 +495,9 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_hacker_income::{
             internet_center_floating_text_scatter, should_display_hacker_floating_cash,
-            HostHackerFloatingText, HACKER_CASH_PING_AUDIO,
+            HostHackerFloatingText,
         };
+
 
         if ev.amount == 0 {
             return;
@@ -576,18 +560,12 @@ impl GameLogic {
         } else {
             self.hacker_income.record_floating_text_suppressed();
         }
-        self.queue_audio_event(
-            AudioEventRequest::new(HACKER_CASH_PING_AUDIO)
-                .with_object(ev.id)
-                .with_position(ev.pos)
-                .with_priority(110),
-        );
+
     }
 
     pub(in super::super) fn update_hacker_income(&mut self) {
-        use crate::game_logic::host_hacker_income::{
-            is_legal_hacker_income_source, HACKER_CASH_PING_AUDIO,
-        };
+        use crate::game_logic::host_hacker_income::is_legal_hacker_income_source;
+
 
         let frame = self.frame;
 
@@ -800,12 +778,7 @@ impl GameLogic {
             } else {
                 self.hacker_income.record_floating_text_suppressed();
             }
-            self.queue_audio_event(
-                AudioEventRequest::new(HACKER_CASH_PING_AUDIO)
-                    .with_object(h.id)
-                    .with_position(h.pos)
-                    .with_priority(110),
-            );
+
         }
     }
 

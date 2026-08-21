@@ -107,6 +107,53 @@ impl ScriptEngine {
         Ok(())
     }
 
+    /// C++ `ScriptEngine::xfer` counter/flag tables.
+    pub fn snapshot_named_trackers(&self) -> (Vec<(String, i32, bool)>, Vec<(String, bool)>) {
+        self.with_inner(|inner| {
+            let counters = inner
+                .counters
+                .iter()
+                .flatten()
+                .filter(|counter| !counter.name.is_empty())
+                .map(|counter| {
+                    (
+                        counter.name.clone(),
+                        counter.value,
+                        counter.is_countdown_timer,
+                    )
+                })
+                .collect();
+            let flags = inner
+                .flags
+                .iter()
+                .flatten()
+                .filter(|flag| !flag.name.is_empty())
+                .map(|flag| (flag.name.clone(), flag.value))
+                .collect();
+            (counters, flags)
+        })
+    }
+
+    pub fn restore_named_trackers(
+        &self,
+        counters: &[(String, i32, bool)],
+        flags: &[(String, bool)],
+    ) -> GameLogicResult<()> {
+        for (name, value, is_countdown) in counters {
+            let index = self.allocate_counter(name)?;
+            let mut inner = self.lock_inner_mut();
+            if let Some(counter) = &mut inner.counters[index] {
+                counter.value = *value;
+                counter.is_countdown_timer = *is_countdown;
+            }
+        }
+        for (name, value) in flags {
+            self.set_flag(name, *value)?;
+        }
+        Ok(())
+    }
+
+
     /// Increment a named counter by `amount`.
     /// C++ `ScriptEngine::addCounter`: param0 is the INT amount.
     pub fn increment_counter(&self, name: &str, amount: i32) -> GameLogicResult<()> {
@@ -1138,8 +1185,8 @@ impl ScriptEngine {
     pub fn action_handler(&self) -> Option<Arc<dyn ScriptActionHandler>> {
         self.with_inner(|inner| inner.action_handler.clone())
     }
-    pub fn notify_of_acquired_science(&mut self, player_index: usize, science: ScienceType) {
-        let inner = self.inner.get_mut();
+    pub fn notify_of_acquired_science(&self, player_index: usize, science: ScienceType) {
+        let mut inner = self.lock_inner_mut();
         if player_index < inner.acquired_sciences.len() {
             inner.acquired_sciences[player_index].push(science);
             log::debug!("Player {} acquired science: {:?}", player_index, science);

@@ -2030,6 +2030,62 @@ fn radar_scan_spawns_radar_van_ping_object() {
 }
 
 #[test]
+fn radar_van_scan_fires_stealth_discover_feedback() {
+    use crate::game_logic::host_radar_stealth_vision_residual::SPOTTER_AUDIO_STEALTH_DISCOVERED;
+    use crate::game_logic::{KindOf, Player};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "Local", true));
+    logic
+        .players
+        .insert(1, Player::new(1, Team::China, "China", false));
+    let mut hero = crate::game_logic::ThingTemplate::new("ChinaInfantryBlackLotus");
+    hero.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Hero)
+        .set_health(120.0);
+    logic
+        .templates
+        .insert("ChinaInfantryBlackLotus".into(), hero);
+    let lotus = logic
+        .create_object_for_player(
+            "ChinaInfantryBlackLotus",
+            1,
+            Vec3::new(100.0, 0.0, 100.0),
+        )
+        .expect("lotus");
+    {
+        let obj = logic.host_object_mut(lotus).unwrap();
+        obj.set_status_stealthed(true);
+        obj.set_status_detected(false);
+    }
+    logic.queued_audio_events.clear();
+    let ping = logic
+        .spawn_radar_van_ping(Team::GLA, Vec3::new(100.0, 0.0, 100.0), None)
+        .expect("ping");
+    let _ = ping;
+    assert!(
+        logic.host_object(lotus).unwrap().status.detected,
+        "first-scan mark_detected"
+    );
+    let text = logic
+        .last_radar_message_text()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    assert!(
+        text.contains("stealth"),
+        "Radar Van Scan first reveal must show StealthDiscovered, got {text:?}"
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == SPOTTER_AUDIO_STEALTH_DISCOVERED),
+        "Radar Van Scan first reveal must play StealthDiscoveredSound"
+    );
+}
+
+#[test]
 fn spy_satellite_spawns_ping_object() {
     use crate::game_logic::host_spy_satellite::{
         SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_PING_TEMPLATE,

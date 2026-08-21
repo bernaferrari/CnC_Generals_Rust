@@ -303,6 +303,52 @@ impl GameLogic {
         true
     }
 
+    /// C++ Object.cpp:1846-1854 before TheRadar->tryUnderAttackEvent.
+    /// Radar.cpp tryUnderAttackEvent itself has no ownership gate.
+    pub fn try_under_attack_from_damage(&mut self, victim_id: ObjectId) -> bool {
+        if !self.object_qualifies_for_under_attack(victim_id) {
+            return false;
+        }
+        self.try_under_attack_event(victim_id)
+    }
+
+    fn object_qualifies_for_under_attack(&self, victim_id: ObjectId) -> bool {
+        let Some(obj) = self.objects.get(&victim_id) else {
+            return false;
+        };
+        if !obj.is_alive() {
+            return false;
+        }
+        // C++ getControllingPlayer() == ThePlayerList->getLocalPlayer().
+        if !self.is_object_locally_controlled(victim_id) {
+            return false;
+        }
+        // C++ damageType != PENALTY && != HEALING.
+        if matches!(
+            obj.last_damage_fx_done,
+            Some(crate::game_logic::combat::DamageType::Penalty)
+                | Some(crate::game_logic::combat::DamageType::Healing)
+        ) {
+            return false;
+        }
+        // C++ !BitTest(sourcePlayerMask, victim controller mask).
+        let victim_owner = self.player_owner_for_host_object(obj);
+        if let Some(src_id) = obj.last_damage_source {
+            if let Some(src) = self.objects.get(&src_id) {
+                if victim_owner.is_some()
+                    && self.player_owner_for_host_object(src) == victim_owner
+                {
+                    return false;
+                }
+            }
+        }
+        // C++ m_radarData != NULL — live NotOnRadar never gets radar data.
+        if obj.thing.template.radar_priority == 1 {
+            return false;
+        }
+        true
+    }
+
     pub fn honesty_under_attack_event_ok(&self) -> bool {
         self.under_attack_events > 0
     }
@@ -358,10 +404,20 @@ impl GameLogic {
                 gamelogic::helpers::TheEva::set_should_play(gamelogic::helpers::EvaEvent::UnitLost);
             crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::UnitLost);
             self.saboteur.record_eva_unit_lost();
-
-            // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) residual for spacebar jump.
-            let msg = localization::localize("RADAR:UnitLost", "Unit lost");
-            self.queue_radar_message_at(msg, death_pos, radar_notifications::RadarKind::Generic);
+            // C++ TheRadar->tryEvent(RADAR_EVENT_FAKE, pos) — spacebar jump, no text.
+            if let Ok(mut radar) =
+                game_engine::common::system::radar::get_radar_system().write()
+            {
+                let loc = game_engine::common::system::radar::Coord3D {
+                    x: death_pos.x,
+                    y: death_pos.z,
+                    z: death_pos.y,
+                };
+                let _ = radar.try_event(
+                    game_engine::common::system::radar::RadarEventType::Fake,
+                    &loc,
+                );
+            }
         }
     }
 
@@ -742,6 +798,101 @@ impl GameLogic {
         self.script_named_timers
             .insert(name.into(), (text.into(), countdown));
     }
+
+    pub fn restore_script_named_timers(
+        &mut self,
+        timers: impl IntoIterator<Item = (String, String, bool)>,
+    ) {
+        self.script_named_timers = timers
+            .into_iter()
+            .map(|(name, text, countdown)| (name, (text, countdown)))
+            .collect();
+    }
+
+    pub fn restore_script_named_timer_display_shown(&mut self, shown: bool) {
+        self.script_named_timer_display_shown = shown;
+    }
+
+    pub fn restore_script_superweapon_display_enabled(&mut self, enabled: bool) {
+        self.script_superweapon_display_enabled = enabled;
+    }
+
+    pub fn restore_script_superweapon_hidden_objects(
+        &mut self,
+        ids: impl IntoIterator<Item = crate::game_logic::ObjectId>,
+    ) {
+        self.script_superweapon_hidden_objects = ids.into_iter().collect();
+    }
+
+    pub fn restore_radar_script_state(&mut self, enabled: bool, forced: bool) {
+        self.radar_enabled = enabled;
+        self.radar_forced = forced;
+    }
+
+    pub fn snapshot_script_actives(&self) -> Vec<(String, bool, bool)> {
+        let mut entries = Vec::new();
+        for list in &self.loaded_script_lists {
+            let mut script = list.get_script();
+            while let Some(node) = script {
+                entries.push((node.get_name().to_string(), false, node.is_active()));
+                script = node.get_next();
+            }
+            let mut group = list.get_script_group();
+            while let Some(node) = group {
+                entries.push((node.get_name().to_string(), true, node.is_active()));
+                let mut inner = node.get_script();
+                while let Some(script_node) = inner {
+                    entries.push((
+                        script_node.get_name().to_string(),
+                        false,
+                        script_node.is_active(),
+                    ));
+                    inner = script_node.get_next();
+                }
+                group = node.get_next();
+            }
+        }
+        entries
+    }
+
+    pub fn restore_script_actives(&mut self, entries: &[(String, bool, bool)]) {
+        for (name, is_group, active) in entries {
+            for list in &mut self.loaded_script_lists {
+                if *is_group {
+                    let mut group = list.first_group.as_mut();
+                    while let Some(node) = group {
+                        if node.get_name() == name {
+                            node.set_active(*active);
+                            break;
+                        }
+                        group = node.next_group.as_mut();
+                    }
+                } else {
+                    let mut script = list.first_script.as_mut();
+                    while let Some(node) = script {
+                        if node.get_name() == name {
+                            node.set_active(*active);
+                            break;
+                        }
+                        script = node.next_script.as_mut();
+                    }
+                    let mut group = list.first_group.as_mut();
+                    while let Some(node) = group {
+                        let mut inner = node.first_script.as_mut();
+                        while let Some(script_node) = inner {
+                            if script_node.get_name() == name {
+                                script_node.set_active(*active);
+                                break;
+                            }
+                            inner = script_node.next_script.as_mut();
+                        }
+                        group = node.next_group.as_mut();
+                    }
+                }
+            }
+        }
+    }
+
 
     pub fn set_script_cameo_flash(&mut self, button: impl Into<String>, flash_count: i32) {
         self.script_cameo_flash_count
@@ -1194,6 +1345,51 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn try_under_attack_from_damage_skips_non_local() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::USA, "Local", true));
+        logic
+            .players
+            .insert(1, Player::new(1, Team::China, "China", false));
+        logic
+            .players
+            .insert(2, Player::new(2, Team::GLA, "GLA", false));
+        let mut t = ThingTemplate::new("ChinaTankBattleMaster");
+        t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+        logic.templates.insert("ChinaTankBattleMaster".into(), t);
+        let victim = logic
+            .create_object_for_player(
+                "ChinaTankBattleMaster",
+                1,
+                glam::Vec3::new(10.0, 0.0, 10.0),
+            )
+            .expect("ai victim");
+        assert!(
+            !logic.try_under_attack_from_damage(victim),
+            "AI-vs-AI damage must not warn the local player"
+        );
+        assert!(!logic.honesty_under_attack_event_ok());
+
+        let mut ranger_t = ThingTemplate::new("AmericaInfantryRanger");
+        ranger_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic
+            .templates
+            .insert("AmericaInfantryRanger".into(), ranger_t);
+        let local = logic
+            .create_object_for_player(
+                "AmericaInfantryRanger",
+                0,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("local ranger");
+        assert!(logic.try_under_attack_from_damage(local));
+        assert!(logic.honesty_under_attack_event_ok());
+    }
     #[test]
     fn campaign_player_allies_cc_fires_ally_under_attack() {
         // alliance_team stays -1; map playerAllies must still be ALLIES.

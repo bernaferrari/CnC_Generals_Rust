@@ -577,6 +577,20 @@ pub const DETECTOR_INITIALLY_DISABLED_CTOR_DEFAULT_RESIDUAL: bool = false;
 pub const DETECTOR_CAN_DETECT_WHILE_GARRISONED_CTOR_DEFAULT_RESIDUAL: bool = false;
 pub const DETECTOR_CAN_DETECT_WHILE_TRANSPORTED_CTOR_DEFAULT_RESIDUAL: bool = false;
 
+/// C++ `PingSound` residual (Listening Outpost / Troop Crawler / Sentry / Pathfinder).
+pub const DETECTOR_IR_PING_SOUND: &str = "IRPing";
+/// C++ `LoudPingSound` residual when the scan spotted someone.
+pub const DETECTOR_IR_LOUD_PING_SOUND: &str = "IRPingLoud";
+/// C++ `IRBeaconParticleSysName` residual.
+pub const DETECTOR_IR_BEACON_PARTICLE: &str = "IRLenzflare";
+/// C++ `IRParticleSysName` residual (quiet scan).
+pub const DETECTOR_IR_PING_PARTICLE: &str = "IRDetectPing";
+/// C++ `IRBrightParticleSysName` residual (spot scan).
+pub const DETECTOR_IR_BRIGHT_PARTICLE: &str = "IRDetectPingBright";
+/// C++ `IRGridParticleSysName` residual on newly spotted targets.
+pub const DETECTOR_IR_GRID_PARTICLE: &str = "IRDetectGrid";
+
+
 /// Common DetectionRate residual (msec) — most infantry/vehicle detectors.
 pub const DETECTOR_RATE_COMMON_MS_RESIDUAL: u32 = 500;
 /// Common DetectionRate frames residual (500 ms → 15).

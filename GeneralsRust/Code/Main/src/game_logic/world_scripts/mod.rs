@@ -11,6 +11,8 @@ mod helix_radar;
 mod production_eva;
 mod rebuild_dozer;
 mod saboteur_car_bomb;
+mod move_ambient_audio;
+
 mod scripts_camera;
 mod special_power_strikes;
 mod stealth_mines;

@@ -17,7 +17,7 @@
 //! - ParticleSystemFXNugget: Spawn particle systems
 //! - FXListAtBonePosFXNugget: Execute FX at bone positions
 
-use super::decals::{DecalManager, DecalSettings};
+use super::decals::DecalManager;
 use super::particle_manager::*;
 use super::particle_presets;
 use super::ray_effects::{RayEffectConfig, RayEffectManager};
@@ -415,11 +415,6 @@ impl FXNugget for TerrainScorchFXNugget {
             self.radius,
             scorch_idx,
         );
-
-        if let Some(decal_mgr) = context.decal_manager.as_mut() {
-            let settings = DecalSettings::scorch_mark(primary, self.radius);
-            decal_mgr.create_decal(settings);
-        }
     }
 }
 

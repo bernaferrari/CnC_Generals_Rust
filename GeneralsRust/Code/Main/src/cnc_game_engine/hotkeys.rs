@@ -95,9 +95,11 @@ impl CnCGameEngine {
     }
 
     /// C++ `getLiveObjects()` last member: `objlist[numObjs-1]->getDrawable()->getPosition()`.
+    /// No `getControllingPlayer()==local` gate — ADD/SELECT double-tap and VIEW_TEAM
+    /// center on the last live squad member even after hijack / snipe / capture.
     fn last_live_control_group_position(&self, stored: &[ObjectId]) -> Option<glam::Vec3> {
         let frame = self.last_presentation_frame.as_ref()?;
-        let live = frame.filter_alive_selectable_ids(stored, frame.local_team());
+        let live = frame.filter_live_squad_ids(stored, false);
         let last = *live.last()?;
         frame
             .objects
@@ -175,7 +177,8 @@ impl CnCGameEngine {
             let Some(frame) = self.last_presentation_frame.as_ref() else {
                 return;
             };
-            frame.filter_alive_selectable_ids(&stored, frame.local_team())
+            // C++ ADD_TEAM: all getLiveObjects(), no local-owner gate.
+            frame.filter_live_squad_ids(&stored, false)
         };
         if live.is_empty() {
             return;
@@ -186,7 +189,8 @@ impl CnCGameEngine {
                 selection.push(id);
             }
         }
-        self.host_set_selection(self.current_player_id, selection);
+        // C++ MSG_ADD_TEAM0..9 — m_teamExists only, no pickAndPlay (hq-xbyf3).
+        self.host_set_selection_no_sound(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
         self.write_leftover_player_select_team(group_num, true);
     }
@@ -230,7 +234,8 @@ impl CnCGameEngine {
             let Some(frame) = self.last_presentation_frame.as_ref() else {
                 return;
             };
-            frame.filter_alive_selectable_ids(&stored, frame.local_team())
+            // C++ SELECT_TEAM: getLiveObjects() + controllingPlayer == local.
+            frame.filter_live_squad_ids(&stored, true)
         };
         let double_tap = self.note_control_group_double_tap(group_num);
         if double_tap {

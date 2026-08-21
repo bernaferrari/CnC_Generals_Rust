@@ -86,9 +86,10 @@ pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
 pub use scorch_mesh::{
     add_terrain_scorch, bake_terrain_scorch_gpu_mesh, clear_terrain_scorches, resolve_scorch_type,
-    terrain_scorch_count, terrain_scorch_marks, ScorchGpuMesh, ScorchHeightSource, ScorchMark,
-    ScorchVertex, TerrainScorchBuffer, MAX_SCORCH_INDEX, MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX,
-    SCORCH_FLOAT_AMOUNT, SCORCH_MARKS_IN_TEXTURE, SCORCH_PER_ROW,
+    terrain_scorch_count, terrain_scorch_marks, terrain_scorches_in_buffer, ScorchGpuMesh,
+    ScorchHeightSource, ScorchMark, ScorchVertex, TerrainScorchBuffer, MAX_SCORCH_INDEX,
+    MAX_SCORCH_MARKS, MAX_SCORCH_VERTEX, SCORCH_FLOAT_AMOUNT, SCORCH_MARKS_IN_TEXTURE,
+    SCORCH_PER_ROW,
 };
 pub use terrain_background::{
     IRegion2D, TerrainBackgroundCullStatus, TerrainBackgroundHeightMap, W3DTerrainBackground,

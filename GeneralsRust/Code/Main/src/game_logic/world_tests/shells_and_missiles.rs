@@ -195,6 +195,74 @@ fn bomb_truck_disguise_residual_reveals_near_attack_target() {
     );
 }
 
+/// C++ RevealDistanceFromTarget needs getCurrentVictim. Attack-move / ground fire keep disguise.
+#[test]
+fn bomb_truck_disguise_holds_without_victim() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_bomb_truck_template(&mut game_logic);
+    ensure_test_tank_template(&mut game_logic);
+
+    let truck_id = game_logic
+        .create_object("TestBombTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bomb truck");
+    let usa_tank_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("usa tank");
+
+    {
+        let truck = game_logic.host_object_mut(truck_id).expect("truck");
+        truck.target = Some(usa_tank_id);
+        truck.set_ai_state(AIState::SpecialAbility);
+    }
+    game_logic.queue_pending_special_ability(
+        truck_id,
+        PendingSpecialAbility::DisguiseAsVehicle {
+            target_id: usa_tank_id,
+        },
+    );
+    game_logic.update_ai(&[truck_id, usa_tank_id], 1.0 / 30.0);
+    advance_disguise_halfpoint(&mut game_logic, &[truck_id, usa_tank_id]);
+    assert!(
+        game_logic
+            .host_object(truck_id)
+            .map(|t| t.status.disguised)
+            .unwrap_or(false),
+        "disguise must apply before no-victim hold"
+    );
+
+    {
+        let truck = game_logic.host_object_mut(truck_id).expect("truck");
+        truck.target = None;
+        truck.set_ai_state(AIState::AttackMoving);
+        truck.set_status_attacking(true);
+    }
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic
+            .host_object(truck_id)
+            .map(|t| t.status.disguised)
+            .unwrap_or(false),
+        "attack-move without a victim must keep disguise"
+    );
+
+    {
+        let truck = game_logic.host_object_mut(truck_id).expect("truck");
+        truck.target = None;
+        truck.set_ai_state(AIState::AttackingGround);
+        truck.set_status_attacking(true);
+        truck.set_status_firing_weapon(true);
+    }
+    game_logic.update_stealth_and_detection();
+    assert!(
+        game_logic
+            .host_object(truck_id)
+            .map(|t| t.status.disguised)
+            .unwrap_or(false),
+        "ground fire without a victim must keep disguise"
+    );
+}
+
+
 /// Fail-closed: non-bomb-truck cannot issue DisguiseAsVehicle.
 #[test]
 fn bomb_truck_disguise_residual_rejects_non_bomb_truck_caster() {

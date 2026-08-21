@@ -182,6 +182,17 @@ impl Object {
         self.script_unsellable = v;
     }
 
+    /// C++ `ActiveBody::isIndestructible`.
+    pub fn is_indestructible(&self) -> bool {
+        self.indestructible
+    }
+
+    /// C++ `ActiveBody::setIndestructible` flag write (tower mirror is GameLogic).
+    pub fn set_indestructible(&mut self, v: bool) {
+        self.indestructible = v;
+    }
+
+
     /// C++ DISABLED_SCRIPT_DISABLED residual.
     pub fn set_status_disabled_script_disabled(&mut self, v: bool) {
         self.status.disabled_script_disabled = v;
@@ -230,6 +241,7 @@ impl Object {
             "enabled" => self.set_script_disabled(!new_val),
             "powered" => self.set_script_underpowered(!new_val),
             "unsellable" => self.set_script_unsellable(new_val),
+            "indestructible" => self.set_indestructible(new_val),
             _ => {}
         }
     }

@@ -407,6 +407,11 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if any {
+            // C++ CommandXlat.cpp:548-556 MSG_DO_WEAPON_AT_OBJECT DAMAGE_KILLPILOT.
+            self.game_logic.queue_picked_unit_voice(
+                units,
+                crate::game_logic::audio_dispatch_impl::UnitVoiceSlot::SnipePilot,
+            );
             CommandResult::Success
         } else {
             CommandResult::InvalidCommand

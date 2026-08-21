@@ -110,9 +110,17 @@ fn live_run_loop_updates_common_the_audio_each_frame() {
     );
     assert!(
         audio.contains("set_eva_host_frame")
+            && audio.contains("set_eva_host_sufficient_power")
             && audio.contains("update_eva_system")
             && audio.contains("Eva.cpp:264"),
-        "live audio tick must publish host frame and run Eva::update"
+        "live audio tick must publish host frame/energy and run Eva::update"
+    );
+    let subsystem = include_str!("../subsystem_manager.rs");
+    assert!(
+        subsystem.contains("play_sound_through_the_audio_at")
+            && subsystem.contains("event.position.map")
+            && subsystem.contains("playSample3D"),
+        "live SFX drain must keep world pose for Miles playSample3D"
     );
     assert!(
         boot.contains("initialize_global_audio_manager()")

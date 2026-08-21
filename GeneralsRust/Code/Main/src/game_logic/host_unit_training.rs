@@ -586,6 +586,34 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
+
+/// C++ `Object::onVeterancyLevelChanged` stealth hide
+/// (`!isLocallyControlled && STEALTHED && !DETECTED && !DISGUISED`).
+pub fn hide_promote_fx_for_stealth(
+    locally_controlled: bool,
+    stealthed: bool,
+    detected: bool,
+    disguised: bool,
+) -> bool {
+    !locally_controlled && stealthed && !detected && !disguised
+}
+
+/// C++ `doAnimation && getDrawIconUI && provideFeedback`.
+pub fn should_queue_promote_fx(
+    previous_level: VeterancyLevel,
+    new_level: VeterancyLevel,
+    ignored_in_gui: bool,
+    hide_for_stealth: bool,
+    draw_icon_ui: bool,
+    provide_feedback: bool,
+) -> bool {
+    provide_feedback
+        && draw_icon_ui
+        && !hide_for_stealth
+        && !ignored_in_gui
+        && veterancy_rank(new_level) > veterancy_rank(previous_level)
+}
+
 /// C++ Object::onVeterancyLevelChanged provideFeedback + getDrawIconUI path.
 pub fn record_promote_fx(object: ObjectId, position: Vec3, spawn_frame: u32, new_level: VeterancyLevel) {
     PROMOTE_AUDIO.with(|log| {
@@ -907,4 +935,45 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn promote_fx_hides_for_enemy_stealth_and_no_feedback() {
+        assert!(hide_promote_fx_for_stealth(false, true, false, false));
+        assert!(!hide_promote_fx_for_stealth(true, true, false, false));
+        assert!(!hide_promote_fx_for_stealth(false, true, true, false));
+        assert!(!hide_promote_fx_for_stealth(false, true, false, true));
+        assert!(should_queue_promote_fx(
+            VeterancyLevel::Rookie,
+            VeterancyLevel::Veteran,
+            false,
+            false,
+            true,
+            true,
+        ));
+        assert!(!should_queue_promote_fx(
+            VeterancyLevel::Rookie,
+            VeterancyLevel::Veteran,
+            false,
+            false,
+            true,
+            false,
+        ));
+        assert!(!should_queue_promote_fx(
+            VeterancyLevel::Rookie,
+            VeterancyLevel::Veteran,
+            false,
+            true,
+            true,
+            true,
+        ));
+        assert!(!should_queue_promote_fx(
+            VeterancyLevel::Rookie,
+            VeterancyLevel::Veteran,
+            false,
+            false,
+            false,
+            true,
+        ));
+    }
+
 }

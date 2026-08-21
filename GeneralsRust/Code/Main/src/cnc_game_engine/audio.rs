@@ -89,9 +89,14 @@ impl CnCGameEngine {
         // Wave 604: host UI SFX residual.
         // C++ `TheAudio->addAudioEvent` (`AudioManager::addAudioEvent`, GameAudio.cpp).
         // One play API: Common TheAudio / AudioManager when a live handle exists.
+        // C++ CommandXlat.cpp:271-731 pickAndPlayUnitVoiceResponse — VoiceSelect /
+        // VoiceMove / VoiceAttack from ThingTemplate. Never invent UnitSelect or
+        // UnitCommand (those tokens are not in MiscAudio.ini / Voice.ini).
+        if matches!(sound_type, SoundType::Select | SoundType::Command) {
+            return;
+        }
         let kind = match sound_type {
-            SoundType::Select => "UnitSelect",
-            SoundType::Command => "UnitCommand",
+            SoundType::Select | SoundType::Command => return,
             SoundType::ConstructionComplete => "ConstructionComplete",
             SoundType::UnitReady => "UnitReady",
             SoundType::UpgradeComplete => "UpgradeComplete",
@@ -135,8 +140,7 @@ impl CnCGameEngine {
         };
 
         let (frequency, duration) = match sound_type {
-            SoundType::Select => (800.0, 0.1),
-            SoundType::Command => (600.0, 0.15),
+            SoundType::Select | SoundType::Command => return,
             SoundType::ConstructionComplete => (900.0, 0.25),
             SoundType::UnitReady => (700.0, 0.2),
             SoundType::UpgradeComplete => (750.0, 0.22),
@@ -219,6 +223,21 @@ impl CnCGameEngine {
                 .filter(|frame| *frame != 0)
                 .unwrap_or_else(|| self.game_logic.get_frame());
             game_client::eva::set_eva_host_frame(frame);
+            // C++ Eva.cpp:422 polls local Energy::hasSufficientPower.
+            let host_frame = self.game_logic.get_frame();
+            if let Some(player) = self
+                .game_logic
+                .local_player_id()
+                .and_then(|id| self.game_logic.get_player(id))
+                .filter(|p| p.is_alive)
+            {
+                let sabotaged = host_frame < player.power_sabotaged_till_frame;
+                game_client::eva::set_eva_host_sufficient_power(
+                    player.power_available >= 0 && !sabotaged,
+                );
+            } else {
+                game_client::eva::clear_eva_host_sufficient_power();
+            }
             game_client::eva::update_eva_system();
         }
     }

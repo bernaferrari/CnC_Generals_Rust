@@ -1233,9 +1233,18 @@ impl GameLogic {
 
 
     /// Wave 233: exit-unit drop residual (position/contain/target/ai).
-    /// C++ TransportContain::onRemoving `GoAggressiveOnExit` sets AI_AGGRESSIVE.
+    /// C++ OpenContain::exitObjectViaDoor walks ExitStart/End; TransportContain
+    /// onRemoving applies GoAggressiveOnExit. Garrison/tunnel keep drop_position.
     pub fn unit_command_exit_drop(&mut self, id: ObjectId, drop_position: glam::Vec3) -> bool {
         let container_id = self.objects.get(&id).and_then(|u| u.contained_by);
+        let walk = container_id.is_some_and(|cid| {
+            self.objects.get(&cid).is_some_and(|c| {
+                !c.is_garrison_contain() && !c.is_tunnel_network_style_container()
+            })
+        });
+        if let (true, Some(cid)) = (walk, container_id) {
+            return self.unit_command_exit_via_open_contain(id, cid);
+        }
         let go_aggressive = container_id
             .and_then(|cid| self.objects.get(&cid))
             .is_some_and(|c| c.transport_go_aggressive_on_exit());
@@ -1254,6 +1263,27 @@ impl GameLogic {
         }
         unit.set_status_moving(false);
         unit.set_status_attacking(false);
+        true
+    }
+
+    /// C++ OpenContain::exitObjectViaDoor — walk ExitStart/End even after
+    /// `remove_occupant` cleared the container list.
+    pub fn unit_command_exit_via_open_contain(
+        &mut self,
+        id: ObjectId,
+        container_id: ObjectId,
+    ) -> bool {
+        if !self.objects.contains_key(&id) || !self.objects.contains_key(&container_id) {
+            return false;
+        }
+        if self
+            .objects
+            .get(&container_id)
+            .is_some_and(|c| c.is_garrison_contain() || c.is_tunnel_network_style_container())
+        {
+            return false;
+        }
+        self.walk_unit_via_open_contain_exit(id, container_id);
         true
     }
 
@@ -1280,6 +1310,10 @@ impl GameLogic {
         };
         obj.pending_evacuate_on_stop = pending_evacuate_on_stop;
         obj.pending_exit_after_evacuate = pending_exit_after_evacuate;
+        if !pending_evacuate_on_stop || prep_move {
+            // Arrival-gated evacuate must not inherit a prior ExitDelay stream.
+            obj.pending_stream_exit = false;
+        }
         if prep_move {
             obj.set_target(None);
             obj.set_force_attack(false);

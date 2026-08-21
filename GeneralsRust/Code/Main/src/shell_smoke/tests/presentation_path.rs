@@ -89,9 +89,11 @@ fn play_sound_effect_prefers_presentation_audio_queue() {
             && body.contains("AudioManagerSubsystem")
             && body.contains("UnitSelect")
             && body.contains("UnitCommand")
+            && !body.contains("SoundType::Select => \"UnitSelect\"")
+            && !body.contains("SoundType::Command => \"UnitCommand\"")
             && !body.contains("self.game_logic.queue_audio_event")
             && !body.contains("self.game_logic.process_audio_events()"),
-        "InGame SFX must dispatch through TheAudio when a live handle exists"
+        "InGame SFX must not invent UnitSelect/UnitCommand; Voice* is pickAndPlay"
     );
     let pf = crate::presentation_frame::PRESENTATION_FRAME_SRC;
     assert!(

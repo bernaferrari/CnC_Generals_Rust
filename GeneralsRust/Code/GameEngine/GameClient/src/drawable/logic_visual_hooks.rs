@@ -204,7 +204,9 @@ fn pivot_name(bytes: &[u8; 16]) -> String {
 }
 
 /// C++ `Create_Render_Obj` + `Get_Bone_Index` / `Get_Bone_Transform` at identity×scale.
-fn lookup_pristine_bone(
+/// Used for both pristine cache fill and current-client bone queries when the
+/// live HTree pose is the bind pose (or the only available W3D pose).
+pub fn lookup_w3d_client_bone(
     model: &str,
     scale: Real,
     _frame: i32,
@@ -231,6 +233,15 @@ fn lookup_pristine_bone(
         mtx = Mat4::from_scale(Vec3::splat(scale)) * mtx;
     }
     Some((idx as i32, mtx))
+}
+
+fn lookup_pristine_bone(
+    model: &str,
+    scale: Real,
+    frame: i32,
+    bone: &str,
+) -> Option<(i32, Matrix3D)> {
+    lookup_w3d_client_bone(model, scale, frame, bone)
 }
 
 fn preload_asset(name: &str) {

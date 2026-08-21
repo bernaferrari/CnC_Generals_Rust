@@ -15,9 +15,25 @@ pub struct HostEconomyEvent {
     pub power_available: i32,
 }
 
+/// C++ `Money::withdraw` / `Money::deposit` MiscAudio (Money.cpp:32-56).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostMoneyAudio {
+    Withdraw,
+    Deposit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostMoneyAudioEvent {
+    pub player_id: u32,
+    pub kind: HostMoneyAudio,
+}
+
+
 thread_local! {
     static LOG: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
     static LAST_DRAIN: RefCell<Vec<HostEconomyEvent>> = RefCell::new(Vec::new());
+    static MONEY_AUDIO: RefCell<Vec<HostMoneyAudioEvent>> = const { RefCell::new(Vec::new()) };
+
 }
 
 pub fn record(player_id: u32, supplies: u32, power_available: i32) {
@@ -29,6 +45,50 @@ pub fn record(player_id: u32, supplies: u32, power_available: i32) {
         });
     });
 }
+
+/// Queue MiscAudio MoneyWithdrawSound / MoneyDepositSound for presentation drain.
+pub fn record_money_audio(player_id: u32, kind: HostMoneyAudio) {
+    MONEY_AUDIO.with(|log| {
+        log.borrow_mut().push(HostMoneyAudioEvent { player_id, kind });
+    });
+}
+
+/// Presentation-only drain. GameWorld does not consume these.
+pub fn take_money_audio() -> Vec<HostMoneyAudioEvent> {
+    MONEY_AUDIO.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
+
+pub fn money_audio_token(kind: HostMoneyAudio) -> &'static str {
+    match kind {
+        HostMoneyAudio::Withdraw => "MoneyWithdrawSound",
+        HostMoneyAudio::Deposit => "MoneyDepositSound",
+    }
+}
+
+/// Resolve MiscAudio.ini playable name; fall back to the INI token.
+pub fn resolve_misc_audio_event(token: &str) -> String {
+    let Some(misc) = game_engine::common::ini::ini_misc_audio::get_misc_audio() else {
+        return token.to_string();
+    };
+    let misc = misc.read();
+    let event = match token {
+        "MoneyWithdrawSound" => &misc.money_withdraw_sound,
+        "MoneyDepositSound" => &misc.money_deposit_sound,
+        "BuildingDisabled" => &misc.building_disabled,
+        "BuildingReenabled" => &misc.building_reenabled,
+        "VehicleDisabled" => &misc.vehicle_disabled,
+        "VehicleReenabled" => &misc.vehicle_reenabled,
+        "SplatterVehiclePilotsBrain" => &misc.splatter_vehicle_pilots_brain,
+        _ => return token.to_string(),
+    };
+    let name = event.playable_event_name();
+    if name.is_empty() {
+        token.to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 
 pub fn has_pending(player_id: u32) -> bool {
     LOG.with(|log| log.borrow().iter().any(|e| e.player_id == player_id))
@@ -46,6 +106,8 @@ pub fn drain() -> Vec<HostEconomyEvent> {
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
     LAST_DRAIN.with(|last| last.borrow_mut().clear());
+    MONEY_AUDIO.with(|log| log.borrow_mut().clear());
+
 }
 
 pub fn len() -> usize {
@@ -78,4 +140,17 @@ mod tests {
         assert_eq!(last_drain_snapshot().len(), 2);
         assert_eq!(last_drain_snapshot()[0].supplies, 1000);
     }
+
+    #[test]
+    fn money_audio_record_and_take() {
+        clear();
+        record_money_audio(1, HostMoneyAudio::Withdraw);
+        record_money_audio(2, HostMoneyAudio::Deposit);
+        let v = take_money_audio();
+        assert_eq!(v.len(), 2);
+        assert_eq!(money_audio_token(v[0].kind), "MoneyWithdrawSound");
+        assert_eq!(money_audio_token(v[1].kind), "MoneyDepositSound");
+        assert!(take_money_audio().is_empty());
+    }
+
 }

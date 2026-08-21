@@ -693,18 +693,19 @@ fn parse_skill_set(ini: &mut INI, skillset: &mut SkillSet, _tokens: &[&str]) -> 
 
 fn parse_science_skill(_ini: &mut INI, skillset: &mut SkillSet, tokens: &[&str]) -> INIResult<()> {
     let name = tokens.first().ok_or(INIError::InvalidData)?;
+    // C++ AI::parseScience: missing/unpurchaseable sciences are skipped, not fatal.
     let Some(store) = get_science_store() else {
-        return Err(INIError::InvalidData);
+        return Ok(());
     };
     let science = store.get_science_from_internal_name(name);
     if science == SCIENCE_INVALID {
-        return Err(INIError::InvalidData);
+        return Ok(());
     }
     if store.get_science_purchase_cost(science) == 0 {
         return Ok(());
     }
     if skillset.num_skills as usize >= MAX_AI_UPGRADES {
-        return Err(INIError::InvalidData);
+        return Ok(());
     }
     skillset.skills[skillset.num_skills as usize] = science;
     skillset.num_skills += 1;

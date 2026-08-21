@@ -886,18 +886,34 @@ fn shock_wave_for_seeded_weapons_residual() {
 fn radius_damage_affects_for_seeded_weapons_residual() {
     use crate::game_logic::host_ai_path_combat_residual_wave105::{
         WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
+        WEAPON_DOESNT_AFFECT_AIRBORNE,
     };
-    let scud = seed_radius_damage_affects_for("ScudStormDamageWeapon");
-    assert_eq!(scud & WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ALLIES);
-    assert_eq!(scud & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
-    let gun = seed_radius_damage_affects_for("AmericaTankCrusaderGun");
-    assert_eq!(gun & WEAPON_AFFECTS_ALLIES, 0);
-    assert_eq!(gun & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
-    assert_eq!(gun & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
-
     use crate::game_logic::{ObjectId, Team};
+    use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
+
+    ensure_host_weapon_store();
+    // Omitted RadiusDamageAffects / unknown name: C++ constructor default.
+    let omitted = seed_radius_damage_affects_for("CompletelyUnknownSplashWeaponXYZ");
+    assert_eq!(omitted, WEAPON_AFFECTS_DEFAULT);
+    assert_eq!(omitted & WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ALLIES);
+    assert_eq!(omitted & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
+    assert_eq!(omitted & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
+
+    let mut neutron = WeaponTemplate::new("TestNeutronSplashWeapon".to_string());
+    neutron.parse_weapon_fields_from_ini(&std::collections::HashMap::from([(
+        "RadiusDamageAffects".to_string(),
+        "SUICIDE SELF ALLIES ENEMIES NEUTRALS NOT_SIMILAR NOT_AIRBORNE".to_string(),
+    )]));
+    let _ = with_weapon_store_mut(|store| {
+        store.add_weapon_template(neutron);
+    });
+    let n = host_radius_damage_affects_for_weapon_name("TestNeutronSplashWeapon");
+    assert_ne!(n & WEAPON_DOESNT_AFFECT_AIRBORNE, 0);
+    assert_ne!(n & WEAPON_AFFECTS_ALLIES, 0);
+    assert_eq!(n, seed_radius_damage_affects_for("TestNeutronSplashWeapon"));
+
     assert!(radius_damage_affects_victim(
-        gun,
+        omitted,
         Team::USA,
         ObjectId(1),
         ObjectId(2),
@@ -905,24 +921,34 @@ fn radius_damage_affects_for_seeded_weapons_residual() {
         false,
         false,
     ));
-    assert!(!radius_damage_affects_victim(
-        gun,
-        Team::USA,
-        ObjectId(1),
-        ObjectId(3),
-        Team::USA,
-        false,
-        false,
-    ));
+    // C++ default friendly-fires allies unless INI clears ALLIES.
     assert!(radius_damage_affects_victim(
-        scud,
-        Team::GLA,
+        omitted,
+        Team::USA,
         ObjectId(1),
         ObjectId(3),
-        Team::GLA,
+        Team::USA,
         false,
         false,
     ));
+    assert!(!radius_damage_affects_victim(
+        n,
+        Team::USA,
+        ObjectId(1),
+        ObjectId(4),
+        Team::GLA,
+        true,
+        false,
+    ));
+}
+
+#[test]
+fn host_radius_damage_affects_uses_store_or_cpp_default() {
+    use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;
+    ensure_host_weapon_store();
+    let unknown = host_radius_damage_affects_for_weapon_name("CompletelyUnknownSplashWeaponXYZ");
+    assert_eq!(unknown, WEAPON_AFFECTS_DEFAULT);
+    assert_ne!(unknown & WEAPON_AFFECTS_ALLIES, 0);
 }
 
 #[test]

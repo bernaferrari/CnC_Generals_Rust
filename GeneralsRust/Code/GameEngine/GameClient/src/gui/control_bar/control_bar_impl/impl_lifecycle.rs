@@ -4,6 +4,9 @@ static PRESENTATION_POWER_PRODUCED: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(0);
 static PRESENTATION_POWER_CONSUMED: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(0);
+static PRESENTATION_CAN_MAKE: std::sync::Mutex<Vec<(String, u32)>> =
+    std::sync::Mutex::new(Vec::new());
+
 
 
 impl ControlBar {
@@ -55,6 +58,7 @@ impl ControlBar {
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             last_displayed_money: -1,
+            presentation_can_make: Vec::new(),
 
             border_colors: CommandBarBorderColors::default(),
         }
@@ -340,6 +344,32 @@ impl ControlBar {
     /// crate `ThePlayerList` has no local player.
     pub fn apply_presentation_money(&mut self, supplies: i32) {
         self.last_displayed_money = supplies.max(0);
+    }
+
+    /// Stamp host presentation CanMake residual for leftover WND availability.
+    ///
+    /// C++ ControlBarCommand.cpp:1185-1198 — canBuild / canMakeUnit / money
+    /// all become COMMAND_RESTRICTED (gray). Live host has no OBJECT_REGISTRY
+    /// so get_command_availability looks this map up by command.object.
+    pub fn apply_presentation_can_make(&mut self, cameos: &[(String, u32)]) {
+        self.presentation_can_make = cameos.to_vec();
+        if let Ok(mut guard) = PRESENTATION_CAN_MAKE.lock() {
+            *guard = cameos.to_vec();
+        }
+    }
+
+    pub fn presentation_can_make(&self) -> &[(String, u32)] {
+        &self.presentation_can_make
+    }
+
+    /// Live-host help-box CanMake residual when OBJECT_REGISTRY is empty.
+    pub fn leftover_stamped_can_make_status(template: &str) -> Option<u32> {
+        PRESENTATION_CAN_MAKE.lock().ok().and_then(|guard| {
+            guard
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case(template))
+                .map(|(_, status)| *status)
+        })
     }
 
     /// Stamp host presentation-freeze energy onto ControlBar PowerWindow.

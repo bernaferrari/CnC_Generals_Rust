@@ -371,6 +371,16 @@ impl Snapshot for WorldSnapshot {
             self.airfield_parking = AirfieldParkingWorldSnapshot::default();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {
+            xfer.xfer_marker_label("PersistV18")?;
+            xfer_serde_blob(xfer, &mut self.persist_v18)?;
+            xfer.xfer_marker_label("ObjectExperienceTrackers")?;
+            xfer_serde_blob(xfer, &mut self.object_experience_trackers)?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.persist_v18 = super::persist_v18::WorldPersistV18::default();
+            self.object_experience_trackers.clear();
+        }
+
         Ok(())
     }
 

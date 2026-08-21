@@ -549,7 +549,7 @@ impl Player {
         let Some(squad) = self.squads[hotkey_num as usize].as_mut() else {
             return;
         };
-        let ids = squad.get_object_ids().clone();
+        let ids = squad.get_live_object_ids();
         let selection = self.current_selection.get_or_insert_with(Squad::new);
         selection.clear_squad();
         for object_id in ids {
@@ -562,10 +562,10 @@ impl Player {
         if hotkey_num < 0 || (hotkey_num as usize) >= NUM_HOTKEY_SQUADS {
             return;
         }
-        let Some(squad) = self.squads[hotkey_num as usize].as_ref() else {
+        let Some(squad) = self.squads[hotkey_num as usize].as_mut() else {
             return;
         };
-        let ids = squad.get_object_ids().clone();
+        let ids = squad.get_live_object_ids();
         let selection = self.current_selection.get_or_insert_with(Squad::new);
         for object_id in ids {
             selection.add_object_id(object_id);

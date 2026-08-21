@@ -1275,8 +1275,7 @@ impl CnCGameEngine {
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return;
         };
-        let team = frame.local_team();
-        let selection = frame.filter_alive_selectable_ids(&stored, team);
+        let selection = frame.filter_live_squad_ids(&stored, true);
         if selection.is_empty() {
             let msg = format!("Control group {group_num} empty");
             self.game_hud.push_info_message(&msg);

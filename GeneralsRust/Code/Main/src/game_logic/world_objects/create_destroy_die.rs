@@ -12,6 +12,90 @@ struct HostSpawnBehaviorSpec {
     spawned_require_spawner: bool,
 }
 
+/// C++ `MAX_SPAWN_POINTS` (`SpawnPointProductionExitUpdate.h:20`).
+const HOST_MAX_SPAWN_POINTS: usize = 10;
+/// Occupied-slot radius (world XZ) matching the prior hive occupancy peel.
+const SPAWN_POINT_OCCUPIED_DIST_SQ: f32 = 4.0;
+
+/// C++ Z-up bone translation → host Y-up local.
+fn spawn_point_cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> Vec3 {
+    Vec3::new(bone.x, bone.z, bone.y)
+}
+
+fn spawn_point_rotate_yaw_host(origin: Vec3, yaw: f32, local: Vec3) -> Vec3 {
+    let (sin, cos) = yaw.sin_cos();
+    Vec3::new(
+        origin.x + local.x * cos - local.z * sin,
+        origin.y + local.y,
+        origin.z + local.x * sin + local.z * cos,
+    )
+}
+
+/// C++ `SpawnPointProductionExitUpdateModuleData::m_spawnPointBoneNameData`.
+/// Retail Stinger / Tunnel author `SpawnPointBoneName = SpawnPoint`.
+fn authored_spawn_point_bone_name(template_name: &str) -> String {
+    let Some(manager_arc) = get_asset_manager() else {
+        return "SpawnPoint".to_string();
+    };
+    let Ok(manager) = manager_arc.lock() else {
+        return "SpawnPoint".to_string();
+    };
+    let Some(definition) = manager.resolve_object_definition(template_name, None) else {
+        return "SpawnPoint".to_string();
+    };
+    for module in &definition.behavior_modules {
+        if !module
+            .class_name
+            .eq_ignore_ascii_case("SpawnPointProductionExitUpdate")
+        {
+            continue;
+        }
+        if let Some(value) = module.attribute("SpawnPointBoneName") {
+            let name = value.trim().to_string();
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+    "SpawnPoint".to_string()
+}
+
+/// C++ `initializeBonePositions` (`SpawnPointProductionExitUpdate.cpp:118-149`):
+/// `getPristineBonePositions(name, 1, …)` then `convertBonePosToWorldPos` +
+/// `Get_Z_Rotation`. World Z is left 0 and snapped at exit time.
+fn collect_world_spawn_point_bones(parent: &Object) -> Vec<(Vec3, f32)> {
+    let prefix = authored_spawn_point_bone_name(&parent.template_name);
+    let model = parent.thing.template.get_model_name();
+    let scale = parent.thing.template.asset_scale;
+    let origin = parent.get_position();
+    let yaw = parent.get_orientation();
+    let mut bones = Vec::new();
+    for index in 1..=HOST_MAX_SPAWN_POINTS {
+        let name = format!("{prefix}{index:02}");
+        let Some((local, bone_z)) =
+            gamelogic::object::draw::lookup_pristine_bone_pose(model, scale, &name)
+        else {
+            break;
+        };
+        let world = spawn_point_rotate_yaw_host(
+            origin,
+            yaw,
+            spawn_point_cpp_bone_to_host_local(local),
+        );
+        bones.push((world, yaw + bone_z));
+    }
+    bones
+}
+
+fn spawn_point_slot_occupied(existing: &[Vec3], bone: Vec3) -> bool {
+    existing.iter().any(|pos| {
+        let dx = pos.x - bone.x;
+        let dz = pos.z - bone.z;
+        dx * dx + dz * dz < SPAWN_POINT_OCCUPIED_DIST_SQ
+    })
+}
+
+
 
 impl GameLogic {
     /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
@@ -413,9 +497,46 @@ impl GameLogic {
         if let Some(spawned) = self.host_object_mut(spawned_id) {
             spawned.producer_id = Some(parent_id);
             spawned.set_orientation(orientation);
+            // C++ SpawnPointProductionExitUpdate::exitObjectViaDoor
+            // (`SpawnPointProductionExitUpdate.cpp:87`) `setDisabled(DISABLED_HELD)`.
+            spawned.set_status_disabled_held(true);
         }
         Some(spawned_id)
     }
+
+    /// C++ `getLayerHeight` snap (`SpawnPointProductionExitUpdate.cpp:68`).
+    fn snap_spawn_point_to_terrain(&self, mut pos: Vec3, fallback_y: f32) -> Vec3 {
+        pos.y = self.terrain_height_at(pos).unwrap_or(fallback_y);
+        pos
+    }
+
+    /// C++ `reserveDoorForExit` (`SpawnPointProductionExitUpdate.cpp:92-108`):
+    /// first unoccupied bone, or `DOOR_NONE_AVAILABLE` when every slot is taken.
+    fn reserve_spawn_point_exit(
+        &self,
+        parent_id: ObjectId,
+        existing: &[Vec3],
+    ) -> Option<(Vec3, f32)> {
+        let parent = self.host_object(parent_id)?;
+        let parent_y = parent.get_position().y;
+        let bones = collect_world_spawn_point_bones(parent);
+        if bones.is_empty() {
+            // Drawable bones missing (headless tests / no W3D hook). C++ would
+            // refuse the door; keep the SpawnBehavior child on the producer
+            // instead of inventing a 120° ring or forward*8 line.
+            return Some((
+                self.snap_spawn_point_to_terrain(parent.get_position(), parent_y),
+                parent.get_orientation(),
+            ));
+        }
+        for (world, yaw) in bones {
+            if !spawn_point_slot_occupied(existing, world) {
+                return Some((self.snap_spawn_point_to_terrain(world, parent_y), yaw));
+            }
+        }
+        None
+    }
+
 
     fn count_spawn_behavior_children(
         &self,
@@ -484,21 +605,43 @@ impl GameLogic {
             self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
             return;
         }
-        let (position, orientation, forward) = {
+        let (parent_pos, parent_ori, bones) = {
             let Some(parent) = self.host_object(parent_id) else {
                 return;
             };
             (
                 parent.get_position(),
                 parent.get_orientation(),
-                parent.thing.get_direction_vector(),
+                collect_world_spawn_point_bones(parent),
             )
         };
-        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        if !bones.is_empty() && have >= bones.len() as u32 {
+            // C++ reserveDoorForExit: every bone occupier is live.
+            self.tunnel_network.mark_oneshot_spawn_fired(parent_id);
+            return;
+        }
+        let existing: Vec<Vec3> = self
+            .objects
+            .values()
+            .filter(|object| {
+                object.producer_id == Some(parent_id)
+                    && object.template_name.eq_ignore_ascii_case(&spec.spawn_template)
+            })
+            .map(|object| object.get_position())
+            .collect();
         let mut created = 0u32;
-        for slot in have..spec.spawn_number {
-            let lateral = (slot as f32) - (spec.spawn_number as f32 - 1.0) * 0.5;
-            let spawn_pos = position + forward * 8.0 + right * lateral * 6.0;
+        let mut occupied = existing;
+        for _ in have..spec.spawn_number {
+            let Some((spawn_pos, orientation)) = (if bones.is_empty() {
+                Some((
+                    self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y),
+                    parent_ori,
+                ))
+            } else {
+                self.reserve_spawn_point_exit(parent_id, &occupied)
+            }) else {
+                break;
+            };
             if self
                 .create_spawn_behavior_child(
                     parent_id,
@@ -509,6 +652,7 @@ impl GameLogic {
                 .is_some()
             {
                 created = created.saturating_add(1);
+                occupied.push(spawn_pos);
             }
         }
         let now = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, false);
@@ -522,25 +666,24 @@ impl GameLogic {
         parent_id: ObjectId,
         spec: &HostSpawnBehaviorSpec,
     ) {
-        use crate::game_logic::host_base_defense::{
-            stinger_spawn_point_facings, stinger_spawn_point_offsets,
-        };
         let have = self.count_spawn_behavior_children(parent_id, &spec.spawn_template, true);
         if have >= spec.spawn_number {
             return;
         }
-        let (position, residual_alive) = {
+        let (parent_pos, parent_ori, residual_alive, bones) = {
             let Some(parent) = self.host_object(parent_id) else {
                 return;
             };
             (
                 parent.get_position(),
+                parent.get_orientation(),
                 parent.hive_slaves.map(|slot| slot.alive),
+                collect_world_spawn_point_bones(parent),
             )
         };
-        let offs = stinger_spawn_point_offsets();
-        let facings = stinger_spawn_point_facings();
-        let slots = spec.spawn_number.min(3) as usize;
+        if !bones.is_empty() && have >= bones.len() as u32 {
+            return;
+        }
         let existing: Vec<Vec3> = self
             .objects
             .values()
@@ -553,29 +696,52 @@ impl GameLogic {
             })
             .map(|object| object.get_position())
             .collect();
+        let mut occupied = existing;
+        if bones.is_empty() {
+            let slots = spec.spawn_number.min(3) as usize;
+            for slot in 0..slots {
+                if !residual_alive.get(slot).copied().unwrap_or(true) {
+                    continue;
+                }
+                if occupied.len() >= spec.spawn_number as usize {
+                    break;
+                }
+                let spawn_pos = self.snap_spawn_point_to_terrain(parent_pos, parent_pos.y);
+                if self
+                    .create_spawn_behavior_child(
+                        parent_id,
+                        &spec.spawn_template,
+                        spawn_pos,
+                        parent_ori,
+                    )
+                    .is_some()
+                {
+                    occupied.push(spawn_pos);
+                }
+            }
+            return;
+        }
+        let slots = spec.spawn_number.min(bones.len() as u32) as usize;
         for slot in 0..slots {
             if !residual_alive.get(slot).copied().unwrap_or(true) {
                 continue;
             }
-            let spawn_pos = Vec3::new(
-                position.x + offs[slot].0,
-                position.y,
-                position.z + offs[slot].1,
-            );
-            let occupied = existing.iter().any(|pos| {
-                let dx = pos.x - spawn_pos.x;
-                let dz = pos.z - spawn_pos.z;
-                dx * dx + dz * dz < 4.0
-            });
-            if occupied {
+            let (bone_pos, bone_yaw) = bones[slot];
+            if spawn_point_slot_occupied(&occupied, bone_pos) {
                 continue;
             }
-            let _ = self.create_spawn_behavior_child(
-                parent_id,
-                &spec.spawn_template,
-                spawn_pos,
-                facings[slot].to_radians(),
-            );
+            let spawn_pos = self.snap_spawn_point_to_terrain(bone_pos, parent_pos.y);
+            if self
+                .create_spawn_behavior_child(
+                    parent_id,
+                    &spec.spawn_template,
+                    spawn_pos,
+                    bone_yaw,
+                )
+                .is_some()
+            {
+                occupied.push(spawn_pos);
+            }
         }
     }
 
@@ -927,6 +1093,10 @@ impl GameLogic {
             let partition_cash = template.build_cost.supplies;
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
             object.owner_player_id = owner_player_id;
+            if object.team_instance_name.is_empty() {
+                object.team_instance_name =
+                    self.default_host_team_instance_name(owner_player_id, team);
+            }
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_cash.max(1);
             object.set_position(position);
@@ -1322,20 +1492,21 @@ impl GameLogic {
                     object.detection_range = range;
                     object.record_host_detector();
                 }
-                // Innate stealth residual (StealthUpdate InnateStealth = Yes).
-                // C++ AmericaVehicleSentryDrone: FIRING_PRIMARY + MOVING uncloak,
-                // StealthDelay 2000ms (60f) before re-cloak.
-                object.set_status_stealthed(true);
+                // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
+                // InnateStealth only sets CAN_STEALTH, not STEALTHED (StealthUpdate.cpp:110-137).
+                // AmericaVehicleSentryDrone StealthDelay 2000ms = 60f.
                 object.innate_stealth = true;
                 object.stealth_breaks_on_attack = true;
                 object.stealth_breaks_on_move = true;
                 object.stealth_delay_frames =
                     crate::game_logic::host_sentry_drone::SENTRY_STEALTH_DELAY_FRAMES;
-                object.stealth_allowed_frame = 0;
+                object.stealth_allowed_frame =
+                    self.frame.saturating_add(object.stealth_delay_frames);
                 object.stealth_delay_pending = false;
                 object.record_host_stealth_flags();
                 object.record_host_stealth_delay();
                 object.record_host_stealth_flags();
+
                 // Retail WeaponSet Conditions=None has PRIMARY None until PLAYER_UPGRADE.
                 // Strip kind-based Weapon::default fallback from resolve_primary_weapon.
                 // Explicit template primary_weapon(_name) still keeps a bound gun (test/seed).
@@ -1816,6 +1987,8 @@ impl GameLogic {
             }
             // C++ Object.cpp onCreate residual: inherit team prototype attitude + attack priority.
             self.inherit_team_ai_defaults(id);
+            // C++ GameLogic map/create: team->setActive() once the team has members.
+            self.activate_leftover_team_for_host_object(id);
 
             // C++ SpecialPowerModule StartsPaused=Yes residual (pauseCountdown TRUE on create).
             self.init_starts_paused_special_powers(id);
@@ -1962,6 +2135,11 @@ impl GameLogic {
                 // Static path/LOS obstacle (C++ pathfind structure residual).
                 self.block_structure_object_path(id);
             }
+            if let Some(obj) = self.objects.get(&id) {
+                if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
+                    self.pathfinding_system.add_wall_piece_from_object(obj);
+                }
+            }
             log::debug!(
                 "Created object {} ({}) at {:?}",
                 id,
@@ -1999,6 +2177,9 @@ impl GameLogic {
             self.host_radar_add_object(id);
             self.apply_difficulty_bonuses_for_object(id);
             self.spawn_particle_sys_bones_for_object(id);
+            // C++ Drawable ctor / onLevelStart startAmbientSound.
+            self.start_ambient_sound(id);
+
             Some(id)
         } else {
             log::warn!("Template not found: {}", template_name);
@@ -2162,6 +2343,11 @@ impl GameLogic {
             self.flatten_and_snap_construction(id);
             self.block_structure_object_path(id);
             self.move_objects_for_construction(position, 12.0, None);
+            if let Some(obj) = self.objects.get(&id) {
+                if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
+                    self.pathfinding_system.add_wall_piece_from_object(obj);
+                }
+            }
 
             log::debug!(
                 "Started construction of {} ({}) at {:?}",
@@ -2587,6 +2773,9 @@ impl GameLogic {
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
         self.drop_jet_targeters_on_attack_exit(id);
+        self.stop_move_loop_sound(id);
+        self.stop_ambient_sound(id);
+
 
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.unstamp_partition_value_threat();

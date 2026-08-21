@@ -24,7 +24,10 @@ use super::chunk::{ChunkId, ChunkManager, ViewFrustum};
 use super::roads::{
     RoadCondition, RoadMinimapSample, RoadSyntheticIntersectionKind, RoadType, StoneType,
 };
-use super::scorch_mesh::bake_terrain_scorch_gpu_mesh;
+use super::scorch_mesh::{
+    bake_terrain_scorch_gpu_mesh, terrain_scorch_count, terrain_scorches_in_buffer,
+};
+use crate::fx_list::{do_the_dynamic_light, scene_dynamic_lights, DisplayDynamicLight};
 use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
     TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TextureWeights, TileData,

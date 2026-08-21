@@ -1418,10 +1418,13 @@ impl PresentationFrame {
                     .host_authoritative_construction(o.id)
                     .map(|(_, uc)| uc)
                     .unwrap_or(o.status.under_construction);
+                let is_factory = o.building_data.is_some();
+                let is_dozer = o.is_kind_of(crate::game_logic::KindOf::Dozer)
+                    || o.is_kind_of(crate::game_logic::KindOf::Worker);
                 o.team == p.team
                     && o.is_alive()
                     && !o.status.destroyed
-                    && o.building_data.is_some()
+                    && (is_factory || is_dozer)
                     && !under
             };
             // Prefer first selected producer residual; fall back to any local factory.
@@ -1442,27 +1445,42 @@ impl PresentationFrame {
                 // Sample residual templates by factory kind.
                 let samples: &[&str] = {
                     let o = logic.host_object(pid);
-                    let bt = o
-                        .and_then(|o| o.building_data.as_ref())
-                        .map(|b| b.building_type);
-                    use crate::game_logic::buildings::BuildingType;
-                    match bt {
-                        Some(BuildingType::Barracks) => &[
-                            "AmericaInfantryRanger",
-                            "AmericaInfantryMissileDefender",
-                            "AmericaInfantryColonelBurton",
-                            "TestInfantry",
-                        ],
-                        Some(BuildingType::WarFactory) => &[
-                            "AmericaTankCrusader",
-                            "AmericaVehicleHumvee",
-                            "TestVehicleUnit",
-                        ],
-                        Some(BuildingType::Airfield) => {
-                            &["AmericaJetRaptor", "AmericaJetAurora", "TestRaptor"]
+                    let is_dozer = o.is_some_and(|o| {
+                        o.is_kind_of(crate::game_logic::KindOf::Dozer)
+                            || o.is_kind_of(crate::game_logic::KindOf::Worker)
+                    });
+                    if is_dozer {
+                        // CommandSet construct slots are appended below.
+                        &[]
+                    } else {
+                        let bt = o
+                            .and_then(|o| o.building_data.as_ref())
+                            .map(|b| b.building_type);
+                        use crate::game_logic::buildings::BuildingType;
+                        match bt {
+                            Some(BuildingType::Barracks) => &[
+                                "AmericaInfantryRanger",
+                                "AmericaInfantryMissileDefender",
+                                "AmericaInfantryColonelBurton",
+                                "TestInfantry",
+                            ],
+                            Some(BuildingType::WarFactory) => &[
+                                "AmericaTankCrusader",
+                                "AmericaVehicleHumvee",
+                                "TestVehicleUnit",
+                            ],
+                            Some(BuildingType::Airfield) => {
+                                &["AmericaJetRaptor", "AmericaJetAurora", "TestRaptor"]
+                            }
+                            Some(BuildingType::CommandCenter) => {
+                                &["AmericaVehicleDozer", "TestDozer"]
+                            }
+                            _ => &[
+                                "TestInfantry",
+                                "TestRaptor",
+                                "AmericaInfantryColonelBurton",
+                            ],
                         }
-                        Some(BuildingType::CommandCenter) => &["AmericaVehicleDozer", "TestDozer"],
-                        _ => &["TestInfantry", "TestRaptor", "AmericaInfantryColonelBurton"],
                     }
                 };
                 for name in samples {
@@ -1489,7 +1507,39 @@ impl PresentationFrame {
                             .is_some_and(|t| t.human_control_bar_buildable_hidden()),
                     });
                 }
-                can_make_cameos.truncate(12);
+                if let Some(o) = logic.host_object(pid) {
+                    use crate::game_logic::host_production_buildable_command_residual::factory_command_set_for_producer;
+                    if let Some(pack) = factory_command_set_for_producer(&o.template_name) {
+                        for (_, producible) in pack.slots {
+                            if can_make_cameos
+                                .iter()
+                                .any(|c| c.template_name.eq_ignore_ascii_case(producible))
+                            {
+                                continue;
+                            }
+                            let status = logic.can_make_unit(pid, producible);
+                            let is_struct = logic
+                                .templates
+                                .get(*producible)
+                                .map(|t| t.is_kind_of(crate::game_logic::KindOf::Structure))
+                                .unwrap_or(false);
+                            let help = can_make_type_help_box_message_residual(status, is_struct)
+                                .map(|s| s.to_string());
+                            can_make_cameos.push(PresentationCanMakeCameo {
+                                template_name: (*producible).to_string(),
+                                can_make: status,
+                                available: status
+                                    == crate::game_logic::host_production_buildable_command_residual::CANMAKE_OK,
+                                help_status: help,
+                                buildable_hidden: logic
+                                    .templates
+                                    .get(*producible)
+                                    .is_some_and(|t| t.human_control_bar_buildable_hidden()),
+                            });
+                        }
+                    }
+                }
+                can_make_cameos.truncate(32);
             }
         }
         let selected = local
@@ -1932,7 +1982,14 @@ impl PresentationFrame {
             camera_shakers: logic
                 .peek_pending_camera_add_shakers()
                 .iter()
-                .map(|s| (s.amplitude, s.duration_seconds, s.radius))
+                .map(|s| {
+                    (
+                        [s.position.x, s.position.y, s.position.z],
+                        s.amplitude,
+                        s.duration_seconds,
+                        s.radius,
+                    )
+                })
                 .take(8)
                 .collect(),
             camera_motion_blur_count: logic.peek_pending_camera_motion_blur_count(),

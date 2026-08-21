@@ -140,6 +140,12 @@ impl TerrainVisualImpl {
         let select_slots_elapsed = select_slots_started.elapsed();
 
         let texture_slots_changed = refresh_texture_slots;
+        let scene_lights = scene_dynamic_lights();
+        let lights_active = scene_lights.iter().any(|light| light.enabled);
+        // C++ HeightMap::doTheDynamicLight rebakes every VB fill. Live GPU
+        // meshes only remesh on revision/texture change, so force one rebuild
+        // while pulses are live and one more after they expire.
+        let needs_light_rebake = lights_active || self.had_dynamic_lights;
 
         let mut shared_slot_map: HashMap<TextureId, usize> = HashMap::new();
         for (slot, texture_id) in stable_texture_ids.iter().enumerate() {
@@ -181,7 +187,11 @@ impl TerrainVisualImpl {
             }
 
             let needs_mesh_upload = match self.chunk_meshes.get(&chunk_id) {
-                Some(mesh) => mesh.revision != chunk_revision || texture_slots_changed,
+                Some(mesh) => {
+                    mesh.revision != chunk_revision
+                        || texture_slots_changed
+                        || needs_light_rebake
+                }
                 None => true,
             };
 
@@ -191,10 +201,15 @@ impl TerrainVisualImpl {
                 }
                 let upload_started = std::time::Instant::now();
 
-                let (chunk_vertices, chunk_indices) = match self.chunk_manager.get_chunk(chunk_id) {
-                    Some(chunk) => (chunk.vertices.clone(), chunk.indices.clone()),
-                    None => continue,
-                };
+                let (chunk_vertices, chunk_indices, chunk_base_colors) =
+                    match self.chunk_manager.get_chunk(chunk_id) {
+                        Some(chunk) => (
+                            chunk.vertices.clone(),
+                            chunk.indices.clone(),
+                            chunk.base_colors.clone(),
+                        ),
+                        None => continue,
+                    };
 
                 let mut gpu_vertices = chunk_vertices;
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
@@ -305,7 +320,9 @@ impl TerrainVisualImpl {
                     vertex_weights.push(blended);
                 }
 
-                for (vertex, blended) in gpu_vertices.iter_mut().zip(vertex_weights.iter()) {
+                for (vert_index, (vertex, blended)) in
+                    gpu_vertices.iter_mut().zip(vertex_weights.iter()).enumerate()
+                {
                     let mut packed_indices = [0u16; MAX_BLEND_WEIGHTS];
                     let mut packed_weights = [0.0f32; MAX_BLEND_WEIGHTS];
 
@@ -367,9 +384,22 @@ impl TerrainVisualImpl {
                     }
                     let shroud = self
                         .shroud_alpha_at_world(vertex.position[0], vertex.position[2]);
-                    vertex.color[0] *= shroud;
-                    vertex.color[1] *= shroud;
-                    vertex.color[2] *= shroud;
+                    // C++ vbMirror / getStaticDiffuse, then doTheDynamicLight.
+                    // Leftover chunk.vertices may already be pulse-lit; start
+                    // from base_colors so a live remesh does not double-apply.
+                    let mut color = chunk_base_colors
+                        .get(vert_index)
+                        .copied()
+                        .unwrap_or(vertex.color);
+                    color[0] *= shroud;
+                    color[1] *= shroud;
+                    color[2] *= shroud;
+                    vertex.color = Self::bake_terrain_vertex_dynamic_light(
+                        vertex.position,
+                        vertex.normal,
+                        color,
+                        &scene_lights,
+                    );
                 }
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -407,6 +437,7 @@ impl TerrainVisualImpl {
             .retain(|id, _| self.chunk_manager.has_chunk(*id));
 
         self.upload_extra_blend_overlay();
+        self.had_dynamic_lights = lights_active;
 
         self.stats.rendered_chunks = visible_chunk_ids.len();
         self.stats.triangles_rendered = visible_chunk_ids
@@ -717,6 +748,7 @@ impl TerrainVisualImpl {
     }
 
     fn update_scorch_meshes(&mut self, device: &wgpu::Device) {
+        self.ensure_scorch_texture_bind_group(device);
         let Some(height_map) = self.height_map.as_ref() else {
             self.scorch_meshes.clear();
             return;
@@ -942,32 +974,39 @@ impl TerrainVisualImpl {
         }
     }
 
-
     fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(road_pipeline), Some(camera_bg), Some(road_bg)) = (
+        let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
-            self.road_texture_bind_group.as_ref(),
         ) else {
             return;
         };
-        if self.road_meshes.is_empty() && self.bridge_meshes.is_empty() && self.scorch_meshes.is_empty()
+
+        if (!self.road_meshes.is_empty() || !self.bridge_meshes.is_empty())
+            && let Some(road_bg) = self.road_texture_bind_group.as_ref()
         {
-            return;
+            pass.set_pipeline(road_pipeline);
+            pass.set_bind_group(0, camera_bg, &[]);
+            pass.set_bind_group(1, road_bg, &[]);
+            for mesh in self.road_meshes.iter().chain(self.bridge_meshes.iter()) {
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
 
-        pass.set_pipeline(road_pipeline);
-        pass.set_bind_group(0, camera_bg, &[]);
-        pass.set_bind_group(1, road_bg, &[]);
-        for mesh in self
-            .road_meshes
-            .iter()
-            .chain(self.bridge_meshes.iter())
-            .chain(self.scorch_meshes.iter())
+        // C++ drawScorches: Set_Texture(0, m_scorchTexture) = EXScorch01.tga.
+        if !self.scorch_meshes.is_empty()
+            && let Some(scorch_bg) = self.scorch_texture_bind_group.as_ref()
         {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            pass.set_pipeline(road_pipeline);
+            pass.set_bind_group(0, camera_bg, &[]);
+            pass.set_bind_group(1, scorch_bg, &[]);
+            for mesh in &self.scorch_meshes {
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
     }
 
@@ -1102,6 +1141,127 @@ impl TerrainVisualImpl {
         if used_fallback {
             warn!("Snow texture missing; using white 1x1 flake fallback ({source_name})");
         }
+    }
+
+    fn wanted_scorch_texture_name() -> &'static str {
+        "EXScorch01.tga"
+    }
+
+    fn ensure_scorch_texture_bind_group(&mut self, device: &wgpu::Device) {
+        let wanted = Self::wanted_scorch_texture_name();
+        if self.scorch_texture_bind_group.is_some()
+            && !self.scorch_texture_is_fallback
+            && self.scorch_texture_name.eq_ignore_ascii_case(wanted)
+        {
+            return;
+        }
+        let Some(layout) = self.road_texture_bind_group_layout.clone() else {
+            return;
+        };
+        let Some(queue) = self.queue.clone() else {
+            return;
+        };
+
+        let (texture, used_fallback, source_name) =
+            match self.load_first_available_named_overlay_texture(device, wanted) {
+                Some((texture, name)) => (texture, false, name),
+                None => (
+                    Self::create_fallback_scorch_texture(device, queue.as_ref()),
+                    true,
+                    "fallback-exscorch-4x4".to_string(),
+                ),
+            };
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        if self.scorch_sampler.is_none() {
+            self.scorch_sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Scorch Texture Sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }));
+        }
+        let Some(sampler) = self.scorch_sampler.as_ref() else {
+            return;
+        };
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Scorch EXScorch01 Bind Group"),
+            layout: layout.as_ref(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        self.scorch_texture = Some(texture);
+        self.scorch_texture_bind_group = Some(bind_group);
+        self.scorch_texture_name = wanted.to_string();
+        self.scorch_texture_is_fallback = used_fallback;
+        if used_fallback {
+            warn!("EXScorch01 missing; using 4x4 burn-atlas fallback ({source_name})");
+        }
+    }
+
+    fn create_fallback_scorch_texture(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        // 4x4 3x3-atlas analog (C++ SCORCH_PER_ROW+1). Dark brown, not road gravel.
+        let mut pixels = [0u8; 4 * 4 * 4];
+        for y in 0..4 {
+            for x in 0..4 {
+                let i = (y * 4 + x) * 4;
+                let in_tile = x < 3 && y < 3;
+                if in_tile {
+                    pixels[i] = 42 + (x as u8) * 8;
+                    pixels[i + 1] = 28 + (y as u8) * 6;
+                    pixels[i + 2] = 18;
+                    pixels[i + 3] = 210;
+                } else {
+                    pixels[i + 3] = 0;
+                }
+            }
+        }
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Scorch Fallback EXScorch 4x4"),
+            size: wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(16),
+                rows_per_image: Some(4),
+            },
+            wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
     }
 
     fn load_first_available_named_overlay_texture(
@@ -1947,6 +2107,12 @@ impl TerrainVisualImpl {
                     self.ambient_color,
                 );
                 color[3] = vertex.color[3];
+                color = Self::bake_terrain_vertex_dynamic_light(
+                    vertex.position,
+                    [normal.x, normal.y, normal.z],
+                    color,
+                    &scene_dynamic_lights(),
+                );
                 TerrainVertex {
                     position: vertex.position,
                     normal: [normal.x, normal.y, normal.z],
@@ -2089,6 +2255,61 @@ impl TerrainVisualImpl {
     pub fn extra_blend_draw_count(&self) -> u32 {
         self.extra_blend_draw_count.load(Ordering::Relaxed)
     }
+
+    /// C++ `HeightMapRenderObjClass::doTheDynamicLight` on Y-up wgpu verts.
+    /// Map coords are C++ Z-up: `(x, y, z) = (wgpu.x, wgpu.z, wgpu.y)`.
+    pub(crate) fn bake_terrain_vertex_dynamic_light(
+        position_yup: [f32; 3],
+        normal_yup: [f32; 3],
+        static_rgba: [f32; 4],
+        lights: &[DisplayDynamicLight],
+    ) -> [f32; 4] {
+        if lights.is_empty() {
+            return static_rgba;
+        }
+        let xyz = [position_yup[0], position_yup[2], position_yup[1]];
+        let nrm = [normal_yup[0], normal_yup[2], normal_yup[1]];
+        let packed = rgba_f32_to_bgra_u32(static_rgba);
+        bgra_u32_to_rgba_f32(do_the_dynamic_light(xyz, nrm, packed, lights))
+    }
+
+    /// C++ `drawScorches` → `updateScorches` when `m_scorchesInBuffer == 0`.
+    pub(crate) fn scorches_need_gpu_rebuild(&self) -> bool {
+        let in_buffer = terrain_scorches_in_buffer();
+        let count = terrain_scorch_count();
+        if count == 0 {
+            return !self.scorch_meshes.is_empty();
+        }
+        in_buffer == 0 || self.scorch_meshes.is_empty()
+    }
+
+    pub(crate) fn scorch_overlay_texture_name() -> &'static str {
+        Self::wanted_scorch_texture_name()
+    }
+
+    pub(crate) fn scorch_bind_group_ready(&self) -> bool {
+        self.scorch_texture_bind_group.is_some()
+    }
+
+    pub(crate) fn last_scorch_texture_name(&self) -> &str {
+        &self.scorch_texture_name
+    }
+}
+
+fn rgba_f32_to_bgra_u32(color: [f32; 4]) -> u32 {
+    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
+    let a = (color[3].clamp(0.0, 1.0) * 255.0) as u32;
+    b | (g << 8) | (r << 16) | (a << 24)
+}
+
+fn bgra_u32_to_rgba_f32(packed: u32) -> [f32; 4] {
+    let b = (packed & 0xFF) as f32 / 255.0;
+    let g = ((packed >> 8) & 0xFF) as f32 / 255.0;
+    let r = ((packed >> 16) & 0xFF) as f32 / 255.0;
+    let a = ((packed >> 24) & 0xFF) as f32 / 255.0;
+    [r, g, b, a]
 }
 
 fn height_map_cell_at_world(hm: &HeightMap, world_x: f32, world_z: f32) -> (i32, i32) {

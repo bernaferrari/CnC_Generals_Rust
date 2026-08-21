@@ -2,7 +2,7 @@ use super::*;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 
 use gamelogic::ai::pathfind_astar::{
     AStarPathfinder, GridCoord, PathfindCellType, PathfindLayerEnum, COST_DIAGONAL,
@@ -153,6 +153,22 @@ struct HostBridgeLayer {
     cells: HashMap<(i32, i32), (PathfindCellType, u8)>,
 }
 
+/// C++ `LAYER_WALL = LAYER_LAST = 15` (GameType.h:167).
+const LAYER_WALL_ID: u8 = 15;
+/// C++ `MAX_WALL_PIECES` (AIPathfind.h:181).
+const MAX_WALL_PIECES: usize = 128;
+
+/// Registered `KINDOF_WALK_ON_TOP_OF_WALL` piece (C++ `m_wallPieces`).
+#[derive(Debug, Clone)]
+struct HostWallPiece {
+    id: u32,
+    pos_x: f32,
+    pos_z: f32,
+    orientation: f32,
+    major: f32,
+    minor: f32,
+}
+
 /// Pathfinding grid
 #[derive(Debug, Clone)]
 pub struct PathfindingGrid {
@@ -181,6 +197,8 @@ pub struct PathfindingGrid {
     transparent_bits: Vec<u64>,
     /// Players with a UNIT_GOAL reservation in this cell (bit i = player i).
     occ_goal_mask: Vec<u16>,
+    /// Last UNIT_GOAL writer (C++ `PathfindCell::getGoalUnit`). 0 = none.
+    occ_goal_unit: Vec<u32>,
     /// Players with infantry occupying this cell.
     occ_infantry_mask: Vec<u16>,
     /// Max CrushableLevel among fixed occupants (canCrushOrSquish).
@@ -194,6 +212,12 @@ pub struct PathfindingGrid {
     ground_connect: Vec<u8>,
     /// C++ `Pathfinder::m_layers[2..=14]`.
     bridge_layers: Vec<HostBridgeLayer>,
+    /// C++ `m_wallPieces` geometry for `allocateCellsForWallLayer`.
+    wall_pieces: Vec<HostWallPiece>,
+    /// C++ `m_layers[LAYER_WALL]` classified non-IMPASSABLE cells.
+    wall_cells: HashMap<(i32, i32), PathfindCellType>,
+    /// C++ `m_wallHeight`.
+    wall_height: f32,
 
     /// Bump when static cells change so crate A* can resync.
     terrain_gen: u64,
@@ -201,6 +225,10 @@ pub struct PathfindingGrid {
     query_path_diameter: i32,
     /// Crusher flag paired with `query_path_diameter`.
     query_is_crusher: bool,
+    /// C++ `adjustDestination` / `internalFindPath` layer for this query.
+    query_layer: u8,
+    /// Seeker ObjectID for `checkDestination` own-goal skip.
+    query_seeker_id: u32,
 
 }
 
@@ -230,6 +258,7 @@ impl PathfindingGrid {
             pinched_bits: vec![0u64; words],
             terrain_zones: vec![0u16; cells],
             occ_fixed_mask: vec![0u16; cells],
+            occ_goal_unit: vec![0u32; cells],
             occ_moving_mask: vec![0u16; cells],
             fence_bits: vec![0u64; words],
             transparent_bits: vec![0u64; words],
@@ -239,7 +268,12 @@ impl PathfindingGrid {
             path_zones: vec![0u16; cells],
             player_ally_masks: [0u16; 16],
             ground_connect: vec![0u8; cells],
+            query_layer: PathfindLayerEnum::Ground as u8,
+            query_seeker_id: 0,
             bridge_layers: Vec::new(),
+            wall_pieces: Vec::new(),
+            wall_cells: HashMap::new(),
+            wall_height: 0.0,
             terrain_gen: 1,
             query_path_diameter: 1,
             query_is_crusher: false,
@@ -572,7 +606,9 @@ impl PathfindingGrid {
         self.transparent_bits.fill(0);
         self.ground_connect.fill(0);
         self.bridge_layers.clear();
-        self.terrain_gen = self.terrain_gen.wrapping_add(1);
+        // C++ classifyMap keeps m_layers[LAYER_WALL] when pieces remain
+        // (AIPathfind.cpp:4650-4651). Do not drop the deck on terrain rebuild.
+        self.allocate_and_classify_wall_layer();
     }
 
 
@@ -632,6 +668,7 @@ impl PathfindingGrid {
         self.occ_fixed_mask.fill(0);
         self.occ_moving_mask.fill(0);
         self.occ_goal_mask.fill(0);
+        self.occ_goal_unit.fill(0);
         self.occ_infantry_mask.fill(0);
         self.occ_fixed_max_crushable.fill(0);
     }
@@ -973,10 +1010,206 @@ impl PathfindingGrid {
 
     /// C++ `PathfindLayer::getCell` type (NULL/IMPASSABLE → None).
     pub fn layer_cell_type(&self, layer: u8, pos: GridPos) -> Option<PathfindCellType> {
+        if layer == LAYER_WALL_ID {
+            return self.wall_cells.get(&(pos.x, pos.y)).copied();
+        }
         self.bridge_layers
             .iter()
             .find(|l| l.id == layer)
             .and_then(|l| l.cells.get(&(pos.x, pos.y)).map(|(ty, _)| *ty))
+    }
+
+    /// C++ `Pathfinder::isPointOnWall` (AIPathfind.cpp:3929-3942).
+    pub fn is_point_on_wall(&self, pos: Vec3) -> bool {
+        if self.wall_pieces.is_empty() || self.wall_cells.is_empty() {
+            return false;
+        }
+        let cell = self.world_to_grid(pos);
+        matches!(
+            self.wall_cells.get(&(cell.x, cell.y)),
+            Some(PathfindCellType::Clear)
+        )
+    }
+
+    pub fn wall_height(&self) -> f32 {
+        self.wall_height
+    }
+
+    pub fn set_wall_height(&mut self, h: f32) {
+        self.wall_height = h;
+    }
+
+    pub fn wall_piece_count(&self) -> usize {
+        self.wall_pieces.len()
+    }
+
+    fn wall_piece_contains(piece: &HostWallPiece, x: f32, z: f32) -> bool {
+        // C++ PathfindLayer::isPointOnWall — Cos/Sin(-orientation).
+        let ori = -piece.orientation;
+        let (s, c) = ori.sin_cos();
+        let ptx = x - piece.pos_x;
+        let ptz = z - piece.pos_z;
+        let ptx_new = (ptx * c - ptz * s).abs();
+        let ptz_new = (ptx * s + ptz * c).abs();
+        ptx_new <= piece.major && ptz_new <= piece.minor
+    }
+
+    fn wall_piece_aabb(piece: &HostWallPiece) -> (f32, f32, f32, f32) {
+        let (s, c) = piece.orientation.sin_cos();
+        let mut lo_x = f32::MAX;
+        let mut lo_z = f32::MAX;
+        let mut hi_x = f32::MIN;
+        let mut hi_z = f32::MIN;
+        for &sx in &[-piece.major, piece.major] {
+            for &sz in &[-piece.minor, piece.minor] {
+                let x = piece.pos_x + sx * c - sz * s;
+                let z = piece.pos_z + sx * s + sz * c;
+                lo_x = lo_x.min(x);
+                lo_z = lo_z.min(z);
+                hi_x = hi_x.max(x);
+                hi_z = hi_z.max(z);
+            }
+        }
+        (lo_x, lo_z, hi_x, hi_z)
+    }
+
+    fn wall_corner_count(&self, pos: GridPos, pieces: &[HostWallPiece]) -> u32 {
+        let tl = self.grid_to_world(pos);
+        let s = self.grid_size;
+        let pts = [
+            (tl.x, tl.z),
+            (tl.x, tl.z + s),
+            (tl.x + s, tl.z + s),
+            (tl.x + s, tl.z),
+        ];
+        pts.iter()
+            .filter(|(x, z)| pieces.iter().any(|p| Self::wall_piece_contains(p, *x, *z)))
+            .count() as u32
+    }
+
+    /// C++ `allocateCellsForWallLayer` + `classifyWallCells` (AIPathfind.cpp:3386-3583).
+    pub fn allocate_and_classify_wall_layer(&mut self) {
+        self.wall_cells.clear();
+        if self.wall_pieces.is_empty() {
+            self.terrain_gen = self.terrain_gen.wrapping_add(1);
+            return;
+        }
+        let mut lo_x = f32::MAX;
+        let mut lo_z = f32::MAX;
+        let mut hi_x = f32::MIN;
+        let mut hi_z = f32::MIN;
+        for piece in &self.wall_pieces {
+            let (a, b, c, d) = Self::wall_piece_aabb(piece);
+            lo_x = lo_x.min(a);
+            lo_z = lo_z.min(b);
+            hi_x = hi_x.max(c);
+            hi_z = hi_z.max(d);
+        }
+        let pad = self.grid_size / 100.0;
+        let mut min_cell = self.world_to_grid(Vec3::new(lo_x - pad, 0.0, lo_z - pad));
+        let mut max_cell = self.world_to_grid(Vec3::new(hi_x + pad, 0.0, hi_z + pad));
+        min_cell.x -= 1;
+        min_cell.y -= 1;
+        max_cell.x += 1;
+        max_cell.y += 1;
+        min_cell.x = min_cell.x.max(0);
+        min_cell.y = min_cell.y.max(0);
+        max_cell.x = max_cell.x.min(self.width.saturating_sub(1));
+        max_cell.y = max_cell.y.min(self.height.saturating_sub(1));
+        if max_cell.x < min_cell.x || max_cell.y < min_cell.y {
+            self.terrain_gen = self.terrain_gen.wrapping_add(1);
+            return;
+        }
+        let pieces = self.wall_pieces.clone();
+        let mut raw: HashMap<(i32, i32), PathfindCellType> = HashMap::new();
+        for y in min_cell.y..=max_cell.y {
+            for x in min_cell.x..=max_cell.x {
+                let count = self.wall_corner_count(GridPos::new(x, y), &pieces);
+                let ty = if count == 4 {
+                    PathfindCellType::Clear
+                } else if count != 0 {
+                    PathfindCellType::BridgeImpassable
+                } else {
+                    PathfindCellType::Impassable
+                };
+                if ty != PathfindCellType::Impassable {
+                    raw.insert((x, y), ty);
+                }
+            }
+        }
+        // C++ pinch: any 3x3 neighbor not CLEAR → pinched; pinched CLEAR → CLIFF.
+        let mut pinched = HashSet::new();
+        for y in (min_cell.y + 1)..max_cell.y {
+            for x in (min_cell.x + 1)..max_cell.x {
+                let mut pinch = false;
+                'adj: for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let ty = raw
+                            .get(&(x + dx, y + dy))
+                            .copied()
+                            .unwrap_or(PathfindCellType::Impassable);
+                        if ty != PathfindCellType::Clear {
+                            pinch = true;
+                            break 'adj;
+                        }
+                    }
+                }
+                if pinch {
+                    pinched.insert((x, y));
+                }
+            }
+        }
+        for (k, ty) in raw.iter_mut() {
+            if pinched.contains(k) && *ty == PathfindCellType::Clear {
+                *ty = PathfindCellType::Cliff;
+            }
+        }
+        self.wall_cells = raw;
+        self.terrain_gen = self.terrain_gen.wrapping_add(1);
+    }
+
+    /// C++ `Pathfinder::addWallPiece` (AIPathfind.cpp:3885-3890).
+    pub fn add_wall_piece(
+        &mut self,
+        id: u32,
+        pos: Vec3,
+        orientation: f32,
+        major: f32,
+        minor: f32,
+    ) {
+        if self.wall_pieces.len() >= MAX_WALL_PIECES.saturating_sub(1) {
+            return;
+        }
+        if self.wall_pieces.iter().any(|p| p.id == id) {
+            return;
+        }
+        self.wall_pieces.push(HostWallPiece {
+            id,
+            pos_x: pos.x,
+            pos_z: pos.z,
+            orientation,
+            major: major.max(0.1),
+            minor: minor.max(0.1),
+        });
+        self.allocate_and_classify_wall_layer();
+    }
+
+    /// C++ `Pathfinder::removeWallPiece` (AIPathfind.cpp:3896-3923).
+    pub fn remove_wall_piece(&mut self, id: u32) {
+        if let Some(i) = self.wall_pieces.iter().position(|p| p.id == id) {
+            let last = self.wall_pieces.len() - 1;
+            self.wall_pieces.swap(i, last);
+            self.wall_pieces.pop();
+            self.allocate_and_classify_wall_layer();
+        }
+    }
+
+    /// C++ classifyObjectFootprint remove: `isPointOnWall(&curID, 1, pos)`.
+    pub fn is_point_on_wall_piece(&self, piece_id: u32, pos: Vec3) -> bool {
+        self.wall_pieces
+            .iter()
+            .find(|p| p.id == piece_id)
+            .is_some_and(|p| Self::wall_piece_contains(p, pos.x, pos.z))
     }
 
     /// C++ `m_map[i][j].getConnectLayer()` (0 = LAYER_INVALID).
@@ -989,6 +1222,126 @@ impl PathfindingGrid {
     pub fn first_bridge_layer_id(&self) -> Option<u8> {
         self.bridge_layers.first().map(|l| l.id)
     }
+
+    /// C++ `TerrainLogic::getLayerForDestination` (host Y-up).
+    /// Nearest deck/ground height among bridges whose quad covers XZ.
+    pub fn layer_for_destination(&self, pos: Vec3) -> PathfindLayerEnum {
+        let ground_y = sample_host_ground_height(pos.x, pos.z);
+        let mut best_layer = PathfindLayerEnum::Ground;
+        let mut best_distance = (pos.y - ground_y).abs();
+        // C++ TerrainLogic::getLayerForDestination checks the wall first
+        // when |z-ground| > wallHeight/2 (TerrainLogic.cpp:1674-1682).
+        if best_distance > self.wall_height * 0.5 && self.is_point_on_wall(pos) {
+            let delta = (pos.y - self.wall_height).abs();
+            if delta < best_distance {
+                best_layer = PathfindLayerEnum::Wall;
+                best_distance = delta;
+            }
+        }
+        let cell = self.world_to_grid(pos);
+        for layer in &self.bridge_layers {
+            let corners = [
+                layer.from_left,
+                layer.from_right,
+                layer.to_right,
+                layer.to_left,
+            ];
+            if point_in_bridge_quad(pos.x, pos.z, &corners) {
+                let deck_y = bridge_deck_height(&corners, pos.x, pos.z);
+                let delta = (pos.y - deck_y).abs();
+                if delta < best_distance {
+                    best_layer = PathfindLayerEnum::from_u32(layer.id as u32);
+                    best_distance = delta;
+                }
+            }
+        }
+        if best_layer != PathfindLayerEnum::Ground {
+            return best_layer;
+        }
+        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+            let dest = gamelogic::common::Coord3D::new(pos.x, pos.z, pos.y);
+            let leftover = tl.get_layer_for_destination(&dest);
+            if leftover != gamelogic::path::PathfindLayerEnum::Ground {
+                let id = leftover as u8;
+                if self.layer_cell_type(id, cell).is_some() {
+                    return PathfindLayerEnum::from_u32(id as u32);
+                }
+                if let Some(host) = self.host_deck_layer_at(cell) {
+                    return PathfindLayerEnum::from_u32(host as u32);
+                }
+            }
+        }
+        // Click/unit on a river cell whose deck is Clear: prefer the deck
+        // when ground is not a valid ground locomotor cell (Y may be 0).
+        if !self.cell_passable_for(cell, SURFACE_GROUND, false) {
+            if let Some(host) = self.host_deck_layer_at(cell) {
+                return PathfindLayerEnum::from_u32(host as u32);
+            }
+        }
+        PathfindLayerEnum::Ground
+    }
+
+    fn host_deck_layer_at(&self, pos: GridPos) -> Option<u8> {
+        self.bridge_layers.iter().find_map(|layer| {
+            layer.cells.get(&(pos.x, pos.y)).and_then(|(ty, _)| {
+                if matches!(
+                    *ty,
+                    PathfindCellType::Impassable | PathfindCellType::BridgeImpassable
+                ) {
+                    None
+                } else {
+                    Some(layer.id)
+                }
+            })
+        })
+    }
+
+    /// C++ `Pathfinder::getCell(layer, x, y)` type (Impassable/missing → ground).
+    pub fn resolved_cell_type(&self, layer: PathfindLayerEnum, pos: GridPos) -> PathfindCellType {
+        if (layer as u8) > PathfindLayerEnum::Ground as u8 {
+            if let Some(ty) = self.layer_cell_type(layer as u8, pos) {
+                if ty != PathfindCellType::Impassable {
+                    return ty;
+                }
+            }
+        }
+        self.cell_type(pos)
+    }
+
+    fn type_passable_for(ty: PathfindCellType, surfaces: u32, is_crusher: bool) -> bool {
+        let cell_surfaces = match ty {
+            PathfindCellType::Obstacle
+            | PathfindCellType::Impassable
+            | PathfindCellType::BridgeImpassable => SURFACE_AIR,
+            PathfindCellType::Clear => SURFACE_GROUND | SURFACE_AIR,
+            PathfindCellType::Water => SURFACE_WATER | SURFACE_AIR,
+            PathfindCellType::Rubble => SURFACE_RUBBLE | SURFACE_AIR,
+            PathfindCellType::Cliff => SURFACE_CLIFF | SURFACE_AIR,
+        };
+        if (cell_surfaces & surfaces) != 0 {
+            return true;
+        }
+        ty == PathfindCellType::Rubble && is_crusher
+    }
+
+    /// `cell_passable_for` on `layer` (C++ `validMovementPosition(..., layer, ...)`).
+    pub fn cell_passable_for_layer(
+        &self,
+        pos: GridPos,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> bool {
+        if !self.is_valid_pos(pos) {
+            return false;
+        }
+        if self.is_obstacle_fence(pos) && is_crusher {
+            return true;
+        }
+        Self::type_passable_for(self.resolved_cell_type(layer, pos), surfaces, is_crusher)
+    }
+
+
 
     fn cell_center_xz(&self, pos: GridPos) -> (f32, f32) {
         let tl = self.grid_to_world(pos);
@@ -1109,6 +1462,7 @@ impl PathfindingGrid {
         seeker_is_infantry: bool,
         crusher_level: u8,
         ally_mask: u16,
+        start: Option<GridPos>,
     ) -> Option<f32> {
         let Some(idx) = self.bit_index(pos) else {
             return Some(0.0);
@@ -1120,8 +1474,9 @@ impl PathfindingGrid {
         if fixed == 0 && moving == 0 && goal == 0 {
             return Some(0.0);
         }
-        // C++ INFANTRY_MOVES_THROUGH_INFANTRY: skip infantry occupancy.
-        if seeker_is_infantry && infantry != 0 && (fixed | moving) == infantry && goal == 0 {
+        // C++ INFANTRY_MOVES_THROUGH_INFANTRY continue is unconditional
+        // (AIPathfind.cpp:5031-5035) — goals do not block infantry stream-through.
+        if seeker_is_infantry && infantry != 0 && (fixed | moving) == infantry {
             return Some(0.0);
         }
         let Some(player) = seeker_player else {
@@ -1132,37 +1487,30 @@ impl PathfindingGrid {
         // (AIPathfind.cpp:5037-5066). Only non-allies consult canCrushOrSquish.
         let friend = bit | ally_mask;
         if seeker_is_infantry && (infantry & !bit) != 0 && (fixed & !bit) == (infantry & !bit) {
-            // Other infantry only — stream through.
             let leftover_fixed = fixed & !infantry;
             let leftover_moving = moving & !infantry;
-            if leftover_fixed == 0 && leftover_moving == 0 && (goal & !bit) == 0 {
+            if leftover_fixed == 0 && leftover_moving == 0 {
                 return Some(0.0);
             }
         }
         let enemy_fixed = (fixed & !friend) != 0;
         if enemy_fixed {
-            // C++ checkForMovement: enemyFixed only when !canCrushOrSquish
-            // (AIPathfind.cpp:5063-5065). Crushers plan through idle cars.
             let max_c = self.occ_fixed_max_crushable.get(idx).copied().unwrap_or(255);
             if crusher_level == 0 || crusher_level <= max_c {
                 return None;
             }
         }
         let mut extra = 0.0;
-        if (moving & bit) != 0 {
-            extra += 3.0 * 1.414_213_5;
+        // C++ allyMoving +3*COST_DIAGONAL only within dx<10 && dy<10 of start
+        // (AIPathfind.cpp:6260-6262). Moving enemies add no cost.
+        if (moving & friend) != 0 {
+            if let Some(s) = start {
+                if (pos.x - s.x).abs() < 10 && (pos.y - s.y).abs() < 10 {
+                    extra += 3.0 * 1.414_213_5;
+                }
+            }
         }
         if (fixed & friend) != 0 {
-            extra += 3.0 * 1.414_213_5;
-        }
-        if (moving & !friend) != 0 {
-            extra += 3.0 * 1.414_213_5;
-        }
-        // C++ UNIT_GOAL allied reservation: refuse as a cheap dest (high cost).
-        if (goal & bit) != 0 {
-            extra += 3.0 * 1.414_213_5;
-        }
-        if (goal & !bit) != 0 {
             extra += 3.0 * 1.414_213_5;
         }
         Some(extra)
@@ -1176,6 +1524,7 @@ impl PathfindingGrid {
         infantry: bool,
         goal: bool,
         crushable_level: u8,
+        unit_id: u32,
     ) {
         let Some(idx) = self.bit_index(pos) else {
             return;
@@ -1185,6 +1534,9 @@ impl PathfindingGrid {
         if goal {
             if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
                 *slot |= bit;
+            }
+            if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
+                *slot = unit_id;
             }
             return;
         }
@@ -1328,7 +1680,7 @@ impl PathfindingGrid {
                 if self.is_pinched(neighbor) {
                     movement_cost += 1.414_213_5;
                 }
-                match self.occupancy_cost(neighbor, None, false, 0, 0) {
+                match self.occupancy_cost(neighbor, None, false, 0, 0, Some(start)) {
                     None => continue, // enemyFixed abort
                     Some(extra) => movement_cost += extra,
                 }
@@ -1443,7 +1795,7 @@ impl PathfindingGrid {
                         } else {
                             obj.crushable_level
                         };
-                        self.mark_occupancy(p, player, moving, infantry, false, crushable);
+                        self.mark_occupancy(p, player, moving, infantry, false, crushable, obj.id.0);
                     }
                 }
             }
@@ -1461,7 +1813,7 @@ impl PathfindingGrid {
                         for dx in -radius_cells..=radius_cells {
                             let p = GridPos::new(goal_cell.x + dx, goal_cell.y + dy);
                             if self.is_valid_pos(p) {
-                                self.mark_occupancy(p, player, false, false, true, 255);
+                                self.mark_occupancy(p, player, false, false, true, 255, obj.id.0);
                             }
                         }
                     }
@@ -1484,6 +1836,7 @@ impl PathfindingGrid {
             seeker_is_infantry,
             crusher_level,
             ally_mask,
+            None,
         ) {
             None => u32::MAX / 8,
             Some(c) => (c * 10.0) as u32, // crate A* uses integer COST_DIAGONAL=14
@@ -1501,8 +1854,16 @@ impl PathfindingGrid {
         let Some(player) = seeker_player else {
             return true;
         };
+        // C++ checkDestination: own UNIT_GOAL is skipped (goalUnitID==objID).
+        let goal_unit = self.occ_goal_unit.get(idx).copied().unwrap_or(0);
+        if self.query_seeker_id != 0 && goal_unit == self.query_seeker_id {
+            return false;
+        }
         let bit = 1u16 << player.min(15);
-        (goal & bit) != 0
+        let ally = self.ally_mask_for(player);
+        // Refuse allies (other players + same-player siblings). Own reservation
+        // already excluded above.
+        (goal & (ally | bit)) != 0
     }
 
     /// C++ `checkDestination` occupancy (AIPathfind.cpp:4946-4953).
@@ -1530,14 +1891,15 @@ impl PathfindingGrid {
         is_crusher: bool,
         seeker_player: Option<u32>,
         crusher_level: u8,
+        layer: PathfindLayerEnum,
     ) -> bool {
         if !self.is_valid_pos(pos) {
             return false;
         }
-        if !self.cell_passable_for(pos, surfaces, is_crusher) {
+        if !self.cell_passable_for_layer(pos, layer, surfaces, is_crusher) {
             return false;
         }
-        if self.cell_type(pos) == PathfindCellType::Cliff {
+        if self.resolved_cell_type(layer, pos) == PathfindCellType::Cliff {
             return false;
         }
         if self.has_allied_goal(pos, seeker_player) {
@@ -1583,26 +1945,7 @@ impl PathfindingGrid {
 
     /// C++ `validLocomotorSurfacesForCellType` + fence crusher exception.
     pub fn cell_passable_for(&self, pos: GridPos, surfaces: u32, is_crusher: bool) -> bool {
-        if !self.is_valid_pos(pos) {
-            return false;
-        }
-        if self.is_obstacle_fence(pos) && is_crusher {
-            return true;
-        }
-        let ty = self.cell_type(pos);
-        let cell_surfaces = match ty {
-            PathfindCellType::Obstacle
-            | PathfindCellType::Impassable
-            | PathfindCellType::BridgeImpassable => SURFACE_AIR,
-            PathfindCellType::Clear => SURFACE_GROUND | SURFACE_AIR,
-            PathfindCellType::Water => SURFACE_WATER | SURFACE_AIR,
-            PathfindCellType::Rubble => SURFACE_RUBBLE | SURFACE_AIR,
-            PathfindCellType::Cliff => SURFACE_CLIFF | SURFACE_AIR,
-        };
-        if (cell_surfaces & surfaces) != 0 {
-            return true;
-        }
-        ty == PathfindCellType::Rubble && is_crusher
+        self.cell_passable_for_layer(pos, PathfindLayerEnum::Ground, surfaces, is_crusher)
     }
 
     /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:9670-9696). MAX_RADIUS=2.
@@ -1695,9 +2038,37 @@ impl PathfindingGrid {
         seeker_player: Option<u32>,
         crusher_level: u8,
     ) -> Option<GridPos> {
+        self.adjust_destination_on_layer(
+            dest,
+            surfaces,
+            is_crusher,
+            max_cells,
+            seeker_player,
+            crusher_level,
+            PathfindLayerEnum::Ground,
+        )
+    }
+
+    /// C++ `adjustDestination` spiral on `layer` (`getCell(layer, i, j)`).
+    pub fn adjust_destination_on_layer(
+        &self,
+        dest: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        max_cells: i32,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        layer: PathfindLayerEnum,
+    ) -> Option<GridPos> {
         let origin = self.clamp_pos(dest);
-        if self.destination_cell_ok(origin, surfaces, is_crusher, seeker_player, crusher_level)
-        {
+        if self.destination_cell_ok(
+            origin,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            layer,
+        ) {
             return Some(origin);
         }
         let mut i = origin.x;
@@ -1709,8 +2080,14 @@ impl PathfindingGrid {
                 i += 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.destination_cell_ok(c, surfaces, is_crusher, seeker_player, crusher_level)
-                {
+                if self.destination_cell_ok(
+                    c,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
                     return Some(c);
                 }
             }
@@ -1718,8 +2095,14 @@ impl PathfindingGrid {
                 j += 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.destination_cell_ok(c, surfaces, is_crusher, seeker_player, crusher_level)
-                {
+                if self.destination_cell_ok(
+                    c,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
                     return Some(c);
                 }
             }
@@ -1728,8 +2111,14 @@ impl PathfindingGrid {
                 i -= 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.destination_cell_ok(c, surfaces, is_crusher, seeker_player, crusher_level)
-                {
+                if self.destination_cell_ok(
+                    c,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
                     return Some(c);
                 }
             }
@@ -1737,8 +2126,14 @@ impl PathfindingGrid {
                 j -= 1;
                 limit -= 1;
                 let c = GridPos::new(i, j);
-                if self.destination_cell_ok(c, surfaces, is_crusher, seeker_player, crusher_level)
-                {
+                if self.destination_cell_ok(
+                    c,
+                    surfaces,
+                    is_crusher,
+                    seeker_player,
+                    crusher_level,
+                    layer,
+                ) {
                     return Some(c);
                 }
             }
@@ -2528,9 +2923,14 @@ impl PathfindingSystem {
                 }
             }
         }
+        if !self.grid.wall_cells.is_empty() {
+            let pf_layer = PathfindLayerEnum::Wall;
+            for ((x, y), ty) in &self.grid.wall_cells {
+                finder.set_cell_type_on_layer(GridCoord::new(*x, *y), pf_layer, *ty);
+            }
+        }
         self.crate_astar = Some(HostCrateAStar { finder, stamp });
     }
-
 
     fn host_to_crate_coord(&self, pos: GridPos) -> GridCoord {
         GridCoord::new(pos.x, pos.y)
@@ -2551,8 +2951,11 @@ impl PathfindingSystem {
         goal: GridPos,
         surfaces: u32,
         is_crusher: bool,
+        start_layer: PathfindLayerEnum,
+        dest_layer: PathfindLayerEnum,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
+        self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         self.grid
             .set_query_footprint(self.seeker_path_diameter, is_crusher);
         let crusher_level = if is_crusher {
@@ -2562,29 +2965,32 @@ impl PathfindingSystem {
         };
         let start = self
             .grid
-            .adjust_destination_ex(
+            .adjust_destination_on_layer(
                 self.grid.clamp_pos(start),
                 surfaces,
                 is_crusher,
                 64,
                 self.seeker_player,
                 crusher_level,
+                start_layer,
             )
             .or_else(|| {
                 self.grid
                     .nearest_static_open(self.grid.clamp_pos(start), 16)
             })
             .unwrap_or_else(|| self.grid.clamp_pos(start));
-        // C++ adjustDestination: snap water/cliff/impassable/occupied clicks.
+        // C++ adjustDestination: snap water/cliff/impassable/occupied clicks
+        // on destinationLayer (AIPathfind.cpp:5352-5355).
         let mut goal = self
             .grid
-            .adjust_destination_ex(
+            .adjust_destination_on_layer(
                 self.grid.clamp_pos(goal),
                 surfaces,
                 is_crusher,
                 400,
                 self.seeker_player,
                 crusher_level,
+                dest_layer,
             )
             .or_else(|| {
                 self.grid
@@ -2593,24 +2999,32 @@ impl PathfindingSystem {
             .unwrap_or_else(|| self.grid.clamp_pos(goal));
         // C++ checkDestination refuses allied UNIT_GOAL cells.
         if self.grid.has_allied_goal(goal, self.seeker_player) {
-            if let Some(adj) = self.grid.adjust_destination_ex(
+            if let Some(adj) = self.grid.adjust_destination_on_layer(
                 goal,
                 surfaces,
                 is_crusher,
                 64,
                 self.seeker_player,
                 crusher_level,
+                dest_layer,
             ) {
                 if !self.grid.has_allied_goal(adj, self.seeker_player) {
                     goal = adj;
                 }
             }
         }
-        if !self.grid.cell_passable_for(start, surfaces, is_crusher)
-            || !self.grid.cell_passable_for(goal, surfaces, is_crusher)
+        if !self
+            .grid
+            .cell_passable_for_layer(start, start_layer, surfaces, is_crusher)
+            || !self
+                .grid
+                .cell_passable_for_layer(goal, dest_layer, surfaces, is_crusher)
         {
             // Still try — crusher fences / air may pass via crate.
-            if self.grid.is_static_blocked(start) && !self.grid.is_obstacle_fence(start) {
+            if start_layer == PathfindLayerEnum::Ground
+                && self.grid.is_static_blocked(start)
+                && !self.grid.is_obstacle_fence(start)
+            {
                 return None;
             }
         }
@@ -2633,6 +3047,7 @@ impl PathfindingSystem {
         let cell_types = self.grid.cell_types.clone();
         let fence_bits = self.grid.fence_bits.clone();
         let diameter_crusher = is_crusher;
+        let start_for_cost = start;
         let extra = move |c: GridCoord| {
             if c.x < 0 || c.y < 0 || c.x >= width {
                 return 0;
@@ -2658,7 +3073,8 @@ impl PathfindingSystem {
             let moving = occ_moving.get(idx).copied().unwrap_or(0);
             let goal_m = occ_goal.get(idx).copied().unwrap_or(0);
             let infantry = occ_infantry.get(idx).copied().unwrap_or(0);
-            if seeker_inf && infantry != 0 && (fixed | moving) == infantry && goal_m == 0 {
+            // C++ INFANTRY_MOVES_THROUGH_INFANTRY: stream even when a goal is set.
+            if seeker_inf && infantry != 0 && (fixed | moving) == infantry {
                 return 0;
             }
             if fixed == 0 && moving == 0 && goal_m == 0 {
@@ -2672,29 +3088,26 @@ impl PathfindingSystem {
             if seeker_inf && (infantry & !bit) != 0 && (fixed & !bit) == (infantry & !bit) {
                 let leftover_fixed = fixed & !infantry;
                 let leftover_moving = moving & !infantry;
-                if leftover_fixed == 0 && leftover_moving == 0 && (goal_m & !bit) == 0 {
+                if leftover_fixed == 0 && leftover_moving == 0 {
                     return 0;
                 }
             }
             if (fixed & !friend) != 0 {
-                // C++ examineNeighboringCells continue only when enemyFixed
-                // (AIPathfind.cpp:6241). Allies never set enemyFixed.
                 let max_c = occ_crush.get(idx).copied().unwrap_or(255);
                 if crusher_level == 0 || crusher_level <= max_c {
                     return u32::MAX / 8;
                 }
             }
             let mut extra = 0u32;
-            if (moving & bit) != 0 {
+            // C++ allyMoving for ALL allies, only within 10 cells of start.
+            // Moving enemies are ignored (considerTransient=false).
+            if (moving & friend) != 0
+                && (c.x - start_for_cost.x).abs() < 10
+                && (c.y - start_for_cost.y).abs() < 10
+            {
                 extra += 3 * COST_DIAGONAL;
             }
             if (fixed & friend) != 0 {
-                extra += 3 * COST_DIAGONAL;
-            }
-            if (moving & !friend) != 0 {
-                extra += 3 * COST_DIAGONAL;
-            }
-            if goal_m != 0 {
                 extra += 3 * COST_DIAGONAL;
             }
             extra
@@ -2702,34 +3115,43 @@ impl PathfindingSystem {
         let Some(crate_pf) = self.crate_astar.as_ref() else {
             return self.grid.find_path(start, goal);
         };
-        let cells = crate_pf
+        let start_is_obstacle = crate_pf
             .finder
-            .find_path_ex(
+            .get_cell_type_on_layer(start_c, start_layer)
+            == Some(PathfindCellType::Obstacle);
+        let extra_ref = &extra;
+        let line_ok = |c: GridCoord| extra_ref(c) < u32::MAX / 8;
+        let ground_h = |c: GridCoord| {
+            let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
+            sample_host_ground_height(w.x, w.z)
+        };
+        let run = |allow_partial: bool| {
+            crate_pf.finder.find_path_with_start_layer(
                 start_c,
                 goal_c,
+                start_layer,
+                dest_layer,
                 surfaces,
                 is_crusher,
                 MAX_PATH_ITERATIONS,
-                false,
+                allow_partial,
                 None,
-                Some(&extra),
+                Some(extra_ref as &dyn Fn(GridCoord) -> u32),
+                false,
+                Some(&ground_h as &dyn Fn(GridCoord) -> f32),
+                None,
+                Some(&line_ok as &dyn Fn(GridCoord) -> bool),
+                !start_is_obstacle,
+                start_is_obstacle,
+                None,
+                None,
             )
+        };
+        let cells = run(false)
             .map(|(path, _)| path)
             .or_else(|| {
                 // C++ findClosestPath on findPath fail (AIUpdate.cpp:1713-1717).
-                crate_pf
-                    .finder
-                    .find_path_ex(
-                        start_c,
-                        goal_c,
-                        surfaces,
-                        is_crusher,
-                        MAX_PATH_ITERATIONS,
-                        true,
-                        None,
-                        Some(&extra),
-                    )
-                    .map(|(path, _)| path)
+                run(true).map(|(path, _)| path)
             })?;
         let world = self.crate_path_to_world(&cells);
         Some(self.grid.optimize_ground_path_ex(
@@ -2824,6 +3246,103 @@ impl PathfindingSystem {
                 .block_structure_footprint_ex(cell, radius, false, is_transparent);
         }
         self.grid.rebuild_path_zones();
+        self.sync_wall_pieces_from_objects(objects);
+    }
+
+    /// C++ `Pathfinder::addWallPiece` from a live host object.
+    pub fn add_wall_piece_from_object(&mut self, obj: &Object) {
+        let geom = &obj.thing.template.geometry_info;
+        let major = if geom.authored && geom.major_radius > 0.0 {
+            geom.major_radius
+        } else {
+            obj.selection_radius.max(1.0)
+        };
+        let minor = if geom.authored {
+            if matches!(geom.geom_type, crate::game_logic::HostGeometryType::Sphere) {
+                major
+            } else {
+                geom.minor_radius.max(0.1)
+            }
+        } else {
+            major
+        };
+        if self.grid.wall_height <= 0.0 && geom.authored && geom.height > 0.0 {
+            self.grid.wall_height = geom.height;
+        }
+        if self.grid.wall_height <= 0.0 {
+            if let Ok(ai) = gamelogic::ai::THE_AI.read() {
+                if let Ok(data) = ai.get_ai_data().read() {
+                    if data.wall_height > 0.0 {
+                        self.grid.wall_height = data.wall_height;
+                    }
+                }
+            }
+        }
+        self.grid.add_wall_piece(
+            obj.id.0,
+            obj.get_position(),
+            obj.get_orientation(),
+            major,
+            minor,
+        );
+    }
+
+    pub fn remove_wall_piece(&mut self, id: ObjectId) {
+        self.grid.remove_wall_piece(id.0);
+    }
+
+    pub fn is_point_on_wall(&self, pos: Vec3) -> bool {
+        self.grid.is_point_on_wall(pos)
+    }
+
+    pub fn set_wall_height(&mut self, h: f32) {
+        self.grid.set_wall_height(h);
+    }
+
+    pub fn wall_height(&self) -> f32 {
+        self.grid.wall_height()
+    }
+
+    /// Rebuild wall pieces from live `WALK_ON_TOP_OF_WALL` objects.
+    pub fn sync_wall_pieces_from_objects(&mut self, objects: &HashMap<ObjectId, Object>) {
+        self.grid.wall_pieces.clear();
+        self.grid.wall_cells.clear();
+        for obj in objects.values() {
+            if obj.is_alive() && obj.is_kind_of(KindOf::WalkOnTopOfWall) {
+                self.add_wall_piece_from_object(obj);
+            }
+        }
+        if self.grid.wall_pieces.is_empty() {
+            self.grid.terrain_gen = self.grid.terrain_gen.wrapping_add(1);
+        }
+    }
+
+    /// C++ classifyObjectFootprint wall remove: DAMAGE_FALLING / DEATH_SPLATTED.
+    pub fn splat_units_on_wall_piece(
+        &self,
+        piece_id: ObjectId,
+        objects: &HashMap<ObjectId, Object>,
+    ) -> Vec<ObjectId> {
+        let wall_h = self.grid.wall_height;
+        objects
+            .values()
+            .filter(|obj| {
+                if obj.id == piece_id || !obj.is_alive() {
+                    return false;
+                }
+                if obj.is_kind_of(KindOf::Structure) {
+                    return false;
+                }
+                if !self.grid.is_point_on_wall_piece(piece_id.0, obj.get_position()) {
+                    return false;
+                }
+                // Stand-in for C++ `obj->getLayer() == LAYER_WALL`: unit Y
+                // must sit on the wall deck, not the ground footprint.
+                (obj.get_position().y - wall_h).abs() <= LAYER_Z_CLOSE_ENOUGH_F
+                    && wall_h > 0.0
+            })
+            .map(|obj| obj.id)
+            .collect()
     }
 
 
@@ -3265,6 +3784,12 @@ impl PathfindingSystem {
 
         let start_grid = self.grid.world_to_grid(start);
         let goal_grid = self.grid.world_to_grid(goal);
+        let start_layer = self
+            .seeker_id
+            .and_then(|id| objects.get(&id))
+            .map(|o| self.grid.layer_for_destination(o.get_position()))
+            .unwrap_or_else(|| self.grid.layer_for_destination(start));
+        let dest_layer = self.grid.layer_for_destination(goal);
 
         // C++ getAircraftPath: circleClips only when appearance == LOCO_WINGS.
         let mut path = if aircraft {
@@ -3285,7 +3810,14 @@ impl PathfindingSystem {
             }
             detoured
         } else {
-            self.find_path_via_crate(start_grid, goal_grid, surfaces, is_crusher)?
+            self.find_path_via_crate(
+                start_grid,
+                goal_grid,
+                surfaces,
+                is_crusher,
+                start_layer,
+                dest_layer,
+            )?
         };
         if !aircraft {
             let n = path.len().max(1) as f32;
@@ -3308,8 +3840,6 @@ impl PathfindingSystem {
         // restore the raw click (that walks units into building footprints).
         Some(path)
     }
-
-
 
     /// C++ `Pathfinder::clientSafeQuickDoesPathExist` (structure-aware).
     pub fn client_safe_quick_does_path_exist(&self, from: Vec3, to: Vec3) -> bool {
@@ -3334,7 +3864,11 @@ impl PathfindingSystem {
         let mut splice_from = original.len() - 1;
         for idx in (1..original.len()).rev() {
             let cell = self.grid.world_to_grid(original[idx]);
-            if !self.grid.cell_passable_for(cell, surfaces, is_crusher) {
+            let layer = self.grid.layer_for_destination(original[idx]);
+            if !self
+                .grid
+                .cell_passable_for_layer(cell, layer, surfaces, is_crusher)
+            {
                 splice_from = idx;
                 break;
             }
@@ -3344,13 +3878,23 @@ impl PathfindingSystem {
             return None;
         }
         let goal_cell = self.grid.world_to_grid(original[splice_from]);
-        let mut prefix = self.find_path_via_crate(start, goal_cell, surfaces, is_crusher)?;
+        let start_layer = self.grid.layer_for_destination(from);
+        let dest_layer = self.grid.layer_for_destination(original[splice_from]);
+        let mut prefix = self.find_path_via_crate(
+            start,
+            goal_cell,
+            surfaces,
+            is_crusher,
+            start_layer,
+            dest_layer,
+        )?;
         if let Some(last) = prefix.last_mut() {
             *last = original[splice_from];
         }
         prefix.extend_from_slice(&original[splice_from + 1..]);
         Some(prefix)
     }
+
 
     /// C++ `Pathfinder::findSafePath` Dijkstra flee (AIPathfind.cpp:10885+).
     pub fn find_safe_path(
@@ -4260,6 +4804,158 @@ mod tests {
         );
     }
 
+    /// hq-54w0z: dest on a deck stays on the deck (not snapped to the riverbank).
+    #[test]
+    fn adjust_destination_keeps_bridge_deck() {
+        let mut g = open_grid(12, 12);
+        for y in 4..=6 {
+            for x in 3..8 {
+                g.set_cell_type(GridPos::new(x, y), PathfindCellType::Water);
+            }
+        }
+        g.stamp_bridge_deck(
+            Vec3::new(20.0, 20.0, 40.0),
+            Vec3::new(20.0, 20.0, 60.0),
+            Vec3::new(90.0, 20.0, 40.0),
+            Vec3::new(90.0, 20.0, 60.0),
+            false,
+        );
+        let dest = GridPos::new(5, 5);
+        let world = g.grid_to_world(dest);
+        let on_deck = Vec3::new(world.x, 20.0, world.z);
+        let layer = g.layer_for_destination(on_deck);
+        assert_ne!(layer, PathfindLayerEnum::Ground, "deck click must pick the span");
+        let snapped = g
+            .adjust_destination_on_layer(dest, SURFACE_GROUND, false, 400, None, 0, layer)
+            .expect("deck dest");
+        assert_eq!(snapped, dest, "must not spiral off the Clear deck cell");
+        let bank = g.adjust_destination_ex(dest, SURFACE_GROUND, false, 400, None, 0);
+        assert_ne!(
+            bank,
+            Some(dest),
+            "ground-only adjust still refuses Water under the span"
+        );
+    }
+
+    /// hq-a79xb: own reservation accepted; allied other player refused; enemy accepted.
+    #[test]
+    fn has_allied_goal_own_vs_ally_player() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(12, 12);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        g.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut own_t = ThingTemplate::new("Ranger");
+        own_t.add_kind_of(KindOf::Infantry);
+        let mut own = Object::new(own_t, ObjectId(10), Team::USA);
+        own.set_position(g.grid_to_world(GridPos::new(2, 2)));
+        own.owner_player_id = Some(0);
+        own.movement.target_position = Some(g.grid_to_world(GridPos::new(4, 4)));
+        objects.insert(own.id, own);
+
+        let mut ally_t = ThingTemplate::new("RedGuard");
+        ally_t.add_kind_of(KindOf::Infantry);
+        let mut ally = Object::new(ally_t, ObjectId(20), Team::China);
+        ally.set_position(g.grid_to_world(GridPos::new(8, 2)));
+        ally.owner_player_id = Some(1);
+        ally.movement.target_position = Some(g.grid_to_world(GridPos::new(5, 5)));
+        objects.insert(ally.id, ally);
+
+        let mut enemy_t = ThingTemplate::new("Rebel");
+        enemy_t.add_kind_of(KindOf::Infantry);
+        let mut enemy = Object::new(enemy_t, ObjectId(30), Team::GLA);
+        enemy.set_position(g.grid_to_world(GridPos::new(8, 8)));
+        enemy.owner_player_id = Some(2);
+        enemy.movement.target_position = Some(g.grid_to_world(GridPos::new(6, 6)));
+        objects.insert(enemy.id, enemy);
+
+        g.update_dynamic_obstacles(&objects);
+        g.query_seeker_id = 10;
+        assert!(
+            !g.has_allied_goal(GridPos::new(4, 4), Some(0)),
+            "own UNIT_GOAL must be accepted"
+        );
+        assert!(
+            g.has_allied_goal(GridPos::new(5, 5), Some(0)),
+            "allied other-player goal must be refused"
+        );
+        assert!(
+            !g.has_allied_goal(GridPos::new(6, 6), Some(0)),
+            "enemy UNIT_GOAL is not allied"
+        );
+    }
+
+    /// hq-7qvsn: no enemy-moving cost; ally moving only near start; no goal cost.
+    #[test]
+    fn occupancy_cost_matches_examine_neighboring_cells() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut g = open_grid(24, 24);
+        let mut masks = [0u16; 16];
+        masks[0] = 1u16 << 0 | 1u16 << 1;
+        masks[1] = 1u16 << 0 | 1u16 << 1;
+        g.set_player_ally_masks(masks);
+
+        let mut objects = HashMap::new();
+        let mut enemy_t = ThingTemplate::new("Technical");
+        enemy_t.add_kind_of(KindOf::Vehicle);
+        let mut enemy = Object::new(enemy_t, ObjectId(1), Team::GLA);
+        enemy.set_position(g.grid_to_world(GridPos::new(5, 5)));
+        enemy.owner_player_id = Some(2);
+        enemy.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        objects.insert(enemy.id, enemy);
+
+        let mut ally_t = ThingTemplate::new("Humvee");
+        ally_t.add_kind_of(KindOf::Vehicle);
+        let mut ally = Object::new(ally_t, ObjectId(2), Team::China);
+        ally.set_position(g.grid_to_world(GridPos::new(6, 6)));
+        ally.owner_player_id = Some(1);
+        ally.movement.velocity = Vec3::new(5.0, 0.0, 0.0);
+        objects.insert(ally.id, ally);
+
+        let mut goal_t = ThingTemplate::new("Ranger");
+        goal_t.add_kind_of(KindOf::Infantry);
+        let mut goaled = Object::new(goal_t, ObjectId(3), Team::USA);
+        goaled.set_position(g.grid_to_world(GridPos::new(1, 1)));
+        goaled.owner_player_id = Some(0);
+        goaled.movement.target_position = Some(g.grid_to_world(GridPos::new(8, 8)));
+        objects.insert(goaled.id, goaled);
+
+        g.update_dynamic_obstacles(&objects);
+        let start = GridPos::new(5, 5);
+        let enemy_cell = GridPos::new(5, 5);
+        let ally_near = GridPos::new(6, 6);
+        let ally_far = GridPos::new(6, 6);
+        let far_start = GridPos::new(20, 20);
+        let goal_cell = GridPos::new(8, 8);
+
+        assert_eq!(
+            g.occupancy_extra_cost(enemy_cell, Some(0), false, 0),
+            0,
+            "moving enemy adds no examineNeighboringCells cost"
+        );
+        let near = g.occupancy_cost(ally_near, Some(0), false, 0, masks[0], Some(start));
+        assert!(
+            near.unwrap_or(0.0) > 0.0,
+            "allied mover within 10 cells of start is charged"
+        );
+        let far = g.occupancy_cost(ally_far, Some(0), false, 0, masks[0], Some(far_start));
+        assert_eq!(
+            far,
+            Some(0.0),
+            "allied mover more than 10 cells from start is free"
+        );
+        let goal_cost = g.occupancy_cost(goal_cell, Some(0), false, 0, masks[0], Some(start));
+        assert_eq!(
+            goal_cost,
+            Some(0.0),
+            "UNIT_GOAL is not a movement-path surcharge"
+        );
+    }
+
+
     #[test]
     fn occupancy_radius_marks_overlord_footprint() {
         use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
@@ -4963,6 +5659,105 @@ mod tests {
         assert!(
             !nudged.contains(&ObjectId(3)),
             "packing unit must stay planted"
+        );
+    }
+
+    /// hq-8cfgs: 4-corner CLEAR / pinch CLIFF / dest layer / walk-on-wall A*.
+    #[test]
+    fn layer_wall_classify_and_search() {
+        let mut g = open_grid(16, 16);
+        g.set_wall_height(12.0);
+        // Fat enough that cell (8,8) and its 3x3 are 4-corner CLEAR (no pinch).
+        g.add_wall_piece(1, Vec3::new(85.0, 0.0, 85.0), 0.0, 40.0, 40.0);
+        assert!(g.wall_piece_count() == 1);
+        let center = GridPos::new(8, 8);
+        assert_eq!(
+            g.layer_cell_type(LAYER_WALL_ID, center),
+            Some(PathfindCellType::Clear),
+            "interior 4-corner cell must be CLEAR on LAYER_WALL"
+        );
+        // Cell (4,8) is [40,50]×[80,90]: two corners on the 40-radius deck.
+        assert_eq!(
+            g.layer_cell_type(LAYER_WALL_ID, GridPos::new(4, 8)),
+            Some(PathfindCellType::BridgeImpassable),
+            "1–3 corner cells are BRIDGE_IMPASSABLE (AIPathfind.cpp:3794-3796)"
+        );
+        g.clear_static_blocks();
+        assert_eq!(
+            g.layer_cell_type(LAYER_WALL_ID, center),
+            Some(PathfindCellType::Clear),
+            "terrain rebuild must reclassify remaining wall pieces"
+        );
+        let on_wall = Vec3::new(85.0, 12.0, 85.0);
+        assert!(g.is_point_on_wall(on_wall));
+        assert_eq!(
+            g.layer_for_destination(on_wall),
+            PathfindLayerEnum::Wall,
+            "dest at wall height on a CLEAR cell is LAYER_WALL"
+        );
+        let on_ground = Vec3::new(85.0, 0.0, 85.0);
+        assert_ne!(
+            g.layer_for_destination(on_ground),
+            PathfindLayerEnum::Wall,
+            "ground-height click on the footprint stays off LAYER_WALL"
+        );
+        g.remove_wall_piece(1);
+        assert_eq!(g.wall_piece_count(), 0);
+        assert!(
+            g.layer_cell_type(LAYER_WALL_ID, center).is_none(),
+            "removing the last piece drops LAYER_WALL"
+        );
+        assert!(!g.is_point_on_wall(on_wall));
+    }
+
+    #[test]
+    fn infantry_paths_along_classified_wall() {
+        let mut sys = PathfindingSystem::new(160.0, 160.0);
+        sys.set_wall_height(12.0);
+        for x in 4..13 {
+            sys.grid
+                .set_cell_type(GridPos::new(x, 8), PathfindCellType::Obstacle);
+        }
+        sys.grid
+            .add_wall_piece(7, Vec3::new(85.0, 0.0, 85.0), 0.0, 50.0, 25.0);
+        let objects = HashMap::new();
+        let from = Vec3::new(50.0, 12.0, 85.0);
+        let to = Vec3::new(120.0, 12.0, 85.0);
+        assert_eq!(
+            sys.grid.layer_for_destination(from),
+            PathfindLayerEnum::Wall
+        );
+        assert_eq!(sys.grid.layer_for_destination(to), PathfindLayerEnum::Wall);
+        let path = sys.find_path(from, to, &objects);
+        assert!(
+            path.as_ref().map(|p| p.len() >= 2).unwrap_or(false),
+            "infantry A* must walk LAYER_WALL over the blocked ground"
+        );
+    }
+
+    #[test]
+    fn destroy_wall_piece_splats_units_on_deck() {
+        use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+        let mut sys = PathfindingSystem::new(160.0, 160.0);
+        sys.set_wall_height(12.0);
+        sys.grid
+            .add_wall_piece(1, Vec3::new(80.0, 0.0, 50.0), 0.0, 20.0, 8.0);
+        let mut objects = HashMap::new();
+        let mut inf_t = ThingTemplate::new("RedGuard");
+        inf_t.add_kind_of(KindOf::Infantry);
+        let mut on_deck = Object::new(inf_t, ObjectId(10), Team::China);
+        on_deck.set_position(Vec3::new(80.0, 12.0, 50.0));
+        objects.insert(on_deck.id, on_deck);
+        let mut ground_t = ThingTemplate::new("Battlemaster");
+        ground_t.add_kind_of(KindOf::Vehicle);
+        let mut on_ground = Object::new(ground_t, ObjectId(11), Team::China);
+        on_ground.set_position(Vec3::new(80.0, 0.0, 50.0));
+        objects.insert(on_ground.id, on_ground);
+        let splat = sys.splat_units_on_wall_piece(ObjectId(1), &objects);
+        assert!(splat.contains(&ObjectId(10)), "deck unit must splat");
+        assert!(
+            !splat.contains(&ObjectId(11)),
+            "ground unit on the footprint must live"
         );
     }
 

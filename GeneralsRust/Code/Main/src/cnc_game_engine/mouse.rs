@@ -21,6 +21,11 @@ pub(super) const PATHFIND_CELL_SIZE_F: f32 = 10.0;
 pub(super) const SHAKE_AXIS_PITCH: f32 = 7.5 * std::f32::consts::PI / 180.0;
 pub(super) const SHAKE_AXIS_YAW: f32 = 15.0 * std::f32::consts::PI / 180.0;
 pub(super) const SHAKE_AXIS_ROLL: f32 = 5.0 * std::f32::consts::PI / 180.0;
+/// C++ `camerashakesystem.cpp` MIN/MAX/END omega (radians/s). 12.5-15Hz → 1Hz.
+pub(super) const SHAKE_MIN_OMEGA: f32 = 12.5 * std::f32::consts::TAU;
+pub(super) const SHAKE_MAX_OMEGA: f32 = 15.0 * std::f32::consts::TAU;
+pub(super) const SHAKE_END_OMEGA: f32 = std::f32::consts::TAU;
+
 
 /// C++ `Mouse.cpp` `m_dragTolerance` default / leftover `selection_xlat.rs` `DRAG_TOLERANCE`.
 const DRAG_TOLERANCE_PX: f32 = 5.0;
@@ -864,8 +869,17 @@ impl CnCGameEngine {
         if !self.is_point_selectable_click_target(object_id) {
             return;
         }
+        // C++ SelectionXlat.cpp:734-739 always posts MSG_CREATE_SELECTED_GROUP.
+        // host_set_selection skips SelectObjects when residuals already match,
+        // so re-click must still pickAndPlay VoiceSelect (hq-bb8in).
+        let replay_voice = self.selected_objects.as_slice() == [object_id]
+            && self.host_match_selected_ids.as_deref() == Some(&[object_id][..]);
         // Wave 583: selection residual via host_set_selection.
         self.host_set_selection(self.current_player_id, vec![object_id]);
+        if replay_voice {
+            self.host_game_logic_mut()
+                .queue_create_selected_group_voice(&[object_id]);
+        }
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -921,11 +935,13 @@ impl CnCGameEngine {
         let mut selection = self.selected_objects.clone();
         if let Some(idx) = selection.iter().position(|id| *id == object_id) {
             selection.remove(idx);
+            // C++ MSG_REMOVE_FROM_SELECTED_GROUP — no pickAndPlay (hq-xbyf3).
+            self.host_set_selection_no_sound(self.current_player_id, selection);
         } else {
             selection.push(object_id);
+            // C++ MSG_CREATE_SELECTED_GROUP (addToGroup) — VoiceSelect.
+            self.host_set_selection(self.current_player_id, selection);
         }
-        // Wave 583: selection residual via host_set_selection.
-        self.host_set_selection(self.current_player_id, selection);
         self.play_sound_effect(SoundType::Select);
     }
 
@@ -1171,7 +1187,7 @@ impl CnCGameEngine {
             similar_units
         };
         // C++ selectSingleDrawableWithoutSound + MSG_CREATE_SELECTED_GROUP_NO_SOUND.
-        self.host_set_selection(self.current_player_id, selection);
+        self.host_set_selection_no_sound(self.current_player_id, selection);
         let msg = if across_map {
             "GUI:SelectedAcrossMap"
         } else {
@@ -1421,10 +1437,9 @@ impl CnCGameEngine {
             return;
         }
         self.host_set_selection(self.current_player_id, selection);
-        // C++ CommandXlat.cpp:296-330 — UnitSelect only on a real group-create.
-        if boxed_any {
-            self.play_sound_effect(SoundType::Select);
-        }
+        // C++ CommandXlat.cpp:326-329 — VoiceSelect via pickAndPlay on
+        // MSG_CREATE_SELECTED_GROUP. host_set_selection → select_objects already
+        // queues that line. Do not layer an invented UnitSelect beep.
     }
 
 
@@ -1605,7 +1620,7 @@ impl CnCGameEngine {
                 selected_units: self.ui_selected_ids(self.current_player_id),
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
-            self.play_sound_effect(SoundType::Command);
+            // C++ MSG_SET_RALLY_POINT is silent in pickAndPlay (no voice slot).
             return true;
         }
         if self.sticky_auto_attack {
@@ -1613,7 +1628,8 @@ impl CnCGameEngine {
         } else {
             self.host_command_move(self.current_player_id, mouse_pos);
         }
-        self.play_sound_effect(SoundType::Command);
+        // C++ VoiceMove from command_move / command_attack_move pickAndPlay.
+        // Do not layer an invented UnitCommand beep.
         true
     }
 
@@ -2042,12 +2058,21 @@ impl CnCGameEngine {
             camera_changed = true;
         }
 
+        // C++ W3DView::update gates updateCameraMovements on !isGamePaused()
+        // (isTimeFrozenScript is deliberately not gated). Shake still ticks.
+        let scripted_camera_motion_dt =
+            if matches!(self.current_state, GameState::Paused) || self.game_paused {
+                0.0
+            } else {
+                dt
+            };
+
         if let Some(target) = self.camera_zoom_target {
             if self.camera_zoom_duration <= 0.0 {
                 self.camera_zoom = target;
                 self.camera_zoom_target = None;
             } else {
-                self.camera_zoom_elapsed += dt;
+                self.camera_zoom_elapsed += scripted_camera_motion_dt;
                 let t = (self.camera_zoom_elapsed / self.camera_zoom_duration).clamp(0.0, 1.0);
                 let eased = Self::parabolic_ease(
                     t,
@@ -2068,7 +2093,7 @@ impl CnCGameEngine {
                 self.camera_pitch_target = None;
                 camera_changed = true;
             } else {
-                self.camera_pitch_elapsed += dt;
+                self.camera_pitch_elapsed += scripted_camera_motion_dt;
                 let t = (self.camera_pitch_elapsed / self.camera_pitch_duration).clamp(0.0, 1.0);
                 let eased = Self::parabolic_ease(
                     t,
@@ -2090,7 +2115,7 @@ impl CnCGameEngine {
                 self.camera_yaw_target = None;
                 camera_changed = true;
             } else {
-                self.camera_yaw_elapsed += dt;
+                self.camera_yaw_elapsed += scripted_camera_motion_dt;
                 let t = (self.camera_yaw_elapsed / self.camera_yaw_duration).clamp(0.0, 1.0);
                 let eased = Self::parabolic_ease(
                     t,
@@ -2106,13 +2131,8 @@ impl CnCGameEngine {
             }
         }
 
-        // Wave 250: prefer presentation freeze residual when a frame is installed.
-        let shake_dt = if self.presentation_or_boot_time_frozen() {
-            0.0
-        } else {
-            dt
-        };
-        if self.update_script_camera_shake(shake_dt) {
+        // C++ impulse shake + CameraShakerSystem::Timestep have no freeze/pause gate.
+        if self.update_script_camera_shake(dt) {
             camera_changed = true;
         }
 
@@ -2310,6 +2330,9 @@ impl CnCGameEngine {
         if self.is_rmb_scrolling && look_at_host_mouse_locked() {
             return;
         }
+        // C++ SelectionXlat.cpp:425-446 + HintSpy.cpp:26-35 — hover always
+        // posts MSG_MOUSEOVER_* even when the cursor icon is unchanged.
+        self.sync_ingame_mouseover_hint();
         use winit::window::CursorIcon;
         let (name, icon) = self.resolve_context_cursor_icon();
         if self.last_context_cursor == Some(name) {
@@ -2317,6 +2340,15 @@ impl CnCGameEngine {
         }
         self.last_context_cursor = Some(name);
         self.window.set_cursor(icon);
+    }
+
+    /// C++ HintSpy::translate MSG_MOUSEOVER_DRAWABLE_HINT / LOCATION_HINT.
+    fn sync_ingame_mouseover_hint(&mut self) {
+        let hover = self.find_object_at_position(self.mouse_world_position, true);
+        match hover {
+            Some(id) => self.game_client.create_mouseover_hint(Some(id.0), false),
+            None => self.game_client.create_mouseover_hint(None, true),
+        }
     }
 
     /// Wave 612: via `host_resolve_context_cursor_icon`.

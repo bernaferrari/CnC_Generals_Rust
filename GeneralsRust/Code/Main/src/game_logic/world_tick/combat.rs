@@ -2191,15 +2191,11 @@ impl GameLogic {
                                             .and_then(|a| a.weapon_slot(slot))
                                             .map(|w| w.splash_radius.max(0.0))
                                             .unwrap_or(0.0);
-                                        let primary_r = pr.max(splash_weapon);
-                                        let secondary_r = sr.max(if primary_r > 0.0 {
-                                            primary_r * 1.5
-                                        } else {
-                                            0.0
-                                        });
+                                        // C++ getPrimary/SecondaryDamageRadius — no invented 1.5x ring.
+                                        let primary_r = if pr > 0.0 { pr } else { splash_weapon };
+                                        let secondary_r = sr;
                                         if primary_r > 0.0 || secondary_r > 0.0 {
-                                            let sec_dmg =
-                                                if sd > 0.0 { sd } else { weapon_damage * 0.5 };
+                                            let sec_dmg = sd;
                                             let hits = self.apply_instant_hit_splash_at(
                                                 target_position,
                                                 weapon_damage,

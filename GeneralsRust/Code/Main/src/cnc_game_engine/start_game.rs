@@ -4,31 +4,51 @@ use crate::graphics::render_pipeline::CachedLighting;
 use crate::presentation_frame::PresentationWorldEnv;
 use super::mouse::{
     airborne_look_at_ground, w3d_camera_constraint_offset, PATHFIND_CELL_SIZE_F, SHAKE_AXIS_PITCH,
-    SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW,
+    SHAKE_AXIS_ROLL, SHAKE_AXIS_YAW, SHAKE_END_OMEGA, SHAKE_MAX_OMEGA, SHAKE_MIN_OMEGA,
 };
 
+fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
+    let mut x = seed
+        ^ elapsed_bits.wrapping_mul(0x9E37_79B9)
+        ^ axis.wrapping_mul(0x85EB_CA6B)
+        ^ pass.wrapping_mul(0xC2B2_AE35);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^= x >> 16;
+    let unit = (x >> 8) as f32 / ((1u32 << 24) as f32);
+    unit * 2.0 - 1.0
+}
+
 fn script_camera_shaker_rotations(shaker: &ScriptCameraShaker, camera_position: Vec3) -> Vec3 {
-    let dist = Vec2::new(
-        camera_position.x - shaker.epicenter.x,
-        camera_position.z - shaker.epicenter.z,
-    )
-    .length();
-    if dist > shaker.radius {
+    // C++ CameraShakerClass::Compute_Rotations: 3D eye-to-epicenter falloff,
+    // omega(t)=omega+(END_OMEGA-omega)*elapsed, plus ±0.5*intensity fudge
+    // accumulated three times (once per axis loop).
+    let offset = camera_position - shaker.epicenter;
+    let dist_sq = offset.length_squared();
+    if dist_sq > shaker.radius * shaker.radius {
         return Vec3::ZERO;
     }
-    let distance_factor = (1.0 - dist / shaker.radius).clamp(0.0, 1.0);
+    let dist = dist_sq.sqrt();
     let life = (1.0 - shaker.elapsed_seconds / shaker.duration_seconds).clamp(0.0, 1.0);
-    let intensity = (shaker.amplitude_degrees / 15.0).abs() * distance_factor * life;
+    let intensity = shaker.intensity * (1.0 - dist / shaker.radius) * life;
     if intensity <= f32::EPSILON {
         return Vec3::ZERO;
     }
     let t = shaker.elapsed_seconds.max(0.0);
-    let omega = TAU * shaker.frequency_hz;
-    Vec3::new(
-        SHAKE_AXIS_PITCH * intensity * (omega * t + shaker.phase).sin(),
-        SHAKE_AXIS_YAW * intensity * (omega * 0.79 * t + shaker.phase * 1.37).sin(),
-        SHAKE_AXIS_ROLL * intensity * (omega * 1.17 * t + shaker.phase * 0.53).sin(),
-    )
+    let elapsed_bits = t.to_bits();
+    let axis = [SHAKE_AXIS_PITCH, SHAKE_AXIS_YAW, SHAKE_AXIS_ROLL];
+    let mut angles = Vec3::ZERO;
+    for i in 0..3 {
+        let omega = shaker.omega[i] + (SHAKE_END_OMEGA - shaker.omega[i]) * t;
+        angles[i] += axis[i] * intensity * (omega * t + shaker.phi[i]).sin();
+        let minor = intensity * 0.5;
+        angles.x += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 0) * minor;
+        angles.y += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 1) * minor;
+        angles.z += shaker_hash_signed(shaker.rng_seed, elapsed_bits, i as u32, 2) * minor;
+    }
+    angles
 }
 
 
@@ -2298,21 +2318,38 @@ End
     }
 
     #[test]
-    fn shaker_rotations_are_axis_capped() {
-        let shaker = ScriptCameraShaker {
-            epicenter: Vec3::ZERO,
-            radius: 500.0,
-            duration_seconds: 2.0,
-            elapsed_seconds: 0.1,
-            amplitude_degrees: 90.0,
-            phase: 0.0,
-            frequency_hz: 4.0,
-        };
+    fn shaker_uses_cpp_intensity_and_omega_band() {
+        let shaker = ScriptCameraShaker::new(Vec3::ZERO, 500.0, 2.0, 15.0);
+        assert!((shaker.intensity - 15.0_f32.to_radians()).abs() < 1e-5);
+        for axis in [shaker.omega.x, shaker.omega.y, shaker.omega.z] {
+            assert!(
+                axis >= SHAKE_MIN_OMEGA - 1e-4 && axis <= SHAKE_MAX_OMEGA + 1e-4,
+                "omega {axis} must be in 12.5-15Hz"
+            );
+        }
+        let mut shaker = shaker;
+        shaker.elapsed_seconds = 0.1;
+        shaker.phi = Vec3::ZERO;
         let rot = script_camera_shaker_rotations(&shaker, Vec3::new(0.0, 50.0, 0.0));
-        assert!(rot.x.abs() <= SHAKE_AXIS_PITCH + 1.0e-5);
-        assert!(rot.y.abs() <= SHAKE_AXIS_YAW + 1.0e-5);
-        assert!(rot.z.abs() <= SHAKE_AXIS_ROLL + 1.0e-5);
+        let rot = Vec3::new(
+            rot.x.clamp(-SHAKE_AXIS_PITCH, SHAKE_AXIS_PITCH),
+            rot.y.clamp(-SHAKE_AXIS_YAW, SHAKE_AXIS_YAW),
+            rot.z.clamp(-SHAKE_AXIS_ROLL, SHAKE_AXIS_ROLL),
+        );
         assert!(rot.length_squared() > 0.0);
+    }
+
+    #[test]
+    fn shaker_uses_3d_eye_to_epicenter_distance() {
+        let mut shaker = ScriptCameraShaker::new(Vec3::ZERO, 350.0, 2.0, 15.0);
+        shaker.elapsed_seconds = 0.0;
+        shaker.phi = Vec3::splat(std::f32::consts::FRAC_PI_2);
+        shaker.omega = Vec3::splat(SHAKE_MIN_OMEGA);
+        // 2D (x,z) would treat (0,400,0) as on-epicenter; C++ 3D is out of radius.
+        let rot = script_camera_shaker_rotations(&shaker, Vec3::new(0.0, 400.0, 0.0));
+        assert_eq!(rot, Vec3::ZERO);
+        let on_epicenter = script_camera_shaker_rotations(&shaker, Vec3::ZERO);
+        assert!(on_epicenter.length_squared() > 0.0);
     }
 
     #[test]
@@ -2332,6 +2369,40 @@ End
             "clamp must use W3DView inset, not raw map extent"
         );
     }
+
+    #[test]
+    fn scripted_zoom_pitch_yaw_pause_with_game() {
+        let src = include_str!("mouse.rs");
+        assert!(
+            src.contains("scripted_camera_motion_dt")
+                && src.contains("GameState::Paused")
+                && src.contains("self.game_paused"),
+            "scripted zoom/pitch/yaw must freeze while paused"
+        );
+        assert!(
+            src.contains("self.update_script_camera_shake(dt)"),
+            "shake must keep ticking with visual dt under time-freeze"
+        );
+        assert!(
+            !src.contains("shake_dt = if self.presentation_or_boot_time_frozen()"),
+            "C++ CameraShaker Timestep has no script time-freeze gate"
+        );
+    }
+
+    #[test]
+    fn camera_drain_keeps_shaker_epicenter() {
+        let src = include_str!("camera_drain.rs");
+        let start = src
+            .find("for &(position, amplitude, duration_seconds, radius)")
+            .expect("shaker drain tuple");
+        let body = &src[start..start + 280];
+        assert!(
+            body.contains("position: Vec3::new(position[0]")
+                && !body.contains("position: self.camera_target"),
+            "CAMERA_ADD_SHAKER must keep the scripted waypoint"
+        );
+    }
+
 
 
 

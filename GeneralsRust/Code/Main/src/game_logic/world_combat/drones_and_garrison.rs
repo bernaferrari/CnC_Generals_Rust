@@ -6,6 +6,10 @@ use super::super::*;
 
 /// C++ `getMultiLogicalBonePosition("FIREPOINT"|"STATION")` max.
 const MAX_GARRISON_FIRE_POINTS: usize = 40;
+/// C++ GameData `WeaponBonus = GARRISONED RANGE 133%`.
+/// GarrisonContain / HelixContain `onContaining` set `WEAPONBONUSCONDITION_GARRISONED`.
+const GARRISONED_WEAPON_RANGE_MULT: f32 = 1.33;
+
 
 fn cpp_bone_to_host_local(bone: gamelogic::common::Coord3D) -> glam::Vec3 {
     // C++ Z-up (x, y, z) -> host Y-up (x, z, y).
@@ -114,7 +118,11 @@ fn transport_passenger_fire_origin(container: &Object, passenger_index: usize) -
     }
 }
 
-fn open_contain_exit_path(container: &Object, which_path: u8) -> (glam::Vec3, glam::Vec3, u8) {
+fn open_contain_exit_path(
+    container: &Object,
+    which_path: u8,
+    number_exits: i32,
+) -> (glam::Vec3, glam::Vec3, u8) {
     let origin = container.get_position();
     let yaw = container.get_orientation();
     let geom = container.thing.template.geometry_info;
@@ -127,36 +135,26 @@ fn open_contain_exit_path(container: &Object, which_path: u8) -> (glam::Vec3, gl
         let (sin, cos) = yaw.sin_cos();
         glam::Vec3::new(origin.x + major * cos, origin.y, origin.z + major * sin)
     };
-    if let (Some(start), Some(end)) = (
-        named_bone_world(container, "ExitStart"),
-        named_bone_world(container, "ExitEnd"),
-    ) {
-        return (start, end, 1);
+    // C++ OpenContain::exitObjectViaDoor: numberExits<=0 skips the door walk.
+    if number_exits <= 0 {
+        return (origin, origin, 1);
     }
-    let mut n = 0u8;
-    for i in 1..=16 {
-        if named_bone_world(container, &format!("ExitStart{i:02}")).is_none() {
-            break;
-        }
-        n = i;
+    // C++ numberExits>1 uses ExitStart0N/ExitEnd0N cycling m_whichExitPath.
+    if number_exits > 1 {
+        let n = number_exits as u8;
+        let idx = if which_path == 0 {
+            1
+        } else {
+            ((which_path - 1) % n) + 1
+        };
+        let start = named_bone_world(container, &format!("ExitStart{idx:02}")).unwrap_or(origin);
+        let end = named_bone_world(container, &format!("ExitEnd{idx:02}")).unwrap_or(fallback_end);
+        let next = (idx % n) + 1;
+        return (start, end, next);
     }
-    if n == 0 {
-        let rally = container
-            .building_data
-            .as_ref()
-            .and_then(|b| b.rally_point);
-        return (origin, rally.unwrap_or(fallback_end), 1);
-    }
-    let idx = if which_path == 0 {
-        1
-    } else {
-        ((which_path - 1) % n) + 1
-    };
-    let start =
-        named_bone_world(container, &format!("ExitStart{idx:02}")).unwrap_or(origin);
-    let end = named_bone_world(container, &format!("ExitEnd{idx:02}")).unwrap_or(fallback_end);
-    let next = (idx % n) + 1;
-    (start, end, next)
+    let start = named_bone_world(container, "ExitStart").unwrap_or(origin);
+    let end = named_bone_world(container, "ExitEnd").unwrap_or(fallback_end);
+    (start, end, 1)
 }
 
 fn closest_free_garrison_point(
@@ -640,19 +638,27 @@ impl GameLogic {
         if nested {
             return;
         }
-        if bunker_slots > 0 && !attacker.is_kind_of(KindOf::Infantry) {
+        // C++ TransportContain::isPassengerAllowedToFire (TransportContain.cpp:576-578):
+        // leftover helper — only infantry fire out. Vehicles ride silent
+        // (Combat Chinook AllowInsideKindOf = INFANTRY VEHICLE).
+        if !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+            attacker.is_kind_of(KindOf::Infantry),
+        ) {
             return;
         }
-        // C++ TransportContain::isPassengerAllowedToFire — vehicles never shoot
-        // out of a Helix (infantry / portable-structure only).
-        if container.is_helix_transport && !attacker.is_kind_of(KindOf::Infantry) {
-            return;
-        }
+
         let is_battle_bus = container.is_battle_bus_style_container();
         let is_combat_chinook = container.is_combat_chinook_style_container();
         let is_listening_outpost = container.is_listening_outpost_style_container();
         let team = attacker.team;
-        let range = weapon.range;
+        // HelixContain::onContaining sets WEAPONBONUSCONDITION_GARRISONED.
+        // Occupants stay Docked, so Object::weapon_bonus_fields never applies
+        // the Garrisoned AIState 133% path used by bunker occupants.
+        let range = if container.is_helix_transport {
+            weapon.range * GARRISONED_WEAPON_RANGE_MULT
+        } else {
+            weapon.range
+        };
         let damage = weapon.damage;
         let passenger_index = container
             .contained_units()
@@ -856,6 +862,12 @@ impl GameLogic {
             if !(cand.is_alive && cand.team != team && !cand.is_neutral && cand.combat_kind) {
                 continue;
             }
+            // C++ PartitionFilter / AcquirePlayerTargets: undetected stealth
+            // is not a legal auto-acquire victim (transport path already
+            // skips via pick_nearest_residual_target).
+            if cand.effectively_stealthed {
+                continue;
+            }
             if let Some(ordered) = ordered_target {
                 if cand.id != ordered {
                     continue;
@@ -891,8 +903,11 @@ impl GameLogic {
             if !Object::weapon_ready(weapon, current_time) {
                 continue;
             }
+            // C++ Weapon::isWithinAttackRange / getAttackRange applies
+            // WEAPONBONUSCONDITION_GARRISONED RANGE 133% (not raw PrimaryAttackRange).
+            let range = attacker.effective_weapon_range(weapon.range);
             let dist = fire_pos.distance(cand.position);
-            if dist > weapon.range {
+            if dist > range {
                 continue;
             }
             if best.as_ref().map(|(_, d, _, _, _, _)| dist < *d).unwrap_or(true) {
@@ -1256,6 +1271,8 @@ impl GameLogic {
     }
 
     /// C++ OpenContain::exitObjectViaDoor — ExitStart/End + follow-path.
+    /// TransportContain::onRemoving then matches hull orientation, GoAggressiveOnExit,
+    /// airborne setAllowToFall, and KeepContainerVelocityOnExit (hull motive).
     pub(in super::super) fn walk_unit_via_open_contain_exit(
         &mut self,
         unit_id: ObjectId,
@@ -1265,9 +1282,17 @@ impl GameLogic {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
-        let (start, end, next) = if container.is_garrison_contain() {
+        let go_aggressive = container.transport_go_aggressive_on_exit();
+        let airborne = container.is_above_terrain_for_exit();
+        let hull_vel = container.movement.velocity;
+        let yaw = container.get_orientation();
+        let rally = container
+            .building_data
+            .as_ref()
+            .and_then(|b| b.rally_point);
+        let is_garrison = container.is_garrison_contain();
+        let (start, end, next) = if is_garrison {
             let origin = container.get_position();
-            let yaw = container.get_orientation();
             let geom = container.thing.template.geometry_info;
             let major = if geom.authored {
                 geom.major_radius.max(8.0)
@@ -1284,15 +1309,27 @@ impl GameLogic {
             };
             (start, dest, 0u8)
         } else {
-            let which = container
-                .building_data
-                .as_ref()
-                .map(|b| b.which_exit_path)
-                .unwrap_or(0);
-            open_contain_exit_path(container, which)
+            let which = if container.which_exit_path > 0 {
+                container.which_exit_path
+            } else {
+                container
+                    .building_data
+                    .as_ref()
+                    .map(|b| b.which_exit_path)
+                    .unwrap_or(0)
+            };
+            let number_exits = container.transport_number_of_exit_paths();
+            open_contain_exit_path(container, which, number_exits)
+        };
+        // C++ exitPath = [end, end, rally?]. Live dest is rally after the door.
+        let dest = if is_garrison {
+            end
+        } else {
+            rally.unwrap_or(end)
         };
         if next > 0 {
             if let Some(c) = self.objects.get_mut(&container_id) {
+                c.which_exit_path = next;
                 if let Some(bd) = c.building_data.as_mut() {
                     bd.which_exit_path = next;
                 }
@@ -1302,9 +1339,22 @@ impl GameLogic {
             unit.set_contained_by(None);
             unit.target = None;
             unit.set_position(start);
-            unit.set_destination(end);
+            unit.set_orientation(yaw);
+            unit.set_destination(dest);
             unit.set_ai_state(AIState::Moving);
             unit.status.moving = true;
+            if go_aggressive {
+                unit.set_ai_attitude(
+                    crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
+                );
+            }
+            if airborne {
+                // C++ onRemoving: isAboveTerrain → setAllowToFall; keep hull vel
+                // so airborne unloads do not freeze at the door.
+                unit.allow_to_fall = true;
+                let mass = unit.physics_get_mass();
+                unit.apply_motive_force(hull_vel * mass);
+            }
         }
     }
 
@@ -2995,6 +3045,91 @@ mod tests {
         );
     }
 
+    /// C++ TransportContain::isPassengerAllowedToFire — vehicles ride silent.
+    #[test]
+    fn combat_chinook_vehicle_rider_does_not_residual_fire() {
+        let mut logic = GameLogic::new();
+        let mut chinook = ThingTemplate::new("AirF_AmericaVehicleChinook");
+        chinook
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0);
+        logic
+            .templates
+            .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
+        let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(250.0);
+        logic
+            .templates
+            .insert("AmericaVehicleHumvee".to_string(), humvee);
+        let mut enemy = ThingTemplate::new("GLAVehicleTechnical");
+        enemy
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0);
+        logic
+            .templates
+            .insert("GLAVehicleTechnical".to_string(), enemy);
+
+        let bird = logic
+            .create_object(
+                "AirF_AmericaVehicleChinook",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("chinook");
+        {
+            let c = logic.host_object_mut(bird).unwrap();
+            c.install_combat_chinook_transport();
+        }
+        let rider = logic
+            .create_object(
+                "AmericaVehicleHumvee",
+                Team::USA,
+                Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("humvee");
+        {
+            let o = logic.host_object_mut(bird).unwrap();
+            assert!(o.add_occupant(rider), "Combat Chinook admits vehicles");
+        }
+        {
+            let r = logic.host_object_mut(rider).unwrap();
+            r.contained_by = Some(bird);
+            r.set_ai_state(AIState::Docked);
+            r.weapon = Some(crate::game_logic::Weapon {
+                last_fire_time: -10.0,
+                reload_time: 0.1,
+                range: 150.0,
+                damage: 40.0,
+                ..crate::game_logic::Weapon::default()
+            });
+        }
+        let victim = logic
+            .create_object(
+                "GLAVehicleTechnical",
+                Team::GLA,
+                Vec3::new(20.0, 0.0, 0.0),
+            )
+            .expect("victim");
+        let hp_before = logic.host_object(victim).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_transport_passenger_residual_fire(rider);
+        let hp_after = logic.host_object(victim).unwrap().health.current;
+        assert!(
+            (hp_after - hp_before).abs() < 0.01,
+            "vehicle rider must not fire out of Combat Chinook (before={hp_before} after={hp_after})"
+        );
+    }
+
+
     fn garrison_template(name: &str, immune: bool, enclosing: bool) -> ThingTemplate {
         use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
         let mut t = ThingTemplate::new(name);
@@ -3398,6 +3533,131 @@ mod tests {
     }
 
     #[test]
+    fn really_damaged_garrison_rejects_enter_unless_firebase() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        let mut firebase = garrison_template("AmericaFireBase", false, false);
+        firebase.add_kind_of(KindOf::GarrisonableUntilDestroyed);
+        logic.templates.insert("AmericaFireBase".into(), firebase);
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(4.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.can_unit_enter_normal_target(ranger, bunker));
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            b.health.current = 200.0;
+            b.refresh_model_condition_bits();
+            assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        }
+        assert!(
+            !logic.can_unit_enter_normal_target(ranger, bunker),
+            "C++ isValidContainerFor rejects BODY_REALLYDAMAGED civilian/faction buildings"
+        );
+
+        let fb = logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let b = logic.host_object_mut(fb).unwrap();
+            b.health.current = 200.0;
+            b.refresh_model_condition_bits();
+            assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        }
+        assert!(
+            logic.can_unit_enter_normal_target(ranger, fb),
+            "KINDOF_GARRISONABLE_UNTIL_DESTROYED stays occupiable through ReallyDamaged"
+        );
+    }
+
+    #[test]
+    fn really_damaged_ejects_garrison_with_burst_walk() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("CivBunker".into(), garrison_template("CivBunker", false, true));
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::new(10.0, 0.0, 20.0))
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(12.0, 0.0, 20.0))
+            .unwrap();
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        {
+            let b = logic.host_object_mut(bunker).unwrap();
+            b.health.current = 200.0;
+            b.refresh_model_condition_bits();
+            assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        }
+        logic.check_building_damage_states(&[bunker]);
+        let r = logic.host_object(ranger_id).unwrap();
+        assert!(r.contained_by.is_none());
+        assert!(
+            matches!(r.ai_state, AIState::Moving),
+            "ReallyDamaged eject must walk out, not Idle on an 8-unit ring"
+        );
+        assert!(r.status.moving);
+        let dest = r.movement.target_position.unwrap_or(r.get_position());
+        assert!(
+            (dest - Vec3::new(10.0, 0.0, 20.0)).length() > 1.0,
+            "burst dest must leave the building origin"
+        );
+        assert!(logic.host_object(bunker).unwrap().contained_units().is_empty());
+    }
+
+    #[test]
+    fn firebase_really_damaged_does_not_eject() {
+        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        let mut logic = GameLogic::new();
+        let mut firebase = garrison_template("AmericaFireBase", false, false);
+        firebase.add_kind_of(KindOf::GarrisonableUntilDestroyed);
+        logic.templates.insert("AmericaFireBase".into(), firebase);
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        let fb = logic
+            .create_object("AmericaFireBase", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger_id = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        assert!(logic.host_object_mut(fb).unwrap().add_occupant(ranger_id));
+        if let Some(r) = logic.host_object_mut(ranger_id) {
+            r.set_contained_by(Some(fb));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        {
+            let b = logic.host_object_mut(fb).unwrap();
+            b.health.current = 200.0;
+            b.refresh_model_condition_bits();
+            assert_eq!(b.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        }
+        logic.check_building_damage_states(&[fb]);
+        assert_eq!(
+            logic.host_object(ranger_id).unwrap().contained_by,
+            Some(fb),
+            "GARRISONABLE_UNTIL_DESTROYED must keep occupants through ReallyDamaged"
+        );
+    }
+
+
+    #[test]
     fn garrison_fire_points_switch_with_body_damage() {
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let t = garrison_template("CivBunker", false, true);
@@ -3482,6 +3742,78 @@ mod tests {
             "HealContain auto-exit must follow ExitStart/End, not Idle on an 8-unit circle"
         );
         assert!(r.status.moving);
+    }
+
+    #[test]
+    fn open_contain_exit_path_cycles_numbered_like_cpp() {
+        let mut t = ThingTemplate::new("HV_EXIT");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        let mut obj = crate::game_logic::Object::new(t, crate::game_logic::ObjectId(1), Team::USA);
+        obj.set_position(Vec3::new(10.0, 0.0, 4.0));
+        obj.set_orientation(0.0);
+        let origin = obj.get_position();
+        let (s1, e1, n1) = open_contain_exit_path(&obj, 0, 3);
+        assert_eq!(n1, 2, "C++ m_whichExitPath cycles 1→2 after ExitStart01");
+        assert!((s1 - origin).length() < 0.01, "missing bone → hull start");
+        assert!(
+            (e1 - origin).length() > 8.0,
+            "missing bone → forward ExitEnd, not Idle ring: e1={e1:?}"
+        );
+        let (_, _, n2) = open_contain_exit_path(&obj, n1, 3);
+        assert_eq!(n2, 3);
+        let (_, _, n3) = open_contain_exit_path(&obj, n2, 3);
+        assert_eq!(n3, 1);
+        let (_, e_single, next_single) = open_contain_exit_path(&obj, 1, 1);
+        assert_eq!(next_single, 1);
+        assert!((e_single - origin).length() > 8.0);
+    }
+
+    #[test]
+    fn walk_unit_via_open_contain_exit_cycles_humvee_paths() {
+        let mut logic = GameLogic::new();
+        let mut t = ThingTemplate::new("HV_CYCLE");
+        t.add_kind_of(KindOf::Vehicle);
+        t.set_health(200.0);
+        t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Transport,
+            slots: Some(5),
+            ..Default::default()
+        };
+        logic.templates.insert("HV_CYCLE".into(), t);
+        let mut p = ThingTemplate::new("HV_CYCLE_P");
+        p.add_kind_of(KindOf::Infantry);
+        p.set_health(100.0);
+        logic.templates.insert("HV_CYCLE_P".into(), p);
+        let transport = logic
+            .create_object("HV_CYCLE", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        {
+            logic
+                .host_object_mut(transport)
+                .unwrap()
+                .install_humvee_transport();
+        }
+        let a = logic
+            .create_object("HV_CYCLE_P", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("HV_CYCLE_P", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .unwrap();
+        logic.walk_unit_via_open_contain_exit(a, transport);
+        assert_eq!(
+            logic.host_object(transport).unwrap().which_exit_path,
+            2,
+            "first rider consumes ExitStart01"
+        );
+        logic.walk_unit_via_open_contain_exit(b, transport);
+        assert_eq!(
+            logic.host_object(transport).unwrap().which_exit_path,
+            3,
+            "second rider consumes ExitStart02"
+        );
+        assert_eq!(logic.host_object(a).unwrap().ai_state, AIState::Moving);
+        assert_eq!(logic.host_object(b).unwrap().ai_state, AIState::Moving);
     }
 
 
@@ -3594,6 +3926,185 @@ mod tests {
         let rider = logic.host_object(cargo).unwrap();
         assert!(rider.contained_by.is_none());
         assert_eq!(rider.team, Team::GLA);
+    }
+
+    /// hq-am2jn: garrison auto-fire must skip undetected stealth (C++ acquire filters).
+    #[test]
+    fn garrison_residual_fire_skips_undetected_stealth() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GLARebel".into(), infantry_template("GLARebel"));
+
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let rebel = logic
+            .create_object("GLARebel", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 40.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+        {
+            let e = logic.host_object_mut(rebel).unwrap();
+            e.set_status_stealthed(true);
+            e.set_status_detected(false);
+            assert!(e.is_effectively_stealthed());
+        }
+
+        let hp_before = logic.host_object(rebel).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        let hp_after = logic.host_object(rebel).unwrap().health.current;
+        assert!(
+            (hp_after - hp_before).abs() < 0.01,
+            "undetected stealth must not be auto-acquired (before={hp_before} after={hp_after})"
+        );
+        assert_eq!(logic.garrison_residual_fires(), 0);
+
+        {
+            let e = logic.host_object_mut(rebel).unwrap();
+            e.set_status_detected(true);
+            assert!(!e.is_effectively_stealthed());
+        }
+        logic.try_garrison_residual_fire(ranger);
+        let hp_detected = logic.host_object(rebel).unwrap().health.current;
+        assert!(
+            hp_detected < hp_before - 0.01,
+            "detected stealth remains a legal acquire"
+        );
+    }
+
+    /// hq-nzyae: garrison fire uses GARRISONED 133% range, not raw weapon.range.
+    #[test]
+    fn garrison_residual_fire_uses_garrisoned_133_range() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "CivBunker".into(),
+            garrison_template("CivBunker", false, true),
+        );
+        logic
+            .templates
+            .insert("AmericaRanger".into(), infantry_template("AmericaRanger"));
+        logic
+            .templates
+            .insert("GLATank".into(), infantry_template("GLATank"));
+
+        let bunker = logic
+            .create_object("CivBunker", Team::USA, Vec3::ZERO)
+            .unwrap();
+        let ranger = logic
+            .create_object("AmericaRanger", Team::USA, Vec3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        // 120 units: out of raw 100, inside 100 * 1.33.
+        let enemy = logic
+            .create_object("GLATank", Team::GLA, Vec3::new(120.0, 0.0, 0.0))
+            .unwrap();
+        {
+            let r = logic.host_object_mut(ranger).unwrap();
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 25.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            r.set_contained_by(Some(bunker));
+            r.set_ai_state(AIState::Garrisoned);
+            assert!(
+                (r.effective_weapon_range(100.0) - 133.0).abs() < 0.01,
+                "Garrisoned infantry must receive RANGE 133%"
+            );
+        }
+        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
+
+        let hp_before = logic.host_object(enemy).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_garrison_residual_fire(ranger);
+        let hp_after = logic.host_object(enemy).unwrap().health.current;
+        assert!(
+            hp_after < hp_before - 0.01,
+            "garrisoned 133% range must reach 120 with base 100 (before={hp_before} after={hp_after})"
+        );
+        assert!(logic.honesty_garrison_fire_ok());
+    }
+
+    /// hq-nzyae: Helix infantry stay Docked but still get GARRISONED 133% range.
+    #[test]
+    fn helix_infantry_residual_fire_uses_garrisoned_133_range() {
+        let mut logic = GameLogic::new();
+        let mut helix = ThingTemplate::new("ChinaHelix");
+        helix
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(600.0);
+        logic.templates.insert("ChinaHelix".into(), helix);
+        logic
+            .templates
+            .insert("ChinaRedguard".into(), infantry_template("ChinaRedguard"));
+        logic
+            .templates
+            .insert("UsaRanger".into(), infantry_template("UsaRanger"));
+
+        let heli = logic
+            .create_object("ChinaHelix", Team::China, Vec3::ZERO)
+            .unwrap();
+        {
+            let h = logic.host_object_mut(heli).unwrap();
+            h.install_helix_transport();
+            h.passengers_allowed_to_fire = true;
+        }
+        let rider = logic
+            .create_object("ChinaRedguard", Team::China, Vec3::ZERO)
+            .unwrap();
+        assert!(logic.host_object_mut(heli).unwrap().add_occupant(rider));
+        {
+            let r = logic.host_object_mut(rider).unwrap();
+            r.set_contained_by(Some(heli));
+            r.set_ai_state(AIState::Docked);
+            r.weapon = Some(crate::game_logic::Weapon {
+                damage: 20.0,
+                range: 100.0,
+                reload_time: 0.1,
+                last_fire_time: -10.0,
+                ..crate::game_logic::Weapon::default()
+            });
+            // Docked + contained must not grant the bunker AIState bonus.
+            assert!((r.effective_weapon_range(100.0) - 100.0).abs() < 0.01);
+        }
+        let victim = logic
+            .create_object("UsaRanger", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+            .unwrap();
+        let hp_before = logic.host_object(victim).unwrap().health.current;
+        logic.set_current_frame(30);
+        logic.try_transport_passenger_residual_fire(rider);
+        let hp_after = logic.host_object(victim).unwrap().health.current;
+        assert!(
+            hp_after < hp_before - 0.01,
+            "Helix infantry GARRISONED 133% must reach 120 with base 100 (before={hp_before} after={hp_after})"
+        );
     }
 }
 

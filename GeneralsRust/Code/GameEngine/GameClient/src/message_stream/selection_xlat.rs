@@ -364,6 +364,28 @@ impl SelectionTranslator {
         }
     }
 
+    /// C++ `Squad::getLiveObjects` → `Object::isSelectable`. Not `CanSelectDrawable`
+    /// (no contained / MASKED peel). Missing leftover objects stay live so the
+    /// host registry can own garrisoned/transported riders.
+    fn leftover_squad_member_is_live(object_id: ObjectID) -> bool {
+        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+            return true;
+        };
+        obj.try_read()
+            .map(|guard| guard.is_selectable())
+            .unwrap_or(true)
+    }
+
+    /// C++ SELECT_TEAM: `obj->getControllingPlayer() == player`.
+    fn leftover_squad_member_is_local(object_id: ObjectID) -> bool {
+        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+            return true;
+        };
+        obj.try_read()
+            .map(|guard| guard.is_locally_controlled())
+            .unwrap_or(true)
+    }
+
     fn selection_limit_reached(&self) -> bool {
         let max = Self::max_select_count();
         max > 0 && self.current_selection.len() >= max as usize
@@ -1058,6 +1080,12 @@ impl SelectionTranslator {
                 let mut selected_ids = Vec::new();
                 let group_ids = self.control_groups[group as usize].clone();
                 for object_id in group_ids {
+                    if !Self::leftover_squad_member_is_live(object_id) {
+                        continue;
+                    }
+                    if !Self::leftover_squad_member_is_local(object_id) {
+                        continue;
+                    }
                     if self.selection_limit_reached() {
                         self.warn_selection_limit_once();
                         break;
@@ -1127,6 +1155,9 @@ impl SelectionTranslator {
         let mut added = Vec::new();
         let group_ids = self.control_groups[group as usize].clone();
         for object_id in group_ids {
+            if !Self::leftover_squad_member_is_live(object_id) {
+                continue;
+            }
             if self.selection_limit_reached() {
                 self.warn_selection_limit_once();
                 break;

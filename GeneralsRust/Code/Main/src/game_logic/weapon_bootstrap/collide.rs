@@ -72,58 +72,31 @@ pub fn projectile_collides_structures(mask: u32) -> bool {
     (mask & (PROJECTILE_COLLIDE_STRUCTURES | PROJECTILE_COLLIDE_WALLS)) != 0
 }
 
+/// C++ Weapon.cpp:271 default `m_affectsMask` when RadiusDamageAffects is omitted.
+pub const WEAPON_AFFECTS_DEFAULT: u32 = crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES
+    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ENEMIES
+    | crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_NEUTRALS;
+
 /// C++ Weapon.ini RadiusDamageAffects residual mask (Regular).
 ///
-/// Bits match `host_ai_path_combat_residual_wave105` WeaponAffectsMaskType.
-/// Default when unset: ENEMIES | NEUTRALS (retail common residual).
+/// Live fire reads the leftover WeaponStore (Weapon.cpp:1275 getAffectsMask).
+/// Missing template → C++ constructor default ALLIES|ENEMIES|NEUTRALS.
 pub fn host_radius_damage_affects_for_weapon_name(name: &str) -> u32 {
-    seed_radius_damage_affects_for(name)
+    use gamelogic::weapon::with_weapon_store;
+    let _ = ensure_host_weapon_store();
+    let from_store = with_weapon_store(|store| {
+        store.find_weapon_template(name).map(|wt| wt.affects_mask.bits())
+    })
+    .ok()
+    .flatten();
+    from_store.unwrap_or(WEAPON_AFFECTS_DEFAULT)
 }
 
+#[allow(dead_code)]
 pub(super) fn seed_radius_damage_affects_for(name: &str) -> u32 {
-    use crate::game_logic::host_ai_path_combat_residual_wave105::{
-        WEAPON_AFFECTS_ALLIES, WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-        WEAPON_AFFECTS_SELF, WEAPON_DOESNT_AFFECT_AIRBORNE, WEAPON_DOESNT_AFFECT_SIMILAR,
-        WEAPON_KILLS_SELF,
-    };
-    let n = name.to_ascii_lowercase();
-    // Default retail residual: enemies + neutrals.
-    let enemies_neutrals = WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS;
-    if n.contains("scudstorm")
-        || n.contains("nuke")
-        || n.contains("moab")
-        || n.contains("anthrax")
-        || n.contains("tomahawk")
-        || n.contains("overlord")
-        || n.contains("demotrap")
-        || n.contains("terrorist")
-        || n.contains("suicide")
-        || n.contains("carbomb")
-    {
-        // Friendly-fire residual weapons.
-        return WEAPON_AFFECTS_ALLIES | enemies_neutrals;
-    }
-    if n.contains("microwave") {
-        // Microwave residual: enemies + neutrals only (allies false).
-        return enemies_neutrals;
-    }
-    if n.contains("ecm") || n.contains("jammer") {
-        return enemies_neutrals;
-    }
-    if n.contains("propaganda") {
-        // Heal-ish residual: allies only (not used as splash damage usually).
-        return WEAPON_AFFECTS_ALLIES;
-    }
-    if n.contains("demo") && n.contains("truck") {
-        return WEAPON_AFFECTS_ALLIES | enemies_neutrals | WEAPON_AFFECTS_SELF | WEAPON_KILLS_SELF;
-    }
-    // Standard combat splash residual.
-    let _ = (
-        WEAPON_AFFECTS_SELF,
-        WEAPON_DOESNT_AFFECT_SIMILAR,
-        WEAPON_DOESNT_AFFECT_AIRBORNE,
-    );
-    enemies_neutrals
+    // C++ getAffectsMask() — leftover WeaponStore / Weapon.cpp:271 default.
+    // Do not invent ALLIES / NOT_AIRBORNE from name substrings.
+    host_radius_damage_affects_for_weapon_name(name)
 }
 
 /// Whether splash may affect `victim` given shooter team and residual mask.

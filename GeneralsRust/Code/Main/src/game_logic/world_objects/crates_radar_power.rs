@@ -576,11 +576,17 @@ impl GameLogic {
                 {
                     continue;
                 }
+                // C++ executeCrateBehavior: crate AI goal must be the picker.
+                if !self.veterancy_crate_ai_goal_matches(crate_id, picker_id) {
+                    continue;
+                }
                 let _ = self.execute_veterancy_crate_behavior(
+                    crate_id,
                     picker_id,
                     entry.veterancy_effect_range,
                     entry.veterancy_levels,
                 );
+
                 if !self
                     .host_money_crates
                     .record_pickup(crate_id, 1, 0, is_structure)
@@ -969,23 +975,17 @@ impl GameLogic {
     /// C++ GarrisonContain::onBodyDamageStateChange: BODY_REALLYDAMAGED edge
     /// ejects occupants unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
     pub(in super::super) fn check_building_damage_states(&mut self, object_ids: &[ObjectId]) {
-        // Collect buildings that need evacuation to avoid borrow conflicts.
-        let mut evacuate_from: Vec<(ObjectId, Vec3)> = Vec::new();
+        // Collect garrison buildings that need evacuation (borrow-safe).
+        let mut evacuate_ids: Vec<(ObjectId, Vec<ObjectId>)> = Vec::new();
 
         for &obj_id in object_ids {
             let Some(obj) = self.objects.get(&obj_id) else {
                 continue;
             };
-            if !obj.is_alive() || !obj.is_constructed() || !obj.is_kind_of(KindOf::Structure) {
+            if !obj.is_alive() || !obj.is_constructed() || !obj.is_garrison_contain() {
                 continue;
             }
             if obj.is_kind_of(KindOf::GarrisonableUntilDestroyed) {
-                continue;
-            }
-            let Some(building_data) = &obj.building_data else {
-                continue;
-            };
-            if building_data.garrisoned_units.is_empty() {
                 continue;
             }
             if obj.body_damage_state
@@ -993,54 +993,28 @@ impl GameLogic {
             {
                 continue;
             }
-
-            let pos = obj.get_position();
-            let occupants: Vec<ObjectId> = building_data.garrisoned_units.clone();
-            for &occ_id in &occupants {
-                evacuate_from.push((occ_id, pos));
+            let occupants = obj.contained_units();
+            if occupants.is_empty() {
+                continue;
             }
+            evacuate_ids.push((obj_id, occupants));
         }
 
-
-        // Eject occupants.
-        for (occ_id, building_pos) in evacuate_from {
-            // Remove from container first.
-            let container_id = self
-                .objects
-                .values()
-                .find(|o| o.contained_units().contains(&occ_id))
-                .map(|o| o.id);
-
-            if let Some(cid) = container_id {
-                if let Some(container) = self.objects.get_mut(&cid) {
-                    container.remove_occupant(occ_id);
+        // C++ orderAllPassengersToExit → exitObjectViaDoor walk, not a ring dump.
+        for (cid, occupants) in evacuate_ids {
+            let _ = self.evacuate_container_now(cid, false);
+            for occ_id in occupants {
+                if let Some(unit) = self.objects.get(&occ_id) {
+                    let p = unit.get_position();
+                    if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                        crate::game_logic::host_move_log::record(occ_id, Some([p.x, p.y, p.z]));
+                    }
+                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                        crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);
+                    }
                 }
+                self.record_garrison_residual_exit();
             }
-
-            // Move occupant out.
-            if let Some(unit) = self.objects.get_mut(&occ_id) {
-                let angle = (occ_id.0 as f32).sin().atan2(1.0);
-                let offset = Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0;
-                unit.stop_moving();
-                unit.set_position(building_pos + offset);
-                if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                    let p = building_pos + offset;
-                    crate::game_logic::host_move_log::record(unit.id, Some([p.x, p.y, p.z]));
-                    unit.record_host_movement();
-                }
-                unit.set_target(None);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_stop_attack(occ_id);
-                }
-                unit.set_contained_by(None);
-                unit.set_ai_state(AIState::Idle);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
-                }
-                unit.set_status_moving(false);
-                unit.set_status_attacking(false);
-            }
-            self.record_garrison_residual_exit();
         }
     }
 
@@ -1095,7 +1069,22 @@ impl GameLogic {
                 .is_some_and(|player_id| underpowered_players.contains(&player_id))
                 && obj.is_alive()
                 && obj.is_constructed();
-            obj.status.disabled_underpowered = should_disable;
+            let was = obj.status.disabled_underpowered;
+            if should_disable && !was {
+                let already_power = obj.is_power_style_disabled();
+                obj.status.disabled_underpowered = true;
+                if !already_power {
+                    obj.queue_power_disable_misc_audio(true);
+                }
+            } else if !should_disable && was {
+                obj.status.disabled_underpowered = false;
+                if !obj.is_power_style_disabled() {
+                    obj.queue_power_disable_misc_audio(false);
+                }
+            } else {
+                obj.status.disabled_underpowered = should_disable;
+            }
+
         }
         // C++ Eva::shouldPlayLowPower residual (local energy insufficient).
         self.update_eva_low_power();

@@ -534,11 +534,22 @@ impl AudioManagerSubsystem {
                         }
                     }
 
+                    let position = event.position.map(|p| (p.x, p.y, p.z));
                     let volume_scale = crate::assets::audio::live_gameplay_sfx_volume(
                         event.event_type.as_str(),
-                        event.position.map(|p| (p.x, p.y, p.z)),
+                        position,
                     );
                     if volume_scale <= 0.0 {
+                        continue;
+                    }
+                    // C++ MilesAudioManager::playSample3D — keep pose on TheAudio
+                    // so Common SpatialSink pans. Do not drop to 2D volume-only.
+                    if crate::assets::audio::play_sound_through_the_audio_at(
+                        event.event_type.as_str(),
+                        position,
+                    )
+                    .is_some()
+                    {
                         continue;
                     }
                     let Some(table) = self.sound_effects_table.as_ref() else {

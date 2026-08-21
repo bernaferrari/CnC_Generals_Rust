@@ -68,6 +68,7 @@ mod legacy_bincode;
 mod lifecycle_tail;
 mod load_post_process;
 mod object;
+pub(crate) mod persist_v18;
 mod player;
 mod restore;
 mod shroud;
@@ -81,7 +82,6 @@ mod xfer_helpers;
 mod lifecycle_save_file;
 #[cfg(test)]
 mod tests;
-
 pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
@@ -96,6 +96,9 @@ pub use lifecycle_tail::{
     LifecycleTail, ProducerLink,
 };
 pub use object::*;
+pub use persist_v18::{
+    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
+};
 pub use player::*;
 pub use special_powers::*;
 pub use terrain::*;
@@ -117,6 +120,7 @@ pub const SNAPSHOT_SRC: &str = concat!(
     include_str!("lifecycle_tail.rs"),
     include_str!("load_post_process.rs"),
     include_str!("object.rs"),
+    include_str!("persist_v18.rs"),
     include_str!("player.rs"),
     include_str!("restore.rs"),
     include_str!("shroud.rs"),

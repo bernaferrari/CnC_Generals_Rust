@@ -69,4 +69,4 @@ pub use update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, SwayClientUpdateModule,
 };
-pub use logic_visual_hooks::ensure_logic_draw_hooks;
+pub use logic_visual_hooks::{ensure_logic_draw_hooks, lookup_w3d_client_bone};

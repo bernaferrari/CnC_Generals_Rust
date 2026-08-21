@@ -459,6 +459,44 @@ impl W3DModelDraw {
         .flatten()
     }
 
+    /// C++ `Get_Bone_Index` / `Get_Bone_Transform` then `preMul(inverse)`
+    /// (W3DModelDraw.cpp:3590-3596). Uses the registered W3D HTree hook
+    /// (current anim frame) and the validated pristine cache — never the
+    /// empty GameLogic skeleton.
+    fn lookup_current_client_bone(
+        &self,
+        model: &str,
+        scale: Real,
+        frame: i32,
+        bone_name: &str,
+    ) -> Option<Matrix3D> {
+        if bone_name.is_empty() {
+            return None;
+        }
+        if !model.is_empty() {
+            if let Some((_, mtx)) = lookup_pristine_bone(model, scale, frame, bone_name) {
+                return Some(mtx);
+            }
+            let lower = bone_name.to_ascii_lowercase();
+            if lower != bone_name {
+                if let Some((_, mtx)) = lookup_pristine_bone(model, scale, frame, &lower) {
+                    return Some(mtx);
+                }
+            }
+        }
+        self.current_state().and_then(|state| {
+            state
+                .find_pristine_bone_by_name(bone_name)
+                .map(|(_, info)| info.transform)
+                .or_else(|| {
+                    let lower = bone_name.to_ascii_lowercase();
+                    (lower != bone_name)
+                        .then(|| state.find_pristine_bone_by_name(&lower).map(|(_, info)| info.transform))
+                        .flatten()
+                })
+        })
+    }
+
 
     /// C++ `Matrix3D::Translate_Z` — post-multiply a local-Z translation.
     fn translate_z(mtx: &mut Matrix3D, z: Real) {

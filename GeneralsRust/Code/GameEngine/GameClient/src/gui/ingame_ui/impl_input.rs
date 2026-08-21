@@ -1424,6 +1424,10 @@ impl InGameUI {
                 if let Some(mut tooltip) =
                     Self::mouseover_tooltip_for_templates(&tip_name, &tip_entry.template_name)
                 {
+                    Self::append_presentation_warehouse_tooltip(
+                        &mut tooltip,
+                        tip_entry.supply_boxes,
+                    );
                     if let Some(player) = player_list()
                         .read()
                         .ok()
@@ -1495,7 +1499,133 @@ impl InGameUI {
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
+        TheInGameUI::set_moused_over_drawable_id(self.moused_over_drawable_id);
     }
+
+    /// Live host / leftover presentation catalog tooltip (InGameUI.cpp:2256-2459).
+    pub fn apply_catalog_mouseover_tooltip(
+        catalog: &[PresentationUnitCatalogEntry],
+        drawable_id: Option<u32>,
+        is_location_hint: bool,
+    ) -> u32 {
+        let old_id = TheInGameUI::get_moused_over_drawable_id();
+        let mut moused_over = Self::INVALID_DRAWABLE_ID;
+        if is_location_hint {
+            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+        } else if let Some(draw_id) = drawable_id {
+            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
+            if draw_id != Self::INVALID_DRAWABLE_ID {
+                if let Some(entry) = catalog.iter().find(|u| u.object_id == draw_id).cloned() {
+                    if !(entry.destroyed || entry.sold || entry.unselectable || entry.masked) {
+                        let local = crate::presentation_translator_residual::translator_local_team_name();
+                        let stealthed_hidden = entry.effectively_stealthed
+                            && (local.is_empty() || entry.team_name != local);
+                        let fogged = matches!(
+                            entry.shroud_status,
+                            ObjectShroudStatus::PartialClear
+                                | ObjectShroudStatus::Fogged
+                                | ObjectShroudStatus::Shrouded
+                        );
+                        let fogged_hidden =
+                            fogged && (local.is_empty() || entry.team_name != local);
+                        if !stealthed_hidden && !fogged_hidden {
+                            let ignored = entry.kind_names.iter().any(|k| {
+                                k == "IgnoredInGui" || k.eq_ignore_ascii_case("ignoredingui")
+                            });
+                            moused_over = if ignored {
+                                entry.slaver_object_id.unwrap_or(draw_id)
+                            } else {
+                                draw_id
+                            };
+                            let tip_entry = if ignored {
+                                catalog
+                                    .iter()
+                                    .find(|u| Some(u.object_id) == entry.slaver_object_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| entry.clone())
+                            } else {
+                                entry.clone()
+                            };
+                            let tip_local = !local.is_empty() && tip_entry.team_name == local;
+                            let tip_fogged = matches!(
+                                tip_entry.shroud_status,
+                                ObjectShroudStatus::PartialClear
+                                    | ObjectShroudStatus::Fogged
+                                    | ObjectShroudStatus::Shrouded
+                            );
+                            if tip_entry.destroyed
+                                || tip_entry.sold
+                                || tip_entry.unselectable
+                                || tip_entry.masked
+                                || (tip_entry.effectively_stealthed && !tip_local)
+                                || (tip_fogged && !tip_local)
+                            {
+                                moused_over = Self::INVALID_DRAWABLE_ID;
+                            } else {
+                                let tip_name = if tip_entry.disguised && !tip_local {
+                                    tip_entry
+                                        .disguise_as_template
+                                        .clone()
+                                        .filter(|s| !s.is_empty())
+                                        .unwrap_or_else(|| tip_entry.template_name.clone())
+                                } else {
+                                    tip_entry.template_name.clone()
+                                };
+                                if let Some(mut tooltip) = Self::mouseover_tooltip_for_templates(
+                                    &tip_name,
+                                    &tip_entry.template_name,
+                                ) {
+                                    Self::append_presentation_warehouse_tooltip(
+                                        &mut tooltip,
+                                        tip_entry.supply_boxes,
+                                    );
+                                    if let Some(player) = player_list()
+                                        .read()
+                                        .ok()
+                                        .and_then(|list| {
+                                            list.find_player_by_name(&tip_entry.team_name)
+                                        })
+                                    {
+                                        if let Ok(player_guard) = player.read() {
+                                            tooltip = Self::mouseover_tooltip_with_player_suffix(
+                                                &tooltip,
+                                                &player_guard,
+                                                Self::mouseover_tooltip_is_multiplayer(),
+                                            );
+                                            let color = [
+                                                player_guard.get_player_color().r,
+                                                player_guard.get_player_color().g,
+                                                player_guard.get_player_color().b,
+                                                player_guard.get_player_color().a,
+                                            ];
+                                            with_mouse(|m| {
+                                                m.set_cursor_tooltip(
+                                                    tooltip,
+                                                    Some(-1),
+                                                    Some(color),
+                                                    None,
+                                                );
+                                            });
+                                        }
+                                    } else {
+                                        with_mouse(|m| {
+                                            m.set_cursor_tooltip(tooltip, Some(-1), None, None);
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if old_id != moused_over {
+            with_mouse(|m| m.reset_tooltip_delay());
+        }
+        TheInGameUI::set_moused_over_drawable_id(moused_over);
+        moused_over
+    }
+
 
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
         // Wave 968: host empty dual-world → presentation catalog residual path.
@@ -1625,5 +1755,6 @@ impl InGameUI {
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
+        TheInGameUI::set_moused_over_drawable_id(self.moused_over_drawable_id);
     }
 }

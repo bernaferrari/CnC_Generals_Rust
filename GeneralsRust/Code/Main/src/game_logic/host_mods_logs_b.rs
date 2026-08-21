@@ -125,6 +125,9 @@ pub mod host_model_mesh_log;
 #[path = "host_move_log.rs"]
 pub mod host_move_log;
 
+#[path = "host_move_ambient_audio.rs"]
+pub mod host_move_ambient_audio;
+
 #[path = "host_move_target_ready_log.rs"]
 pub mod host_move_target_ready_log;
 

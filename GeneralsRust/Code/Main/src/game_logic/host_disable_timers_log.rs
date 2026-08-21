@@ -11,9 +11,21 @@ pub struct HostDisableTimersEvent {
     pub paralyzed_until_frame: u32,
 }
 
+
+/// C++ Object::setDisabledUntil / clearDisabled MiscAudio (Object.cpp:2060-2248).
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostDisableAudioEvent {
+    pub object: ObjectId,
+    pub position: [f32; 3],
+    pub event_name: String,
+}
+
 thread_local! {
     static LOG: RefCell<Vec<HostDisableTimersEvent>> = RefCell::new(Vec::new());
+    static AUDIO: RefCell<Vec<HostDisableAudioEvent>> = const { RefCell::new(Vec::new()) };
 }
+
+
 
 pub fn record(
     object: ObjectId,
@@ -31,6 +43,26 @@ pub fn record(
     });
 }
 
+pub fn record_audio(object: ObjectId, position: [f32; 3], event_name: impl Into<String>) {
+    let event_name = event_name.into();
+    if event_name.is_empty() {
+        return;
+    }
+    AUDIO.with(|log| {
+        log.borrow_mut().push(HostDisableAudioEvent {
+            object,
+            position,
+            event_name,
+        });
+    });
+}
+
+/// Presentation-only drain.
+pub fn take_audio() -> Vec<HostDisableAudioEvent> {
+    AUDIO.with(|log| std::mem::take(&mut *log.borrow_mut()))
+}
+
+
 pub fn has_pending(object: ObjectId) -> bool {
     LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
 }
@@ -41,6 +73,8 @@ pub fn drain() -> Vec<HostDisableTimersEvent> {
 
 pub fn clear() {
     LOG.with(|log| log.borrow_mut().clear());
+    AUDIO.with(|log| log.borrow_mut().clear());
+
 }
 
 pub fn len() -> usize {

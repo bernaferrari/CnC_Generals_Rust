@@ -1090,6 +1090,7 @@ impl GameLogic {
             let revealed = before && (!obj.status.stealthed || obj.stealth_delay_pending);
             (destroyed, revealed)
         };
+        self.flush_pending_garrison_really_damaged_ejects();
         if camo_reveal {
             self.camo_netting_structure_residual_reveals = self
                 .camo_netting_structure_residual_reveals

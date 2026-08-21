@@ -162,6 +162,65 @@ fn try_idle_repulse_flees_flagged_repulsor() {
 }
 
 #[test]
+fn start_new_game_applies_retail_enable_repulsors() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    crate::game_logic::host_repulsor_gate::clear_aidata_ini_applied_for_test();
+    crate::game_logic::host_repulsor_gate::set_enabled(false);
+    let mut logic = GameLogic::new();
+    assert!(
+        !logic.enable_repulsors,
+        "C++ TAiData ctor default is false until AIData.ini"
+    );
+    logic.start_new_game(GameMode::Skirmish);
+    assert!(
+        logic.enable_repulsors,
+        "retail Default/AIData.ini EnableRepulsors=Yes on live start_new_game"
+    );
+    assert!(crate::game_logic::host_repulsor_gate::is_enabled());
+
+    let mut t = ThingTemplate::new("CivLivePanic");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::CanBeRepulsed);
+    let id = ObjectId(4303);
+    let mut o = Object::new(t, id, Team::Neutral);
+    o.health.current = 100.0;
+    o.health.maximum = 100.0;
+    logic.objects.insert(id, o);
+    let destroyed = logic.objects.get_mut(&id).unwrap().take_damage(10.0);
+    assert!(!destroyed);
+    assert!(
+        logic.objects[&id].status.repulsor,
+        "damaged CAN_BE_REPULSED must flag REPULSOR when live EnableRepulsors is on"
+    );
+}
+
+#[test]
+fn apply_aidata_enable_repulsors_honors_parsed_ini_no() {
+    crate::game_logic::host_repulsor_gate::mark_aidata_ini_applied();
+    {
+        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        store.ensure_base();
+        if let Some(data) = store.get_active_mut() {
+            data.enable_repulsors = false;
+        }
+    }
+    let mut logic = GameLogic::new();
+    logic.apply_aidata_enable_repulsors();
+    assert!(
+        !logic.enable_repulsors,
+        "parsed EnableRepulsors=No must win over retail Yes"
+    );
+    assert!(!crate::game_logic::host_repulsor_gate::is_enabled());
+    crate::game_logic::host_repulsor_gate::clear_aidata_ini_applied_for_test();
+    {
+        let mut store = game_engine::common::ini::get_ai_data_store_mut();
+        if let Some(data) = store.get_active_mut() {
+            data.enable_repulsors = false;
+        }
+    }
+}
+
+#[test]
 fn set_team_repulsor_applies_to_members() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut logic = GameLogic::new();
@@ -3317,19 +3376,35 @@ fn direct_hit_applies_dual_radius_splash_to_neighbors() {
 fn scatter_miss_splash_honors_radius_damage_affects() {
     use crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_AFFECTS_ALLIES;
     use crate::game_logic::weapon_bootstrap::{
-        host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+        ensure_host_weapon_store, host_radius_damage_affects_for_weapon_name,
+        radius_damage_affects_victim, WEAPON_AFFECTS_DEFAULT,
     };
-    // Crusader residual: no allies.
-    let gun = host_radius_damage_affects_for_weapon_name("AmericaTankCrusaderGun");
+    use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
+
+    ensure_host_weapon_store();
+    let mut no_ally = WeaponTemplate::new("TestNoAllySplashWeapon".to_string());
+    no_ally.parse_weapon_fields_from_ini(&std::collections::HashMap::from([
+        (
+            "RadiusDamageAffects".to_string(),
+            "ENEMIES NEUTRALS".to_string(),
+        ),
+        ("PrimaryDamageRadius".to_string(), "30".to_string()),
+    ]));
+    let _ = with_weapon_store_mut(|store| {
+        store.add_weapon_template(no_ally);
+    });
+
+    let gun = host_radius_damage_affects_for_weapon_name("TestNoAllySplashWeapon");
     assert_eq!(gun & WEAPON_AFFECTS_ALLIES, 0);
-    // Scud residual: allies yes.
-    let scud = host_radius_damage_affects_for_weapon_name("ScudStormDamageWeapon");
-    assert_ne!(scud & WEAPON_AFFECTS_ALLIES, 0);
+    // C++ omitted RadiusDamageAffects / unknown name: ALLIES|ENEMIES|NEUTRALS.
+    let omitted = host_radius_damage_affects_for_weapon_name("CompletelyUnknownSplashWeaponXYZ");
+    assert_eq!(omitted, WEAPON_AFFECTS_DEFAULT);
+    assert_ne!(omitted & WEAPON_AFFECTS_ALLIES, 0);
 
     let mut logic = GameLogic::new();
     {
         let mut t = ThingTemplate::new("SplashSrc");
-        t.primary_weapon_name = Some("AmericaTankCrusaderGun".into());
+        t.primary_weapon_name = Some("TestNoAllySplashWeapon".into());
         t.add_kind_of(KindOf::Vehicle);
         logic.templates.insert("SplashSrc".into(), t);
         let mut ta = ThingTemplate::new("SplashAlly");
@@ -3364,7 +3439,7 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
         src,
         Team::USA,
         ObjectId(0), // no skip
-        Some("AmericaTankCrusaderGun"),
+        Some("TestNoAllySplashWeapon"),
     );
     let ah = logic
         .objects
@@ -3378,11 +3453,11 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
         .unwrap_or(0.0);
     assert!(
         (ah - 200.0).abs() < 0.01,
-        "ally must not take crusader splash ah={ah}"
+        "ally must not take ENEMIES|NEUTRALS splash ah={ah}"
     );
     assert!(eh < 200.0 - 1.0, "enemy must take splash eh={eh}");
 
-    // Scud-style friendly fire residual damages allies.
+    // C++ default ALLIES|ENEMIES|NEUTRALS friendly-fires.
     if let Some(o) = logic.objects.get_mut(&ally) {
         o.health.current = 200.0;
     }
@@ -3396,16 +3471,16 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
         src,
         Team::USA,
         ObjectId(0),
-        Some("ScudStormDamageWeapon"),
+        None,
     );
     let ah2 = logic
         .objects
         .get(&ally)
         .map(|o| o.health.current)
         .unwrap_or(0.0);
-    assert!(ah2 < 200.0 - 1.0, "scud splash hits allies ah2={ah2}");
+    assert!(ah2 < 200.0 - 1.0, "default splash hits allies ah2={ah2}");
     assert!(radius_damage_affects_victim(
-        scud,
+        omitted,
         Team::USA,
         src,
         ally,
@@ -3413,6 +3488,98 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
         false,
         false,
     ));
+}
+
+#[test]
+fn scatter_miss_splash_honors_not_airborne_ini() {
+    use crate::game_logic::host_ai_path_combat_residual_wave105::{
+        WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS, WEAPON_DOESNT_AFFECT_AIRBORNE,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, host_radius_damage_affects_for_weapon_name,
+    };
+    use gamelogic::weapon::{with_weapon_store_mut, WeaponTemplate};
+
+    ensure_host_weapon_store();
+    let mut w = WeaponTemplate::new("TestNotAirborneSplashWeapon".to_string());
+    w.parse_weapon_fields_from_ini(&std::collections::HashMap::from([
+        (
+            "RadiusDamageAffects".to_string(),
+            "ENEMIES NEUTRALS NOT_AIRBORNE".to_string(),
+        ),
+        ("PrimaryDamageRadius".to_string(), "30".to_string()),
+    ]));
+    let _ = with_weapon_store_mut(|store| {
+        store.add_weapon_template(w);
+    });
+    let mask = host_radius_damage_affects_for_weapon_name("TestNotAirborneSplashWeapon");
+    assert_ne!(mask & WEAPON_DOESNT_AFFECT_AIRBORNE, 0);
+    assert_eq!(mask & WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_ENEMIES);
+    assert_eq!(mask & WEAPON_AFFECTS_NEUTRALS, WEAPON_AFFECTS_NEUTRALS);
+
+    let mut logic = GameLogic::new();
+    {
+        let mut t = ThingTemplate::new("NaSrc");
+        t.primary_weapon_name = Some("TestNotAirborneSplashWeapon".into());
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("NaSrc".into(), t);
+        let mut te = ThingTemplate::new("NaGround");
+        te.add_kind_of(KindOf::Vehicle);
+        te.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("NaGround".into(), te);
+        let mut th = ThingTemplate::new("NaHigh");
+        th.add_kind_of(KindOf::Vehicle);
+        th.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("NaHigh".into(), th);
+    }
+    let src = logic
+        .create_object("NaSrc", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let ground = logic
+        .create_object("NaGround", Team::China, glam::Vec3::new(8.0, 0.0, 0.0))
+        .unwrap();
+    let high = logic
+        .create_object("NaHigh", Team::China, glam::Vec3::new(8.0, 12.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&ground) {
+        o.health.current = 200.0;
+        o.health.maximum = 200.0;
+        o.ground_height = 0.0;
+    }
+    if let Some(o) = logic.objects.get_mut(&high) {
+        o.health.current = 200.0;
+        o.health.maximum = 200.0;
+        o.ground_height = 0.0;
+        o.selection_radius = 0.0;
+        o.thing.template.geometry_info.authored = true;
+        o.thing.template.geometry_info.major_radius = 0.0;
+        o.thing.template.geometry_info.geom_type = crate::game_logic::HostGeometryType::Sphere;
+        o.thing.template.geometry_info.height = 0.0;
+    }
+    let _ = logic.apply_scatter_miss_splash_at(
+        glam::Vec3::ZERO,
+        50.0,
+        30.0,
+        src,
+        Team::USA,
+        ObjectId(0),
+        Some("TestNotAirborneSplashWeapon"),
+    );
+    let gh = logic
+        .objects
+        .get(&ground)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    let hh = logic
+        .objects
+        .get(&high)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(gh < 200.0 - 1.0, "grounded enemy must take splash gh={gh}");
+    assert!(
+        (hh - 200.0).abs() < 0.01,
+        "NOT_AIRBORNE + isSignificantlyAboveTerrain must skip high unit hh={hh}"
+    );
 }
 
 #[test]
@@ -3490,6 +3657,109 @@ fn scatter_miss_applies_splash_at_offset() {
         .map(|o| o.health.current)
         .unwrap_or(0.0);
     assert!((ih - 500.0).abs() < 0.01, "intended skipped on miss splash");
+}
+
+#[test]
+fn scatter_miss_splash_does_not_invent_1_5x_secondary() {
+    let mut logic = GameLogic::new();
+    {
+        let mut t = ThingTemplate::new("NoRingSrc");
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("NoRingSrc".into(), t);
+        let mut te = ThingTemplate::new("NoRingFar");
+        te.add_kind_of(KindOf::Vehicle);
+        te.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("NoRingFar".into(), te);
+    }
+    let src = logic
+        .create_object("NoRingSrc", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    // 28wu is inside invented 1.5*20=30 but outside authored primary 20 with secondary 0.
+    let far = logic
+        .create_object("NoRingFar", Team::China, glam::Vec3::new(28.0, 0.0, 0.0))
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&far) {
+        o.health.current = 200.0;
+        o.health.maximum = 200.0;
+        o.selection_radius = 0.0;
+        o.thing.template.geometry_info.authored = true;
+        o.thing.template.geometry_info.major_radius = 0.0;
+        o.thing.template.geometry_info.geom_type =
+            crate::game_logic::HostGeometryType::Sphere;
+        o.thing.template.geometry_info.height = 0.0;
+    }
+    let _ = logic.apply_scatter_miss_splash_at(
+        glam::Vec3::ZERO,
+        50.0,
+        20.0,
+        src,
+        Team::USA,
+        ObjectId(0),
+        None,
+    );
+    let fh = logic
+        .objects
+        .get(&far)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        (fh - 200.0).abs() < 0.01,
+        "must not invent 1.5x secondary ring fh={fh}"
+    );
+}
+
+#[test]
+fn scatter_miss_splash_uses_bounding_sphere_3d() {
+    let mut logic = GameLogic::new();
+    {
+        let mut t = ThingTemplate::new("SphereSrc");
+        t.add_kind_of(KindOf::Vehicle);
+        logic.templates.insert("SphereSrc".into(), t);
+        let mut te = ThingTemplate::new("SphereHigh");
+        te.add_kind_of(KindOf::Vehicle);
+        te.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("SphereHigh".into(), te);
+    }
+    let src = logic
+        .create_object("SphereSrc", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    // Same XZ as impact; 40wu up is outside 20wu 3D sphere (old XZ path would hit).
+    let high = logic
+        .create_object(
+            "SphereHigh",
+            Team::China,
+            glam::Vec3::new(0.0, 40.0, 0.0),
+        )
+        .unwrap();
+    if let Some(o) = logic.objects.get_mut(&high) {
+        o.health.current = 200.0;
+        o.health.maximum = 200.0;
+        o.ground_height = 0.0;
+        o.selection_radius = 0.0;
+        o.thing.template.geometry_info.authored = true;
+        o.thing.template.geometry_info.major_radius = 0.0;
+        o.thing.template.geometry_info.geom_type =
+            crate::game_logic::HostGeometryType::Sphere;
+        o.thing.template.geometry_info.height = 0.0;
+    }
+    let _ = logic.apply_scatter_miss_splash_at(
+        glam::Vec3::ZERO,
+        50.0,
+        20.0,
+        src,
+        Team::USA,
+        ObjectId(0),
+        None,
+    );
+    let hh = logic
+        .objects
+        .get(&high)
+        .map(|o| o.health.current)
+        .unwrap_or(0.0);
+    assert!(
+        (hh - 200.0).abs() < 0.01,
+        "FROM_BOUNDINGSPHERE_3D must skip airborne-high unit hh={hh}"
+    );
 }
 
 #[test]

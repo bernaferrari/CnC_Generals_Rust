@@ -3792,6 +3792,74 @@ fn object_attack_orders_passenger_fire() {
 }
 
 #[test]
+fn object_attack_skips_vehicle_transport_riders() {
+    // C++ TransportContain::isPassengerAllowedToFire + isAbleToAttack:
+    // vehicle riders never receive the group attack order.
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    let mut logic = GameLogic::new();
+    let mut chin = ThingTemplate::new("AT_CC");
+    chin.add_kind_of(KindOf::Vehicle);
+    chin.add_kind_of(KindOf::Aircraft);
+    chin.add_kind_of(KindOf::Selectable);
+    chin.set_health(300.0);
+    logic.templates.insert("AT_CC".to_string(), chin);
+    let mut veh = ThingTemplate::new("AT_V");
+    veh.add_kind_of(KindOf::Vehicle);
+    veh.add_kind_of(KindOf::Selectable);
+    veh.set_health(200.0);
+    logic.templates.insert("AT_V".to_string(), veh);
+    let mut tgt = ThingTemplate::new("AT_VE");
+    tgt.add_kind_of(KindOf::Vehicle);
+    tgt.add_kind_of(KindOf::Selectable);
+    tgt.set_health(100.0);
+    logic.templates.insert("AT_VE".to_string(), tgt);
+    let chinook = logic
+        .create_object("AT_CC", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let rider = logic
+        .create_object("AT_V", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let enemy = logic
+        .create_object("AT_VE", Team::China, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let h = logic.host_object_mut(chinook).unwrap();
+        h.install_combat_chinook_transport();
+        let _ = h.add_occupant(rider);
+        h.weapon = Some(Weapon {
+            damage: 5.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+    }
+    {
+        let r = logic.host_object_mut(rider).unwrap();
+        r.set_contained_by(Some(chinook));
+        r.set_ai_state(crate::game_logic::AIState::Garrisoned);
+        r.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+    }
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        let _ = exec.execute_attack(&[chinook], enemy);
+    }
+    let rider = logic.host_object(rider).unwrap();
+    assert_ne!(
+        rider.target,
+        Some(enemy),
+        "vehicle Combat Chinook rider must not receive the attack order"
+    );
+}
+
+
+#[test]
 fn stop_idles_garrison_occupants_and_hive_slaves() {
     // C++ AIGroup::groupIdle (AIGroup.cpp:2066-2081): no-AI contain iterate + slaves idle.
     use super::CommandExecutor;
@@ -4352,5 +4420,430 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
         1_000,
         "hq-iherw: cancel refunds calcCostToBuild, not raw INI BuildCost"
     );
+}
+
+
+#[test]
+fn context_move_plays_voice_move_not_unit_command() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("CTX_MV", UnitVoiceSlot::Move, "TestContextVoiceMove");
+    let mut logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("CTX_MV");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("CTX_MV".into(), tpl);
+    let a = logic
+        .create_object("CTX_MV", Team::USA, Vec3::ZERO)
+        .unwrap();
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestContextVoiceMove"),
+        "execute_move must play VoiceMove: {:?}",
+        logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.clone())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "UnitCommand" && e.event_type != "UnitVoiceMove"),
+        "execute_move must not invent UnitCommand"
+    );
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_move_to(&[a], Vec3::new(80.0, 0.0, 0.0), &[]),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestContextVoiceMove"),
+        "execute_move_to must play VoiceMove"
+    );
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestContextVoiceMove"),
+        "execute_attack_move must play VoiceMove"
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn context_attack_plays_voice_attack_and_air() {
+    use super::CommandExecutor;
+    use crate::command_system::CommandResult;
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("CTX_ATK", UnitVoiceSlot::Attack, "TestContextVoiceAttack");
+    set_test_template_voice(
+        "CTX_ATK",
+        UnitVoiceSlot::AttackAir,
+        "TestContextVoiceAttackAir",
+    );
+    let mut logic = GameLogic::new();
+    let mut atk = ThingTemplate::new("CTX_ATK");
+    atk.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("CTX_ATK".into(), atk);
+    let mut ground = ThingTemplate::new("CTX_GND");
+    ground
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("CTX_GND".into(), ground);
+    let mut air = ThingTemplate::new("CTX_AIR");
+    air.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("CTX_AIR".into(), air);
+
+    let ranger = logic
+        .create_object("CTX_ATK", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let tank = logic
+        .create_object("CTX_GND", Team::China, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    let jet = logic
+        .create_object("CTX_AIR", Team::China, Vec3::new(50.0, 20.0, 0.0))
+        .unwrap();
+    {
+        let u = logic.host_object_mut(ranger).unwrap();
+        u.weapon = Some(Weapon {
+            damage: 10.0,
+            range: 80.0,
+            ..Weapon::default()
+        });
+    }
+    {
+        let j = logic.host_object_mut(jet).unwrap();
+        j.status.airborne_target = true;
+    }
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack(&[ranger], tank),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestContextVoiceAttack"),
+        "execute_attack must play VoiceAttack: {:?}",
+        logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.clone())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .all(|e| e.event_type != "UnitCommand" && e.event_type != "UnitVoiceAttack"),
+        "execute_attack must not invent UnitCommand"
+    );
+
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_attack(&[ranger], jet),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestContextVoiceAttackAir"),
+        "air target must play VoiceAttackAir: {:?}",
+        logic
+            .queued_audio_events
+            .iter()
+            .map(|e| e.event_type.clone())
+            .collect::<Vec<_>>()
+    );
+    clear_test_template_voices();
+}
+
+#[test]
+fn host_play_sound_effect_must_not_invent_unit_command_or_select() {
+    let src = crate::cnc_game_engine::ENGINE_SRC;
+    let i = src
+        .find("fn host_play_sound_effect")
+        .expect("host_play_sound_effect");
+    let body = &src[i..src.len().min(i + 1800)];
+    assert!(
+        body.contains("SoundType::Select | SoundType::Command")
+            && !body.contains("SoundType::Select => \"UnitSelect\"")
+            && !body.contains("SoundType::Command => \"UnitCommand\""),
+        "host_play_sound_effect must no-op invented UnitSelect/UnitCommand"
+    );
+}
+
+#[test]
+fn repair_heal_resume_snipe_and_special_play_authored_voices() {
+    use super::CommandExecutor;
+    use crate::command_system::{CommandResult, PowerTarget, SpecialPowerType};
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_test_template_voices, set_test_initiate_sound, set_test_template_voice, UnitVoiceSlot,
+    };
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+    use glam::Vec3;
+
+    clear_test_template_voices();
+    set_test_template_voice("VR_DOZ", UnitVoiceSlot::Repair, "TestVoiceRepair");
+    set_test_template_voice("VR_DOZ", UnitVoiceSlot::BuildResponse, "TestVoiceBuildResponse");
+    set_test_template_voice("VR_TANK", UnitVoiceSlot::Move, "TestVoiceMove");
+    set_test_template_voice("VR_INF", UnitVoiceSlot::Move, "TestVoiceMoveInf");
+    set_test_template_voice("VR_KELL", UnitVoiceSlot::SnipePilot, "TestVoiceSnipePilot");
+    set_test_initiate_sound("SpySatellite", "TestInitiateSound");
+
+    let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
+    let mut doz = ThingTemplate::new("VR_DOZ");
+    doz.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("VR_DOZ".into(), doz);
+    let mut bld = ThingTemplate::new("VR_BLD");
+    bld.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("VR_BLD".into(), bld);
+    let mut tank = ThingTemplate::new("VR_TANK");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("VR_TANK".into(), tank);
+    let mut pad = ThingTemplate::new("VR_PAD");
+    pad.add_kind_of(KindOf::RepairPad)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("VR_PAD".into(), pad);
+    let mut inf = ThingTemplate::new("VR_INF");
+    inf.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("VR_INF".into(), inf);
+    let mut heal = ThingTemplate::new("VR_HEAL");
+    heal.add_kind_of(KindOf::HealPad)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("VR_HEAL".into(), heal);
+    let mut kell = ThingTemplate::new("VR_KELL");
+    kell.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic.templates.insert("VR_KELL".into(), kell);
+    let mut veh = ThingTemplate::new("VR_VEH");
+    veh.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic.templates.insert("VR_VEH".into(), veh);
+    let mut sat = ThingTemplate::new("VR_SAT");
+    sat.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1000.0);
+    logic.templates.insert("VR_SAT".into(), sat);
+
+    let dozer = logic
+        .create_object("VR_DOZ", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let damaged = logic
+        .create_object("VR_BLD", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(damaged).unwrap().health.current = 100.0;
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_repair(&[dozer], damaged),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceRepair"),
+        "execute_repair must play VoiceRepair: {:?}",
+        logic.queued_audio_events
+    );
+
+    let scaffold = logic
+        .create_object("VR_BLD", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    logic
+        .host_object_mut(scaffold)
+        .unwrap()
+        .set_status_under_construction(true);
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_resume_construction(&[dozer], scaffold),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceBuildResponse"),
+        "execute_resume_construction must play VoiceBuildResponse: {:?}",
+        logic.queued_audio_events
+    );
+
+    let tank_id = logic
+        .create_object("VR_TANK", Team::USA, Vec3::new(5.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(tank_id).unwrap().health.current = 10.0;
+    let pad_id = logic
+        .create_object("VR_PAD", Team::USA, Vec3::new(8.0, 0.0, 0.0))
+        .unwrap();
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_get_repaired(&[tank_id], pad_id),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceMove"),
+        "execute_get_repaired must play VoiceMove: {:?}",
+        logic.queued_audio_events
+    );
+
+    let inf_id = logic
+        .create_object("VR_INF", Team::USA, Vec3::new(9.0, 0.0, 0.0))
+        .unwrap();
+    logic.host_object_mut(inf_id).unwrap().health.current = 10.0;
+    let heal_id = logic
+        .create_object("VR_HEAL", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+        .unwrap();
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_get_healed(&[inf_id], heal_id),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceMoveInf"),
+        "execute_get_healed must play VoiceMove: {:?}",
+        logic.queued_audio_events
+    );
+
+    let kell_id = logic
+        .create_object("VR_KELL", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let enemy = logic
+        .create_object("VR_VEH", Team::China, Vec3::new(10.0, 0.0, 0.0))
+        .unwrap();
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_snipe_vehicle(&[kell_id], enemy),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestVoiceSnipePilot"),
+        "execute_snipe_vehicle must play VoiceSnipePilot: {:?}",
+        logic.queued_audio_events
+    );
+
+    let sat_id = logic
+        .create_object("VR_SAT", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let o = logic.host_object_mut(sat_id).unwrap();
+        o.special_power_cooldowns
+            .insert(SpecialPowerType::SpySatellite, 0.0);
+        o.special_power_ready = true;
+    }
+    logic.queued_audio_events.clear();
+    {
+        let mut exec = CommandExecutor::new(&mut logic, 0);
+        assert_eq!(
+            exec.execute_special_power(
+                &[sat_id],
+                &SpecialPowerType::SpySatellite,
+                &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
+            ),
+            CommandResult::Success
+        );
+    }
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "TestInitiateSound"),
+        "execute_special_power must play InitiateSound: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
 }
 

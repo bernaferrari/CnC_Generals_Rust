@@ -1,11 +1,16 @@
 # Goal
-Find player-visible C++ vs Rust live-host gaps. Empty findings array if live-host parity.
+Find remaining player-visible C++ vs live-host Rust gaps. File beads. Do not implement.
 
 # Constraints
 Repo: /Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main
-C++ GeneralsMD. Live GeneralsRust/Code/Main. Leftover GeneralsRust/Code/GameEngine
-Skip GameNetwork. wgpu vs DX allowed. Do not edit.
-Skip already-closed work: SkillPointValue, UNFOGGED, Helix fire, 2D range, DemoTrap modes, ApproachTarget, Battle Bus +Y, PANIC/WANDER, Angry Mob, bone fire, house color, tooltips, trigger snapshot, 3D audio, replay CRC, observer slots, killPlayer tech/beacon, defeat radar/chat, SCORE KindOf, Hunt idle, AttackMove mood, canBuildUnits, OCL controlling-player, victory overlay, garrison evac, CamoNetting, path diameter, bridge layers, SUPERSONIC/TAXIING, tunnel per-player, stealth garrison enter/hide.
+C++: GeneralsMD. Live: GeneralsRust/Code/Main. Leftover: GeneralsRust/Code/GameEngine.
+Do not port GameNetwork. wgpu vs DX allowed. Rust safety allowed if behavior matches.
+Find-only. No source edits except `bd create`.
+Skip formatters/linters/project-wide tests.
 
-# Contract
-Cite C++ + leftover + live line numbers. Player-visible only. Max 4 findings. Empty array if live-host parity.
+# How to file
+bd create "..." --description="C++ / leftover / live / player-visible" -t bug -p 1 --deps discovered-from:hq-dm0ik --json
+P1 only if player-visible live-path mismatch vs C++. P2 leftover-only or rare.
+Do not file leftovers that already have live host parity.
+Do not file GameNetwork, unwrap cleanup, or wgpu vs DX.
+If bd/dolt is unreachable, send title|priority|description to Main instead of retrying.

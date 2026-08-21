@@ -656,6 +656,27 @@ impl GameLogic {
             // Fall through to weapon Anti* legality (C++ SCRIPT_TARGETABLE residual).
         }
 
+        // C++ Object::isAbleToAttack (Object.cpp:3167) consults
+        // ContainModule::isPassengerAllowedToFire(id). TransportContain is
+        // infantry-only — Combat Chinook vehicle riders never shoot out.
+        if let Some(cid) = source.contained_by {
+            if let Some(container) = self.objects.get(&cid) {
+                let bunker_may = crate::game_logic::host_passengers_fire_upgrade::overlord_bunker_passengers_may_fire(
+                    container.overlord_bunker_slot_capacity(),
+                    container.contained_by.is_some(),
+                );
+                if (container.passengers_allowed_to_fire
+                    || bunker_may
+                    || container.is_combat_chinook_style_container())
+                    && !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+                        source.is_kind_of(KindOf::Infantry),
+                    )
+                {
+                    return CanAttackResult::NotPossible;
+                }
+            }
+        }
+
         // Contained in enclosing container residual.
         if victim.contained_by.is_some() {
             // C++ rejects a victim inside an enclosing container regardless of

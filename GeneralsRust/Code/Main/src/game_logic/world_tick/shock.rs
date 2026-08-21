@@ -300,22 +300,18 @@ impl GameLogic {
         if max_r <= 0.0 || (primary_damage <= 0.0 && secondary_damage <= 0.0) {
             return 0;
         }
-        use crate::game_logic::host_ai_path_combat_residual_wave105::{
-            WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-        };
         use crate::game_logic::weapon_bootstrap::{
             host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+            WEAPON_AFFECTS_DEFAULT,
         };
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
-            .unwrap_or(WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS);
+            .unwrap_or(WEAPON_AFFECTS_DEFAULT);
         let shooter_template = self
             .objects
             .get(&attacker_id)
             .map(|a| a.template_name.clone())
             .unwrap_or_default();
-        let primary_sq = primary_radius * primary_radius;
-        let secondary_sq = max_r * max_r;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
             .iter()
@@ -329,7 +325,7 @@ impl GameLogic {
                 if obj.is_eject_invulnerable() {
                     return None;
                 }
-                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let airborne = obj.is_significantly_above_terrain();
                 let same_tmpl = !shooter_template.is_empty()
                     && obj.template_name.eq_ignore_ascii_case(&shooter_template);
                 if !radius_damage_affects_victim(
@@ -343,22 +339,23 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                let p = obj.get_position();
-                let dx = p.x - impact.x;
-                let dz = p.z - impact.z;
-                let d2 = dx * dx + dz * dz;
-                if d2 > secondary_sq {
+                let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
+                    impact,
+                    obj.get_position(),
+                    crate::game_logic::combat::victim_splash_sphere_radius(obj),
+                );
+                if dist > max_r {
                     return None;
                 }
-                Some((*id, d2))
+                Some((*id, dist))
             })
             .collect();
         let mut hits = 0u32;
         let mut destroy: Vec<ObjectId> = Vec::new();
-        for (id, d2) in candidates {
-            let dmg = if primary_radius > 0.0 && d2 <= primary_sq {
+        for (id, dist) in candidates {
+            let dmg = if primary_radius > 0.0 && dist <= primary_radius {
                 primary_damage
-            } else if secondary_damage > 0.0 {
+            } else if secondary_damage > 0.0 && dist <= max_r {
                 secondary_damage
             } else {
                 0.0
@@ -403,30 +400,34 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
-        if weapon_damage <= 0.0 || splash_radius <= 0.0 {
+        use crate::game_logic::weapon_bootstrap::{
+            host_primary_damage_radius_for_weapon_name, host_radius_damage_affects_for_weapon_name,
+            host_secondary_damage_for_weapon_name, host_secondary_damage_radius_for_weapon_name,
+            radius_damage_affects_victim, WEAPON_AFFECTS_DEFAULT,
+        };
+        // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
+        let (primary_r, secondary_r, primary_dmg, secondary_dmg) = match weapon_name {
+            Some(n) => {
+                let pr = host_primary_damage_radius_for_weapon_name(n);
+                let sr = host_secondary_damage_radius_for_weapon_name(n);
+                let sd = host_secondary_damage_for_weapon_name(n);
+                let primary = if pr > 0.0 { pr } else { splash_radius };
+                (primary, sr, weapon_damage, sd)
+            }
+            None => (splash_radius, 0.0, weapon_damage, 0.0),
+        };
+        let max_r = primary_r.max(secondary_r);
+        if max_r <= 0.0 || (primary_dmg <= 0.0 && secondary_dmg <= 0.0) {
             return 0;
         }
-        use crate::game_logic::weapon_bootstrap::{
-            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
-        };
-        // Default residual when name unknown: ENEMIES|NEUTRALS.
         let affects = weapon_name
             .map(host_radius_damage_affects_for_weapon_name)
-            .unwrap_or_else(|| {
-                use crate::game_logic::host_ai_path_combat_residual_wave105::{
-                    WEAPON_AFFECTS_ENEMIES, WEAPON_AFFECTS_NEUTRALS,
-                };
-                WEAPON_AFFECTS_ENEMIES | WEAPON_AFFECTS_NEUTRALS
-            });
+            .unwrap_or(WEAPON_AFFECTS_DEFAULT);
         let shooter_template = self
             .objects
             .get(&attacker_id)
             .map(|a| a.template_name.clone())
             .unwrap_or_default();
-        let primary_r = splash_radius;
-        let secondary_r = splash_radius * 1.5; // outer residual taper ring
-        let primary_sq = primary_r * primary_r;
-        let secondary_sq = secondary_r * secondary_r;
         let candidates: Vec<(ObjectId, f32)> = self
             .objects
             .iter()
@@ -440,7 +441,7 @@ impl GameLogic {
                 if obj.is_eject_invulnerable() {
                     return None;
                 }
-                let airborne = obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target;
+                let airborne = obj.is_significantly_above_terrain();
                 let same_tmpl = !shooter_template.is_empty()
                     && obj.template_name.eq_ignore_ascii_case(&shooter_template);
                 if !radius_damage_affects_victim(
@@ -454,23 +455,24 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                let p = obj.get_position();
-                let dx = p.x - impact.x;
-                let dz = p.z - impact.z;
-                let d2 = dx * dx + dz * dz;
-                if d2 > secondary_sq {
+                let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
+                    impact,
+                    obj.get_position(),
+                    crate::game_logic::combat::victim_splash_sphere_radius(obj),
+                );
+                if dist > max_r {
                     return None;
                 }
-                Some((*id, d2.sqrt()))
+                Some((*id, dist))
             })
             .collect();
         let mut hits = 0u32;
         let mut destroy: Vec<ObjectId> = Vec::new();
         for (id, dist) in candidates {
-            let dmg = if dist * dist <= primary_sq {
-                weapon_damage
+            let dmg = if dist <= primary_r {
+                primary_dmg
             } else {
-                weapon_damage * 0.5
+                secondary_dmg
             };
             if dmg <= 0.0 {
                 continue;

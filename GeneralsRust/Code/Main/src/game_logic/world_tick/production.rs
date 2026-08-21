@@ -61,6 +61,8 @@ impl GameLogic {
         let mut completed_structures: Vec<ObjectId> = Vec::new();
         let mut ready_superweapons: Vec<ObjectId> = Vec::new();
         let mut radar_extend_done: Vec<ObjectId> = Vec::new();
+        let mut start_build_loops: Vec<(ObjectId, String, Vec3)> = Vec::new();
+        let mut stop_build_loops: Vec<ObjectId> = Vec::new();
         // Wave 617: under sole-tick, GameWorld writeback records ready structures;
         // host applies completion after writeback same frame (Wave 715; not mid-update drain).
         let construction_sole = crate::gameworld_shadow::gameworld_construction_sole_tick_enabled();
@@ -73,6 +75,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
                     let build_pos = obj.get_position();
+                    let site_template = obj.template_name.clone();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
                     // Exclusive dock: only the structure's builder_id (C++ getBuilderID)
                     // or, if unset, a single targeting dozer may contribute.
@@ -176,6 +179,7 @@ impl GameLogic {
                         // C++ onStructureConstructionComplete SuperweaponDetected residual.
                         completed_superweapon_detects.push(id);
                         completed_structures.push(id);
+                        stop_build_loops.push(id);
                     } else if !(construction_sole && gw_mapped) {
                         // C++ DozerAIUpdate.cpp:526: +maxHealth / framesToBuild per frame
                         // starting from 1 HP, not 10% + 90% * percent.
@@ -197,6 +201,9 @@ impl GameLogic {
                         }
                     }
 
+                    if !(may_complete && projected >= 1.0) && actively_built {
+                        start_build_loops.push((id, site_template, build_pos));
+                    }
                 }
                 if obj.tick_timers(dt) {
                     // Defer EVA until after borrow ends.
@@ -228,6 +235,12 @@ impl GameLogic {
                     }
                 }
             }
+        }
+        for (site_id, template_name, pos) in start_build_loops {
+            self.start_building_sound(site_id, &template_name, pos);
+        }
+        for site_id in stop_build_loops {
+            self.finish_building_sound(site_id);
         }
         // C++ Player sharedNSync timers advance with the logic frame.
         self.tick_shared_special_power_timers(dt);
@@ -302,6 +315,62 @@ impl GameLogic {
         {
             self.update_actively_constructing_model_conditions();
         }
+    }
+
+    /// C++ `DozerAIUpdate::startBuildingSound` / Worker twin.
+    /// Plays the building's PerUnitSound "UnderConstruction" on the site.
+    pub fn start_building_sound(
+        &mut self,
+        site_id: ObjectId,
+        template_name: &str,
+        pos: Vec3,
+    ) {
+        let Some(event) = crate::game_logic::audio_dispatch_impl::resolve_per_unit_sound(
+            template_name,
+            "UnderConstruction",
+        ) else {
+            return;
+        };
+        if crate::game_logic::audio_dispatch_impl::building_loop_event(site_id.0).as_deref()
+            == Some(event.as_str())
+        {
+            return;
+        }
+        if let Some(old) = crate::game_logic::audio_dispatch_impl::take_building_loop(site_id.0) {
+            self.queue_audio_event(
+                crate::game_logic::AudioEventRequest::new(&old)
+                    .with_object(site_id)
+                    .with_position(pos)
+                    .stopping(),
+            );
+        }
+        crate::game_logic::audio_dispatch_impl::note_building_loop(site_id.0, &event);
+        self.queue_audio_event(
+            crate::game_logic::AudioEventRequest::new(&event)
+                .with_object(site_id)
+                .with_position(pos)
+                .with_priority(80)
+                .looping(),
+        );
+    }
+
+    /// C++ `DozerAIUpdate::finishBuildingSound` / Worker twin.
+    pub fn finish_building_sound(&mut self, site_id: ObjectId) {
+        let Some(event) = crate::game_logic::audio_dispatch_impl::take_building_loop(site_id.0)
+        else {
+            return;
+        };
+        let pos = self
+            .objects
+            .get(&site_id)
+            .map(|o| o.get_position())
+            .unwrap_or(Vec3::ZERO);
+        self.queue_audio_event(
+            crate::game_logic::AudioEventRequest::new(&event)
+                .with_object(site_id)
+                .with_position(pos)
+                .stopping(),
+        );
     }
 
     /// Wave 715: after GW construction writeback records ready structures, host
@@ -737,7 +806,10 @@ impl GameLogic {
                         ))
                     {
                         if !(airfield_holds_parking && parking_free == 0) {
-                            start_door_cycle = true;
+                            // C++ ProductionUpdate.cpp:746-754: start OPENING only
+                            // when the reserved door is fully closed. Already-
+                            // OPENING must not rewrite DoorOpeningTime.
+                            start_door_cycle = door_spawn_phase == 0;
                         }
                         None
                     } else {

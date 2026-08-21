@@ -192,6 +192,12 @@ impl Object {
     /// DoorCloseTime (ProductionUpdate.cpp:113-115, updateDoors:528/548/568).
     /// Completing a unit opens only the reserved ExitDoorType (DOOR_1..4).
     pub fn start_production_door_cycle(&mut self, now: u32) {
+        // C++ ProductionUpdate.cpp:746-754: start OPENING only when the reserved
+        // door is fully closed. pick_idle must not open a sibling hangar while
+        // the reserved door is already OPENING (that would reset spawn gating).
+        if self.production_door_spawn_phase() != 0 {
+            return;
+        }
         let door = self
             .pick_idle_production_door()
             .unwrap_or(self.production_door_active_index as usize);
@@ -199,9 +205,23 @@ impl Object {
     }
 
     /// Start OPENING on a specific hangar / factory door (0=DOOR_1).
+    ///
+    /// C++ ProductionUpdate.cpp:746-773: a fully-closed door starts OPENING
+    /// once. Already-OPENING leaves `m_doorOpenedFrame` (DoorOpeningTime)
+    /// intact so the door can reach WAITING_OPEN and release the unit.
     pub fn start_production_door_cycle_at(&mut self, now: u32, door: usize) {
         use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
         let door = door.min(3);
+        let current = if self.production_door_phases[door] != 0 {
+            self.production_door_phases[door]
+        } else if door == 0 {
+            self.production_door_phase
+        } else {
+            0
+        };
+        if current != 0 {
+            return;
+        }
         self.clear_production_door_bits(door);
         self.set_production_door_phase_bits(door, 1);
         self.production_door_active_index = door as u8;
@@ -736,6 +756,9 @@ impl Object {
             host_apply_body_damage_model_bits, HostBodyDamageType,
         };
         self.body_damage_state = state;
+        if old_state != state {
+            crate::game_logic::host_move_ambient_audio::record_ambient_restart(self.id);
+        }
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
         // C++ ActiveBody.cpp:1219 — no damaged-art visuals while building.
         let show_health_visuals = !self.status.under_construction || self.status.destroyed;
@@ -796,6 +819,15 @@ impl Object {
         };
         self.body_damage_state = state;
         crate::game_logic::host_body_damage_log::record(self.id, state.ordinal());
+        // C++ GarrisonContain::onBodyDamageStateChange (GarrisonContain.cpp:1724-1732).
+        if old_state != state
+            && matches!(state, HostBodyDamageType::ReallyDamaged)
+            && self.is_garrison_contain()
+            && !self.is_kind_of(crate::game_logic::KindOf::GarrisonableUntilDestroyed)
+            && !self.contained_units().is_empty()
+        {
+            self.status.pending_garrison_really_damaged_eject = true;
+        }
         // C++ ActiveBody.cpp:1219 — skip evaluateVisualCondition while
         // OBJECT_STATUS_UNDER_CONSTRUCTION (no damaged-art health visuals).
         let show_health_visuals = !self.status.under_construction || self.status.destroyed;
@@ -1044,6 +1076,15 @@ impl Object {
             }
         }
         // C++ MODELCONDITION_PANICKING from chooseLocomotorSet(PANIC) / AIPanicState.
+        // C++ MODELCONDITION_OVER_WATER from Locomotor hover flag.
+        {
+            use crate::game_logic::host_enum_table_residual::over_water_model_bit;
+            let bit = over_water_model_bit();
+            bits &= !(1u128 << bit);
+            if self.over_water {
+                bits |= 1u128 << bit;
+            }
+        }
         {
             use crate::game_logic::host_enum_table_residual::panicking_model_bit;
             let panic_b = panicking_model_bit();

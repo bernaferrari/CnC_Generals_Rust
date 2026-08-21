@@ -334,6 +334,59 @@ pub const GLA_SUPPLY_STASH_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
     slots: &[(1, "GLAInfantryWorker")],
 };
 
+pub const AMERICA_DOZER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "CommandSetAmericaDozer",
+    object_template: "AmericaVehicleDozer",
+    slots: &[
+        (1, "AmericaPowerPlant"),
+        (2, "AmericaBarracks"),
+        (3, "AmericaSupplyCenter"),
+        (4, "AmericaPatriotBattery"),
+        (5, "AmericaFireBase"),
+        (6, "AmericaWarFactory"),
+        (7, "AmericaAirfield"),
+        (8, "AmericaStrategyCenter"),
+        (9, "AmericaParticleCannonUplink"),
+        (10, "AmericaCommandCenter"),
+        (11, "AmericaWall"),
+    ],
+};
+
+pub const CHINA_DOZER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "CommandSetChinaDozer",
+    object_template: "ChinaVehicleDozer",
+    slots: &[
+        (1, "ChinaPowerPlant"),
+        (2, "ChinaBarracks"),
+        (3, "ChinaWarFactory"),
+        (4, "ChinaAirfield"),
+        (5, "ChinaPropagandaCenter"),
+        (6, "ChinaGattlingCannon"),
+        (7, "ChinaBunker"),
+        (8, "ChinaSpeakerTower"),
+        (9, "ChinaNuclearMissileSilo"),
+        (10, "ChinaCommandCenter"),
+        (11, "ChinaWall"),
+    ],
+};
+
+pub const GLA_WORKER_COMMAND_SET: FactoryCommandSet = FactoryCommandSet {
+    command_set_name: "CommandSetGLAWorker",
+    object_template: "GLAInfantryWorker",
+    slots: &[
+        (1, "GLACommandCenter"),
+        (2, "GLABarracks"),
+        (3, "GLAStingerSite"),
+        (4, "GLATunnelNetwork"),
+        (5, "GLAArmsDealer"),
+        (6, "GLASupplyStash"),
+        (7, "GLAPalace"),
+        (8, "GLABlackMarket"),
+        (9, "GLAScudStorm"),
+        (10, "GLADemoTrap"),
+    ],
+};
+
 /// Factory CommandSets used by host `can_make_unit`.
 pub const FACTORY_COMMAND_SET_PACKS: &[FactoryCommandSet] = &[
     AMERICA_BARRACKS_COMMAND_SET,
@@ -347,6 +400,9 @@ pub const FACTORY_COMMAND_SET_PACKS: &[FactoryCommandSet] = &[
     GLA_BARRACKS_COMMAND_SET,
     GLA_ARMS_DEALER_COMMAND_SET,
     GLA_SUPPLY_STASH_COMMAND_SET,
+    AMERICA_DOZER_COMMAND_SET,
+    CHINA_DOZER_COMMAND_SET,
+    GLA_WORKER_COMMAND_SET,
 ];
 
 /// Look up the retail factory CommandSet for a producer template.

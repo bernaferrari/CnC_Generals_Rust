@@ -204,6 +204,68 @@ fn hotkey_selection_helpers_from_presentation() {
     assert_eq!(filtered2, vec![a]);
 }
 
+    #[test]
+    fn control_group_recall_keeps_contained_and_non_local_like_cpp() {
+        // C++ Squad::getLiveObjects uses Object::isSelectable (no contained/masked
+        // peel). SELECT_TEAM then keeps local owner; ADD_TEAM / lookAt do not.
+        use crate::game_logic::{KindOf, Team, ThingTemplate};
+        use crate::unit_control::UnitControlSystem;
+        let mut logic = crate::game_logic::GameLogic::new();
+        let mut t = ThingTemplate::new("Ranger");
+        t.set_health(100.0);
+        t.add_kind_of(KindOf::Infantry);
+        t.add_kind_of(KindOf::Selectable);
+        logic.templates.insert("Ranger".into(), t);
+        let local = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let garrisoned = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 0.0))
+            .unwrap();
+        let captured = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+            .unwrap();
+        if let Some(o) = logic.host_object_mut(local) {
+            o.owner_player_id = Some(0);
+        }
+        if let Some(o) = logic.host_object_mut(garrisoned) {
+            o.set_contained_by(Some(ObjectId(50)));
+            o.status.masked = true;
+            o.owner_player_id = Some(0);
+        }
+        if let Some(o) = logic.host_object_mut(captured) {
+            o.owner_player_id = Some(7);
+            o.team = Team::China;
+        }
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let stored = [local, garrisoned, captured];
+        let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
+        assert_eq!(click, vec![local], "click path still peels contained");
+        assert!(
+            !UnitControlSystem::presentation_is_selectable(
+                frame.objects.iter().find(|o| o.id == garrisoned).unwrap()
+            ),
+            "CanSelectDrawable still rejects contained"
+        );
+        let select_team = frame.filter_live_squad_ids(&stored, true);
+        assert_eq!(
+            select_team,
+            vec![local, garrisoned],
+            "SELECT_TEAM keeps garrisoned local, drops captured"
+        );
+        let add_team = frame.filter_live_squad_ids(&stored, false);
+        assert_eq!(
+            add_team,
+            vec![local, garrisoned, captured],
+            "ADD_TEAM / double-tap keep captured last live member"
+        );
+        assert_eq!(
+            *add_team.last().unwrap(),
+            captured,
+            "lookAt centers on last getLiveObjects member"
+        );
+    }
+
 #[test]
 fn box_select_unit_ids_from_presentation() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
@@ -1363,7 +1425,7 @@ fn presentation_feeds_script_camera() {
     logic.queue_pending_view_guardband(0.25, -0.10);
     logic.queue_pending_camera_focus(glam::Vec3::new(100.0, 0.0, 200.0));
     logic.queue_pending_camera_bw_mode(true, 30);
-    logic.queue_pending_camera_shaker(glam::Vec3::ZERO, 2.5, 0.4, 120.0);
+    logic.queue_pending_camera_shaker(glam::Vec3::new(40.0, 3.0, -80.0), 2.5, 0.4, 120.0);
 
     let frame = PresentationFrame::build_from_logic(&logic, 0);
     assert!(frame.script_time_frozen);
@@ -1375,7 +1437,10 @@ fn presentation_feeds_script_camera() {
     assert!(frame
         .camera_shakers
         .iter()
-        .any(|(a, d, r)| (*a - 2.5).abs() < 1e-5
+        .any(|(pos, a, d, r)| (pos[0] - 40.0).abs() < 1e-5
+            && (pos[1] - 3.0).abs() < 1e-5
+            && (pos[2] + 80.0).abs() < 1e-5
+            && (*a - 2.5).abs() < 1e-5
             && (*d - 0.4).abs() < 1e-5
             && (*r - 120.0).abs() < 1e-5));
 

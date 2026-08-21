@@ -591,6 +591,13 @@ impl HostMineData {
         self.virtual_mines_remaining > 0
     }
 
+    /// C++ MinefieldBehavior::onDamage runs after HP is applied and before
+    /// the body is destroyed. A 0-HP pad with remaining virtual mines must
+    /// still chain-detonate (not silently vanish).
+    pub fn defers_lethal_body_destroy(&self) -> bool {
+        matches!(self.kind, HostMineKind::LandMine) && !self.detonated && self.has_virtual_charge()
+    }
+
     /// C++ MinefieldBehavior::detonateOnce decrement + destroy gate.
     /// Returns true when the object itself should be destroyed.
     pub fn consume_virtual_mine(&mut self) -> bool {
@@ -1107,12 +1114,47 @@ pub fn clip_point_to_mine_footprint(mine_pos: Vec3, victim_pos: Vec3, radius: f3
 
 
 /// Residual kinds that can be disarmed (DAMAGE_DISARM → destroy without detonation).
+///
+/// C++ GLADemoTrap is STRUCTURE / KINDOF_DEMOTRAP, not KINDOF_MINE, so
+/// LandMineInterface::disarm cannot target it. Killing it detonates
+/// (`DetonateWhenKilled`).
 pub fn can_clear_mine_kind(kind: HostMineKind) -> bool {
     match kind {
         HostMineKind::LandMine
-        | HostMineKind::DemoTrap
         | HostMineKind::TimedDemoCharge
         | HostMineKind::RemoteDemoCharge => true,
+        HostMineKind::DemoTrap => false,
+    }
+}
+
+/// C++ MinefieldBehavior::onCollide geometry contact (circle residual).
+///
+/// Partition collide fires when the victim footprint overlaps the mine disk
+/// (China mine major radius ~8 + victim geometry), not when centers are
+/// within 8. Mines spaced 16 apart therefore have no live gap.
+pub fn land_mine_geometry_contacts(
+    mine_pos: Vec3,
+    mine_radius: f32,
+    victim_pos: Vec3,
+    victim_radius: f32,
+) -> bool {
+    let dx = victim_pos.x - mine_pos.x;
+    let dz = victim_pos.z - mine_pos.z;
+    let r = mine_radius.max(0.0) + victim_radius.max(0.0);
+    dx * dx + dz * dz <= r * r
+}
+
+/// Victim collide radius for MinefieldBehavior::onCollide residual.
+/// Authored geometry uses the bounding circle; otherwise selection radius.
+pub fn victim_mine_collide_radius(
+    authored: bool,
+    bounding_circle: f32,
+    selection_radius: f32,
+) -> f32 {
+    if authored && bounding_circle > 0.0 {
+        bounding_circle
+    } else {
+        selection_radius.max(0.0)
     }
 }
 
@@ -1358,6 +1400,9 @@ pub fn smart_border_mine_positions(
     }
     ring = ring.expand(mine_radius);
     let mine_diameter = mine_radius * 2.0;
+    // C++ placeMines SmartBorder: do { place; expand(diameter); }
+    // while (expandedRadius < DistanceAroundObject). Check AFTER expand so
+    // the last placed ring is the one still inside the budget (outer 73, not 89).
     loop {
         if ring.is_box && !always_circular {
             out.extend(mines_around_rect(
@@ -1373,10 +1418,10 @@ pub fn smart_border_mine_positions(
                 mine_radius,
             ));
         }
+        ring = ring.expand(mine_diameter);
         if ring.bounding_circle_radius() >= distance_around {
             break;
         }
-        ring = ring.expand(mine_diameter);
     }
     out
 }
@@ -1771,6 +1816,41 @@ mod tests {
     }
 
     #[test]
+    fn land_mine_trips_on_geometry_contact_not_center_only() {
+        let mine = Vec3::new(0.0, 0.0, 0.0);
+        let mine_r = LAND_MINE_GEOMETRY_RADIUS;
+        // Center 12 wu away, victim r=8: geometries overlap (8+8=16).
+        assert!(land_mine_geometry_contacts(
+            mine,
+            mine_r,
+            Vec3::new(12.0, 0.0, 0.0),
+            8.0
+        ));
+        // Center 20 wu away, victim r=8: no overlap (8+8=16).
+        assert!(!land_mine_geometry_contacts(
+            mine,
+            mine_r,
+            Vec3::new(20.0, 0.0, 0.0),
+            8.0
+        ));
+        // Zero-radius victim still needs center inside the mine disk.
+        assert!(land_mine_geometry_contacts(
+            mine,
+            mine_r,
+            Vec3::new(8.0, 0.0, 0.0),
+            0.0
+        ));
+        assert!(!land_mine_geometry_contacts(
+            mine,
+            mine_r,
+            Vec3::new(8.01, 0.0, 0.0),
+            0.0
+        ));
+        assert!((victim_mine_collide_radius(true, 12.0, 8.0) - 12.0).abs() < f32::EPSILON);
+        assert!((victim_mine_collide_radius(false, 1.0, 8.0) - 8.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
     fn can_clear_includes_remote_charge() {
         assert!(can_clear_mine_kind(HostMineKind::RemoteDemoCharge));
         assert!(can_clear_mine_kind(HostMineKind::TimedDemoCharge));
@@ -1790,7 +1870,7 @@ mod tests {
         assert!(is_mine_clearer(false, "GLA_Worker"));
         assert!(!is_mine_clearer(false, "USA_Ranger"));
         assert!(can_clear_mine_kind(HostMineKind::LandMine));
-        assert!(can_clear_mine_kind(HostMineKind::DemoTrap));
+        assert!(!can_clear_mine_kind(HostMineKind::DemoTrap));
         assert!(DOZER_MINE_CLEAR_RANGE > 0.0);
         assert!(DOZER_MINE_CLEAR_SCAN_RANGE > DOZER_MINE_CLEAR_RANGE);
         // C++ DemoTrapUpdate.cpp:181-191 — idle dozer is not skipped.
@@ -2020,6 +2100,15 @@ mod tests {
             .map(|p| (p.x * p.x + p.z * p.z).sqrt())
             .fold(0.0_f32, f32::max);
         assert!(max_r + 0.01 >= CLUSTER_MINES_DISTANCE_AROUND_OBJECT - LAND_MINE_GEOMETRY_RADIUS * 2.0);
+        // C++ do-while expand-then-test: last ring 73, never the extra 89 ring.
+        assert!(
+            max_r < CLUSTER_MINES_DISTANCE_AROUND_OBJECT,
+            "SmartBorder must not place a ring at expanded radius 89, max_r={max_r}"
+        );
+        assert!(
+            (max_r - 73.0).abs() < 0.01,
+            "Cluster Mines outer SmartBorder ring must be 73, got {max_r}"
+        );
     }
 
     #[test]
@@ -2084,6 +2173,18 @@ mod tests {
             d.apply_on_damage_step(87.5, 100.0, false, false),
             MineOnDamageStep::Done
         );
+    }
+
+    #[test]
+    fn lethal_health_expects_zero_virtuals_and_defers_destroy() {
+        let mut d = HostMineData::land_mine_for_template("ChinaStandardMine");
+        assert!(d.defers_lethal_body_destroy());
+        assert_eq!(d.virtual_mines_expected_from_health(0.0, 100.0, false), 0);
+        assert_eq!(
+            d.apply_on_damage_step(0.0, 100.0, false, false),
+            MineOnDamageStep::Detonate
+        );
+        assert_eq!(d.virtual_mines_remaining, STANDARD_MINE_NUM_VIRTUAL);
     }
 
     #[test]

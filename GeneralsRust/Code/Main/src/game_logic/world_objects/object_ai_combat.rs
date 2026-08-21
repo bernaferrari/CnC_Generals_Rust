@@ -207,22 +207,26 @@ impl GameLogic {
         };
 
         // Apply damage to target (BodyModule last_damage_source residual).
-        let (destroyed, kill_xp, victim_pos, victim_team) = {
+        let (destroyed, kill_xp, victim_pos, victim_team, hp_lost) = {
             let Some(target) = self.objects.get_mut(&target_id) else {
                 return;
             };
+            let before = target.health.current;
             let destroyed = target.take_damage_from(weapon_damage, Some(attacker_id));
+            let hp_lost = (before - target.health.current).max(0.0);
             if destroyed {
                 let kill_xp = target.kill_experience_value();
                 let victim_pos = target.get_position();
                 let victim_team = target.team;
-                (true, kill_xp, victim_pos, victim_team)
+                (true, kill_xp, victim_pos, victim_team, hp_lost)
             } else {
-                (false, 0.0, glam::Vec3::ZERO, Team::Neutral)
+                (false, 0.0, glam::Vec3::ZERO, Team::Neutral, hp_lost)
             }
         };
-        // C++ TheRadar->tryUnderAttackEvent(this) residual on damage.
-        let _ = self.try_under_attack_event(target_id);
+        // C++ Object.cpp:1846-1854 then TheRadar->tryUnderAttackEvent(this).
+        if hp_lost > 0.0 {
+            let _ = self.try_under_attack_from_damage(target_id);
+        }
         // C++ ActiveBody: friend retaliation even if victim dies.
         let _ = self.try_friends_retaliate(target_id, attacker_id);
         if destroyed {

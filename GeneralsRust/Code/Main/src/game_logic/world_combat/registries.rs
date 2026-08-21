@@ -505,20 +505,128 @@ impl GameLogic {
         self.transport_residual_loads = self.transport_residual_loads.saturating_add(1);
     }
 
-    /// Record a residual transport unload/evacuate (tests / host path).
+    /// C++ GarrisonContain::exitObjectViaDoor — EVAC_TO_LEFT / RIGHT / BURST.
+    /// Occupant should already be removed from the container roster.
+    pub fn garrison_exit_occupant_via_door(
+        &mut self,
+        unit_id: ObjectId,
+        container_id: ObjectId,
+    ) -> bool {
+        let Some(container) = self.objects.get(&container_id) else {
+            return false;
+        };
+        if !container.is_garrison_contain() {
+            return false;
+        }
+        let container_name = container.name.clone();
+        if let Some(disp) = gamelogic::object::contain::named_evac_disposition(&container_name) {
+            if let Some(c) = self.objects.get_mut(&container_id) {
+                c.set_garrison_evac_disposition(disp as u8);
+            }
+        }
+        let Some(container) = self.objects.get(&container_id) else {
+            return false;
+        };
+        let evac = container.garrison_evac_disposition();
+        let enclosing = container.is_enclosing_garrison_container();
+        let geom = container.thing.template.geometry_info;
+        let major = if geom.authored {
+            geom.major_radius.max(1.0)
+        } else {
+            20.0
+        };
+        let minor = if geom.authored {
+            geom.minor_radius.max(1.0)
+        } else {
+            20.0
+        };
+        let yaw = container.get_orientation();
+        let building_pos = container.get_position();
+        let seed = unit_id.0.wrapping_add(self.frame);
+
+        if evac == 1 || evac == 2 {
+            let (start, end) =
+                garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
+            let Some(p) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            p.set_contained_by(None);
+            p.target = None;
+            p.set_position(start);
+            p.set_orientation(yaw);
+            p.set_destination(end);
+            p.set_ai_state(AIState::Moving);
+            p.status.moving = true;
+        } else {
+            let mut start = garrison_evac_cliff_start(
+                building_pos,
+                yaw,
+                major,
+                &self.pathfinding_system.grid,
+            );
+            if enclosing {
+                if let Some(gh) = self.terrain_height_at(start) {
+                    start.y = gh;
+                }
+            }
+            let end = garrison_evac_burst_end(start, major, &self.pathfinding_system.grid);
+            let Some(p) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            p.set_contained_by(None);
+            p.target = None;
+            if enclosing {
+                p.set_position(start);
+            }
+            p.set_orientation(yaw);
+            p.set_destination(end);
+            p.set_ai_state(AIState::Moving);
+            p.status.moving = true;
+        }
+        if crate::gameworld_shadow::gameworld_movement_authority_live() {
+            if let Some(p) = self.objects.get(&unit_id) {
+                let pos = p.get_position();
+                crate::game_logic::host_move_log::record(unit_id, Some([pos.x, pos.y, pos.z]));
+            }
+        }
+        true
+    }
+
+
+    /// C++ GarrisonContain::onBodyDamageStateChange → orderAllPassengersToExit.
+    pub fn flush_pending_garrison_really_damaged_ejects(&mut self) {
+        let ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter(|(_, obj)| obj.status.pending_garrison_really_damaged_eject)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            if let Some(obj) = self.objects.get_mut(&id) {
+                let _ = obj.take_pending_garrison_really_damaged_eject();
+            }
+            let _ = self.evacuate_container_now(id, false);
+        }
+    }
 
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
-        let Some((alive, is_chinook_dropper)) = self.objects.get(&container_id).map(|c| {
+        let Some((alive, is_chinook_dropper, subdued)) = self.objects.get(&container_id).map(|c| {
             (
                 c.is_alive(),
                 c.is_combat_chinook_style_container() && c.chinook_ai.is_some(),
+                c.is_subdued_disabled(),
             )
         }) else {
             return false;
         };
         if !alive {
+            return false;
+        }
+        // C++ AIUpdateInterface::privateEvacuate / privateExit:
+        // DISABLED_SUBDUED holds the doors shut while a Microwave cooks.
+        if subdued {
             return false;
         }
         if is_chinook_dropper {
@@ -614,11 +722,6 @@ impl GameLogic {
         };
         let yaw = container.get_orientation();
         let building_pos = container.get_position();
-        let origin = container
-            .building_data
-            .as_ref()
-            .and_then(|b| b.rally_point)
-            .unwrap_or(building_pos);
         let mut passengers: Vec<ObjectId> = container.contained_units();
         if container.is_cave_style_container() {
             let idx = container.cave_index;
@@ -633,7 +736,9 @@ impl GameLogic {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 c.pending_evacuate_on_stop = false;
                 c.pending_exit_after_evacuate = false;
+                c.pending_stream_exit = false;
             }
+
             return false;
         }
         let uses_exit_busy = !is_garrison
@@ -658,11 +763,6 @@ impl GameLogic {
                 .objects
                 .get(&container_id)
                 .is_some_and(|c| c.transport_exit_delay_frames() > 0);
-        let go_aggressive = uses_exit_busy
-            && self
-                .objects
-                .get(&container_id)
-                .is_some_and(|c| c.transport_go_aggressive_on_exit());
         let more_remain = stagger && passengers.len() > 1;
         if stagger && passengers.len() > 1 {
             passengers.truncate(1);
@@ -692,6 +792,7 @@ impl GameLogic {
         let mut any = false;
         let mut packing_hackers: Vec<ObjectId> = Vec::new();
         for (i, pid) in passengers.iter().enumerate() {
+            let mut walked_transport = false;
             // Remove from container first.
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant(*pid);
@@ -723,27 +824,20 @@ impl GameLogic {
                     p.set_ai_state(AIState::Moving);
                     p.status.moving = true;
                 } else {
-                    // Spread slightly so units don't stack.
-                    let angle = (i as f32) * 0.9;
-                    let drop = origin + glam::Vec3::new(angle.cos() * 8.0, 0.0, angle.sin() * 8.0);
-                    p.set_position(drop);
-                    p.stop_moving();
-                    p.set_ai_state(AIState::Idle);
-                    p.status.moving = false;
-                    if go_aggressive {
-                        p.set_ai_attitude(
-                            crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
-                        );
-                    }
+                    // C++ OpenContain::exitObjectViaDoor — walk ExitStart/End.
+                    // Do not teleport to an Idle 8-unit ring.
+                    walked_transport = true;
                 }
 
                 // C++ HackInternetAIUpdate::aiDoCommand (HackInternetAIUpdate.cpp:105)
-                // PACKING on evacuate/exit. Riders are dropped Idle, so cash must
-                // stop immediately — idle outside must not keep depositing.
+                // PACKING on evacuate/exit. Cash must stop immediately.
                 if p.thing.template.hack_internet_ai_update.is_some() {
                     packing_hackers.push(*pid);
                 }
                 any = true;
+            }
+            if walked_transport {
+                self.walk_unit_via_open_contain_exit(*pid, container_id);
             }
             self.record_transport_residual_unload();
         }
@@ -757,7 +851,9 @@ impl GameLogic {
                 c.frame_exit_not_busy = self.frame.saturating_add(delay);
             }
             c.pending_evacuate_on_stop = more_remain;
+            c.pending_stream_exit = more_remain;
             c.pending_exit_after_evacuate = and_exit && !more_remain;
+
 
             let contained_count = if more_remain {
                 c.contained_units().len() as u32
@@ -2629,5 +2725,52 @@ impl GameLogic {
         }
         self.anthrax_bomb_flight_reg.record_transport();
         Some(tid)
+    }
+}
+
+#[cfg(test)]
+mod garrison_evac_door_tests {
+    use crate::game_logic::{AIState, GameLogic, KindOf, ThingTemplate};
+
+    #[test]
+    fn garrison_exit_occupant_via_door_bursts_from_center() {
+        let mut logic = GameLogic::new();
+        let mut bunker_t = ThingTemplate::new("GARR_DOOR");
+        bunker_t
+            .add_kind_of(KindOf::Structure)
+            .set_health(1000.0);
+        bunker_t.contain_module = crate::game_logic::ContainModuleMetadata {
+            kind: crate::game_logic::ContainModuleKind::Garrison,
+            slots: Some(5),
+            is_enclosing_container: true,
+            ..Default::default()
+        };
+        bunker_t.geometry_info.authored = true;
+        bunker_t.geometry_info.major_radius = 20.0;
+        bunker_t.geometry_info.minor_radius = 10.0;
+        logic.templates.insert("GARR_DOOR".into(), bunker_t);
+        let mut pax_t = ThingTemplate::new("GARR_DOOR_P");
+        pax_t.add_kind_of(KindOf::Infantry).set_health(100.0);
+        logic.templates.insert("GARR_DOOR_P".into(), pax_t);
+        let origin = glam::Vec3::new(10.0, 0.0, 20.0);
+        let bunker = logic
+            .create_object("GARR_DOOR", crate::game_logic::Team::USA, origin)
+            .unwrap();
+        let pax = logic
+            .create_object(
+                "GARR_DOOR_P",
+                crate::game_logic::Team::USA,
+                glam::Vec3::new(12.0, 0.0, 20.0),
+            )
+            .unwrap();
+        assert!(logic.garrison_exit_occupant_via_door(pax, bunker));
+        let p = logic.host_object(pax).unwrap();
+        assert_eq!(p.ai_state, AIState::Moving);
+        let dest = p.movement.target_position.expect("door dest");
+        assert!(
+            (dest - origin).length() > 8.0,
+            "burst dest must leave origin, not a 6-unit ring: dest={dest:?}"
+        );
+        assert!((p.get_position() - origin).length() < 2.0);
     }
 }

@@ -67,6 +67,40 @@ fn resolve_pending_combat_drop_command(
     )
 }
 
+
+/// C++ PlaceEventTranslator illegal place: VoiceNoBuild + NoCanDoSound.
+fn play_host_illegal_place_feedback(
+    engine: &CnCGameEngine,
+    builder_id: crate::game_logic::ObjectId,
+) {
+    let template = engine
+        .presentation_ro(builder_id)
+        .map(|o| o.template_name.clone())
+        .or_else(|| {
+            engine
+                .game_logic
+                .host_object(builder_id)
+                .map(|o| o.template_name.clone())
+        });
+    if let Some(name) = template.as_deref().and_then(resolve_voice_no_build) {
+        let _ = crate::assets::audio::play_sound_through_the_audio(&name);
+    }
+    let _ = crate::assets::audio::play_sound_through_the_audio("NoCanDoSound");
+}
+
+fn resolve_voice_no_build(template_name: &str) -> Option<String> {
+    let guard = game_engine::common::thing::thing_factory::try_get_thing_factory()?;
+    let factory = guard.as_ref()?;
+    let tmpl = factory.find_template(template_name, false)?;
+    let event = tmpl.get_per_unit_sound(&"VoiceNoBuild".to_string())?;
+    let name = event.get_event_name();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 /// Whether a shared ControlBar superweapon button can arm this exact parsed
 /// module power.
 ///
@@ -865,6 +899,33 @@ impl CnCGameEngine {
         let _ = player_id;
     }
 
+    /// C++ `MSG_CREATE_SELECTED_GROUP_NO_SOUND` / `MSG_ADD_TEAM` /
+    /// `MSG_REMOVE_FROM_SELECTED_GROUP` — update selection without VoiceSelect.
+    pub(super) fn host_set_selection_no_sound(
+        &mut self,
+        player_id: u32,
+        ids: Vec<crate::game_logic::ObjectId>,
+    ) {
+        let ids = self.remap_angry_mob_selection_ids(ids);
+        let ids = self.cap_selection_ids(ids);
+        let already =
+            self.selected_objects == ids && self.host_match_selected_ids.as_ref() == Some(&ids);
+        if !already {
+            self.host_game_logic_mut()
+                .select_objects_no_sound(player_id, ids.clone());
+        }
+        self.selected_objects = ids.clone();
+        self.host_match_selected_ids = Some(ids.clone());
+        if let Some(pres) = self.last_presentation_frame.as_mut() {
+            let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
+            for o in &mut pres.objects {
+                o.selected = selected_set.contains(&o.id);
+            }
+            pres.selected = ids;
+        }
+        let _ = player_id;
+    }
+
     /// Load the requested map or the default fallback, returning only an
     /// identity that actually reached GameLogic's successful map-load tail.
     /// `None` means neither map could be loaded and callers must not enter a
@@ -1635,8 +1696,9 @@ impl CnCGameEngine {
             self.game_hud.push_info_message(&msg);
             self.ui_manager.game_hud_mut().push_info_message(&msg);
             if let Some(id) = builder_id {
-                game_client::message_stream::play_illegal_place_feedback_for_id(id.0);
+                play_host_illegal_place_feedback(self, id);
             }
+
             return;
         }
 
@@ -1869,6 +1931,13 @@ impl CnCGameEngine {
             log::debug!("IssueCommand unmapped: {command_name}");
             return;
         };
+
+        // C++ ControlBarCommandProcessing.cpp:183-189 — every command-button
+        // activation plays UnitSpecificSound with the local player index.
+        play_named_command_button_unit_specific_sound(
+            command_name,
+            self.local_player_id_for_ui(),
+        );
 
         // C++ ControlBar: AttackMove/Guard/SetRally wait for map click residual.
         match command_type {
@@ -2128,6 +2197,9 @@ impl CnCGameEngine {
                 if !self.host_is_in_multiplayer_game() {
                     return;
                 }
+                // C++ CommandXlat.cpp:3473 — play MiscAudio AllCheerSound
+                // before appending MSG_DO_CHEER.
+                play_all_cheer_sound();
             }
             crate::command_system::CommandType::RemoveBeacon => {
                 if !self.host_command_xlat_multiplayer_meta() {
@@ -2187,6 +2259,50 @@ impl CnCGameEngine {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         });
     }
+}
+
+/// C++ ControlBarCommandProcessing.cpp:183-189.
+fn play_named_command_button_unit_specific_sound(command_name: &str, player_id: u32) {
+    let event_name = {
+        let Some(bar) = game_engine::common::ini::ini_command_button::get_control_bar() else {
+            return;
+        };
+        let Some(button) = bar.find_command_button_resolved(command_name) else {
+            return;
+        };
+        let name = button.unit_specific_sound.playable_event_name();
+        if name.is_empty() {
+            return;
+        }
+        name.to_string()
+    };
+    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+        let mut event = gamelogic::common::audio::AudioEventRts::new(&event_name);
+        event.set_player_index(player_id);
+        let _ = audio.add_audio_event(&event);
+    } else {
+        let _ = crate::assets::audio::play_sound_through_the_audio(&event_name);
+    }
+}
+
+/// C++ CommandXlat.cpp:3473 — `TheAudio->addAudioEvent(&m_allCheerSound)`.
+fn play_all_cheer_sound() {
+    if let Some(audio) = gamelogic::helpers::TheAudio::get() {
+        let _ = audio.add_audio_event(&gamelogic::helpers::TheAudio::get_misc_audio().all_cheer_sound);
+        return;
+    }
+    let name = game_engine::common::ini::ini_misc_audio::get_misc_audio()
+        .map(|misc| {
+            let misc = misc.read();
+            let n = misc.all_cheer_sound.playable_event_name();
+            if n.is_empty() {
+                "UI_AllCheerSound".to_string()
+            } else {
+                n.to_string()
+            }
+        })
+        .unwrap_or_else(|| "UI_AllCheerSound".to_string());
+    let _ = crate::assets::audio::play_sound_through_the_audio(&name);
 }
 
 fn special_power_pending_options(power: &crate::command_system::SpecialPowerType) -> u32 {
@@ -2341,4 +2457,46 @@ mod tests {
         assert!(msg.contains("25"), "localized warning must include the cap, got {msg:?}");
     }
 
+    #[test]
+    fn all_cheer_sound_uses_retail_misc_audio_event() {
+        // Retail MiscAudio.ini: AllCheerSound = UI_AllCheerSound.
+        let handle = game_engine::common::ini::ini_misc_audio::ensure_misc_audio();
+        {
+            let mut misc = handle.write();
+            misc.all_cheer_sound =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                    "UI_AllCheerSound".to_string(),
+                );
+        }
+        play_all_cheer_sound();
+        assert_eq!(
+            gamelogic::helpers::TheAudio::get_misc_audio()
+                .all_cheer_sound
+                .get_event_name(),
+            "UI_AllCheerSound"
+        );
+    }
+
+    #[test]
+    fn command_button_unit_specific_sound_resolves_from_ini() {
+        game_engine::common::ini::ini_command_button::initialize_control_bar();
+        {
+            let mut bar = game_engine::common::ini::ini_command_button::get_control_bar_mut()
+                .expect("INI control bar");
+            let button = bar.new_command_button("Command_BlackLotusHackBuilding".to_string());
+            button.unit_specific_sound =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_event_name(
+                    "BlackLotusVoiceModeBuilding".to_string(),
+                );
+        }
+        play_named_command_button_unit_specific_sound("Command_BlackLotusHackBuilding", 0);
+        let bar = game_engine::common::ini::ini_command_button::get_control_bar().unwrap();
+        let button = bar
+            .find_command_button_resolved("Command_BlackLotusHackBuilding")
+            .unwrap();
+        assert_eq!(
+            button.unit_specific_sound.playable_event_name(),
+            "BlackLotusVoiceModeBuilding"
+        );
+    }
 }

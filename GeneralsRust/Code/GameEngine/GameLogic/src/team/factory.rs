@@ -395,6 +395,11 @@ impl TeamFactory {
         self.prototypes.get(name).cloned()
     }
 
+    /// Script team prototype names declared on the map (C++ TeamFactory prototypes).
+    pub fn prototype_names(&self) -> Vec<String> {
+        self.prototypes.keys().cloned().collect()
+    }
+
     /// Find team prototype by ID
     pub fn find_team_prototype_by_id(&self, id: TeamPrototypeID) -> Option<Arc<TeamPrototype>> {
         for prototype in self.prototypes.values() {

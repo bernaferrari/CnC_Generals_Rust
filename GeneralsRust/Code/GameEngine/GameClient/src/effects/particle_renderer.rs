@@ -15,6 +15,7 @@ use super::decals::DecalRenderItem;
 use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
+use crate::system::smudge::{get_smudge_manager, SmudgeSetHandle};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
 ///
@@ -39,8 +40,8 @@ pub struct ParticleVertex {
     pub rotation: f32,
     /// Alpha value (for separate alpha control)
     pub alpha: f32,
-    /// Padding to keep the instance stride on a 16-byte boundary.
-    pub _padding: f32,
+    /// 1 = camera billboard (C++ shouldBillboard), 0 = world-XZ ground quad (Y-up host).
+    pub billboard: f32,
 }
 
 impl Default for ParticleVertex {
@@ -52,7 +53,7 @@ impl Default for ParticleVertex {
             uv_rect: [0.0, 0.0, 1.0, 1.0],
             rotation: 0.0,
             alpha: 1.0,
-            _padding: 0.0,
+            billboard: 1.0,
         }
     }
 }
@@ -135,15 +136,12 @@ impl ParticleBatch {
         self.dirty = true;
     }
 
-    /// Add a streak segment particle using its previous and current positions.
-    pub fn add_streak_particle(&mut self, particle: &Particle, system: &ParticleSystem) {
-        if self.vertices.len() >= MAX_PARTICLES_PER_BATCH {
-            return;
-        }
-
-        self.vertices.push(particle_streak_vertex(particle, system));
+    /// C++ `StreakLineClass`: one ribbon through all live particles.
+    pub fn add_streak_polyline(&mut self, system: &ParticleSystem) {
+        append_streak_polyline(&mut self.vertices, system);
         self.dirty = true;
     }
+
 
     /// Add layered volume-particle slices sorted from the camera-facing side.
     pub fn add_volume_particle(
@@ -213,24 +211,57 @@ impl ParticleBatch {
     }
 }
 
+/// C++ PointGroup `!Billboard` keeps the ground-axis constant (Z-up world-XY).
+/// Host is Y-up, so the live shader expands on world-XZ (`right=+X`, `up=+Z`).
+#[must_use]
+pub fn particle_ground_quad_axes() -> ([f32; 3], [f32; 3]) {
+    ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+}
+
+/// Expand one instanced particle to the four world corners the vertex shader emits.
+#[must_use]
+pub fn expand_particle_world_corners(vertex: &ParticleVertex) -> [[f32; 3]; 4] {
+    let (right, up) = if vertex.billboard > 0.5 {
+        ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0])
+    } else {
+        particle_ground_quad_axes()
+    };
+    let (cos_rot, sin_rot) = (vertex.rotation.cos(), vertex.rotation.sin());
+    let corners_2d = [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]];
+    let mut corners = [[0.0; 3]; 4];
+    for (i, corner) in corners_2d.iter().enumerate() {
+        let rx = corner[0] * cos_rot - corner[1] * sin_rot;
+        let ry = corner[0] * sin_rot + corner[1] * cos_rot;
+        corners[i] = [
+            vertex.position[0] + right[0] * rx * vertex.size[0] + up[0] * ry * vertex.size[1],
+            vertex.position[1] + right[1] * rx * vertex.size[0] + up[1] * ry * vertex.size[1],
+            vertex.position[2] + right[2] * rx * vertex.size[0] + up[2] * ry * vertex.size[1],
+        ];
+    }
+    corners
+}
+
 /// C++ billboard instance vertex used by the wgpu particle pass.
 #[must_use]
 pub fn bake_particle_gpu_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
     particle_billboard_vertex(particle, system)
 }
 
-/// Bake GPU instance vertices for a live particle system (same path as `collect_system_particles`).
-#[must_use]
 pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVertex> {
     let info = system.template().info();
     let mut vertices = Vec::new();
     if matches!(
         info.particle_type,
-        ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge
-    ) {
+        ParticleType::Invalid | ParticleType::Drawable
+    ) || system_is_heat_smudge(system)
+    {
         return vertices;
     }
     if info.shader_type == ParticleShaderType::Invalid {
+        return vertices;
+    }
+    if info.particle_type == ParticleType::Streak {
+        append_streak_polyline(&mut vertices, system);
         return vertices;
     }
     for particle in system.particles() {
@@ -238,17 +269,104 @@ pub fn bake_particle_system_gpu_mesh(system: &ParticleSystem) -> Vec<ParticleVer
             continue;
         }
         match info.particle_type {
-            ParticleType::Streak => vertices.push(particle_streak_vertex(particle, system)),
             ParticleType::VolumeParticle | ParticleType::Particle => {
                 vertices.push(particle_billboard_vertex(particle, system))
             }
-            ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge => {}
+            ParticleType::Streak
+            | ParticleType::Invalid
+            | ParticleType::Drawable
+            | ParticleType::Smudge => {}
         }
     }
     vertices
 }
 
-fn particle_billboard_vertex(particle: &Particle, _system: &ParticleSystem) -> ParticleVertex {
+/// C++ `W3DParticleSys.cpp:143` DWORD prefix `0x44554D53` ("SMUD").
+#[must_use]
+pub fn particle_type_name_is_smud(name: &str) -> bool {
+    name.as_bytes().get(..4) == Some(b"SMUD")
+}
+
+/// C++ `isUsingSmudge()` plus the SMUD* ParticleName hack.
+/// `doParticles` comments out `isUsingSmudge()` and checks the DWORD prefix;
+/// authored SMUDGE systems still use ParticleName `"SMUDGE RESERVED"`.
+#[must_use]
+pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
+    system.is_using_smudge() || particle_type_name_is_smud(&system.template().info().particle_type_name)
+}
+
+/// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.
+pub fn begin_particle_heat_smudge_frame() {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return;
+    };
+    manager.set_smudge_count_last_frame(0);
+    manager.reset();
+    let _ = manager.add_smudge_set();
+}
+
+fn current_particle_heat_smudge_set() -> Option<SmudgeSetHandle> {
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return None;
+    };
+    Some(
+        manager
+            .last_used_set()
+            .unwrap_or_else(|| manager.add_smudge_set()),
+    )
+}
+
+/// Convert a SMUD* / SMUDGE system into `TheSmudgeManager` heat smudges.
+/// C++ `W3DParticleSys.cpp:142-172` — never drawn as sprites.
+pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
+    if !system_is_heat_smudge(system) {
+        return 0;
+    }
+    let use_heat = game_engine::common::global_data::read_safe()
+        .map(|data| data.use_heat_effects)
+        .unwrap_or(true);
+    {
+        let Ok(manager) = get_smudge_manager().lock() else {
+            return 0;
+        };
+        if !manager.get_hardware_support() || !use_heat {
+            return 0;
+        }
+    }
+    let Some(set) = current_particle_heat_smudge_set() else {
+        return 0;
+    };
+    let mut visible = 0usize;
+    if let Ok(mut set) = set.lock() {
+        for particle in system.particles() {
+            if particle.lifetime_left == 0 || particle.is_culled {
+                continue;
+            }
+            let smudge = set.add_smudge_to_set();
+            smudge.pos = glam::Vec3::new(
+                particle.position.x,
+                particle.position.y,
+                particle.position.z,
+            );
+            smudge.offset = glam::Vec2::new(
+                crate::GameClientRandomValueReal!(-0.06, 0.06),
+                crate::GameClientRandomValueReal!(-0.03, 0.03),
+            );
+            smudge.size = particle.size;
+            smudge.opacity = particle.alpha;
+            visible += 1;
+        }
+    }
+    if let Ok(mut manager) = get_smudge_manager().lock() {
+        let added = i32::try_from(visible).unwrap_or(i32::MAX);
+        let prev = manager.get_smudge_count_last_frame();
+        manager.set_smudge_count_last_frame(prev.saturating_add(added));
+    }
+    visible
+}
+
+
+fn particle_billboard_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
     ParticleVertex {
         position: [
             particle.position.x,
@@ -265,20 +383,51 @@ fn particle_billboard_vertex(particle: &Particle, _system: &ParticleSystem) -> P
         uv_rect: [0.0, 0.0, 1.0, 1.0],
         rotation: particle.angle_z,
         alpha: particle.alpha,
-        _padding: 0.0,
+        billboard: if system.should_billboard() { 1.0 } else { 0.0 },
     }
 }
 
-fn particle_streak_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
-    let delta = particle.position - particle.last_position;
-    let length = (delta.x * delta.x + delta.y * delta.y)
-        .sqrt()
-        .max(particle.size);
-    let midpoint = particle.last_position + delta * 0.5;
+fn live_streak_particles(system: &ParticleSystem) -> Vec<&Particle> {
+    system
+        .particles()
+        .iter()
+        .filter(|particle| particle.lifetime_left > 0 && !particle.is_culled)
+        .collect()
+}
 
-    let mut vertex = particle_billboard_vertex(particle, system);
+/// C++ W3DParticleSys.cpp:233-274 — one StreakLine through creation order.
+fn append_streak_polyline(vertices: &mut Vec<ParticleVertex>, system: &ParticleSystem) {
+    let live = live_streak_particles(system);
+    if live.len() < 2 {
+        return;
+    }
+    for index in 0..live.len() - 1 {
+        if vertices.len() >= MAX_PARTICLES_PER_BATCH {
+            break;
+        }
+        let mut vertex = particle_streak_segment(live[index], live[index + 1], system);
+        if index == 0 {
+            // C++ zeros RGBA[0] to kill the trailing scissor edge.
+            vertex.color = [0.0, 0.0, 0.0, 0.0];
+            vertex.alpha = 0.0;
+        }
+        vertices.push(vertex);
+    }
+}
+
+fn particle_streak_segment(
+    from: &Particle,
+    to: &Particle,
+    system: &ParticleSystem,
+) -> ParticleVertex {
+    let delta = to.position - from.position;
+    let length = (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z)
+        .sqrt()
+        .max(0.001);
+    let midpoint = from.position + delta * 0.5;
+    let mut vertex = particle_billboard_vertex(to, system);
     vertex.position = [midpoint.x, midpoint.y, midpoint.z];
-    vertex.size = [length, particle.size.max(0.001)];
+    vertex.size = [length, to.size.max(0.001)];
     vertex.rotation = delta.y.atan2(delta.x);
     vertex
 }
@@ -507,41 +656,40 @@ impl ParticleRenderer {
             array_stride: std::mem::size_of::<ParticleVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
-                // Position
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x3,
                     offset: 0,
                     shader_location: 0,
                 },
-                // Size
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 12,
                     shader_location: 1,
                 },
-                // Color
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x4,
                     offset: 20,
                     shader_location: 2,
                 },
-                // UV Rect
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32x4,
                     offset: 36,
                     shader_location: 3,
                 },
-                // Rotation
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32,
                     offset: 52,
                     shader_location: 4,
                 },
-                // Alpha
                 wgpu::VertexAttribute {
                     format: wgpu::VertexFormat::Float32,
                     offset: 56,
                     shader_location: 5,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32,
+                    offset: 60,
+                    shader_location: 8,
                 },
             ],
         };
@@ -869,6 +1017,10 @@ impl ParticleRenderer {
         // Clearing the frame list preserves that order rather than retaining a
         // cross-system texture bucket from an earlier frame.
         self.batches.clear();
+        // C++ `doParticles` allocates one smudge set, then SMUD* systems
+        // `addSmudgeToSet` instead of filling the point-group buffers.
+        begin_particle_heat_smudge_frame();
+
 
         // Collect particles into batches
         for system in systems {
@@ -1006,7 +1158,7 @@ impl ParticleRenderer {
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: particle.rotation,
                 alpha,
-                _padding: 0.0,
+                billboard: 1.0,
             };
             vertices.push(vertex);
         }
@@ -1099,7 +1251,7 @@ impl ParticleRenderer {
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: dy.atan2(dx),
                 alpha: color[3],
-                _padding: 0.0,
+                billboard: 1.0,
             });
         }
         for ray in crate::effects::ray_effect_system::live_ray_effects() {
@@ -1115,7 +1267,7 @@ impl ParticleRenderer {
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: dy.atan2(dx),
                 alpha,
-                _padding: 0.0,
+                billboard: 1.0,
             });
         }
         if vertices.is_empty() {
@@ -1275,13 +1427,15 @@ impl ParticleRenderer {
         let info = template.info();
         if matches!(
             info.particle_type,
-            ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge
-        ) || info
-            .particle_type_name
-            .as_bytes()
-            .get(..4)
-            .is_some_and(|prefix| prefix == b"SMUD")
-        {
+            ParticleType::Invalid | ParticleType::Drawable
+        ) {
+            return;
+        }
+        // C++ DWORD "SMUD" prefix / Type=SMUDGE: convert visible particles
+        // into heat smudges and continue — never submit as sprites
+        // (`W3DParticleSys.cpp:142-172`).
+        if system_is_heat_smudge(system) {
+            let _ = feed_system_heat_smudges(system);
             return;
         }
         if info.shader_type == ParticleShaderType::Invalid {
@@ -1299,24 +1453,29 @@ impl ParticleRenderer {
         // submission even when adjacent systems share a texture/shader.
         let mut batch = ParticleBatch::new(info.shader_type, texture_name);
 
-        // Add particles from system to batch
-        for particle in system.particles() {
-            if particle.lifetime_left > 0 && !particle.is_culled {
-                match info.particle_type {
-                    ParticleType::Streak => batch.add_streak_particle(particle, system),
-                    ParticleType::VolumeParticle => {
-                        let before = batch.vertices.len();
-                        batch.add_volume_particle(particle, system, camera_position);
-                        self.stats.particles_rendered +=
-                            batch.vertices.len().saturating_sub(before);
-                        continue;
+        if info.particle_type == ParticleType::Streak {
+            let before = batch.vertices.len();
+            batch.add_streak_polyline(system);
+            self.stats.particles_rendered += batch.vertices.len().saturating_sub(before);
+        } else {
+            for particle in system.particles() {
+                if particle.lifetime_left > 0 && !particle.is_culled {
+                    match info.particle_type {
+                        ParticleType::VolumeParticle => {
+                            let before = batch.vertices.len();
+                            batch.add_volume_particle(particle, system, camera_position);
+                            self.stats.particles_rendered +=
+                                batch.vertices.len().saturating_sub(before);
+                            continue;
+                        }
+                        ParticleType::Particle => batch.add_particle(particle, system),
+                        ParticleType::Streak
+                        | ParticleType::Invalid
+                        | ParticleType::Drawable
+                        | ParticleType::Smudge => continue,
                     }
-                    ParticleType::Particle => batch.add_particle(particle, system),
-                    ParticleType::Invalid | ParticleType::Drawable | ParticleType::Smudge => {
-                        continue
-                    }
+                    self.stats.particles_rendered += 1;
                 }
-                self.stats.particles_rendered += 1;
             }
         }
 
@@ -1529,6 +1688,9 @@ impl ParticleRenderer {
 mod tests {
     use super::super::particle_system::ParticleInfo;
     use super::*;
+    use parking_lot::Mutex;
+
+    static HEAT_SMUDGE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn test_system(particle_type: ParticleType, depth: u32) -> ParticleSystem {
         let mut template = ParticleSystemTemplate::new("test".to_string());
@@ -1548,6 +1710,9 @@ mod tests {
         assert_eq!(std::mem::offset_of!(ParticleVertex, uv_rect), 36);
         assert_eq!(std::mem::offset_of!(ParticleVertex, rotation), 52);
         assert_eq!(std::mem::offset_of!(ParticleVertex, alpha), 56);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, billboard), 60);
+
+
     }
 
     #[test]
@@ -1556,23 +1721,90 @@ mod tests {
         assert_eq!(batch.vertices.len(), 0);
         assert!(batch.dirty);
     }
+    #[test]
+    fn streak_system_emits_polyline_segments_in_creation_order() {
+        let mut system = test_system(ParticleType::Streak, 0);
+        let mut first = ParticleInfo::default();
+        first.position = Point3::new(0.0, 0.0, 2.0);
+        first.size = 0.5;
+        first.color_keys[0].color = [1.0, 0.0, 0.0];
+        let mut second = ParticleInfo::default();
+        second.position = Point3::new(4.0, 3.0, 2.0);
+        second.size = 0.5;
+        second.color_keys[0].color = [0.0, 1.0, 0.0];
+        let mut third = ParticleInfo::default();
+        third.position = Point3::new(4.0, 3.0, 6.0);
+        third.size = 0.25;
+        third.color_keys[0].color = [0.0, 0.0, 1.0];
+        system.push_particle(Particle::new(&first, 0, 0));
+        system.push_particle(Particle::new(&second, 1, 0));
+        system.push_particle(Particle::new(&third, 2, 0));
+
+        let vertices = bake_particle_system_gpu_mesh(&system);
+        assert_eq!(vertices.len(), 2);
+        assert_eq!(vertices[0].position, [2.0, 1.5, 2.0]);
+        assert_eq!(vertices[0].size[0], 5.0);
+        assert_eq!(vertices[0].color, [0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(vertices[0].alpha, 0.0);
+        assert_eq!(vertices[1].position, [4.0, 3.0, 4.0]);
+        assert_eq!(vertices[1].size[0], 4.0);
+        assert_eq!(vertices[1].size[1], 0.25);
+        assert_eq!(vertices[1].color[2], 1.0);
+    }
 
     #[test]
-    fn streak_particle_uses_segment_midpoint_length_and_rotation() {
-        let system = test_system(ParticleType::Streak, 0);
-        let mut info = ParticleInfo::default();
-        info.position = Point3::new(4.0, 3.0, 2.0);
-        info.size = 0.5;
-        let mut particle = Particle::new(&info, 0, 0);
-        particle.last_position = Point3::new(0.0, 0.0, 2.0);
-
-        let vertex = particle_streak_vertex(&particle, &system);
-
-        assert_eq!(vertex.position, [2.0, 1.5, 2.0]);
-        assert_eq!(vertex.size[0], 5.0);
-        assert_eq!(vertex.size[1], 0.5);
-        assert!((vertex.rotation - (3.0_f32).atan2(4.0)).abs() < f32::EPSILON);
+    fn ground_aligned_particles_disable_camera_billboard() {
+        let mut template = ParticleSystemTemplate::new("ground".to_string());
+        template.info_mut().particle_type = ParticleType::Particle;
+        template.info_mut().is_ground_aligned = true;
+        let system = ParticleSystem::new(Arc::new(template), 1, false);
+        let info = ParticleInfo::default();
+        let particle = Particle::new(&info, 0, 0);
+        let vertex = bake_particle_gpu_vertex(&particle, &system);
+        assert_eq!(vertex.billboard, 0.0);
+        assert!(!system.should_billboard());
     }
+
+    /// C++ PointGroup `!Billboard` keeps Z constant (Z-up ground = world-XY).
+    /// Host is Y-up, so the live collect path must emit world-XZ quads.
+    #[test]
+    fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
+        let mut template = ParticleSystemTemplate::new("ground".to_string());
+        template.info_mut().particle_type = ParticleType::Particle;
+        template.info_mut().is_ground_aligned = true;
+        let mut system = ParticleSystem::new(Arc::new(template), 1, false);
+        let mut info = ParticleInfo::default();
+        info.position = Point3::new(10.0, 5.0, 20.0);
+        info.size = 4.0;
+        system.push_particle(Particle::new(&info, 0, 0));
+
+        let vertices = bake_particle_system_gpu_mesh(&system);
+        assert_eq!(vertices.len(), 1);
+        assert_eq!(vertices[0].billboard, 0.0);
+        assert!(!system.should_billboard());
+
+        let corners = expand_particle_world_corners(&vertices[0]);
+        for corner in corners {
+            assert!(
+                (corner[1] - 5.0).abs() < 1e-5,
+                "ground-aligned quad must stay on world-XZ (Y-up); got {corner:?}"
+            );
+        }
+        let spans_x = corners.iter().any(|c| (c[0] - 10.0).abs() > 0.1);
+        let spans_z = corners.iter().any(|c| (c[2] - 20.0).abs() > 0.1);
+        assert!(spans_x && spans_z, "quad must extend in X and Z, not stand up: {corners:?}");
+
+        let shader = include_str!("shaders/particle_vertex.wgsl");
+        assert!(
+            shader.contains("up = vec3<f32>(0.0, 0.0, 1.0)"),
+            "live vertex shader must use world-Z as the ground-quad V axis (Y-up host)"
+        );
+        assert!(
+            !shader.contains("up = vec3<f32>(0.0, 1.0, 0.0)"),
+            "world-Y as V stands particles up on a Y-up host"
+        );
+    }
+
 
     #[test]
     fn volume_particle_emits_default_depth_layers() {
@@ -1610,4 +1842,148 @@ mod tests {
         assert_eq!(stats.gpu_memory_used, 4096);
         assert_eq!(stats.render_time_ms, 0.0);
     }
+
+    fn smudge_named_system(type_name: &str, particle_type: ParticleType) -> ParticleSystem {
+        let mut template = ParticleSystemTemplate::new("heat".to_string());
+        template.info_mut().particle_type = particle_type;
+        template.info_mut().particle_type_name = type_name.to_string();
+        ParticleSystem::new(Arc::new(template), 1, false)
+    }
+
+    fn live_particle(x: f32, y: f32, z: f32, size: f32, alpha: f32) -> Particle {
+        let mut info = ParticleInfo::default();
+        info.position = Point3::new(x, y, z);
+        info.size = size;
+        let mut particle = Particle::new(&info, 0, 0);
+        particle.alpha = alpha;
+        particle
+    }
+
+    #[test]
+    fn particle_type_name_smud_matches_cpp_dword_prefix() {
+        assert!(particle_type_name_is_smud("SMUD"));
+        assert!(particle_type_name_is_smud("SMUDGE RESERVED"));
+        assert!(particle_type_name_is_smud("SMUDjetExhaust.tga"));
+        assert!(!particle_type_name_is_smud("smudge.tga"));
+        assert!(!particle_type_name_is_smud("SMU"));
+        assert!(!particle_type_name_is_smud("EXSmokePuff.tga"));
+        assert!(!particle_type_name_is_smud(""));
+    }
+
+    #[test]
+    fn smud_prefix_system_feeds_smudge_manager_not_sprites() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        begin_particle_heat_smudge_frame();
+
+        let mut system = smudge_named_system("SMUDGE RESERVED", ParticleType::Particle);
+        system.push_particle(live_particle(10.0, 20.0, 30.0, 8.0, 0.4));
+        let mut dead = live_particle(1.0, 1.0, 1.0, 4.0, 1.0);
+        dead.lifetime_left = 0;
+        system.push_particle(dead);
+        let mut culled = live_particle(2.0, 2.0, 2.0, 4.0, 1.0);
+        culled.is_culled = true;
+        system.push_particle(culled);
+
+        assert!(bake_particle_system_gpu_mesh(&system).is_empty());
+        assert_eq!(feed_system_heat_smudges(&system), 1);
+
+        let items = get_smudge_manager()
+            .lock()
+            .unwrap()
+            .collect_decal_render_items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].position, Point3::new(10.0, 20.0, 30.0));
+        assert_eq!(items[0].size, 8.0);
+        assert!((items[0].color[3] - 0.4).abs() < f32::EPSILON);
+
+        let smudges = get_smudge_manager().lock().unwrap().collect_used_smudges();
+        assert_eq!(smudges.len(), 1);
+        assert!(smudges[0].offset.x >= -0.06 && smudges[0].offset.x <= 0.06);
+        assert!(smudges[0].offset.y >= -0.03 && smudges[0].offset.y <= 0.03);
+
+        begin_particle_heat_smudge_frame();
+        assert!(
+            get_smudge_manager()
+                .lock()
+                .unwrap()
+                .collect_decal_render_items()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn heat_effects_off_skips_smudge_insert_and_sprites() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        let previous = game_engine::common::global_data::read().use_heat_effects;
+        game_engine::common::global_data::write().use_heat_effects = false;
+        begin_particle_heat_smudge_frame();
+
+        let mut system = smudge_named_system("SMUDjetExhaust.tga", ParticleType::Smudge);
+        system.push_particle(live_particle(0.0, 0.0, 5.0, 3.0, 0.8));
+
+        let feed_count = feed_system_heat_smudges(&system);
+        let empty_mesh = bake_particle_system_gpu_mesh(&system).is_empty();
+        let empty_items = get_smudge_manager()
+            .lock()
+            .unwrap()
+            .collect_decal_render_items()
+            .is_empty();
+
+        game_engine::common::global_data::write().use_heat_effects = previous;
+        begin_particle_heat_smudge_frame();
+
+        assert!(empty_mesh);
+        assert_eq!(feed_count, 0);
+        assert!(empty_items);
+    }
+
+    #[test]
+    fn smudge_type_feeds_even_without_smud_prefix() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        begin_particle_heat_smudge_frame();
+
+        let mut system = smudge_named_system("HeatHaze.tga", ParticleType::Smudge);
+        system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
+
+        assert!(system.is_using_smudge());
+        assert!(system_is_heat_smudge(&system));
+        assert!(bake_particle_system_gpu_mesh(&system).is_empty());
+        assert_eq!(feed_system_heat_smudges(&system), 1);
+
+        let items = get_smudge_manager()
+            .lock()
+            .unwrap()
+            .collect_decal_render_items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].position, Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(items[0].size, 2.5);
+        assert!((items[0].color[3] - 0.55).abs() < f32::EPSILON);
+
+        begin_particle_heat_smudge_frame();
+    }
+
+    #[test]
+    fn ordinary_particle_does_not_feed_heat_smudges() {
+        let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
+        begin_particle_heat_smudge_frame();
+
+        let mut system = smudge_named_system("EXSmokePuff.tga", ParticleType::Particle);
+        system.push_particle(live_particle(1.0, 2.0, 3.0, 1.0, 1.0));
+
+        assert!(!system.is_using_smudge());
+        assert!(!system_is_heat_smudge(&system));
+        assert_eq!(feed_system_heat_smudges(&system), 0);
+        assert_eq!(bake_particle_system_gpu_mesh(&system).len(), 1);
+        assert!(
+            get_smudge_manager()
+                .lock()
+                .unwrap()
+                .collect_decal_render_items()
+                .is_empty()
+        );
+
+        begin_particle_heat_smudge_frame();
+    }
+
+
 }

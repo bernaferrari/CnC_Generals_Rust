@@ -18,6 +18,8 @@ impl Object {
         let max_health = template.max_health;
         let position = Vec3::ZERO; // Default position
         let template_name = template.name.clone();
+        let locomotor_set_names = template.locomotor_set_names.clone();
+        let cur_locomotor_name = template.locomotor_name.clone();
         let crusher_level = template.crusher_level;
         let crushable_level = template.crushable_level;
         let has_squish_collide =
@@ -149,6 +151,8 @@ impl Object {
         let dock_starting_boxes = template.dock_starting_boxes.unwrap_or(0);
         let vision_range = template.sight_range.max(0.0);
         let shroud_clearing_range = template.resolved_shroud_clearing_range().max(0.0);
+        let locomotor_set_names = template.locomotor_set_names.clone();
+        let locomotor_name = template.locomotor_name.clone();
         let turret = turret_spawn_for_template(&template_name);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
@@ -164,6 +168,8 @@ impl Object {
             status: ObjectStatus::default(),
             object_status_bits: 0,
             script_unsellable: false,
+            indestructible: false,
+
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
             object_weather: 0,
@@ -534,6 +540,9 @@ impl Object {
             is_blocked_and_stuck: false,
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
+            bump_speed_limit: f32::MAX,
+            locomotor_set_names,
+            cur_locomotor_name,
             is_panicking: false,
             physics_mass,
             shock_resistance,
@@ -608,6 +617,8 @@ impl Object {
             temporary_move_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+            move_loop_audio: None,
+            ambient_audio: None,
             health: Health::new(max_health),
             movement: Movement::default(),
             experience: Experience::default(),
@@ -758,7 +769,10 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            pending_stream_exit: false,
+
             frame_exit_not_busy: 0,
+            which_exit_path: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -894,6 +908,8 @@ impl Object {
         template.bind_weapon_set_from_live_assets();
         let tracker = template.weapon_tracker_bind();
         let team = Team::Neutral;
+        let locomotor_set_names = template.locomotor_set_names.clone();
+        let locomotor_name = template.locomotor_name.clone();
         let temporary_weapon_runtime = crate::game_logic::host_temporary_weapon_behavior::
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = if template.geometry_info.authored {
@@ -956,6 +972,8 @@ impl Object {
             status: ObjectStatus::default(),
             object_status_bits: 0,
             script_unsellable: false,
+            indestructible: false,
+
             eject_pilot_die_applied: false,
             model_condition_bits: 0,
             object_weather: 0,
@@ -1326,6 +1344,9 @@ impl Object {
             is_blocked_and_stuck: false,
             cur_max_blocked_speed: f32::MAX,
             num_frames_blocked: 0,
+            bump_speed_limit: f32::MAX,
+            locomotor_set_names,
+            cur_locomotor_name: locomotor_name,
             is_panicking: false,
             physics_mass,
             shock_resistance,
@@ -1400,6 +1421,8 @@ impl Object {
             temporary_move_frames: 0,
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+            move_loop_audio: None,
+            ambient_audio: None,
             health: Health::new(100.0),
             movement: Movement::default(),
             experience: Experience::default(),
@@ -1550,7 +1573,10 @@ impl Object {
             guard_mode: GuardMode::Normal,
             pending_evacuate_on_stop: false,
             pending_exit_after_evacuate: false,
+            pending_stream_exit: false,
+
             frame_exit_not_busy: 0,
+            which_exit_path: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -1902,17 +1928,15 @@ impl Object {
     }
 
     pub fn is_selectable(&self) -> bool {
-        // C++ Object.cpp:3011 — KINDOF_ALWAYS_SELECTABLE is never
-        // unselectable, even if effectively dead.
+        // C++ Object.cpp:3011-3020 — ALWAYS_SELECTABLE first; then m_isSelectable
+        // (Selectable kind) + !OBJECT_STATUS_UNSELECTABLE + !effectivelyDead.
+        // No contained / MASKED / hijacker / Docked / Garrisoned gate.
         if self.is_kind_of(KindOf::AlwaysSelectable) {
             return true;
         }
         self.is_alive()
             && self.is_kind_of(KindOf::Selectable)
-            && !self.status.masked
             && !self.status.unselectable
-            && !self.hijacker_in_vehicle
-            && !matches!(self.ai_state, AIState::Docked | AIState::Garrisoned)
     }
 
     pub fn is_worker(&self) -> bool {
@@ -2090,6 +2114,31 @@ mod tests {
         let mut obj = Object::new(template, ObjectId(2), Team::USA);
         obj.status.destroyed = true;
         assert!(!obj.is_selectable());
+    }
+
+    #[test]
+    fn is_selectable_keeps_contained_masked_and_hijacker_like_cpp() {
+        // C++ Object.cpp:3001-3020 — no contained / MASKED / hijacker gate.
+        use crate::game_logic::AIState;
+        let mut template = ThingTemplate::new("Ranger");
+        template.add_kind_of(KindOf::Selectable);
+        let mut obj = Object::new(template, ObjectId(3), Team::USA);
+        obj.set_contained_by(Some(ObjectId(99)));
+        obj.set_ai_state(AIState::Garrisoned);
+        obj.status.masked = true;
+        obj.hijacker_in_vehicle = true;
+        assert!(
+            obj.is_selectable(),
+            "garrisoned/transported/masked squad members stay isSelectable"
+        );
+        obj.status.unselectable = true;
+        assert!(
+            !obj.is_selectable(),
+            "OBJECT_STATUS_UNSELECTABLE still drops isSelectable"
+        );
+        obj.set_ai_state(AIState::Docked);
+        obj.status.unselectable = false;
+        assert!(obj.is_selectable());
     }
 
     #[test]

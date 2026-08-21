@@ -491,41 +491,23 @@ impl CombatParticleRegistry {
         self.note_muzzle_flash_unhide(shooter, frame);
         let mut ids = Vec::new();
         if let Some(fx) = usable_particle_template_name(fire_fx_name) {
-            let authored = crate::game_logic::particle_template_names_for_fx_list(fx);
-            if authored.is_empty() {
-                let muzzle_id = self.spawn_fx_list_marker(
-                    CombatParticleKind::WeaponMuzzleFlash,
-                    fx,
-                    muzzle_pos,
-                    frame,
-                    Some(shooter),
-                    target,
-                );
-                if !fire_ocl_name.is_empty() {
-                    if let Some(e) = self.systems.get_mut(&muzzle_id) {
-                        e.ocl_list_name = fire_ocl_name.to_string();
-                    }
-                }
-                ids.push(muzzle_id);
-            } else {
-                for (index, template) in authored.iter().enumerate() {
-                    let muzzle_id = self.spawn_with_template(
-                        CombatParticleKind::WeaponMuzzleFlash,
-                        template.clone(),
-                        muzzle_pos,
-                        frame,
-                        Some(shooter),
-                        target,
-                    );
-                    if let Some(e) = self.systems.get_mut(&muzzle_id) {
-                        e.fx_list_name = fx.to_string();
-                        if index == 0 && !fire_ocl_name.is_empty() {
-                            e.ocl_list_name = fire_ocl_name.to_string();
-                        }
-                    }
-                    ids.push(muzzle_id);
+            // C++ Weapon::fireWeaponTemplate plays FireFX exactly once via
+            // FXList::doFXPos. Host registry keeps a marker; ParticleSystem
+            // nuggets are created only by dispatch (not spawn_with_template).
+            let muzzle_id = self.spawn_fx_list_marker(
+                CombatParticleKind::WeaponMuzzleFlash,
+                fx,
+                muzzle_pos,
+                frame,
+                Some(shooter),
+                target,
+            );
+            if !fire_ocl_name.is_empty() {
+                if let Some(e) = self.systems.get_mut(&muzzle_id) {
+                    e.ocl_list_name = fire_ocl_name.to_string();
                 }
             }
+            ids.push(muzzle_id);
             let _ = crate::game_logic::dispatch_fx_list_at_pos_ex(
                 fx,
                 muzzle_pos,
@@ -550,28 +532,15 @@ impl CombatParticleRegistry {
         }
         if let Some(impact) = impact_pos {
             if let Some(fx) = usable_particle_template_name(detonation_fx_name) {
-                let authored = crate::game_logic::particle_template_names_for_fx_list(fx);
-                let impact_id = if let Some(template) = authored.first() {
-                    self.spawn_with_template(
-                        CombatParticleKind::WeaponImpact,
-                        template.clone(),
-                        impact,
-                        frame,
-                        Some(shooter),
-                        target,
-                    )
-                } else {
-                    self.spawn_fx_list_marker(
-                        CombatParticleKind::WeaponImpact,
-                        fx,
-                        impact,
-                        frame,
-                        Some(shooter),
-                        target,
-                    )
-                };
+                let impact_id = self.spawn_fx_list_marker(
+                    CombatParticleKind::WeaponImpact,
+                    fx,
+                    impact,
+                    frame,
+                    Some(shooter),
+                    target,
+                );
                 if let Some(e) = self.systems.get_mut(&impact_id) {
-                    e.fx_list_name = fx.to_string();
                     if !detonation_ocl_name.is_empty() {
                         e.ocl_list_name = detonation_ocl_name.to_string();
                     }
@@ -1769,6 +1738,32 @@ mod tests {
         assert_eq!(impact.fx_list_name, "FX_Detonate");
         assert_eq!(impact.template_name, "FX_Detonate");
     }
+
+    #[test]
+    fn authored_fire_and_detonation_fx_do_not_mirror_client_presets() {
+        let mut reg = CombatParticleRegistry::new();
+        let ids = reg.spawn_weapon_fire_fx_named(
+            Vec3::ZERO,
+            Some(Vec3::ONE),
+            1,
+            ObjectId(1),
+            Some(ObjectId(2)),
+            "WeaponFX_GenericTankGunNoTracer",
+            "WeaponFX_JetMissileDetonation",
+        );
+        assert_eq!(ids.len(), 2);
+        let muzzle = reg.get(ids[0]).expect("muzzle");
+        assert!(
+            muzzle.client_system_id.is_none(),
+            "FireFX is an FXList; ParticleSystems come from dispatch only"
+        );
+        let impact = reg.get(ids[1]).expect("impact");
+        assert!(
+            impact.client_system_id.is_none(),
+            "DetonationFX is an FXList; ParticleSystems come from dispatch only"
+        );
+    }
+
 
     #[test]
     fn impact_detonation_ocl_stamps_name() {

@@ -63,20 +63,22 @@ pub fn is_highlander_body_template(name: &str) -> bool {
     false
 }
 
-/// C++ HighlanderBody clamp: non-unresistable lethal → leave 1 HP.
+/// C++ HighlanderBody.cpp:33-34: clamp raw `DamageInfo.in.m_amount`
+/// (`min(amount, getHealth()-1)`) BEFORE ActiveBody applies armor.
 pub fn highlander_clamp_damage(
     current_health: f32,
-    actual_damage: f32,
+    raw_amount: f32,
     unresistable: bool,
 ) -> (f32, bool) {
     if unresistable || current_health <= 0.0 {
-        return (actual_damage, false);
+        return (raw_amount, false);
     }
-    if actual_damage >= current_health {
+    if raw_amount >= current_health {
         let clamped = (current_health - 1.0).max(0.0);
         return (clamped, true);
     }
-    (actual_damage, false)
+    (raw_amount, false)
+
 }
 
 #[cfg(test)]

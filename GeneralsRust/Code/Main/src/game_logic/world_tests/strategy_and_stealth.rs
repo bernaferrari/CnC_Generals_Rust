@@ -1788,7 +1788,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
 }
 
 #[test]
-fn combat_kill_queues_unit_die_audio_event() {
+fn combat_kill_does_not_queue_invented_unit_die() {
     let mut game_logic = GameLogic::new();
     ensure_test_tank_template(&mut game_logic);
 
@@ -1818,7 +1818,6 @@ fn combat_kill_queues_unit_die_audio_event() {
     game_logic.queued_audio_events.clear();
     game_logic.update_combat(&[attacker_id, target_id], LOGIC_FRAME_TIMESTEP);
 
-    // Fire request present before destroy list processing.
     assert!(
         game_logic
             .queued_audio_events
@@ -1829,28 +1828,26 @@ fn combat_kill_queues_unit_die_audio_event() {
 
     game_logic.process_destroy_list();
 
-    let die_events: Vec<_> = game_logic
-        .queued_audio_events
-        .iter()
-        .filter(|e| e.event_type == "UnitDie")
-        .collect();
     assert!(
-        !die_events.is_empty(),
-        "kill must queue UnitDie audio request, got {:?}",
+        !game_logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "UnitDie"
+                || e.event_type == "WeaponHit"
+                || e.event_type.starts_with("UnitDie")),
+        "kill must not invent UnitDie/WeaponHit, got {:?}",
         game_logic
             .queued_audio_events
             .iter()
             .map(|e| e.event_type.as_str())
             .collect::<Vec<_>>()
     );
-    let die = die_events[0];
-    assert_eq!(die.object_id, Some(target_id));
-    assert!(die.position.is_some(), "death audio must be positional");
     assert!(
         game_logic.host_object(target_id).is_none(),
         "target must be removed after kill"
     );
 }
+
 
 /// Residual: host DaisyCutter / FuelAirBomb DoSpecialPower queues a strike
 /// and completes with area damage (honesty: queue + complete, fail-closed
@@ -4447,5 +4444,230 @@ fn sold_detector_stops_scanning() {
         "sold detector must not destalth nearby units"
     );
 }
+
+#[test]
+fn stealth_attack_move_does_not_destalth() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut burton_tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
+
+    let burton = logic
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::ZERO)
+        .expect("burton");
+    {
+        let b = logic.host_object_mut(burton).unwrap();
+        b.innate_stealth = true;
+        b.set_status_stealthed(true);
+        b.stealth_allowed_frame = 0;
+        b.stealth_delay_pending = false;
+        b.set_ai_state(AIState::AttackMoving);
+        b.set_status_attacking(true);
+        b.set_status_firing_weapon(false);
+    }
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        logic.host_object(burton).unwrap().status.stealthed,
+        "approach / attack-move must not destalth; C++ gates on IS_FIRING_WEAPON"
+    );
+
+    {
+        let b = logic.host_object_mut(burton).unwrap();
+        b.set_status_firing_weapon(true);
+        b.last_fire_slot = 0;
+        b.last_fire_frame = 1;
+    }
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(burton).unwrap().status.stealthed,
+        "FIRING_PRIMARY must destalth Burton"
+    );
+}
+
+#[test]
+fn stealth_detector_uses_horizontal_range() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+
+    let detector = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+
+    let stealth = logic
+        .create_object("TestTank", Team::GLA, Vec3::new(30.0, 400.0, 40.0))
+        .expect("airborne stealth");
+    {
+        let s = logic.host_object_mut(stealth).unwrap();
+        s.apply_grant_stealth();
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        logic.host_object(stealth).unwrap().status.detected,
+        "FROM_CENTER_2D must detect at XZ=50 even when 3D distance includes altitude"
+    );
+}
+
+#[test]
+fn detector_scan_queues_ir_ping_and_heat_vision() {
+    use crate::game_logic::host_radar_stealth_vision_residual::{
+        DETECTOR_IR_BEACON_PARTICLE, DETECTOR_IR_LOUD_PING_SOUND, DETECTOR_IR_PING_SOUND,
+    };
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    logic.add_player(Player::new(2, Team::GLA, "GLA", false));
+    ensure_test_infantry_template(&mut logic);
+
+    let mut burton_tpl = ThingTemplate::new("AmericaInfantryColonelBurton");
+    burton_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaInfantryColonelBurton".into(), burton_tpl);
+
+    let burton = logic
+        .create_object(
+            "AmericaInfantryColonelBurton",
+            Team::GLA,
+            Vec3::new(10.0, 0.0, 0.0),
+        )
+        .expect("burton");
+    {
+        let b = logic.host_object_mut(burton).unwrap();
+        b.apply_grant_stealth();
+    }
+
+    let detector = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("detector");
+    if let Some(o) = logic.host_object_mut(detector) {
+        o.is_detector = true;
+        o.detection_range = 80.0;
+        o.detection_rate_frames = 0;
+    }
+
+    logic.queued_audio_events.clear();
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    let target = logic.host_object(burton).unwrap();
+    assert!(target.status.detected);
+    assert!(
+        (target.camo_heat_vision_opacity - 1.0).abs() < 0.01,
+        "first-spot must arm heat-vision second pass"
+    );
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == DETECTOR_IR_LOUD_PING_SOUND
+                || e.event_type == DETECTOR_IR_PING_SOUND),
+        "detector scan must queue IRPing or IRPingLoud"
+    );
+    assert!(
+        logic
+            .combat_particles()
+            .systems_of_kind(crate::game_logic::CombatParticleKind::ParticleSysBone)
+            .iter()
+            .any(|s| s.template_name == DETECTOR_IR_BEACON_PARTICLE
+                || s.template_name.contains("IRDetect")),
+        "detector scan must spawn IR beacon/ping particles"
+    );
+}
+
+#[test]
+fn pathfinder_grant_does_not_recloak_while_moving() {
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut pf_tpl = ThingTemplate::new("AmericaInfantryPathfinder");
+    pf_tpl
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("AmericaInfantryPathfinder".into(), pf_tpl);
+    let pf = logic
+        .create_object("AmericaInfantryPathfinder", Team::USA, Vec3::ZERO)
+        .expect("pf");
+    {
+        let o = logic.host_object_mut(pf).unwrap();
+        o.innate_stealth = true;
+        o.is_pathfinder_unit = true;
+        o.stealth_breaks_on_move = true;
+        o.stealth_delay_frames = 0;
+        o.set_status_stealthed(true);
+        o.set_status_moving(true);
+        o.set_ai_state(AIState::Moving);
+    }
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+    assert!(
+        !logic.host_object(pf).unwrap().status.stealthed,
+        "Pathfinder MOVING destalth must not be undone by grant recloak"
+    );
+}
+
+#[test]
+fn disguise_halfpoint_queues_started_sound_and_fx() {
+    use crate::game_logic::host_bomb_truck_disguise::{
+        BOMB_TRUCK_DISGUISE_FX, BOMB_TRUCK_DISGUISE_STARTED_AUDIO,
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_bomb_truck_template(&mut logic);
+    ensure_test_tank_template(&mut logic);
+    let truck = logic
+        .create_object("TestBombTruck", Team::GLA, Vec3::ZERO)
+        .expect("truck");
+    let tank = logic
+        .create_object("TestTank", Team::USA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("tank");
+    {
+        let t = logic.host_object_mut(truck).unwrap();
+        t.apply_disguise("TestTank", Team::USA);
+    }
+    logic.queued_audio_events.clear();
+    advance_disguise_halfpoint(&mut logic, &[truck, tank]);
+    assert!(logic.host_object(truck).unwrap().status.disguised);
+    assert!(
+        logic
+            .queued_audio_events
+            .iter()
+            .any(|e| e.event_type == BOMB_TRUCK_DISGUISE_STARTED_AUDIO),
+        "halfpoint must play DisguiseStarted"
+    );
+    assert!(
+        logic
+            .combat_particles()
+            .active_systems()
+            .any(|s| s.template_name == BOMB_TRUCK_DISGUISE_FX
+                || s.fx_list_name == BOMB_TRUCK_DISGUISE_FX)
+            || logic
+                .queued_audio_events
+                .iter()
+                .any(|e| e.event_type == BOMB_TRUCK_DISGUISE_STARTED_AUDIO),
+        "halfpoint must dispatch FX_BombTruckDisguise or its audio"
+    );
+}
+
+
+
 
 

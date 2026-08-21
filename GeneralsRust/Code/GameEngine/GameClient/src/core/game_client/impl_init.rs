@@ -586,17 +586,13 @@ impl GameClient {
         if self.subsystem_manager.decal_manager.is_none() {
             let decals = Arc::new(Mutex::new(DecalManager::default()));
             register_decal_manager(Arc::clone(&decals));
-            let scorch_decals = Arc::clone(&decals);
             let _ = register_scorch_hook(Arc::new(move |position, size, type_id| {
+                // C++ W3DGameClient::addScorch → terrain scorch only, no decal.
                 let _ = crate::terrain::scorch_mesh::add_terrain_scorch(
                     [position.x, position.y, position.z],
                     size,
                     type_id,
                 );
-                if let Ok(mut guard) = scorch_decals.lock() {
-                    let scorch_position = Point3::new(position.x, position.y, position.z);
-                    guard.create_decal(DecalSettings::scorch_mark(scorch_position, size.max(0.1)));
-                }
             }));
             self.subsystem_manager.decal_manager = Some(decals);
         }

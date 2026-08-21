@@ -231,6 +231,9 @@ impl ControlBar {
                 if leftover_presentation_queue_or_drop_restricted(self, command, Some(&entry)) {
                     return Ok(CommandAvailability::Restricted);
                 }
+                if leftover_presentation_can_make_restricted(self, command) {
+                    return Ok(CommandAvailability::Restricted);
+                }
                 if Self::command_uses_ready_clock(command) {
                     return Ok(self.presentation_typed_availability(command, Some(&entry)));
                 }
@@ -246,6 +249,9 @@ impl ControlBar {
                     return Ok(hidden);
                 }
                 if leftover_presentation_queue_or_drop_restricted(self, command, None) {
+                    return Ok(CommandAvailability::Restricted);
+                }
+                if leftover_presentation_can_make_restricted(self, command) {
                     return Ok(CommandAvailability::Restricted);
                 }
                 if Self::command_uses_ready_clock(command) {
@@ -1108,6 +1114,9 @@ impl ControlBar {
         source: CommandSourceType,
         context: &ControlBarContext,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ processCommandUI plays UnitSpecificSound before dispatch.
+        crate::gui::control_bar::commands::play_command_button_unit_specific_sound(button);
+
         // Main owns the authoritative Rust simulation.  When it has explicitly
         // enabled the bridge, do not also route this click through the legacy
         // GameLogic globals: that would make one HUD action mutate two worlds.
@@ -1423,6 +1432,74 @@ fn leftover_presentation_queue_or_drop_restricted(
     false
 }
 
+fn leftover_presentation_can_make_status(
+    bar: &ControlBar,
+    object_or_upgrade: &str,
+    command_name: &str,
+) -> Option<u32> {
+    bar.presentation_can_make.iter().find_map(|(name, status)| {
+        if name.eq_ignore_ascii_case(object_or_upgrade) {
+            return Some(*status);
+        }
+        if !command_name.is_empty() {
+            let construct = format!("Command_Construct{name}");
+            if command_name.eq_ignore_ascii_case(&construct) {
+                return Some(*status);
+            }
+        }
+        None
+    })
+}
+
+/// C++ CanMakeType ordinals (BuildAssistant.h).
+const CANMAKE_OK: u32 = 0;
+
+/// C++ ControlBarCommand.cpp:1185-1198 — canBuild / MAXED_OUT / PARKING / NO_MONEY
+/// all return COMMAND_RESTRICTED (gray; CANT_AFFORD unused).
+fn leftover_presentation_can_make_restricted(bar: &ControlBar, command: &CommandButton) -> bool {
+    if !matches!(
+        command.command_type,
+        CommandType::DozerConstruct | CommandType::QueueUnitCreate | CommandType::QueueUpgrade
+    ) {
+        return false;
+    }
+    let key = if !command.object.is_empty() {
+        command.object.as_str()
+    } else {
+        command.upgrade.as_str()
+    };
+    if let Some(status) = leftover_presentation_can_make_status(bar, key, &command.command_name) {
+        if status != CANMAKE_OK {
+            return true;
+        }
+    }
+    leftover_presentation_money_restricted(bar, command)
+}
+
+fn leftover_presentation_money_restricted(bar: &ControlBar, command: &CommandButton) -> bool {
+    let money = bar.last_displayed_money;
+    if money < 0 {
+        return false;
+    }
+    for (resource, cost) in &command.purchase_cost {
+        if *cost > 0
+            && (resource.eq_ignore_ascii_case("cash") || resource.eq_ignore_ascii_case("money"))
+            && money < *cost
+        {
+            return true;
+        }
+    }
+    if command.purchase_cost.is_empty() && !command.object.is_empty() {
+        if let Some(template) = TheThingFactory::find_template(command.object.as_str()) {
+            let cost = template.get_build_cost() as i32;
+            if cost > 0 && money < cost {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod command_availability_window_tests {
     use super::*;
@@ -1468,6 +1545,53 @@ mod command_availability_window_tests {
         stacked.set_disabled(DisabledType::DisabledEmp);
         assert!(!leftover_ignores_underpowered_clears_disabled(opts, stacked));
         assert!(!leftover_ignores_underpowered_clears_disabled(0, sole));
+    }
+
+    #[test]
+    fn presentation_can_make_no_money_and_maxed_are_restricted() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_can_make(&[
+            ("AmericaInfantryRanger".to_string(), 2), // CANMAKE_NO_MONEY
+            ("AmericaInfantryColonelBurton".to_string(), 6), // CANMAKE_MAXED_OUT
+            ("AmericaVehicleDozer".to_string(), 0),
+        ]);
+        let mut ranger = button(CommandType::QueueUnitCreate);
+        ranger.object = "AmericaInfantryRanger".to_string();
+        assert!(leftover_presentation_can_make_restricted(&bar, &ranger));
+        let mut burton = button(CommandType::QueueUnitCreate);
+        burton.object = "AmericaInfantryColonelBurton".to_string();
+        assert!(leftover_presentation_can_make_restricted(&bar, &burton));
+        let mut dozer = button(CommandType::QueueUnitCreate);
+        dozer.object = "AmericaVehicleDozer".to_string();
+        assert!(!leftover_presentation_can_make_restricted(&bar, &dozer));
+        let sell = button(CommandType::Sell);
+        assert!(!leftover_presentation_can_make_restricted(&bar, &sell));
+    }
+
+    #[test]
+    fn presentation_can_make_matches_construct_command_name() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_can_make(&[("AmericaPowerPlant".to_string(), 2)]);
+        let mut btn = button(CommandType::DozerConstruct);
+        btn.command_name = "Command_ConstructAmericaPowerPlant".to_string();
+        assert!(leftover_presentation_can_make_restricted(&bar, &btn));
+        btn.object = "AmericaPowerPlant".to_string();
+        assert!(leftover_presentation_can_make_restricted(&bar, &btn));
+        bar.apply_presentation_can_make(&[("AmericaPowerPlant".to_string(), 0)]);
+        assert!(!leftover_presentation_can_make_restricted(&bar, &btn));
+    }
+
+
+    #[test]
+    fn presentation_money_fallback_grays_unaffordable_cameo() {
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_money(100);
+        let mut btn = button(CommandType::QueueUnitCreate);
+        btn.object = "AmericaTankCrusader".to_string();
+        btn.purchase_cost.insert("Cash".to_string(), 900);
+        assert!(leftover_presentation_can_make_restricted(&bar, &btn));
+        bar.apply_presentation_money(1000);
+        assert!(!leftover_presentation_can_make_restricted(&bar, &btn));
     }
 }
 

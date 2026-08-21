@@ -614,6 +614,11 @@ impl Eva {
     }
 
     fn should_play_low_power(&self) -> bool {
+        // C++ Eva.cpp:422 polls localPlayer->getEnergy()->hasSufficientPower().
+        // Live leftover ThePlayerList Energy is not host power_available.
+        if let Some(sufficient) = eva_host_sufficient_power() {
+            return !sufficient;
+        }
         let Ok(list) = ThePlayerList().read() else {
             return false;
         };
@@ -892,6 +897,9 @@ thread_local! {
     /// Live host logic frame (Main `GameLogic::get_frame` / presentation freeze).
     /// Zero means "unset" so crate `TheGameLogic::get_frame` remains the fallback.
     static HOST_EVA_FRAME: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Host `hasSufficientPower` snapshot. `None` = leftover Energy fallback.
+    static HOST_EVA_SUFFICIENT_POWER: std::cell::Cell<Option<bool>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// Publish the live host/sim frame Eva.cpp:271 reads as `TheGameLogic->getFrame()`.
@@ -912,6 +920,21 @@ pub fn eva_logic_frame() -> u32 {
     } else {
         TheGameLogic::get_frame()
     }
+}
+
+/// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
+pub fn set_eva_host_sufficient_power(sufficient: bool) {
+    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.set(Some(sufficient)));
+}
+
+/// Drop the host power snapshot so leftover ThePlayerList Energy is used.
+pub fn clear_eva_host_sufficient_power() {
+    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.set(None));
+}
+
+/// Host sufficient-power snapshot. `None` when Main has not published.
+pub fn eva_host_sufficient_power() -> Option<bool> {
+    HOST_EVA_SUFFICIENT_POWER.with(|cell| cell.get())
 }
 
 pub fn get_eva() -> &'static Mutex<Eva> {
@@ -940,6 +963,7 @@ pub fn eva_check_info_count() -> usize {
 
 pub fn reset_eva_system() {
     set_eva_host_frame(0);
+    clear_eva_host_sufficient_power();
     let eva = get_eva();
     if let Ok(mut guard) = eva.lock() {
         guard.reset();
@@ -1116,6 +1140,25 @@ mod tests {
             "host frame >= 2 must run Eva::update and clear unprobed flags"
         );
         set_eva_host_frame(0);
+    }
+
+    #[test]
+    fn low_power_polls_host_energy_not_leftover_flag() {
+        // C++ Eva.cpp:408-422 polls Energy, never m_shouldPlay[LowPower].
+        clear_eva_host_sufficient_power();
+        let mut eva = Eva::new();
+        eva.set_should_play(EvaMessage::LowPower);
+        set_eva_host_sufficient_power(true);
+        assert!(
+            !eva.message_should_play_with_local_player(EvaMessage::LowPower, true),
+            "host sufficient power must not speak LowPower"
+        );
+        set_eva_host_sufficient_power(false);
+        assert!(
+            eva.message_should_play_with_local_player(EvaMessage::LowPower, true),
+            "host brownout must speak LowPower"
+        );
+        clear_eva_host_sufficient_power();
     }
 }
 

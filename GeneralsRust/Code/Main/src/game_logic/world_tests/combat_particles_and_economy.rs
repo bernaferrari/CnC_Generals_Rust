@@ -4129,6 +4129,192 @@ fn garrison_residual_rejects_vehicle_enter_structure() {
     assert_ne!(tank.target, Some(bunker_id));
 }
 
+/// C++ GarrisonContain::isValidContainerFor — BODY_REALLYDAMAGED rejects Enter
+/// unless KINDOF_GARRISONABLE_UNTIL_DESTROYED.
+#[test]
+fn garrison_really_damaged_rejects_enter() {
+    use crate::command_system::{CommandType, GameCommand};
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_garrison_template(&mut game_logic);
+
+    let infantry_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("infantry");
+    let bunker_id = game_logic
+        .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bunker");
+
+    {
+        let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
+        bunker.health.current = 200.0;
+        bunker.refresh_model_condition_bits();
+        assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
+    }
+
+    assert!(
+        !game_logic.can_unit_enter_normal_target(infantry_id, bunker_id),
+        "ReallyDamaged garrison must reject new occupants"
+    );
+
+    game_logic.queue_command(GameCommand {
+        command_type: CommandType::Enter {
+            target_id: bunker_id,
+        },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![infantry_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    game_logic.process_commands();
+
+    let infantry = game_logic.host_object(infantry_id).expect("infantry");
+    assert_ne!(
+        infantry.ai_state,
+        AIState::Entering,
+        "Enter command must not start against a ReallyDamaged wreck"
+    );
+    assert_ne!(infantry.target, Some(bunker_id));
+}
+
+/// C++ GarrisonContain::onBodyDamageStateChange — edge into BODY_REALLYDAMAGED
+/// orders occupants to walk out (unless GARRISONABLE_UNTIL_DESTROYED).
+#[test]
+fn garrison_really_damaged_edge_ejects_occupants() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_garrison_template(&mut game_logic);
+
+    let infantry_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("infantry");
+    let bunker_id = game_logic
+        .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bunker");
+
+    {
+        let unit = game_logic
+            .host_object_mut(infantry_id)
+            .expect("infantry mut");
+        unit.target = Some(bunker_id);
+        unit.set_ai_state(AIState::Entering);
+    }
+    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    assert_eq!(
+        game_logic.host_object(infantry_id).unwrap().ai_state,
+        AIState::Garrisoned
+    );
+    assert!(game_logic
+        .host_object(bunker_id)
+        .unwrap()
+        .contained_units()
+        .contains(&infantry_id));
+
+    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 800.0);
+    assert!(!destroyed, "bunker must survive as a ReallyDamaged wreck");
+    assert_eq!(
+        game_logic
+            .host_object(bunker_id)
+            .unwrap()
+            .body_damage_state,
+        HostBodyDamageType::ReallyDamaged
+    );
+
+    let bunker = game_logic.host_object(bunker_id).expect("bunker after");
+    assert!(
+        !bunker.contained_units().contains(&infantry_id),
+        "crossing ReallyDamaged must eject garrison occupants"
+    );
+    assert_eq!(bunker.garrison_count(), 0);
+
+    let infantry = game_logic.host_object(infantry_id).expect("infantry after");
+    assert!(
+        infantry.contained_by.is_none(),
+        "ejected occupant must leave the container"
+    );
+    assert_ne!(
+        infantry.ai_state,
+        AIState::Garrisoned,
+        "ejected occupant must not stay Garrisoned"
+    );
+}
+
+/// C++ KINDOF_GARRISONABLE_UNTIL_DESTROYED (Firebase/bunker) stays occupiable
+/// through BODY_REALLYDAMAGED and does not eject on that edge.
+#[test]
+fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_garrison_template(&mut game_logic);
+
+    let infantry_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+        .expect("infantry");
+    let bunker_id = game_logic
+        .create_object("TestBunker", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bunker");
+
+    {
+        let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
+        bunker
+            .thing
+            .template
+            .add_kind_of(KindOf::GarrisonableUntilDestroyed);
+        bunker.health.current = 200.0;
+        bunker.refresh_model_condition_bits();
+        assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
+    }
+
+    assert!(
+        game_logic.can_unit_enter_normal_target(infantry_id, bunker_id),
+        "GARRISONABLE_UNTIL_DESTROYED must still accept occupants when ReallyDamaged"
+    );
+
+    {
+        let unit = game_logic
+            .host_object_mut(infantry_id)
+            .expect("infantry mut");
+        unit.target = Some(bunker_id);
+        unit.set_ai_state(AIState::Entering);
+    }
+    game_logic.update_ai(&[infantry_id, bunker_id], 1.0 / 30.0);
+    assert_eq!(
+        game_logic.host_object(infantry_id).unwrap().ai_state,
+        AIState::Garrisoned,
+        "Firebase-style bunker must still complete occupy"
+    );
+    assert!(game_logic
+        .host_object(bunker_id)
+        .unwrap()
+        .contained_units()
+        .contains(&infantry_id));
+
+    let (destroyed, _) = game_logic.apply_host_damage(bunker_id, 50.0);
+    assert!(!destroyed);
+    assert_eq!(
+        game_logic
+            .host_object(bunker_id)
+            .unwrap()
+            .body_damage_state,
+        HostBodyDamageType::ReallyDamaged
+    );
+    assert!(
+        game_logic
+            .host_object(bunker_id)
+            .unwrap()
+            .contained_units()
+            .contains(&infantry_id),
+        "GARRISONABLE_UNTIL_DESTROYED must not eject on ReallyDamaged"
+    );
+}
+
 /// Residual optional fire-from-garrison: garrisoned infantry damages nearby enemy.
 /// Fail-closed: fires from container origin; not C++ garrison weapon positions.
 #[test]

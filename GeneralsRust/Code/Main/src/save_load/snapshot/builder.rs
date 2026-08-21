@@ -84,6 +84,9 @@ impl SnapshotBuilder {
             cave_system: game_logic.cave_system_residual().clone(),
             tunnel_network: game_logic.tunnel_network_residual().clone(),
             airfield_parking: self.snapshot_airfield_parking(game_logic),
+            persist_v18: super::persist_v18::capture_persist_v18(game_logic),
+            object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
+
         };
 
         log::info!(
@@ -139,6 +142,9 @@ impl SnapshotBuilder {
         self.restore_all_objects(&snapshot.objects, game_logic)?;
         self.restore_object_instance_guards(snapshot, game_logic)?;
         self.restore_overcharge_active(snapshot, game_logic)?;
+        self.restore_object_experience_trackers(snapshot, game_logic)?;
+
+
         self.restore_cia_vision_builder_sell(snapshot, game_logic)?;
         self.restore_object_persist(snapshot, game_logic)?;
         self.restore_client_drawable_visuals(snapshot, game_logic);
@@ -191,7 +197,9 @@ impl SnapshotBuilder {
         super::lifecycle_tail::apply_lifecycle_tail_to_host(&tail, game_logic)?;
         self.sync_all_garrisoned_units_from_occupants(game_logic);
         self.restore_game_logic_persist_tail(snapshot, game_logic);
-
+        if snapshot.version >= WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION {
+            super::persist_v18::restore_persist_v18(&snapshot.persist_v18, game_logic);
+        }
 
         log::info!("World restoration complete");
         Ok(())
@@ -932,6 +940,67 @@ impl SnapshotBuilder {
         }
         Ok(())
     }
+
+    /// C++ `ExperienceTracker::xfer` sink + scalar (ExperienceTracker.cpp:239-243).
+    fn snapshot_object_experience_trackers(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectExperienceTrackerSnapshot> {
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        let mut entries = Vec::new();
+        for id in ids {
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            let scalar = if object.experience_scalar.is_finite() {
+                object.experience_scalar
+            } else {
+                1.0
+            };
+            if object.experience_sink.is_none() && (scalar - 1.0).abs() <= f32::EPSILON {
+                continue;
+            }
+            entries.push(ObjectExperienceTrackerSnapshot {
+                object_id: id,
+                experience_sink: object.experience_sink,
+                experience_scalar: scalar,
+            });
+        }
+        entries
+    }
+
+    fn restore_object_experience_trackers(
+        &self,
+        snapshot: &WorldSnapshot,
+        game_logic: &mut GameLogic,
+    ) -> SaveLoadResult<()> {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V18_TAIL_VERSION
+            && snapshot.object_experience_trackers.is_empty()
+        {
+            return Ok(());
+        }
+        let mut seen = HashSet::new();
+        for entry in &snapshot.object_experience_trackers {
+            if !seen.insert(entry.object_id) {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Duplicate experience tracker snapshot for object {}",
+                    entry.object_id
+                )));
+            }
+            let Some(object) = game_logic.host_object_mut(entry.object_id) else {
+                log::warn!(
+                    "Experience tracker snapshot references missing object {}",
+                    entry.object_id
+                );
+                continue;
+            };
+            object.set_experience_sink(entry.experience_sink);
+            object.set_experience_scalar(entry.experience_scalar);
+        }
+        Ok(())
+    }
+
 
     fn snapshot_client_drawable_visuals(
         &self,

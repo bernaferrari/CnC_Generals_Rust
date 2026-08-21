@@ -1001,11 +1001,19 @@ impl GameLogic {
             .collect();
         let mut garrison_detect_recalc: Vec<ObjectId> = Vec::new();
         for sid in stealthed {
-            let contained_by = self.objects.get(&sid).and_then(|o| o.contained_by);
+            let (contained_by, already_detected) = self
+                .objects
+                .get(&sid)
+                .map(|o| (o.contained_by, o.status.detected))
+                .unwrap_or((None, false));
             if let Some(o) = self.objects.get_mut(&sid) {
                 o.mark_detected(expires);
             }
             self.order_idle_enemies_to_attack_on_reveal(sid);
+            // C++ StealthDetectorUpdate.cpp:198-282 first reveal (UPDATE_SLEEP_NONE).
+            if !already_detected {
+                self.fire_stealth_discover_feedback(sid, &[pid]);
+            }
             if let Some(cid) = contained_by {
                 garrison_detect_recalc.push(cid);
             }
@@ -1740,16 +1748,20 @@ impl GameLogic {
         let mut any_armed = false;
         for oid in &occupant_ids {
             if let Some(rider) = self.objects.get(oid) {
+                let infantry =
+                    gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(
+                        rider.is_kind_of(KindOf::Infantry),
+                    );
                 let armed = if is_combat_chinook {
                     crate::game_logic::host_combat_chinook::combat_chinook_rider_has_viable_weapon(
                         rider.weapon.as_ref(),
-                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                        infantry,
                         rider.is_kind_of(KindOf::Vehicle),
                     )
                 } else {
                     crate::game_logic::host_battle_bus::rider_has_viable_weapon(
                         rider.weapon.as_ref(),
-                        rider.is_kind_of(KindOf::Infantry) || rider.is_hero(),
+                        infantry,
                     )
                 };
                 if armed {

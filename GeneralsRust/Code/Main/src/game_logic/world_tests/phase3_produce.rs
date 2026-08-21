@@ -530,6 +530,131 @@ fn door_gated_spawn_waits_for_waiting_open() {
 }
 
 #[test]
+fn start_production_door_cycle_preserves_opening_deadline() {
+    // C++ ProductionUpdate.cpp:746-773: already-OPENING does not rewrite
+    // DoorOpeningTime. A second start must not push the deadline out.
+    use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut wf = ThingTemplate::new("AmericaWarFactory");
+    wf.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSWarFactory)
+        .set_health(1500.0)
+        .set_cost(2000, -1);
+    logic.templates.insert("AmericaWarFactory".into(), wf);
+    let id = logic
+        .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
+        .expect("wf");
+    let open = producer_door_phase_duration("AmericaWarFactory", 1);
+    assert!(open > 1, "fixture must use a multi-frame DoorOpeningTime");
+    if let Some(o) = logic.host_object_mut(id) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+        o.start_production_door_cycle(10);
+        assert_eq!(o.production_door_phase, 1);
+        assert_eq!(o.production_door_phase_end_frame, 10 + open);
+        o.start_production_door_cycle(11);
+        assert_eq!(o.production_door_phase, 1);
+        assert_eq!(
+            o.production_door_phase_end_frame,
+            10 + open,
+            "already-OPENING must preserve DoorOpeningTime"
+        );
+        assert!(!o.tick_production_door(10 + open));
+        assert_eq!(o.production_door_phase, 2, "door must reach WAITING_OPEN");
+    }
+}
+
+#[test]
+fn door_animated_factory_releases_after_opening_time() {
+    // C++ ProductionUpdate.cpp:746-773 + 795: spawn when WAITING_OPEN after
+    // DoorOpeningTime. Host must not restart OPENING every blocked frame.
+    use crate::game_logic::host_production_buildable_command_residual::producer_door_phase_duration;
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let mut wf = ThingTemplate::new("AmericaWarFactory");
+    wf.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSWarFactory)
+        .set_health(1500.0)
+        .set_cost(2000, -1);
+    logic.templates.insert("AmericaWarFactory".into(), wf);
+    let mut crusader = ThingTemplate::new("AmericaTankCrusader");
+    crusader
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(400.0)
+        .set_cost(0, 0);
+    crusader.build_time = 0.01;
+    logic
+        .templates
+        .insert("AmericaTankCrusader".into(), crusader);
+    let bid = logic
+        .create_object("AmericaWarFactory", Team::USA, glam::Vec3::ZERO)
+        .expect("wf");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.set_status_under_construction(false);
+        o.construction_percent = 1.0;
+    }
+    assert!(logic.enqueue_production(bid, "AmericaTankCrusader".into()));
+    if let Some(o) = logic.host_object_mut(bid) {
+        if let Some(b) = o.building_data.as_mut() {
+            if let Some(item) = b.production_queue.first_mut() {
+                item.progress = item.total_time;
+                item.construction_frames = 10_000;
+            }
+        }
+    }
+    let open = producer_door_phase_duration("AmericaWarFactory", 1);
+    assert!(open > 1, "fixture must use a multi-frame DoorOpeningTime");
+    let ids = [bid];
+    logic.frame = logic.frame.max(1);
+    logic.update_construction(&ids, 1.0 / 30.0);
+    logic.update_production(1.0 / 30.0);
+    let (phase0, end0) = {
+        let o = logic.host_object(bid).expect("wf");
+        (o.production_door_phase, o.production_door_phase_end_frame)
+    };
+    assert_eq!(phase0, 1, "closed door starts OPENING once");
+    for _ in 0..3 {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_construction(&ids, 1.0 / 30.0);
+        logic.update_production(1.0 / 30.0);
+    }
+    let (phase1, end1, units_mid) = {
+        let units = logic
+            .host_objects()
+            .values()
+            .filter(|o| o.template_name == "AmericaTankCrusader")
+            .count();
+        let o = logic.host_object(bid).expect("wf");
+        (o.production_door_phase, o.production_door_phase_end_frame, units)
+    };
+    assert_eq!(phase1, 1);
+    assert_eq!(end1, end0, "already-OPENING must preserve DoorOpeningTime");
+    assert_eq!(units_mid, 0, "must not spawn before WAITING_OPEN");
+    let remaining = end0.saturating_sub(logic.frame);
+    for _ in 0..=remaining {
+        logic.frame = logic.frame.saturating_add(1);
+        logic.update_construction(&ids, 1.0 / 30.0);
+        logic.update_production(1.0 / 30.0);
+    }
+    let phase2 = logic
+        .host_object(bid)
+        .map(|o| o.production_door_phase)
+        .unwrap_or(0);
+    let units = logic
+        .host_objects()
+        .values()
+        .filter(|o| o.template_name == "AmericaTankCrusader")
+        .count();
+    assert_eq!(phase2, 2, "door must reach WAITING_OPEN");
+    assert_eq!(
+        units, 1,
+        "factory must release the completed unit once WAITING_OPEN"
+    );
+}
+
+
+#[test]
 fn completed_production_preserves_factory_identity_exit_facing_and_rally() {
     let mut logic = GameLogic::new();
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -608,4 +733,74 @@ fn assign_unit_path_fail_closed_and_retail_ai_names() {
         !body.contains("full_path.push(destination)") || body.contains("refuse fail-open"),
         "blocked hops must not invent a straight walk-through"
     );
+}
+
+#[test]
+fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
+    use crate::game_logic::audio_dispatch_impl::{
+        clear_building_loops, clear_test_template_voices, set_test_per_unit_sound,
+    };
+    clear_test_template_voices();
+    clear_building_loops();
+    set_test_per_unit_sound(
+        "TestBuilding",
+        "UnderConstruction",
+        "BuildingConstructionLoop",
+    );
+    let mut logic = GameLogic::new();
+    ensure_test_structure_template(&mut logic);
+    ensure_test_dozer_template(&mut logic);
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    let sid = logic
+        .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
+        .expect("scaffold");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.thing.template.build_time = 10.0;
+        o.construction_percent = 0.0;
+    }
+    let did = logic
+        .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
+        .expect("dozer");
+    assert!(logic.resume_construction(&[did], sid));
+    logic.queued_audio_events.clear();
+    logic.update_construction(&[sid], 1.0);
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "BuildingConstructionLoop"
+                && e.is_looping
+                && !e.stop
+                && e.object_id == Some(sid)
+        }),
+        "docked dozer must start UnderConstruction loop: {:?}",
+        logic.queued_audio_events
+    );
+    logic.queued_audio_events.clear();
+    logic.update_construction(&[sid], 1.0);
+    assert!(
+        !logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "BuildingConstructionLoop" && e.is_looping && !e.stop
+        }),
+        "already-playing loop must not restart: {:?}",
+        logic.queued_audio_events
+    );
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.construction_percent = 0.99;
+    }
+    logic.queued_audio_events.clear();
+    logic.update_construction(&[sid], 1.0);
+    assert!(
+        logic
+            .host_object(sid)
+            .is_some_and(|o| !o.status.under_construction),
+        "scaffold must complete"
+    );
+    assert!(
+        logic.queued_audio_events.iter().any(|e| {
+            e.event_type == "BuildingConstructionLoop" && e.stop && e.object_id == Some(sid)
+        }),
+        "complete must finishBuildingSound: {:?}",
+        logic.queued_audio_events
+    );
+    clear_test_template_voices();
+    clear_building_loops();
 }

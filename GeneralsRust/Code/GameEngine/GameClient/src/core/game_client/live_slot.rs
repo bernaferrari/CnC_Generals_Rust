@@ -126,6 +126,49 @@ pub(crate) fn with_live_game_client_mut<R>(
     Some(callback(client))
 }
 
+/// C++ `obj->getDrawable()->getCurrentClientBonePositions` via live BasicDrawable.
+pub fn query_live_current_client_bone_positions(
+    object_id: ObjectID,
+    bone_name: &str,
+    start: i32,
+    max_bones: usize,
+) -> Vec<(gamelogic::common::Coord3D, gamelogic::common::Matrix3D)> {
+    if max_bones == 0 || bone_name.is_empty() {
+        return Vec::new();
+    }
+    with_live_game_client_mut(|client| {
+        let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+            return Vec::new();
+        };
+        let Some(drawable) = client.find_drawable_by_id(drawable_id) else {
+            return Vec::new();
+        };
+        let Some(basic) = drawable
+            .as_any()
+            .downcast_ref::<crate::drawable::BasicDrawable>()
+        else {
+            return Vec::new();
+        };
+        let mut positions = vec![crate::drawable::Vector3::zero(); max_bones];
+        let mut transforms = vec![crate::drawable::Matrix4::identity(); max_bones];
+        let count = basic.get_current_client_bone_positions(
+            bone_name,
+            start,
+            &mut positions,
+            &mut transforms,
+        );
+        (0..count as usize)
+            .map(|i| {
+                (
+                    gamelogic::common::Coord3D::new(positions[i].x, positions[i].y, positions[i].z),
+                    transforms[i].to_glam(),
+                )
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 /// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
 ///
 /// C++ reference:

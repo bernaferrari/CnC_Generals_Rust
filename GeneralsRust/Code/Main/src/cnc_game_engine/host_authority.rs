@@ -1131,6 +1131,21 @@ impl CnCGameEngine {
         self.render_pipeline
             .queue_client_drawable_restore(client_drawables);
         self.invalidate_presentation_terrain_cache();
+        if let Some(camera) = crate::save_load::snapshot::take_pending_camera() {
+            self.camera_position = glam::Vec3::new(
+                camera.position[0],
+                camera.position[1],
+                camera.position[2],
+            );
+            self.camera_target =
+                glam::Vec3::new(camera.target[0], camera.target[1], camera.target[2]);
+            if camera.zoom.is_finite() && camera.zoom > 0.05 {
+                self.camera_zoom = camera.zoom;
+            }
+            self.view_matrix =
+                glam::Mat4::look_at_rh(self.camera_position, self.camera_target, glam::Vec3::Y);
+            self.sync_orbit_from_camera_transform();
+        }
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
             shadow.sync_from_host(&self.game_logic);
@@ -1147,6 +1162,23 @@ impl CnCGameEngine {
         // authority boundary as the logical snapshot.  The pipeline method
         // is renderer-local and immutable here; an empty/unresolved cache is
         // intentionally a valid fail-closed companion.
+        let offset = self.camera_position - self.camera_target;
+        crate::save_load::snapshot::set_pending_camera(
+            crate::save_load::snapshot::CameraPersist {
+                angle: offset.x.atan2(offset.z),
+                position: [
+                    self.camera_position.x,
+                    self.camera_position.y,
+                    self.camera_position.z,
+                ],
+                target: [
+                    self.camera_target.x,
+                    self.camera_target.y,
+                    self.camera_target.z,
+                ],
+                zoom: self.camera_zoom,
+            },
+        );
         let client_drawables = self.render_pipeline.capture_client_drawable_snapshot();
         self.save_file_manager
             .save_game_with_client_drawable_snapshot(

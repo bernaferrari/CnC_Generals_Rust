@@ -22,6 +22,58 @@ fn unambiguous_locomotors_for_set(
     (!row.locomotor_names.is_empty()).then(|| row.locomotor_names.clone())
 }
 
+fn locomotor_member_names_from_raw(raw: &str) -> Vec<String> {
+    let mut parts = raw.split_whitespace();
+    let Some(first) = parts.next() else {
+        return Vec::new();
+    };
+    let skip_set = first.eq_ignore_ascii_case("SET_NORMAL")
+        || first.eq_ignore_ascii_case("SET_NORMAL_UPGRADED")
+        || first.eq_ignore_ascii_case("SET_PANIC")
+        || first.eq_ignore_ascii_case("SET_TAXIING")
+        || first.eq_ignore_ascii_case("SET_FREEFALL")
+        || first.eq_ignore_ascii_case("SET_WANDER")
+        || first.eq_ignore_ascii_case("SET_SUPERSONIC")
+        || first.eq_ignore_ascii_case("SET_SLUGGISH");
+    let mut names = Vec::new();
+    if !skip_set && !first.is_empty() && !first.eq_ignore_ascii_case("none") {
+        names.push(first.to_string());
+    }
+    for part in parts {
+        if !part.is_empty() && !part.eq_ignore_ascii_case("none") {
+            names.push(part.to_string());
+        }
+    }
+    names
+}
+
+fn apply_locomotor_set_names_from_definition(
+    template: &mut crate::game_logic::ThingTemplate,
+    unambiguous_normal: Option<&[String]>,
+    raw_locomotor: Option<&str>,
+) {
+    if let Some(names) = unambiguous_normal {
+        if !names.is_empty() {
+            template.set_locomotor_set_names(names);
+            return;
+        }
+    }
+    if let Some(raw) = raw_locomotor {
+        let names = locomotor_member_names_from_raw(raw);
+        if !names.is_empty() {
+            template.set_locomotor_set_names(&names);
+            return;
+        }
+    }
+    let fallback =
+        crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(&template.name);
+    if fallback.len() >= 2 {
+        template.set_locomotor_set_names(&fallback);
+    }
+}
+
+
+
 #[inline]
 fn definition_has_rider_change_contain(definition: &crate::assets::ObjectDefinition) -> bool {
     definition
@@ -257,13 +309,9 @@ impl GameLogic {
             (definition, texture_hint)
         };
 
-        // C++ data includes audio-only ambient map objects with Draw blocks that contain no model.
-        // Keep them out of visual spawn synthesis to avoid bogus model fallback loads.
-        if definition.model_name.is_none()
-            && Self::object_definition_attr(&definition, "soundambient").is_some()
-        {
-            return None;
-        }
+        // Audio-only map objects (SoundAmbient, no model) are valid host
+        // templates so create_object can start the looping 3D event.
+
 
         Some(Self::build_template_from_object_definition(
             template_name,
@@ -685,6 +733,13 @@ impl GameLogic {
         {
             template.set_locomotor_name(lname);
         }
+        apply_locomotor_set_names_from_definition(
+            &mut template,
+            rider_change_normal_locomotors.as_deref(),
+            Self::object_definition_attr(definition, "locomotor").as_deref(),
+        );
+
+
 
         // Combat unit KindOf from object type / kindof string so store weapons can attach.
         let otype = definition.object_type.to_ascii_lowercase();
@@ -706,6 +761,12 @@ impl GameLogic {
                 .add_kind_of(KindOf::Attackable)
                 .add_kind_of(KindOf::Selectable);
         }
+
+        crate::game_logic::host_move_ambient_audio::apply_authored_audio_events(
+            &mut template,
+            definition,
+        );
+
 
         template
     }
@@ -840,6 +901,9 @@ impl GameLogic {
         }
         if has_kind("defensive_wall") {
             template.add_kind_of(KindOf::DefensiveWall);
+        }
+        if has_kind("walk_on_top_of_wall") {
+            template.add_kind_of(KindOf::WalkOnTopOfWall);
         }
         if has_kind("bridge") {
             template.add_kind_of(KindOf::Bridge);
@@ -3384,6 +3448,13 @@ impl GameLogic {
                         template.set_locomotor_name(locomotor);
                     }
                 }
+                apply_locomotor_set_names_from_definition(
+                    template,
+                    rider_change_normal_locomotors.as_deref(),
+                    Self::object_definition_attr(&definition, "locomotor").as_deref(),
+                );
+
+
                 Self::apply_authored_parking_place_metadata(template, &definition);
                 Self::apply_authored_flight_deck_metadata(template, &definition);
                 Self::apply_authored_supply_truck_metadata(template, &definition);
@@ -3406,6 +3477,11 @@ impl GameLogic {
                 Self::apply_authored_physics_behavior_metadata(template, &definition);
                 Self::apply_authored_geometry(template, &definition);
                 Self::apply_authored_weapon_set_create_policy(template, &definition);
+                crate::game_logic::host_move_ambient_audio::apply_authored_audio_events(
+                    template,
+                    &definition,
+                );
+
                 // Existing curated starters keep their broader host combat
                 // bindings, but a mine-clear conditional primary is source
                 // authority only. Clear any stale value when a resolved
@@ -3420,36 +3496,34 @@ impl GameLogic {
                 continue;
             }
 
-            if Self::should_skip_map_object_template(name)
-                // Cinematics/effect anchors have dedicated execution paths;
-                // a global template seed must not make them map-spawnable.
-                // The host does not yet have SoundAmbient behavior.  Retain
-                // the lazy path's existing exclusion instead of adding
-                // invisible, silent proxy objects.
-                || (definition.model_name.is_none()
-                    && Self::object_definition_attr(&definition, "soundambient").is_some())
-            {
+            if Self::should_skip_map_object_template(name) {
                 continue;
             }
 
-            let Some(model_name) = definition
+            let model_name = definition
                 .model_name
                 .as_deref()
                 .map(str::trim)
-                .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case("none"))
-            else {
+                .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case("none"));
+            let is_audio_only = model_name.is_none()
+                && crate::game_logic::host_move_ambient_audio::definition_has_sound_ambient(
+                    &definition,
+                );
+            if model_name.is_none() && !is_audio_only {
                 // The generic host template cannot represent an object whose
-                // only identity is a behavior/draw module.  Keep it out of
-                // broad production seeding until that module is ported.
+                // only identity is a behavior/draw module.  SoundAmbient-only
+                // map objects are seeded so Drawable startAmbientSound can play.
                 continue;
-            };
-            if let Some(available_models) = available_models {
-                let exact_key = Self::normalize_model_lookup_key(model_name);
-                if !available_models.contains(&exact_key) {
-                    log::debug!(
-                        "Not seeding retail template '{name}': exact W3D '{model_name}' is unavailable"
-                    );
-                    continue;
+            }
+            if let Some(model_name) = model_name {
+                if let Some(available_models) = available_models {
+                    let exact_key = Self::normalize_model_lookup_key(model_name);
+                    if !available_models.contains(&exact_key) {
+                        log::debug!(
+                            "Not seeding retail template '{name}': exact W3D '{model_name}' is unavailable"
+                        );
+                        continue;
+                    }
                 }
             }
 
@@ -6369,7 +6443,7 @@ End
             ("AmbientOnlyRetailAnchor".to_string(), sound_anchor),
         ]);
 
-        assert_eq!(inserted, 1);
+        assert_eq!(inserted, 2);
         let curated_after = logic
             .templates
             .get("AmericaTankCrusader")
@@ -6395,7 +6469,12 @@ End
             Some("PaladinPointDefenseLaser")
         );
         assert!(added.is_kind_of(KindOf::Vehicle));
-        assert!(!logic.templates.contains_key("AmbientOnlyRetailAnchor"));
+        let ambient = logic
+            .templates
+            .get("AmbientOnlyRetailAnchor")
+            .expect("SoundAmbient-only map object is now a live template");
+        assert_eq!(ambient.sound_ambient.as_deref(), Some("AmbientWind"));
+        assert!(ambient.model_name.is_none());
     }
 
     #[test]

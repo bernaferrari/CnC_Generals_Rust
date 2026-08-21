@@ -858,12 +858,31 @@ impl GameLogic {
         spawned
     }
 
+
+    /// C++ `VeterancyCrateCollide::executeCrateBehavior`: crate AIUpdate
+    /// `getGoalObject() == picker`. No AI / no matching goal → inert.
+    pub fn veterancy_crate_ai_goal_matches(
+        &self,
+        crate_id: ObjectId,
+        picker_id: ObjectId,
+    ) -> bool {
+        let Some(crate_obj) = self.objects.get(&crate_id) else {
+            return false;
+        };
+        crate_obj.target == Some(picker_id)
+    }
+
     pub fn execute_veterancy_crate_behavior(
         &mut self,
+        crate_id: ObjectId,
         picker_id: ObjectId,
         effect_range: f32,
         levels: u8,
     ) -> usize {
+        if !self.veterancy_crate_ai_goal_matches(crate_id, picker_id) {
+            return 0;
+        }
+
         let (team, origin, picker_player) = match self.objects.get(&picker_id) {
             Some(p) if p.is_alive() => (p.team, p.get_position(), p.owner_player_id),
             _ => return 0,

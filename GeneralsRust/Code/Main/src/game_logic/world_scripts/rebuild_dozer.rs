@@ -1162,8 +1162,8 @@ impl GameLogic {
                     return None;
                 }
                 // C++ ALLOW_ENEMIES | ALLOW_NEUTRAL only (not allies / own mines).
-                let is_mine = obj.mine_data.is_some()
-                    || crate::game_logic::host_mines::infer_mine_kind(&obj.template_name).is_some();
+                let inferred = crate::game_logic::host_mines::infer_mine_kind(&obj.template_name);
+                let is_mine = obj.mine_data.is_some() || inferred.is_some();
                 if !is_mine {
                     return None;
                 }
@@ -1171,6 +1171,8 @@ impl GameLogic {
                     if !can_clear_mine_kind(md.kind) {
                         return None;
                     }
+                } else if inferred.is_some_and(|kind| !can_clear_mine_kind(kind)) {
+                    return None;
                 }
                 Some(
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {

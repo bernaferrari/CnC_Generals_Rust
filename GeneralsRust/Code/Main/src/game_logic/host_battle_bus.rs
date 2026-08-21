@@ -400,7 +400,7 @@ pub fn battle_bus_dummy_weapon() -> Weapon {
 /// Residual of C++ TransportContain armed-rider check:
 /// infantry with a non-contact damage weapon counts as "armed".
 pub fn rider_has_viable_weapon(weapon: Option<&Weapon>, is_infantry: bool) -> bool {
-    if !is_infantry {
+    if !gamelogic::object::contain::transport_contain_passenger_kind_allowed_to_fire(is_infantry) {
         return false;
     }
     let Some(w) = weapon else {

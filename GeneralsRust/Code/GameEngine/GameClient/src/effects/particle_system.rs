@@ -1861,6 +1861,11 @@ impl ParticleSystem {
         !self.template.info().is_ground_aligned
     }
 
+    /// C++ `ParticleSystemInfo::isUsingSmudge`.
+    pub fn is_using_smudge(&self) -> bool {
+        self.template.info().particle_type == ParticleType::Smudge
+    }
+
     /// Get start frame
     pub fn start_frame(&self) -> u32 {
         self.start_timestamp
