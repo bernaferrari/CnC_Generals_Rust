@@ -768,7 +768,7 @@ impl GameLogic {
             is_listening_outpost: bool,
             is_troop_crawler: bool,
         }
-        let mut detectors: Vec<(ObjectId, Team, Vec3, f32, DetFlags, u32)> = Vec::new();
+        let mut detectors: Vec<(ObjectId, Team, Option<u32>, Vec3, f32, DetFlags, u32)> = Vec::new();
         let mut scanned_detector_ids: Vec<ObjectId> = Vec::new();
         for (id, o) in &self.objects {
             if !(o.is_detector
@@ -836,6 +836,7 @@ impl GameLogic {
             detectors.push((
                 *id,
                 o.team,
+                o.owner_player_id,
                 o.get_position(),
                 range,
                 flags,
@@ -870,10 +871,10 @@ impl GameLogic {
             .collect();
 
         for sid in stealthed_ids {
-            let Some((s_team, s_pos, already_detected)) = self
+            let Some((s_team, s_owner, s_pos, already_detected)) = self
                 .objects
                 .get(&sid)
-                .map(|o| (o.team, o.get_position(), o.status.detected))
+                .map(|o| (o.team, o.owner_player_id, o.get_position(), o.status.detected))
             else {
                 continue;
             };
@@ -889,8 +890,19 @@ impl GameLogic {
             let detected_by_someone =
                 detectors
                     .iter()
-                    .any(|(id, det_team, det_pos, range, flags, rate)| {
-                        let in_range = *det_team != s_team && det_pos.distance(s_pos) <= *range;
+                    .any(|(id, det_team, det_owner, det_pos, range, flags, rate)| {
+                        // C++ PartitionFilterRelationship ALLOW_ENEMIES|ALLOW_NEUTRAL.
+                        let rel_ok = match (*det_owner, s_owner) {
+                            (Some(a), Some(b)) => {
+                                use gamelogic::common::Relationship;
+                                matches!(
+                                    self.player_relationship(a, b),
+                                    Relationship::Enemies | Relationship::Neutral
+                                )
+                            }
+                            _ => *det_team != s_team,
+                        };
+                        let in_range = rel_ok && det_pos.distance(s_pos) <= *range;
                         if in_range {
                             spotting_detectors.push(*id);
                             let hold = stealth_detector_hold_frames(*rate);
