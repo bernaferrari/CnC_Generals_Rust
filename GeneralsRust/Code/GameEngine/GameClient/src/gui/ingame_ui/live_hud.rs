@@ -20,6 +20,12 @@ const INI_CAPTION_COLOR: u32 = 0xFFFF_FFFF;
 const DEFAULT_NAMED_TIMER_NORMAL: u32 = 0xFFFF_FF00; // yellow
 const DEFAULT_NAMED_TIMER_READY: u32 = 0xFFFF_00FF; // magenta
 const DEFAULT_NAMED_TIMER_FLASH: u32 = 0xFF00_FFFF; // cyan
+/// C++ drawName/drawTime color 0 → default white.
+const DEFAULT_SUPERWEAPON_NORMAL: u32 = 0xFFFF_FFFF;
+/// Live READY flash stand-in when INI flash color is also white (retail yellow strip).
+const DEFAULT_SUPERWEAPON_FLASH: u32 = 0xFFFF_FF33;
+/// C++ `parseDurationReal` 0.5s at 30fps — visible READY blink.
+const DEFAULT_SUPERWEAPON_FLASH_FRAMES: u32 = 15;
 
 struct LiveHud {
     subtitle: Option<MilitarySubtitle>,
@@ -34,6 +40,10 @@ struct LiveHud {
     named_timer_flash_duration: i32,
     named_timer_normal_color: u32,
     named_timer_flash_color: u32,
+    superweapon_used_flash_color: bool,
+    superweapon_last_flash_frame: u32,
+    superweapon_flash_duration: u32,
+    superweapon_flash_color: u32,
     last_step_frame: u32,
 }
 
@@ -52,6 +62,10 @@ impl LiveHud {
             named_timer_flash_duration: 1,
             named_timer_normal_color: DEFAULT_NAMED_TIMER_NORMAL,
             named_timer_flash_color: DEFAULT_NAMED_TIMER_FLASH,
+            superweapon_used_flash_color: true,
+            superweapon_last_flash_frame: 0,
+            superweapon_flash_duration: DEFAULT_SUPERWEAPON_FLASH_FRAMES,
+            superweapon_flash_color: DEFAULT_SUPERWEAPON_FLASH,
             last_step_frame: 0,
         }
     }
@@ -71,6 +85,10 @@ fn live_hud() -> &'static Mutex<LiveHud> {
         named_timer_flash_duration: 1,
         named_timer_normal_color: DEFAULT_NAMED_TIMER_NORMAL,
         named_timer_flash_color: DEFAULT_NAMED_TIMER_FLASH,
+        superweapon_used_flash_color: true,
+        superweapon_last_flash_frame: 0,
+        superweapon_flash_duration: DEFAULT_SUPERWEAPON_FLASH_FRAMES,
+        superweapon_flash_color: DEFAULT_SUPERWEAPON_FLASH,
         last_step_frame: 0,
     });
     &HUD
@@ -321,6 +339,33 @@ pub fn live_named_timer_draw(frame: u32) -> Vec<(String, u32, bool)> {
         .filter(|t| !t.display_text.is_empty())
         .map(|t| (t.display_text.clone(), t.draw_color, t.use_ready_font))
         .collect()
+}
+
+fn argb_to_rgba(color: u32) -> [f32; 4] {
+    let a = ((color >> 24) & 0xFF) as f32 / 255.0;
+    let r = ((color >> 16) & 0xFF) as f32 / 255.0;
+    let g = ((color >> 8) & 0xFF) as f32 / 255.0;
+    let b = (color & 0xFF) as f32 / 255.0;
+    [r, g, b, a]
+}
+
+/// C++ InGameUI.cpp:3654-3677 — READY strip blinks flash color vs default.
+pub fn live_superweapon_draw_style(frame: u32, ready: bool) -> ([f32; 4], f32) {
+    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = super::SuperweaponFlashState {
+        used_flash_color: hud.superweapon_used_flash_color,
+        last_flash_frame: hud.superweapon_last_flash_frame,
+    };
+    let style = super::superweapon_ready_draw_style(
+        frame,
+        ready,
+        hud.superweapon_flash_duration,
+        argb_to_rgba(hud.superweapon_flash_color),
+        &mut state,
+    );
+    hud.superweapon_used_flash_color = state.used_flash_color;
+    hud.superweapon_last_flash_frame = state.last_flash_frame;
+    style
 }
 
 pub fn step_live_hud(frame: u32) {

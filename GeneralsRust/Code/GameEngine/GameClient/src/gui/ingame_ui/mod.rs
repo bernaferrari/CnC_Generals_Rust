@@ -82,6 +82,8 @@ include!("place_icons.rs");
 include!("radar_map.rs");
 include!("radius_cursor_ini.rs");
 include!("select_all.rs");
+mod superweapon_ready_flash;
+pub use superweapon_ready_flash::*;
 mod live_hud;
 pub use live_hud::*;
 include!("tests.rs");
