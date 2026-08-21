@@ -1186,6 +1186,9 @@ impl PathfindingGrid {
         self.clear_dynamic_blocks();
 
         for obj in objects.values() {
+            if !obj.is_alive() {
+                continue;
+            }
             if ignore == Some(obj.id) {
                 continue;
             }
