@@ -854,6 +854,38 @@ impl EjectPilotDieMetadata {
     }
 }
 
+/// Exact `RebuildHoleExposeDie` module data. Presence is the C++ die
+/// interface; a template name or GLA KindOf never fabricates a hole.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RebuildHoleExposeDieMetadata {
+    /// C++ `m_holeName` (`HoleName`).
+    pub hole_name: String,
+    /// C++ `m_holeMaxHealth` (`HoleMaxHealth`). Constructor default 0.
+    pub hole_max_health: f32,
+    /// C++ `m_transferAttackers` (`TransferAttackers`). Default true.
+    pub transfer_attackers: bool,
+}
+
+impl Default for RebuildHoleExposeDieMetadata {
+    fn default() -> Self {
+        Self {
+            hole_name: String::new(),
+            hole_max_health: 0.0,
+            transfer_attackers: true,
+        }
+    }
+}
+
+impl RebuildHoleExposeDieMetadata {
+    pub fn authored(hole_name: impl Into<String>, hole_max_health: f32) -> Self {
+        Self {
+            hole_name: hole_name.into(),
+            hole_max_health,
+            transfer_attackers: true,
+        }
+    }
+}
+
 /// Exact `HackInternetAIUpdateModuleData` fields retained from Object INI.
 ///
 /// The host uses this only for the currently implemented cash scheduler.  It
@@ -1440,6 +1472,10 @@ pub struct ThingTemplate {
     /// rejects unrepresentable filters or OCLs.
     #[serde(default)]
     pub eject_pilot_die: Option<EjectPilotDieMetadata>,
+    /// Exact `RebuildHoleExposeDie` module data. Presence, not a GLA/name
+    /// heuristic, is the C++ hole-expose authority.
+    #[serde(default)]
+    pub rebuild_hole_expose: Option<RebuildHoleExposeDieMetadata>,
     /// Exact `HackInternetAIUpdate` module data.  This remains absent when a
     /// source unit is merely named like a hacker; active command and income
     /// authority require this typed behavior.
@@ -1749,6 +1785,7 @@ impl ThingTemplate {
             production_exit_metadata: None,
             veterancy_crate_collide: None,
             eject_pilot_die: None,
+            rebuild_hole_expose: None,
             hack_internet_ai_update: None,
             hacker_disable_building: None,
             charge_plant_abilities: Vec::new(),
@@ -2286,6 +2323,19 @@ impl ThingTemplate {
 
     pub fn set_health(&mut self, health: f32) -> &mut Self {
         self.max_health = health;
+        self
+    }
+
+    /// Author a `RebuildHoleExposeDie` HoleName / HoleMaxHealth pair.
+    pub fn set_rebuild_hole_expose(
+        &mut self,
+        hole_name: &str,
+        hole_max_health: f32,
+    ) -> &mut Self {
+        self.rebuild_hole_expose = Some(RebuildHoleExposeDieMetadata::authored(
+            hole_name,
+            hole_max_health,
+        ));
         self
     }
 

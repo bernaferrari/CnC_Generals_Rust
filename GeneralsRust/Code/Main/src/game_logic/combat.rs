@@ -1697,18 +1697,29 @@ impl CombatSystem {
                     ..
                 } => {
                     // America Countermeasures residual: divert missile before Direct damage.
+                    // C++ Weapon.cpp:1144-1155 KINDOF_SMALL_MISSILE only (not bullets).
                     let mut diverted = false;
                     if let Some(reg) = countermeasures.as_mut() {
                         if let Some(target) = objects.get(target_id) {
                             let is_air = target.is_kind_of(KindOf::Aircraft)
                                 || target.status.airborne_target;
+                            let is_small_missile = matches!(
+                                damage_type,
+                                DamageType::InfantryMissile
+                                    | DamageType::JetMissiles
+                                    | DamageType::StealthJetMissiles
+                                    | DamageType::SubdualMissile
+                            ) || objects.get(shooter_id).is_some_and(|s| {
+                                s.is_kind_of(KindOf::SmallMissile)
+                                    || s.is_kind_of(KindOf::Projectile)
+                                        && s.template_name.to_ascii_lowercase().contains("missile")
+                            });
                             if is_air
+                                && is_small_missile
                                 && crate::game_logic::host_countermeasures::aircraft_has_countermeasures_upgrade(
                                     &target.applied_upgrades,
                                 )
                             {
-                                // projectile id residual: use target_id xor frame as stand-in when
-                                // DamageEvent does not carry proj id (evasion still deterministic).
                                 let proj_key = ObjectId(target_id.0.wrapping_add(frame));
                                 diverted = crate::game_logic::host_countermeasures::try_divert_missile(
                                     reg,

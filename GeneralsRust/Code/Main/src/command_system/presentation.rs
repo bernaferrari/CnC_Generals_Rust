@@ -116,6 +116,14 @@ pub struct PresentationTargetHint {
     /// C++ `OBJECT_STATUS_IS_CARBOMB` — convert-to-carbomb rejects already-bombs.
     #[serde(default)]
     pub is_carbomb: bool,
+    /// C++ `DISABLED_UNMANNED` — Kell/neutron husk. Infantry `canEnterObject`
+    /// returns TRUE before contain/capacity (`ActionManager.cpp:552-560`).
+    #[serde(default)]
+    pub is_unmanned: bool,
+    /// C++ `KINDOF_MINE` / `KINDOF_DEMOTRAP` / mine-data. Dozer DISARM is
+    /// only a legal context attack against these (`ActionManager.cpp:740-748`).
+    #[serde(default)]
+    pub is_mine: bool,
 }
 
 /// Wave 229: presentation-frozen selected-unit capability for RMB classification.

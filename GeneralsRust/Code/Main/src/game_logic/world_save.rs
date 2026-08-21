@@ -713,7 +713,22 @@ impl GameLogic {
         destination: Vec3,
         waypoints: &[Vec3],
     ) -> bool {
-        self.assign_unit_path_inner(unit_id, destination, waypoints, false)
+        self.assign_unit_path_ignoring(unit_id, destination, waypoints, None)
+    }
+
+    /// C++ `ignoreObstacle(goalObject)` then `aiMoveToPosition` (DozerAIUpdate.cpp:210-211).
+    pub fn assign_unit_path_ignoring(
+        &mut self,
+        unit_id: ObjectId,
+        destination: Vec3,
+        waypoints: &[Vec3],
+        ignore_obstacle: Option<ObjectId>,
+    ) -> bool {
+        self.pathfinding_system
+            .set_ignore_obstacle(ignore_obstacle);
+        let ok = self.assign_unit_path_inner(unit_id, destination, waypoints, false);
+        self.pathfinding_system.set_ignore_obstacle(None);
+        ok
     }
 
     #[cfg(test)]
@@ -791,6 +806,7 @@ impl GameLogic {
                     aircraft: is_aircraft,
                     surfaces,
                     is_crusher,
+                    ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
                 });
             crate::game_logic::host_move_log::record(
                 unit_id,
@@ -1048,6 +1064,8 @@ impl GameLogic {
                 }
                 continue;
             }
+            self.pathfinding_system
+                .set_ignore_obstacle(req.ignore_obstacle);
             match self.compute_assigned_unit_path(
                 req.unit_id,
                 start,
@@ -1071,6 +1089,7 @@ impl GameLogic {
                     }
                 }
             }
+            self.pathfinding_system.set_ignore_obstacle(None);
         }
     }
 
@@ -1323,9 +1342,19 @@ impl GameLogic {
         goal: Vec3,
         state: AIState,
     ) {
+        self.path_approach_with_state_ignoring(object_id, goal, state, None);
+    }
+
+    pub(crate) fn path_approach_with_state_ignoring(
+        &mut self,
+        object_id: ObjectId,
+        goal: Vec3,
+        state: AIState,
+        ignore_obstacle: Option<ObjectId>,
+    ) {
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
-        if self.assign_unit_path(object_id, goal, &[]) {
+        if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
             if decision_auth {
                 crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
             } else if let Some(obj) = self.objects.get_mut(&object_id) {

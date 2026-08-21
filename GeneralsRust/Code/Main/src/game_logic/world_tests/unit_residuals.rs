@@ -2757,6 +2757,93 @@ fn combat_cycle_residual_rider_weapon_switch() {
     );
 }
 
+/// C++ Combat Bike UseRiderStealth: Kell/Hijacker/Saboteur cloak the bike.
+#[test]
+fn combat_cycle_use_rider_stealth_cloaks_from_rider() {
+    use crate::game_logic::host_combat_cycle::{
+        honesty_combat_cycle_rider_stealth_ok, CombatCycleRider,
+    };
+
+    let mut game_logic = GameLogic::new();
+    let mut bike_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleCombatBike");
+    bike_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("GLAVehicleCombatBike".to_string(), bike_tpl);
+
+    let bike_id = game_logic
+        .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bike");
+
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(
+            !b.status.stealthed,
+            "Rebel InitialPayload bike must stay visible"
+        );
+    }
+
+    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::JarmenKell));
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(
+            b.status.stealthed,
+            "Kell rider must cloak the bike via UseRiderStealth"
+        );
+    }
+
+    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Hijacker));
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(b.status.stealthed, "Hijacker bike must stay cloaked");
+    }
+
+    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Saboteur));
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(b.status.stealthed, "Saboteur bike must stay cloaked");
+    }
+
+    {
+        let b = game_logic.host_object_mut(bike_id).expect("bike");
+        b.status.attacking = true;
+    }
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(
+            !b.status.stealthed,
+            "ATTACKING destalths a UseRiderStealth bike"
+        );
+    }
+
+    assert!(game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::Rebel));
+    {
+        let b = game_logic.host_object_mut(bike_id).expect("bike");
+        b.status.attacking = false;
+        b.stealth_allowed_frame = 0;
+        b.stealth_delay_pending = false;
+    }
+    game_logic.update_stealth_and_detection();
+    {
+        let b = game_logic.host_object(bike_id).expect("bike");
+        assert!(
+            !b.status.stealthed,
+            "Rebel rider must not grant bike stealth"
+        );
+    }
+    assert!(honesty_combat_cycle_rider_stealth_ok());
+}
+
+
 /// Residual: Avenger paints FAERIE_FIRE; ally shoots painted target faster residual.
 #[test]
 fn avenger_residual_designator_paint_and_rof() {

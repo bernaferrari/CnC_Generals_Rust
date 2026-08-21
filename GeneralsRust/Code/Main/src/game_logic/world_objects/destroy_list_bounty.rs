@@ -662,7 +662,12 @@ impl GameLogic {
                     }
 
                     // Cash bounty residual: award ceil(cost * percent) on enemy kill.
-                    if enemy_kill && !under_construction && player.cash_bounty_percent > 0.0 {
+                    // C++ scoreTheKill gates doBountyForKill with playable-side + IGNORED_IN_GUI.
+                    if enemy_kill
+                        && !under_construction
+                        && score_counts
+                        && player.cash_bounty_percent > 0.0
+                    {
                         bounty_awarded = player.do_bounty_for_kill(build_cost);
                     }
 

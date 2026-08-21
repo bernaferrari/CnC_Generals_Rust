@@ -1237,6 +1237,8 @@ fn crate_click_issues_do_salvage_for_salvager_selection() {
             is_aircraft: false,
             is_drone: false,
             is_carbomb: false,
+            is_unmanned: false,
+            is_mine: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: salvager,
@@ -1363,6 +1365,8 @@ fn ordinary_crate_click_issues_move_to_crate() {
             is_aircraft: false,
             is_drone: false,
             is_carbomb: false,
+            is_unmanned: false,
+            is_mine: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: unit,
@@ -2129,6 +2133,8 @@ fn hijacker_context_click_issues_hijack_before_attack() {
             is_aircraft: false,
             is_drone: false,
             is_carbomb: false,
+            is_unmanned: false,
+            is_mine: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: hijacker,
@@ -2226,6 +2232,8 @@ fn lotus_context_click_auto_hacks_enemy_vehicle() {
             is_aircraft: false,
             is_drone: false,
             is_carbomb: false,
+            is_unmanned: false,
+            is_mine: false,
         }),
         selected_presentation: vec![PresentationSelectedUnitHint {
             id: lotus,

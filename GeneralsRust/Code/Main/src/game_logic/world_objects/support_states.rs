@@ -2500,6 +2500,58 @@ impl GameLogic {
                         }
                     }
 
+                    // C++ canEnterObject unmanned: any !REJECT_UNMANNED infantry
+                    // steals the husk (clear UNMANNED, defect to infantry team,
+                    // destroy infantry). Not the USA Pilot veterancy-crate path.
+                    if self.can_execute_infantry_unmanned_recrew(object_id, container_id) {
+                        let infantry_snapshot = self.objects.get(&object_id).map(|o| {
+                            (
+                                o.team,
+                                o.owner_player_id,
+                                o.get_position(),
+                                o.selection_radius,
+                                o.can_move(),
+                            )
+                        });
+                        let vehicle_snapshot = self
+                            .objects
+                            .get(&container_id)
+                            .map(|v| (v.get_position(), v.selection_radius));
+                        if let (
+                            Some((inf_team, inf_owner, inf_pos, inf_radius, inf_can_move)),
+                            Some((vehicle_pos, vehicle_radius)),
+                        ) = (infantry_snapshot, vehicle_snapshot)
+                        {
+                            let enter_range = inf_radius + vehicle_radius + 4.0;
+                            if inf_can_move && inf_pos.distance(vehicle_pos) > enter_range {
+                                self.path_approach_with_state(
+                                    object_id,
+                                    vehicle_pos,
+                                    AIState::Entering,
+                                );
+                                continue;
+                            }
+                            if let Some(veh) = self.objects.get_mut(&container_id) {
+                                if veh.status.disabled_unmanned {
+                                    veh.set_status_disabled_unmanned(false);
+                                    veh.status.unmanned_owner_team = None;
+                                    veh.status.unmanned_owner_player_id = None;
+                                    veh.set_status_disabled_hacked(false);
+                                    veh.status.disabled_hacked_until_frame = 0;
+                                    veh.stop_moving();
+                                    veh.target = None;
+                                    veh.set_ai_state(AIState::Idle);
+                                    veh.set_team_and_owner(inf_team, inf_owner);
+                                }
+                            }
+                            self.unmanned_reclaims =
+                                self.unmanned_reclaims.saturating_add(1);
+                            self.mark_destroyed_authority_aware(object_id, None);
+                            self.mark_object_for_destruction(object_id, Some(inf_team));
+                            continue;
+                        }
+                    }
+
                     // Normal `MSG_ENTER` was already accepted by the command
                     // executor, but the target can change while the unit walks
                     // toward it.  Revalidate through the same centralized
@@ -3212,7 +3264,8 @@ impl GameLogic {
                                     self.objects
                                         .get_mut(&capture_target_id)
                                         .map(|target| {
-                                            target.health.heal(target.max_health);
+                                            // C++ Object::defect does not restore HP
+                                            // (SpecialAbilityUpdate.cpp:1442 / Object.cpp:6111).
                                             // C++ defect(..., 1) one-frame flash residual.
                                             target.flash_as_selected();
                                             true

@@ -90,6 +90,13 @@ impl<'a> CommandExecutor<'a> {
         if pilot_recrew {
             return true;
         }
+        // C++ canEnterObject: generic infantry steals DISABLED_UNMANNED husks.
+        if self
+            .game_logic
+            .can_execute_infantry_unmanned_recrew(unit_id, target_id)
+        {
+            return true;
+        }
 
         // Keep the executor as the final authority.  This central helper is
         // also used by boot classification and Enter arrival, so a frozen RMB

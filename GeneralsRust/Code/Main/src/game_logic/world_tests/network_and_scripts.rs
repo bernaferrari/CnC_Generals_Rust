@@ -1466,6 +1466,45 @@ fn capture_trigger_awards_ranger_award_xp_for_triggering() {
     );
 }
 
+/// C++ `Object::defect` does not restore HP on infantry / Lotus capture.
+#[test]
+fn capture_does_not_heal_building_to_full() {
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    ensure_test_structure_template(&mut game_logic);
+
+    let captor_id = game_logic
+        .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+        .expect("captor");
+    let building_id = game_logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("building");
+    {
+        let building = game_logic.host_object_mut(building_id).expect("building");
+        building.health.current = 40.0;
+        building.health.maximum = building.health.maximum.max(100.0);
+        building.max_health = building.health.maximum;
+    }
+    {
+        let captor = game_logic.host_object_mut(captor_id).expect("captor");
+        captor.thing.template.is_trainable = true;
+        captor.target = Some(building_id);
+        captor.set_ai_state(AIState::Capturing);
+    }
+
+    game_logic.update_ai(&[captor_id, building_id], 3.0);
+    game_logic.update_ai(&[captor_id, building_id], 20.0);
+
+    let building = game_logic.host_object(building_id).expect("building");
+    assert_eq!(building.team, Team::USA, "capture must transfer ownership");
+    assert!(
+        (building.health.current - 40.0).abs() < 0.01,
+        "C++ defect must keep current HP, got {}",
+        building.health.current
+    );
+}
+
+
 
 #[test]
 fn black_lotus_capture_uses_its_zero_reload_at_preparation_not_ranger_timer() {
@@ -1688,6 +1727,8 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
                 is_aircraft: false,
                 is_drone: false,
                 is_carbomb: false,
+                is_unmanned: false,
+                is_mine: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,
@@ -3214,6 +3255,8 @@ fn physical_service_commands_use_player_relationship_and_revalidate_owner_change
                 is_aircraft: false,
                 is_drone: false,
                 is_carbomb: false,
+                is_unmanned: false,
+                is_mine: false,
             }),
             selected_presentation: vec![selected_hint()],
             presentation_box_select_units: Vec::new(),

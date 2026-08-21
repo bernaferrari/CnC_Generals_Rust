@@ -126,9 +126,33 @@ impl<'a> CommandExecutor<'a> {
                 }
                 return CommandResult::InvalidCommand;
             }
+            // C++ construct:1717 newTask(DOZER_TASK_BUILD, obj).
+            self.game_logic.dozer_new_task_build(unit_id, building_id);
             // C++ WorkerAIUpdate::newTask: leave supply-truck mode / drop dock.
             self.game_logic.worker_exit_supply_for_dozer_task(unit_id);
-            let _ = self.path_to_goal_with_state(unit_id, location, AIState::Constructing);
+            // C++ findGoodBuildOrRepairPosition half majorRadius + ignoreObstacle.
+            let (dozer_pos, pad_pos, pad_radius) = {
+                let dpos = self
+                    .game_logic
+                    .host_object(unit_id)
+                    .map(|u| u.get_position())
+                    .unwrap_or(location);
+                let (ppos, prad) = self
+                    .game_logic
+                    .host_object(building_id)
+                    .map(|b| (b.get_position(), b.selection_radius))
+                    .unwrap_or((location, 0.0));
+                (dpos, ppos, prad)
+            };
+            let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
+                dozer_pos, pad_pos, pad_radius,
+            );
+            let _ = self.path_to_goal_with_state_ignoring(
+                unit_id,
+                approach,
+                AIState::Constructing,
+                Some(building_id),
+            );
             debug!(
                 "Unit {} building {} at {:?}",
                 unit_id.0, template_name, location

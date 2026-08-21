@@ -2392,8 +2392,34 @@ impl CnCGameEngine {
             self.presentation_mouse_game_logic(),
         );
         match cmd.map(|c| c.command_type) {
-            Some(crate::command_system::CommandType::AttackObject { .. }) => {
-                ("AttackObj", CursorIcon::Crosshair)
+            Some(crate::command_system::CommandType::AttackObject { target_id }) => {
+                // C++ POSSIBLE → ATTACK_OBJECT; POSSIBLE_AFTER_MOVING → OUTRANGE
+                // hint. Click still issues AttackObject in both cases.
+                let out_of_range = self.last_presentation_frame.as_ref().is_some_and(|frame| {
+                    let Some(target) = frame.objects.iter().find(|o| o.id == target_id) else {
+                        return false;
+                    };
+                    let any_weapon = selected.iter().any(|&id| {
+                        frame
+                            .objects
+                            .iter()
+                            .find(|o| o.id == id)
+                            .is_some_and(|a| a.has_weapon)
+                    });
+                    any_weapon
+                        && !selected.iter().any(|&id| {
+                            frame
+                                .objects
+                                .iter()
+                                .find(|o| o.id == id)
+                                .is_some_and(|a| presentation_weapon_reaches(a, target.position))
+                        })
+                });
+                if out_of_range {
+                    ("OutRange", CursorIcon::NotAllowed)
+                } else {
+                    ("AttackObj", CursorIcon::Crosshair)
+                }
             }
             Some(crate::command_system::CommandType::ForceAttackObject { .. }) => {
                 ("ForceAttackObj", CursorIcon::Crosshair)
@@ -2404,9 +2430,34 @@ impl CnCGameEngine {
             Some(crate::command_system::CommandType::Enter { .. }) => {
                 ("EnterFriendly", CursorIcon::Copy)
             }
-            Some(crate::command_system::CommandType::GetRepaired { .. })
-            | Some(crate::command_system::CommandType::Repair { .. }) => {
+            Some(crate::command_system::CommandType::GetRepaired { .. }) => {
                 ("GetRepaired", CursorIcon::Progress)
+            }
+            Some(crate::command_system::CommandType::Repair { .. }) => {
+                ("DoRepair", CursorIcon::Progress)
+            }
+            Some(crate::command_system::CommandType::GetHealed { .. }) => {
+                ("GetHealed", CursorIcon::Progress)
+            }
+            Some(crate::command_system::CommandType::Dock { .. })
+            | Some(crate::command_system::CommandType::Gather { .. }) => {
+                ("Dock", CursorIcon::AllScroll)
+            }
+            Some(crate::command_system::CommandType::Hijack { .. })
+            | Some(crate::command_system::CommandType::ConvertToCarbomb { .. })
+            | Some(crate::command_system::CommandType::Sabotage { .. }) => {
+                ("EnterAggressively", CursorIcon::Copy)
+            }
+            Some(crate::command_system::CommandType::DisableVehicleHack { .. })
+            | Some(crate::command_system::CommandType::StealCashHack { .. })
+            | Some(crate::command_system::CommandType::HackerDisableBuilding { .. }) => {
+                ("Hack", CursorIcon::Cell)
+            }
+            Some(crate::command_system::CommandType::OverrideSpecialPowerDestination { .. }) => {
+                ("ParticleUplinkCannon", CursorIcon::Crosshair)
+            }
+            Some(crate::command_system::CommandType::SetRallyPoint { .. }) => {
+                ("SetRallyPoint", CursorIcon::Cell)
             }
             Some(crate::command_system::CommandType::ResumeConstruction { .. }) => {
                 ("ResumeConstruction", CursorIcon::Progress)
@@ -3050,6 +3101,20 @@ impl CnCGameEngine {
                 crate::game_logic::KindOf::Drone,
             ),
             is_carbomb: o.is_carbomb,
+            is_unmanned: o.disabled_unmanned,
+            is_mine: o.has_mine
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::Mine,
+                )
+                || crate::presentation_frame::PresentationFrame::object_has_kind(
+                    o,
+                    crate::game_logic::KindOf::DemoTrap,
+                )
+                || crate::game_logic::host_car_bomb::object_definition_has_kind(
+                    &o.template_name,
+                    "MINE",
+                ),
         })
     }
 

@@ -2525,6 +2525,9 @@ impl GameLogic {
         // C++ OCL ApplyRandomForceNugget residual (air-death toss before debris).
         let _ = self.apply_ocl_random_force(id);
         self.maybe_apply_upgrade_die(id);
+        // C++ RebuildHoleExposeDie::onDie at death start (before topple/slow-death).
+        // WorkerRespawnDelay starts here, not after collapse Done.
+        let _ = self.maybe_spawn_rebuild_hole(id);
         // C++ InstantDeathBehavior::onDie — FX/OCL/Weapon then destroyObject.
         if self.try_apply_instant_death(id) {
             self.objects_to_destroy
@@ -2547,14 +2550,15 @@ impl GameLogic {
         // Wave 482: BuildAssistant sell finish removes the object immediately.
         // Do not defer into StructureTopple/Collapse / SlowDeath / KeepObjectDie —
         // those combat-death peels left sold structures alive forever in host-only tests.
-        let (sold, under_construction) = self
+        let (sold, under_construction, is_rebuild_hole) = self
             .objects
             .get(&id)
-            .map(|o| (o.status.sold, o.status.under_construction))
-            .unwrap_or((false, false));
+            .map(|o| (o.status.sold, o.status.under_construction, o.is_rebuild_hole))
+            .unwrap_or((false, false, false));
         // Wave 715: MSG_DOZER_CANCEL_CONSTRUCT / unfinished builds remove immediately.
         // Do not defer into StructureTopple — cancel would leave the shell alive a frame+.
-        if !sold && !under_construction {
+        // Rebuild holes are already craters (no StructureToppleUpdate in C++).
+        if !sold && !under_construction && !is_rebuild_hole {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
             if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
                 return;

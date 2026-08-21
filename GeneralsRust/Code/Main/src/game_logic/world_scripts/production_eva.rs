@@ -738,7 +738,10 @@ impl GameLogic {
         }
     }
 
-    fn parsed_superweapon_eva_source(&self, source_id: ObjectId) -> Option<(Team, &'static str)> {
+    fn parsed_superweapon_eva_source(
+        &self,
+        source_id: ObjectId,
+    ) -> Option<(Option<u32>, Team, &'static str)> {
         let obj = self.objects.get(&source_id)?;
         let kind = obj
             .thing
@@ -748,8 +751,9 @@ impl GameLogic {
             .filter(|module| module.public_timer)
             .filter_map(|module| module.command_power.as_ref())
             .find_map(Self::classify_superweapon_eva_power)?;
-        Some((obj.team, kind))
+        Some((obj.owner_player_id, obj.team, kind))
     }
+
 
     /// C++ InGameUI SuperweaponReady EVA residual (own/ally/enemy × type).
 
@@ -769,6 +773,47 @@ impl GameLogic {
         }
     }
 
+    fn eva_local_player_id(&self) -> Option<u32> {
+        self.players
+            .values()
+            .find(|player| player.is_local && player.is_alive)
+            .map(|player| player.id)
+    }
+
+    /// Owner id wins; otherwise the unique player for `owner_team`.
+    /// Never first-of-faction — two USA slots stay unambiguous.
+    fn eva_resolve_owner_player_id(
+        &self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+    ) -> Option<u32> {
+        owner_player_id
+            .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
+            .or_else(|| self.unique_player_id_for_team(owner_team))
+    }
+
+    /// C++ Superweapon Detected/Launched/Ready:
+    /// controllingPlayer == local → own; else getRelationship != ENEMIES → ally
+    /// (NEUTRAL counted as ally); else enemy.
+    fn eva_own_ally_enemy(
+        &self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+    ) -> Option<&'static str> {
+        let local_id = self.eva_local_player_id()?;
+        let Some(owner_id) = self.eva_resolve_owner_player_id(owner_player_id, owner_team) else {
+            return Some("enemy");
+        };
+        if owner_id == local_id {
+            return Some("own");
+        }
+        Some(match self.player_relationship(local_id, owner_id) {
+            gamelogic::common::Relationship::Enemies => "enemy",
+            _ => "ally",
+        })
+    }
+
+
     /// C++ SpecialPowerModule SuperweaponLaunched EVA residual (own/ally/enemy × type).
 
     /// C++ GameLogicDispatch beacon place residual:
@@ -778,23 +823,17 @@ impl GameLogic {
     ///
     /// `kind`: "gps" | "sneak"
     pub fn try_eva_special_launched_misc(&mut self, owner_team: Team, kind: &str) {
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+        self.try_eva_special_launched_misc_owned(None, owner_team, kind);
+    }
+
+    pub fn try_eva_special_launched_misc_owned(
+        &mut self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+        kind: &str,
+    ) {
+        let Some(relation) = self.eva_own_ally_enemy(owner_player_id, owner_team) else {
             return;
-        };
-        let local_team = local.team;
-        let local_alliance = local.alliance_team;
-        let owner_alliance = self
-            .players
-            .values()
-            .find(|p| p.team == owner_team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
-        let relation = if owner_team == local_team {
-            "own"
-        } else if local_alliance >= 0 && local_alliance == owner_alliance {
-            "ally"
-        } else {
-            "enemy"
         };
         use gamelogic::helpers::EvaEvent;
         let event = match (kind, relation) {
@@ -811,25 +850,21 @@ impl GameLogic {
         self.eva_special_launched_misc = self.eva_special_launched_misc.saturating_add(1);
     }
 
+
     pub fn honesty_eva_special_launched_misc_ok(&self) -> bool {
         self.eva_special_launched_misc > 0
     }
 
     pub fn try_eva_beacon_detected(&mut self, placer_player_id: u32) {
-        let Some(placer) = self.players.get(&placer_player_id) else {
+        let Some(local_id) = self.eva_local_player_id() else {
             return;
         };
-        let placer_team = placer.team;
-        let placer_alliance = placer.alliance_team;
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
-            return;
-        };
-        // C++ relationship ALLIES — exclude self / same controlling player.
-        if local.id == placer_player_id || local.team == placer_team {
-            return;
-        }
-        let is_ally = local.alliance_team >= 0 && local.alliance_team == placer_alliance;
-        if !is_ally {
+        // C++ GameLogicDispatch.cpp:1632 — getRelationship(placer default team) == ALLIES.
+        // Self is Neutral unless mapped, so this also excludes the local placer.
+        if self.player_relationship(local_id, placer_player_id)
+            != gamelogic::common::Relationship::Allies
+            || local_id == placer_player_id
+        {
             return;
         }
         let _ = gamelogic::helpers::TheEva::set_should_play(
@@ -838,6 +873,7 @@ impl GameLogic {
         crate::game_logic::host_eva_log::record_event(gamelogic::helpers::EvaEvent::BeaconDetected);
         self.eva_beacon_detected = self.eva_beacon_detected.saturating_add(1);
     }
+
 
     pub fn honesty_eva_beacon_detected_ok(&self) -> bool {
         self.eva_beacon_detected > 0
@@ -856,6 +892,7 @@ impl GameLogic {
         }
         let name = obj.template_name.to_ascii_lowercase();
         let team = obj.team;
+        let owner_player_id = obj.owner_player_id;
         let kind =
             if crate::game_logic::host_hero_abilities::is_black_lotus_template(&obj.template_name)
                 || name.contains("blacklotus")
@@ -869,21 +906,19 @@ impl GameLogic {
             } else {
                 return;
             };
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+        let Some(local_id) = self.eva_local_player_id() else {
             return;
         };
-        let local_team = local.team;
-        let local_alliance = local.alliance_team;
-        let owner_alliance = self
-            .players
-            .values()
-            .find(|p| p.team == team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
-        let is_own = team == local_team;
-        let is_ally = !is_own && local_alliance >= 0 && local_alliance == owner_alliance;
-        // Enemy residual for non-own non-ally; ally residual fail-closed (no ally EVA names).
-        if is_ally {
+        let Some(owner_id) = self.eva_resolve_owner_player_id(owner_player_id, team) else {
+            return;
+        };
+        let is_own = owner_id == local_id;
+        // C++ StealthDetectorUpdate: Own* only for local controller, Enemy* only
+        // when the detector/victim pair is not ALLIES. No ally hero EVA names.
+        if !is_own
+            && self.player_relationship(local_id, owner_id)
+                == gamelogic::common::Relationship::Allies
+        {
             return;
         }
         use gamelogic::helpers::EvaEvent;
@@ -901,6 +936,7 @@ impl GameLogic {
         self.eva_hero_detected = self.eva_hero_detected.saturating_add(1);
     }
 
+
     pub fn honesty_eva_hero_detected_ok(&self) -> bool {
         self.eva_hero_detected > 0
     }
@@ -910,26 +946,20 @@ impl GameLogic {
         owner_team: Team,
         kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
     ) {
+        self.try_eva_superweapon_launched_owned(None, owner_team, kind);
+    }
+
+    pub fn try_eva_superweapon_launched_owned(
+        &mut self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+        kind: crate::game_logic::special_power_strikes::HostSuperweaponKind,
+    ) {
         let Some(family) = Self::classify_superweapon_launched_kind(kind) else {
             return;
         };
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+        let Some(relation) = self.eva_own_ally_enemy(owner_player_id, owner_team) else {
             return;
-        };
-        let local_team = local.team;
-        let local_alliance = local.alliance_team;
-        let owner_alliance = self
-            .players
-            .values()
-            .find(|p| p.team == owner_team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
-        let relation = if owner_team == local_team {
-            "own"
-        } else if local_alliance >= 0 && local_alliance == owner_alliance {
-            "ally"
-        } else {
-            "enemy"
         };
         use gamelogic::helpers::EvaEvent;
         let event = match (family, relation) {
@@ -949,6 +979,7 @@ impl GameLogic {
         self.eva_superweapon_launched = self.eva_superweapon_launched.saturating_add(1);
     }
 
+
     pub fn honesty_eva_superweapon_launched_ok(&self) -> bool {
         self.eva_superweapon_launched > 0
     }
@@ -957,36 +988,28 @@ impl GameLogic {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
         };
-        self.try_eva_superweapon_detected_kind(owner_team, kind);
+        self.try_eva_superweapon_detected_kind(None, owner_team, kind);
     }
+
 
     /// Live construction path: exact parsed module authority, never a
     /// superweapon-shaped object name.
     pub fn try_eva_superweapon_detected_for_source(&mut self, source_id: ObjectId) {
-        let Some((owner_team, kind)) = self.parsed_superweapon_eva_source(source_id) else {
+        let Some((owner_player_id, owner_team, kind)) = self.parsed_superweapon_eva_source(source_id)
+        else {
             return;
         };
-        self.try_eva_superweapon_detected_kind(owner_team, kind);
+        self.try_eva_superweapon_detected_kind(owner_player_id, owner_team, kind);
     }
 
-    fn try_eva_superweapon_detected_kind(&mut self, owner_team: Team, kind: &'static str) {
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
+    fn try_eva_superweapon_detected_kind(
+        &mut self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+        kind: &'static str,
+    ) {
+        let Some(relation) = self.eva_own_ally_enemy(owner_player_id, owner_team) else {
             return;
-        };
-        let local_team = local.team;
-        let local_alliance = local.alliance_team;
-        let owner_alliance = self
-            .players
-            .values()
-            .find(|p| p.team == owner_team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
-        let relation = if owner_team == local_team {
-            "own"
-        } else if local_alliance >= 0 && local_alliance == owner_alliance {
-            "ally"
-        } else {
-            "enemy"
         };
         use gamelogic::helpers::EvaEvent;
         let event = match (kind, relation) {
@@ -1006,51 +1029,59 @@ impl GameLogic {
         self.eva_superweapon_detected = self.eva_superweapon_detected.saturating_add(1);
     }
 
+
     pub fn honesty_eva_superweapon_detected_ok(&self) -> bool {
         self.eva_superweapon_detected > 0
     }
 
     pub fn try_eva_superweapon_ready(
         &mut self,
-        _source_id: ObjectId,
+        source_id: ObjectId,
         owner_team: Team,
         template_name: &str,
     ) {
         let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
             return;
         };
-        self.try_eva_superweapon_ready_kind(owner_team, kind);
+        let owner_player_id = self.objects.get(&source_id).and_then(|obj| obj.owner_player_id);
+        self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
+    }
+
+    pub fn try_eva_superweapon_ready_for_player(
+        &mut self,
+        owner_player_id: u32,
+        template_name: &str,
+    ) {
+        let Some(kind) = Self::classify_superweapon_eva_kind(template_name) else {
+            return;
+        };
+        let owner_team = self
+            .players
+            .get(&owner_player_id)
+            .map(|player| player.team)
+            .unwrap_or(Team::Neutral);
+        self.try_eva_superweapon_ready_kind(Some(owner_player_id), owner_team, kind);
     }
 
     /// Live cooldown-ready path: resolve family from the source's parsed
     /// module list rather than its template basename.
     pub fn try_eva_superweapon_ready_for_source(&mut self, source_id: ObjectId) {
-        let Some((owner_team, kind)) = self.parsed_superweapon_eva_source(source_id) else {
+        let Some((owner_player_id, owner_team, kind)) = self.parsed_superweapon_eva_source(source_id)
+        else {
             return;
         };
-        self.try_eva_superweapon_ready_kind(owner_team, kind);
+        self.try_eva_superweapon_ready_kind(owner_player_id, owner_team, kind);
     }
 
-    fn try_eva_superweapon_ready_kind(&mut self, owner_team: Team, kind: &'static str) {
-        // Need a local player to attribute own/ally/enemy residual.
-        let Some(local) = self.players.values().find(|p| p.is_local && p.is_alive) else {
-            return;
-        };
-        let local_team = local.team;
-        let local_alliance = local.alliance_team;
-        let owner_alliance = self
-            .players
-            .values()
-            .find(|p| p.team == owner_team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
 
-        let relation = if owner_team == local_team {
-            "own"
-        } else if local_alliance >= 0 && local_alliance == owner_alliance {
-            "ally"
-        } else {
-            "enemy"
+    fn try_eva_superweapon_ready_kind(
+        &mut self,
+        owner_player_id: Option<u32>,
+        owner_team: Team,
+        kind: &'static str,
+    ) {
+        let Some(relation) = self.eva_own_ally_enemy(owner_player_id, owner_team) else {
+            return;
         };
 
         use gamelogic::helpers::EvaEvent;
@@ -1070,6 +1101,7 @@ impl GameLogic {
         crate::game_logic::host_eva_log::record_event(event);
         self.eva_superweapon_ready = self.eva_superweapon_ready.saturating_add(1);
     }
+
 
     pub fn honesty_eva_superweapon_ready_ok(&self) -> bool {
         self.eva_superweapon_ready > 0
@@ -1575,3 +1607,130 @@ impl GameLogic {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::special_power_strikes::HostSuperweaponKind;
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::helpers::{EvaEvent, TheEva};
+
+    #[test]
+    fn campaign_ally_superweapon_is_ally_not_enemy() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        let china = Player::new(1, Team::China, "China", false);
+        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        logic.players.insert(0, local);
+        logic.players.insert(1, china);
+
+        logic.try_eva_superweapon_detected_kind_for_test(Some(1), Team::China, "nuke");
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponDetectedAllyNuke),
+            "{events:?}"
+        );
+
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_launched_owned(
+            Some(1),
+            Team::China,
+            HostSuperweaponKind::NuclearMissile,
+        );
+        let events = TheEva::drain_events().expect("eva2");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponLaunchedAllyNuke),
+            "{events:?}"
+        );
+
+        let _ = TheEva::drain_events();
+        logic.try_eva_superweapon_ready_for_player(1, "ChinaNuclearMissileLauncher");
+        let events = TheEva::drain_events().expect("eva3");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponReadyAllyNuke),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn same_faction_other_player_superweapon_is_ally_not_own() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        let mut ally = Player::new(1, Team::USA, "Ally", false);
+        local.alliance_team = 1;
+        ally.alliance_team = 1;
+        logic.players.insert(0, local);
+        logic.players.insert(1, ally);
+
+        logic.try_eva_superweapon_detected_kind_for_test(Some(1), Team::USA, "particle");
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponDetectedAllyParticleCannon),
+            "{events:?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| *e == EvaEvent::SuperweaponDetectedOwnParticleCannon),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn same_faction_ally_beacon_detected() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        let mut ally = Player::new(1, Team::USA, "Ally", false);
+        local.alliance_team = 1;
+        ally.alliance_team = 1;
+        logic.players.insert(0, local);
+        logic.players.insert(1, ally);
+        logic.try_eva_beacon_detected(1);
+        assert!(logic.honesty_eva_beacon_detected_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::BeaconDetected),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn campaign_ally_hero_detection_skipped() {
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        let china = Player::new(1, Team::China, "China", false);
+        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        logic.players.insert(0, local);
+        logic.players.insert(1, china);
+        let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Hero)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("ChinaInfantryBlackLotus".into(), lotus);
+        let id = logic
+            .create_object_for_player(
+                "ChinaInfantryBlackLotus",
+                1,
+                glam::Vec3::new(0.0, 0.0, 0.0),
+            )
+            .expect("ally lotus");
+        logic.try_eva_hero_detected(id);
+        assert!(!logic.honesty_eva_hero_detected_ok());
+    }
+}
+

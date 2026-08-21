@@ -124,7 +124,8 @@ impl GameLogic {
         });
 
         // C++ SuperweaponLaunched GPS Scrambler EVA residual.
-        self.try_eva_special_launched_misc(caster_team, "gps");
+        self.try_eva_special_launched_misc_owned(Some(player_id), caster_team, "gps");
+
 
         self.queue_audio_event(
             AudioEventRequest::new(GPS_SCRAMBLER_ACTIVATE_AUDIO)
