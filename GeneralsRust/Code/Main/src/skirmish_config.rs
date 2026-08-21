@@ -281,19 +281,16 @@ struct ResolvedSkirmishSlot<'a> {
 fn validate_skirmish_template(
     template: &game_engine::common::rts::player_template::PlayerTemplate,
 ) -> Result<Team, String> {
+    // C++ GameLogic.cpp:1720-1723: occupied observer slots are valid and
+    // get a permanent map reveal. Random-side lists still exclude them.
+    if template.is_observer() {
+        return Ok(Team::Neutral);
+    }
     // C++ `PopulatePlayerTemplateComboBox` and `populateRandomSideAndColor`
-    // both exclude entries with no starting building.  This also rejects the
-    // Civilian/Observer records before a headless caller can create a slot
-    // that the real Skirmish UI could not launch.
+    // both exclude entries with no starting building.
     if template.get_starting_building().trim().is_empty() {
         return Err(format!(
             "PlayerTemplate '{}' has no Skirmish StartingBuilding",
-            template.get_name()
-        ));
-    }
-    if template.is_observer() {
-        return Err(format!(
-            "PlayerTemplate '{}' is an observer and cannot occupy an offline Skirmish slot",
             template.get_name()
         ));
     }
@@ -352,9 +349,10 @@ fn random_skirmish_template_candidates(
         .iter()
         .enumerate()
         .filter_map(|(index, template)| {
-            // C++ GameLogic.cpp:709 checks `GameInfo::oldFactionsOnly()`
-            // while it constructs the Random candidate list.
             if old_factions_only && !template.is_old_faction() {
+                return None;
+            }
+            if template.is_observer() {
                 return None;
             }
             let template_index = i32::try_from(index).ok()?;
@@ -695,6 +693,26 @@ pub fn apply_skirmish_config(
         player.color_rgb = slot.color_rgb;
         player.start_position = start_position;
         player.alliance_team = slot.team;
+        let is_observer = player.is_observer;
+        if is_observer {
+            player.is_alive = false;
+        }
+        drop(player);
+
+        if is_observer {
+            if let Ok(mut shroud) =
+                gamelogic::system::shroud_manager::get_shroud_manager().lock()
+            {
+                let _ = shroud.reveal_map_for_player_permanently(player_id);
+            }
+            if slot.is_human {
+                logic.set_radar_forced(true);
+                if human_id.is_none() {
+                    human_id = Some(player_id);
+                }
+            }
+            continue;
+        }
 
         if slot.is_human && human_id.is_none() {
             human_id = Some(player_id);
