@@ -1238,6 +1238,69 @@ impl CommandSystem {
         {
             return Some(CommandType::Gather { target_id });
         }
+        // C++ CommandXlat.cpp:1758-1854 — Repair / GetRepaired / GetHealed
+        // immediately after Dock, before hijack/enter/attack/capture.
+        if hint.is_structure
+            && hint.is_damaged
+            && !hint.under_construction
+            && !hint.sold
+            && (hint.is_friendly_of_local || hint.is_neutral)
+            && any_repairer()
+        {
+            return Some(CommandType::Repair { target_id });
+        }
+        // C++ ActionManager pairs ground vehicles with REPAIR_PAD and
+        // above-terrain VEHICLE+AIRCRAFT units with FS_AIRFIELD. Keep the
+        // full pairing in frozen physical input; executor repeats it.
+        // Wave 1099: sold residual fail-closed on repair pad.
+        if hint.is_friendly_of_local
+            && !hint.sold
+            && !hint.under_construction
+            && hint.can_provide_service
+            && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
+        {
+            let any_damaged_serviceable = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.is_damaged
+                        && u.can_move
+                        && u.can_request_service
+                        && ((u.is_vehicle && !u.is_aircraft && hint.provides_vehicle_repair)
+                            || (u.is_vehicle
+                                && u.is_aircraft
+                                && u.is_above_terrain
+                                && hint.provides_aircraft_repair))
+                })
+            } else {
+                false
+            };
+            if any_damaged_serviceable {
+                return Some(CommandType::GetRepaired { target_id });
+            }
+        }
+        // Get healed at heal pad
+        // Wave 1099: sold residual fail-closed on heal pad.
+        if hint.can_provide_service
+            && hint.provides_heal
+            && !hint.sold
+            && !hint.under_construction
+            && hint.is_friendly_of_local
+        {
+            let any_injured_infantry = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.is_damaged
+                        && u.is_infantry
+                        && u.can_move
+                        && u.can_request_service
+                })
+            } else {
+                false
+            };
+            if any_injured_infantry {
+                return Some(CommandType::GetHealed { target_id });
+            }
+        }
         // C++ CommandXlat.cpp:1856-1918 — hijack / carbomb / sabotage before
         // enter (:1941) and attack (:1962). C++ emits MSG_ENTER; live Enter is
         // garrison, so issue the dedicated executor commands instead.
@@ -1255,6 +1318,55 @@ impl CommandSystem {
             }
             if selection_can_sabotage_target(selected_presentation, units, hint, game_logic) {
                 return Some(CommandType::Sabotage { target_id });
+            }
+        }
+        // C++ CommandXlat.cpp:1921-1937 canSelectionSalvage → MSG_DO_SALVAGE.
+        if hint.is_salvage_crate && !hint.sold {
+            let any_salvager = if !selected_presentation.is_empty() {
+                selected_presentation
+                    .iter()
+                    .any(|u| u.is_alive && u.is_salvager && u.can_move)
+            } else {
+                game_logic.is_some_and(|gl| {
+                    units.iter().any(|&unit_id| {
+                        gl.unit_is_alive(unit_id)
+                            && gl.unit_can_move(unit_id)
+                            && gl.unit_is_kind_of(unit_id, KindOf::Salvager)
+                    })
+                })
+            };
+            if any_salvager {
+                return Some(CommandType::DoSalvage {
+                    destination: world_position,
+                });
+            }
+        }
+        // C++ ActionManager.cpp:552-560 — infantry + DISABLED_UNMANNED +
+        // !REJECT_UNMANNED returns TRUE before contain/capacity.
+        if hint.is_unmanned
+            && !hint.sold
+            && !hint.under_construction
+            && !hint.enter_disabled_subdued
+        {
+            let any_recrew = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    u.is_alive
+                        && u.can_move
+                        && u.is_infantry
+                        && !crate::game_logic::host_car_bomb::object_definition_has_kind(
+                            &u.template_name,
+                            "REJECT_UNMANNED",
+                        )
+                })
+            } else {
+                game_logic.is_some_and(|gl| {
+                    units.iter().copied().any(|id| {
+                        gl.can_execute_infantry_unmanned_recrew(id, target_id)
+                    })
+                })
+            };
+            if any_recrew {
+                return Some(CommandType::Enter { target_id });
             }
         }
         // C++ `CommandXlat::translateMouseButton`: normal Enter is evaluated
@@ -1297,10 +1409,29 @@ impl CommandSystem {
                 return Some(CommandType::Enter { target_id });
             }
         }
-        // Attack enemy
+        // Attack: C++ getCanAttackObject is weapon-legal (neutrals/tech), not
+        // enemy-tint. Dozer DISARM vs non-mine is NOT_POSSIBLE.
         // Wave 1098: sold residual fail-closed (presentation_target_hint also peels).
-        if hint.is_enemy_of_local && !hint.is_neutral && !hint.sold && any_attacker() {
-            return Some(CommandType::AttackObject { target_id });
+        if !hint.sold && any_attacker() {
+            let legal = if !selected_presentation.is_empty() {
+                selected_presentation.iter().any(|u| {
+                    if !u.is_alive || !u.can_attack {
+                        return false;
+                    }
+                    if hint.is_friendly_of_local {
+                        return false;
+                    }
+                    if u.is_worker {
+                        return hint.is_mine;
+                    }
+                    true
+                })
+            } else {
+                game_logic.is_some_and(|gl| self.can_attack_target(units, target_id, gl))
+            };
+            if legal {
+                return Some(CommandType::AttackObject { target_id });
+            }
         }
         // C++ CommandXlat tries ordinary attack before CaptureBuilding.  The
         // frozen target carries the full non-packed capture semantic so this
@@ -1340,89 +1471,6 @@ impl CommandSystem {
             game_logic,
         ) {
             return Some(CommandType::HackerDisableBuilding { target_id });
-        }
-        // Repair damaged ally structure
-        if hint.is_structure
-            && hint.is_damaged
-            && !hint.under_construction
-            && !hint.sold
-            && (hint.is_friendly_of_local || hint.is_neutral)
-            && any_repairer()
-        {
-            return Some(CommandType::Repair { target_id });
-        }
-        // Get healed at heal pad
-        // Wave 1099: sold residual fail-closed on heal pad.
-        if hint.can_provide_service
-            && hint.provides_heal
-            && !hint.sold
-            && !hint.under_construction
-            && hint.is_friendly_of_local
-        {
-            let any_injured_infantry = if !selected_presentation.is_empty() {
-                selected_presentation.iter().any(|u| {
-                    u.is_alive
-                        && u.is_damaged
-                        && u.is_infantry
-                        && u.can_move
-                        && u.can_request_service
-                })
-            } else {
-                false
-            };
-            if any_injured_infantry {
-                return Some(CommandType::GetHealed { target_id });
-            }
-        }
-        // C++ ActionManager pairs ground vehicles with REPAIR_PAD and
-        // above-terrain VEHICLE+AIRCRAFT units with FS_AIRFIELD. Keep the
-        // full pairing in frozen physical input; executor repeats it.
-        // Wave 1099: sold residual fail-closed on repair pad.
-        if hint.is_friendly_of_local
-            && !hint.sold
-            && !hint.under_construction
-            && hint.can_provide_service
-            && (hint.provides_vehicle_repair || hint.provides_aircraft_repair)
-        {
-            let any_damaged_serviceable = if !selected_presentation.is_empty() {
-                selected_presentation.iter().any(|u| {
-                    u.is_alive
-                        && u.is_damaged
-                        && u.can_move
-                        && u.can_request_service
-                        && ((u.is_vehicle && !u.is_aircraft && hint.provides_vehicle_repair)
-                            || (u.is_vehicle
-                                && u.is_aircraft
-                                && u.is_above_terrain
-                                && hint.provides_aircraft_repair))
-                })
-            } else {
-                false
-            };
-            if any_damaged_serviceable {
-                return Some(CommandType::GetRepaired { target_id });
-            }
-        }
-        // C++ CommandXlat.cpp:1921-1937 canSelectionSalvage → MSG_DO_SALVAGE.
-        if hint.is_salvage_crate && !hint.sold {
-            let any_salvager = if !selected_presentation.is_empty() {
-                selected_presentation
-                    .iter()
-                    .any(|u| u.is_alive && u.is_salvager && u.can_move)
-            } else {
-                game_logic.is_some_and(|gl| {
-                    units.iter().any(|&unit_id| {
-                        gl.unit_is_alive(unit_id)
-                            && gl.unit_can_move(unit_id)
-                            && gl.unit_is_kind_of(unit_id, KindOf::Salvager)
-                    })
-                })
-            };
-            if any_salvager {
-                return Some(CommandType::DoSalvage {
-                    destination: world_position,
-                });
-            }
         }
         // Ordinary crates (money/heal/shroud/unit): C++ crate click is move-to-crate.
         if hint.is_crate && !hint.is_salvage_crate && !hint.sold {

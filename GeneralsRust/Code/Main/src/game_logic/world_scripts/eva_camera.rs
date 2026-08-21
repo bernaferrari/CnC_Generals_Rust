@@ -172,6 +172,7 @@ impl GameLogic {
         }
         let pos = obj.get_position();
         let team = obj.team;
+        let owner_player_id = obj.owner_player_id;
         let is_infantry = obj.is_kind_of(KindOf::Infantry);
         let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
         let is_structure = obj.is_kind_of(KindOf::Structure);
@@ -185,12 +186,7 @@ impl GameLogic {
         // Do not invent an FS-kind union; Black Market / Internet Center carry
         // the authored bit without FS_FACTORY.
         let is_mp_count = is_structure && obj.is_kind_of(KindOf::MpCountForVictory);
-        let alliance = self
-            .players
-            .values()
-            .find(|p| p.team == team)
-            .map(|p| p.alliance_team)
-            .unwrap_or(-1);
+
 
         // C++ Radar.cpp:1293-1294 operator-precedence quirk: 250² is not a
         // real distance filter. Same-type UnderAttack pings throttle map-wide
@@ -261,17 +257,22 @@ impl GameLogic {
         );
 
         if is_structure && is_mp_count {
-            let local_owns = self
-                .players
-                .values()
-                .any(|p| p.is_local && p.is_alive && p.team == team);
+            // C++ Radar.cpp:1197-1200:
+            // controllingPlayer->isLocalPlayer → BaseUnderAttack
+            // else getLocalPlayer()->getRelationship(obj->getTeam()) == ALLIES
+            // → AllyUnderAttack. Faction Team / alliance_team is not a proxy.
+            let owner_id = owner_player_id
+                .filter(|id| self.players.get(id).is_some_and(|player| player.is_alive))
+                .or_else(|| self.unique_player_id_for_team(team));
+            let local_owns = owner_id
+                .and_then(|id| self.players.get(&id))
+                .is_some_and(|player| player.is_local && player.is_alive);
             let local_ally = !local_owns
-                && self.players.values().any(|p| {
-                    p.is_local
-                        && p.is_alive
-                        && p.alliance_team == alliance
-                        && alliance >= 0
-                        && p.team != team
+                && owner_id.is_some_and(|oid| {
+                    self.eva_local_player_id().is_some_and(|local_id| {
+                        self.player_relationship(local_id, oid)
+                            == gamelogic::common::Relationship::Allies
+                    })
                 });
             if local_owns {
                 let _ = gamelogic::helpers::TheEva::set_should_play(
@@ -291,6 +292,7 @@ impl GameLogic {
                 self.eva_ally_under_attack = self.eva_ally_under_attack.saturating_add(1);
             }
         }
+
         true
     }
 
@@ -301,6 +303,11 @@ impl GameLogic {
     pub fn honesty_eva_base_under_attack_ok(&self) -> bool {
         self.eva_base_under_attack > 0
     }
+
+    pub fn honesty_eva_ally_under_attack_ok(&self) -> bool {
+        self.eva_ally_under_attack > 0
+    }
+
 
     pub fn try_eva_on_local_object_death(
         &mut self,
@@ -1129,5 +1136,77 @@ mod tests {
         assert!(logic.try_under_attack_event(id));
         assert!(!logic.honesty_eva_base_under_attack_ok());
     }
+
+    #[test]
+    fn same_faction_ally_cc_fires_ally_under_attack_not_base() {
+        // Two USA slots: victim owner is the ally, not the local player.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        local.alliance_team = 1;
+        let mut ally = Player::new(1, Team::USA, "Ally", false);
+        ally.alliance_team = 1;
+        logic.players.insert(0, local);
+        logic.players.insert(1, ally);
+        let mut st = ThingTemplate::new("AmericaCommandCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::MpCountForVictory)
+            .set_health(5000.0);
+        logic.templates.insert("AmericaCommandCenter".into(), st);
+        let id = logic
+            .create_object_for_player(
+                "AmericaCommandCenter",
+                1,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .expect("ally cc");
+        assert!(logic.try_under_attack_event(id));
+        assert!(!logic.honesty_eva_base_under_attack_ok());
+        assert!(logic.honesty_eva_ally_under_attack_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::AllyUnderAttack),
+            "{events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| *e == EvaEvent::BaseUnderAttack),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn campaign_player_allies_cc_fires_ally_under_attack() {
+        // alliance_team stays -1; map playerAllies must still be ALLIES.
+        let _ = TheEva::drain_events();
+        let mut logic = GameLogic::new();
+        let mut local = Player::new(0, Team::USA, "Local", true);
+        let mut china = Player::new(1, Team::China, "China", false);
+        local.set_map_relationship(1, gamelogic::common::Relationship::Allies);
+        logic.players.insert(0, local);
+        logic.players.insert(1, china);
+        let mut st = ThingTemplate::new("ChinaCommandCenter");
+        st.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::CommandCenter)
+            .add_kind_of(KindOf::MpCountForVictory)
+            .set_health(5000.0);
+        logic.templates.insert("ChinaCommandCenter".into(), st);
+        let id = logic
+            .create_object_for_player(
+                "ChinaCommandCenter",
+                1,
+                glam::Vec3::new(10.0, 0.0, 20.0),
+            )
+            .expect("china cc");
+        assert!(logic.try_under_attack_event(id));
+        assert!(!logic.honesty_eva_base_under_attack_ok());
+        assert!(logic.honesty_eva_ally_under_attack_ok());
+        let events = TheEva::drain_events().expect("eva");
+        assert!(
+            events.iter().any(|e| *e == EvaEvent::AllyUnderAttack),
+            "{events:?}"
+        );
+    }
+
 }
 

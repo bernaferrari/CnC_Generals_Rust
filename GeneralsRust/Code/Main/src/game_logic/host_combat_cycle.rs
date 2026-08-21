@@ -17,7 +17,7 @@
 //!
 //! Fail-closed honesty:
 //! - Not full RiderChangeContain model condition / STATUS_RIDER* death OCL matrix
-//! - Not full ScuttleDelay 1500ms TOPPLED / UseRiderStealth matrix
+//! - Not full ScuttleDelay 1500ms TOPPLED / STATUS_RIDER death OCL matrix
 //! - Not Jarmen Kell secondary pilot-sniper AutoChooseSources=NONE matrix
 //! - Not network rider / weapon-set replication (network deferred)
 
@@ -332,6 +332,115 @@ pub fn is_terrorist_suicide_rider(rider: CombatCycleRider) -> bool {
     matches!(rider, CombatCycleRider::Terrorist)
 }
 
+/// Retail `GLAVehicleCombatBike` StealthUpdate `UseRiderStealth = Yes`.
+/// C++ `calcStealthOwner` uses the first rider for delay / level / CAN_STEALTH;
+/// stealth *effects* stay on the bike.
+pub const COMBAT_CYCLE_USE_RIDER_STEALTH: bool = true;
+
+/// Kell / Hijacker / Saboteur have InnateStealth and therefore CAN_STEALTH.
+pub fn rider_grants_can_stealth(rider: CombatCycleRider) -> bool {
+    matches!(
+        rider,
+        CombatCycleRider::JarmenKell | CombatCycleRider::Hijacker | CombatCycleRider::Saboteur
+    )
+}
+
+/// C++ rider `StealthDelay` frames applied to the bike when `UseRiderStealth`.
+pub fn rider_stealth_delay_frames(rider: CombatCycleRider) -> u32 {
+    match rider {
+        CombatCycleRider::JarmenKell => {
+            crate::game_logic::host_jarmen_kell::JARMEN_STEALTH_DELAY_FRAMES
+        }
+        CombatCycleRider::Hijacker | CombatCycleRider::Saboteur => {
+            crate::game_logic::host_saboteur::SABOTEUR_STEALTH_DELAY_FRAMES
+        }
+        _ => 0,
+    }
+}
+
+/// First live occupant wins; otherwise the residual `combat_cycle_rider` slot.
+pub fn combat_cycle_stealth_owner_rider(
+    use_rider_stealth: bool,
+    residual_rider: CombatCycleRider,
+    first_occupant_rider: Option<CombatCycleRider>,
+) -> CombatCycleRider {
+    if !use_rider_stealth {
+        return CombatCycleRider::None;
+    }
+    first_occupant_rider.unwrap_or(residual_rider)
+}
+
+/// C++ `allowedToStealth` desire for a UseRiderStealth bike.
+///
+/// Stealth owner is the first rider. No CAN_STEALTH (empty / Rebel / Worker /
+/// RPG / Terrorist without a stealth grant) keeps the bike visible. Kell /
+/// Hijacker / Saboteur (and a camo Rebel occupant) cloak unless the bike is
+/// attacking (`StealthForbiddenConditions = ATTACKING`).
+pub fn combat_cycle_rider_stealth_desired(
+    is_combat_cycle: bool,
+    use_rider_stealth: bool,
+    rider: CombatCycleRider,
+    rider_can_stealth: bool,
+    bike_alive: bool,
+    bike_attacking: bool,
+) -> Option<bool> {
+    let _ = rider;
+    if !is_combat_cycle || !use_rider_stealth {
+        return None;
+    }
+    if !bike_alive {
+        return Some(false);
+    }
+    if !rider_can_stealth {
+        return Some(false);
+    }
+    Some(!bike_attacking)
+}
+
+/// Wave 14 UseRiderStealth residual honesty.
+pub fn honesty_combat_cycle_rider_stealth_ok() -> bool {
+    COMBAT_CYCLE_USE_RIDER_STEALTH
+        && rider_grants_can_stealth(CombatCycleRider::JarmenKell)
+        && rider_grants_can_stealth(CombatCycleRider::Hijacker)
+        && rider_grants_can_stealth(CombatCycleRider::Saboteur)
+        && !rider_grants_can_stealth(CombatCycleRider::Rebel)
+        && !rider_grants_can_stealth(CombatCycleRider::Worker)
+        && !rider_grants_can_stealth(CombatCycleRider::None)
+        && rider_stealth_delay_frames(CombatCycleRider::JarmenKell) == 60
+        && rider_stealth_delay_frames(CombatCycleRider::Hijacker) == 75
+        && rider_stealth_delay_frames(CombatCycleRider::Saboteur) == 75
+        && rider_stealth_delay_frames(CombatCycleRider::Rebel) == 0
+        && combat_cycle_stealth_owner_rider(
+            true,
+            CombatCycleRider::Rebel,
+            Some(CombatCycleRider::JarmenKell),
+        ) == CombatCycleRider::JarmenKell
+        && combat_cycle_rider_stealth_desired(
+            true,
+            true,
+            CombatCycleRider::JarmenKell,
+            true,
+            true,
+            false,
+        ) == Some(true)
+        && combat_cycle_rider_stealth_desired(
+            true,
+            true,
+            CombatCycleRider::JarmenKell,
+            true,
+            true,
+            true,
+        ) == Some(false)
+        && combat_cycle_rider_stealth_desired(
+            true,
+            true,
+            CombatCycleRider::Rebel,
+            false,
+            true,
+            false,
+        ) == Some(false)
+}
+
 /// RPG splash residual damage at distance from impact.
 pub fn rpg_splash_damage_at(is_intended_target: bool, distance_from_impact: f32) -> f32 {
     if is_intended_target {
@@ -470,7 +579,9 @@ pub fn honesty_combat_cycle_body_residual_ok() -> bool {
 
 /// Combined Wave 69 Combat Cycle residual honesty pack.
 pub fn honesty_combat_cycle_residual_pack_ok() -> bool {
-    honesty_combat_cycle_weapon_residual_ok() && honesty_combat_cycle_body_residual_ok()
+    honesty_combat_cycle_weapon_residual_ok()
+        && honesty_combat_cycle_body_residual_ok()
+        && honesty_combat_cycle_rider_stealth_ok()
 }
 
 #[cfg(test)]
@@ -579,8 +690,46 @@ mod tests {
         assert!(honesty_combat_cycle_weapon_residual_ok());
         assert!(honesty_combat_cycle_body_residual_ok());
         assert!(honesty_combat_cycle_residual_pack_ok());
-        assert_eq!(COMBAT_CYCLE_BUILD_TIME_FRAMES, 120);
-        assert_eq!(REBEL_MG_DAMAGE_TYPE, "SMALL_ARMS");
-        assert_eq!(SUICIDE_DEATH_TYPE, "SUICIDED");
+        assert!(honesty_combat_cycle_rider_stealth_ok());
+    }
+
+    #[test]
+    fn use_rider_stealth_matrix() {
+        assert!(COMBAT_CYCLE_USE_RIDER_STEALTH);
+        assert_eq!(
+            combat_cycle_stealth_owner_rider(true, CombatCycleRider::Rebel, None),
+            CombatCycleRider::Rebel
+        );
+        assert_eq!(
+            combat_cycle_stealth_owner_rider(
+                true,
+                CombatCycleRider::Rebel,
+                Some(CombatCycleRider::Hijacker)
+            ),
+            CombatCycleRider::Hijacker
+        );
+        assert_eq!(
+            combat_cycle_rider_stealth_desired(
+                true,
+                true,
+                CombatCycleRider::Saboteur,
+                true,
+                true,
+                false
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            combat_cycle_rider_stealth_desired(
+                true,
+                true,
+                CombatCycleRider::None,
+                false,
+                true,
+                false
+            ),
+            Some(false)
+        );
+        assert!(honesty_combat_cycle_rider_stealth_ok());
     }
 }

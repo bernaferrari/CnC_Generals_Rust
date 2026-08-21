@@ -1346,33 +1346,17 @@ impl GameLogic {
         n
     }
 
-    /// C++ RebuildHoleExposeDie HoleName residual for common GLA structures.
+    /// C++ RebuildHoleExposeDie HoleName — authored module only.
+    /// A template-name substring never fabricates USA/China/fake/Scud holes.
     pub(in super::super) fn rebuild_hole_name_for_template(
+        &self,
         template_name: &str,
-    ) -> Option<&'static str> {
-        let n = template_name.to_ascii_lowercase();
-        if n.contains("tunnel") {
-            return Some("GLAHoleTunnelNetwork");
-        }
-        if n.contains("stinger") {
-            return Some("GLAHoleStingerSite");
-        }
-        if n.contains("blackmarket") {
-            return Some("GLAHoleBlackMarket");
-        }
-        if n.contains("barracks") || n.contains("armsdealer") {
-            return Some("GLAHole");
-        }
-        if n.contains("palace") || n.contains("command") {
-            return Some("GLAHole");
-        }
-        if n.contains("supply") || n.contains("demo") || n.contains("scud") {
-            return Some("GLAHole");
-        }
-        if n.starts_with("gla") || n.contains("gla_") {
-            return Some("GLAHole");
-        }
-        None
+    ) -> Option<String> {
+        self.templates
+            .get(template_name)
+            .and_then(|template| template.rebuild_hole_expose.as_ref())
+            .map(|expose| expose.hole_name.clone())
+            .filter(|name| !name.is_empty())
     }
 
     /// C++ RebuildHoleExposeDie::onDie residual — spawn hole for authored
@@ -1391,6 +1375,7 @@ impl GameLogic {
             script_name,
             dying_geometry,
             dying_selection_radius,
+            expose,
         ) = {
             let o = self.objects.get(&destroyed_id)?;
             (
@@ -1405,11 +1390,20 @@ impl GameLogic {
                 o.name.clone(),
                 o.thing.geometry.clone(),
                 o.selection_radius,
+                o.thing.template.rebuild_hole_expose.clone(),
             )
         };
         // C++ RebuildHoleBehavior::onDie: hole death destroys the generated worker.
         if is_hole {
             self.destroy_rebuild_hole_worker(destroyed_id);
+            return None;
+        }
+        // Death-start peel + destroy-list fallback: do not spawn a second crater.
+        if self
+            .objects
+            .values()
+            .any(|o| o.is_rebuild_hole && o.rebuild_spawner_id == Some(destroyed_id))
+        {
             return None;
         }
         if !is_structure || under_construction {
@@ -1420,28 +1414,32 @@ impl GameLogic {
         if matches!(team, Team::Neutral) || owner_player_id.is_none() {
             return None;
         }
-        let hole_name = Self::rebuild_hole_name_for_template(&template_name)?;
-        if !self.templates.contains_key(hole_name) {
-            let mut ht = ThingTemplate::new(hole_name);
+        let expose = expose.filter(|m| !m.hole_name.is_empty())?;
+        let hole_name = expose.hole_name.clone();
+        if !self.templates.contains_key(&hole_name) {
+            let mut ht = ThingTemplate::new(&hole_name);
             ht.add_kind_of(KindOf::Structure)
                 .set_health(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
-            self.templates.insert(hole_name.to_string(), ht);
+            self.templates.insert(hole_name.clone(), ht);
         }
-        // Prefer authored hole-template HP (INI HoleMaxHealth / ActiveBody).
-        // Force 500 only when the template is a synthetic fallback.
-        let hole_max_health = self
-            .templates
-            .get(hole_name)
-            .map(|t| t.max_health)
-            .filter(|&h| h > 0.0)
-            .unwrap_or(REBUILD_HOLE_MAX_HEALTH_RESIDUAL);
+        // C++ setMaxHealth(modData->m_holeMaxHealth) when authored; else hole
+        // template ActiveBody / residual 500.
+        let hole_max_health = if expose.hole_max_health > 0.0 {
+            expose.hole_max_health
+        } else {
+            self.templates
+                .get(&hole_name)
+                .map(|t| t.max_health)
+                .filter(|&h| h > 0.0)
+                .unwrap_or(REBUILD_HOLE_MAX_HEALTH_RESIDUAL)
+        };
         // Wave 742: under construction sole-tick, pre-spawn hole entity on coupled
         // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
         // back to host create_object. Missing bind under sole is fail-closed via
         // host_spawn_rebuild_bound_object (Wave 741) unless opt-in.
         let gw_raw = if crate::gameworld_shadow::gameworld_construction_sole_tick_enabled() {
             crate::gameworld_shadow::spawn_rebuild_hole_entity_if_coupled(
-                hole_name,
+                &hole_name,
                 [pos.x, pos.y, pos.z],
                 orient,
                 hole_max_health,
@@ -1449,7 +1447,13 @@ impl GameLogic {
         } else {
             None
         };
-        let hole_id = self.host_spawn_rebuild_bound_object(hole_name, team, pos, gw_raw)?;
+        let hole_id = self.host_spawn_rebuild_bound_object(
+            &hole_name,
+            team,
+            owner_player_id,
+            pos,
+            gw_raw,
+        )?;
         if let Some(h) = self.objects.get_mut(&hole_id) {
             // A rebuild hole is a continuation of the destroyed building, not
             // a new team-level object.  Preserve exact ownership for the
@@ -1488,10 +1492,12 @@ impl GameLogic {
         }
 
         // C++ RebuildHoleExposeDie TransferAttackers residual (default true).
-        let n = self.transfer_attack(destroyed_id, hole_id);
-        if n > 0 {
-            self.rebuild_hole_attack_transfers =
-                self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+        if expose.transfer_attackers {
+            let n = self.transfer_attack(destroyed_id, hole_id);
+            if n > 0 {
+                self.rebuild_hole_attack_transfers =
+                    self.rebuild_hole_attack_transfers.saturating_add(n as u32);
+            }
         }
         Some(hole_id)
     }

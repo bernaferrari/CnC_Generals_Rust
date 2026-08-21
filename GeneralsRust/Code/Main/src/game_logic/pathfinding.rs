@@ -38,6 +38,8 @@ pub struct PendingHostPath {
     pub surfaces: u32,
     /// C++ `obj->getCrusherLevel() > 0` (AIPathfind.cpp:8170).
     pub is_crusher: bool,
+    /// C++ `AIUpdateInterface::ignoreObstacle` (DozerAIUpdate.cpp:210).
+    pub ignore_obstacle: Option<ObjectId>,
 }
 
 /// Grid-based pathfinding node
@@ -1172,10 +1174,19 @@ impl PathfindingGrid {
 
     /// Update dynamic obstacles based on unit positions
     pub fn update_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
+        self.update_dynamic_obstacles_ignoring(objects, None);
+    }
+
+    /// Same occupancy stamp, skipping `ignore` (C++ `ignoreObstacle(goalObject)`).
+    pub fn update_dynamic_obstacles_ignoring(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        ignore: Option<ObjectId>,
+    ) {
         self.clear_dynamic_blocks();
 
         for obj in objects.values() {
-            if !obj.is_alive() {
+            if ignore == Some(obj.id) {
                 continue;
             }
             if obj.is_kind_of(KindOf::Aircraft) {
@@ -1814,6 +1825,8 @@ pub struct PathfindingSystem {
     seeker_team: Option<Team>,
     /// Seeker CrusherLevel for canCrushOrSquish occupancy (AIPathfind.cpp:5063).
     seeker_crusher_level: u8,
+    /// C++ `m_ignoreObstacleID` for this path query (DozerAIUpdate.cpp:210).
+    ignore_obstacle_id: Option<ObjectId>,
 
 }
 
@@ -1838,6 +1851,7 @@ impl PathfindingSystem {
             seeker_id: None,
             seeker_team: None,
             seeker_crusher_level: 0,
+            ignore_obstacle_id: None,
         }
     }
 
@@ -1861,10 +1875,29 @@ impl PathfindingSystem {
     /// Rebuild vehicle/structure dynamic blocks at most once per logic frame.
     #[inline]
     fn ensure_dynamic_obstacles(&mut self, objects: &HashMap<ObjectId, Object>) {
+        if self.ignore_obstacle_id.is_some() {
+            self.grid
+                .update_dynamic_obstacles_ignoring(objects, self.ignore_obstacle_id);
+            // Do not cache an ignore-filtered occupancy stamp.
+            self.dynamic_obstacle_frame = u64::MAX;
+            return;
+        }
         if self.dynamic_obstacle_frame != self.logic_frame {
             self.grid.update_dynamic_obstacles(objects);
             self.dynamic_obstacle_frame = self.logic_frame;
         }
+    }
+
+    /// C++ `AIUpdateInterface::ignoreObstacle` for the next `find_path_ex_*`.
+    pub fn set_ignore_obstacle(&mut self, id: Option<ObjectId>) {
+        self.ignore_obstacle_id = id;
+        if id.is_some() {
+            self.dynamic_obstacle_frame = u64::MAX;
+        }
+    }
+
+    pub fn ignore_obstacle(&self) -> Option<ObjectId> {
+        self.ignore_obstacle_id
     }
 
     fn sync_crate_astar(&mut self) {
@@ -3310,6 +3343,41 @@ mod tests {
         assert!(path.is_some(), "water/cliff must stay walkable for ground A*");
     }
 
+    /// C++ Pathfinder::classifyMapCell (AIPathfind.cpp:4491-4521):
+    /// cliff at top-left, water if any of 4 corners — water wins. No slope gate.
+    #[test]
+    fn classify_map_cell_water_wins_over_cliff_no_slope_gate() {
+        use PathfindCellType::*;
+        assert_eq!(
+            PathfindingGrid::classify_map_cell(false, false),
+            Clear
+        );
+        assert_eq!(
+            PathfindingGrid::classify_map_cell(true, false),
+            Cliff
+        );
+        assert_eq!(
+            PathfindingGrid::classify_map_cell(false, true),
+            Water
+        );
+        assert_eq!(
+            PathfindingGrid::classify_map_cell(true, true),
+            Water,
+            "C++ assigns water after cliff so wet cliff-base stays SURFACE_WATER"
+        );
+        let src = include_str!("world_save.rs");
+        assert!(
+            !src.contains("MAX_SLOPE"),
+            "live seed_pathfinding_from_terrain must not slope-gate Impassable"
+        );
+        assert!(
+            src.contains("is_underwater_at_world(tl)")
+                && src.contains("classify_map_cell(cliff, water)"),
+            "live seed must sample four corners then classify_map_cell"
+        );
+    }
+
+
     /// Live find_path_ex must call crate AStarPathfinder (AIPathfind.cpp:6438).
     #[test]
     fn live_find_path_ex_uses_crate_astar() {
@@ -3354,6 +3422,7 @@ mod tests {
             aircraft: false,
             surfaces: SURFACE_GROUND,
             is_crusher: false,
+            ignore_obstacle: None,
         });
         assert_eq!(sys.pending_path_count(), 1);
         let drained = sys.take_pending_paths();

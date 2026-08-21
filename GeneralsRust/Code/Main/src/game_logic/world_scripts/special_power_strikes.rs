@@ -199,7 +199,12 @@ impl GameLogic {
         }
 
         // C++ SpecialPowerModule SuperweaponLaunched EVA residual.
-        self.try_eva_superweapon_launched(source_team, kind);
+        let source_owner_player_id = self
+            .objects
+            .get(&source_object)
+            .and_then(|obj| obj.owner_player_id);
+        self.try_eva_superweapon_launched_owned(source_owner_player_id, source_team, kind);
+
         // C++ SpecialPowerModule.cpp:513 aboutToDoSpecialPower.
         self.notify_script_engine_special_power_event(source_object, power, true, false);
         // C++ SpecialPowerModule.cpp:454/462 createViewObject (range 250 / 30-40s).

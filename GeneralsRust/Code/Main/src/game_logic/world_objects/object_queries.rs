@@ -667,6 +667,39 @@ impl GameLogic {
             )
     }
 
+    /// C++ `ActionManager::canEnterObject` unmanned branch (`:552-560`):
+    /// any infantry that is not `KINDOF_REJECT_UNMANNED` may Enter a
+    /// `DISABLED_UNMANNED` husk even when it has no transport capacity.
+    /// Distinct from USA Pilot `VeterancyCrateCollide IsPilot` recrew.
+    #[inline]
+    pub fn can_execute_infantry_unmanned_recrew(
+        &self,
+        infantry_id: ObjectId,
+        vehicle_id: ObjectId,
+    ) -> bool {
+        if infantry_id == vehicle_id {
+            return false;
+        }
+        let Some(infantry) = self.host_object(infantry_id) else {
+            return false;
+        };
+        let Some(vehicle) = self.host_object(vehicle_id) else {
+            return false;
+        };
+        infantry.is_alive()
+            && infantry.is_kind_of(KindOf::Infantry)
+            && infantry.can_move()
+            && !infantry.status.under_construction
+            && !crate::game_logic::host_car_bomb::object_definition_has_kind(
+                &infantry.template_name,
+                "REJECT_UNMANNED",
+            )
+            && vehicle.is_alive()
+            && vehicle.is_unmanned()
+            && !vehicle.status.under_construction
+            && !vehicle.status.sold
+    }
+
     /// C++ `OpenContain` relationship for normal Enter.  Ownership provenance
     /// is authoritative.  Team behavior survives solely for an unambiguous
     /// pair of ownerless legacy objects.  A one-sided/stale owner stays
@@ -1682,9 +1715,9 @@ impl GameLogic {
             // reset_shared_special_power_timer → record_host_cooldowns.
             return;
         }
-        let mut ready_events: Vec<(Team, String)> = Vec::new();
+        let mut ready_events: Vec<(u32, String)> = Vec::new();
         for player in self.players.values_mut() {
-            let team = player.team;
+            let player_id = player.id;
             for power in player.tick_shared_special_power_timers(dt) {
                 use crate::game_logic::host_special_power_enum_residual::special_power_has_public_timer;
                 if !special_power_has_public_timer(&power) {
@@ -1706,13 +1739,13 @@ impl GameLogic {
                     crate::command_system::SpecialPowerType::ScudStorm => "GLAScudStorm",
                     _ => continue, // EVA only for PUC/Nuke/Scud residual family
                 };
-                ready_events.push((team, template.to_string()));
+                ready_events.push((player_id, template.to_string()));
             }
         }
-        for (team, name) in ready_events {
-            // source id unused by try_eva_superweapon_ready residual.
-            self.try_eva_superweapon_ready(crate::game_logic::ObjectId(0), team, &name);
+        for (player_id, name) in ready_events {
+            self.try_eva_superweapon_ready_for_player(player_id, &name);
         }
+
     }
 
     /// C++ SpecialPowerModule::onSpecialPowerCreation residual.

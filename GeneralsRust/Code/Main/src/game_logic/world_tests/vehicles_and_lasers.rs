@@ -3993,6 +3993,35 @@ fn captured_gla_building_exposes_rebuild_hole() {
 }
 
 #[test]
+fn usa_china_command_center_does_not_expose_gla_rebuild_hole() {
+    // C++ RebuildHoleExposeDie is authored on GLA FactionBuilding.ini only.
+    // AmericaCommandCenter / ChinaBarracks must not leave a free GLA hole.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    for name in ["AmericaCommandCenter", "ChinaBarracks", "AmericaSupplyCenter"] {
+        let mut st = ThingTemplate::new(name);
+        st.add_kind_of(KindOf::Structure).set_health(1000.0);
+        logic.templates.insert(name.into(), st);
+        let sid = logic
+            .create_object(name, Team::USA, glam::Vec3::ZERO)
+            .expect(name);
+        if let Some(o) = logic.host_object_mut(sid) {
+            o.set_status_under_construction(false);
+            o.construction_percent = 1.0;
+            o.owner_player_id = Some(0);
+        }
+        assert!(
+            logic.maybe_spawn_rebuild_hole(sid).is_none(),
+            "{name} must not spawn a GLA rebuild hole"
+        );
+    }
+}
+
+
+#[test]
 fn rebuild_hole_and_scaffold_death_destroys_worker() {
     // C++ onDie / newWorkerRespawnProcess destroy the generated worker.
     use crate::game_logic::{KindOf, Team, ThingTemplate};

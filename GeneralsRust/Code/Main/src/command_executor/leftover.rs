@@ -52,9 +52,23 @@ impl<'a> CommandExecutor<'a> {
         goal: Vec3,
         state: AIState,
     ) -> bool {
-        // Wave 233: path+AI state via GameLogic unit_command_path_with_state.
-        self.game_logic
-            .unit_command_path_with_state(unit_id, goal, state)
+        self.path_to_goal_with_state_ignoring(unit_id, goal, state, None)
+    }
+
+    /// C++ `ignoreObstacle(goalObject)` then `aiMoveToPosition`.
+    pub(super) fn path_to_goal_with_state_ignoring(
+        &mut self,
+        unit_id: ObjectId,
+        goal: Vec3,
+        state: AIState,
+        ignore_obstacle: Option<ObjectId>,
+    ) -> bool {
+        self.game_logic.unit_command_path_with_state_ignoring(
+            unit_id,
+            goal,
+            state,
+            ignore_obstacle,
+        )
     }
 
     /// Begin one C++ support order after its caller has validated the concrete
@@ -1223,6 +1237,33 @@ pub fn host_beacon_caption(id: ObjectId) -> Option<String> {
 }
 
 impl GameLogic {
+    /// C++ `DozerAIUpdate::newTask(DOZER_TASK_BUILD)` (DozerAIUpdate.cpp:1717, 1948-2008).
+    /// Records the BUILD slot so idle `isBuildMostImportant` can resume after a move-away.
+    pub fn dozer_new_task_build(&mut self, dozer_id: ObjectId, build_target: ObjectId) {
+        let frame = self.frame.max(1);
+        let old = self
+            .objects
+            .get(&dozer_id)
+            .and_then(|obj| obj.dozer_task_build_target);
+        if let Some(old_id) = old {
+            if old_id != build_target {
+                if let Some(prev) = self.objects.get_mut(&old_id) {
+                    if prev.builder_id == Some(dozer_id) {
+                        prev.builder_id = None;
+                    }
+                }
+            }
+        }
+        if let Some(obj) = self.objects.get_mut(&dozer_id) {
+            obj.dozer_task_build_target = Some(build_target);
+            obj.dozer_task_build_order_frame = frame;
+        }
+        if let Some(st) = self.objects.get_mut(&build_target) {
+            // C++ newTask setBuilder (DozerAIUpdate.cpp:1986).
+            st.builder_id = Some(dozer_id);
+        }
+    }
+
     /// C++ `DozerAIUpdate::newTask(DOZER_TASK_REPAIR)` (DozerAIUpdate.cpp:1948-2008).
     /// Parks an in-flight BUILD in its own slot; only the REPAIR slot is replaced.
     pub fn dozer_new_task_repair(&mut self, dozer_id: ObjectId, repair_target: ObjectId) {
@@ -1336,7 +1377,12 @@ impl GameLogic {
         let approach = crate::game_logic::host_repair::dozer_repair_approach_position(
             dozer_pos, st_pos, st_radius,
         );
-        self.path_approach_with_state(dozer_id, approach, AIState::Constructing);
+        self.path_approach_with_state_ignoring(
+            dozer_id,
+            approach,
+            AIState::Constructing,
+            Some(tid),
+        );
         if let Some(st) = self.objects.get_mut(&tid) {
             st.set_under_construction_model_conditions(true);
             st.builder_id = Some(dozer_id);

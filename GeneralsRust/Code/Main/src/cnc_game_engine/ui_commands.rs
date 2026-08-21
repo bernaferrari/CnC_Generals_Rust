@@ -2060,8 +2060,24 @@ impl CnCGameEngine {
                 );
                 return;
             }
-            crate::command_system::CommandType::PurchaseScience { .. } => {
-                self.try_purchase_next_generals_science();
+            crate::command_system::CommandType::PurchaseScience { science_name } => {
+                // C++ GameLogicDispatch.cpp:1961 attemptToPurchaseScience(clicked).
+                // Empty name is Alt+G / letter shortcut → first capable residual.
+                if science_name.trim().is_empty() {
+                    self.try_purchase_next_generals_science();
+                } else {
+                    let player_id = self.current_player_id;
+                    self.host_queue_command(crate::command_system::GameCommand {
+                        command_type: crate::command_system::CommandType::PurchaseScience {
+                            science_name: science_name.clone(),
+                        },
+                        player_id,
+                        command_id: 0,
+                        timestamp: std::time::SystemTime::now(),
+                        selected_units: Vec::new(),
+                        modifier_keys: crate::command_system::ModifierKeys::default(),
+                    });
+                }
                 return;
             }
             crate::command_system::CommandType::ResumeConstruction { .. } => {

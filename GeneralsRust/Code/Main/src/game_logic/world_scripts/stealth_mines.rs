@@ -568,6 +568,7 @@ impl GameLogic {
                 .filter(|(_, o)| {
                     o.innate_stealth
                         && o.is_alive()
+                        && o.contained_by.is_none()
                         && (is_colonel_burton_template(&o.template_name)
                             || is_jarmen_kell_template(&o.template_name)
                             || is_black_lotus_template(&o.template_name)
@@ -631,6 +632,115 @@ impl GameLogic {
                                 frame.saturating_add(obj.stealth_delay_frames);
                             obj.stealth_delay_pending = false;
                         }
+                    }
+                }
+            }
+        }
+
+        // Combat Cycle UseRiderStealth: first rider owns delay / CAN_STEALTH.
+        // C++ StealthUpdate.cpp:531-556 calcStealthOwner; effects stay on the bike.
+        {
+            use crate::game_logic::host_combat_cycle::{
+                combat_cycle_rider_stealth_desired, combat_cycle_stealth_owner_rider,
+                is_combat_cycle_template, rider_from_template_name, rider_grants_can_stealth,
+                rider_stealth_delay_frames, CombatCycleRider, COMBAT_CYCLE_USE_RIDER_STEALTH,
+            };
+            let bike_ids: Vec<ObjectId> = self
+                .objects
+                .iter()
+                .filter(|(_, o)| {
+                    o.is_alive()
+                        && (is_combat_cycle_template(&o.template_name)
+                            || o.is_combat_cycle_style_container())
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for bid in bike_ids {
+                let Some(bike) = self.objects.get(&bid) else {
+                    continue;
+                };
+                let residual = CombatCycleRider::from_u8(bike.combat_cycle_rider);
+                let occupant = bike.contained_units().first().copied();
+                let (first_rider, occupant_can_stealth, occupant_delay) =
+                    if let Some(oid) = occupant {
+                        self.objects
+                            .get(&oid)
+                            .map(|occ| {
+                                let rider = rider_from_template_name(&occ.template_name);
+                                let can = occ.innate_stealth || rider_grants_can_stealth(rider);
+                                let delay = if occ.stealth_delay_frames > 0 {
+                                    occ.stealth_delay_frames
+                                } else {
+                                    rider_stealth_delay_frames(rider)
+                                };
+                                (Some(rider), can, delay)
+                            })
+                            .unwrap_or((
+                                None,
+                                rider_grants_can_stealth(residual),
+                                rider_stealth_delay_frames(residual),
+                            ))
+                    } else {
+                        (
+                            None,
+                            rider_grants_can_stealth(residual),
+                            rider_stealth_delay_frames(residual),
+                        )
+                    };
+                let rider = combat_cycle_stealth_owner_rider(
+                    COMBAT_CYCLE_USE_RIDER_STEALTH,
+                    residual,
+                    first_rider,
+                );
+                let rider_can = if first_rider.is_some() {
+                    occupant_can_stealth
+                } else {
+                    rider_grants_can_stealth(rider)
+                };
+                let delay = if first_rider.is_some() && occupant_delay > 0 {
+                    occupant_delay
+                } else {
+                    rider_stealth_delay_frames(rider)
+                };
+
+                let Some(obj) = self.objects.get_mut(&bid) else {
+                    continue;
+                };
+                obj.stealth_delay_frames = delay;
+                if obj.stealth_delay_pending {
+                    obj.stealth_allowed_frame = frame.saturating_add(obj.stealth_delay_frames);
+                    obj.stealth_delay_pending = false;
+                }
+                let attacking = obj.status.attacking
+                    || matches!(
+                        obj.ai_state,
+                        AIState::Attacking | AIState::AttackMoving | AIState::AttackingGround
+                    );
+                let Some(want) = combat_cycle_rider_stealth_desired(
+                    true,
+                    COMBAT_CYCLE_USE_RIDER_STEALTH,
+                    rider,
+                    rider_can,
+                    obj.is_alive(),
+                    attacking,
+                ) else {
+                    continue;
+                };
+                if want && !obj.status.stealthed {
+                    if obj.stealth_allowed_frame > 0 && frame < obj.stealth_allowed_frame {
+                        // C++ m_stealthAllowedFrame > now: wait rider StealthDelay.
+                    } else {
+                        obj.set_status_stealthed(true);
+                        obj.set_status_detected(false);
+                        obj.detection_expires_frame = 0;
+                        obj.stealth_allowed_frame = 0;
+                    }
+                } else if !want && obj.status.stealthed {
+                    obj.break_stealth();
+                    if obj.stealth_delay_pending {
+                        obj.stealth_allowed_frame =
+                            frame.saturating_add(obj.stealth_delay_frames);
+                        obj.stealth_delay_pending = false;
                     }
                 }
             }
@@ -733,7 +843,12 @@ impl GameLogic {
             let grant_ids: Vec<ObjectId> = self
                 .objects
                 .iter()
-                .filter(|(_, o)| o.innate_stealth && o.is_alive() && !o.status.stealthed)
+                .filter(|(_, o)| {
+                    o.innate_stealth
+                        && o.is_alive()
+                        && !o.status.stealthed
+                        && o.contained_by.is_none()
+                })
                 .map(|(id, _)| *id)
                 .collect();
             for gid in grant_ids {

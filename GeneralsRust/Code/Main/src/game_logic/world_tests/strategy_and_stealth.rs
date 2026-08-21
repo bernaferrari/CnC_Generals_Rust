@@ -4043,3 +4043,62 @@ fn spectre_gunship_host_path_queues_orbit_damage_over_time() {
 
     game_logic.process_destroy_list();
 }
+
+/// C++ StealthDetectorUpdate.cpp:167 PartitionFilterRelationship
+/// ALLOW_ENEMIES|ALLOW_NEUTRAL. Allied players on different Team enums
+/// must not destalth each other.
+#[test]
+fn detector_scan_uses_player_relationship_not_team_enum() {
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.alliance_team = 7;
+    let mut china = Player::new(1, Team::China, "China ally", false);
+    china.alliance_team = 7;
+    let mut gla = Player::new(2, Team::GLA, "GLA enemy", false);
+    gla.alliance_team = 9;
+    logic.add_player(usa);
+    logic.add_player(china);
+    logic.add_player(gla);
+
+    ensure_test_infantry_template(&mut logic);
+    let det = logic
+        .create_object_for_player("TestInfantry", 0, Vec3::new(0.0, 0.0, 0.0))
+        .expect("detector");
+    let ally = logic
+        .create_object_for_player("TestInfantry", 1, Vec3::new(10.0, 0.0, 0.0))
+        .expect("allied stealth");
+    let enemy = logic
+        .create_object_for_player("TestInfantry", 2, Vec3::new(10.0, 0.0, 0.0))
+        .expect("enemy stealth");
+
+    if let Some(o) = logic.host_object_mut(det) {
+        o.is_detector = true;
+        o.detection_range = 50.0;
+        o.detection_rate_frames = 0;
+    }
+    for id in [ally, enemy] {
+        if let Some(o) = logic.host_object_mut(id) {
+            o.status.stealthed = true;
+            o.status.detected = false;
+        }
+    }
+
+    logic.frame = 1;
+    logic.update_stealth_and_detection();
+
+    assert!(
+        !logic
+            .host_object(ally)
+            .map(|o| o.status.detected)
+            .unwrap_or(true),
+        "allied stealthed unit must stay hidden (ALLOW_ENEMIES|NEUTRAL)"
+    );
+    assert!(
+        logic
+            .host_object(enemy)
+            .map(|o| o.status.detected)
+            .unwrap_or(false),
+        "enemy stealthed unit must be marked detected"
+    );
+}
+

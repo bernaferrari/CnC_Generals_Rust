@@ -411,8 +411,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::combat::DamageType::Flame,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {
@@ -926,8 +929,11 @@ impl GameLogic {
                     if !target.is_alive() {
                         continue;
                     }
-                    let killed =
-                        target.take_damage_from_immediate(hit.damage, Some(plan.source_object));
+                    let killed = target.take_damage_from_immediate_typed(
+                        hit.damage,
+                        Some(plan.source_object),
+                        crate::game_logic::combat::DamageType::Flame,
+                    );
                     total_damage += hit.damage;
                     applications += 1;
                     if killed {

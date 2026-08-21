@@ -441,14 +441,36 @@ impl GameLogic {
     }
 
     /// Wave 232: dozer construct — path/destination + Constructing AI state.
+    /// C++ `findGoodBuildOrRepairPosition` docks at half major radius and
+    /// `ignoreObstacle(goalObject)` so the scaffold is not an A* wall.
     pub fn unit_command_begin_construct(&mut self, id: ObjectId, location: glam::Vec3) -> bool {
         if self.objects.get(&id).is_none() {
             return false;
         }
         self.note_hacker_ai_command(id);
-        if !self.assign_unit_path(id, location, &[]) {
+        let (dock, ignore) = {
+            let Some(dozer) = self.objects.get(&id) else {
+                return false;
+            };
+            let dozer_pos = dozer.get_position();
+            if let Some(tid) = dozer.target {
+                if let Some(st) = self.objects.get(&tid) {
+                    let dock = crate::game_logic::host_repair::dozer_repair_approach_position(
+                        dozer_pos,
+                        st.get_position(),
+                        st.selection_radius,
+                    );
+                    (dock, Some(tid))
+                } else {
+                    (location, None)
+                }
+            } else {
+                (location, None)
+            }
+        };
+        if !self.assign_unit_path_ignoring(id, dock, &[], ignore) {
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_destination(location);
+                unit.set_destination(dock);
             } else {
                 return false;
             }
@@ -1400,7 +1422,18 @@ impl GameLogic {
         goal: glam::Vec3,
         state: AIState,
     ) -> bool {
-        if !self.assign_unit_path(id, goal, &[]) {
+        self.unit_command_path_with_state_ignoring(id, goal, state, None)
+    }
+
+    /// C++ `ignoreObstacle(goalObject)` then move (DozerAIUpdate.cpp:210-211).
+    pub fn unit_command_path_with_state_ignoring(
+        &mut self,
+        id: ObjectId,
+        goal: glam::Vec3,
+        state: AIState,
+        ignore_obstacle: Option<ObjectId>,
+    ) -> bool {
+        if !self.assign_unit_path_ignoring(id, goal, &[], ignore_obstacle) {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {

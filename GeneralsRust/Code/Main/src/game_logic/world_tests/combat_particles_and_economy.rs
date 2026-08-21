@@ -3360,6 +3360,8 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
                 is_aircraft: false,
                 is_drone: false,
                 is_carbomb: false,
+                is_unmanned: false,
+                is_mine: false,
             }),
             selected_presentation: vec![PresentationSelectedUnitHint {
                 id: collector_id,

@@ -811,9 +811,8 @@ impl GameLogic {
         };
         use std::collections::HashMap;
 
-        // Count residual radar providers per player.  `Team` identifies a
-        // faction, not an economy/radar authority in a same-faction match.
         let mut providers_by_player: HashMap<u32, u32> = HashMap::new();
+        let mut disable_proof_by_player: HashMap<u32, u32> = HashMap::new();
         for obj in self.objects.values() {
             if !is_legal_radar_provider(
                 obj.is_alive(),
@@ -844,9 +843,14 @@ impl GameLogic {
                 }
             }
             *providers_by_player.entry(player_id).or_insert(0) += 1;
+            if crate::game_logic::host_radar::is_radar_van_template(&obj.template_name) {
+                *disable_proof_by_player.entry(player_id).or_insert(0) += 1;
+            }
         }
 
         // Apply radar_count recompute per player (absolute set, not delta).
+        // C++ Energy.cpp:196-215 / Player.cpp:3232-3241 onPowerBrownOutChange
+        // disableRadar(); hasRadar stays true if disable-proof count > 0 (Radar Van).
         let player_ids: Vec<u32> = self.players.keys().copied().collect();
         let mut transition_events: Vec<(u32, bool, bool)> = Vec::new();
         for pid in player_ids {
@@ -854,8 +858,13 @@ impl GameLogic {
                 continue;
             };
             let count = providers_by_player.get(&pid).copied().unwrap_or(0);
+            let sabotaged = player.power_sabotaged_till_frame > 0
+                && self.frame < player.power_sabotaged_till_frame;
+            let brownout = player.power_available < 0 || sabotaged;
+            let disable_proof = disable_proof_by_player.get(&pid).copied().unwrap_or(0) > 0;
+            let radar_disabled = brownout && !disable_proof;
             let had = player.has_radar();
-            player.set_radar_state(count as i32, player.radar_disabled);
+            player.set_radar_state(count as i32, radar_disabled);
             let has_now = player.has_radar();
             transition_events.push((count, had, has_now));
         }
@@ -929,22 +938,21 @@ impl GameLogic {
         for player in self.players.values() {
             let sabotaged = player.power_sabotaged_till_frame > 0
                 && self.frame < player.power_sabotaged_till_frame;
-            let factor = if sabotaged || player.power_consumed > 0 {
-                let energy_ratio = if sabotaged {
-                    0.0
-                } else {
-                    (player.power_produced as f32 / player.power_consumed.max(1) as f32).min(1.0)
-                };
-                if energy_ratio >= 1.0 {
-                    1.0
-                } else {
-                    let energy_short = (1.0 - energy_ratio) * low_energy_penalty_modifier;
-                    let mut rate = (1.0 - energy_short).max(MIN_LOW_ENERGY_PRODUCTION_SPEED);
-                    rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
-                    rate
-                }
+            // C++ Energy.cpp:51-65: consumption==0 returns production (0 for GLA).
+            let energy_ratio = if sabotaged {
+                0.0
+            } else if player.power_consumed == 0 {
+                player.power_produced as f32
             } else {
+                (player.power_produced as f32 / player.power_consumed as f32).min(1.0)
+            };
+            let factor = if energy_ratio >= 1.0 {
                 1.0
+            } else {
+                let energy_short = (1.0 - energy_ratio) * low_energy_penalty_modifier;
+                let mut rate = (1.0 - energy_short).max(MIN_LOW_ENERGY_PRODUCTION_SPEED);
+                rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
+                rate
             };
             factors.insert(player.id, factor);
         }

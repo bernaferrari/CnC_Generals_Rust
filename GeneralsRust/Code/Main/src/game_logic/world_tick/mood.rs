@@ -540,20 +540,23 @@ impl GameLogic {
         }
 
         // C++ Relationship is not equivalent to `team != team`: map/civilian
-        // objects are neutral, not enemies.  WeaponSet only rejects a
-        // non-enemy target for a player-originated command; AI/script callers
-        // intentionally keep going (their acquisition filters decide whether
-        // an order is sensible). Neutral mines are the C++ exception and may
-        // be explicitly targeted without force attack.
+        // objects are neutral, not enemies.  WeaponSet rejects a non-enemy
+        // FROM_PLAYER target unless it is a non-allied mine or
+        // OBJECT_STATUS_SCRIPT_TARGETABLE (map `objectTargetable`).
+        // That script-status channel is not fully modeled; leftover catalog
+        // and retail treat non-allied neutrals (tech oil, civilian cars,
+        // angry mobs) as player-targetable when a weapon can hit them.
         let is_mine = victim.is_kind_of(KindOf::Mine)
             || victim.is_kind_of(KindOf::DemoTrap)
             || victim.is_disarmable_mine();
-        if !enemies && !force && !(is_mine && !allies) && from_player {
-            // Script-targetable state is a distinct C++ ScriptStatus channel
-            // not yet modeled in Main, so an unrepresented override remains
-            // fail-closed rather than letting neutral scenery become a normal
-            // right-click attack target.
+        if allies && !force {
             return CanAttackResult::NotPossible;
+        }
+        if !enemies && !force && !(is_mine && !allies) && from_player {
+            if victim.is_kind_of(KindOf::Unattackable) {
+                return CanAttackResult::NotPossible;
+            }
+            // Fall through to weapon Anti* legality (C++ SCRIPT_TARGETABLE residual).
         }
 
         // Contained in enclosing container residual.
@@ -565,7 +568,19 @@ impl GameLogic {
         }
 
         // Weapon legality / range residual.
-        self.get_able_to_use_weapon_against_target(unit_id, Some(victim_id), None, attack_type)
+        let result =
+            self.get_able_to_use_weapon_against_target(unit_id, Some(victim_id), None, attack_type);
+        // C++ ActionManager.cpp:740-748 — dozer DISARM InvalidShot → NOT_POSSIBLE.
+        if result == CanAttackResult::InvalidShot && source.is_kind_of(KindOf::Dozer) {
+            let disarm = source
+                .weapon_name_for_slot(source.active_weapon_slot)
+                .map(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage)
+                .unwrap_or(true);
+            if disarm {
+                return CanAttackResult::NotPossible;
+            }
+        }
+        result
     }
 
     /// C++ WeaponSet::getAbleToUseWeaponAgainstTarget residual.

@@ -634,7 +634,8 @@ impl GameLogic {
         );
 
         // C++ SuperweaponLaunched Sneak Attack EVA residual.
-        self.try_eva_special_launched_misc(source_team, "sneak");
+        self.try_eva_special_launched_misc_owned(source_owner_player_id, source_team, "sneak");
+
 
         self.queue_audio_event(
             AudioEventRequest::new(kind.activate_audio())

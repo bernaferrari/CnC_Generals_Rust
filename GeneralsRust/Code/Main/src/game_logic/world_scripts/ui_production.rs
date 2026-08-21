@@ -896,15 +896,37 @@ impl GameLogic {
     }
 
     /// C++ DozerAIUpdate.cpp:1692-1696 flattenTerrain + getGroundHeight Z snap.
+    /// C++ `TerrainLogic::flattenTerrain` uses GEOMETRY_BOX two-triangle coverage
+    /// (TerrainLogic.cpp:2620-2746); cylinder/sphere uses majorRadius disk.
     pub(in super::super) fn flatten_and_snap_construction(&mut self, id: ObjectId) {
         let Some(obj) = self.objects.get(&id) else {
             return;
         };
         let pos = obj.get_position();
+        let angle = obj.get_orientation();
+        let geom = obj.thing.template.geometry_info;
         let radius = Self::structure_place_radius(obj).max(1.0);
+        // C++ flattenTerrain returns immediately for GeometryIsSmall.
+        let skip_flatten = geom.authored && geom.is_small;
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             if terrain.has_height_map() {
-                terrain.flatten_terrain_at(pos.x, pos.z, radius);
+                if !skip_flatten {
+                    if geom.authored
+                        && matches!(geom.geom_type, crate::game_logic::HostGeometryType::Box)
+                    {
+                        terrain.flatten_terrain_box_at(
+                            pos.x,
+                            pos.z,
+                            angle,
+                            geom.major_radius,
+                            geom.minor_radius,
+                        );
+                    } else if geom.authored {
+                        terrain.flatten_terrain_at(pos.x, pos.z, geom.major_radius.max(1.0));
+                    } else {
+                        terrain.flatten_terrain_at(pos.x, pos.z, radius);
+                    }
+                }
                 let z = terrain.get_ground_height(pos.x, pos.z, None);
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.set_position(glam::Vec3::new(pos.x, z, pos.z));

@@ -995,6 +995,7 @@ impl GameLogic {
         &mut self,
         template: &str,
         team: Team,
+        owner_player_id: Option<u32>,
         spawn_pos: Vec3,
         gw_entity_raw: Option<u32>,
     ) -> Option<ObjectId> {
@@ -1005,7 +1006,12 @@ impl GameLogic {
                 if raw != 0 && !self.objects.contains_key(&preferred) {
                     let saved_next = self.next_object_id;
                     self.next_object_id = preferred;
-                    let spawned = self.create_object(template, team, spawn_pos);
+                    let spawned = self.create_object_for_owner_or_team(
+                        template,
+                        team,
+                        owner_player_id,
+                        spawn_pos,
+                    );
                     let after = self.next_object_id.0;
                     self.next_object_id = ObjectId(saved_next.0.max(after));
                     if spawned.is_some() {
@@ -1014,7 +1020,12 @@ impl GameLogic {
                     self.next_object_id = saved_next;
                 }
                 // Bind present: allocate host id and map to pre-spawned entity.
-                return self.create_object(template, team, spawn_pos);
+                return self.create_object_for_owner_or_team(
+                    template,
+                    team,
+                    owner_player_id,
+                    spawn_pos,
+                );
             }
             let allow_without_bind =
                 std::env::var_os("GENERALS_RUNTIME_HOST_REBUILD_SPAWN_WITHOUT_GW_BIND")
@@ -1032,7 +1043,7 @@ impl GameLogic {
                 return None;
             }
         }
-        self.create_object(template, team, spawn_pos)
+        self.create_object_for_owner_or_team(template, team, owner_player_id, spawn_pos)
     }
 
     pub(in super::super) fn host_spawn_production_unit(

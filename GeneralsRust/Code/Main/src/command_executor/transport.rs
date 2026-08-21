@@ -107,17 +107,18 @@ impl<'a> CommandExecutor<'a> {
         // USA Pilot residual: Enter unmanned vehicle for recrew (not transport contain).
         // A non-container target is legal only when at least one selected
         // source passes the parsed `VeterancyCrateCollide IsPilot` authority
-        // predicate.  Do not make a generic unmanned VEHICLE look like a
-        // transport while the command is queued.
-        let has_pilot_recrew_source = units
-            .iter()
-            .copied()
-            .any(|unit_id| self.game_logic.can_execute_pilot_recrew(unit_id, target_id));
+        // predicate OR C++ canEnterObject unmanned infantry (not REJECT_UNMANNED).
+        let has_unmanned_recrew_source = units.iter().copied().any(|unit_id| {
+            self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
+                || self
+                    .game_logic
+                    .can_execute_infantry_unmanned_recrew(unit_id, target_id)
+        });
         let target_pos = match self.game_logic.host_object(target_id) {
             Some(transport)
                 if transport.is_alive()
                     && !transport.status.under_construction
-                    && (transport.can_contain() || has_pilot_recrew_source) =>
+                    && (transport.can_contain() || has_unmanned_recrew_source) =>
             {
                 transport.get_position()
             }
@@ -126,15 +127,15 @@ impl<'a> CommandExecutor<'a> {
 
         let mut issued = false;
         for &unit_id in units {
-            let pilot_recrew = self
-                .game_logic
-                .host_object(unit_id)
-                .is_some_and(|unit| {
-                    unit.is_alive()
-                        && unit.can_move()
-                        && self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
-                });
-            if !pilot_recrew && !self.can_issue_enter(unit_id, target_id) {
+            let unmanned_recrew = self.game_logic.host_object(unit_id).is_some_and(|unit| {
+                unit.is_alive()
+                    && unit.can_move()
+                    && (self.game_logic.can_execute_pilot_recrew(unit_id, target_id)
+                        || self
+                            .game_logic
+                            .can_execute_infantry_unmanned_recrew(unit_id, target_id))
+            });
+            if !unmanned_recrew && !self.can_issue_enter(unit_id, target_id) {
                 continue;
             }
 

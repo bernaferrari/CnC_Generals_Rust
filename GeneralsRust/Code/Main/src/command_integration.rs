@@ -901,6 +901,14 @@ impl InputCommandProcessor {
             is_aircraft: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Aircraft),
             is_drone: PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Drone),
             is_carbomb: o.is_carbomb,
+            is_unmanned: o.disabled_unmanned,
+            is_mine: o.has_mine
+                || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::Mine)
+                || PresentationFrame::object_has_kind(o, crate::game_logic::KindOf::DemoTrap)
+                || crate::game_logic::host_car_bomb::object_definition_has_kind(
+                    &o.template_name,
+                    "MINE",
+                ),
         })
     }
 
