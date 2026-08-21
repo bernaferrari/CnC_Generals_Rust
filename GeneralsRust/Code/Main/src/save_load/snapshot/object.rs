@@ -788,6 +788,30 @@ impl XferData for ObjectPersistTailSnapshot {
     }
 }
 
+impl XferData for ObjectTriggerSlotSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectTriggerSlotSnapshot")?;
+        xfer.xfer_i32(&mut self.trigger_id)?;
+        xfer.xfer_string(&mut self.trigger_name)?;
+        xfer.xfer_bool(&mut self.is_inside)?;
+        xfer.xfer_bool(&mut self.entered)?;
+        xfer.xfer_bool(&mut self.exited)?;
+        Ok(())
+    }
+}
+
+impl XferData for ObjectTriggerPersistSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectTriggerPersistSnapshot")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_i32(&mut self.i_x)?;
+        xfer.xfer_i32(&mut self.i_y)?;
+        xfer.xfer_u32(&mut self.entered_or_exited_frame)?;
+        xfer_vec_default(xfer, &mut self.slots, ObjectTriggerSlotSnapshot::default())?;
+        Ok(())
+    }
+}
+
 impl XferData for ClientDrawableVisualSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ClientDrawableVisualSnapshot")?;

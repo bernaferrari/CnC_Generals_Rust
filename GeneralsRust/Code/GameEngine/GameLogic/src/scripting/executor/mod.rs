@@ -67,6 +67,9 @@ thread_local! {
         RefCell::new(Vec::new());
     static HOST_SCIENCE_ACTION_REQUESTS: RefCell<Vec<(String, String, bool)>> =
         RefCell::new(Vec::new());
+    static HOST_TEAM_LOCO_SET_REQUESTS: RefCell<Vec<(String, String, Option<String>)>> =
+        RefCell::new(Vec::new());
+    static HOST_UNIT_LOCO_SET_REQUESTS: RefCell<Vec<(String, String)>> = RefCell::new(Vec::new());
 
 }
 
@@ -146,6 +149,34 @@ pub fn request_host_science_action(player_name: &str, science_name: &str, grant:
 
 pub fn take_host_science_action_requests() -> Vec<(String, String, bool)> {
     HOST_SCIENCE_ACTION_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: TEAM_PANIC / TEAM_WANDER / TEAM_WANDER_IN_PLACE.
+/// Leftover OBJECT_REGISTRY is empty on the player path.
+pub fn request_host_team_loco_set(team_name: &str, set: &str, waypoint: Option<&str>) {
+    HOST_TEAM_LOCO_SET_REQUESTS.with(|q| {
+        q.borrow_mut().push((
+            team_name.to_string(),
+            set.to_string(),
+            waypoint.map(str::to_string),
+        ));
+    });
+}
+
+pub fn take_host_team_loco_set_requests() -> Vec<(String, String, Option<String>)> {
+    HOST_TEAM_LOCO_SET_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
+}
+
+/// Live host drain: named-unit panic residual (C++ AIPanicState via TEAM_PANIC members).
+pub fn request_host_unit_loco_set(unit_name: &str, set: &str) {
+    HOST_UNIT_LOCO_SET_REQUESTS.with(|q| {
+        q.borrow_mut()
+            .push((unit_name.to_string(), set.to_string()));
+    });
+}
+
+pub fn take_host_unit_loco_set_requests() -> Vec<(String, String)> {
+    HOST_UNIT_LOCO_SET_REQUESTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }
 
 

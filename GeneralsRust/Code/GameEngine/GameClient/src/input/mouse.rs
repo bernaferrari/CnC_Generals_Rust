@@ -196,6 +196,9 @@ pub struct CursorTooltipState {
     pub highlight_update_start: Option<Instant>,
 
     pub tooltip_text_color: [u8; 4],
+    /// True after this frame already queued tooltip primitives (HUD vs flush).
+    pub draw_submitted: bool,
+
     pub tooltip_back_color: [u8; 4],
 }
 
@@ -214,6 +217,8 @@ impl Default for CursorTooltipState {
             highlight_update_start: None,
             tooltip_text_color: [220, 220, 220, 255],
             tooltip_back_color: [20, 20, 0, 127],
+            draw_submitted: false,
+
         }
     }
 }
@@ -338,6 +343,12 @@ impl MouseState {
         self.previous_position = self.position;
         self.position = (x, y);
     }
+
+    /// Treat the current position as the previous one so movement is per-frame.
+    pub fn latch_position(&mut self) {
+        self.previous_position = self.position;
+    }
+
 
     /// Get current mouse position
     pub fn position(&self) -> (f32, f32) {
@@ -619,6 +630,9 @@ pub struct TooltipDrawInfo {
     pub height: f32,
     pub box_width: f32,
     pub text: String,
+    pub lines: Vec<String>,
+    pub font_size: f32,
+    pub line_height: f32,
     pub text_color: [u8; 4],
     pub back_color: [u8; 4],
     pub border_color: [u8; 4],
@@ -626,6 +640,53 @@ pub struct TooltipDrawInfo {
     pub shadow_color: [u8; 4],
     pub highlight_pos: i32,
     pub animate_background: bool,
+}
+
+/// C++ DisplayString word-wrap for Mouse tooltip width.
+pub fn wrap_tooltip_text(text: &str, max_width: f32, char_width: f32) -> Vec<String> {
+    let max_chars = ((max_width / char_width.max(1.0)).floor() as usize).max(1);
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut current = String::new();
+        for word in paragraph.split_whitespace() {
+            if word.chars().count() > max_chars {
+                if !current.is_empty() {
+                    lines.push(std::mem::take(&mut current));
+                }
+                let chars: Vec<char> = word.chars().collect();
+                for chunk in chars.chunks(max_chars) {
+                    let piece: String = chunk.iter().collect();
+                    if piece.chars().count() == max_chars {
+                        lines.push(piece);
+                    } else {
+                        current = piece;
+                    }
+                }
+                continue;
+            }
+            let extra = if current.is_empty() { 0 } else { 1 };
+            if current.chars().count() + extra + word.chars().count() > max_chars {
+                lines.push(std::mem::take(&mut current));
+                current = word.to_string();
+            } else {
+                if !current.is_empty() {
+                    current.push(' ');
+                }
+                current.push_str(word);
+            }
+        }
+        if !current.is_empty() || paragraph.split_whitespace().next().is_none() {
+            lines.push(current);
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// Mouse input handler
@@ -820,9 +881,14 @@ impl Mouse {
     pub fn update(&mut self) {
         if self.enabled {
             self.update_tooltip();
+            // C++ mouse dx/dy are this-frame only; latch so a leftover delta
+            // cannot keep the tooltip hidden forever after the last move.
+            self.state.latch_position();
+            self.tooltip_state.draw_submitted = false;
             self.state.update_frame();
         }
     }
+
 
     /// Get input statistics
     pub fn stats(&self) -> &InputStats {
@@ -934,6 +1000,15 @@ impl Mouse {
         &self.tooltip_state
     }
 
+    pub fn tooltip_draw_submitted(&self) -> bool {
+        self.tooltip_state.draw_submitted
+    }
+
+    pub fn mark_tooltip_draw_submitted(&mut self) {
+        self.tooltip_state.draw_submitted = true;
+    }
+
+
     fn update_tooltip(&mut self) {
         let ts = &mut self.tooltip_state;
 
@@ -973,10 +1048,12 @@ impl Mouse {
             if let Some(hl_start) = ts.highlight_update_start {
                 let elapsed_ms = hl_start.elapsed().as_millis() as u64;
                 let fill_ms = self.tooltip_fill_time_ms.max(1) as u64;
-                let text_width = ts.tooltip_text.len() as i32;
-                let HIGHLIGHT_WIDTH: i32 = 15;
-                let max_pos = text_width + HIGHLIGHT_WIDTH;
-                ts.highlight_pos = ((text_width * elapsed_ms as i32) / fill_ms as i32).min(max_pos);
+                let char_width = self.tooltip_font_size as f32 * 0.6;
+                let text_width_px = (ts.tooltip_text.len() as f32 * char_width).ceil() as i32;
+                const HIGHLIGHT_WIDTH: i32 = 15;
+                let max_pos = text_width_px + HIGHLIGHT_WIDTH;
+                ts.highlight_pos =
+                    ((text_width_px * elapsed_ms as i32) / fill_ms as i32).min(max_pos);
             }
         }
     }
@@ -987,23 +1064,30 @@ impl Mouse {
         screen_height: f32,
     ) -> Option<TooltipDrawInfo> {
         let ts = &self.tooltip_state;
-        if !ts.display_tooltip || ts.tooltip_text.is_empty() {
+        if !self.visible || !ts.display_tooltip || ts.tooltip_text.is_empty() {
             return None;
         }
 
         let (mx, my) = self.state.position();
 
-        let char_width = self.tooltip_font_size as f32 * 0.6;
-        let line_height = self.tooltip_font_size as f32 * 1.2;
+        let font_size = self.tooltip_font_size.max(1) as f32;
+        let char_width = font_size * 0.6;
+        let line_height = font_size * 1.2;
 
-        let text_width = ts.tooltip_text.len() as f32 * char_width;
-        let max_display_width = screen_width * self.tooltip_width_percent;
-        let display_width = if text_width > max_display_width && max_display_width > 0.0 {
+        let max_display_width = (screen_width * self.tooltip_width_percent).max(10.0);
+        let lines = wrap_tooltip_text(&ts.tooltip_text, max_display_width, char_width);
+        let longest = lines
+            .iter()
+            .map(|line| line.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let text_width = longest * char_width;
+        let display_width = if text_width > max_display_width {
             max_display_width
         } else {
-            text_width
+            text_width.max(char_width)
         };
-        let height = line_height;
+        let height = (lines.len().max(1) as f32) * line_height;
 
         let mut x_pos = mx + 20.0;
         let mut y_pos = my;
@@ -1016,7 +1100,7 @@ impl Mouse {
         }
 
         let box_width = if self.tooltip_animate_background {
-            (display_width as i32).min(ts.highlight_pos) as f32
+            display_width.min(ts.highlight_pos as f32)
         } else {
             display_width
         };
@@ -1028,6 +1112,9 @@ impl Mouse {
             height,
             box_width,
             text: ts.tooltip_text.clone(),
+            lines,
+            font_size,
+            line_height,
             text_color: ts.tooltip_text_color,
             back_color: ts.tooltip_back_color,
             border_color: self.tooltip_color_border,
@@ -1039,17 +1126,9 @@ impl Mouse {
     }
 
     pub fn draw_tooltip(&self) {
-        let ts = &self.tooltip_state;
-        if !ts.display_tooltip || ts.tooltip_text.is_empty() {
-            return;
-        }
-        log::trace!(
-            "Tooltip: '{}' at ({:.0},{:.0}), highlight_pos={}",
-            ts.tooltip_text,
-            self.state.position().0,
-            self.state.position().1,
-            ts.highlight_pos
-        );
+        // Live submit is `gui::ui_globals::submit_cursor_tooltip` (fill/border/wrap).
+        // This leftover entry stays for C++ Mouse::drawTooltip call-shape tests.
+        let _ = self.compute_tooltip_draw_info(1024.0, 768.0);
     }
 
     pub fn get_mouse_status(&self) -> &MouseState {

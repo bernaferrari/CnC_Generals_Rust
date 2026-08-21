@@ -482,7 +482,9 @@ impl AudioManagerSubsystem {
         for event in self.gameplay_dispatch.drain_events() {
             let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
             if let Some((x, y, z)) = event.position {
-                req = req.with_position(glam::Vec3::new(x, y, z));
+                // Leftover GameLogic is C++ Z-up (x, y_ground, z_height).
+                // Host AudioEventRequest is Y-up (x, height, z_ground).
+                req = req.with_position(glam::Vec3::new(x, z, y));
             }
             self.queue_event(req);
         }
@@ -521,6 +523,14 @@ impl AudioManagerSubsystem {
                         }
                     }
 
+                    let volume_scale = crate::assets::audio::live_gameplay_sfx_volume(
+                        event.event_type.as_str(),
+                        event.position.map(|p| (p.x, p.y, p.z)),
+                    );
+                    if volume_scale <= 0.0 {
+                        continue;
+                    }
+
                     let Some(table) = self.sound_effects_table.as_ref() else {
                         continue;
                     };
@@ -532,9 +542,12 @@ impl AudioManagerSubsystem {
 
                     if let Ok(handle) = tokio::runtime::Handle::try_current() {
                         tokio::task::block_in_place(|| {
-                            let _ = handle.block_on(crate::assets::manager::play_cnc_sound_effect(
-                                &sound_path,
-                            ));
+                            let _ = handle.block_on(
+                                crate::assets::manager::play_cnc_sound_effect_scaled(
+                                    &sound_path,
+                                    volume_scale,
+                                ),
+                            );
                         });
                     }
                 }

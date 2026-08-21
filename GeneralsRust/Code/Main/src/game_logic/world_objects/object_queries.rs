@@ -1297,6 +1297,18 @@ impl GameLogic {
         self.players.get(&id).map(|p| p.color_rgb)
     }
 
+    /// C++ Object::getIndicatorColor → controlling Player::getPlayerColor.
+    /// Black / missing owner is not a house color (Create_Render_Obj reallycolor).
+    #[inline]
+    pub fn player_house_color_rgba(&self, owner_player_id: Option<u32>) -> Option<[f32; 4]> {
+        let (r, g, b) = self.player_color_rgb(owner_player_id?)?;
+        if r == 0 && g == 0 && b == 0 {
+            return None;
+        }
+        Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0])
+    }
+
+
     /// Wave 240: selected object ids without exposing `&Player`.
     #[inline]
     pub fn player_selected_objects(&self, id: u32) -> Vec<ObjectId> {

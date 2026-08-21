@@ -365,6 +365,7 @@ impl Object {
             || !self.is_attackable()
             || self.is_kind_of(KindOf::Unattackable)
             || self.status.masked
+            || crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&self.template_name)
         {
             return false;
         }
@@ -394,8 +395,11 @@ impl Object {
         // This helper is used by live acquisition and combat state paths, not
         // merely a range query.  Keep C++ WeaponSet's unconditional target
         // overrides here as well as at the command boundary so a masked or
-        // UNATTACKABLE object cannot slip through an AI/ground-acquire path.
-        if target.is_kind_of(KindOf::Unattackable) || target.status.masked {
+        // UNATTACKABLE / Angry Mob nexus object cannot slip through.
+        if target.is_kind_of(KindOf::Unattackable)
+            || target.status.masked
+            || crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(&target.template_name)
+        {
             return false;
         }
         // C++ WeaponSet: stealthed + undetected cannot be attacked

@@ -738,7 +738,7 @@ fn angry_mob_spawns_member_objects_on_nexus() {
     assert_eq!(members2 as u32, ANGRY_MOB_MAX_MEMBERS);
     let _ = ANGRY_MOB_INITIAL_MEMBERS;
 
-    // Follow nexus move.
+    // Follow nexus move via pathfind, not orbit teleport.
     if let Some(n) = logic.objects.get_mut(&nid) {
         n.set_position(Vec3::new(50.0, 0.0, 20.0));
     }
@@ -749,8 +749,11 @@ fn angry_mob_spawns_member_objects_on_nexus() {
         .find(|o| o.angry_mob_member)
         .unwrap()
         .id;
-    let mpos = logic.host_object(mid).unwrap().get_position();
-    assert!((mpos.x - 50.0).abs() < 20.0 && (mpos.z - 20.0).abs() < 20.0);
+    let dest = logic
+        .host_object(mid)
+        .and_then(|o| o.movement.target_position)
+        .expect("member must path-follow the nexus");
+    assert!((dest.x - 50.0).abs() < 20.0 && (dest.z - 20.0).abs() < 20.0);
 
     // Nexus death destroys members.
     if let Some(n) = logic.objects.get_mut(&nid) {

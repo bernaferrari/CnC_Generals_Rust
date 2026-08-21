@@ -108,6 +108,8 @@ pub const BLACK_LOTUS_LOCOMOTOR: &str = "BlackLotusLocomotor";
 pub const SABOTEUR_GROUND_LOCOMOTOR: &str = "SaboteurGroundLocomotor";
 /// Retail AmericaInfantryMissileDefender residual.
 pub const MISSILE_DEFENDER_LOCOMOTOR: &str = "MissileDefenderLocomotor";
+/// Retail GLAInfantryAngryMobNexus SET_NORMAL residual (Speed 18).
+pub const ANGRY_MOB_NEXUS_LOCOMOTOR: &str = "AngryMobNexusLocomotor";
 
 /// Wave 81/92/103 residual seed table: (name, Speed, Acceleration, TurnRate deg).
 /// Values match retail Locomotor.ini for common host units.
@@ -154,6 +156,7 @@ pub const HOST_LOCOMOTOR_SEED_RESIDUAL_TABLE: &[(&str, f32, f32, f32)] = &[
     (BLACK_LOTUS_LOCOMOTOR, 30.0, 100.0, 500.0),
     (SABOTEUR_GROUND_LOCOMOTOR, 30.0, 100.0, 500.0),
     (MISSILE_DEFENDER_LOCOMOTOR, 20.0, 100.0, 500.0),
+    (ANGRY_MOB_NEXUS_LOCOMOTOR, 18.0, 100.0, 500.0),
 ];
 
 /// Logic FPS used by C++ Locomotor.ini unit conversion (Speed / 30 → dist/frame).
@@ -291,9 +294,13 @@ pub fn ensure_host_locomotor_store() -> usize {
     added
 }
 
-/// Look up the retail SET_NORMAL locomotor template name for a host unit template.
-/// Fail-closed: only known infantry/vehicle units; not full Object.ini Locomotor sets.
 pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
+    if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
+        return Some(ANGRY_MOB_NEXUS_LOCOMOTOR);
+    }
+    if template_name.contains("AngryMob") {
+        return Some(BASIC_HUMAN_LOCOMOTOR);
+    }
     match template_name {
         // USA infantry (AmericaInfantryRanger → BasicHumanLocomotor)
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(BASIC_HUMAN_LOCOMOTOR),

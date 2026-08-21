@@ -377,7 +377,41 @@ pub fn locomotor_name_for_set_kind(
             HostLocomotorSetKind::Panic | HostLocomotorSetKind::Wander => "BattleMasterLocomotor",
         });
     }
+    // Civilian / infantry / angry-mob members share C++ PanicHuman / WanderHuman sets.
+    if is_human_panic_wander_template(&t) {
+        return Some(match kind {
+            HostLocomotorSetKind::Normal | HostLocomotorSetKind::NormalUpgraded => {
+                "FastHumanLocomotor"
+            }
+            HostLocomotorSetKind::Panic => "PanicHumanLocomotor",
+            HostLocomotorSetKind::Wander => "WanderHumanLocomotor",
+        });
+    }
     None
+}
+
+fn is_human_panic_wander_template(t: &str) -> bool {
+    t.contains("infantry")
+        || t.contains("civilian")
+        || t.contains("civ")
+        || t.contains("angry")
+        || t.contains("mob")
+        || t.contains("human")
+        || t.contains("rebel")
+        || t.contains("pilot")
+        || t.contains("terror")
+        || t.contains("hijacker")
+        || t.contains("saboteur")
+        || t.contains("ranger")
+        || t.contains("pathfinder")
+        || t.contains("colonel")
+        || t.contains("lotus")
+        || t.contains("redguard")
+        || t.contains("minigun")
+        || t.contains("hacker")
+        || t.contains("tankhunter")
+        || t.contains("worker")
+        || t.contains("flee")
 }
 
 fn seed_set_switch_locomotor(name: &str) {
@@ -523,11 +557,39 @@ pub fn apply_locomotor_set_kind(
     obj: &mut crate::game_logic::object::Object,
     kind: HostLocomotorSetKind,
 ) -> bool {
-    let Some(swap) = locomotor_set_swap_for_kind(&obj.template_name, kind) else {
+    let swap = locomotor_set_swap_for_kind(&obj.template_name, kind).or_else(|| {
+        if obj.is_kind_of(crate::game_logic::KindOf::Infantry)
+            || obj.is_kind_of(crate::game_logic::KindOf::CanBeRepulsed)
+            || obj.angry_mob_member
+        {
+            locomotor_set_swap_for_kind("CivilianInfantry", kind)
+        } else {
+            None
+        }
+    });
+    let Some(swap) = swap else {
         return false;
     };
     apply_swap_fields(obj, &swap);
     true
+}
+
+/// C++ `chooseLocomotorSet` + `setModelConditionState(MODELCONDITION_PANICKING)`.
+pub fn apply_choose_locomotor_set(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    panicking: bool,
+) -> bool {
+    let applied = apply_locomotor_set_kind(obj, kind);
+    obj.is_panicking = panicking;
+    let bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
+    if panicking {
+        obj.model_condition_bits |= 1u128 << bit;
+    } else {
+        obj.model_condition_bits &= !(1u128 << bit);
+    }
+    obj.record_host_model_condition();
+    applied
 }
 
 /// C++ `LocomotorSetUpgrade::upgradeImplementation` live apply.

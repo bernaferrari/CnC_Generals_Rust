@@ -566,6 +566,7 @@ fn append_mesh_prototype_item(
         world_matrix,
     );
     item.set_mesh_local_transform(mesh_local_transform);
+    item.apply_house_color_livery(&mesh.name);
     item.distance = world_position.distance(camera_position);
     output.push(item);
 }
@@ -620,6 +621,7 @@ fn append_hmodel_skin_mesh_prototype_item(
         hmodel_index,
     };
     item.distance = world_position.distance(camera_position);
+    item.apply_house_color_livery(&mesh.name);
     output.push(item);
 }
 

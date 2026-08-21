@@ -758,6 +758,10 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
+        if super::dual_world_registry_unavailable() {
+            super::request_host_team_loco_set(&team_name, "wander", Some(&waypoint_path_label));
+            return Ok(ScriptActionResult::Success);
+        }
         log::info!(
             "Team '{}' wandering on path '{}'",
             team_name,
@@ -815,6 +819,10 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
+        if super::dual_world_registry_unavailable() {
+            super::request_host_team_loco_set(&team_name, "wander", None);
+            return Ok(ScriptActionResult::Success);
+        }
         log::info!("Team '{}' wandering in place", team_name);
 
         let team_arc = self.get_team_by_name(&team_name)?;
@@ -861,6 +869,10 @@ impl ScriptActionDispatcher {
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
+        if super::dual_world_registry_unavailable() {
+            super::request_host_team_loco_set(&team_name, "panic", Some(&waypoint_path_label));
+            return Ok(ScriptActionResult::Success);
+        }
         log::debug!(
             "Team '{}' panicking on path '{}'",
             team_name,

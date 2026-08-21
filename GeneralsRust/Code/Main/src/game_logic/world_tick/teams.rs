@@ -627,6 +627,73 @@ impl GameLogic {
         self.set_team_repulsor(team, repulsor)
     }
 
+    /// C++ `chooseLocomotorSet(PANIC/WANDER)` on one host unit.
+    pub fn apply_unit_locomotor_set(&mut self, unit_id: ObjectId, set: &str) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        use crate::game_logic::host_upgrade_module_residuals::{
+            apply_choose_locomotor_set, HostLocomotorSetKind,
+        };
+        let (kind, panicking) = match set.trim().to_ascii_lowercase().as_str() {
+            "panic" => (HostLocomotorSetKind::Panic, true),
+            "wander" => (HostLocomotorSetKind::Wander, false),
+            "normal" => (HostLocomotorSetKind::Normal, false),
+            _ => return false,
+        };
+        apply_choose_locomotor_set(u, kind, panicking)
+    }
+
+    /// C++ TEAM_PANIC / TEAM_WANDER member loop residual.
+    pub fn apply_team_locomotor_set(&mut self, team_name: &str, set: &str) -> usize {
+        let needle = team_name.trim();
+        let faction = Self::resolve_host_team_name(team_name);
+        let ids: Vec<ObjectId> = self
+            .objects
+            .values()
+            .filter(|obj| {
+                obj.is_alive()
+                    && (faction.map(|t| obj.team == t).unwrap_or(false)
+                        || (!obj.team_instance_name.is_empty()
+                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                        || obj.team.get_name().eq_ignore_ascii_case(needle))
+            })
+            .map(|obj| obj.id)
+            .collect();
+        let mut n = 0usize;
+        for id in ids {
+            if self.apply_unit_locomotor_set(id, set) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// C++ ScriptActions::doTeamPanic residual.
+    pub fn set_team_panic_by_name(&mut self, team_name: &str) -> usize {
+        self.apply_team_locomotor_set(team_name, "panic")
+    }
+
+    /// Named-unit panic residual (TEAM_PANIC member / UNIT_PANIC).
+    pub fn set_named_unit_panic(&mut self, unit_name: &str) -> bool {
+        let Some(id) = self.find_object_id_by_name(unit_name) else {
+            return false;
+        };
+        self.apply_unit_locomotor_set(id, "panic")
+    }
+
+    /// Drain leftover TEAM_PANIC / TEAM_WANDER / named-unit set swaps.
+    pub fn apply_host_loco_set_script_requests(&mut self) {
+        for (team_name, set, _waypoint) in gamelogic::scripting::take_host_team_loco_set_requests() {
+            let _ = self.apply_team_locomotor_set(&team_name, &set);
+        }
+        for (unit_name, set) in gamelogic::scripting::take_host_unit_loco_set_requests() {
+            if let Some(id) = self.find_object_id_by_name(&unit_name) {
+                let _ = self.apply_unit_locomotor_set(id, &set);
+            }
+        }
+    }
+
     /// C++ PartitionFilterRepulsor + AI::findClosestRepulsor residual.
     ///
     /// Returns closest living repulsor in range:

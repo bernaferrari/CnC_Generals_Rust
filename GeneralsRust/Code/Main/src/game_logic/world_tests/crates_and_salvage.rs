@@ -153,6 +153,12 @@ fn try_idle_repulse_flees_flagged_repulsor() {
     let civ = &logic.objects[&cid];
     assert_eq!(civ.move_away_from, Some(eid));
     assert!(civ.move_away_frames > 0);
+    assert!(civ.is_panicking, "flee must set MODELCONDITION_PANICKING");
+    assert!(
+        (civ.movement.max_speed - 50.0).abs() < 0.05,
+        "flee must swap PanicHumanLocomotor speed, got {}",
+        civ.movement.max_speed
+    );
 }
 
 #[test]
@@ -170,6 +176,44 @@ fn set_team_repulsor_applies_to_members() {
     assert_eq!(n, 2);
     assert!(logic.objects[&ObjectId(4230)].status.repulsor);
     assert!(logic.objects[&ObjectId(4231)].status.repulsor);
+}
+
+#[test]
+fn team_panic_swaps_panic_locomotor_set() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("GLAInfantryRebel");
+    t.add_kind_of(KindOf::Infantry);
+    let id = ObjectId(4240);
+    let mut obj = Object::new(t, id, Team::GLA);
+    obj.movement.max_speed = 20.0;
+    logic.objects.insert(id, obj);
+    assert_eq!(logic.set_team_panic_by_name("GLA"), 1);
+    let u = &logic.objects[&id];
+    assert!(u.is_panicking);
+    assert!(
+        (u.movement.max_speed - 50.0).abs() < 0.05,
+        "TeamPanic must install PanicHumanLocomotor, got {}",
+        u.movement.max_speed
+    );
+}
+
+#[test]
+fn named_unit_panic_is_not_a_noop() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("Civilian");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::CanBeRepulsed);
+    let id = ObjectId(4241);
+    let mut obj = Object::new(t, id, Team::Neutral);
+    obj.name = "CivA".to_string();
+    obj.movement.max_speed = 20.0;
+    logic.objects.insert(id, obj);
+    assert!(logic.set_named_unit_panic("CivA"));
+    let u = &logic.objects[&id];
+    assert!(u.is_panicking);
+    assert!((u.movement.max_speed - 50.0).abs() < 0.05);
 }
 
 #[test]

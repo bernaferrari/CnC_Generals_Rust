@@ -233,6 +233,14 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
                 .into(),
         ));
     }
+
+    // C++ W3DMouse::draw calls Mouse::drawTooltip after the cursor (W3DMouse.cpp:565-567).
+    // Menu shell never hits InGame HUD; presentation shell may have queued already.
+    if !game_client::gui::cursor_tooltip_already_submitted() {
+        game_client::gui::tick_cursor_tooltip();
+    }
+    let _ = game_client::gui::submit_cursor_tooltip(&mut renderer);
+
     let had_draw_commands = renderer.queued_draw_command_count();
 
     let should_log = call < 10 || call.is_multiple_of(300);

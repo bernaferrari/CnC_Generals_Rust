@@ -1304,19 +1304,41 @@ impl GameLogic {
     }
 
     /// Wave 233: weapon lock residual.
+    /// DemoTrapUpdate: PRIMARY=detonate, SECONDARY=proximity, TERTIARY=manual.
     pub fn unit_command_set_weapon_lock(
         &mut self,
         id: ObjectId,
         slot: u8,
         lock_type: WeaponLockType,
     ) -> bool {
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
+        let is_demo_trap = self
+            .objects
+            .get(&id)
+            .and_then(|unit| unit.mine_data.as_ref())
+            .is_some_and(|md| {
+                matches!(md.kind, crate::game_logic::host_mines::HostMineKind::DemoTrap)
+                    && !md.detonated
+            });
+        let locked = {
+            let Some(unit) = self.objects.get_mut(&id) else {
+                return false;
+            };
+            if !unit.is_alive() {
+                return false;
+            }
+            unit.set_weapon_lock(slot, lock_type)
         };
-        if !unit.is_alive() {
-            return false;
+        if locked && is_demo_trap {
+            use crate::game_logic::host_mines::DemoTrapMode;
+            let mode = match slot {
+                0 => DemoTrapMode::Detonate,
+                1 => DemoTrapMode::Proximity,
+                2 => DemoTrapMode::Manual,
+                _ => return locked,
+            };
+            let _ = self.set_demo_trap_mode(id, mode);
         }
-        unit.set_weapon_lock(slot, lock_type)
+        locked
     }
 
     /// Wave 233: release weapon lock residual.

@@ -522,6 +522,7 @@ impl RenderPipeline {
                                 );
                                 render_item.apply_status_tint(u.status_tint);
                                 render_item.set_presentation_opacity(u.presentation_opacity);
+                                render_item.apply_house_color_livery(&mesh.name);
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
                                 #[cfg(feature = "game_client")]
@@ -570,6 +571,13 @@ impl RenderPipeline {
                                     u.poison_tinted,
                                 );
                                 aggregate_parent_item.apply_status_tint(u.status_tint);
+                                aggregate_parent_item.apply_house_color_livery(
+                                    w3d_model
+                                        .meshes
+                                        .first()
+                                        .map(|m| m.name.as_str())
+                                        .unwrap_or(""),
+                                );
                                 aggregate_parent_item
                                     .set_presentation_opacity(u.presentation_opacity);
                                 self.render_items.extend(
@@ -1444,6 +1452,10 @@ impl RenderPipeline {
                                 )
                             })
                             .collect::<Vec<_>>();
+                        let bridge_house_color = submission
+                            .legacy_render_object_color
+                            .and_then(house_color_from_argb);
+
 
                         for (mesh_idx, mesh) in w3d_model.meshes.iter().enumerate() {
                             let Some((mesh_local_transform, mesh_visible)) = w3d_model
@@ -1499,6 +1511,9 @@ impl RenderPipeline {
                             item.set_mesh_local_transform(mesh_local_transform);
                             stamp_skinned_hierarchy_bind_pose(&mut item, mesh);
                             Self::attach_bridge_draw_metadata(&mut item, &submission);
+                            if let Some(rgba) = bridge_house_color {
+                                item.apply_house_color_livery_with(rgba, &mesh.name);
+                            }
                             item.uv_offset_override =
                                 Self::mesh_uv_override_for_submission(&submission, &mesh.name);
                             self.render_items.push(item);
@@ -1551,6 +1566,16 @@ impl RenderPipeline {
                                 &mut aggregate_parent_item,
                                 &submission,
                             );
+                            if let Some(rgba) = bridge_house_color {
+                                aggregate_parent_item.apply_house_color_livery_with(
+                                    rgba,
+                                    w3d_model
+                                        .meshes
+                                        .first()
+                                        .map(|m| m.name.as_str())
+                                        .unwrap_or(""),
+                                );
+                            }
                             aggregate_parent_item.set_fow_visibility(fow_vis);
                             if let Some(state) = objectless_shroud {
                                 aggregate_parent_item.set_frozen_objectless_drawable_shroud(state);

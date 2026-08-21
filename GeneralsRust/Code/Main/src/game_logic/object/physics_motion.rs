@@ -64,6 +64,14 @@ impl Object {
             if self.move_away_frames == 0 {
                 self.move_away_from = None;
                 self.move_away_destination = None;
+                // C++ AIMoveAwayFromRepulsorsState::onExit clears PANICKING.
+                if self.is_panicking {
+                    crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+                        self,
+                        crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
+                        false,
+                    );
+                }
             }
         }
     }

@@ -805,6 +805,28 @@ impl CnCGameEngine {
         ids
     }
 
+    /// C++ evaluateSoloNexus: clicking a member selects/commands the nexus.
+    fn remap_angry_mob_selection_ids(
+        &self,
+        ids: Vec<crate::game_logic::ObjectId>,
+    ) -> Vec<crate::game_logic::ObjectId> {
+        use crate::game_logic::host_angry_mob::remap_angry_mob_selection_id;
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let remapped = self
+                .host_game_logic()
+                .host_object(id)
+                .map(|o| {
+                    remap_angry_mob_selection_id(o.angry_mob_member, o.angry_mob_nexus_id, o.id)
+                })
+                .unwrap_or(id);
+            if !out.contains(&remapped) {
+                out.push(remapped);
+            }
+        }
+        out
+    }
+
     /// Wave 579: host selection residual — keep GameLogic selection and engine
     /// `selected_objects` in lockstep.
     #[inline]
@@ -813,6 +835,7 @@ impl CnCGameEngine {
         player_id: u32,
         ids: Vec<crate::game_logic::ObjectId>,
     ) {
+        let ids = self.remap_angry_mob_selection_ids(ids);
         let ids = self.cap_selection_ids(ids);
         // Wave 579/866/913/933: selection residual via session-control authority.
         // Skip authority select_objects when residual already matches.

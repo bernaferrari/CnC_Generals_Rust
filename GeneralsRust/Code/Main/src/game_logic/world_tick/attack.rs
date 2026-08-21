@@ -1858,8 +1858,54 @@ impl GameLogic {
                 return false;
             }
             let vic_pos = victim.get_position();
-            // Center position residual (geometry center ≈ position for host).
-            let center = vic_pos;
+            let vic_r = victim.thing.template.geometry_info.bounding_circle_radius();
+            let (min_range, max_range, src_r) = self
+                .objects
+                .get(&unit_id)
+                .map(|u| {
+                    let (min_r, max_r) = u
+                        .weapon
+                        .as_ref()
+                        .map(|w| (w.min_range, w.range))
+                        .or_else(|| {
+                            u.secondary_weapon
+                                .as_ref()
+                                .map(|w| (w.min_range, w.range))
+                        })
+                        .unwrap_or((0.0, 0.0));
+                    (
+                        min_r,
+                        max_r,
+                        u.thing.template.geometry_info.bounding_circle_radius(),
+                    )
+                })
+                .unwrap_or((0.0, 0.0, 0.0));
+            // C++ Weapon::computeApproachTarget: back off to (min+max)/2
+            // when inside MinimumAttackRange; otherwise 0.9 * max.
+            let dx = from.x - vic_pos.x;
+            let dz = from.z - vic_pos.z;
+            let dist = (dx * dx + dz * dz).sqrt();
+            let (dir_x, dir_z) = if dist > 1e-3 {
+                (dx / dist, dz / dist)
+            } else {
+                (1.0, 0.0)
+            };
+            let standoff = if min_range > 0.0 && dist < min_range {
+                (min_range + max_range) * 0.5 + src_r + vic_r
+            } else if max_range > 0.0 {
+                max_range * 0.9 + src_r + vic_r
+            } else {
+                0.0
+            };
+            let center = if standoff > 0.0 {
+                glam::Vec3::new(
+                    vic_pos.x + dir_x * standoff,
+                    vic_pos.y,
+                    vic_pos.z + dir_z * standoff,
+                )
+            } else {
+                vic_pos
+            };
             if !force_repath {
                 if let Some(prev) = prev_vic {
                     if crate::game_logic::is_same_position_residual(from, prev, center) {
@@ -1871,7 +1917,6 @@ impl GameLogic {
                 u.prev_victim_pos = Some(center);
                 u.approach_timestamp = frame;
             }
-            // Contact weapon: ignore obstacle + path into target residual handled by assign.
             let _ = self.request_attack_path(unit_id, Some(vid), center);
             true
         } else if let Some(pos) = fixed_pos {

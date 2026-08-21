@@ -1146,7 +1146,13 @@ impl GameLogic {
             None => return false,
         };
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            // C++ chooseLocomotorSet(PANIC) + requestSafePath residual (fail-closed).
+            // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2272-2276):
+            // chooseLocomotorSet(LOCOMOTORSET_PANIC) + MODELCONDITION_PANICKING.
+            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
+                u,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+                true,
+            );
             u.ai_move_away_from_unit(rep_id, rep_pos);
             let _ = u.begin_request_safe_path(
                 rep_id,
