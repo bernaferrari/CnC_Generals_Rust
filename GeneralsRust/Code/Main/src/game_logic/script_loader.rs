@@ -583,7 +583,11 @@ pub struct PlacedObject {
     pub upgrade: Option<String>,
     /// C++ Dict `objectUnsellable` / OBJECT_STATUS_SCRIPT_UNSELLABLE.
     pub unsellable: Option<bool>,
+    /// C++ Dict `objectWeather` (`Object.cpp:3595-3605`): 0 follow map, 1 force
+    /// `MODELCONDITION_SNOW` clear, 2 force set. Missing key is follow.
+    pub object_weather: Option<i32>,
 }
+
 
 /// C++ SidesList build-list entry residual (skirmish army / base placements).
 #[derive(Debug, Clone)]
@@ -1583,6 +1587,71 @@ pub fn parse_runtime_bridges_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Vec
 /// the world dict; crate `MapLoader::extract_water_height` reads `waterHeight`.
 /// Missing or unreadable WorldInfo is fail-soft (`None`).
 pub fn parse_runtime_water_height_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<f32>> {
+    let Some(dict) = parse_runtime_world_info_dict(chunky)? else {
+        return Ok(None);
+    };
+    Ok(dict_lookup_ci(&dict, &["waterHeight", "WaterHeight"]).and_then(|value| value.parse().ok()))
+}
+
+/// Parse `WorldInfo` weather enum (`TheKey_weather`).
+///
+/// C++ `WorldHeightMap::ParseWorldDictDataChunk` (WorldHeightMap.cpp:743-746)
+/// writes `TheWritableGlobalData->m_weather` (`WEATHER_NORMAL=0` /
+/// `WEATHER_SNOWY=1`) when the key exists. Missing WorldInfo or key is
+/// fail-soft (`None`) so GameData.ini `WEATHER` remains the default.
+pub fn parse_runtime_weather_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<i32>> {
+    let Some(dict) = parse_runtime_world_info_dict(chunky)? else {
+        return Ok(None);
+    };
+    Ok(dict_lookup_ci(&dict, &["weather", "Weather"]).and_then(|value| parse_world_weather_value(&value)))
+}
+
+/// C++ `Weather` int / WorldBuilder name → `WEATHER_NORMAL=0` / `WEATHER_SNOWY=1`.
+pub fn parse_world_weather_value(raw: &str) -> Option<i32> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = trimmed.parse::<i32>() {
+        return Some(value);
+    }
+    match trimmed.to_ascii_uppercase().as_str() {
+        "NORMAL" | "CLEAR" => Some(0),
+        "SNOWY" | "SNOW" => Some(1),
+        _ => None,
+    }
+}
+
+/// C++ `TheKey_objectWeather` (`Object.cpp:3595-3605`): 0 follow, 1 force
+/// normal, 2 force snow.
+pub fn parse_object_weather_value(raw: &str) -> Option<i32> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(value) = trimmed.parse::<i32>() {
+        return Some(value);
+    }
+    match trimmed.to_ascii_uppercase().as_str() {
+        "NORMAL" | "CLEAR" | "FOLLOW" => Some(0),
+        "FORCEDNORMAL" | "FORCE_NORMAL" => Some(1),
+        "SNOWY" | "SNOW" | "FORCEDSNOW" | "FORCE_SNOW" => Some(2),
+        _ => None,
+    }
+}
+
+/// Resolve SNOW after global weather stamp, then per-object override.
+pub fn resolve_object_weather_snow(object_weather: i32, world_is_snow: bool) -> bool {
+    match object_weather {
+        1 => false,
+        2 => true,
+        _ => world_is_snow,
+    }
+}
+
+fn parse_runtime_world_info_dict(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Option<HashMap<String, String>>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let Some((_version, payload)) = find_chunk_by_label(body, &chunky.toc, "WorldInfo")? else {
         return Ok(None);
@@ -1591,15 +1660,15 @@ pub fn parse_runtime_water_height_from_chunky(chunky: &ChunkyMap) -> LoaderResul
     if reader.remaining() == 0 {
         return Ok(None);
     }
-    let dict = match parse_chunk_dict(&mut reader, &chunky.toc) {
-        Ok(dict) => dict,
+    match parse_chunk_dict(&mut reader, &chunky.toc) {
+        Ok(dict) => Ok(Some(dict)),
         Err(err) => {
-            warn!("WorldInfo dict parse failed; water height unavailable: {err}");
-            return Ok(None);
+            warn!("WorldInfo dict parse failed; water/weather unavailable: {err}");
+            Ok(None)
         }
-    };
-    Ok(dict_lookup_ci(&dict, &["waterHeight", "WaterHeight"]).and_then(|value| value.parse().ok()))
+    }
 }
+
 
 /// Parse `PolygonTriggers`, including water-area flags and point Z heights.
 ///
@@ -2116,6 +2185,7 @@ fn parse_map_object_chunk(
     let mut player_id = None;
     let mut upgrade = None;
     let mut unsellable = None;
+    let mut object_weather = None;
 
     if version >= 2 && reader.remaining() > 0 {
         let dict = parse_chunk_dict(&mut reader, toc)?;
@@ -2167,6 +2237,9 @@ fn parse_map_object_chunk(
             &["objectUnsellable", "unsellable", "object_unsellable"],
         )
         .map(|value| parse_ini_boolish(&value));
+
+        object_weather = dict_lookup_ci(&dict, &["objectWeather", "object_weather"])
+            .and_then(|value| parse_object_weather_value(&value));
     }
 
     Ok(Some(PlacedObject {
@@ -2178,7 +2251,9 @@ fn parse_map_object_chunk(
         player_id,
         upgrade,
         unsellable,
+        object_weather,
     }))
+
 }
 
 fn parse_waypoint_object_chunk(
@@ -2504,7 +2579,9 @@ fn parse_object_creation_chunk(data: &[u8], _version: u16) -> LoaderResult<Optio
         player_id,
         upgrade,
         unsellable: None,
+        object_weather: None,
     }))
+
 }
 
 fn parse_chunk_dict(

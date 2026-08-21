@@ -1625,7 +1625,8 @@ mod tests {
         logic.players.insert(0, local);
         logic.players.insert(1, china);
 
-        logic.try_eva_superweapon_detected_kind_for_test(Some(1), Team::China, "nuke");
+        logic.try_eva_superweapon_detected_kind(Some(1), Team::China, "nuke");
+
         let events = TheEva::drain_events().expect("eva");
         assert!(
             events
@@ -1670,7 +1671,8 @@ mod tests {
         logic.players.insert(0, local);
         logic.players.insert(1, ally);
 
-        logic.try_eva_superweapon_detected_kind_for_test(Some(1), Team::USA, "particle");
+        logic.try_eva_superweapon_detected_kind(Some(1), Team::USA, "particle");
+
         let events = TheEva::drain_events().expect("eva");
         assert!(
             events
