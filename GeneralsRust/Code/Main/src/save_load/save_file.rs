@@ -155,11 +155,12 @@ fn write_campaign_block<W: Write + Seek>(
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     xfer.xfer_int(&mut state.difficulty)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-    // Host mission restart only needs campaign/mission/rank/difficulty.
-    // Challenge nested GameInfo stays fail-closed (not required to start the map).
-    let mut is_challenge = false;
-    xfer.xfer_bool(&mut is_challenge)
+    xfer.xfer_bool(&mut state.is_challenge)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    if state.is_challenge {
+        let mut info = state.challenge_info.clone().unwrap_or_default();
+        xfer_challenge_game_info(xfer, &mut info)?;
+    }
     xfer.xfer_int(&mut state.generals_template)
         .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     Ok(())
@@ -184,12 +185,110 @@ fn parse_campaign_block(payload: &[u8]) -> SaveLoadResult<game_engine::System::C
     if version >= 4 {
         xfer.xfer_bool(&mut state.is_challenge)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        if state.is_challenge {
+            let mut info = game_engine::System::ChallengeGameInfoXfer::default();
+            xfer_challenge_game_info(&mut xfer, &mut info)?;
+            state.challenge_info = Some(info);
+        }
     }
     if version >= 5 {
         xfer.xfer_int(&mut state.generals_template)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     }
     Ok(state)
+}
+
+fn campaign_difficulty(state: &game_engine::System::CampaignManagerXferState) -> GameDifficulty {
+    match state.difficulty {
+        0 => GameDifficulty::Easy,
+        2 => GameDifficulty::Hard,
+        _ => GameDifficulty::Medium,
+    }
+}
+
+fn xfer_challenge_game_info<X: CommonXfer>(
+    xfer: &mut X,
+    info: &mut game_engine::System::ChallengeGameInfoXfer,
+) -> SaveLoadResult<()> {
+    const VERSION: u8 = 4;
+    let mut version = VERSION;
+    xfer.xfer_version(&mut version, VERSION)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut info.preorder_mask)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut info.crc_interval)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_bool(&mut info.in_game)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_bool(&mut info.in_progress)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_bool(&mut info.surrendered)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut info.game_id)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let mut slot_count = game_engine::System::CHALLENGE_MAX_SLOTS as i32;
+    xfer.xfer_int(&mut slot_count)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    let slots = slot_count.clamp(0, game_engine::System::CHALLENGE_MAX_SLOTS as i32) as usize;
+    for slot in info.slots.iter_mut().take(slots) {
+        xfer.xfer_int(&mut slot.state)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        if version >= 2 {
+            xfer.xfer_unicode_string(&mut slot.name)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        }
+        xfer.xfer_bool(&mut slot.is_accepted)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_bool(&mut slot.is_muted)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.color)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.start_pos)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.player_template)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.team_number)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.orig_color)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.orig_start_pos)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_int(&mut slot.orig_player_template)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    xfer.xfer_unsigned_int(&mut info.local_ip)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_ascii_string(&mut info.map_name)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_unsigned_int(&mut info.map_crc)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_unsigned_int(&mut info.map_size)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut info.map_mask)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    xfer.xfer_int(&mut info.seed)
+        .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    if version >= 3 {
+        xfer.xfer_unsigned_short(&mut info.superweapon_restriction)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        if version == 3 {
+            let mut obsolete = false;
+            xfer.xfer_bool(&mut obsolete)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        }
+        let mut money_version = 1u8;
+        xfer.xfer_version(&mut money_version, 1)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        xfer.xfer_unsigned_int(&mut info.starting_cash)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+    }
+    Ok(())
+}
+
+fn apply_campaign_manager_state(state: game_engine::System::CampaignManagerXferState) {
+    game_engine::System::apply_campaign_manager_runtime(state.clone());
+    game_client::gui::campaign_manager::get_campaign_manager()
+        .apply_logic_chunk_state(state);
 }
 
 pub(crate) fn parse_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
@@ -981,15 +1080,49 @@ impl SaveFileManager {
 
     fn read_named_chunk_save_info(data: &[u8]) -> SaveLoadResult<SaveGameInfo> {
         let blocks = walk_named_chunks(data)?;
+        let mut info = None;
+        let mut campaign = None;
         for (token, payload) in &blocks {
             if token.eq_ignore_ascii_case(CHUNK_GAME_STATE) {
-                return parse_chunk_game_state(payload);
+                info = Some(parse_chunk_game_state(payload)?);
+            } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
+                campaign = parse_campaign_block(payload).ok();
+            }
+        }
+        let mut info = info.ok_or_else(|| {
+            SaveLoadError::Corrupted("CHUNK_GameState not found in named-chunk save".to_string())
+        })?;
+        if let Some(state) = campaign {
+            info.difficulty = campaign_difficulty(&state);
+        }
+        Ok(info)
+    }
+
+    /// C++ `GameState::loadGame` walks CHUNK_Campaign before MSG_NEW_GAME.
+    pub fn read_campaign_state(
+        &self,
+        filename: &str,
+    ) -> SaveLoadResult<game_engine::System::CampaignManagerXferState> {
+        let save_path = self.get_save_path(filename);
+        let path = if save_path.exists() {
+            save_path
+        } else {
+            let mut legacy = self.save_directory.clone();
+            legacy.push(format!("{}.{}", filename, LEGACY_SAVE_EXTENSION));
+            legacy
+        };
+        let data = std::fs::read(&path)?;
+        let blocks = walk_named_chunks(&data)?;
+        for (token, payload) in blocks {
+            if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
+                return parse_campaign_block(&payload);
             }
         }
         Err(SaveLoadError::Corrupted(
-            "CHUNK_GameState not found in named-chunk save".to_string(),
+            "CHUNK_Campaign not found in named-chunk save".to_string(),
         ))
     }
+
 
     fn read_common_sav_chunks(data: &[u8]) -> SaveLoadResult<(WorldSnapshot, SaveGameInfo)> {
         let blocks = walk_named_chunks(data)?;
@@ -1016,7 +1149,8 @@ impl SaveFileManager {
                 logic_data = Some(payload);
             } else if token.eq_ignore_ascii_case(CHUNK_CAMPAIGN) {
                 if let Ok(state) = parse_campaign_block(&payload) {
-                    game_engine::System::apply_campaign_manager_runtime(state);
+                    save_info.difficulty = campaign_difficulty(&state);
+                    apply_campaign_manager_state(state);
                 }
             } else if token.eq_ignore_ascii_case(CHUNK_GHOST_OBJECT) {
                 if payload.first().copied() == Some(1) && payload.len() > 1 {
@@ -1092,7 +1226,8 @@ impl SaveFileManager {
         let (snapshot, path) = decode_bincode_world_snapshot(payload)?;
         match path {
             BincodeWorldSnapshotDecodePath::Current => {}
-            BincodeWorldSnapshotDecodePath::LegacyPreV16V15
+            BincodeWorldSnapshotDecodePath::LegacyPreV17V16
+            | BincodeWorldSnapshotDecodePath::LegacyPreV16V15
             | BincodeWorldSnapshotDecodePath::LegacyPreV15V14
             | BincodeWorldSnapshotDecodePath::LegacyPreV14V13
             | BincodeWorldSnapshotDecodePath::LegacyPreV13V12
@@ -2151,4 +2286,44 @@ mod tests {
         assert_eq!(info.save_type, SaveFileType::Mission);
         assert!(world.objects.is_empty());
     }
+
+    #[test]
+    fn campaign_block_writes_runtime_difficulty_and_challenge() {
+        use std::sync::Arc;
+        game_engine::System::register_campaign_manager_runtime_hooks(
+            Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
+                campaign: "GLA".into(),
+                mission: "GLA02".into(),
+                rank_points: 0,
+                difficulty: 2,
+                is_challenge: true,
+                challenge_info: Some(game_engine::System::ChallengeGameInfoXfer::default()),
+                generals_template: 4,
+            })),
+            None,
+        );
+        let snapshot = WorldSnapshot::default();
+        let mut save_info = fixture_save_info();
+        save_info.save_type = SaveFileType::Mission;
+        save_info.map_name = "Maps\\GLA02.map".into();
+        let bytes = SaveFileManager::write_common_sav_chunks(&snapshot, &save_info)
+            .expect("write mission");
+        let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
+        assert_eq!(listed.difficulty, GameDifficulty::Hard);
+        let blocks = walk_named_chunks(&bytes).expect("walk");
+        let campaign = blocks
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(CHUNK_CAMPAIGN))
+            .map(|(_, payload)| parse_campaign_block(payload).expect("parse campaign"));
+        let state = campaign.expect("CHUNK_Campaign");
+        assert_eq!(state.campaign, "GLA");
+        assert_eq!(state.mission, "GLA02");
+        assert_eq!(state.difficulty, 2);
+        assert!(state.is_challenge);
+        assert_eq!(state.generals_template, 4);
+        // Listing must surface CHUNK_Campaign difficulty (C++ loadGame then
+        // MSG_NEW_GAME uses TheCampaignManager->getGameDifficulty()).
+        assert_eq!(campaign_difficulty(&state), GameDifficulty::Hard);
+    }
+
 }

@@ -194,12 +194,13 @@ impl GameLogic {
         }
 
         for &id in object_ids {
-            let (ground_y, climber_ahead_y) = {
+            let (ground_y, surface_y, climber_ahead_y) = {
                 let Some(obj) = self.objects.get(&id) else {
                     continue;
                 };
                 let pos = obj.get_position();
                 let gy = self.terrain_height_at(pos).unwrap_or(obj.ground_height);
+                let sy = self.surface_ht_at(pos).unwrap_or(gy);
                 let ahead_y = if matches!(obj.loco_appearance, LocomotorAppearance::Climber)
                 {
                     if let Some(tgt) = obj.movement.target_position {
@@ -218,7 +219,7 @@ impl GameLogic {
                 } else {
                     pos.y
                 };
-                (gy, ahead_y)
+                (gy, sy, ahead_y)
             };
             if let Some(obj) = self.objects.get_mut(&id) {
                 // C++ GameLogic.cpp:3677-3718: UpdateModules (including AI/locomotor
@@ -234,7 +235,7 @@ impl GameLogic {
                     // C++ queueForPath: locomotor does not integrate until Path is installed.
                     obj.movement.velocity = Vec3::ZERO;
                     obj.record_host_movement();
-                    Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
                     continue;
                 }
 
@@ -270,7 +271,7 @@ impl GameLogic {
                                 obj.pending_evacuate_on_stop = true;
                                 obj.pending_exit_after_evacuate = and_exit;
                             }
-                            Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             continue;
                         }
                     }
@@ -350,7 +351,7 @@ impl GameLogic {
                         if obj.downhill_only_blocks_goal(current_pos.y, target_pos.y) {
                             obj.movement.velocity = Vec3::ZERO;
                             obj.record_host_movement();
-                            Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
                             continue;
                         }
                         if !obj.no_slow_down_as_approaching_dest {
@@ -430,7 +431,7 @@ impl GameLogic {
                         // W3DTreeBuffer::unitMoved (topple/push). set_position
                         // also notifies on integer XY change for GameWorld writeback.
                         obj.notify_terrain_trees_on_unit_move();
-                        Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         if reached_target {
                             // Only stop when there is no further path waypoint.
                             // Mid-path "reached" is handled by index advance above.
@@ -451,9 +452,9 @@ impl GameLogic {
                         // Already on target (zero horizontal delta) — still hold height.
                         obj.movement.velocity = Vec3::ZERO;
                         obj.record_host_movement();
-                        Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                        Self::apply_live_handle_behavior_z(obj, surface_y, None);
                         if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
-                            let _ = obj.loco_maintain_current_position(ground_y);
+                            let _ = obj.loco_maintain_current_position(surface_y);
                         }
                         if obj.movement.path.is_empty()
                             || obj.movement.current_path_index + 1 >= obj.movement.path.len()
@@ -463,9 +464,9 @@ impl GameLogic {
                     }
                 } else {
                     // Idle hover / wings: C++ locoUpdate_maintainCurrentPosition.
-                    Self::apply_live_handle_behavior_z(obj, ground_y, None);
+                    Self::apply_live_handle_behavior_z(obj, surface_y, None);
                     if matches!(obj.loco_appearance, LocomotorAppearance::Hover) {
-                        let _ = obj.loco_maintain_current_position(ground_y);
+                        let _ = obj.loco_maintain_current_position(surface_y);
                     }
                 }
             }

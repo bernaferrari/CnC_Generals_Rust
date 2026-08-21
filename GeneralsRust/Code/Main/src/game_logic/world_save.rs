@@ -319,6 +319,18 @@ impl GameLogic {
         ground
     }
 
+    /// C++ `Locomotor::getSurfaceHtAtPt` — water surface when underwater, else terrain.
+    pub fn surface_ht_at(&self, world_pos: Vec3) -> Option<f32> {
+        if let Some(terrain) = self.terrain.as_ref() {
+            if terrain.is_underwater_at_world(world_pos) {
+                if let Some(water_y) = terrain.water_surface_at_world(world_pos) {
+                    return Some(water_y);
+                }
+            }
+        }
+        self.terrain_height_at(world_pos)
+    }
+
     fn cached_pathfind_height(
         &self,
         world_pos: Vec3,

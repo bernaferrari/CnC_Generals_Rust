@@ -6,7 +6,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 /// Unique identifier for game objects
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct ObjectId(pub u32);
 
 impl std::fmt::Display for ObjectId {
