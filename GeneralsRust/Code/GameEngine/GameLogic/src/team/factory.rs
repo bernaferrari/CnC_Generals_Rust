@@ -32,6 +32,7 @@ impl TeamFactory {
 
     /// Initialize team factory
     pub fn init(&mut self) {
+        self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
         self.teams.clear();
         self.unique_team_prototype_id = 1;
@@ -42,6 +43,7 @@ impl TeamFactory {
 
     /// Reset team factory
     pub fn reset(&mut self) {
+        self.unlink_prototypes_from_owning_players();
         self.prototypes.clear();
         self.teams.clear();
         self.unique_team_prototype_id = 1;
@@ -380,6 +382,8 @@ impl TeamFactory {
 
         let prototype = Arc::new(prototype);
         self.prototypes.insert(name.to_string(), prototype.clone());
+        // C++ TeamPrototype ctor: owningPlayer->addTeamToList(this).
+        self.bind_prototype_to_owning_player(&prototype);
         if is_singleton {
             let _ = self.create_inactive_team(name.as_str());
         }
@@ -733,6 +737,38 @@ impl TeamFactory {
         }
 
         self.teams.remove(&team_id);
+    }
+
+    /// C++ TeamPrototype ctor/dtor + initTeam owner lookup (Team.cpp:216-223, 799-800).
+    fn bind_prototype_to_owning_player(&self, prototype: &Arc<TeamPrototype>) {
+        let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str()) else {
+            return;
+        };
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.add_team_to_list(Arc::clone(prototype));
+        }
+    }
+
+    fn unlink_prototypes_from_owning_players(&self) {
+        for prototype in self.prototypes.values() {
+            let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str())
+            else {
+                continue;
+            };
+            if let Ok(mut player_guard) = player.write() {
+                player_guard.remove_team_from_list(prototype);
+            }
+        }
+    }
+
+    fn resolve_owning_player(&self, owner_name: &str) -> Option<Arc<RwLock<crate::player::Player>>> {
+        let list = player_list().read().ok()?;
+        if owner_name.is_empty() {
+            list.get_neutral_player()
+        } else {
+            list.find_player_by_name(owner_name)
+                .or_else(|| list.get_neutral_player())
+        }
     }
 
     fn drain_pending_create_action_scripts(&mut self) -> Vec<String> {

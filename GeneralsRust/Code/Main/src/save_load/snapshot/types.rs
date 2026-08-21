@@ -45,8 +45,12 @@ use std::time::SystemTime;
 /// /decal companions as a world tail so nested object and client-drawable
 /// records stay aligned with v1-v13 streams. Version 15 appends C++
 /// `Energy::xfer` v3 `m_powerSabotagedTillFrame` as a world tail so nested
-/// `PlayerSnapshot` records stay aligned with v1-v14 streams.
-pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 15;
+/// `PlayerSnapshot` records stay aligned with v1-v14 streams. Version 16
+/// appends C++ `Object::xfer` trigger-area housekeeping (`m_iPos`,
+/// `m_enteredOrExitedFrame`, per-area entered/exited/isInside + area id/name)
+/// as a world tail so nested `ObjectSnapshot` / `object_persist` records stay
+/// aligned with v1-v15 streams.
+pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 16;
 
 /// Direct Common Xfer keeps an independent positional envelope from bincode.
 ///
@@ -54,7 +58,7 @@ pub const WORLD_SNAPSHOT_BINCODE_VERSION: u32 = 15;
 /// and object records.  Do not derive object-tail gates from the bincode
 /// version: a historical direct v3 stream still contains HDB even once the
 /// bincode writer has advanced to v4.
-pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 15;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_VERSION: u32 = 16;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_HDB_VERSION: u32 = 3;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V4_TAIL_VERSION: u32 = 4;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V5_TAIL_VERSION: u32 = 5;
@@ -68,6 +72,7 @@ pub const WORLD_SNAPSHOT_DIRECT_XFER_V12_TAIL_VERSION: u32 = 12;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V13_TAIL_VERSION: u32 = 13;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V14_TAIL_VERSION: u32 = 14;
 pub const WORLD_SNAPSHOT_DIRECT_XFER_V15_TAIL_VERSION: u32 = 15;
+pub const WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION: u32 = 16;
 
 /// Reject unknown direct-Xfer outer layouts before consuming any body bytes.
 /// Known historical writers are accepted so focused fixtures can verify their
@@ -77,7 +82,7 @@ pub(crate) fn validate_direct_world_snapshot_version(version: u32) -> SaveLoadRe
         // Keep these arms deliberately explicit. Advancing the current writer
         // must not accidentally make a future positional body acceptable
         // before its object/world gates and exact predecessor fixtures exist.
-        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 => Ok(()),
+        1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 => Ok(()),
         actual => Err(crate::save_load::SaveLoadError::VersionMismatch {
             expected: WORLD_SNAPSHOT_DIRECT_XFER_VERSION,
             actual,
@@ -213,6 +218,11 @@ pub struct WorldSnapshot {
     /// nested `PlayerSnapshot` records stay aligned with v1-v14 streams.
     #[serde(default)]
     pub player_energy: Vec<PlayerEnergySnapshot>,
+
+    /// C++ `Object::xfer` (`Object.cpp:4218-4246`) trigger-area slots.
+    /// World tail so nested `ObjectSnapshot` / `object_persist` stay aligned.
+    #[serde(default)]
+    pub object_triggers: Vec<ObjectTriggerPersistSnapshot>,
 }
 
 /// C++ `OverchargeBehavior::xfer` (`OverchargeBehavior.cpp:275-289`).
@@ -258,6 +268,26 @@ pub struct ObjectPersistTailSnapshot {
     pub stealth_opacity: f32,
     pub terrain_decal_type: u8,
     pub terrain_decal_size: f32,
+}
+
+/// C++ `Object::xfer` per-area trigger slot (`entered` / `exited` / `isInside`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ObjectTriggerSlotSnapshot {
+    pub trigger_id: i32,
+    pub trigger_name: String,
+    pub is_inside: bool,
+    pub entered: bool,
+    pub exited: bool,
+}
+
+/// C++ `Object::xfer` trigger housekeeping keyed by object id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectTriggerPersistSnapshot {
+    pub object_id: ObjectId,
+    pub i_x: i32,
+    pub i_y: i32,
+    pub entered_or_exited_frame: u32,
+    pub slots: Vec<ObjectTriggerSlotSnapshot>,
 }
 
 /// C++ `Drawable::xfer` v7 companion extras keyed by draw module.
@@ -341,6 +371,7 @@ impl Default for WorldSnapshot {
             object_persist: Vec::new(),
             client_drawable_visuals: Vec::new(),
             player_energy: Vec::new(),
+            object_triggers: Vec::new(),
         }
     }
 }

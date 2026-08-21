@@ -306,10 +306,47 @@ pub fn angry_mob_damage_for_tick(member_count: u32, armed: bool) -> f32 {
     }
 }
 
-/// C++ SpawnBehavior::computeAggregateStates OBJECT_STATUS_MASKED
-/// (`SpawnBehavior.cpp:995`) — nexus does not exist as a weapon target.
+/// C++ SpawnBehavior::computeAggregateStates sets OBJECT_STATUS_MASKED
+/// (`SpawnBehavior.cpp:995`) so weapons skip the 99999-HP nexus. Live
+/// `Object::is_selectable` treats MASKED as unselectable, which made the
+/// playable mob a turret. Keep the nexus unmasked; weapons skip it via
+/// `is_angry_mob_nexus_template`.
 pub fn angry_mob_nexus_should_be_masked() -> bool {
-    true
+    false
+}
+
+/// C++ WeaponSet OBJECT_STATUS_MASKED override: the nexus is not a victim.
+pub fn angry_mob_nexus_is_weapon_target() -> bool {
+    false
+}
+
+/// C++ MobMemberSlavedUpdate MustCatchUpRadius default.
+pub const ANGRY_MOB_MUST_CATCH_UP_RADIUS: f32 = 50.0;
+
+/// Orbit slot around the nexus (host XZ). Members path here; they are not teleported.
+pub fn angry_mob_member_orbit_destination(origin: Vec3, slot: u32) -> Vec3 {
+    use std::f32::consts::PI;
+    let angle = (slot as f32) * (2.0 * PI / 8.0);
+    let radius = 8.0 + (slot % 3) as f32 * 2.0;
+    Vec3::new(
+        origin.x + angle.cos() * radius,
+        origin.y,
+        origin.z + angle.sin() * radius,
+    )
+}
+
+/// C++ evaluateSoloNexus / IGNORED_IN_GUI slaver remap: clicking a member
+/// commands the nexus.
+pub fn remap_angry_mob_selection_id(
+    is_member: bool,
+    nexus_id: Option<ObjectId>,
+    self_id: ObjectId,
+) -> ObjectId {
+    if is_member {
+        nexus_id.unwrap_or(self_id)
+    } else {
+        self_id
+    }
 }
 
 /// Per-nexus residual state (SpawnBehavior slaves + fire cadence).
@@ -1071,7 +1108,8 @@ mod tests {
                 .iter()
                 .any(|m| m.object_id == mob_id && m.pending_nexus_destroy)
         );
-        assert!(angry_mob_nexus_should_be_masked());
+        assert!(!angry_mob_nexus_should_be_masked());
+        assert!(!angry_mob_nexus_is_weapon_target());
         let _ = ANGRY_MOB_SPAWN_DELAY_MIN_FRAMES;
         let _ = ANGRY_MOB_INITIAL_MEMBERS;
     }

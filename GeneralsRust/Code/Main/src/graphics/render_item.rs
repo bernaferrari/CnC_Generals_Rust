@@ -18,6 +18,63 @@ use std::sync::Arc;
 
 use super::render_pipeline::RenderPass;
 
+
+/// C++ `W3DAssetManager::houseColorScale` / leftover `HOUSE_COLOR_SCALE`.
+/// Brightness ramp used when remapping HouseColor / ZHC livery.
+pub const HOUSE_COLOR_SCALE: [u16; 16] = [
+    255, 239, 223, 211, 195, 174, 167, 151, 135, 123, 107, 91, 79, 63, 47, 35,
+];
+
+/// C++ Recolor_Mesh name test: leaf after `.` starts with `HOUSECOLOR`.
+pub fn mesh_uses_house_color_vertex_material(mesh_name: &str) -> bool {
+    let leaf = mesh_name.rsplit('.').next().unwrap_or(mesh_name).trim();
+    leaf.len() >= 10 && leaf[..10].eq_ignore_ascii_case("HOUSECOLOR")
+}
+
+/// C++ Recolor_Mesh texture test: name starts with `ZHC`.
+pub fn texture_uses_house_color_remap(texture_name: &str) -> bool {
+    let file = texture_name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(texture_name)
+        .trim();
+    file.len() >= 3 && file[..3].eq_ignore_ascii_case("ZHC")
+}
+
+/// C++ `reallycolor = (color & 0xFFFFFF) != 0` — black is not a house color.
+pub fn house_color_rgb(team_color: [f32; 4]) -> Option<Vec3> {
+    let r = team_color[0];
+    let g = team_color[1];
+    let b = team_color[2];
+    if !r.is_finite() || !g.is_finite() || !b.is_finite() {
+        return None;
+    }
+    if r.abs() <= 1e-6 && g.abs() <= 1e-6 && b.abs() <= 1e-6 {
+        return None;
+    }
+    Some(Vec3::new(r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)))
+}
+
+/// Unpack C++ `m_hexColor` / `Create_Render_Obj` ARGB into 0..1 RGBA.
+pub fn house_color_from_argb(color: u32) -> Option<[f32; 4]> {
+    if color & 0x00FF_FFFF == 0 {
+        return None;
+    }
+    Some([
+        ((color >> 16) & 0xff) as f32 / 255.0,
+        ((color >> 8) & 0xff) as f32 / 255.0,
+        (color & 0xff) as f32 / 255.0,
+        1.0,
+    ])
+}
+
+/// Leftover `generate_team_color_palette_32bit` shade at `index`.
+pub fn house_color_palette_shade(team_color: [f32; 4], index: usize) -> Option<Vec3> {
+    let rgb = house_color_rgb(team_color)?;
+    let scale = HOUSE_COLOR_SCALE.get(index).copied().unwrap_or(255) as f32 / 255.0;
+    Some(rgb * scale)
+}
+
 /// Stable identity for a frozen W3D ghost snapshot.
 ///
 /// Ghost IDs are pooled by the C++ manager, so the pool identity alone is not
@@ -551,6 +608,9 @@ pub struct RenderItem {
     pub poison_tinted: bool,
     /// C++ Drawable tint-status signed RGB (DISABLED/SUBDUAL/FRENZY).
     pub status_tint: [f32; 3],
+    /// C++ `m_hexColor` / player indicator color applied to HOUSECOLOR / ZHC.
+    pub house_color: [f32; 4],
+
 }
 
 impl RenderItem {
@@ -606,6 +666,7 @@ impl RenderItem {
             selection_flash_team_color: [1.0, 1.0, 1.0, 1.0],
             poison_tinted: false,
             status_tint: [0.0; 3],
+            house_color: [0.0; 4],
         }
     }
 
@@ -785,6 +846,39 @@ impl RenderItem {
         d.z = (d.z + rgb[2]).clamp(0.0, 2.0);
     }
 
+    /// C++ Recolor_Vertex_Material / Recolor_Texture on HOUSECOLOR meshes and ZHC.
+    /// Capture/owner change recolors because the next collect uses the new house color.
+    pub fn apply_house_color_livery(&mut self, mesh_name: &str) {
+        self.apply_house_color_livery_with(self.house_color, mesh_name);
+    }
+
+    pub fn apply_house_color_livery_with(&mut self, team_color: [f32; 4], mesh_name: &str) {
+        self.house_color = team_color;
+        let Some(rgb) = house_color_rgb(team_color) else {
+            return;
+        };
+        let house_mesh = mesh_uses_house_color_vertex_material(mesh_name);
+        let house_tex = self
+            .material
+            .texture_name
+            .as_deref()
+            .is_some_and(texture_uses_house_color_remap)
+            || self
+                .material
+                .stage0_mapping
+                .texture_name
+                .as_deref()
+                .is_some_and(texture_uses_house_color_remap);
+        if house_mesh {
+            // C++ Recolor_Vertex_Material: Set_Ambient + Set_Diffuse to house RGB.
+            self.material.diffuse_color = rgb;
+        } else if house_tex {
+            // Approximate Recolor_Texture via leftover HOUSE_COLOR_SCALE[0] (255).
+            self.material.diffuse_color = house_color_palette_shade(team_color, 0).unwrap_or(rgb);
+        }
+    }
+
+
     /// Apply the frozen Drawable-level visual state shared by all render
     /// objects produced for one presentation unit.  Call this once while
     /// constructing each fresh source mesh or its synthetic HLOD parent; the
@@ -797,6 +891,7 @@ impl RenderItem {
         selection_flash_team_color: [f32; 4],
         poison_tinted: bool,
     ) {
+        self.house_color = selection_flash_team_color;
         self.set_fow_visibility(fow_visibility);
         if selection_flash_intensity > 0.0 {
             self.apply_selection_flash(selection_flash_intensity, selection_flash_team_color);
@@ -834,6 +929,7 @@ impl RenderItem {
         // leaving all recoil dispatch inert until an exact event route exists.
         self.legacy_model_draw_source = parent.legacy_model_draw_source.clone();
         self.legacy_weapon_bone_bindings = parent.legacy_weapon_bone_bindings.clone();
+        self.house_color = parent.house_color;
     }
 
     pub fn set_world_matrix(&mut self, matrix: Mat4) {
@@ -1330,4 +1426,70 @@ mod tests {
         assert_eq!(state.final_status, ObjectShroudStatus::Clear);
         assert!(!state.pushes_projected_shroud_pass);
     }
+
+    #[test]
+    fn house_color_recolors_housecolor_mesh_not_hull() {
+        let gold = [0.87, 0.89, 0.05, 1.0];
+        let mut stripe = RenderItem::new(
+            ObjectId(1),
+            "AVTank".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        stripe.apply_house_color_livery_with(gold, "AVTank.HOUSECOLOR");
+        assert!((stripe.material.diffuse_color.x - gold[0]).abs() < 1e-5);
+        assert!((stripe.material.diffuse_color.y - gold[1]).abs() < 1e-5);
+        assert!((stripe.material.diffuse_color.z - gold[2]).abs() < 1e-5);
+
+        let mut hull = RenderItem::new(
+            ObjectId(1),
+            "AVTank".to_string(),
+            1,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &W3DMaterial::default(),
+            RenderPass::ForwardOpaque,
+        );
+        hull.apply_house_color_livery_with(gold, "AVTank.HULL");
+        assert_eq!(hull.material.diffuse_color, Vec3::ONE);
+    }
+
+    #[test]
+    fn house_color_tints_zhc_texture_and_capture_recolors() {
+        let mut material = W3DMaterial::default();
+        material.texture_name = Some("ZHCstripe.tga".to_string());
+        let mut item = RenderItem::new(
+            ObjectId(2),
+            "CIRanger".to_string(),
+            0,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            &material,
+            RenderPass::ForwardOpaque,
+        );
+        let red = [0.8, 0.1, 0.1, 1.0];
+        item.apply_house_color_livery_with(red, "CIRanger.MESH");
+        assert!((item.material.diffuse_color.x - red[0]).abs() < 1e-5);
+        assert!((item.material.diffuse_color.y - red[1]).abs() < 1e-5);
+
+        let blue = [0.1, 0.25, 0.9, 1.0];
+        item.apply_house_color_livery_with(blue, "CIRanger.MESH");
+        assert!((item.material.diffuse_color.z - blue[2]).abs() < 1e-5);
+        assert!(item.material.diffuse_color.x < 0.2);
+    }
+
+    #[test]
+    fn house_color_scale_matches_cpp_and_black_is_invalid() {
+        assert_eq!(HOUSE_COLOR_SCALE[0], 255);
+        assert_eq!(HOUSE_COLOR_SCALE[15], 35);
+        assert!(house_color_rgb([0.0, 0.0, 0.0, 1.0]).is_none());
+        assert!(house_color_from_argb(0xFF00_0000).is_none());
+        let packed = house_color_from_argb(0xFFCC_3311).expect("nonzero RGB");
+        assert!((packed[0] - 204.0 / 255.0).abs() < 1e-5);
+        assert!((packed[2] - 17.0 / 255.0).abs() < 1e-5);
+    }
+
 }

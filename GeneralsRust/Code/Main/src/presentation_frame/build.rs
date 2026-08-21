@@ -492,10 +492,16 @@ impl PresentationFrame {
                         if let Some(dt) = obj.disguise_as_team {
                             dt.get_color()
                         } else {
-                            obj.team_color
+                            logic
+                                .player_house_color_rgba(obj.owner_player_id)
+                                .unwrap_or(obj.team_color)
                         }
                     } else {
-                        obj.team_color
+                        // C++ getIndicatorColor: controlling player's house color,
+                        // so same-faction slots and captured units recolor.
+                        logic
+                            .player_house_color_rgba(obj.owner_player_id)
+                            .unwrap_or(obj.team_color)
                     }
                 },
                 // Use accessors so presentation matches authoritative transform state.

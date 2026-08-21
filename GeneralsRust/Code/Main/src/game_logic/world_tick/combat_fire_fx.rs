@@ -181,6 +181,9 @@ impl GameLogic {
                     *id,
                     obj.get_position(),
                     obj.template_name.clone(),
+                    obj.thing.template.get_model_name().to_string(),
+                    obj.thing.template.asset_scale,
+                    obj.get_orientation(),
                     obj.model_condition_bits,
                     obj.body_damage_state.ordinal(),
                     obj.has_object_status_bit("AFLAME")
@@ -188,22 +191,25 @@ impl GameLogic {
                 )
             })
             .collect();
-        for (id, pos, template, bits, ordinal, aflame) in snapshots {
+        for (id, pos, template, model, scale, yaw, bits, ordinal, aflame) in snapshots {
             let bones =
                 crate::game_logic::combat_particles::particle_sys_bones_for_template(&template, bits);
             self.combat_particles
                 .sync_particle_sys_bones(frame, id, pos, &bones);
             let wants_body = ordinal > 0 || aflame;
             let has_body = self.combat_particles.has_body_particles(id);
+            let pose = crate::game_logic::combat_particles::BodyAutoParticlePose::new(
+                &model, scale, yaw,
+            );
             if wants_body && !has_body {
                 self.combat_particles.replace_body_auto_particles(
-                    id, pos, frame, ordinal, aflame,
+                    id, pos, frame, ordinal, aflame, pose,
                 );
             } else if wants_body {
                 self.combat_particles.follow_attached_body_particles(id, pos);
             } else if has_body {
                 self.combat_particles
-                    .replace_body_auto_particles(id, pos, frame, 0, false);
+                    .replace_body_auto_particles(id, pos, frame, 0, false, pose);
             }
         }
     }

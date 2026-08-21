@@ -9,7 +9,6 @@ impl GameWorldShadow {
         // Wave 801: AngryMob member follow residual (post-loop; needs nexus positions).
         {
             use gamelogic::world::entities::EntityId;
-            use std::f32::consts::PI;
             // Snapshot host_id -> position for nexus lookup without nested borrows.
             let mut host_pos: std::collections::HashMap<u32, (f32, f32, f32, bool)> =
                 std::collections::HashMap::new();
@@ -36,11 +35,15 @@ impl GameWorldShadow {
                     } else {
                         let hid = self.entity_to_host.get(&eid.get()).copied().unwrap_or(0);
                         let slot = hid % 8;
-                        let angle = (slot as f32) * (2.0 * PI / 8.0);
-                        let radius = 8.0 + (slot % 3) as f32 * 2.0;
-                        e.transform.position.x = x + angle.cos() * radius;
-                        e.transform.position.y = y;
-                        e.transform.position.z = z + angle.sin() * radius;
+                        let dest = crate::game_logic::host_angry_mob::angry_mob_member_orbit_destination(
+                            glam::Vec3::new(x, y, z),
+                            slot,
+                        );
+                        let dx = e.transform.position.x - dest.x;
+                        let dz = e.transform.position.z - dest.z;
+                        if dx * dx + dz * dz > 100.0 {
+                            e.move_target = Some([dest.x, dest.y, dest.z]);
+                        }
                         n = n.saturating_add(1);
                     }
                 } else {

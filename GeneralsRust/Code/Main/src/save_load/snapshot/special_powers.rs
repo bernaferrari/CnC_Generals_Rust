@@ -1305,6 +1305,7 @@ impl XferData for CombatParticleRegistrySnapshot {
                 client_system_id: None,
                 fx_list_name: String::new(),
                 ocl_list_name: String::new(),
+                attach_offset: Vec3::ZERO,
             },
         )?;
         Ok(())

@@ -270,7 +270,24 @@ impl CnCGameEngine {
             BASE_SELECTION_RADIUS,
             profile,
         );
-        closer_presentation_pick(frame, position, standard, extra)
+        closer_presentation_pick(frame, position, standard, extra).map(|id| {
+            // C++ InGameUI.cpp:2265-2278 — IGNORED_IN_GUI remaps to slaver/nexus.
+            frame
+                .objects
+                .iter()
+                .find(|o| o.id == id)
+                .and_then(|o| {
+                    if crate::presentation_frame::PresentationFrame::object_has_kind(
+                        o,
+                        crate::game_logic::KindOf::IgnoredInGui,
+                    ) {
+                        o.producer_id
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(id)
+        })
     }
 
 

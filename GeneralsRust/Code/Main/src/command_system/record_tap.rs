@@ -136,6 +136,9 @@ static PENDING_REPLAY_TEAMS: Mutex<Vec<ReplayTeamOp>> = Mutex::new(Vec::new());
 static PENDING_REPLAY_REMIRROR: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HOST_LOGIC_FRAME: AtomicU32 = AtomicU32::new(0);
+static LAST_LOGIC_CRC: AtomicU32 = AtomicU32::new(0);
+static LAST_LOGIC_CRC_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
+
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -363,6 +366,47 @@ pub fn stamp_host_logic_frame(frame: u32) {
     HOST_LOGIC_FRAME.store(frame, Ordering::Relaxed);
 }
 
+fn leftover_logic_crc() -> u32 {
+    gamelogic::get_game_logic()
+        .try_lock()
+        .ok()
+        .map(|logic| logic.get_crc(gamelogic::CrcMode::Recalc))
+        .unwrap_or(0)
+}
+
+
+fn logic_crc_due(frame: u32) -> bool {
+    let interval = game_engine::common::crc_debug::replay_crc_interval();
+    interval > 0 && frame % (interval as u32) == 0
+}
+
+/// C++ `GameLogic.cpp:3625-3654`: every `REPLAY_CRC_INTERVAL` frames compute
+/// `getCRC(CRC_RECALC)` and append `MSG_LOGIC_CRC` so `updateRecord` writes it.
+pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
+    if !logic_crc_due(frame) {
+        return None;
+    }
+    if LAST_LOGIC_CRC_FRAME.load(Ordering::Relaxed) == frame {
+        return Some(LAST_LOGIC_CRC.load(Ordering::Relaxed));
+    }
+
+    let leftover = leftover_logic_crc();
+    let mut hasher = game_engine::common::crc::Crc::new();
+    hasher.compute_crc(&leftover.to_le_bytes());
+    hasher.compute_crc(&host_fold.to_le_bytes());
+    let crc = hasher.get();
+
+    let playback = host_recorder_is_playback();
+    let mut message = GameMessage::new(GameMessageType::LogicCRC(crc));
+    message.append_boolean_argument(playback);
+    append_to_command_list(message);
+
+    LAST_LOGIC_CRC.store(crc, Ordering::Relaxed);
+    LAST_LOGIC_CRC_FRAME.store(frame, Ordering::Relaxed);
+    Some(crc)
+}
+
+
 /// True when the live recorder is in `RECORDERMODETYPE_PLAYBACK`.
 pub fn host_recorder_is_playback() -> bool {
     install_host_replay_bridges();
@@ -489,9 +533,17 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
     install_host_replay_bridges();
     let playback = host_recorder_is_playback();
     let frame = host_logic_frame();
+    // C++ posts MSG_LOGIC_CRC onto the stream before TheRecorder->update().
+    let posted = post_host_logic_crc_if_due(frame, 0);
     let _ = with_recorder_mut(|recorder| {
         recorder.set_current_frame(frame);
         recorder.update();
+        if playback {
+            if let Some(crc) = posted {
+                // C++ GameLogicDispatch.cpp:1940-1946 — compare only in playback.
+                recorder.notify_logic_crc(crc, 0);
+            }
+        }
     });
 
     if playback {
@@ -1261,4 +1313,52 @@ mod tests {
         assert_eq!(stored.player_index, 3);
     }
 
+    fn reset_logic_crc_cadence() {
+        LAST_LOGIC_CRC_FRAME.store(u32::MAX, Ordering::Relaxed);
+        LAST_LOGIC_CRC.store(0, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn live_host_posts_logic_crc_every_replay_interval() {
+        // C++ GameLogic.cpp:3634 — (m_frame % REPLAY_CRC_INTERVAL) == 0.
+        reset_logic_crc_cadence();
+        stamp_host_logic_frame(100);
+        let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
+        let snap = snapshot_command_list();
+        let crc_msg = snap
+            .iter()
+            .rev()
+            .find(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_)))
+            .expect("MSG_LOGIC_CRC must land on TheCommandList");
+        match crc_msg.get_type() {
+            GameMessageType::LogicCRC(value) => assert_eq!(*value, posted),
+            other => panic!("expected LogicCRC, got {other:?}"),
+        }
+        assert!(matches!(
+            crc_msg.get_argument(0),
+            Some(GameMessageArgumentType::Boolean(_))
+        ));
+
+        assert!(
+            post_host_logic_crc_if_due(101, 0xABCD_0002).is_none(),
+            "off-interval frames must not emit LogicCRC"
+        );
+    }
+
+    #[test]
+    fn flush_recorder_posts_logic_crc_before_update() {
+        reset_logic_crc_cadence();
+        stamp_host_logic_frame(200);
+        let mut queue = VecDeque::new();
+        flush_recorder_and_replay_authority(&mut queue);
+        let snap = snapshot_command_list();
+        assert!(
+            snap.iter()
+                .any(|msg| matches!(msg.get_type(), GameMessageType::LogicCRC(_))),
+            "flush must post MSG_LOGIC_CRC so updateRecord can write .rep entries"
+        );
+    }
+
 }
+
+

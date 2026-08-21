@@ -2140,6 +2140,11 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32()
         );
         self.sync_legacy_player_list_from_sides();
+        // C++ GameLogic newMap: PlayerList then TeamFactory::initFromSides.
+        // Fast path previously published sides/players and skipped factory init,
+        // so selectTeamToBuild saw an empty getPlayerTeams() list.
+        self.sync_legacy_team_factory_from_sides();
+
         if !self.players.is_empty() {
             self.apply_host_players_from_side_dicts(&sides_data.side_dicts, false);
             self.stash_side_builds_on_host(&sides_data.side_builds);

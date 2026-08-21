@@ -351,6 +351,11 @@ impl GameClient {
                     renderer,
                 );
             }
+
+
+            // C++ W3DMouse.cpp:565-567 / Mouse.cpp:963-1023 — tooltip after delay.
+            crate::gui::ui_globals::tick_cursor_tooltip();
+            let _ = crate::gui::ui_globals::submit_cursor_tooltip(renderer);
         });
     }
 

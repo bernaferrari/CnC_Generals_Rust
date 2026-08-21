@@ -382,14 +382,27 @@ impl Object {
         dmg
     }
 
-    /// Distance to another object (3D residual; pathfinding often 2D).
+    /// C++ `FROM_BOUNDINGSPHERE_2D` (Weapon.cpp ATTACK_RANGE_IS_2D).
+    /// Host ground plane is XZ (Y-up); subtract both bounding-circle radii.
     pub fn distance_to_object(&self, other: &Object) -> f32 {
-        self.get_position().distance(other.get_position())
+        let a = self.get_position();
+        let b = other.get_position();
+        let dx = a.x - b.x;
+        let dz = a.z - b.z;
+        let center = (dx * dx + dz * dz).sqrt();
+        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        let rb = other.thing.template.geometry_info.bounding_circle_radius();
+        (center - ra - rb).max(0.0)
     }
 
     /// Distance to world position.
     pub fn distance_to_pos(&self, pos: glam::Vec3) -> f32 {
-        self.get_position().distance(pos)
+        let a = self.get_position();
+        let dx = a.x - pos.x;
+        let dz = a.z - pos.z;
+        let center = (dx * dx + dz * dz).sqrt();
+        let ra = self.thing.template.geometry_info.bounding_circle_radius();
+        (center - ra).max(0.0)
     }
 
     /// C++ Weapon::isWithinAttackRange residual for one concrete WeaponSet slot.

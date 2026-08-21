@@ -1043,6 +1043,15 @@ impl Object {
                 bits |= 1u128 << carry_b;
             }
         }
+        // C++ MODELCONDITION_PANICKING from chooseLocomotorSet(PANIC) / AIPanicState.
+        {
+            use crate::game_logic::host_enum_table_residual::panicking_model_bit;
+            let panic_b = panicking_model_bit();
+            bits &= !(1u128 << panic_b);
+            if self.is_panicking {
+                bits |= 1u128 << panic_b;
+            }
+        }
         if self.model_condition_bits != bits {
             self.visual_draw_state_revision = self.visual_draw_state_revision.saturating_add(1).max(1);
         }

@@ -78,6 +78,7 @@ impl SnapshotBuilder {
             object_persist: self.snapshot_object_persist(game_logic),
             client_drawable_visuals: self.snapshot_client_drawable_visuals(game_logic),
             player_energy: self.snapshot_player_energy(game_logic),
+            object_triggers: self.snapshot_object_triggers(game_logic),
         };
 
         log::info!(
@@ -118,6 +119,11 @@ impl SnapshotBuilder {
 
         // Restore frame number
         game_logic.set_current_frame(snapshot.frame_number);
+
+        // C++ Object.cpp:4218-4246 writes trigger slots after pose. Restore
+        // HOST_TRIGGER_WORLD (including m_iPos) before recreate/set_position
+        // so units already inside do not emit a fresh ENTERED_AREA edge.
+        self.restore_object_triggers(snapshot);
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
@@ -779,6 +785,83 @@ impl SnapshotBuilder {
             });
         }
         entries
+    }
+
+    /// C++ `Object::xfer` trigger-area slots (`Object.cpp:4218-4246`).
+    fn snapshot_object_triggers(
+        &self,
+        game_logic: &GameLogic,
+    ) -> Vec<ObjectTriggerPersistSnapshot> {
+        let mut entries: Vec<ObjectTriggerPersistSnapshot> =
+            gamelogic::scripting::capture_host_object_trigger_persists()
+                .into_iter()
+                .map(|entry| ObjectTriggerPersistSnapshot {
+                    object_id: ObjectId(entry.object_id),
+                    i_x: entry.i_x,
+                    i_y: entry.i_y,
+                    entered_or_exited_frame: entry.entered_or_exited_frame,
+                    slots: entry
+                        .slots
+                        .into_iter()
+                        .map(|slot| ObjectTriggerSlotSnapshot {
+                            trigger_id: slot.trigger_id,
+                            trigger_name: slot.trigger_name,
+                            is_inside: slot.is_inside,
+                            entered: slot.entered,
+                            exited: slot.exited,
+                        })
+                        .collect(),
+                })
+                .collect();
+        let mut seen: HashSet<ObjectId> = entries.iter().map(|entry| entry.object_id).collect();
+        let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
+        ids.sort();
+        for id in ids {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(object) = game_logic.host_object(id) else {
+                continue;
+            };
+            let position = object.get_position();
+            entries.push(ObjectTriggerPersistSnapshot {
+                object_id: id,
+                i_x: position.x as i32,
+                i_y: position.z as i32,
+                entered_or_exited_frame: 0,
+                slots: Vec::new(),
+            });
+        }
+        entries.sort_by_key(|entry| entry.object_id);
+        entries
+    }
+
+    fn restore_object_triggers(&self, snapshot: &WorldSnapshot) {
+        if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION {
+            return;
+        }
+        let entries: Vec<gamelogic::scripting::HostObjectTriggerPersist> = snapshot
+            .object_triggers
+            .iter()
+            .map(|entry| gamelogic::scripting::HostObjectTriggerPersist {
+                object_id: entry.object_id.0,
+                i_x: entry.i_x,
+                i_y: entry.i_y,
+                entered_or_exited_frame: entry.entered_or_exited_frame,
+                slots: entry
+                    .slots
+                    .iter()
+                    .map(|slot| gamelogic::scripting::HostTriggerSlotPersist {
+                        trigger_id: slot.trigger_id,
+                        trigger_name: slot.trigger_name.clone(),
+                        is_inside: slot.is_inside,
+                        entered: slot.entered,
+                        exited: slot.exited,
+                    })
+                    .collect(),
+            })
+            .collect();
+        gamelogic::scripting::restore_host_object_trigger_persists(&entries);
     }
 
     fn restore_object_persist(

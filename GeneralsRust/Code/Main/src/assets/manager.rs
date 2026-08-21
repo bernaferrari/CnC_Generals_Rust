@@ -1604,14 +1604,23 @@ impl AssetManager {
 
     /// Play sound effect from archives
     pub async fn play_sound_effect(&mut self, sound_name: &str) -> Result<()> {
+        self.play_sound_effect_scaled(sound_name, 1.0).await
+    }
+
+    pub async fn play_sound_effect_scaled(
+        &mut self,
+        sound_name: &str,
+        volume_scale: f32,
+    ) -> Result<()> {
         if !self.initialized {
             return Err(anyhow!("AssetManager not initialized"));
         }
 
         self.audio_manager
-            .play_sound_effect(&mut self.archive_system, sound_name)
+            .play_sound_effect_scaled(&mut self.archive_system, sound_name, volume_scale)
             .await
     }
+
 
     /// Toggle background music
     pub fn toggle_background_music(&self) {
@@ -2489,6 +2498,10 @@ pub async fn load_cnc_unit_model(unit_name: &str) -> Result<()> {
 }
 
 pub async fn play_cnc_sound_effect(sound_name: &str) -> Result<()> {
+    play_cnc_sound_effect_scaled(sound_name, 1.0).await
+}
+
+pub async fn play_cnc_sound_effect_scaled(sound_name: &str, volume_scale: f32) -> Result<()> {
     let manager_arc =
         get_asset_manager().ok_or_else(|| anyhow!("Asset manager not initialized"))?;
     let handle = tokio::runtime::Handle::current();
@@ -2496,12 +2509,17 @@ pub async fn play_cnc_sound_effect(sound_name: &str) -> Result<()> {
 
     tokio::task::spawn_blocking(move || -> Result<()> {
         let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-        handle.block_on(async { manager.play_sound_effect(&sound_name).await })?;
+        handle.block_on(async {
+            manager
+                .play_sound_effect_scaled(&sound_name, volume_scale)
+                .await
+        })?;
         Ok(())
     })
     .await
     .map_err(|e| anyhow!("sound task join failed: {e}"))?
 }
+
 
 pub fn toggle_cnc_music() {
     if let Some(manager_arc) = get_asset_manager() {

@@ -730,6 +730,29 @@ impl Player {
         &self.player_team_prototypes
     }
 
+    /// C++ Player::addTeamToList (Player.cpp:1729-1738).
+    pub fn add_team_to_list(&mut self, team: Arc<TeamPrototype>) {
+        if self
+            .player_team_prototypes
+            .iter()
+            .any(|existing| Arc::ptr_eq(existing, &team))
+        {
+            return;
+        }
+        self.player_team_prototypes.push(team);
+    }
+
+    /// C++ Player::removeTeamFromList (Player.cpp:1742-1752).
+    pub fn remove_team_from_list(&mut self, team: &Arc<TeamPrototype>) {
+        if let Some(index) = self
+            .player_team_prototypes
+            .iter()
+            .position(|existing| Arc::ptr_eq(existing, team))
+        {
+            self.player_team_prototypes.remove(index);
+        }
+    }
+
     /// Get the default team ID for this player
     pub fn get_default_team_id(&self) -> Option<TeamID> {
         self.default_team

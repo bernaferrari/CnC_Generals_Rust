@@ -1121,10 +1121,17 @@ impl Object {
         self.armor_set_second_life = true;
         self.status.destroyed = false;
         self.status.effectively_dead = false;
-        // Throw residual (C++ PhysicsBehavior::applyShock Z = ThrowForce).
-        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(0.0, 0.0, BATTLE_BUS_THROW_FORCE));
+        // C++ applyShock throwForce.z (up). Host is Y-up, so +Y.
+        // scrubVelocity2D then throw — do not stop_moving (that zeroes the hop).
+        let _ = self.apply_shock_wave_impulse(glam::Vec3::new(
+            0.0,
+            BATTLE_BUS_THROW_FORCE,
+            0.0,
+        ));
         self.apply_shock_random_rotation(frame);
-        self.stop_moving();
+        self.movement.velocity.x = 0.0;
+        self.movement.velocity.z = 0.0;
+        self.movement.target_position = None;
         self.set_ai_state(AIState::Idle);
         self.target = None;
         self.status.attacking = false;
@@ -1144,7 +1151,7 @@ impl Object {
         if self.battle_bus_body.is_none() {
             return (false, false);
         }
-        // Integrate residual throw height (world Z).
+        // Integrate residual throw height (host world-Y up).
         let (in_first, throw_vz) = self
             .battle_bus_body
             .as_ref()
@@ -1152,18 +1159,19 @@ impl Object {
             .unwrap_or((false, 0.0));
         if in_first && throw_vz.abs() > 0.001 {
             let pos = self.get_position();
-            let mut z = pos.z + throw_vz;
+            let ground = self.ground_height;
+            let mut y = pos.y + throw_vz;
             let mut new_vz = throw_vz - 0.5; // residual gravity peel
-            if new_vz < 0.0 && z <= 0.0 {
-                z = 0.0;
+            if new_vz < 0.0 && y <= ground {
+                y = ground;
                 new_vz = 0.0;
             }
-            self.set_position(glam::Vec3::new(pos.x, pos.y, z.max(0.0)));
+            self.set_position(glam::Vec3::new(pos.x, y.max(ground), pos.z));
             if let Some(body) = self.battle_bus_body.as_mut() {
                 body.throw_vz = new_vz;
             }
         }
-        let above = self.get_position().z > 0.5;
+        let above = self.get_position().y - self.ground_height > 0.5;
         let landed = self
             .battle_bus_body
             .as_mut()

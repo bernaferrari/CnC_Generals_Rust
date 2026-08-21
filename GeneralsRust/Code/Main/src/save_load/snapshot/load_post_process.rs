@@ -335,6 +335,23 @@ impl Snapshot for WorldSnapshot {
             self.player_energy.clear();
         }
 
+        if self.version >= WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION {
+            xfer.xfer_marker_label("ObjectTriggers")?;
+            xfer_vec_default(
+                xfer,
+                &mut self.object_triggers,
+                ObjectTriggerPersistSnapshot {
+                    object_id: ObjectId(0),
+                    i_x: 0,
+                    i_y: 0,
+                    entered_or_exited_frame: 0,
+                    slots: Vec::new(),
+                },
+            )?;
+        } else if xfer.get_mode() == XferMode::Load {
+            self.object_triggers.clear();
+        }
+
         Ok(())
     }
 

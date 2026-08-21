@@ -160,6 +160,69 @@ pub fn play_sound_through_the_audio(event_name: &str) -> Option<u32> {
     }
 }
 
+/// C++ `MilesAudioManager::getEffectiveVolume` for the live host drain.
+///
+/// `position_host_yup` is Main Y-up `(x, height, z)`. Leftover listener /
+/// event math is C++ Z-up `(x, y_ground, z_height)`.
+pub fn live_gameplay_sfx_volume(
+    event_name: &str,
+    position_host_yup: Option<(f32, f32, f32)>,
+) -> f32 {
+    let (listener, sliders, info) = leftover_volume_inputs(event_name);
+    live_gameplay_sfx_volume_with(event_name, position_host_yup, listener, &sliders, info)
+}
+
+/// Same Miles product with an explicit listener / slider / INI snapshot.
+pub fn live_gameplay_sfx_volume_with(
+    event_name: &str,
+    position_host_yup: Option<(f32, f32, f32)>,
+    listener_leftover: game_engine::common::audio::Coord3D,
+    sliders: &game_engine::common::audio::MilesVolumeSliders,
+    info: Option<std::sync::Arc<game_engine::common::audio::AudioEventInfo>>,
+) -> f32 {
+    use game_engine::common::audio::{miles_get_effective_volume, AudioEventRts, Coord3D};
+
+    let mut event = if let Some((x, y, z)) = position_host_yup {
+        let leftover = Coord3D {
+            x,
+            y: z,
+            z: y,
+        };
+        AudioEventRts::with_position(event_name, &leftover)
+    } else {
+        AudioEventRts::with_event_name(event_name)
+    };
+    // C++ `generatePlayInfo` with VolumeShift 0 → multiplier 1.0.
+    event.set_volume_shift(1.0);
+    if let Some(info) = info {
+        event.set_audio_event_info(info);
+    }
+    miles_get_effective_volume(&event, &listener_leftover, sliders)
+}
+
+fn leftover_volume_inputs(
+    event_name: &str,
+) -> (
+    game_engine::common::audio::Coord3D,
+    game_engine::common::audio::MilesVolumeSliders,
+    Option<std::sync::Arc<game_engine::common::audio::AudioEventInfo>>,
+) {
+    use game_engine::common::audio::{Coord3D, MilesVolumeSliders};
+    let defaults = (Coord3D::new(), MilesVolumeSliders::default(), None);
+    let Some(mgr) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
+        return defaults;
+    };
+    let Ok(guard) = mgr.try_lock() else {
+        return defaults;
+    };
+    (
+        *guard.get_listener_position(),
+        guard.miles_volume_sliders(),
+        guard.find_audio_event_info(event_name),
+    )
+}
+
+
 
 /// AudioManager - Main audio management class (mirrors C++ AudioManager)
 /// Handles all audio operations including music, sound effects, and voice
@@ -377,6 +440,23 @@ impl AudioManager {
         archive_system: &mut ArchiveFileSystem,
         sound_name: &str,
     ) -> Result<()> {
+        self.play_sound_effect_scaled(archive_system, sound_name, 1.0)
+            .await
+    }
+
+    /// Rodio leftover path with a Miles effective-volume scale.
+    ///
+    /// `volume_scale` is C++ `getEffectiveVolume` (INI Volume × 3D slider /
+    /// zoom × inverse-distance). Zero mutes at max range without decoding.
+    pub async fn play_sound_effect_scaled(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        sound_name: &str,
+        volume_scale: f32,
+    ) -> Result<()> {
+        if volume_scale <= 0.0 {
+            return Ok(());
+        }
         if play_sound_through_the_audio(sound_name).is_some() {
             return Ok(());
         }
@@ -415,7 +495,9 @@ impl AudioManager {
         if let Some(ref handle) = self.handle {
             match Sink::try_new(handle) {
                 Ok(sink) => {
-                    sink.set_volume(self.sfx_volume * self.master_volume);
+                    sink.set_volume(
+                        (self.sfx_volume * self.master_volume * volume_scale).clamp(0.0, 1.0),
+                    );
                     sink.append(source);
                     self.sound_effects.push(sink);
                     debug!("Started playing sound effect: {}", sound_name);
@@ -429,6 +511,7 @@ impl AudioManager {
 
         Ok(())
     }
+
 
     /// Pause audio (matches C++ pauseAudio)
     pub fn pause_audio(&self, affect: AudioAffect) {
@@ -1145,6 +1228,55 @@ mod tests {
             "Common AudioManager must queue AR_Play (before={before}, after={after})"
         );
     }
+
+    #[test]
+    fn live_gameplay_sfx_volume_applies_miles_inverse_falloff() {
+        use game_engine::common::audio::{AudioEventInfo, Coord3D, MilesVolumeSliders, ST_WORLD};
+
+        let sliders = MilesVolumeSliders::default();
+        let listener = Coord3D {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        };
+        let info = std::sync::Arc::new(AudioEventInfo {
+            audio_name: "AmericaTankFire".to_string(),
+            volume: 1.0,
+            min_distance: 25.0,
+            max_distance: 1000.0,
+            type_field: ST_WORLD,
+            ..Default::default()
+        });
+
+        let at_camera = live_gameplay_sfx_volume_with(
+            "AmericaTankFire",
+            Some((0.0, 0.0, 0.0)),
+            listener,
+            &sliders,
+            Some(info.clone()),
+        );
+        let mid = live_gameplay_sfx_volume_with(
+            "AmericaTankFire",
+            Some((50.0, 0.0, 0.0)),
+            listener,
+            &sliders,
+            Some(info.clone()),
+        );
+        let silent = live_gameplay_sfx_volume_with(
+            "AmericaTankFire",
+            Some((1000.0, 0.0, 0.0)),
+            listener,
+            &sliders,
+            Some(info),
+        );
+
+        assert!(at_camera > mid, "near camera must be louder than mid range");
+        assert!(mid > 0.0);
+        assert_eq!(silent, 0.0, "C++ mutes at objDistance >= objMaxDistance");
+        // 50/25 → gain 0.5; sound3DVolume default 0.75 → 0.375
+        assert!((mid - 0.375).abs() < 1.0e-5);
+    }
+
 
 
 }

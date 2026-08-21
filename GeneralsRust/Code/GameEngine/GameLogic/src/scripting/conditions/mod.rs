@@ -20,15 +20,17 @@ pub use super::{ScriptContext, ScriptValue};
 pub use registry::ConditionRegistry;
 
 pub use helpers::{
-    clear_host_script_query_snapshot, clear_host_trigger_flags, host_object_did_enter,
-    host_object_did_exit, host_script_area_bounds, host_script_area_unit_ids,
-    host_script_lookup_polygon_trigger, host_script_named_unit_alive, host_script_named_unit_id,
-    host_script_named_unit_in_area, host_script_named_unit_in_named_area, host_script_query_has_any,
-    host_script_team_member_ids, host_script_team_unit_ids, host_team_all_inside,
-    host_team_did_all_enter, host_team_did_all_exit, host_team_did_partial_enter,
-    host_team_did_partial_exit, host_team_some_inside_some_outside, set_host_script_query_snapshot,
-    sync_host_trigger_flags_from_snapshot, update_host_object_trigger_flags, HostScriptQueryObject,
-    HostScriptQuerySnapshot,
+    capture_host_object_trigger_persists, clear_host_script_query_snapshot,
+    clear_host_trigger_flags, host_object_did_enter, host_object_did_exit,
+    host_script_area_bounds, host_script_area_unit_ids, host_script_lookup_polygon_trigger,
+    host_script_named_unit_alive, host_script_named_unit_id, host_script_named_unit_in_area,
+    host_script_named_unit_in_named_area, host_script_query_has_any, host_script_team_member_ids,
+    host_script_team_unit_ids, host_team_all_inside, host_team_did_all_enter,
+    host_team_did_all_exit, host_team_did_partial_enter, host_team_did_partial_exit,
+    host_team_some_inside_some_outside, restore_host_object_trigger_persists,
+    set_host_script_query_snapshot, sync_host_trigger_flags_from_snapshot,
+    update_host_object_trigger_flags, HostObjectTriggerPersist, HostScriptQueryObject,
+    HostScriptQuerySnapshot, HostTriggerSlotPersist,
 };
 pub(crate) use helpers::{
     get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,

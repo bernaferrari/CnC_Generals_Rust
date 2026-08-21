@@ -1048,6 +1048,30 @@ impl GameLogic {
                 object.movement.acceleration = stats.acceleration;
                 object.movement.turn_rate = stats.turn_rate;
             }
+            if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
+                object.thing.template.add_kind_of(KindOf::Selectable);
+                object.thing.template.add_kind_of(KindOf::Infantry);
+                object.thing.template.add_kind_of(KindOf::Attackable);
+                let need_loco = object.movement.max_speed
+                    < crate::game_logic::host_angry_mob::ANGRY_MOB_LOCOMOTOR_SPEED - 0.01;
+                if need_loco {
+                    if let Some(binding) =
+                        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+                            crate::game_logic::locomotor_bootstrap::ANGRY_MOB_NEXUS_LOCOMOTOR,
+                        )
+                    {
+                        crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(
+                            &mut object,
+                            &binding,
+                        );
+                    } else {
+                        object.movement.max_speed =
+                            crate::game_logic::host_angry_mob::ANGRY_MOB_LOCOMOTOR_SPEED;
+                        object.movement.acceleration = 100.0;
+                        object.movement.turn_rate = 500.0_f32.to_radians();
+                    }
+                }
+            }
 
             // Host residual: bind mine/demo-trap data for recognized templates.
             if let Some(mine_data) =

@@ -113,6 +113,28 @@ impl GameLogic {
         // (GameLogic.cpp:3762), not once after the fixed-step catch-up batch.
     }
 
+    /// Live-host object fold mixed into leftover `GameLogic::getCRC`.
+    /// C++ walks `m_objList`; leftover objects may be empty on the live tick.
+    fn fold_live_host_logic_crc(&self) -> u32 {
+        let mut hasher = game_engine::common::crc::Crc::new();
+        hasher.compute_crc(&self.frame.to_le_bytes());
+        let mut ids: Vec<u32> = self.objects.keys().map(|id| id.0).collect();
+        ids.sort_unstable();
+        for id in ids {
+            let Some(obj) = self.objects.get(&ObjectId(id)) else {
+                continue;
+            };
+            hasher.compute_crc(&id.to_le_bytes());
+            hasher.compute_crc(&obj.position.x.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.position.y.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.position.z.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.health.current.to_bits().to_le_bytes());
+            hasher.compute_crc(&obj.health.maximum.to_bits().to_le_bytes());
+        }
+        hasher.get()
+    }
+
+
     /// Execute one simulation step.
     ///
     /// Phase ordering follows C++ GameLogic::update() (GameLogic.cpp lines 3548-3803)
@@ -123,6 +145,7 @@ impl GameLogic {
     /// Line 3600: TheScriptEngine->UPDATE()            [early scripting]
     /// Line 3603: freezeTime check
     /// Line 3622: TheTerrainLogic->UPDATE()            [terrain/bridges]
+    /// Line 3625: getCRC + MSG_LOGIC_CRC               [replay CRC]
     /// Line 3669: processCommandList                   [command processing]
     /// Line 3672: ALLOW_NONSLEEPY_UPDATES loop         [normal modules]
     /// Line 3697: sleepy updates loop                  [sleepy modules]
@@ -185,6 +208,16 @@ impl GameLogic {
         // Refresh underwater/cliff flags only. Do not invent a 25 HP dry→wet chip.
         let _ = self.refresh_surface_cells_and_water_edge_damage(0.0);
 
+        // -----------------------------------------------------------------------
+        // Phase 3b: Logic CRC (C++ GameLogic.cpp:3625-3654)
+        // -----------------------------------------------------------------------
+        // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
+        // then TheRecorder->UPDATE() inside processCommandList's recorder flush.
+        crate::command_system::stamp_host_logic_frame(self.frame);
+        crate::command_system::post_host_logic_crc_if_due(
+            self.frame,
+            self.fold_live_host_logic_crc(),
+        );
 
         // -----------------------------------------------------------------------
         // Phase 4: Pre-Update / Collect object IDs

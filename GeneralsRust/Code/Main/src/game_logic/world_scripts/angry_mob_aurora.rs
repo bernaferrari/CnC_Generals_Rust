@@ -1008,11 +1008,15 @@ impl GameLogic {
             let mut t = ThingTemplate::new(template_name);
             t.add_kind_of(KindOf::Infantry)
                 .add_kind_of(KindOf::Attackable)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::IgnoredInGui)
                 .set_health(ANGRY_MOB_MEMBER_MAX_HEALTH)
                 .set_cost(0, 0);
             self.templates.insert(template_name.to_string(), t);
         } else if let Some(t) = self.templates.get_mut(template_name) {
-            t.add_kind_of(KindOf::Attackable);
+            t.add_kind_of(KindOf::Attackable)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::IgnoredInGui);
         }
         let origin = self.objects.get(&nexus_id)?.get_position();
         let angle = (slot_index as f32) * (2.0 * PI / 8.0);
@@ -1033,6 +1037,8 @@ impl GameLogic {
             o.producer_id = Some(nexus_id);
             o.health.maximum = ANGRY_MOB_MEMBER_MAX_HEALTH;
             o.thing.template.add_kind_of(KindOf::Attackable);
+            o.thing.template.add_kind_of(KindOf::Selectable);
+            o.thing.template.add_kind_of(KindOf::IgnoredInGui);
             Self::write_object_health_authority_aware(o, ANGRY_MOB_MEMBER_MAX_HEALTH);
         }
         if let Some(m) = self
@@ -1093,18 +1099,56 @@ impl GameLogic {
             let origin = nexus.get_position();
             let angle = (slot as f32) * (2.0 * PI / 8.0);
             let radius = 8.0 + (slot % 3) as f32 * 2.0;
-            moves.push((
-                mid,
-                glam::Vec3::new(
-                    origin.x + angle.cos() * radius,
-                    origin.y,
-                    origin.z + angle.sin() * radius,
-                ),
-            ));
+            let dest = glam::Vec3::new(
+                origin.x + angle.cos() * radius,
+                origin.y,
+                origin.z + angle.sin() * radius,
+            );
+            // C++ MobMemberSlavedUpdate.cpp:198-201: WANDER when ahead of nexus,
+            // PANIC when lagging (masterPathDistToGoal > myPathDistToGoal).
+            let member_pos = self
+                .objects
+                .get(&mid)
+                .map(|o| o.get_position())
+                .unwrap_or(origin);
+            let nexus_goal = nexus
+                .movement
+                .target_position
+                .or(nexus.move_away_destination);
+            let member_to_goal = match nexus_goal {
+                Some(g) => (member_pos.x - g.x).hypot(member_pos.z - g.z),
+                None => (member_pos.x - origin.x).hypot(member_pos.z - origin.z),
+            };
+            let nexus_to_goal = match nexus_goal {
+                Some(g) => (origin.x - g.x).hypot(origin.z - g.z),
+                None => 0.0,
+            };
+            let ahead = member_to_goal + 0.01 < nexus_to_goal;
+            moves.push((mid, dest, ahead));
         }
-        for (mid, pos) in moves {
+        for (mid, pos, ahead) in moves {
             if let Some(o) = self.objects.get_mut(&mid) {
-                o.set_position(pos);
+                use crate::game_logic::host_upgrade_module_residuals::{
+                    apply_choose_locomotor_set, HostLocomotorSetKind,
+                };
+                if ahead {
+                    apply_choose_locomotor_set(o, HostLocomotorSetKind::Wander, false);
+                } else {
+                    apply_choose_locomotor_set(o, HostLocomotorSetKind::Panic, true);
+                }
+                // C++ MobMemberSlavedUpdate::aiMoveToPosition — pathfind catch-up,
+                // never snap-teleport (that overwrote player nexus orders).
+                let retarget = match o.movement.target_position {
+                    Some(cur) => {
+                        let dx = cur.x - pos.x;
+                        let dz = cur.z - pos.z;
+                        dx * dx + dz * dz > 100.0
+                    }
+                    None => true,
+                };
+                if retarget {
+                    o.set_destination(pos);
+                }
             }
         }
         for mid in destroy {
@@ -1194,20 +1238,23 @@ impl GameLogic {
             self.update_angry_mob_member_follow();
         }
 
-        // C++ SpawnBehavior::computeAggregateStates OBJECT_STATUS_MASKED
-        // (SpawnBehavior.cpp:995) — weapons must target members, not the nexus.
-        let mask_ids: Vec<ObjectId> = self
+        // C++ MASKED is a weapon override. Live is_selectable treats MASKED as
+        // unselectable, so keep the nexus clear and Selectable. Weapons skip it
+        // via is_angry_mob_nexus_template.
+        let nexus_ids: Vec<ObjectId> = self
             .angry_mobs
             .active_mobs()
             .iter()
             .filter(|m| !m.pending_nexus_destroy)
             .map(|m| m.object_id)
             .collect();
-        for nid in mask_ids {
+        for nid in nexus_ids {
             if let Some(obj) = self.objects.get_mut(&nid) {
-                if crate::game_logic::host_angry_mob::angry_mob_nexus_should_be_masked() {
-                    obj.set_status_masked(true);
+                if obj.status.masked {
+                    obj.set_status_masked(false);
                 }
+                obj.thing.template.add_kind_of(KindOf::Selectable);
+                obj.thing.template.add_kind_of(KindOf::Infantry);
             }
         }
 
@@ -1949,16 +1996,33 @@ mod spawn_behavior_parity {
     }
 
     #[test]
-    fn nexus_is_masked_so_weapons_target_members() {
-        // C++ SpawnBehavior::computeAggregateStates MASKED (SpawnBehavior.cpp:995).
+    fn nexus_is_selectable_and_not_a_weapon_target() {
+        // Live MASKED made the playable mob unselectable. C++ isSelectable
+        // does not check MASKED; weapons skip the nexus via template.
         let (mut logic, nid) = make_nexus_logic();
         logic.update_angry_mobs();
         let nexus = logic.host_object(nid).expect("nexus");
-        assert!(nexus.status.masked, "nexus must be OBJECT_STATUS_MASKED");
-        assert!(
-            !nexus.is_targetable_by_enemy_of(Team::USA),
-            "weapons must not acquire the 99999-HP nexus"
+        assert!(!nexus.status.masked, "nexus must stay selectable");
+        assert!(nexus.is_selectable(), "player can select the Angry Mob nexus");
+        assert!(nexus.can_move(), "nexus locomotor/AI accepts move orders");
+        drop(nexus);
+        if let Some(n) = logic.objects.get_mut(&nid) {
+            n.set_destination(glam::Vec3::new(80.0, 0.0, 0.0));
+        }
+        assert_eq!(
+            logic
+                .host_object(nid)
+                .and_then(|o| o.movement.target_position),
+            Some(glam::Vec3::new(80.0, 0.0, 0.0)),
+            "move order sticks on the nexus"
         );
+        {
+            let nexus = logic.host_object(nid).expect("nexus");
+            assert!(
+                !nexus.is_targetable_by_enemy_of(Team::USA),
+                "weapons must not acquire the 99999-HP nexus"
+            );
+        }
         let members = live_members(&logic, nid);
         assert!(!members.is_empty());
         let member = logic.host_object(members[0]).expect("member");
@@ -1966,6 +2030,14 @@ mod spawn_behavior_parity {
         assert!(
             member.is_targetable_by_enemy_of(Team::USA),
             "weapons must target live members"
+        );
+        assert_eq!(
+            crate::game_logic::host_angry_mob::remap_angry_mob_selection_id(
+                member.angry_mob_member,
+                member.angry_mob_nexus_id,
+                member.id,
+            ),
+            nid
         );
     }
 }

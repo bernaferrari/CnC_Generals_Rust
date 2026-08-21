@@ -3811,3 +3811,35 @@ fn set_cave_index_queues_host_when_dual_world_empty() {
     );
 }
 
+#[test]
+fn team_panic_queues_host_when_dual_world_empty() {
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    let _ = take_host_team_loco_set_requests();
+    let mut action = ScriptAction::new(ScriptActionType::TeamPanic);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            "TeamCivilians".into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::WaypointPath,
+            "PanicPath".into(),
+        ))
+        .unwrap();
+    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    assert_eq!(
+        dispatcher.execute_action(&action).unwrap(),
+        ScriptActionResult::Success
+    );
+    assert_eq!(
+        take_host_team_loco_set_requests(),
+        vec![(
+            "TeamCivilians".to_string(),
+            "panic".to_string(),
+            Some("PanicPath".to_string())
+        )]
+    );
+}
+

@@ -241,7 +241,10 @@ pub fn update_host_object_trigger_flags(
                 slots: Vec::new(),
             });
         let pos_changed = state.i_x != new_x || state.i_y != new_y;
-        if !pos_changed && !state.slots.is_empty() {
+        // C++ Object.cpp:2575-2578: unchanged integer XY returns even with
+        // zero active areas. Required so load can restore m_iPos and skip
+        // a fresh ENTERED_AREA edge.
+        if !pos_changed {
             return;
         }
         if state.entered_or_exited_frame != 0 && state.entered_or_exited_frame != frame {
@@ -301,6 +304,108 @@ pub fn update_host_object_trigger_flags(
 
 pub fn clear_host_trigger_flags() {
     HOST_TRIGGER_WORLD.with(|world| *world.borrow_mut() = HostTriggerWorld::default());
+}
+
+/// C++ `Object::xfer` (`Object.cpp:4218-4246`) per-area slot.
+#[derive(Clone, Debug, Default)]
+pub struct HostTriggerSlotPersist {
+    pub trigger_id: i32,
+    pub trigger_name: String,
+    pub is_inside: bool,
+    pub entered: bool,
+    pub exited: bool,
+}
+
+/// C++ `Object::xfer` trigger housekeeping: `m_iPos`, `m_enteredOrExitedFrame`,
+/// `m_numTriggerAreasActive` + per-area entered/exited/isInside.
+#[derive(Clone, Debug, Default)]
+pub struct HostObjectTriggerPersist {
+    pub object_id: u32,
+    pub i_x: i32,
+    pub i_y: i32,
+    pub entered_or_exited_frame: u32,
+    pub slots: Vec<HostTriggerSlotPersist>,
+}
+
+/// Capture live `HOST_TRIGGER_WORLD` slots for WorldSnapshot persist.
+pub fn capture_host_object_trigger_persists() -> Vec<HostObjectTriggerPersist> {
+    let triggers = leftover_polygon_triggers();
+    HOST_TRIGGER_WORLD.with(|world| {
+        let world = world.borrow();
+        let mut entries: Vec<HostObjectTriggerPersist> = world
+            .objects
+            .iter()
+            .map(|(object_id, state)| HostObjectTriggerPersist {
+                object_id: *object_id,
+                i_x: state.i_x,
+                i_y: state.i_y,
+                entered_or_exited_frame: state.entered_or_exited_frame,
+                slots: state
+                    .slots
+                    .iter()
+                    .map(|slot| {
+                        let trigger_name = triggers
+                            .iter()
+                            .find(|trigger| trigger.get_id() == slot.trigger_id)
+                            .map(|trigger| trigger.get_trigger_name().to_string())
+                            .unwrap_or_default();
+                        HostTriggerSlotPersist {
+                            trigger_id: slot.trigger_id,
+                            trigger_name,
+                            is_inside: slot.is_inside,
+                            entered: slot.entered,
+                            exited: slot.exited,
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.object_id);
+        entries
+    })
+}
+
+/// Restore slots and integer pose before the first post-load position update.
+pub fn restore_host_object_trigger_persists(entries: &[HostObjectTriggerPersist]) {
+    let triggers = leftover_polygon_triggers();
+    HOST_TRIGGER_WORLD.with(|world| {
+        let mut world = world.borrow_mut();
+        *world = HostTriggerWorld::default();
+        for entry in entries {
+            let slots = entry
+                .slots
+                .iter()
+                .map(|slot| {
+                    let trigger_id = if slot.trigger_name.is_empty() {
+                        slot.trigger_id
+                    } else {
+                        triggers
+                            .iter()
+                            .find(|trigger| {
+                                trigger.get_trigger_name().to_string() == slot.trigger_name
+                            })
+                            .map(|trigger| trigger.get_id())
+                            .unwrap_or(slot.trigger_id)
+                    };
+                    HostTriggerSlot {
+                        trigger_id,
+                        is_inside: slot.is_inside,
+                        entered: slot.entered,
+                        exited: slot.exited,
+                    }
+                })
+                .collect();
+            world.objects.insert(
+                entry.object_id,
+                HostObjectTriggerState {
+                    i_x: entry.i_x,
+                    i_y: entry.i_y,
+                    entered_or_exited_frame: entry.entered_or_exited_frame,
+                    slots,
+                },
+            );
+        }
+    });
 }
 
 pub fn sync_host_trigger_flags_from_snapshot(frame: u32) {
