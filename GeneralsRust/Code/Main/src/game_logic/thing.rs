@@ -1577,6 +1577,10 @@ pub struct ThingTemplate {
     /// C++ `ExperienceValue` 4-int list [Regular, Veteran, Elite, Heroic].
     #[serde(default)]
     pub experience_values: [f32; 4],
+    /// C++ `SkillPointValue` 4-int list. `-999` (`USE_EXP_VALUE_FOR_SKILL_VALUE`)
+    /// falls back to `ExperienceValue` for that level.
+    #[serde(default = "default_template_skill_point_values")]
+    pub skill_point_values: [i32; 4],
     /// C++ `ExperienceRequired` mapped to [Veteran, Elite, Heroic] thresholds.
     /// Defaults to [60, 150, 300] for unparsed templates.
     pub veterancy_xp_thresholds: [f32; 3],
@@ -1812,6 +1816,7 @@ impl ThingTemplate {
 
             experience_value: 0.0,
             experience_values: [0.0; 4],
+            skill_point_values: [crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL; 4],
             veterancy_xp_thresholds: [60.0, 150.0, 300.0],
             is_trainable: false,
             enter_guard: false,
@@ -1878,6 +1883,24 @@ impl ThingTemplate {
             self.experience_values[idx]
         } else {
             self.experience_value
+        }
+    }
+
+    /// C++ `ThingTemplate::getSkillPointValue(level)`.
+    pub fn skill_point_value_for_level(&self, level: VeterancyLevel) -> i32 {
+        let idx = match level {
+            VeterancyLevel::Rookie => 0,
+            VeterancyLevel::Veteran => 1,
+            VeterancyLevel::Elite => 2,
+            VeterancyLevel::Heroic => 3,
+        };
+        let value = self.skill_point_values[idx];
+        if value
+            == crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL
+        {
+            self.experience_value_for_level(level) as i32
+        } else {
+            value
         }
     }
 
@@ -2454,6 +2477,10 @@ fn parse_preferred_against_value(value: &str) -> Option<(u8, Vec<KindOf>)> {
 fn default_template_shroud_clearing_range() -> f32 {
     // C++ ThingTemplate m_shroudClearingRange default -1 → use VisionRange.
     -1.0
+}
+
+fn default_template_skill_point_values() -> [i32; 4] {
+    [crate::game_logic::host_rank_ui_residual::USE_EXP_VALUE_FOR_SKILL_VALUE_RESIDUAL; 4]
 }
 
 fn default_template_shroud_reveal_to_all_range() -> f32 {

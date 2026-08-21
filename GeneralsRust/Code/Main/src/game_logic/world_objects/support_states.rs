@@ -134,8 +134,8 @@ impl GameLogic {
         };
         self.award_experience(object_id, award_xp as f32);
         let player_id = owner_player_id.or_else(|| self.player_id_for_team(team));
-        if let Some(player) = player_id.and_then(|id| self.get_player_mut(id)) {
-            let _ = player.add_skill_points(award_xp);
+        if let Some(id) = player_id {
+            let _ = self.add_player_skill_points(id, award_xp);
         }
     }
 
@@ -3977,9 +3977,24 @@ impl GameLogic {
                         }
                     }
 
-                    // GLA Rebel BoobyTrap: structures only (enemy/neutral residual).
+                    // GLA Rebel BoobyTrap: allied/neutral structures only
+                    // (C++ ActionManager.cpp:1610-1618).
                     if matches!(ability, PendingSpecialAbility::PlantBoobyTrap { .. }) {
-                        if !target_is_structure {
+                        use gamelogic::common::Relationship;
+                        let (src_pid, tgt_pid) = match (
+                            self.objects.get(&object_id),
+                            self.objects.get(&special_target_id),
+                        ) {
+                            (Some(src), Some(tgt)) => (src.owner_player_id, tgt.owner_player_id),
+                            _ => (None, None),
+                        };
+                        let rel = match (src_pid, tgt_pid) {
+                            (Some(a), Some(b)) => self.player_relationship(a, b),
+                            _ => Relationship::Neutral,
+                        };
+                        if !target_is_structure
+                            || !matches!(rel, Relationship::Neutral | Relationship::Allies)
+                        {
                             self.pending_special_abilities.remove(&object_id);
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 obj.set_target(None);

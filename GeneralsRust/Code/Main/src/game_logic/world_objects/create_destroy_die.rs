@@ -2918,7 +2918,6 @@ impl GameLogic {
                 } else {
                     let mut p = HostOclCreateDebrisPlan::generic_tank_debris();
                     p.model_or_template = tmpl.clone();
-                    p.count = 1;
                     p
                 };
                 let inherit = self

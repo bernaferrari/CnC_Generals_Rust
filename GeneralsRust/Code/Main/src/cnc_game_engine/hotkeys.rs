@@ -220,7 +220,10 @@ impl CnCGameEngine {
             .cloned()
             .unwrap_or_default();
         if stored.is_empty() {
+            // C++ SelectionXlat.cpp:1107-1110 deselectAllDrawables before
+            // recalling the squad, so an empty group clears the current selection.
             info!("Control group {} is empty", group_num);
+            self.host_set_selection(self.current_player_id, Vec::new());
             return;
         }
         let selection = {

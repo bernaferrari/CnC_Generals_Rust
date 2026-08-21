@@ -142,7 +142,7 @@ impl GameLogic {
         let attack_buildings = (qualifiers & ATTACK_BUILDINGS) != 0;
         let within_ar = (qualifiers & WITHIN_ATTACK_RANGE) != 0;
         let need_los = (qualifiers & CAN_SEE) != 0;
-        let _unfogged = (qualifiers & UNFOGGED) != 0;
+        let unfogged = (qualifiers & UNFOGGED) != 0;
         let _ignore_insig = (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS) != 0;
         let prio = self.attack_priority_info_for(unit_id);
 
@@ -186,6 +186,24 @@ impl GameLogic {
                 if self.attack_view_blocked(unit_id, Some(oid), opos)
                     || self.pathfinding_system.is_attack_view_blocked(me_pos, opos)
                 {
+                    continue;
+                }
+            }
+            if unfogged {
+                // C++ PartitionFilterFreeOfFog: human idle AI only acquires
+                // OBJECTSHROUD_CLEAR targets (AIUpdate.cpp:4608-4619).
+                let viewer = me.owner_player_id;
+                let clear = viewer
+                    .and_then(|pid| {
+                        gamelogic::system::shroud_manager::get_shroud_manager()
+                            .lock()
+                            .ok()
+                            .and_then(|mgr| mgr.get_host_object_shroud_status(pid, oid.0))
+                    })
+                    .is_some_and(|status| {
+                        matches!(status, gamelogic::common::ObjectShroudStatus::Clear)
+                    });
+                if !clear {
                     continue;
                 }
             }
