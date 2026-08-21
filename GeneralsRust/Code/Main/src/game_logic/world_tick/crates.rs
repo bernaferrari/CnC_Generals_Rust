@@ -166,6 +166,30 @@ impl GameLogic {
         true
     }
 
+    /// Arm CommandButtonHuntUpdate from a scripted button name (or unit template).
+    pub fn start_command_button_hunt_named(
+        &mut self,
+        unit_id: ObjectId,
+        button: Option<&str>,
+    ) -> bool {
+        use crate::game_logic::host_command_button_hunt::{
+            hunt_mode_from_button_name, hunt_mode_from_template,
+        };
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        if !unit.is_alive() {
+            return false;
+        }
+        let mode = button
+            .and_then(hunt_mode_from_button_name)
+            .or_else(|| hunt_mode_from_template(&unit.template_name));
+        let Some(mode) = mode else {
+            return false;
+        };
+        self.start_command_button_hunt(unit_id, mode)
+    }
+
     /// C++ CommandButtonHuntUpdate::update residual for enter modes.
     pub fn tick_command_button_hunt_updates(&mut self) {
         use crate::game_logic::host_command_button_hunt::{
@@ -703,7 +727,7 @@ impl GameLogic {
                 let v = self.objects.get(&vehicle_id).unwrap();
                 (
                     v.get_position(),
-                    v.status.airborne_target || v.get_position().y > 5.0,
+                    v.status.airborne_target || v.is_significantly_above_terrain(),
                     v.experience.level,
                     v.experience.current,
                 )
