@@ -1369,9 +1369,6 @@ impl InGameUI {
         drawable_id: Option<u32>,
         is_location_hint: bool,
     ) -> u32 {
-        let _ = (catalog, drawable_id, is_location_hint);
-        return Self::INVALID_DRAWABLE_ID;
-        #[allow(unreachable_code)]
         let old_id = TheInGameUI::get_moused_over_drawable_id();
         let mut moused_over = Self::INVALID_DRAWABLE_ID;
         if is_location_hint {
